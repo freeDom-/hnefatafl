@@ -383,75 +383,8 @@ function DashboardHome({
               )}
             </div>
           </section>
-          <section className="dashboard-stats" aria-labelledby="dashboard-stats-heading">
-            <div className="section-heading">
-              <h2 id="dashboard-stats-heading" className="section-title">
-                {t('Your standing')}
-              </h2>
-              <a href="/statistics" onClick={surfaceLink}>
-                {t('Detailed statistics')}
-              </a>
-            </div>
-            <div className="dashboard-stat-grid">
-              <article className="arena-surface dashboard-stat" aria-labelledby="stat-elo-heading">
-                <h3 id="stat-elo-heading">{t('{ruleset} Elo', { ruleset: focusName })}</h3>
-                <strong>{elo === null ? '—' : number.format(elo)}</strong>
-                <small>
-                  {elo === null
-                    ? t('No rated games in this pool yet.')
-                    : t('{count} rated games', {
-                        count: number.format(onlineGroup?.played ?? 0),
-                      })}
-                </small>
-              </article>
-              <article
-                className="arena-surface dashboard-stat"
-                aria-labelledby="stat-win-rate-heading"
-              >
-                <h3 id="stat-win-rate-heading">{t('Win rate')}</h3>
-                <strong>
-                  {onlineGroup?.win_rate == null ? '—' : percent.format(onlineGroup.win_rate)}
-                </strong>
-                <small>
-                  {onlineGroup?.win_rate == null
-                    ? t('No completed games yet.')
-                    : t('{count} rated games', {
-                        count: number.format(onlineGroup?.played ?? 0),
-                      })}
-                </small>
-              </article>
-              <article
-                className="arena-surface dashboard-stat"
-                aria-labelledby="stat-streak-heading"
-              >
-                <h3 id="stat-streak-heading">{t('Current streak')}</h3>
-                <strong>
-                  {ratedStreak
-                    ? t('{count} wins', { count: number.format(ratedStreak.rated_win_current) })
-                    : '—'}
-                </strong>
-                <small>
-                  {ratedStreak
-                    ? t('Highest: {count}', { count: number.format(ratedStreak.rated_win_best) })
-                    : t('No rated win streak yet.')}
-                </small>
-              </article>
-              <article
-                className="arena-surface dashboard-stat"
-                aria-labelledby="stat-portraits-heading"
-              >
-                <h3 id="stat-portraits-heading">{t('Unlocked portraits')}</h3>
-                <strong>
-                  {unlockedPortraitCount === null || !catalogItems
-                    ? '—'
-                    : `${number.format(unlockedPortraitCount)} / ${number.format(catalogItems.length)}`}
-                </strong>
-                <small>{t('Earned from achievements.')}</small>
-              </article>
-            </div>
-          </section>
           <section
-            className="arena-surface dashboard-needs-you"
+            className="arena-surface arena-textured dashboard-needs-you"
             aria-labelledby="needs-you-heading"
           >
             <div className="section-heading">
@@ -551,6 +484,76 @@ function DashboardHome({
                 </button>
               </p>
             )}
+          </section>
+          <section className="dashboard-stats" aria-labelledby="dashboard-stats-heading">
+            <div className="section-heading">
+              <h2 id="dashboard-stats-heading" className="section-title">
+                {t('Your standing')}
+              </h2>
+              <a href="/statistics" onClick={surfaceLink}>
+                {t('Detailed statistics')}
+              </a>
+            </div>
+            <div className="dashboard-stat-grid">
+              <article
+                className="arena-surface arena-textured dashboard-stat"
+                aria-labelledby="stat-elo-heading"
+              >
+                <h3 id="stat-elo-heading">{t('{ruleset} Elo', { ruleset: focusName })}</h3>
+                <strong>{elo === null ? '—' : number.format(elo)}</strong>
+                <small>
+                  {elo === null
+                    ? t('No rated games in this pool yet.')
+                    : t('{count} rated games', {
+                        count: number.format(onlineGroup?.played ?? 0),
+                      })}
+                </small>
+              </article>
+              <article
+                className="arena-surface arena-textured dashboard-stat"
+                aria-labelledby="stat-win-rate-heading"
+              >
+                <h3 id="stat-win-rate-heading">{t('Win rate')}</h3>
+                <strong>
+                  {onlineGroup?.win_rate == null ? '—' : percent.format(onlineGroup.win_rate)}
+                </strong>
+                <small>
+                  {onlineGroup?.win_rate == null
+                    ? t('No completed games yet.')
+                    : t('{count} rated games', {
+                        count: number.format(onlineGroup?.played ?? 0),
+                      })}
+                </small>
+              </article>
+              <article
+                className="arena-surface arena-textured dashboard-stat"
+                aria-labelledby="stat-streak-heading"
+              >
+                <h3 id="stat-streak-heading">{t('Current streak')}</h3>
+                <strong>
+                  {ratedStreak
+                    ? t('{count} wins', { count: number.format(ratedStreak.rated_win_current) })
+                    : '—'}
+                </strong>
+                <small>
+                  {ratedStreak
+                    ? t('Highest: {count}', { count: number.format(ratedStreak.rated_win_best) })
+                    : t('No rated win streak yet.')}
+                </small>
+              </article>
+              <article
+                className="arena-surface arena-textured dashboard-stat"
+                aria-labelledby="stat-portraits-heading"
+              >
+                <h3 id="stat-portraits-heading">{t('Unlocked portraits')}</h3>
+                <strong>
+                  {unlockedPortraitCount === null || !catalogItems
+                    ? '—'
+                    : `${number.format(unlockedPortraitCount)} / ${number.format(catalogItems.length)}`}
+                </strong>
+                <small>{t('Earned from achievements.')}</small>
+              </article>
+            </div>
           </section>
           <Leaderboard compact fullStandings />
         </aside>

@@ -51,9 +51,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gap-stack);
 }
-/* The Arena dashboard layout: intro, hero + stats + your games on the left, the
-   profile and the standings on the right. Legacy appearances keep the shared
-   theme tokens as a fallback so `.arena-*` surfaces never render transparent. */
+/* The Arena dashboard layout: intro, hero + your games on the left; the profile,
+   the four standing cards and the standings on the right. Legacy appearances keep
+   the shared theme tokens as a fallback so `.arena-*` surfaces never render
+   transparent. */
 .arena-dashboard .arena-surface {
   background-color: var(--arena-panel, var(--surface));
   border: 1px solid var(--arena-line, var(--line));
@@ -139,6 +140,45 @@
   padding: var(--pad-panel);
   overflow: hidden;
 }
+/* Restrained ornament: four short metal brackets inside the hero edge. Each
+   corner is two solid gradient bars; they sit in the panel padding, never over
+   the copy, and never take a pointer event. */
+.arena-hero::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  pointer-events: none;
+  opacity: 0.5;
+  --arena-corner: var(--arena-metal, var(--gold));
+  background-image:
+    linear-gradient(var(--arena-corner), var(--arena-corner)),
+    linear-gradient(var(--arena-corner), var(--arena-corner)),
+    linear-gradient(var(--arena-corner), var(--arena-corner)),
+    linear-gradient(var(--arena-corner), var(--arena-corner)),
+    linear-gradient(var(--arena-corner), var(--arena-corner)),
+    linear-gradient(var(--arena-corner), var(--arena-corner)),
+    linear-gradient(var(--arena-corner), var(--arena-corner)),
+    linear-gradient(var(--arena-corner), var(--arena-corner));
+  background-repeat: no-repeat;
+  background-size:
+    18px 1px,
+    1px 18px,
+    18px 1px,
+    1px 18px,
+    18px 1px,
+    1px 18px,
+    18px 1px,
+    1px 18px;
+  background-position:
+    top left,
+    top left,
+    top right,
+    top right,
+    bottom left,
+    bottom left,
+    bottom right,
+    bottom right;
+}
 /* Restrained ornament: the theme knot band under the hero copy, never over it. */
 .arena-hero::after {
   content: '';
@@ -211,6 +251,15 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--gap-stack);
+}
+/* The standing cards live in the narrower right column, so they pair up 2x2. */
+.dashboard-aside .dashboard-stat-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+/* Metal hairline under every section title in the reference layout. */
+.arena-dashboard .section-heading {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--arena-metal, var(--line));
 }
 .dashboard-stat {
   display: grid;
@@ -328,7 +377,8 @@
   }
 }
 @media (max-width: 560px) {
-  .dashboard-stat-grid {
+  .dashboard-stat-grid,
+  .dashboard-aside .dashboard-stat-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   .dashboard-game-list > li > .button {

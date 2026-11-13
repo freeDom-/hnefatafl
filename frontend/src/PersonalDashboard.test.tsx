@@ -330,20 +330,20 @@ it('renders the reference layout with real standing cards, records and leaderboa
   expect(within(portraits).getByText('2 / 2')).toBeVisible();
   expect(screen.queryByText('Timed-out games')).toBeNull();
   expect(screen.queryByRole('table', { name: /results by side/ })).toBeNull();
-  // The reference sections keep their order: hero, standing, games that need
-  // you in the main column; profile and standings in the aside.
+  // The reference sections keep their order: hero then games that need you in
+  // the main column; profile, the four standing cards and the standings in the
+  // right column, so the cards sit directly beneath the profile.
   const main = Array.from(document.querySelector('.dashboard-main')!.children).map(
     (node) => node.className,
   );
   expect(main.findIndex((value) => value.includes('arena-hero'))).toBe(0);
-  expect(main.findIndex((value) => value.includes('dashboard-stats'))).toBe(1);
-  expect(main.findIndex((value) => value.includes('dashboard-needs-you'))).toBe(2);
+  expect(main.findIndex((value) => value.includes('dashboard-needs-you'))).toBe(1);
   const aside = Array.from(document.querySelector('.dashboard-aside')!.children).map(
     (node) => node.className,
   );
-  expect(aside.findIndex((value) => value.includes('dashboard-profile'))).toBeLessThan(
-    aside.findIndex((value) => value.includes('leaderboard-compact')),
-  );
+  expect(aside.findIndex((value) => value.includes('dashboard-profile'))).toBe(0);
+  expect(aside.findIndex((value) => value.includes('dashboard-stats'))).toBe(1);
+  expect(aside.findIndex((value) => value.includes('leaderboard-compact'))).toBe(2);
   // The lobby and the records keep their existing real sections below.
   const overview = Array.from(document.querySelector('.dashboard-overview')!.children).map(
     (node) => node.className,
