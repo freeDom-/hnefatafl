@@ -1,6 +1,6 @@
 import { expect, test } from './auth-fixture';
 import { historicalGame } from './historical-fixture';
-import { openDestination, gameTab, openGameNavigation } from './play-helpers';
+import { openDestination, gameTab, openGameNavigation, openNewSinglePlayer } from './play-helpers';
 
 test('Play has the shared creation dialogs when no game is running', async ({ page }) => {
   await page.route('**/api/personal/**', (route) => route.fulfill({ json: { games: [] } }));
@@ -18,7 +18,7 @@ test('Play has the shared creation dialogs when no game is running', async ({ pa
     /secondary/,
   );
   await online.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'New single-player game' }).click();
+  await openNewSinglePlayer(page);
   await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toBeVisible();
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(page.getByRole('grid')).toBeVisible();

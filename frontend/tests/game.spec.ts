@@ -5,6 +5,7 @@ import {
   closeGameOptions,
   showMove,
   gameTab,
+  openNewSinglePlayer,
   openWorkshop,
 } from './play-helpers';
 import { historicalGame } from './historical-fixture';
@@ -159,7 +160,7 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   ).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
+  await openNewSinglePlayer(page);
   await page.getByRole('radio', { name: /Copenhagen/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(

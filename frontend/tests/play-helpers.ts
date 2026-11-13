@@ -123,6 +123,15 @@ export async function openArena(page: Page) {
   await expect(page).toHaveURL(/\/dashboard/);
 }
 
+/** Start a new single-player game from whichever entry is visible: the dashboard
+ * hero "Play vs AI" button or the Play card "New single-player game" button. */
+export async function openNewSinglePlayer(page: Page) {
+  await page
+    .getByRole('button', { name: /^(Play vs AI|New single-player game)$/ })
+    .first()
+    .click();
+}
+
 export async function returnToGame(page: Page, path: string) {
   if (new URL(page.url()).pathname !== path) {
     await page.goto(path);

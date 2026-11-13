@@ -5,6 +5,7 @@ import {
   openGameOptions,
   closeGameOptions,
   gameTab,
+  openNewSinglePlayer,
   openWorkshop,
 } from './play-helpers';
 import { historicalGame } from './historical-fixture';
@@ -102,7 +103,7 @@ test('new games receive fresh seeds; record deletion refreshes prominent statist
     page.getByRole('button', { name: /Undo move|Redo move|Restart game|New game/ }),
   ).toHaveCount(0);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
+  await openNewSinglePlayer(page);
   await setup.getByRole('radio', { name: /Brandubh/ }).check();
   await setup.getByRole('button', { name: 'To the table', exact: true }).click();
   await expect

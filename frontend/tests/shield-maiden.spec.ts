@@ -3,6 +3,7 @@ import {
   openGameNavigation,
   openGameOptions,
   gameTab,
+  openNewSinglePlayer,
   openWorkshop,
 } from './play-helpers';
 import { openCreation, openCollection } from './workshop-helpers';
@@ -52,7 +53,7 @@ test('Shield maiden is localized and selectable for training and advisors', asyn
   await page.getByRole('combobox', { name: 'Sprache', exact: true }).selectOption('en');
   await openArena(page);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
+  await openNewSinglePlayer(page);
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(page.getByRole('grid')).toBeVisible();
