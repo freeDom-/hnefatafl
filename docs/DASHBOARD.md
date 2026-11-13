@@ -13,26 +13,37 @@ Every surface here requires an authenticated session.
 **Play** (`/play`) opens the last selected unfinished game when it is still in the
 signed-in account's current games; otherwise it opens another unfinished game.
 With no running games, it shows a Dashboard link for finding opponents and the
-same New online game/New single-player game buttons and dialogs as Dashboard.
+same New online game/New local 1v1 game/New single-player game buttons and
+dialogs as Dashboard.
 The remembered game is checked against current server-owned lists and cleared on
 account changes/logout.
 
-## Play from Dashboard
+## Creating a game: three modes
 
-**New single-player game** opens the existing account setup. New and resumed games
-use `/games/{id}`; refresh reconnects to that account game. **Resume single-player**
-opens your latest unfinished account record. Server-backed single-player gameplay,
-AI, analysis, setup preferences and optimistic versions retain their semantics.
+Dashboard and Play offer the same three equal-start creation modes, each with its
+own dialog: **Play online** (rated online multiplayer), **Local 1v1** and
+**Play vs AI**.
 
-**New online game** opens the existing lobby configuration. Dashboard embeds its
+**Play vs AI** (New single-player game) opens the existing account setup. New and
+resumed games use `/games/{id}`; refresh reconnects to that account game.
+**Resume single-player** opens your latest unfinished account record. Server-backed
+single-player gameplay, AI, analysis, setup preferences and optimistic versions
+retain their semantics.
+
+**Local 1v1** (New local 1v1 game) starts same-device pass-and-play with two
+labelled human seats. Both seats belong to the signed-in account, so it is never
+rated and never enters single-player/vs-AI statistics; the record stays in the
+owner-scoped Local 1v1 category and replays read-only without an advisor.
+
+**Play online** (New online game) opens the existing lobby configuration. Dashboard embeds its
 All games/My games/My turn tabs, pagination and retained-request recovery. Every
 tab excludes completed, cancelled and voided games. Open a waiting game to join,
 your game to resume, or a visible game to watch under existing permissions. `/online/games/{id}` remains the dedicated gameplay/reconnect URL.
 The authenticated global lobby is intentionally distinct from private history;
 this refinement adds no anonymous access or spectator grants. Server admission,
 quotas, seats, deadlines and result revisions remain authoritative.
-Unverified email addresses get a red warning immediately below the Dashboard
-heading, and New online game is disabled. The lobby omits its former duplicate
+Unverified email addresses get a red warning inside the creation hierarchy on
+Dashboard and Play, and New online game is disabled. The lobby omits its former duplicate
 verification notice. Existing seats remain playable under the same server policy.
 
 ## Compact badges and detailed personal statistics
@@ -149,7 +160,10 @@ Hall (`/archive`) provides bounded server-side category/ruleset/lifecycle/result
 filters and pagination. Every account gets a **Record scope** tab list — **All
 records**, **Online multiplayer**, **Singleplayer** and **Local 1v1** — which sets
 the server-side category and resets the cursor; the private local scope is never
-mixed into the default projection. Normal users see their own single-player,
+mixed into the default projection. The scope also owns the available lifecycle
+values: a direct or bookmarked URL whose lifecycle the scope cannot return is
+canonicalized in place (status and cursor dropped) so the hidden filter is never
+applied to the backend query. Normal users see their own single-player,
 local 1v1 and participating online records and have no player-name filter.
 Administrators with trusted current `all_data` permission can inspect online and
 account-single-player records across accounts. A nonterminal online record is
