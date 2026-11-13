@@ -85,6 +85,13 @@ headers, query parameters and machine tokens cannot upgrade browser permissions.
 | training, tournaments, models management | No | Yes |
 | accounts, all_data | No | Yes (account management is local CLI only) |
 
+Double-elimination player tournaments (`/api/player-tournaments/*`) use the same
+model: any authenticated account may read tournaments and register, while
+creation, starting, cancellation, rebuilding and match overrides require the
+administrator-only `tournaments` permission and the audit trail requires
+`accounts`. The backend rechecks the permission inside the write transaction, so
+a frontend role check is advisory only.
+
 SQLite queries scope games and local players to the authenticated account. New
 records receive identity from the trusted request context. Mutations first load
 that scoped object; stats/history use the same scoped query. Administrators
@@ -170,6 +177,19 @@ omit private configuration, security fields and correction notes. Account-keyed 
 abort cleanup and session epochs prevent stale account responses entering the next
 account. See the
 [personal API contract](designs/personal-dashboard-phase5.md#api-contract).
+
+Schema-17 progression adds an authenticated `play` catalog read
+(`GET /api/portraits/catalog`), a read-only authenticated `play` own-progress read
+(`GET /api/personal/achievements`), an explicit CSRF-protected confirmation
+(`POST /api/personal/achievements/confirm`) and a `profile` CSRF-protected selection
+(`PATCH /api/profile/portrait`). All take the account from the session; none accepts
+an account parameter, and a client can only send a stable catalog ID. The progress
+read never writes, so a top-level cross-site `GET` cannot confirm an award; the
+confirmation POST is a non-SAFE mutation and inherits the origin, CSRF, bounded-body
+and deployment-freeze checks before it reaches the service, which is why the
+inventory marks the POST (not the GET) as persistent state. Confirmation is
+idempotent, and awards and entitlements are append-only. See
+[portraits and achievements](PROGRESSION.md).
 
 ## Coverage and explicit exceptions
 

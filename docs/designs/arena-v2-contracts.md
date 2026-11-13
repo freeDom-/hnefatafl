@@ -110,7 +110,9 @@ The following current behavior is contractually preserved unless a later approve
   - `board`: `oak`, `walnut`, `slate`
   - `density`: `compact`, `default`, `large`
 - Dashboard embedded online lobby tabs: `all`, `mine`, `my_turn`.
-- Game creation actions: `New single-player game`, `Resume single-player`, `New online game`.
+- Game creation actions: `New single-player game`, `New online game`. The standalone
+  `Resume single-player` action was intentionally replaced by the `PlayModes` continue list
+  (`Continue` per running game).
 - Recorded review replay controls and playback.
 - Leaderboard ruleset selector and compact/full variants.
 - Workshop controls for job creation, tuning, resume, import/export, deletion preview, worker management and model usage/deletion confirmation.

@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import Leaderboard from './Leaderboard';
+import Leaderboard, { avatarInitial } from './Leaderboard';
 import { setLanguage } from './i18n';
 
 const identity = vi.hoisted(() => ({ id: 'archer' }));
@@ -131,6 +131,98 @@ it('paginates the unified standings in the full view', async () => {
   await waitFor(() =>
     expect(fetcher.mock.calls.some(([url]) => url.includes('offset=25'))).toBe(true),
   );
+});
+
+it('keeps the signed-in rank visible when the account is outside the visible page', async () => {
+  const entries = Array.from({ length: 25 }, (_, index) =>
+    entry(`account-${index}`, `Player ${index}`, 2000 - index, 20, index + 1),
+  );
+  serve = () =>
+    respond({ ...board(), entries, total: 60, me: entry('archer', 'Archer', 1600, 30, 42) });
+  render(<Leaderboard />);
+  const rank = await screen.findByRole('group', { name: 'Your rank' });
+  expect(within(rank).getByText('#42')).toBeVisible();
+  expect(within(rank).getByText(/Elo 1,600/)).toBeVisible();
+  expect(within(rank).getByText(/30 rated games/)).toBeVisible();
+  expect(within(rank).getByText('Not on this page.')).toBeVisible();
+  // The account is genuinely off the page, so no row carries it.
+  expect(screen.queryByRole('row', { name: /Archer/ })).toBeNull();
+});
+
+it('explains a provisional standing and its threshold instead of guessing', async () => {
+  serve = () => respond({ ...board(), me: { ...board().entries[1], account_id: 'archer' } });
+  render(<Leaderboard />);
+  const rank = await screen.findByRole('group', { name: 'Your rank' });
+  expect(within(rank).getByText('Provisional until 10 rated games.')).toBeVisible();
+  expect(within(rank).getByText(/3 rated games/)).toBeVisible();
+});
+
+it('reports the page count and stops on the last page', async () => {
+  const entries = Array.from({ length: 30 }, (_, index) =>
+    entry(`account-${index}`, `Player ${index}`, 2000 - index, 20, index + 1),
+  );
+  serve = (url) => {
+    const offset = Number(new URL(url, 'http://x').searchParams.get('offset') ?? '0');
+    return respond({
+      ...board(),
+      entries: entries.slice(offset, offset + 25),
+      total: 30,
+      offset,
+      me: null,
+    });
+  };
+  render(<Leaderboard />);
+  await screen.findByText('Player 0');
+  expect(screen.getByText('Page 1 of 2')).toBeVisible();
+  expect(screen.getByText('30 ranked players in this pool.')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+  await screen.findByText('Player 25');
+  expect(screen.getByText('Page 2 of 2')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+});
+
+it('returns to the first page when the pool shrinks below the current offset', async () => {
+  const entries = Array.from({ length: 30 }, (_, index) =>
+    entry(`account-${index}`, `Player ${index}`, 2000 - index, 20, index + 1),
+  );
+  let total = 30;
+  serve = (url) => {
+    const offset = Number(new URL(url, 'http://x').searchParams.get('offset') ?? '0');
+    return respond({
+      ...board(),
+      entries: entries.slice(offset, offset + 25),
+      total,
+      offset,
+      me: null,
+    });
+  };
+  render(<Leaderboard />);
+  await screen.findByText('Player 0');
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+  await screen.findByText('Player 25');
+  expect(screen.getByText('Page 2 of 2')).toBeVisible();
+
+  // The pool shrinks while the view is on the last page: the clamp returns to
+  // the first page instead of stranding an empty slice.
+  total = 20;
+  fetcher.mockClear();
+  fireEvent(window, new Event('focus'));
+  await waitFor(() =>
+    expect(fetcher.mock.calls.some(([url]) => url.includes('offset=0'))).toBe(true),
+  );
+  expect(screen.getByText('Page 1 of 1')).toBeVisible();
+});
+
+it('falls back to a question mark for a missing avatar initial', () => {
+  expect(avatarInitial('')).toBe('?');
+  expect(avatarInitial(undefined)).toBe('?');
+});
+
+it('marks the decorative initial outside the accessible name', async () => {
+  serve = () => respond({ ...board(), entries: [{ ...board().entries[0], username: 'Archer' }] });
+  render(<Leaderboard />);
+  const cell = await screen.findByRole('cell', { name: 'Archer · You' });
+  expect(cell.querySelector('[aria-hidden="true"]')).toHaveTextContent('A');
 });
 
 it('translates the leaderboard in German', async () => {

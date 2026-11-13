@@ -327,7 +327,7 @@ grant("public", "POST", "/api/auth/login", *ACCOUNT_ACTIONS)
 grant("profile", "GET", "/api/auth/me")
 grant("profile", "POST", "/api/auth/logout")
 grant("profile", "GET", "/api/profile")
-grant("profile", "PATCH", "/api/profile")
+grant("profile", "PATCH", "/api/profile", "/api/profile/portrait")
 grant("profile", "POST", "/api/profile/password")
 grant(
     "play",
@@ -384,6 +384,10 @@ grant(
     ),
 )
 grant("play", "GET", "/api/leaderboard")
+# Schema 17 progression: catalog metadata, a read-only own-progress read and an
+# explicit CSRF-protected confirmation of the awards the records already prove.
+grant("play", "GET", "/api/portraits/catalog", "/api/personal/achievements")
+grant("play", "POST", "/api/personal/achievements/confirm")
 # Signed-out read-only online discovery (Q1/Q2). No session is required, so the
 # additive namespace is public; the deployment feature flag gates it at runtime.
 grant(
@@ -399,6 +403,32 @@ grant("accounts", "GET", "/api/online/timeout-gate")
 grant("accounts", "GET", "/api/online/monitoring")
 grant("play", "GET", "/api/online/availability")
 grant("accounts", "PATCH", "/api/online/timeout-gate")
+grant(
+    "play",
+    "GET",
+    "/api/player-tournaments",
+    "/api/player-tournaments/{tournament_id}",
+    "/api/player-tournaments/{tournament_id}/bracket",
+    "/api/player-tournaments/{tournament_id}/matches",
+    "/api/player-tournaments/{tournament_id}/matches/{match_id}",
+)
+grant(
+    "play",
+    "POST",
+    "/api/player-tournaments/{tournament_id}/register",
+    "/api/player-tournaments/{tournament_id}/withdraw",
+    "/api/player-tournaments/{tournament_id}/settle",
+)
+grant("tournaments", "POST", "/api/player-tournaments")
+grant(
+    "tournaments",
+    "POST",
+    "/api/player-tournaments/{tournament_id}/start",
+    "/api/player-tournaments/{tournament_id}/cancel",
+    "/api/player-tournaments/{tournament_id}/rebuild",
+    "/api/player-tournaments/{tournament_id}/matches/{match_id}/override",
+)
+grant("accounts", "GET", "/api/player-tournaments/{tournament_id}/audit")
 grant("play", "DELETE", "/api/games/{game_id}")
 grant(
     "tournaments",
@@ -520,9 +550,11 @@ class SecurityBoundary:
         permission = POLICY.get((method, route_path), "deny")
         online_mutation = method not in SAFE and route_path.startswith("/api/online/")
         profile_mutation = method not in SAFE and route_path.startswith("/api/profile")
+        personal_mutation = method not in SAFE and route_path.startswith("/api/personal/")
         if (
             (method == "POST" and route_path.startswith("/api/auth/"))
             or profile_mutation
+            or personal_mutation
             or online_mutation
         ):
             size_error = (
@@ -530,6 +562,8 @@ class SecurityBoundary:
                 if online_mutation
                 else "Profile request too large."
                 if profile_mutation
+                else "Progression request too large."
+                if personal_mutation
                 else "Login request too large"
             )
             try:
@@ -675,7 +709,9 @@ def attach_auth(app, store):
 
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
-        if request.url.path.startswith(("/api/auth/", "/api/online/", "/api/profile")):
+        if request.url.path.startswith(
+            ("/api/auth/", "/api/online/", "/api/profile", "/api/player-tournaments/")
+        ):
             # Pydantic's default errors include raw inputs, potentially passwords.
             return JSONResponse(
                 {
@@ -685,6 +721,8 @@ def attach_auth(app, store):
                     if request.url.path.startswith("/api/online/")
                     else "Invalid profile request. Check the fields and try again."
                     if request.url.path.startswith("/api/profile")
+                    else "Invalid tournament request."
+                    if request.url.path.startswith("/api/player-tournaments/")
                     else "Invalid account request."
                 },
                 422,

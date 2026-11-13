@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -37,6 +37,14 @@ export function persistRuleset(value: string) {
   }
 }
 
+/** One decorative initial, never a fabricated portrait: the leaderboard DTO
+ * carries no portrait id yet, so the layout slot stays clearly non-pictorial. */
+export function avatarInitial(name: string | undefined): string {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) return '?';
+  return Array.from(trimmed)[0].toUpperCase();
+}
+
 function Entries({
   entries,
   ownId,
@@ -49,6 +57,7 @@ function Entries({
   details?: boolean;
 }) {
   const { t, locale } = useI18n();
+  const number = new Intl.NumberFormat(locale);
   return (
     <div className="leaderboard-table">
       <table className="leaderboard">
@@ -69,36 +78,74 @@ function Entries({
           </tr>
         </thead>
         <tbody>
-          {entries.map((entry) => (
-            <tr key={entry.account_id} className={entry.account_id === ownId ? 'you' : undefined}>
-              <td>{entry.rank}</td>
-              <td>
-                {accountName(entry)}
-                {entry.account_id === ownId ? ` · ${t('You')}` : ''}
-                {entry.provisional ? (
-                  <span className="badge leaderboard-provisional">{t('Provisional')}</span>
-                ) : null}
-              </td>
-              <td>{Math.round(entry.rating)}</td>
-              <td>{entry.rated_games}</td>
-              {details && (
-                <>
-                  <td>{entry.country_code ? countryName(entry.country_code, locale) : '—'}</td>
-                  <td>{entry.city ?? '—'}</td>
-                  <td>{entry.age ?? '—'}</td>
-                </>
-              )}
-            </tr>
-          ))}
+          {entries.map((entry) => {
+            const name = accountName(entry);
+            return (
+              <tr key={entry.account_id} className={entry.account_id === ownId ? 'you' : undefined}>
+                <td>{number.format(entry.rank)}</td>
+                <td>
+                  <span className="leaderboard-avatar" aria-hidden="true">
+                    {avatarInitial(name)}
+                  </span>
+                  {name}
+                  {entry.account_id === ownId ? ` · ${t('You')}` : ''}
+                  {entry.provisional ? (
+                    <span className="badge leaderboard-provisional">{t('Provisional')}</span>
+                  ) : null}
+                </td>
+                <td>{number.format(Math.round(entry.rating))}</td>
+                <td>{number.format(entry.rated_games)}</td>
+                {details && (
+                  <>
+                    <td>{entry.country_code ? countryName(entry.country_code, locale) : '—'}</td>
+                    <td>{entry.city ?? '—'}</td>
+                    <td>{entry.age ?? '—'}</td>
+                  </>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
+/** The signed-in standing, kept outside the page so it is readable even when
+ * the account is not on the visible slice. */
+function YourRank({ data, onPage }: { data: LeaderboardData; onPage: boolean }) {
+  const { t, locale } = useI18n();
+  const number = new Intl.NumberFormat(locale);
+  return (
+    <div className="leaderboard-you" role="group" aria-label={t('Your rank')}>
+      <span className="leaderboard-you-label">{t('Your rank')}</span>
+      {data.me ? (
+        <span className="leaderboard-you-value">
+          <strong>#{number.format(data.me.rank)}</strong>
+          {' · '}
+          {t('Elo {rating}', { rating: number.format(Math.round(data.me.rating)) })}
+          {' · '}
+          {t('{count} rated games', { count: number.format(data.me.rated_games) })}
+          {data.me.provisional && (
+            <span className="leaderboard-provisional-note">
+              {t('Provisional until {count} rated games.', {
+                count: number.format(data.policy.provisional_games),
+              })}
+            </span>
+          )}
+          {!onPage && <span className="leaderboard-you-offpage">{t('Not on this page.')}</span>}
+        </span>
+      ) : (
+        <span className="leaderboard-you-value">{t('You are not ranked in this pool yet.')}</span>
+      )}
+    </div>
+  );
+}
+
 export default function Leaderboard({ compact = false }: { compact?: boolean }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { account } = useAuth();
+  const number = new Intl.NumberFormat(locale);
   const [ruleset, setRuleset] = useState<string>(readStoredRuleset);
   const [offset, setOffset] = useState(0);
   const pageSize = compact ? 5 : 25;
@@ -119,6 +166,15 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
   const data = poll.data;
   const entries = data?.entries ?? [];
   const total = data?.total ?? 0;
+  const page = Math.floor(offset / pageSize) + 1;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  // A shrinking pool must not strand the view on an empty page.
+  useEffect(() => {
+    if (data && offset > 0 && offset >= data.total) setOffset(0);
+  }, [data, offset]);
+  const onPage = Boolean(
+    data?.me && entries.some((entry) => entry.account_id === data.me?.account_id),
+  );
   return (
     <section
       className={compact ? 'panel leaderboard-compact' : 'leaderboard-page'}
@@ -159,6 +215,7 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
           </button>
         </p>
       )}
+      {data && <YourRank data={data} onPage={onPage} />}
       {data && total === 0 && <p>{t('No rated games in this pool yet.')}</p>}
       {data && total > 0 && (
         <>
@@ -172,10 +229,10 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
               >
                 {t('Previous page')}
               </button>
-              <span>{t('Page {page}', { page: offset / pageSize + 1 })}</span>
+              <span>{t('Page {page} of {pages}', { page, pages: totalPages })}</span>
               <button
                 className="button secondary"
-                disabled={entries.length < pageSize || offset + pageSize > 100000}
+                disabled={page >= totalPages}
                 onClick={() => setOffset(offset + pageSize)}
               >
                 {t('Next page')}
@@ -183,6 +240,11 @@ export default function Leaderboard({ compact = false }: { compact?: boolean }) 
             </nav>
           )}
         </>
+      )}
+      {data && !compact && total > 0 && (
+        <p className="leaderboard-total">
+          {t('{count} ranked players in this pool.', { count: number.format(total) })}
+        </p>
       )}
     </section>
   );

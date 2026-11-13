@@ -236,3 +236,87 @@
 .move-duration .form-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+
+/* Play hierarchy: continue a running game, then the three equal-start modes. */
+.play-modes > h2 {
+  margin: 0 0 8px;
+}
+.play-continue {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 var(--gap-stack);
+  padding: 0;
+  list-style: none;
+}
+.play-continue > li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.play-continue > li.your-turn {
+  border-color: var(--green);
+}
+.play-continue-detail {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.play-mode-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-card);
+  margin: var(--gap-stack) 0;
+}
+.play-mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--pad-panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.play-mode-card h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+.play-mode-card p {
+  margin: 0;
+  flex: 1;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.play-mode-card .button {
+  min-height: 44px;
+}
+@media (max-width: 800px) {
+  .play-mode-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Live status reuses the shared `.badge` surface/ink tokens plus the theme
+   accent. `--ui-copy` is only defined by the dark, wood and named themes, so
+   the legacy light mode falls back to the always-defined `--text` ink. */
+.record-live {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--ui-copy, var(--text));
+  border: 1px solid var(--green);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.hall-scope {
+  margin: var(--gap-stack) 0;
+}
+.local-game-form .form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}

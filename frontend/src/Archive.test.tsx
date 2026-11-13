@@ -91,13 +91,11 @@ it('keeps the exact selected review visible when it is outside the filtered page
   expect(fetcher.mock.calls.every(([, opts]) => opts?.method === 'GET')).toBe(true);
   expect(fetcher.mock.calls.some(([url]) => url.includes('/api/games/'))).toBe(false);
 });
-it('exposes administrator category/name filters without fetching setup players', async () => {
+it('exposes administrator scope/name filters without fetching setup players', async () => {
   identity.permissions = ['play', 'all_data'];
   render(<Archive />);
   await screen.findByRole('link', { name: 'Open review: Archer vs Keeper' });
-  fireEvent.change(screen.getByLabelText('Game type'), {
-    target: { value: 'account-single-player' },
-  });
+  fireEvent.click(screen.getByRole('tab', { name: 'Singleplayer' }));
   fireEvent.change(screen.getByLabelText('Player name'), { target: { value: 'Keeper' } });
   await waitFor(() =>
     expect(
@@ -183,3 +181,51 @@ it.each(['en', 'de'] as const)(
     expect(new URLSearchParams(location.search).get('player')).toBe(label);
   },
 );
+
+it('scopes records server-side and separates live watch from completed replay', async () => {
+  const live = {
+    ...row,
+    id: 'online-' + 'b'.repeat(32),
+    status: 'active',
+    winner: null,
+  };
+  const local = { ...row, id: 'local-owned', category: 'local' };
+  fetcher.mockImplementation((url) =>
+    respond(url.includes('/replay') ? fixture.replay : { ...page, games: [live, row, local] }),
+  );
+  render(<Archive />);
+  const watch = await screen.findByRole('link', { name: /^Watch live:/ });
+  expect(watch).toHaveAttribute('href', `/online/games/${live.id}`);
+  expect(watch.closest('tr')).toHaveTextContent('Live');
+  const reviews = screen.getAllByRole('link', { name: /^Open review:/ });
+  expect(reviews.map((link) => link.getAttribute('href'))).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining(`review=online&selected=${row.id}`),
+      expect.stringContaining(`review=local&selected=${local.id}`),
+    ]),
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Local 1v1' }));
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.some(
+        ([url]) => new URL(url, 'http://test').searchParams.get('category') === 'local',
+      ),
+    ).toBe(true),
+  );
+  // Private local records are read through the Hall projection, never a second store.
+  expect(fetcher.mock.calls.every(([url]) => url.startsWith('/api/history/'))).toBe(true);
+});
+
+it('opens a local 1v1 record deep link without touching single-player or online routes', async () => {
+  const local = { ...row, id: 'local-owned', category: 'local' };
+  history.replaceState(null, '', `/archive?review=local&selected=${local.id}`);
+  fetcher.mockImplementation((url) =>
+    respond(url.includes('/replay') ? fixture.replay : { ...page, games: [] }),
+  );
+  render(<Archive />);
+  await screen.findByRole('grid');
+  expect(fetcher.mock.calls.some(([url]) => url === '/api/history/local/local-owned/replay')).toBe(
+    true,
+  );
+  expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/'))).toBe(false);
+});

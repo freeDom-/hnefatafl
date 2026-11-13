@@ -5,10 +5,120 @@ import { historicalGame } from './historical-fixture';
 // Chromium is the only configured browser, so these checks run wherever
 // `npm --prefix frontend run test:e2e` is available with an installed Chromium.
 const themes = [
-  { id: 'kings-table', accent: 'rgb(30, 80, 55)', colorScheme: 'light' },
-  { id: 'iron-ash', accent: 'rgb(233, 194, 126)', colorScheme: 'dark' },
-  { id: 'saga-hall', accent: 'rgb(233, 191, 121)', colorScheme: 'dark' },
+  {
+    id: 'kings-table',
+    accent: 'rgb(30, 80, 55)',
+    line: 'rgb(199, 176, 139)',
+    raised: 'rgb(239, 228, 209)',
+    copy: 'rgb(78, 89, 76)',
+    colorScheme: 'light',
+  },
+  {
+    id: 'iron-ash',
+    accent: 'rgb(233, 194, 126)',
+    line: 'rgb(86, 100, 106)',
+    raised: 'rgb(43, 54, 61)',
+    copy: 'rgb(196, 206, 208)',
+    colorScheme: 'dark',
+  },
+  {
+    id: 'saga-hall',
+    accent: 'rgb(233, 191, 121)',
+    line: 'rgb(146, 112, 80)',
+    raised: 'rgb(72, 51, 40)',
+    copy: 'rgb(224, 205, 177)',
+    colorScheme: 'dark',
+  },
 ] as const;
+/**
+ * The live record badge must read the appearance's own tokens instead of the
+ * former fixed `#7d4f28`/`#fff` pair, which ignored every named theme and the
+ * legacy color modes. Each entry is the resolved `--surface-raised` background,
+ * the `--ui-copy` ink (`--text` in legacy light, where `--ui-copy` is unset)
+ * and the `--green` accent border.
+ */
+const liveBadgeAppearances: readonly {
+  id: string;
+  stored: { uiTheme?: string; mode?: string };
+  background: string;
+  color: string;
+  border: string;
+}[] = [
+  ...themes.map((theme) => ({
+    id: theme.id,
+    stored: { uiTheme: theme.id },
+    background: theme.raised,
+    color: theme.copy,
+    border: theme.accent,
+  })),
+  {
+    id: 'legacy-light',
+    stored: { mode: 'light' },
+    background: 'rgb(240, 242, 232)',
+    color: 'rgb(38, 53, 46)',
+    border: 'rgb(23, 61, 55)',
+  },
+  {
+    id: 'legacy-dark',
+    stored: { mode: 'dark' },
+    background: 'rgb(41, 55, 45)',
+    color: 'rgb(191, 204, 179)',
+    border: 'rgb(167, 208, 187)',
+  },
+  {
+    id: 'legacy-wood',
+    stored: { mode: 'wood' },
+    background: 'rgb(71, 50, 37)',
+    color: 'rgb(222, 204, 172)',
+    border: 'rgb(230, 189, 125)',
+  },
+];
+/** A live online record: the Hall lists it with the `.record-live` badge. */
+const liveHallPage = {
+  games: [
+    {
+      id: 'a'.repeat(32),
+      category: 'online',
+      ruleset: 'brandubh',
+      status: 'active',
+      winner: null,
+      eligible: true,
+      created_at: '2026-01-01T00:00:00+00:00',
+      recorded_at: '2026-01-01T00:00:00+00:00',
+      attackers: 'Odin',
+      defenders: 'Jarl',
+      owner: null,
+      attacker_rating: null,
+      defender_rating: null,
+      winner_delta: null,
+    },
+  ],
+  matching: 1,
+  limit: 20,
+  next_cursor: null,
+  totals: [
+    { category: 'online', games: 1, completed: 0, attackers_wins: 0, defenders_wins: 0, draws: 0 },
+  ],
+};
+/** WCAG 2.1 relative luminance of an opaque `rgb(...)` computed color. */
+function relativeLuminance(color: string) {
+  const [r, g, b] = color
+    .match(/[\d.]+/g)!
+    .slice(0, 3)
+    .map(Number)
+    .map((value) => {
+      const channel = value / 255;
+      return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+/** WCAG AA contrast ratio of a foreground and a background computed color. */
+function contrastRatio(foreground: string, background: string) {
+  const [lighter, darker] = [relativeLuminance(foreground), relativeLuminance(background)].sort(
+    (a, b) => b - a,
+  );
+  return (lighter + 0.05) / (darker + 0.05);
+}
 const viewports = [
   { name: '320', width: 320, height: 640 },
   { name: '390', width: 390, height: 844 },
@@ -73,6 +183,11 @@ for (const theme of themes) {
       expect(await primary.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
         theme.accent,
       );
+      // The Play cards must read the theme's own line token, never a hard-coded
+      // light fallback that would break the dark named themes.
+      const card = page.locator('.play-mode-card').first();
+      await expect(card).toBeVisible();
+      expect(await card.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(theme.line);
       expect(await root.evaluate((node) => getComputedStyle(node).colorScheme)).toContain(
         theme.colorScheme,
       );
@@ -83,6 +198,34 @@ for (const theme of themes) {
       });
     });
   }
+}
+
+for (const appearance of liveBadgeAppearances) {
+  test(`keeps the live record badge on the ${appearance.id} tokens`, async ({ page }) => {
+    await page.addInitScript((stored: { uiTheme?: string; mode?: string }) => {
+      localStorage.setItem('hnefatafl-appearance', JSON.stringify(stored));
+    }, appearance.stored);
+    await page.route(/\/api\/history\/games(?:\?.*)?$/, (route) =>
+      route.fulfill({ json: liveHallPage }),
+    );
+    await page.goto('/archive');
+    const badge = page.locator('.record-live');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('Live');
+    const rendered = await badge.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        background: style.backgroundColor,
+        color: style.color,
+        border: style.borderTopColor,
+      };
+    });
+    expect(rendered.background).toBe(appearance.background);
+    expect(rendered.color).toBe(appearance.color);
+    expect(rendered.border).toBe(appearance.border);
+    expect(contrastRatio(rendered.color, rendered.background)).toBeGreaterThanOrEqual(4.5);
+    await badge.screenshot({ path: `${output}/live-badge-${appearance.id}.png` });
+  });
 }
 
 test('keeps the legacy appearance when no UI theme is stored', async ({ page }) => {

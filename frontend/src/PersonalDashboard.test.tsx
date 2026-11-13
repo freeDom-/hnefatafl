@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PersonalDashboard from './PersonalDashboard';
 import fixture from './onlineFixture.testdata.json';
@@ -171,7 +171,10 @@ it('combines existing lobby with distinct personal stats, shared latest records 
   expect(link).toHaveAttribute('href', `/archive?review=online&selected=${row.id}`);
   expect(link.closest('table')).toHaveClass('recorded-games');
   expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
-  await screen.findByText('1516');
+  // The compact table shows the localized rating; the rank summary repeats it.
+  expect(
+    await within(screen.getByRole('table', { name: 'Leaderboard' })).findByText('1,516'),
+  ).toBeVisible();
   expect(screen.getByRole('link', { name: /Brandubh Singleplayer statistics.*67%/ })).toBeVisible();
   expect(screen.queryByText('Timed-out games')).toBeNull();
   expect(screen.queryByRole('table', { name: /results by side/ })).toBeNull();

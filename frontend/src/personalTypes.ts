@@ -100,6 +100,72 @@ export type PersonalOnlineHistory = Paging & {
   };
   statistics: PersonalStatistics;
 };
+/**
+ * One applied rating-ledger event for the signed-in account in one pool.
+ * `rating_after` is authoritative; it is never derived from a game's start
+ * snapshot. `recorded_at` is null for an explicit legacy timestamp gap, and
+ * `sequence` still orders the entry.
+ */
+export type RatingHistoryEntry = {
+  sequence: number;
+  game_id: string;
+  recorded_at: string | null;
+  rating_after: number;
+  delta: number;
+  result: 'win' | 'loss' | 'draw';
+  opponent_display_name: string | null;
+  opponent_username?: string;
+  corrected: boolean;
+};
+export type RatingHistory = Paging & {
+  ruleset: string;
+  policy_version: number;
+  current_rating: number | null;
+  as_of: string;
+  /** True when an applied entry has no trusted completion stamp. */
+  legacy_timestamp_gaps: boolean;
+  items: RatingHistoryEntry[];
+};
+export type RatedStreak = {
+  ruleset: string;
+  rated_win_current: number;
+  rated_win_best: number;
+  rated_games: number;
+};
+/** Only rated online games count; there is no server-side activity streak. */
+export type PersonalProgress = {
+  as_of: string;
+  streaks: {
+    rated_win_current: number;
+    rated_win_best: number;
+    by_ruleset: RatedStreak[];
+  };
+};
+export type LocalGameSummary = {
+  id: string;
+  category: 'local';
+  ruleset: string;
+  created_at: string;
+  ended_at: string | null;
+  status: 'in_progress' | 'completed';
+  winner: Side | 'draw' | null;
+  plies: number;
+  players: Record<Side, { name: string; kind: 'human' }>;
+};
+/** Owner-scoped local 1v1 records; both seats belong to the same account. */
+export type LocalHistory = Paging & {
+  category: 'local';
+  games: LocalGameSummary[];
+  totals: {
+    total_games: number;
+    completed_games: number;
+    in_progress: number;
+    attackers_wins: number;
+    defenders_wins: number;
+    draws: number;
+    average_game_length: number;
+  };
+};
 export type AccountReviewData = {
   game: AccountSummary;
   game_id: string;

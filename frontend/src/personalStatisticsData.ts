@@ -6,12 +6,16 @@ export const statisticRuleNames: Record<string, string> = {
   tablut: 'Tablut',
   copenhagen: 'Copenhagen',
 };
-export type StatisticsMode = 'single-player' | 'multiplayer';
+export type StatisticsMode = 'single-player' | 'multiplayer' | 'local';
+const STATISTICS_MODES: StatisticsMode[] = ['single-player', 'multiplayer', 'local'];
 export function statisticsLocation() {
   const query = new URLSearchParams(location.search);
   const candidate = query.get('ruleset') ?? 'all';
+  const requested = query.get('mode') as StatisticsMode | null;
   return {
-    mode: (query.get('mode') === 'multiplayer' ? 'multiplayer' : 'single-player') as StatisticsMode,
+    mode: (requested && STATISTICS_MODES.includes(requested)
+      ? requested
+      : 'single-player') as StatisticsMode,
     ruleset: statisticRulesets.some((id) => id === candidate) ? candidate : 'all',
   };
 }

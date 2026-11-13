@@ -325,6 +325,14 @@ retain per-move timing with zero increment and their original deadlines. Only an
 untouched legacy default timeout gate (disabled at version 0) is enabled, with a
 new audit entry; explicit administrator and restore pauses remain paused.
 Legacy normalization collision checks still run and stop ambiguous upgrades.
+Schema 16 adds local-game categorization (the account-owned pass-and-play
+`games.category`). Schema 17 adds the progression tables (achievement/portrait
+catalogs, awards, entitlements and the selected portrait). Schema 18 adds
+double-elimination player tournament tables. This branch includes PR #78's
+schema-17 implementation, so the versions are applied monotonically (16 → 17 →
+18) and authoritative state is preserved. The tournament tables are part of the
+online retain/restore boundary because tournament legs reference online games, so
+a compatible restore retains bracket state together with the games it references.
 No production database was inspected or migrated for development.
 
 Schema-9 code refuses schema 10; schema-10 code refuses schema 11; schema-11 code
@@ -338,7 +346,7 @@ schema-10 installation or silently discard accepted online moves/results.
 
 For a compatible stopped-writer restore with a live database, the restore candidate
 retains **current live** accounts, limiter state and all authoritative online match,
-game, move, result, audit and rating rows. It restores other snapshot data, revokes all
+game, move, result, audit, rating and [progression](PROGRESSION.md#migration-and-existing-accounts) rows. It restores other snapshot data, revokes all
 sessions/verification-reset tokens/mail and worker credentials, then pauses timeout
 finalization with a new private restore audit. Online deadlines/results are retained,
 not rewound or extended. Append-only guards are reinstated before commit/cutover.

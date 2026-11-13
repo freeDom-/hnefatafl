@@ -140,5 +140,9 @@ const online: Record<string, string> = {
   timeout: 'Zeitüberschreitung',
   concession: 'Aufgabe',
   abandonment: 'Zeitüberschreitung',
+  'Filter by ruleset': 'Nach Regelwerk filtern',
+  'Live games only. Completed games open read-only replay and analysis in the Hall of records.':
+    'Nur Live-Partien. Abgeschlossene Partien öffnen die schreibgeschützte Wiederholung mit Analyse in der Halle der Aufzeichnungen.',
+  'Open Replays & Analysis': 'Wiederholungen und Analyse öffnen',
 };
 export default online;

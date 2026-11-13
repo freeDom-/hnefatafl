@@ -3,7 +3,7 @@
 import sqlite3
 import time
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 18
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -20,8 +20,34 @@ ONLINE_TABLES = (
     "rating_events",
     "rating_applications",
     "player_ratings",
+    # Schema 17 progression: the code-owned catalogs are re-seeded on startup,
+    # while awards, entitlements and the selected portrait are retained player
+    # state that a compatible restore must keep from live authority. Children
+    # follow their parents so restore deletes/inserts children-first.
+    "achievement_catalog",
+    "portrait_catalog",
+    "achievement_awards",
+    "account_portraits",
+    "account_portrait_selection",
+    # Schema 18 player tournaments. Legs reference `online_games`, so the child
+    # tables stay after their parent and are deleted/restored children-first.
+    "player_tournaments",
+    "player_tournament_entrants",
+    "player_tournament_matches",
+    "player_tournament_legs",
+    "player_tournament_audit",
 )
-APPEND_ONLY = ("online_moves", "online_results", "online_void_audit", "online_gate_audit")
+APPEND_ONLY = (
+    "online_moves",
+    "online_results",
+    "online_void_audit",
+    "online_gate_audit",
+    "player_tournament_audit",
+    # A confirmed achievement and a granted portrait are permanent: no update or
+    # delete path exists, including for a later result correction or void.
+    "achievement_awards",
+    "account_portraits",
+)
 
 
 def migrate_online(c: sqlite3.Connection) -> None:
@@ -196,6 +222,95 @@ def migrate_online(c: sqlite3.Connection) -> None:
             PRIMARY KEY(account_id,pool)
         )""",
         "CREATE INDEX IF NOT EXISTS player_ratings_pool ON player_ratings(pool,rating DESC)",
+        # Schema 18: human player tournaments. Schema 17 is reserved for the
+        # parallel Arena v2 progression branch and is deliberately skipped here.
+        # These tables never overload the AI test tournament namespace/storage.
+        """CREATE TABLE IF NOT EXISTS player_tournaments (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
+            ruleset TEXT NOT NULL CHECK(length(ruleset) BETWEEN 1 AND 40),
+            format TEXT NOT NULL CHECK(format='double_elimination'),
+            status TEXT NOT NULL CHECK(status IN ('registration','running','complete','cancelled')),
+            review_state TEXT NOT NULL DEFAULT 'ok' CHECK(review_state IN ('ok','disputed')),
+            capacity INTEGER NOT NULL CHECK(capacity BETWEEN 2 AND 64),
+            match_legs INTEGER NOT NULL CHECK(match_legs BETWEEN 1 AND 5),
+            time_per_move BLOB NOT NULL CHECK(typeof(time_per_move)='integer' AND time_per_move BETWEEN 60 AND 1209600),
+            registration_deadline BLOB CHECK(registration_deadline IS NULL OR typeof(registration_deadline)='integer'),
+            created_by TEXT NOT NULL REFERENCES accounts(id),
+            created_at BLOB NOT NULL CHECK(typeof(created_at)='integer'),
+            started_at BLOB CHECK(started_at IS NULL OR (typeof(started_at)='integer' AND started_at>=created_at)),
+            completed_at BLOB CHECK(completed_at IS NULL OR (typeof(completed_at)='integer' AND completed_at>=created_at)),
+            version INTEGER NOT NULL CHECK(version>=0),
+            bracket_size INTEGER CHECK(bracket_size IS NULL OR (bracket_size BETWEEN 2 AND 64 AND (bracket_size & (bracket_size-1))=0)),
+            official_winner TEXT REFERENCES accounts(id),
+            CHECK((status='registration' AND started_at IS NULL AND bracket_size IS NULL AND official_winner IS NULL AND completed_at IS NULL)
+               OR (status='running' AND started_at IS NOT NULL AND bracket_size IS NOT NULL AND official_winner IS NULL AND completed_at IS NULL)
+               OR (status='complete' AND started_at IS NOT NULL AND bracket_size IS NOT NULL AND official_winner IS NOT NULL AND completed_at IS NOT NULL)
+               OR status='cancelled')
+        )""",
+        "CREATE INDEX IF NOT EXISTS player_tournaments_status ON player_tournaments(status,created_at DESC,id)",
+        """CREATE TABLE IF NOT EXISTS player_tournament_entrants (
+            tournament_id TEXT NOT NULL REFERENCES player_tournaments(id),
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            seed INTEGER CHECK(seed IS NULL OR seed>=1),
+            status TEXT NOT NULL CHECK(status IN ('registered','withdrawn')),
+            registered_at BLOB NOT NULL CHECK(typeof(registered_at)='integer'),
+            withdrawn_at BLOB CHECK(withdrawn_at IS NULL OR typeof(withdrawn_at)='integer'),
+            PRIMARY KEY(tournament_id,account_id), UNIQUE(tournament_id,seed),
+            CHECK((status='withdrawn') = (withdrawn_at IS NOT NULL))
+        )""",
+        "CREATE INDEX IF NOT EXISTS player_tournament_entrants_order ON player_tournament_entrants(tournament_id,seed)",
+        """CREATE TABLE IF NOT EXISTS player_tournament_matches (
+            id TEXT PRIMARY KEY,
+            tournament_id TEXT NOT NULL REFERENCES player_tournaments(id),
+            bracket TEXT NOT NULL CHECK(bracket IN ('upper','lower','grand_final','reset')),
+            round INTEGER NOT NULL CHECK(round>=1),
+            slot INTEGER NOT NULL CHECK(slot>=0),
+            status TEXT NOT NULL CHECK(status IN ('pending','ready','complete','bye','disputed')),
+            participant_a TEXT REFERENCES accounts(id),
+            participant_b TEXT REFERENCES accounts(id),
+            source_a TEXT NOT NULL, source_b TEXT NOT NULL,
+            winner TEXT REFERENCES accounts(id),
+            loser TEXT REFERENCES accounts(id),
+            decided_by TEXT CHECK(decided_by IS NULL OR decided_by IN ('play','bye','higher_seed','undefeated_advantage','admin_override')),
+            next_winner_match TEXT,
+            next_winner_slot TEXT CHECK(next_winner_slot IS NULL OR next_winner_slot IN ('a','b')),
+            next_loser_match TEXT,
+            next_loser_slot TEXT CHECK(next_loser_slot IS NULL OR next_loser_slot IN ('a','b')),
+            created_at BLOB NOT NULL CHECK(typeof(created_at)='integer'),
+            settled_at BLOB CHECK(settled_at IS NULL OR typeof(settled_at)='integer'),
+            UNIQUE(tournament_id,bracket,round,slot),
+            CHECK(participant_a IS NULL OR participant_b IS NULL OR participant_a<>participant_b),
+            CHECK((winner IS NULL AND loser IS NULL AND (decided_by IS NULL OR decided_by='bye'))
+               OR (winner IS NOT NULL AND decided_by IS NOT NULL)),
+            CHECK(winner IS NULL OR loser IS NULL OR winner<>loser)
+        )""",
+        "CREATE INDEX IF NOT EXISTS player_tournament_matches_order ON player_tournament_matches(tournament_id,bracket,round,slot)",
+        """CREATE TABLE IF NOT EXISTS player_tournament_legs (
+            match_id TEXT NOT NULL REFERENCES player_tournament_matches(id),
+            leg INTEGER NOT NULL CHECK(leg>=1),
+            game_id TEXT NOT NULL REFERENCES online_games(id),
+            attackers_id TEXT NOT NULL REFERENCES accounts(id),
+            defenders_id TEXT NOT NULL REFERENCES accounts(id),
+            outcome TEXT CHECK(outcome IS NULL OR outcome IN ('a','b','draw','void')),
+            result_revision INTEGER,
+            created_at BLOB NOT NULL CHECK(typeof(created_at)='integer'),
+            settled_at BLOB CHECK(settled_at IS NULL OR typeof(settled_at)='integer'),
+            PRIMARY KEY(match_id,leg), UNIQUE(game_id),
+            CHECK(attackers_id<>defenders_id),
+            CHECK((outcome IS NULL) = (settled_at IS NULL))
+        )""",
+        """CREATE TABLE IF NOT EXISTS player_tournament_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id TEXT NOT NULL REFERENCES player_tournaments(id),
+            actor_id TEXT REFERENCES accounts(id),
+            action TEXT NOT NULL CHECK(length(action) BETWEEN 1 AND 40),
+            match_id TEXT,
+            note TEXT CHECK(note IS NULL OR length(trim(note)) BETWEEN 1 AND 1000),
+            details TEXT CHECK(details IS NULL OR json_valid(details)),
+            at BLOB NOT NULL CHECK(typeof(at)='integer')
+        )""",
+        "CREATE INDEX IF NOT EXISTS player_tournament_audit_order ON player_tournament_audit(tournament_id,id)",
     )
     for statement in statements:
         c.execute(statement)
@@ -258,6 +373,60 @@ def migrate_online(c: sqlite3.Connection) -> None:
           OR (OLD.activated_at IS NOT NULL AND (NEW.activated_at IS NOT OLD.activated_at
               OR NEW.opponent_id IS NOT OLD.opponent_id OR NEW.first_creator_side IS NOT OLD.first_creator_side))
         BEGIN SELECT RAISE(ABORT,'Match configuration and admitted participants are immutable'); END""")
+    # Schema 17: Arena v2 progression foundations. The catalogs are mirrored from
+    # `progression.py` on every startup; no account receives an award, entitlement
+    # or selection here, so migrating an existing account grants nothing.
+    for statement in (
+        """CREATE TABLE IF NOT EXISTS achievement_catalog (
+            id TEXT PRIMARY KEY,
+            catalog_version INTEGER NOT NULL CHECK(catalog_version>=1),
+            ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+            name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 80),
+            description TEXT NOT NULL CHECK(length(description) BETWEEN 1 AND 300),
+            category TEXT NOT NULL,
+            criterion TEXT NOT NULL,
+            scope TEXT,
+            threshold INTEGER NOT NULL CHECK(threshold>=1)
+        )""",
+        "CREATE INDEX IF NOT EXISTS achievement_catalog_order ON achievement_catalog(ordinal,id)",
+        """CREATE TABLE IF NOT EXISTS portrait_catalog (
+            id TEXT PRIMARY KEY,
+            catalog_version INTEGER NOT NULL CHECK(catalog_version>=1),
+            ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+            name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 80),
+            unlock_achievement_id TEXT REFERENCES achievement_catalog(id),
+            retired INTEGER NOT NULL DEFAULT 0 CHECK(retired IN (0,1))
+        )""",
+        "CREATE INDEX IF NOT EXISTS portrait_catalog_order ON portrait_catalog(ordinal,id)",
+        # At most one non-retired always-available portrait may exist, so the
+        # catalog can never lose its default; a retired default is replaced
+        # rather than reused.
+        """CREATE UNIQUE INDEX IF NOT EXISTS portrait_catalog_default
+            ON portrait_catalog((unlock_achievement_id IS NULL))
+            WHERE unlock_achievement_id IS NULL AND retired=0""",
+        """CREATE TABLE IF NOT EXISTS achievement_awards (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            achievement_id TEXT NOT NULL REFERENCES achievement_catalog(id),
+            awarded_at BLOB NOT NULL CHECK(typeof(awarded_at)='integer'),
+            catalog_version INTEGER NOT NULL CHECK(catalog_version>=1),
+            PRIMARY KEY(account_id,achievement_id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS achievement_awards_account ON achievement_awards(account_id)",
+        """CREATE TABLE IF NOT EXISTS account_portraits (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            portrait_id TEXT NOT NULL REFERENCES portrait_catalog(id),
+            granted_at BLOB NOT NULL CHECK(typeof(granted_at)='integer'),
+            source_achievement_id TEXT REFERENCES achievement_catalog(id),
+            PRIMARY KEY(account_id,portrait_id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS account_portraits_account ON account_portraits(account_id)",
+        """CREATE TABLE IF NOT EXISTS account_portrait_selection (
+            account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+            portrait_id TEXT NOT NULL REFERENCES portrait_catalog(id),
+            updated_at BLOB NOT NULL CHECK(typeof(updated_at)='integer')
+        )""",
+    ):
+        c.execute(statement)
     for table in APPEND_ONLY:
         for action in ("UPDATE", "DELETE"):
             c.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_{action.lower()}_immutable
@@ -279,6 +448,11 @@ def migrate_online(c: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS games_category_owner "
             "ON games(category,owner_account_id,created_at DESC)"
         )
+    # Import locally: the catalog content belongs to `progression`, which must not
+    # join the import graph of every `Store` user.
+    from .progression import seed_catalog
+
+    seed_catalog(c)
 
 
 def retain_online_on_restore(live: sqlite3.Connection, restored: sqlite3.Connection) -> None:

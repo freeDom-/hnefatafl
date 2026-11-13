@@ -1,9 +1,10 @@
 import { useI18n } from './i18n';
 import { surfaceLink } from './surfaceNavigation';
 import type { Side } from './types';
+export type RecordedCategory = 'online' | 'account-single-player' | 'local';
 export type RecordedGame = {
   id: string;
-  category: 'online' | 'account-single-player';
+  category: RecordedCategory;
   ruleset: string;
   status: string;
   winner: Side | 'draw' | null;
@@ -25,7 +26,7 @@ export type RecordedPage = {
   limit: number;
   next_cursor: string | null;
   totals: {
-    category: RecordedGame['category'];
+    category: RecordedCategory;
     games: number;
     completed: number;
     attackers_wins: number;
@@ -35,6 +36,13 @@ export type RecordedPage = {
 };
 export const reviewUrl = (game: Pick<RecordedGame, 'id' | 'category'>) =>
   `/archive?review=${game.category}&selected=${encodeURIComponent(game.id)}`;
+/**
+ * A nonterminal online record is still being played: it is watched, not
+ * replayed, and it must never present itself as a completed result.
+ */
+export const isLiveRecord = (game: Pick<RecordedGame, 'category' | 'status'>) =>
+  game.category === 'online' && (game.status === 'active' || game.status === 'waiting');
+export const liveUrl = (game: Pick<RecordedGame, 'id'>) => `/online/games/${game.id}`;
 export const resultName = (winner: RecordedGame['winner']) =>
   winner === 'draw'
     ? 'Draw'
@@ -48,6 +56,14 @@ const ruleNames: Record<string, string> = {
   tablut: 'Tablut',
   copenhagen: 'Copenhagen',
 };
+/** Ruleset ids are the persisted value; record tables never invent a display name. */
+export const rulesetName = (id: string) => ruleNames[id] ?? id;
+export const categoryName = (category: RecordedCategory) =>
+  category === 'online'
+    ? 'Online multiplayer'
+    : category === 'local'
+      ? 'Local 1v1'
+      : 'Singleplayer';
 const statusNames: Record<string, string> = {
   voided: 'Voided',
   cancelled: 'Cancelled',
@@ -130,49 +146,59 @@ export default function RecordedGames({
           </tr>
         </thead>
         <tbody>
-          {games.map((game) => (
-            <tr
-              key={`${game.category}:${game.id}`}
-              className={selected === game.id ? 'selected' : undefined}
-            >
-              <td>{t(statusNames[game.status] ?? game.status)}</td>
-              <td>{t(ruleNames[game.ruleset] ?? game.ruleset)}</td>
-              <td>{ratedParticipantLabel(game.attackers, game.attacker_rating, t)}</td>
-              <td>{ratedParticipantLabel(game.defenders, game.defender_rating, t)}</td>
-              <td>
-                {winnerLabel(game, t)}
-                {(() => {
-                  const delta = winnerDelta(game);
-                  if (delta === null) return null;
-                  const text = `+${Math.round(delta)}`;
-                  return (
-                    <span
-                      className="winner-delta"
-                      aria-label={t('{value} rating gain', { value: text })}
-                    >
-                      {' '}
-                      {text}
-                    </span>
-                  );
-                })()}
-              </td>
-              <td>
-                <a
-                  href={link(game)}
-                  onClick={surfaceLink}
-                  aria-current={selected === game.id ? 'true' : undefined}
-                  aria-label={t('Open review: {attacker} vs {defender}', {
-                    attacker: participantLabel(game.attackers, t),
-                    defender: participantLabel(game.defenders, t),
-                  })}
-                >
-                  <time dateTime={game.recorded_at}>
-                    {format.format(new Date(game.recorded_at))}
-                  </time>
-                </a>
-              </td>
-            </tr>
-          ))}
+          {games.map((game) => {
+            const live = isLiveRecord(game);
+            const attackers = participantLabel(game.attackers, t);
+            const defenders = participantLabel(game.defenders, t);
+            return (
+              <tr
+                key={`${game.category}:${game.id}`}
+                className={selected === game.id ? 'selected' : undefined}
+              >
+                <td>
+                  {t(statusNames[game.status] ?? game.status)}
+                  {live && <span className="record-live">{t('Live')}</span>}
+                </td>
+                <td>{t(rulesetName(game.ruleset))}</td>
+                <td>{ratedParticipantLabel(game.attackers, game.attacker_rating, t)}</td>
+                <td>{ratedParticipantLabel(game.defenders, game.defender_rating, t)}</td>
+                <td>
+                  {winnerLabel(game, t)}
+                  {(() => {
+                    const delta = winnerDelta(game);
+                    if (delta === null) return null;
+                    const text = `+${Math.round(delta)}`;
+                    return (
+                      <span
+                        className="winner-delta"
+                        aria-label={t('{value} rating gain', { value: text })}
+                      >
+                        {' '}
+                        {text}
+                      </span>
+                    );
+                  })()}
+                </td>
+                <td>
+                  <a
+                    href={live ? liveUrl(game) : link(game)}
+                    onClick={surfaceLink}
+                    aria-current={selected === game.id ? 'true' : undefined}
+                    aria-label={t(
+                      live
+                        ? 'Watch live: {attacker} vs {defender}'
+                        : 'Open review: {attacker} vs {defender}',
+                      { attacker: attackers, defender: defenders },
+                    )}
+                  >
+                    <time dateTime={game.recorded_at}>
+                      {format.format(new Date(game.recorded_at))}
+                    </time>
+                  </a>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
