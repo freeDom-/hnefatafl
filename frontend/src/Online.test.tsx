@@ -55,6 +55,12 @@ function lobby() {
   history.replaceState(null, '', '/online');
   return render(<Online />);
 }
+/** The lobby listing with its creation dialog open, which the lobby owns itself. */
+function creation() {
+  const view = lobby();
+  fireEvent.click(screen.getByRole('button', { name: 'New online game' }));
+  return view;
+}
 async function move() {
   await screen.findByLabelText('Attackers to move');
   // A visible position can precede its passive version-change effects.
@@ -131,7 +137,7 @@ it.each(
     ['single', 'simultaneous', 'sequential'].map((mode) => [side, mode]),
   ),
 )('creates with side %s and mode %s using only the contract payload', async (side, mode) => {
-  lobby();
+  creation();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
   expect(
     screen.queryByText('Disconnecting, closing the browser or logging out does not pause clocks.'),
@@ -160,7 +166,7 @@ it('retains a creation UUID through uncertain outcomes and reload; recovery neve
   mutation = async () => {
     throw new TypeError('network');
   };
-  const view = lobby();
+  const view = creation();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
   await screen.findByText(/The outcome is uncertain/);
@@ -170,7 +176,7 @@ it('retains a creation UUID through uncertain outcomes and reload; recovery neve
   const saved = sessionStorage.getItem('hnefatafl-online-intent');
   expect(saved).toContain('request_id');
   view.unmount();
-  lobby();
+  creation();
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
   );
@@ -190,7 +196,7 @@ it.each([429, 422, 503, 403])(
   'handles creation denial %s without regenerating the intent or retrying',
   async (status) => {
     mutation = async () => respond({ detail: 'Sanitized server explanation.' }, status);
-    lobby();
+    creation();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Create game' }));
     await screen.findByText('Sanitized server explanation.');
@@ -394,7 +400,7 @@ it('discards another account’s retained request and aborts reads during accoun
       },
     }),
   );
-  const view = lobby();
+  const view = creation();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
   const signals = fetcher.mock.calls.map(([, o]) => o?.signal).filter(Boolean) as AbortSignal[];
   identity.id = 'next-account';
@@ -438,7 +444,7 @@ it('retains the submitted creation ID when two submit events arrive before rende
     new Promise((_resolve, failure) => {
       reject = failure;
     });
-  lobby();
+  creation();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
   const form = screen.getByRole('button', { name: 'Create game' }).closest('form')!;
   act(() => {
@@ -541,7 +547,7 @@ it('retries a retained 61-second creation intent exactly without truncation to a
     'hnefatafl-online-intent',
     JSON.stringify({ account_id: identity.id, payload }),
   );
-  lobby();
+  creation();
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
   );
@@ -553,7 +559,7 @@ it('retries a retained 61-second creation intent exactly without truncation to a
   ).toEqual({ ...payload, time_control: 'per_move', increment_seconds: 0, rated: true });
 });
 it('creates every new online game as rated with no casual selector', async () => {
-  lobby();
+  creation();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
   expect(screen.queryByLabelText('Game type')).toBeNull();
   expect(screen.queryByText(/Casual games do not affect ratings/)).toBeNull();
@@ -566,7 +572,7 @@ it.each([
   ['0', '0', '0'],
   ['14', '0', '1'],
 ])('rejects the invalid combined duration %s/%s/%s before posting', async (d, h, m) => {
-  lobby();
+  creation();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
   for (const [label, value] of [
     ['Days', d],
@@ -585,7 +591,7 @@ it.each(['per_move', 'total'])(
     mutation = async () => {
       throw new TypeError('network');
     };
-    const view = lobby();
+    const view = creation();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create game' })).toBeEnabled());
     expect(screen.queryByText('Each accepted move renews the allowance.')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Increment per move (seconds)')).not.toBeInTheDocument();
@@ -610,7 +616,7 @@ it.each(['per_move', 'total'])(
       increment_seconds: timeControl === 'total' ? 12 : 0,
     });
     view.unmount();
-    lobby();
+    creation();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Retry retained request' })).toBeEnabled(),
     );

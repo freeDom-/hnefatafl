@@ -3,12 +3,20 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
-import { Lobby } from './Online';
 import { useOnlinePoll } from './useOnlinePoll';
 import type { AccountHistory, PersonalOnlineHistory, PersonalProgress } from './personalTypes';
 import { surfaceLink } from './surfaceNavigation';
 import { navigate } from './navigation';
-import RecordedGames, { rulesetName, type RecordedPage } from './RecordedGames';
+import {
+  isLiveRecord,
+  liveUrl,
+  participantLabel,
+  reviewUrl,
+  rulesetName,
+  winnerLabel,
+  type RecordedGame,
+  type RecordedPage,
+} from './RecordedGames';
 import RecordedReview from './RecordedReview';
 import Leaderboard, { readStoredRuleset } from './Leaderboard';
 import Board, { type BoardView } from './Board';
@@ -104,7 +112,6 @@ function DashboardHome({
 }) {
   const { account } = useAuth();
   const { t, locale } = useI18n();
-  const [creation, setCreation] = useState(0);
   const [localOpen, setLocalOpen] = useState(false);
   // The hero clock and the season-agnostic streak read refresh on their own; the
   // remaining-time formatter is coarse enough that a minute keeps it honest.
@@ -349,7 +356,7 @@ function DashboardHome({
                     className="arena-primary-action"
                     type="button"
                     disabled={unverified}
-                    onClick={() => setCreation((value) => value + 1)}
+                    onClick={() => navigate('/play?setup=online')}
                   >
                     {t('Play online')}
                   </button>
@@ -552,39 +559,65 @@ function DashboardHome({
           <Leaderboard compact fullStandings />
         </aside>
       </div>
-      <div className="dashboard-overview">
-        <Lobby
-          accountId={accountId}
-          embedded
-          creationRequested={creation}
-          open={(id) => navigate(`/online/games/${id}`)}
-          createAction={
-            <button
-              className="button primary"
-              type="button"
-              disabled={unverified}
-              onClick={() => setCreation((value) => value + 1)}
-            >
-              {t('New online game')}
-            </button>
-          }
-        />
-        <section className="panel dashboard-recent" aria-labelledby="recent-heading">
-          <div className="section-heading">
+      <section className="panel dashboard-recent" aria-labelledby="recent-heading">
+        <div className="record-strip-row">
+          <div className="record-strip-heading">
             <h2 id="recent-heading">{t('Recorded games')}</h2>
             <a href="/archive" onClick={surfaceLink}>
-              {t('View all')}
+              {t('Game archive')} →<span className="sr-only">: {t('Recorded games')}</span>
             </a>
           </div>
           <DashboardHealth phase={recent.phase} refresh={recent.refresh} />
-          {recent.phase === 'ready' && !recent.data?.games?.length && (
+          {recent.phase === 'ready' && !recent.data?.games?.length ? (
             <p>{t('No completed games yet.')}</p>
+          ) : (
+            <RecentRecordStrip games={recent.data?.games ?? []} />
           )}
-          <RecordedGames games={recent.data?.games ?? []} />
-        </section>
-      </div>
+        </div>
+      </section>
       {localOpen && <LocalGameDialog onClose={() => setLocalOpen(false)} />}
     </section>
+  );
+}
+/**
+ * The dashboard's recent-record strip: at most three records in one row, each a
+ * single link that opens its replay (or the live board) in one action. The full
+ * table stays in the Hall of records, and the strip keeps one height whether or
+ * not the account has records, so the dashboard stays a one-screen composition.
+ */
+function RecentRecordStrip({ games }: { games: RecordedGame[] }) {
+  const { t, locale } = useI18n();
+  const format = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' });
+  return (
+    <ul className="record-strip">
+      {games.slice(0, 3).map((game) => {
+        const live = isLiveRecord(game);
+        const attackers = participantLabel(game.attackers, t);
+        const defenders = participantLabel(game.defenders, t);
+        return (
+          <li key={`${game.category}:${game.id}`}>
+            <a
+              className="record-strip-item"
+              href={live ? liveUrl(game) : reviewUrl(game)}
+              onClick={surfaceLink}
+            >
+              {/* The action prefix and the record share one element, with an explicit
+                  space between them, so the link's accessible name reads as a
+                  sentence instead of concatenating the two spans. */}
+              <span className="record-strip-title">
+                <span className="sr-only">{t(live ? 'Watch live' : 'Open review')}:</span>{' '}
+                {t(rulesetName(game.ruleset))} · {attackers} vs {defenders}
+              </span>{' '}
+              <span className="record-strip-meta">
+                {live && <span className="record-live">{t('Live')}</span>}
+                {winnerLabel(game, t)} ·{' '}
+                <time dateTime={game.recorded_at}>{format.format(new Date(game.recorded_at))}</time>
+              </span>
+            </a>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 function DashboardHealth({ phase, refresh }: { phase: string; refresh: () => Promise<unknown> }) {

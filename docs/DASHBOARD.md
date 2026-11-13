@@ -4,17 +4,19 @@
 [Online play](ONLINE_PLAY.md)
 
 Dashboard (`/dashboard`) is the authenticated landing and default post-login page.
-`/` and `/online` redirect there, retaining search parameters and fragments;
-the old Online entry selects online setup. Main navigation contains
+`/` redirects there, retaining search parameters and fragments; the authenticated
+lobby listing keeps its own `/online` route, and the legacy
+`/dashboard?setup=online` deep link redirects to `/play` with the online creation
+dialog open. Main navigation contains
 Dashboard, Play, Statistics, Leaderboard, Hall of records and the authorized
 workshop/tournament controls.
 Every surface here requires an authenticated session.
 
 **Play** (`/play`) opens the last selected unfinished game when it is still in the
 signed-in account's current games; otherwise it opens another unfinished game.
-With no running games, it shows a Dashboard link for finding opponents and the
-same New online game/New local 1v1 game/New single-player game buttons and
-dialogs as Dashboard.
+With no running games, it links to the `/online` lobby listing for finding
+opponents and offers the New online game/New local 1v1 game/New single-player game
+buttons and dialogs.
 The remembered game is checked against current server-owned lists and cleared on
 account changes/logout.
 
@@ -35,16 +37,18 @@ labelled human seats. Both seats belong to the signed-in account, so it is never
 rated and never enters single-player/vs-AI statistics; the record stays in the
 owner-scoped Local 1v1 category and replays read-only without an advisor.
 
-**Play online** (New online game) opens the existing lobby configuration. Dashboard embeds its
-All games/My games/My turn tabs, pagination and retained-request recovery. Every
-tab excludes completed, cancelled and voided games. Open a waiting game to join,
-your game to resume, or a visible game to watch under existing permissions. `/online/games/{id}` remains the dedicated gameplay/reconnect URL.
+**Play online** (New online game) opens the existing lobby configuration on Play.
+The authenticated lobby listing itself lives at `/online`, with its All games/My
+games/My turn tabs, pagination and retained-request recovery. Every tab excludes
+completed, cancelled and voided games. Open a waiting game to join, your game to
+resume, or a visible game to watch under existing permissions. `/online/games/{id}` remains the dedicated gameplay/reconnect URL.
 The authenticated global lobby is intentionally distinct from private history;
 this refinement adds no anonymous access or spectator grants. Server admission,
 quotas, seats, deadlines and result revisions remain authoritative.
 Unverified email addresses get a red warning inside the creation hierarchy on
-Dashboard and Play, and New online game is disabled. The lobby omits its former duplicate
-verification notice. Existing seats remain playable under the same server policy.
+Dashboard and Play, and online creation is disabled there. The lobby omits its
+former duplicate verification notice. Existing seats remain playable under the
+same server policy.
 
 ## Compact badges and detailed personal statistics
 
@@ -123,11 +127,13 @@ full leaderboard keeps the signed-in **Your rank** summary outside the table, so
 the standing (rank, Elo, rated games and any provisional threshold) stays readable
 when the account is not on the visible page.
 
-On the Dashboard grid **Online games** follows the compact performance strip,
-then **Leaderboard** and the final **Recorded games** row. The redundant visible
-Online lobby heading is removed; the lobby keeps its accessible region name.
-**Open game** uses the same primary button style as **New online game**.
-All cards share the same padding and section gap.
+On the Dashboard grid **Recorded games** is a compact strip below the reference
+columns: at most three records in one row, each a single link to its replay (or
+live board) and a **Game archive →** link, so the whole composition stays on one
+desktop screen. The lobby listing is not embedded there any more; it keeps its
+accessible region name and its own `/online` page, where **Open game** uses the
+same primary button style as **New online game** and all cards share the same
+padding and section gap.
 
 ## Shared Recorded games and visibility
 
@@ -150,8 +156,8 @@ local timezone and shows a locale-aware date and time with a timezone label; the
 `datetime` attribute keeps the stored instant. The trailing Review label is
 removed. The table scrolls inside its card on narrow screens without page-level
 horizontal overflow. Dashboard shows at most the latest
-three eligible completed visible games belonging to the current account, with
-**View all** and no pagination. Normal users see their participating online games
+three eligible completed visible games belonging to the current account as its
+compact strip, with a **Game archive →** link and no pagination. Normal users see their participating online games
 and their own account single-player records; administrators can also see their own
 account single-player games. An administrator's Dashboard never becomes an
 all-account collection.

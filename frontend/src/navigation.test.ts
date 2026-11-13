@@ -21,9 +21,12 @@ it('retains filters, selected record, game deep links and fragment through safe 
   expect(safeDestination('/games/owned-id?cursor=3')).toBe('/games/owned-id?cursor=3');
   expect(safeDestination('/online/games/online-' + 'a'.repeat(32) + '?leg=2')).toContain('?leg=2');
 });
-it('normalizes obsolete entries without losing query or selection', () => {
+it('keeps the lobby route and moves the obsolete online setup entry to Play', () => {
   history.replaceState(null, '', '/online?mine=true&selected=kept#lobby');
-  expect(canonicalLocation()).toBe('/dashboard?mine=true&selected=kept&setup=online');
+  expect(canonicalLocation()).toBe('/online?mine=true&selected=kept');
+  expect(location.hash).toBe('#lobby');
+  history.replaceState(null, '', '/dashboard?mine=true&setup=online#lobby');
+  expect(canonicalLocation()).toBe('/play?mine=true&setup=online');
   expect(location.hash).toBe('#lobby');
 });
 it('retains the Play page and its query', () => {

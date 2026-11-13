@@ -30,26 +30,28 @@ const viewports = [
 ] as const;
 
 /**
- * The two desktop viewports the primary reference composition must fit without a
- * page scroll. The preserved Lobby and recent-record sections stay below the fold.
+ * The two desktop viewports the reference composition must fit in without a page
+ * scroll: the intro, the hero, the two reference columns and the compact
+ * recent-record strip all stay above the fold.
  */
 const primaryFitViewports = viewports.filter((viewport) => viewport.width >= 1366);
 
 /**
- * The per-theme hero illustration, applied as a contained cover backdrop instead
- * of tiling the 512x512 texture behind the hero copy.
+ * The per-theme hero illustration: the theme's decorative board preview, applied
+ * as a contained cover backdrop behind the hero copy. It never replaces the
+ * interactive board, which stays the live read-only Board component.
  */
 const heroArt: Record<string, string> = {
-  'kings-table': 'northern-hall-vignette.webp',
-  'iron-ash': 'iron-ash-forged-panel.webp',
-  'saga-hall': 'saga-hall-carved-banner.webp',
+  'kings-table': 'boards/kings-table-board-preview.webp',
+  'iron-ash': 'boards/iron-ash-board-preview.webp',
+  'saga-hall': 'boards/saga-hall-board-preview.webp',
 };
 
 /**
- * Measure the primary composition: the intro plus the reference grid (hero and
- * your games on the left, profile, standing cards and standings on the right).
- * Its bottom edge must stay inside the viewport; the Lobby and record sections
- * below it may scroll.
+ * Measure the whole dashboard composition: the intro, the reference grid, the
+ * compact record strip and the shell footer. The document itself must fit the
+ * viewport, so the reference sections stay above the fold at 1440x900 and
+ * 1366x768.
  */
 async function primaryComposition(page: Page) {
   return page.evaluate(() => {
@@ -61,7 +63,8 @@ async function primaryComposition(page: Page) {
     return {
       introTop: Math.round(box('.dashboard-intro').top + window.scrollY),
       layoutBottom: Math.round(box('.dashboard-layout').bottom + window.scrollY),
-      overviewTop: Math.round(box('.dashboard-overview').top + window.scrollY),
+      stripBottom: Math.round(box('.dashboard-recent').bottom + window.scrollY),
+      footerBottom: Math.round(box('.site-footer').bottom + window.scrollY),
       scrollHeight: document.documentElement.scrollHeight,
       innerHeight: window.innerHeight,
     };
@@ -264,6 +267,36 @@ async function seedOnlineHistory(page: Page, online: PersonalOnlineHistory) {
   });
 }
 
+/**
+ * Deterministic recent records for the compact strip: three completed records, so
+ * the strip renders its full row instead of the empty state in every capture.
+ */
+async function seedRecentRecords(page: Page) {
+  await page.route('**/api/history/games?dashboard=true', (route) =>
+    route.fulfill({
+      json: {
+        games: ['online', 'account-single-player', 'local'].map((category, index) => ({
+          id: `${category}-record-${index}`,
+          category,
+          ruleset: ['brandubh', 'tablut', 'copenhagen'][index],
+          status: 'completed',
+          winner: ['defenders', 'attackers', 'draw'][index],
+          eligible: true,
+          created_at: `2035-01-0${index + 1}T00:00:00.000000Z`,
+          recorded_at: `2035-01-0${index + 1}T01:00:00.000000Z`,
+          attackers: 'BrowserAdmin',
+          defenders: 'Keeper',
+          owner: 'BrowserAdmin',
+        })),
+        matching: 3,
+        limit: 3,
+        next_cursor: null,
+        totals: [],
+      },
+    }),
+  );
+}
+
 test.beforeAll(() => {
   mkdirSync(output, { recursive: true });
 });
@@ -273,6 +306,7 @@ for (const appearance of appearances) {
     await page.addInitScript((value) => {
       localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme: value }));
     }, appearance.id);
+    await seedRecentRecords(page);
     for (const viewport of viewports) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto('/dashboard');
@@ -310,8 +344,9 @@ for (const appearance of appearances) {
       }
 
       // The same dashboard information architecture in every appearance: intro,
-      // your-turn hero, four standing cards, games that need you, profile column
-      // and the standings card. Only colour, ornament and fonts may differ.
+      // your-turn hero, four standing cards, games that need you, profile column,
+      // the standings card and the compact recent-record strip. Only colour,
+      // ornament and fonts may differ.
       await expect(page.locator('.dashboard-intro')).toBeVisible();
       await expect(page.locator('.dashboard-intro-title')).toContainText(
         'Your place at the table.',
@@ -321,6 +356,16 @@ for (const appearance of appearances) {
       await expect(page.locator('.dashboard-needs-you')).toBeVisible();
       await expect(page.locator('.dashboard-profile')).toBeVisible();
       await expect(page.locator('.leaderboard-compact')).toBeVisible();
+      // The recent records are a compact strip: at most three records in one row,
+      // each one link, and the lobby lives on its own surfaces.
+      await expect(page.locator('.dashboard-recent')).toBeVisible();
+      await expect(page.locator('.record-strip-item')).toHaveCount(3);
+      for (const record of await page.locator('.record-strip-item').all())
+        await expect(record).toHaveAttribute('href', /\/archive\?review=.*&selected=/);
+      await expect(
+        page.locator('.dashboard-recent a', { hasText: 'Game archive' }),
+      ).toHaveAttribute('href', '/archive');
+      await expect(page.locator('.online-lobby, .dashboard-lobby')).toHaveCount(0);
       if (viewport.width >= 1200) {
         // The reference two-column split: main content left, profile column right.
         // Narrower desktops stack both columns for readability.
@@ -341,9 +386,10 @@ for (const appearance of appearances) {
         ),
       ).toBe('none');
 
-      // The hero uses the theme's illustration as a contained cover backdrop
-      // instead of tiling the 512px texture, and the knot band is a real trim
-      // (not a 1px hairline) on the hero and on the primary section headings.
+      // The hero paints the theme's decorative board preview as a contained cover
+      // backdrop behind the copy, never as a replacement for the interactive
+      // board, and the knot band is a real trim (not a 1px hairline) on the hero
+      // and on the primary section headings.
       if (appearance.id !== 'legacy') {
         const art = await page.evaluate(() => {
           const hero = document.querySelector('.arena-hero')!;
@@ -354,11 +400,15 @@ for (const appearance of appearances) {
             size: heroStyle.backgroundSize,
             heroBand: getComputedStyle(hero, '::after'),
             headingBand: getComputedStyle(heading, '::after'),
+            previewImages: hero.querySelectorAll('img[src*="board-preview"]').length,
           };
         });
         expect(art.image).toContain(heroArt[appearance.id]);
+        expect(art.image).toMatch(/gradient\(/);
         expect(art.image).not.toContain('textures/');
         expect(art.size).toContain('cover');
+        // Decorative only: the preview never enters the DOM as an image element.
+        expect(art.previewImages).toBe(0);
         expect(art.heroBand.backgroundImage).toContain('knot-band.webp');
         expect(parseFloat(art.heroBand.height)).toBeGreaterThanOrEqual(10);
         expect(art.headingBand.backgroundImage).toContain('knot-band.webp');
@@ -374,20 +424,27 @@ for (const appearance of appearances) {
         fullPage: true,
       });
 
-      // Fix A: the primary composition (intro plus the reference grid) fits both
-      // desktop viewports with no page scroll; the Lobby and record sections stay
-      // below the fold, which is why the document itself still scrolls.
+      // Fix A: the whole dashboard is one screen at both desktop viewports. The
+      // intro, the reference grid and the compact record strip stay above the
+      // fold, so the document itself must not scroll.
       if (viewport.width >= 1366) {
         const fit = await primaryComposition(page);
         expect(
-          fit.layoutBottom,
-          `${appearance.id} ${viewport.name} primary grid bottom`,
-        ).toBeLessThanOrEqual(fit.innerHeight);
+          fit.scrollHeight,
+          `${appearance.id} ${viewport.name} document height`,
+        ).toBeLessThanOrEqual(fit.innerHeight + 8);
         expect(fit.introTop, `${appearance.id} ${viewport.name} intro top`).toBeLessThan(
           fit.innerHeight,
         );
-        expect(fit.overviewTop).toBeGreaterThanOrEqual(fit.layoutBottom - 1);
-        expect(fit.scrollHeight).toBeGreaterThan(fit.innerHeight);
+        expect(
+          fit.layoutBottom,
+          `${appearance.id} ${viewport.name} reference grid bottom`,
+        ).toBeLessThanOrEqual(fit.innerHeight);
+        expect(
+          fit.stripBottom,
+          `${appearance.id} ${viewport.name} record strip bottom`,
+        ).toBeLessThanOrEqual(fit.innerHeight);
+        expect(fit.footerBottom).toBeLessThanOrEqual(fit.innerHeight + 8);
       }
     }
   });
@@ -400,6 +457,7 @@ for (const appearance of appearances) {
     // Empty state: no running game, so the hero keeps its placeholder.
     await seedEmptyGameLists(page);
     await seedOnlineHistory(page, emptyOnlineHistory());
+    await seedRecentRecords(page);
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
     await expect(page.locator('.dashboard-layout')).toBeVisible();
@@ -430,14 +488,18 @@ for (const appearance of appearances) {
       path: `${output}/${appearance.id}-dashboard-active-full.png`,
       fullPage: true,
     });
-    // The hero board makes the primary grid its tallest, so the fit has to hold
+    // The hero board makes the reference grid its tallest, so the fit has to hold
     // in this state at both desktop viewports too.
     for (const viewport of primaryFitViewports) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       const fit = await primaryComposition(page);
       expect(
-        fit.layoutBottom,
-        `${appearance.id} ${viewport.name} active primary grid bottom`,
+        fit.scrollHeight,
+        `${appearance.id} ${viewport.name} active document height`,
+      ).toBeLessThanOrEqual(fit.innerHeight + 8);
+      expect(
+        fit.stripBottom,
+        `${appearance.id} ${viewport.name} active record strip bottom`,
       ).toBeLessThanOrEqual(fit.innerHeight);
       await page.screenshot({
         path: `${output}/${appearance.id}-dashboard-active-${viewport.name}.png`,

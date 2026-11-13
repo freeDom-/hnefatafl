@@ -178,11 +178,11 @@ for (const theme of themes) {
       await expect(root).toHaveAttribute('data-ui-theme', theme.id);
       await expect(root).toHaveAttribute('data-color-mode', mode === 'system' ? 'dark' : mode);
       // The legacy data-color-mode button variants must not repaint the theme.
-      const primary = page.getByRole('button', { name: 'New online game' });
-      await expect(primary).toBeVisible();
-      expect(await primary.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
-        theme.accent,
-      );
+      // The hero's primary action is the dashboard's creation entry point.
+      // The hero swaps its action element when the running-game list resolves, so
+      // the colour is asserted through a retrying locator assertion.
+      const primary = page.locator('.arena-hero .arena-primary-action').first();
+      await expect(primary).toHaveCSS('background-color', theme.accent);
       // The dashboard standing cards must read the theme's own line token, never
       // a hard-coded light fallback that would break the dark named themes.
       const card = page.locator('.dashboard-stat').first();

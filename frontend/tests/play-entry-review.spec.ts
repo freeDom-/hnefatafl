@@ -6,9 +6,9 @@ test('Play has the shared creation dialogs when no game is running', async ({ pa
   await page.route('**/api/personal/**', (route) => route.fulfill({ json: { games: [] } }));
   await page.goto('/play');
   await expect(page.getByText('No games are currently running.')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Find online games on Dashboard' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'Find online games in the lobby' })).toHaveAttribute(
     'href',
-    '/dashboard',
+    '/online',
   );
   await page.getByRole('button', { name: 'New online game' }).click();
   const online = page.getByRole('dialog', { name: 'Create an online game' });
@@ -141,7 +141,7 @@ test('Hall replay uses the play layout at reduced desktop heights and on mobile 
   await expect(page.getByRole('link', { name: 'Return to selected review' })).toBeVisible();
 });
 
-test('an unverified account sees a red Dashboard warning instead of the lobby label', async ({
+test('an unverified account sees a red Dashboard warning before the disabled online action', async ({
   page,
 }) => {
   // Keep the worker's shared administrator session valid for subsequent tests.
@@ -156,15 +156,17 @@ test('an unverified account sees a red Dashboard warning instead of the lobby la
   await expect(warning).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toHaveCount(1);
   const warningBox = await warning.boundingBox();
+  // Online creation lives on the Play entry; the dashboard links to it and keeps
+  // the disabled state for an unverified account.
   const actionsBox = await page
-    .getByRole('button', { name: 'New online game', exact: true })
+    .getByRole('button', { name: 'Play online', exact: true })
     .boundingBox();
   expect(warningBox!.y + warningBox!.height).toBeLessThanOrEqual(actionsBox!.y);
   const color = await warning.evaluate((node) =>
     getComputedStyle(node).color.match(/\d+/g)!.map(Number),
   );
   expect(color[0]).toBeGreaterThan(color[1]);
-  await expect(page.getByRole('button', { name: 'New online game' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Play online' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Play vs AI' })).toBeEnabled();
   await expect(page.getByText(/Creating and joining require an active/)).toHaveCount(0);
 });

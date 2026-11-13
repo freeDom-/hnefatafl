@@ -31,6 +31,8 @@ async function snapshot(request: APIRequestContext) {
   return (await request.get('http://127.0.0.1:8010/snapshot')).json();
 }
 const rows = (page: Page) => page.locator('.recorded-games tbody tr');
+/** The dashboard's compact strip: at most three records, each one link. */
+const recentStrip = (page: Page) => page.locator('.dashboard-recent .record-strip-item');
 const reviewResult = (page: Page) =>
   page
     .locator('.detail-row', { hasText: 'Recorded result' })
@@ -59,11 +61,11 @@ test('default landing, shared latest three and exact review survive filtering an
   await expect(page.locator('.dashboard-needs-you')).toBeVisible();
   await expect(page.locator('.dashboard-profile')).toBeVisible();
   const latest = await (await context.request.get('/api/history/games?dashboard=true')).json();
-  await expect(rows(page)).toHaveCount(3);
+  await expect(recentStrip(page)).toHaveCount(3);
   expect(
-    await rows(page)
-      .locator('a')
-      .evaluateAll((links) => links.map((a) => new URL(a.href).searchParams.get('selected'))),
+    await recentStrip(page).evaluateAll((links) =>
+      links.map((a) => new URL((a as HTMLAnchorElement).href).searchParams.get('selected')),
+    ),
   ).toEqual(latest.games.map((g: { id: string }) => g.id));
   const state = await snapshot(request);
   expect(
@@ -74,8 +76,8 @@ test('default landing, shared latest three and exact review survive filtering an
   ).toBe(true);
   await page.screenshot({ path: test.info().outputPath('dashboard.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  // The whole row is clickable, not only the date link.
-  await rows(page).first().locator('td').first().click({ force: true });
+  // The whole record is one link, so a replay is one action away.
+  await recentStrip(page).first().click();
   await expect(page).toHaveURL(new RegExp(`selected=${latest.games[0].id}`));
   await expect(page.getByRole('grid')).toBeVisible();
   await page.getByRole('link', { name: 'Back to Hall of records' }).click();
@@ -201,7 +203,7 @@ test('safe post-login and obsolete redirects retain query/selection, dedicated a
   await expect(page.getByRole('grid')).toBeVisible();
   await expect(reviewResult(page)).toContainText('Attackers win · concession');
   await page.goto('/online?mine=true&selected=kept');
-  await expect(page).toHaveURL(/\/dashboard\?mine=true&selected=kept&setup=online$/);
+  await expect(page).toHaveURL(/\/online\?mine=true&selected=kept$/);
   await expect(page.getByRole('tab', { name: 'My games', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -259,7 +261,7 @@ test('late real history/statistics responses cannot populate a new account after
   page,
 }) => {
   await login(page);
-  await expect(rows(page)).toHaveCount(3);
+  await expect(recentStrip(page)).toHaveCount(3);
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -291,7 +293,7 @@ test('late real history/statistics responses cannot populate a new account after
   ).toBeVisible();
   release();
   await page.unrouteAll({ behavior: 'wait' });
-  await expect(rows(page)).toHaveCount(0);
+  await expect(recentStrip(page)).toHaveCount(0);
   await expect(standingCards(page)).toHaveCount(4);
   // The observer has no rated pool, streak or running game, so every card keeps
   // its explicit empty state instead of a fabricated value.
@@ -340,7 +342,7 @@ test('history review is read-only, validated and preserves authoritative records
   expect((await snapshot(request)).fingerprint).toBe(before.fingerprint);
 });
 
-test('Dashboard lobby has shared card spacing in loading, empty, populated and error states', async ({
+test('Lobby page has shared card spacing in loading, empty, populated and error states', async ({
   page,
 }) => {
   let state: 'loading' | 'empty' | 'populated' | 'error' = 'loading';
@@ -362,27 +364,28 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
     });
   });
   await login(page);
+  await page.goto('/online');
   const lobby = page.getByRole('region', { name: 'Online lobby', exact: true });
   const spacing = async (name: string) => {
     const dimensions = await page.evaluate(() => {
-      const card = document.querySelector<HTMLElement>('.dashboard-lobby')!;
-      const reference = document.querySelector<HTMLElement>('.dashboard-recent')!;
-      const overview = document.querySelector<HTMLElement>('.dashboard-overview')!;
+      const card = document.querySelector<HTMLElement>('.online-lobby')!;
       const rect = card.getBoundingClientRect();
-      const referenceRect = reference.getBoundingClientRect();
       const css = getComputedStyle(card);
+      // The lobby shares the panel padding every other Arena panel uses; the probe
+      // resolves the density-scaled token the same way a panel would.
+      const probe = document.createElement('div');
+      probe.style.padding = 'var(--pad-panel)';
+      document.body.appendChild(probe);
+      const token = parseFloat(getComputedStyle(probe).paddingLeft);
+      probe.remove();
       return {
         left: parseFloat(css.paddingLeft),
         right: parseFloat(css.paddingRight),
-        reference: parseFloat(getComputedStyle(reference).paddingLeft),
+        token,
         heading:
           card.querySelector('h2')!.getBoundingClientRect().left -
           rect.left -
           parseFloat(css.borderLeftWidth),
-        // The records card spans the row below the lobby, so the vertical gap
-        // between them is the overview grid's own row gap.
-        gap: Math.max(0, referenceRect.top - rect.bottom),
-        expectedGap: parseFloat(getComputedStyle(overview).rowGap),
         contained: Array.from(card.querySelectorAll('h2, h3, p, button, article')).every((node) => {
           const child = node.getBoundingClientRect();
           return child.left >= rect.left && child.right <= rect.right + 1;
@@ -392,10 +395,9 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
           card.scrollWidth <= card.clientWidth,
       };
     });
-    expect(dimensions.left).toBeCloseTo(dimensions.reference, 1);
-    expect(dimensions.right).toBeCloseTo(dimensions.reference, 1);
-    expect(dimensions.heading).toBeCloseTo(dimensions.reference, 1);
-    expect(dimensions.gap).toBeCloseTo(dimensions.expectedGap, 1);
+    expect(dimensions.left).toBeCloseTo(dimensions.token, 1);
+    expect(dimensions.right).toBeCloseTo(dimensions.token, 1);
+    expect(dimensions.heading).toBeCloseTo(dimensions.token, 1);
     expect(dimensions.contained).toBe(true);
     expect(dimensions.fits).toBe(true);
     await lobby.screenshot({ path: test.info().outputPath(`lobby-${name}.png`) });
@@ -411,7 +413,7 @@ test('Dashboard lobby has shared card spacing in loading, empty, populated and e
   await expect(lobby.locator('.online-card')).toHaveCount(2);
   await spacing('populated');
   await page.screenshot({
-    path: test.info().outputPath('dashboard-shared-spacing.png'),
+    path: test.info().outputPath('lobby-shared-spacing.png'),
     fullPage: true,
   });
   state = 'error';
@@ -599,13 +601,9 @@ test('dashboard standing cards read the real ruleset statistics and link to the 
   await expect(cards.filter({ hasText: 'Current streak' })).toBeVisible();
   await expect(cards.filter({ hasText: 'Unlocked portraits' })).toBeVisible();
   await expect(cards.getByText('Average game length')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Online games', exact: true })).toBeVisible();
-  await expect(
-    page
-      .locator('.dashboard-lobby')
-      .getByRole('button', { name: 'Open game', exact: true })
-      .first(),
-  ).toHaveClass(/primary/);
+  // The dashboard keeps the reference sections and the compact record strip.
+  await expect(page.getByRole('heading', { name: 'Recorded games', exact: true })).toBeVisible();
+  await expect(page.locator('.record-strip-item').first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.locator('.dashboard-stat-grid').screenshot({
     path: info.outputPath('dashboard-standing-cards.png'),
@@ -614,6 +612,12 @@ test('dashboard standing cards read the real ruleset statistics and link to the 
     'href',
     '/statistics',
   );
+  // The lobby listing lives on its own Play-owned route.
+  await page.goto('/online');
+  await expect(page.getByRole('heading', { name: 'Online games', exact: true })).toBeVisible();
+  await expect(
+    page.locator('.online-lobby').getByRole('button', { name: 'Open game', exact: true }).first(),
+  ).toHaveClass(/primary/);
   await page.goto('/statistics?mode=single-player&ruleset=brandubh');
   await expect(page.getByRole('heading', { name: 'Your statistics' })).toBeVisible();
   const table = page.getByRole('table', { name: 'Brandubh results by side' });

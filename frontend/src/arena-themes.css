@@ -5,11 +5,11 @@
  * mode-scoped component override is guarded by :not([data-ui-theme]).
  * A named theme owns the shell surface variables, its rail, its fonts, its
  * controls, its chart colors, its knot band (`--arena-band`), its contained hero
- * illustration (`--arena-hero-art` plus the `--arena-hero-scrim*` contrast
- * overlays) and its own color-scheme; mode, token, board and density choices stay
- * independent. The tiled `--arena-texture` stays a single low-key layer on the
- * page and the shell chrome instead of covering every panel. Asset URLs resolve
- * under the copied public path: frontend/public/assets/arena-v2/assets/
+ * illustration (`--arena-hero-art`: the theme's decorative board preview, plus the
+ * `--arena-hero-scrim*` contrast overlays) and its own color-scheme; mode, token,
+ * board and density choices stay independent. The tiled `--arena-texture` stays a
+ * single low-key layer on the page and the shell chrome instead of covering every
+ * panel. Asset URLs resolve under the copied public path: frontend/public/assets/arena-v2/assets/
  * Palettes follow the approved references in docs/DESIGN_SYSTEM.md: King's Table
  * parchment/gold, Iron & Ash slate/gold, Saga Hall timber/copper.
  */
@@ -38,15 +38,16 @@
   --arena-display-tracking: 0.02em;
   --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
   --arena-band: url('/assets/arena-v2/assets/art/kings-table-knot-band.webp');
-  /* Hero illustration (502x228 northern-hall vignette) as a contained cover
-   * backdrop. `--arena-hero-scrim` is the theme-aware overlay that keeps the hero
-   * copy readable: a radial wash centred on the copy column that stays flat over
-   * the copy rows and fades towards the hero's edges, so the artwork still shows
-   * around the text. The stack variant washes the copy row on the narrow layout,
-   * where the board moves below the copy. Both alphas are the measured worst case
-   * of this theme art against the hero's `--muted` copy over the whole copy box,
-   * so the copy stays at or above the 4.5:1 AA ratio. */
-  --arena-hero-art: url('/assets/arena-v2/assets/art/northern-hall-vignette.webp');
+  /* Hero illustration: the theme's decorative board preview (512x512) as a
+   * contained cover backdrop behind the hero copy, never a replacement for the
+   * interactive board. `--arena-hero-scrim` is the theme-aware overlay that keeps
+   * the hero copy readable: a radial wash centred on the copy column that stays
+   * flat over the copy rows and fades towards the hero's edges, so the artwork
+   * still shows around the text and behind the board. The stack variant washes the
+   * copy row on the narrow layout, where the board moves below the copy. Both
+   * alphas are the measured worst case of this artwork against the hero's copy ink
+   * over the whole copy box, so the copy stays at or above the 4.5:1 AA ratio. */
+  --arena-hero-art: url('/assets/arena-v2/assets/boards/kings-table-board-preview.webp');
   --arena-hero-scrim: radial-gradient(
     115% 48% at 5% 33%,
     #fbf2dfd9 0%,
@@ -113,10 +114,10 @@
   --arena-display-weight: 600;
   --arena-display-tracking: 0.01em;
   --arena-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
-  /* Iron & Ash keeps its restrained forged-slate identity, but with the pack's
-   * own knot band and forged-panel illustration instead of a bare hairline. */
+  /* Iron & Ash keeps its restrained forged-slate identity, with the pack's own
+   * knot band and its decorative board preview as the hero illustration. */
   --arena-band: url('/assets/arena-v2/assets/art/iron-ash-knot-band.webp');
-  --arena-hero-art: url('/assets/arena-v2/assets/art/iron-ash-forged-panel.webp');
+  --arena-hero-art: url('/assets/arena-v2/assets/boards/iron-ash-board-preview.webp');
   --arena-hero-scrim: radial-gradient(
     115% 48% at 5% 33%,
     #1b2225c7 0%,
@@ -184,7 +185,7 @@
   --arena-display-tracking: 0.09em;
   --arena-texture: url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
   --arena-band: url('/assets/arena-v2/assets/art/saga-hall-knot-band.webp');
-  --arena-hero-art: url('/assets/arena-v2/assets/art/saga-hall-carved-banner.webp');
+  --arena-hero-art: url('/assets/arena-v2/assets/boards/saga-hall-board-preview.webp');
   --arena-hero-scrim: radial-gradient(
     115% 48% at 5% 33%,
     #351d14c7 0%,

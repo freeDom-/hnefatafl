@@ -28,7 +28,7 @@ const translations: Record<string, string> = {
   'No games are currently running.': 'Derzeit laufen keine Partien.',
   'Your running games could not be loaded.':
     'Deine laufenden Partien konnten nicht geladen werden.',
-  'Find online games on Dashboard': 'Onlinepartien auf der Übersicht finden',
+  'Find online games in the lobby': 'Onlinepartien in der Lobby finden',
   'Verify your email address before creating or joining online games.':
     'Bestätige deine E-Mail-Adresse, bevor du Onlinepartien erstellst oder ihnen beitrittst.',
   'Waiting for another player': 'Warten auf einen weiteren Spieler',

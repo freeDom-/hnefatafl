@@ -22,12 +22,20 @@ export function safeDestination(value: string | null): string {
     ? path + url.search + url.hash
     : '/dashboard';
 }
+/**
+ * Canonical route for a location that is not one: `/` opens the dashboard, and the
+ * legacy `/dashboard?setup=online` deep link opens the online creation dialog on
+ * the Play entry, which owns online creation. Both keep their query and fragment,
+ * and the authenticated lobby listing keeps its own `/online` route instead of
+ * being rewritten.
+ */
 export function canonicalLocation() {
   const url = new URL(location.href);
-  if (['/', '/online'].includes(url.pathname)) {
-    if (url.pathname !== '/' && !url.searchParams.has('setup'))
-      url.searchParams.set('setup', url.pathname === '/online' ? 'online' : 'single-player');
+  if (url.pathname === '/') {
     url.pathname = '/dashboard';
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  } else if (url.pathname === '/dashboard' && url.searchParams.get('setup') === 'online') {
+    url.pathname = '/play';
     history.replaceState(null, '', url.pathname + url.search + url.hash);
   }
   return location.pathname + location.search;

@@ -286,7 +286,7 @@ it('shows the verification warning before creation actions and disables only onl
   serve = (url) =>
     url.includes('/availability') ? respond({ enabled: true, eligible: false }) : previous(url);
   render(<PersonalDashboard />);
-  await screen.findByRole('heading', { name: 'Online games' });
+  await screen.findByRole('heading', { name: 'Start a new saga.' });
   const warning = screen.getByText(
     'Verify your email address before creating or joining online games.',
   );
@@ -295,11 +295,11 @@ it('shows the verification warning before creation actions and disables only onl
     '/profile#email-verification',
   );
   expect(
-    warning.compareDocumentPosition(screen.getByRole('button', { name: 'New online game' })) &
+    warning.compareDocumentPosition(screen.getByRole('button', { name: 'Play online' })) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(warning).toHaveAttribute('role', 'alert');
-  expect(screen.getByRole('button', { name: 'New online game' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Play online' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Play vs AI' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Local 1v1' })).toBeEnabled();
   expect(screen.queryByText(/Creating and joining require/)).toBeNull();
@@ -309,9 +309,10 @@ it('renders the reference layout with real standing cards, records and leaderboa
   vi.stubGlobal('indexedDB', { open });
   const start = vi.fn();
   render(<PersonalDashboard onNewSingle={start} />);
-  const link = await screen.findByRole('link', { name: 'Open review: Archer vs Keeper' });
+  const link = await screen.findByRole('link', { name: /Open review: .*Archer vs Keeper/ });
   expect(link).toHaveAttribute('href', `/archive?review=online&selected=${row.id}`);
-  expect(link.closest('table')).toHaveClass('recorded-games');
+  expect(link.closest('.record-strip-item')).toBe(link);
+  expect(link.closest('ul')).toHaveClass('record-strip');
   expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   // The compact table shows the localized rating; the rank summary repeats it.
   expect(
@@ -344,13 +345,15 @@ it('renders the reference layout with real standing cards, records and leaderboa
   expect(aside.findIndex((value) => value.includes('dashboard-profile'))).toBe(0);
   expect(aside.findIndex((value) => value.includes('dashboard-stats'))).toBe(1);
   expect(aside.findIndex((value) => value.includes('leaderboard-compact'))).toBe(2);
-  // The lobby and the records keep their existing real sections below.
-  const overview = Array.from(document.querySelector('.dashboard-overview')!.children).map(
-    (node) => node.className,
+  // The compact record strip is the dashboard's last row: at most three records,
+  // each a single link, and the archive link.
+  const recentSection = document.querySelector('.dashboard-recent')!;
+  expect(recentSection.querySelectorAll('.record-strip-item')).toHaveLength(1);
+  expect(recentSection.querySelector('.record-strip-item')).toHaveAttribute(
+    'href',
+    `/archive?review=online&selected=${row.id}`,
   );
-  expect(overview.findIndex((value) => value.includes('dashboard-lobby'))).toBeLessThan(
-    overview.findIndex((value) => value.includes('dashboard-recent')),
-  );
+  expect(document.querySelectorAll('.recorded-games')).toHaveLength(0);
   expect(screen.queryByText('Local players')).toBeNull();
   expect(fetcher.mock.calls.some(([url]) => url === '/api/history/games?dashboard=true')).toBe(
     true,
@@ -358,8 +361,9 @@ it('renders the reference layout with real standing cards, records and leaderboa
   expect(fetcher.mock.calls.some(([url]) => url === '/api/personal/progress')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Play vs AI' }));
   expect(start).toHaveBeenCalledOnce();
-  fireEvent.click(screen.getByRole('button', { name: 'New online game' }));
-  await screen.findByRole('heading', { name: 'Create an online game' });
+  // Online creation lives on the Play entry, which owns the lobby dialog.
+  fireEvent.click(screen.getByRole('button', { name: 'Play online' }));
+  expect(location.pathname + location.search).toBe('/play?setup=online');
   expect(open).not.toHaveBeenCalled();
 });
 it('shows the real active board and your-turn cards for an owned running game', async () => {
@@ -373,9 +377,9 @@ it('shows the real active board and your-turn cards for an owned running game', 
   expect(screen.getByRole('heading', { name: 'One move closer to victory.' })).toBeVisible();
   expect(screen.getByText('Archer vs Keeper')).toBeVisible();
   expect(screen.getByText('Attackers to move')).toBeVisible();
-  const card = screen.getByRole('listitem');
-  expect(within(card).getByText('Your turn')).toBeVisible();
-  expect(within(card).getByRole('link', { name: 'Continue' })).toHaveAttribute(
+  const card = document.querySelector('.dashboard-game-list > li')!;
+  expect(within(card as HTMLElement).getByText('Your turn')).toBeVisible();
+  expect(within(card as HTMLElement).getByRole('link', { name: 'Continue' })).toHaveAttribute(
     'href',
     '/online/games/online-1',
   );
@@ -462,7 +466,7 @@ it('aborts old-account history/statistics and rejects late responses', async () 
   await screen.findByText('No completed games yet.');
   await act(async () => finish(await respond(recent)));
   expect(signals.every((signal) => signal.aborted)).toBe(true);
-  expect(screen.queryByRole('link', { name: 'Open review: Archer vs Keeper' })).toBeNull();
+  expect(screen.queryByRole('link', { name: /Open review: .*Archer vs Keeper/ })).toBeNull();
   expect(document.querySelectorAll('.dashboard-stat')).toHaveLength(4);
 });
 it('retains canonical private account replay at its existing deep link', async () => {

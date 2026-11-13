@@ -20,7 +20,11 @@ export default function PlayLanding({
 }) {
   const { account } = useAuth();
   const { t } = useI18n();
-  const [creation, setCreation] = useState(0);
+  // The legacy `?setup=online` deep link opens the online creation dialog and
+  // suppresses the automatic resume, so the dialog keeps its own entry state.
+  const [creation, setCreation] = useState(() =>
+    new URLSearchParams(location.search).get('setup') === 'online' ? 1 : 0,
+  );
   const load = useCallback(async (signal: AbortSignal) => {
     const [single, online, local] = await Promise.all([
       api<AccountHistory>(
@@ -88,8 +92,8 @@ export default function PlayLanding({
         >
           {!running.length && (
             <p>
-              <a href="/dashboard" onClick={surfaceLink}>
-                {t('Find online games on Dashboard')}
+              <a href="/online" onClick={surfaceLink}>
+                {t('Find online games in the lobby')}
               </a>
             </p>
           )}
