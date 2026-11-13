@@ -466,6 +466,13 @@ def test_a_private_handler_cannot_override_the_boundary_cache_policy(application
         response.headers["Cache-Control"] = "public, max-age=600"
         return {"ok": True}
 
+    # A production build registers an SPA catch-all after every API route, which
+    # would otherwise shadow this probe. Keep it ahead of that route so both the
+    # security boundary and the router reach this handler regardless of a build.
+    probe_route = application.router.routes[-1]
+    application.router.routes.remove(probe_route)
+    application.router.routes.insert(0, probe_route)
+
     with TestClient(application) as client:
         login(client)
         response = client.get("/api/private-cache-probe")
