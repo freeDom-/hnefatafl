@@ -224,6 +224,7 @@ class PublicOnline:
                 cursor=cursor,
                 context=context_key(None, "public-online", filters),
                 online=True,
+                count=False,
             )
             return {
                 "items": [self._item(row) for row in rows],

@@ -80,6 +80,13 @@ def migrate_online(c: sqlite3.Connection) -> None:
         )""",
         "CREATE INDEX IF NOT EXISTS online_due ON online_games(deadline,id) WHERE status='active'",
         "CREATE INDEX IF NOT EXISTS online_created ON online_games(created_at DESC,id)",
+        # The signed-out public index orders by online_games.updated_at (projected
+        # as `order_at`) and pages by (updated_at,id). Without a matching index the
+        # default listing scans and sorts the whole table and evaluates every
+        # correlated rating subquery before the LIMIT applies. This index is added
+        # unconditionally beside the other base indexes, so existing databases pick
+        # it up on the next start without a schema-version bump.
+        "CREATE INDEX IF NOT EXISTS online_updated ON online_games(updated_at DESC,id)",
         "CREATE INDEX IF NOT EXISTS online_attackers ON online_games(attackers_id)",
         "CREATE INDEX IF NOT EXISTS online_defenders ON online_games(defenders_id)",
         "CREATE INDEX IF NOT EXISTS online_waiting_creator ON online_games(creator_id) WHERE status='waiting'",
