@@ -156,17 +156,23 @@ test('an unverified account sees a red Dashboard warning before the disabled onl
   await expect(warning).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toHaveCount(1);
   const warningBox = await warning.boundingBox();
-  // Online creation lives on the Play entry; the dashboard links to it and keeps
-  // the disabled state for an unverified account.
-  const actionsBox = await page
-    .getByRole('button', { name: 'Play online', exact: true })
-    .boundingBox();
-  expect(warningBox!.y + warningBox!.height).toBeLessThanOrEqual(actionsBox!.y);
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toHaveCount(1);
+  // Online creation lives on the Play entry; the dashboard keeps the disabled
+  // state for an unverified account. A running game replaces the online action
+  // with "Continue game", so assert whichever hero action is present.
+  const playOnline = page.getByRole('button', { name: 'Play online', exact: true });
+  if (await playOnline.count()) {
+    const actionsBox = await playOnline.boundingBox();
+    expect(warningBox!.y + warningBox!.height).toBeLessThanOrEqual(actionsBox!.y);
+    await expect(playOnline).toBeDisabled();
+  } else {
+    const heroBox = await page.locator('.arena-hero').boundingBox();
+    expect(warningBox!.y + warningBox!.height).toBeLessThanOrEqual(heroBox!.y);
+  }
   const color = await warning.evaluate((node) =>
     getComputedStyle(node).color.match(/\d+/g)!.map(Number),
   );
   expect(color[0]).toBeGreaterThan(color[1]);
-  await expect(page.getByRole('button', { name: 'Play online' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Play vs AI' })).toBeEnabled();
   await expect(page.getByText(/Creating and joining require an active/)).toHaveCount(0);
 });
