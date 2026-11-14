@@ -4,9 +4,9 @@
   margin: var(--gap-stack) auto;
 }
 .dashboard-verification-warning {
-  color: #a82e27;
-  background: var(--ui-error-surface, #fff0ed);
-  border: 1px solid #d78b80;
+  color: var(--ui-error);
+  background: var(--ui-error-surface);
+  border: 1px solid var(--ui-error);
   border-radius: 6px;
   padding: 12px 16px;
   margin: 12px 0;

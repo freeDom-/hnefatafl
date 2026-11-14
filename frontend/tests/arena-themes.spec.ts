@@ -311,3 +311,101 @@ test('keeps the compact navigation clear of the mobile board', async ({ page, re
   expect(overlap.scrolls).toBe(false);
   await page.screenshot({ path: `${output}/saga-hall-mobile-gameplay.png`, fullPage: false });
 });
+
+for (const theme of themes) {
+  for (const language of ['en', 'de']) {
+    test(`verification warning is accessible in ${theme.id} / ${language}`, async ({
+      page,
+    }, info) => {
+      let verified = false;
+      await page.route('**/api/auth/me', async (route) => {
+        const response = await route.fetch();
+        const session = await response.json();
+        await route.fulfill({
+          json: { ...session, account: { ...session.account, email_verified: verified } },
+        });
+      });
+      await page.addInitScript(
+        ({ theme, language }) => {
+          localStorage.setItem(
+            'hnefatafl-appearance',
+            JSON.stringify({ version: 2, uiTheme: theme }),
+          );
+          localStorage.setItem('hnefatafl-language', language);
+        },
+        { theme: theme.id, language },
+      );
+      const sizes =
+        info.project.name === 'mobile'
+          ? [
+              { width: 320, height: 640 },
+              { width: 390, height: 844 },
+            ]
+          : [
+              { width: 1920, height: 1080 },
+              { width: 3840, height: 2160 },
+            ];
+      for (const size of sizes) {
+        await page.setViewportSize(size);
+        await page.goto('/dashboard');
+        const warning = page.locator('.dashboard-verification-warning');
+        await expect(warning).toBeVisible();
+        const link = warning.getByRole('link');
+        await expect(link).toHaveText(
+          language === 'en' ? 'Verify your email in your profile.' : /Profil/,
+        );
+        await expect(link).toHaveAttribute('href', '/profile#email-verification');
+        const measure = async () => {
+          const colors = await warning.evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              text: style.color,
+              background: style.backgroundColor,
+              border: style.borderTopColor,
+              link: getComputedStyle(node.querySelector('a')!).color,
+            };
+          });
+          for (const foreground of [colors.text, colors.link]) {
+            expect(contrastRatio(foreground, colors.background)).toBeGreaterThanOrEqual(4.5);
+          }
+          expect(contrastRatio(colors.border, colors.background)).toBeGreaterThanOrEqual(3);
+          return {
+            text: contrastRatio(colors.text, colors.background),
+            link: contrastRatio(colors.link, colors.background),
+            border: contrastRatio(colors.border, colors.background),
+          };
+        };
+        const ratios = await measure();
+        await info.attach(`contrast-${size.width}`, {
+          body: JSON.stringify(ratios),
+          contentType: 'application/json',
+        });
+        console.log(
+          `verification contrast ${theme.id} ${language} ${size.width}: ${JSON.stringify(ratios)}`,
+        );
+        await link.hover();
+        await measure();
+        // Enter the link through the browser's keyboard focus order.
+        await page.evaluate(() => {
+          const warning = document.querySelector('.dashboard-verification-warning')!;
+          warning.setAttribute('tabindex', '-1');
+          (warning as HTMLElement).focus();
+        });
+        await page.keyboard.press('Tab');
+        await expect(link).toBeFocused();
+        expect(await link.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+        expect(await link.evaluate((node) => getComputedStyle(node).outlineStyle)).not.toBe('none');
+        await measure();
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+        ).toBe(true);
+        await page.keyboard.press('Enter');
+        await expect(page).toHaveURL(/\/profile#email-verification$/);
+      }
+      verified = true;
+      await page.goto('/dashboard');
+      await expect(page.locator('.personal-dashboard')).toBeVisible();
+      await expect(page.locator('.dashboard-verification-warning')).toHaveCount(0);
+    });
+  }
+}
