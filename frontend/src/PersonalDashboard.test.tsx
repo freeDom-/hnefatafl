@@ -280,6 +280,27 @@ afterEach(() => {
   setLanguage('en', false);
   localStorage.removeItem('hnefatafl-leaderboard-ruleset');
 });
+it('renders the bundled Forge Keeper artwork for the server-selected earned portrait', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/portraits/catalog')
+      ? respond({
+          ...portraits,
+          items: [
+            ...portraits.items,
+            { id: 'forge-keeper', name: 'Forge Keeper', unlock_achievement_id: 'ai-first-victory' },
+          ],
+        })
+      : url.includes('/profile')
+        ? respond({ ...profile, portrait_id: 'forge-keeper' })
+        : previous(url);
+  render(<PersonalDashboard />);
+  await screen.findByText('Forge Keeper');
+  expect(document.querySelector('.dashboard-portrait img')).toHaveAttribute(
+    'src',
+    '/assets/arena-v2/assets/portraits/forge-keeper.webp',
+  );
+});
 it('shows the verification warning before creation actions and disables only online creation', async () => {
   identity.email_verified = false;
   const previous = serve;

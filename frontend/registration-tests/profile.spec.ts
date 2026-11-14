@@ -30,11 +30,16 @@ test('account menu, private profile, verification, password and device preferenc
   await expect(page.getByRole('heading', { name: 'My Profile', exact: true })).toBeVisible();
   const trigger = page.getByRole('button', { name: `Account menu for ${username}` });
   const language = page.getByRole('combobox', { name: 'Language' });
+  const header = page.locator('.arena-topbar, .site-header');
+  await expect(header).toHaveCount(1);
+  await expect(header.getByRole('combobox', { name: 'Language' })).toBeVisible();
+  await expect(header.getByRole('button', { name: `Account menu for ${username}` })).toBeVisible();
+  const languageBox = await language.boundingBox();
+  const accountBox = await trigger.boundingBox();
+  expect(languageBox!.x + languageBox!.width).toBeLessThanOrEqual(accountBox!.x + 1);
   expect(
-    await language
-      .locator('..')
-      .evaluate((node) => node.nextElementSibling?.classList.contains('account-menu')),
-  ).toBe(true);
+    Math.abs(languageBox!.y + languageBox!.height / 2 - accountBox!.y - accountBox!.height / 2),
+  ).toBeLessThan(32);
   await expect(page.getByRole('combobox', { name: 'Language' })).toHaveCount(1);
   await expect(
     page.locator('.profile-page').getByRole('combobox', { name: 'Language' }),

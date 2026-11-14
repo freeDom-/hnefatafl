@@ -58,6 +58,7 @@ const PORTRAIT_ASSETS = new Set([
   'one-eyed-jarl',
   'valkyrie',
   'einherjar',
+  'forge-keeper',
 ]);
 const sideNames: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const statusNames: Record<string, string> = {
