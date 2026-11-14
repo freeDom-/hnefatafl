@@ -255,8 +255,8 @@ body:has(.arena-sidebar) {
   body:has(.arena-sidebar) .play-page .game-layout,
   body:has(.arena-sidebar) .online-page .game-layout {
     grid-template-columns:
-      clamp(220px, 16vw, 340px) minmax(0, 1fr)
-      clamp(230px, 17vw, 360px);
+      clamp(250px, 16vw, 420px) minmax(0, 1fr)
+      clamp(260px, 17vw, 440px);
   }
 }
 
@@ -304,5 +304,10 @@ body:has(.arena-sidebar) {
   }
   .sidebar-brand-text {
     font-size: 1.2rem;
+  }
+}
+@media (min-width: 3000px) and (min-height: 1600px) {
+  :root {
+    --arena-sidebar-w: clamp(280px, 15rem, 420px);
   }
 }

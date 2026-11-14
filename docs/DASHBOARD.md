@@ -82,7 +82,9 @@ The compact leaderboard retains ruleset browsing, qualified/provisional standing
 and the account's own rank. Recent records are a separate compact strip of at most
 three eligible completed account-owned records with replay links and **Game
 archive →**. The online lobby is separate at `/online`; it is not embedded in the
-Dashboard. Short viewports scroll normally, and the shared Arena/Workshop shell
+Dashboard. The four named themes determine the UI palette; board, token and
+scale choices remain separate. Desktop gameplay and replay retain the Arena
+sidebar/top bar. Short viewports scroll normally, and the shared Arena/Workshop shell
 adapts to desktop, tablet and mobile without changing route permissions.
 
 ## Detailed personal statistics

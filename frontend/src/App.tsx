@@ -496,13 +496,8 @@ export default function App() {
 
   return (
     <PlayTabsProvider key={account?.id}>
-      <Shell
-        account={account}
-        logout={logout}
-        current={shellCurrent}
-        immersive={tab === 'play' && !playEntry}
-      >
-        <main id={SHELL_MAIN_ID} className="arena-textured" tabIndex={-1}>
+      <Shell account={account} logout={logout} current={shellCurrent}>
+        <main id={SHELL_MAIN_ID} tabIndex={-1}>
           {tab === 'statistics' && <StatisticsPage />}
           {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
           {tab === 'play' &&

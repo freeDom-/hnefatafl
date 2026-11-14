@@ -1,14 +1,8 @@
 import { useAppearance } from './Appearance';
-import {
-  LEGACY_UI_THEME,
-  LEGACY_UI_THEME_OPTION,
-  UI_THEMES,
-  resolveUiTheme,
-  type UiTheme,
-} from './appearanceConfig';
+import { UI_THEMES, resolveUiTheme, type UiTheme } from './appearanceConfig';
 import { useI18n } from './i18n';
 
-/** The shell's theme picker: the three named themes plus the legacy color-mode look. */
+/** The shell's theme picker: the four supported named themes. */
 export default function ThemeSelect() {
   const { t } = useI18n();
   const { appearance, updateAppearance } = useAppearance();
@@ -25,7 +19,6 @@ export default function ThemeSelect() {
             {t(theme.name)}
           </option>
         ))}
-        <option value={LEGACY_UI_THEME}>{t(LEGACY_UI_THEME_OPTION.name)}</option>
       </select>
     </label>
   );

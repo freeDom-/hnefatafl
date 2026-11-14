@@ -1,62 +1,61 @@
-import { describe, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 import {
   DEFAULT_APPEARANCE,
-  LEGACY_UI_THEME,
   UI_THEMES,
-  isNamedUiTheme,
   parseAppearance,
-  resolveUiTheme,
+  effectiveDensity,
 } from './appearanceConfig';
-
-describe('uiTheme preference', () => {
-  it('lists the four reference theme ids', () => {
-    expect(UI_THEMES.map((theme) => theme.id)).toEqual([
-      'classic-table',
-      'kings-table',
-      'iron-ash',
-      'saga-hall',
-    ]);
-  });
-
-  it('keeps an explicit valid uiTheme alongside the untouched legacy fields', () => {
-    expect(parseAppearance({ uiTheme: 'saga-hall' })).toStrictEqual({
-      ...DEFAULT_APPEARANCE,
-      uiTheme: 'saga-hall',
+it('lists only the four approved themes in picker order', () =>
+  expect(UI_THEMES.map((x) => x.id)).toEqual([
+    'kings-table',
+    'iron-ash',
+    'saga-hall',
+    'classic-table',
+  ]));
+it.each([
+  ['light', 'classic-table'],
+  ['dark', 'iron-ash'],
+  ['wood', 'saga-hall'],
+  ['system', 'kings-table'],
+])('idempotently migrates legacy %s to %s', (mode, uiTheme) => {
+  for (const legacy of [{ mode }, { mode, uiTheme: 'legacy' }]) {
+    const parsed = parseAppearance({
+      ...legacy,
+      tokens: 'classic',
+      board: 'oak',
+      density: 'large',
     });
-    expect(parseAppearance({ uiTheme: 'iron-ash', mode: 'dark', tokens: 'classic' })).toStrictEqual(
-      {
-        ...DEFAULT_APPEARANCE,
-        uiTheme: 'iron-ash',
-        mode: 'dark',
-        tokens: 'classic',
-      },
-    );
-  });
-
-  it('omits uiTheme when absent or invalid so existing storage keeps its meaning', () => {
-    expect(parseAppearance({ mode: 'wood' })).toStrictEqual({
-      ...DEFAULT_APPEARANCE,
-      mode: 'wood',
+    expect(parsed).toEqual({
+      version: 2,
+      uiTheme,
+      tokens: 'classic',
+      board: 'oak',
+      density: 'large',
     });
-    expect(parseAppearance({ uiTheme: 'not-a-theme' })).toStrictEqual(DEFAULT_APPEARANCE);
-    expect(parseAppearance({ uiTheme: 42 })).toStrictEqual(DEFAULT_APPEARANCE);
-    expect(parseAppearance(null)).toStrictEqual(DEFAULT_APPEARANCE);
-  });
-
-  it('keeps the explicit legacy option distinct from an unknown theme id', () => {
-    expect(parseAppearance({ uiTheme: LEGACY_UI_THEME })).toStrictEqual({
-      ...DEFAULT_APPEARANCE,
-      uiTheme: LEGACY_UI_THEME,
-    });
-  });
-
-  it('resolves the catalog default and the explicit legacy option', () => {
-    expect(resolveUiTheme(DEFAULT_APPEARANCE)).toBe('kings-table');
-    expect(resolveUiTheme({ ...DEFAULT_APPEARANCE, uiTheme: 'iron-ash' })).toBe('iron-ash');
-    expect(resolveUiTheme({ ...DEFAULT_APPEARANCE, uiTheme: LEGACY_UI_THEME })).toBe(
-      LEGACY_UI_THEME,
-    );
-    expect(isNamedUiTheme('kings-table')).toBe(true);
-    expect(isNamedUiTheme(LEGACY_UI_THEME)).toBe(false);
-  });
+    expect(parseAppearance(parsed)).toEqual(parsed);
+  }
+});
+it.each(UI_THEMES)('keeps named $id ahead of obsolete modes', (theme) =>
+  expect(parseAppearance({ uiTheme: theme.id, mode: 'wood' })).toEqual({
+    ...DEFAULT_APPEARANCE,
+    uiTheme: theme.id,
+  }),
+);
+it.each([
+  null,
+  [],
+  42,
+  'x',
+  { uiTheme: 'unknown' },
+  { uiTheme: ['saga-hall'] },
+  { uiTheme: '__proto__' },
+  { tokens: {}, board: '../x', density: 'wrong' },
+])('defaults invalid fields safely: %j', (value) =>
+  expect(parseAppearance(value)).toEqual(DEFAULT_APPEARANCE),
+);
+it('distinguishes automatic from explicit density', () => {
+  expect(effectiveDensity(parseAppearance(null), false)).toBe('default');
+  expect(effectiveDensity(parseAppearance(null), true)).toBe('large');
+  for (const density of ['compact', 'default', 'large'] as const)
+    expect(effectiveDensity(parseAppearance({ density }), true)).toBe(density);
 });

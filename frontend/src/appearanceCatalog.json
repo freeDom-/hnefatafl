@@ -1,11 +1,6 @@
 {
   "defaultTheme": "kings-table",
-  "legacyTheme": "legacy",
   "themes": {
-    "classic-table": {
-      "name": "Classic Table",
-      "description": "Simple parchment and forest green"
-    },
     "kings-table": {
       "name": "The King’s Table",
       "description": "Clean tabletop, parchment and pine"
@@ -17,6 +12,17 @@
     "saga-hall": {
       "name": "Saga Hall",
       "description": "Carved timber, leather and Nordic knotwork"
+    },
+    "classic-table": {
+      "name": "Classic Table",
+      "description": "Simple parchment and forest green"
     }
-  }
+  },
+  "legacyModes": {
+    "light": "classic-table",
+    "dark": "iron-ash",
+    "wood": "saga-hall",
+    "system": "kings-table"
+  },
+  "largeViewport": "(min-width: 3000px) and (min-height: 1600px)"
 }

@@ -62,23 +62,23 @@ const liveBadgeAppearances: readonly {
   {
     id: 'legacy-light',
     stored: { uiTheme: 'legacy', mode: 'light' },
-    background: 'rgb(240, 242, 232)',
-    color: 'rgb(38, 53, 46)',
-    border: 'rgb(23, 61, 55)',
+    background: 'rgb(240, 226, 198)',
+    color: 'rgb(74, 85, 72)',
+    border: 'rgb(27, 74, 52)',
   },
   {
     id: 'legacy-dark',
     stored: { uiTheme: 'legacy', mode: 'dark' },
-    background: 'rgb(41, 55, 45)',
-    color: 'rgb(191, 204, 179)',
-    border: 'rgb(167, 208, 187)',
+    background: 'rgb(35, 43, 47)',
+    color: 'rgb(185, 194, 198)',
+    border: 'rgb(214, 165, 80)',
   },
   {
     id: 'legacy-wood',
     stored: { uiTheme: 'legacy', mode: 'wood' },
-    background: 'rgb(71, 50, 37)',
-    color: 'rgb(222, 204, 172)',
-    border: 'rgb(230, 189, 125)',
+    background: 'rgb(67, 37, 26)',
+    color: 'rgb(216, 193, 156)',
+    border: 'rgb(232, 189, 114)',
   },
 ];
 /** A live online record: the Hall lists it with the `.record-live` badge. */
@@ -163,11 +163,10 @@ for (const theme of themes) {
   });
 
   for (const mode of modes) {
-    test(`keeps the ${theme.id} controls and color-scheme on the theme in ${mode} mode`, async ({
+    test(`keeps the ${theme.id} controls and color-scheme despite an obsolete ${mode} preference`, async ({
       page,
     }) => {
-      // `wood` is an application color mode, not a browser preference; the stored
-      // mode still drives data-color-mode and the theme's own color-scheme.
+      // Valid named themes take precedence over all migrated mode fields.
       await page.emulateMedia({
         colorScheme: mode === 'dark' || mode === 'system' ? 'dark' : 'light',
       });
@@ -184,7 +183,7 @@ for (const theme of themes) {
       await page.goto('/dashboard');
       const root = page.locator('html');
       await expect(root).toHaveAttribute('data-ui-theme', theme.id);
-      await expect(root).toHaveAttribute('data-color-mode', mode === 'system' ? 'dark' : mode);
+      await expect(root).not.toHaveAttribute('data-color-mode');
       // The legacy data-color-mode button variants must not repaint the theme.
       // The hero's primary action is the dashboard's creation entry point.
       // The hero swaps its action element when the running-game list resolves, so
@@ -210,6 +209,14 @@ for (const theme of themes) {
       expect(await card.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(
         theme.cardBorder,
       );
+      await expect(async () => {
+        const colors = await card.evaluate((node) => ({
+          background: getComputedStyle(node).backgroundColor,
+          text: getComputedStyle(node.querySelector('small')!).color,
+        }));
+        expect(contrastRatio(colors.text, colors.background)).toBeGreaterThanOrEqual(4.5);
+      }).toPass({ timeout: 10000 });
+
       expect(await root.evaluate((node) => getComputedStyle(node).colorScheme)).toContain(
         theme.colorScheme,
       );
@@ -258,14 +265,14 @@ test("applies King's Table when no UI theme is stored", async ({ page }) => {
   await page.screenshot({ path: `${output}/default-kings-table-desktop.png`, fullPage: true });
 });
 
-test('keeps the legacy appearance when the legacy option is stored', async ({ page }) => {
+test('migrates the old Classic look to the supported default', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme: 'legacy' }));
   });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/dashboard');
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-  await expect(page.locator('html')).not.toHaveAttribute('data-ui-theme');
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'kings-table');
   await page.screenshot({ path: `${output}/legacy-default-desktop.png`, fullPage: true });
 });
 

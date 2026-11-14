@@ -145,8 +145,7 @@ Open the username menu → **My Profile** → **Appearance**. The appearance set
 
 | Setting | Choices |
 | --- | --- |
-| UI theme | The King’s Table, Iron & Ash, Saga Hall, Classic Table; Classic look preserves the older appearance |
-| Color mode | Follow device, Light, Dark, Wood (controls surfaces in Classic look) |
+| UI theme | The King’s Table, Iron & Ash, Saga Hall, Classic Table |
 | Token theme | Classic stones, Viking figures, Carved wood |
 | Board theme | Golden oak, Old walnut, Fjord slate |
 | Interface scale | Compact, Default, Large |
@@ -157,11 +156,7 @@ viewport while retaining the selected scale. Play screens reserve more space for
 the board, with the page heading retained for screen readers. On desktop, tall
 side panels scroll within the play area so the board and footer stay in view.
 
-![Appearance settings with live previews](screenshots/appearance.png)
-
-See the [Viking figures in dark mode](screenshots/dark-vikings.png),
-[Fjord Diadem with carved wood on walnut](screenshots/default-wood-walnut.png), and
-[mobile dark mode](screenshots/mobile.png) for actual rendered examples.
+See the current [design system and visual acceptance](DESIGN_SYSTEM.md).
 
 The Viking set renders shield bearers and a crowned king. The carved set uses
 weathered wood grain and carved markings. Its king uses the selected **Fjord Diadem**:
@@ -172,20 +167,39 @@ Side and king distinctions remain visible
 in every theme. Legal destinations, move highlights and keyboard controls keep the
 same behavior. Changing appearance does not change game state or AI parameters.
 
-**Wood** turns the interface into a timber hall with bronze fittings, parchment
-text, carved runes, axes, a dragonboat, a hammer and a shield. It remains independent
-of the token and board themes, so it works with every available set.
+Preferences remain browser-local under `hnefatafl-appearance`, independently of accounts,
+progression, game state and language. The four UI themes own their palettes;
+there is no separate color-mode or Classic look control. King’s Table is the default.
+Token and board settings remain independent.
 
-See the [wood desktop view](screenshots/wood-theme-desktop.png) and
-[wood mobile view](screenshots/wood-theme-mobile.png).
+### Existing preference migration
 
-Preferences are stored in this browser under `hnefatafl-appearance`, independently
-of account profile details in the database. Follow-device mode responds to operating-system color
-changes. Invalid saved values fall back to supported defaults. If browser storage is
-unavailable, settings still work for the visit and the controls report the limitation.
-Fresh browsers use **Follow device + Carved wood + Old walnut + Default scale**. Valid saved choices
-remain in effect; missing or invalid fields fall back to these defaults. Choose
-those four settings to return to the defaults.
+Valid named UI themes take precedence over obsolete color modes. With no named
+theme, or with the former `legacy` (Classic look) selection, migration maps:
+
+| Old color mode | Supported theme |
+| --- | --- |
+| Light | Classic Table |
+| Dark | Iron & Ash |
+| Wood | Saga Hall |
+| Follow device / missing / invalid | The King’s Table |
+
+The mapping is deterministic and never depends on OS dark mode. An unknown named
+theme falls back to King’s Table. Valid token, board and explicitly saved scale
+values are preserved. React persists a normalized version-2 object without the
+obsolete mode field; parsing that object again produces the same result.
+The external synchronous initializer uses the same theme/migration catalog before
+React mounts. Storage failure retains usable visit-only settings.
+
+### Automatic and explicit scale
+
+When scale is absent, a CSS viewport at least 3000px wide and 1600px tall defaults
+to Large; smaller viewports use Default. A full 1920×1080 viewport therefore uses
+Default and a full 3840×2160 viewport uses Large. Browser zoom and OS scaling reduce
+the available CSS viewport: physical screen dimensions and pixel ratio are not used.
+Automatic scale follows viewport changes. Choosing Compact, Default or Large stores
+an explicit override, which survives resizing, zoom, reload and theme changes.
+Older valid saved scale values are treated as explicit, including Default.
 
 ## Adding another theme
 
@@ -199,4 +213,4 @@ For another board, add an entry to `BOARD_THEMES` with the existing palette keys
 light/dark squares, special-square variants, frame/rim/inner/edge, runes, selected
 square/ring, last move and legal destination. The provider translates these to
 `--board-*` CSS variables. Board and token catalogs are independent of each other
-and of the rulesets. Test new combinations in both color modes and at phone sizes.
+and of the rulesets. Test new combinations in all four UI themes and at phone sizes.

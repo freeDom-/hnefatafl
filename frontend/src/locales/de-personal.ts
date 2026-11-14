@@ -247,6 +247,8 @@ const personal: Record<string, string> = {
   'YOUR TURN': 'DU BIST AM ZUG',
   'THE TABLE IS SET': 'DER TISCH IST GEDECKT',
   'One move closer to victory.': 'Ein Zug näher am Sieg.',
+  'One move closer to': 'Ein Zug näher am',
+  'victory.': 'Sieg.',
   'Your match is waiting.': 'Deine Partie wartet.',
   'Start a new saga.': 'Beginne eine neue Saga.',
   '{me} vs {opponent}': '{me} gegen {opponent}',

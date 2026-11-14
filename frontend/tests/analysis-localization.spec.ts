@@ -463,11 +463,11 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   await openProfile(page);
   await page.getByRole('radio', { name: 'Holz', exact: true }).check();
   await openDestination(page, 'dashboard');
-  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'wood');
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'saga-hall');
   await returnToGame(page, gamePath);
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
-  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'wood');
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'saga-hall');
   await gameTab(page, 'analytics');
   await expect(page.getByRole('region', { name: 'Agentenbewertungen', exact: true })).toBeVisible();
   await expect

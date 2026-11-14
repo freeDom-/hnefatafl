@@ -87,21 +87,17 @@ function AppShell({
   logout,
   current,
   workspace,
-  immersive = false,
   children,
 }: {
   account: Account | null;
   logout?: () => Promise<void>;
   current?: string;
   workspace: Workspace;
-  immersive?: boolean;
   children: ReactNode;
 }) {
   const { t } = useI18n();
   const mounted = useRef(false);
-  // Live gameplay and replay keep the full viewport width (the design rule is to
-  // never cover the board), so the rail/top bar give way to the compact shell.
-  const desktopSidebar = useDesktopSidebar() && !immersive;
+  const desktopSidebar = useDesktopSidebar();
   useEffect(() => {
     document.documentElement.dataset.workspace = workspace;
   }, [workspace]);

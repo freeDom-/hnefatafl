@@ -1,12 +1,7 @@
 import { useId, useState } from 'react';
 import type { Account } from './Auth';
 import { useAppearance } from './Appearance';
-import {
-  LEGACY_UI_THEME,
-  LEGACY_UI_THEME_OPTION,
-  UI_THEMES,
-  resolveUiTheme,
-} from './appearanceConfig';
+import { UI_THEMES, resolveUiTheme } from './appearanceConfig';
 import { useI18n } from './i18n';
 import { surfaceLink } from './surfaceNavigation';
 import { ARENA_SIDEBAR_ITEMS, workshopDestinationId, type SidebarItem } from './sidebarNavigation';
@@ -23,7 +18,6 @@ import './arenaSidebar.css';
 const KNOT_ICON = '/assets/arena-v2/assets/icons/hnefatafl-knot.svg';
 
 function themeLabel(theme: string) {
-  if (theme === LEGACY_UI_THEME) return LEGACY_UI_THEME_OPTION.name;
   return UI_THEMES.find((candidate) => candidate.id === theme)?.name ?? theme;
 }
 

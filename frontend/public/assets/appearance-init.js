@@ -1,41 +1,46 @@
 /* BEGIN GENERATED APPEARANCE CATALOG */
 const UI_THEME_CATALOG = {
   defaultTheme: 'kings-table',
-  legacyTheme: 'legacy',
-  themes: { 'classic-table': true, 'kings-table': true, 'iron-ash': true, 'saga-hall': true },
+  legacyModes: {
+    light: 'classic-table',
+    dark: 'iron-ash',
+    wood: 'saga-hall',
+    system: 'kings-table',
+  },
+  largeViewport: '(min-width: 3000px) and (min-height: 1600px)',
+  themes: { 'kings-table': true, 'iron-ash': true, 'saga-hall': true, 'classic-table': true },
 };
 /* END GENERATED APPEARANCE CATALOG */
-// Apply the saved/device color mode and UI theme before the first painted frame.
+// Synchronous, external and CSP-compatible: match React before the first frame.
 try {
-  const saved = JSON.parse(localStorage.getItem('hnefatafl-appearance') || 'null');
-  const mode =
-    saved && ['light', 'dark', 'wood', 'system'].includes(saved.mode) ? saved.mode : 'system';
-  const dark =
-    mode === 'dark' ||
-    mode === 'wood' ||
-    (mode === 'system' &&
-      window.matchMedia &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.dataset.colorMode = mode === 'wood' ? 'wood' : dark ? 'dark' : 'light';
-  document.documentElement.dataset.density =
-    saved && ['compact', 'default', 'large'].includes(saved.density) ? saved.density : 'default';
-  // Mirror `appearanceConfig.ts`: the catalog default paints until another theme is
-  // chosen, and only the explicit legacy option leaves `data-ui-theme` unset.
-  const uiTheme =
-    saved &&
+  const raw = JSON.parse(localStorage.getItem('hnefatafl-appearance') || 'null');
+  const saved = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const named =
     typeof saved.uiTheme === 'string' &&
-    Object.prototype.hasOwnProperty.call(UI_THEME_CATALOG.themes, saved.uiTheme)
-      ? saved.uiTheme
-      : saved && saved.uiTheme === UI_THEME_CATALOG.legacyTheme
-        ? null
-        : UI_THEME_CATALOG.defaultTheme;
-  if (uiTheme) document.documentElement.dataset.uiTheme = uiTheme;
-  else delete document.documentElement.dataset.uiTheme;
-  // A named theme owns `color-scheme` through `arena-themes.css`.
-  if (!uiTheme) document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    Object.prototype.hasOwnProperty.call(UI_THEME_CATALOG.themes, saved.uiTheme);
+  const old = saved.uiTheme == null || saved.uiTheme === 'legacy';
+  const mapped =
+    typeof saved.mode === 'string' &&
+    Object.prototype.hasOwnProperty.call(UI_THEME_CATALOG.legacyModes, saved.mode)
+      ? UI_THEME_CATALOG.legacyModes[saved.mode]
+      : UI_THEME_CATALOG.defaultTheme;
+  document.documentElement.dataset.uiTheme = named
+    ? saved.uiTheme
+    : old
+      ? mapped
+      : UI_THEME_CATALOG.defaultTheme;
+  const large = window.matchMedia && window.matchMedia(UI_THEME_CATALOG.largeViewport).matches;
+  document.documentElement.dataset.density = ['compact', 'default', 'large'].includes(saved.density)
+    ? saved.density
+    : large
+      ? 'large'
+      : 'default';
+  delete document.documentElement.dataset.colorMode;
 } catch {
-  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  document.documentElement.dataset.colorMode = dark ? 'dark' : 'light';
-  document.documentElement.dataset.density = 'default';
   document.documentElement.dataset.uiTheme = UI_THEME_CATALOG.defaultTheme;
+  document.documentElement.dataset.density =
+    window.matchMedia && window.matchMedia(UI_THEME_CATALOG.largeViewport).matches
+      ? 'large'
+      : 'default';
+  delete document.documentElement.dataset.colorMode;
 }

@@ -1,11 +1,15 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AppearanceProvider, AppearanceSettings } from './Appearance';
 import Board from './Board';
 import type { Game } from './types';
-import { APPEARANCE_KEY, DEFAULT_APPEARANCE, parseAppearance } from './appearanceConfig';
+import {
+  APPEARANCE_KEY,
+  DEFAULT_APPEARANCE,
+  LARGE_VIEWPORT_QUERY,
+  UI_THEMES,
+} from './appearanceConfig';
 import { I18nProvider, LANGUAGE_KEY } from './i18n';
-
 const game: Game = {
   id: 'appearance-game',
   ruleset: 'brandubh',
@@ -28,23 +32,21 @@ const game: Game = {
   captured: { attackers: 0, defenders: 0 },
   created_at: '',
 };
-let deviceDark = false;
-let mediaListeners: Set<(event: MediaQueryListEvent) => void>;
+
+let large = false;
+let listeners: Set<() => void>;
 beforeEach(() => {
   localStorage.clear();
-  deviceDark = false;
-  mediaListeners = new Set();
+  large = false;
+  listeners = new Set();
   vi.stubGlobal(
     'matchMedia',
-    vi.fn(() => ({
+    vi.fn((query: string) => ({
       get matches() {
-        return deviceDark;
+        return query === LARGE_VIEWPORT_QUERY && large;
       },
-      media: '(prefers-color-scheme: dark)',
-      addEventListener: (_name: string, listener: (event: MediaQueryListEvent) => void) =>
-        mediaListeners.add(listener),
-      removeEventListener: (_name: string, listener: (event: MediaQueryListEvent) => void) =>
-        mediaListeners.delete(listener),
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
     })),
   );
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
@@ -59,8 +61,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-const renderTable = () =>
-  render(
+function table() {
+  return render(
     <I18nProvider>
       <AppearanceProvider>
         <AppearanceSettings />
@@ -68,308 +70,163 @@ const renderTable = () =>
       </AppearanceProvider>
     </I18nProvider>,
   );
-const openSettings = () =>
+}
+function open() {
   fireEvent.click(screen.getByRole('button', { name: 'Appearance settings' }));
-const changeDevice = (dark: boolean) =>
+}
+function resize(value: boolean) {
   act(() => {
-    deviceDark = dark;
-    for (const listener of mediaListeners) listener({ matches: dark } as MediaQueryListEvent);
+    large = value;
+    listeners.forEach((listener) => listener());
   });
-
-describe('appearance preferences', () => {
-  it('starts a fresh browser with carved wood and old walnut', () => {
-    renderTable();
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Carved wood' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Old walnut' })).toBeChecked();
-    expect(document.documentElement).toHaveAttribute('data-token-theme', 'wood');
-    expect(document.documentElement).toHaveAttribute('data-board-theme', 'walnut');
-    expect(document.documentElement).toHaveAttribute('data-density', 'default');
-    expect(screen.getByRole('radio', { name: 'Default' })).toBeChecked();
-    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'kings-table');
-    expect(screen.getByRole('radio', { name: 'The King’s Table' })).toBeChecked();
-    expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#b69570');
-    expect(
-      screen.getByRole('gridcell', { name: 'a3, attacker' }).querySelector('.token-wood'),
-    ).toBeInTheDocument();
-    expect(
-      screen
-        .getByRole('gridcell', { name: 'b2, king' })
-        .querySelector('svg[data-king-design="fjord-diadem"]'),
-    ).toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual(DEFAULT_APPEARANCE);
-  });
-
-  it('preserves saved classic/oak choices and defaults only missing or invalid fields', () => {
-    const saved = { mode: 'light', tokens: 'classic', board: 'oak', density: 'compact' };
-    localStorage.setItem(APPEARANCE_KEY, JSON.stringify(saved));
-    renderTable();
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Classic stones' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Golden oak' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
-    expect(document.documentElement).toHaveAttribute('data-density', 'compact');
-    expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#e4d3ac');
-    expect(
-      screen
-        .getByRole('gridcell', { name: 'b2, king' })
-        .querySelector('[data-king-design="fjord-diadem"]'),
-    ).toBeNull();
-    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual(saved);
-    expect(parseAppearance({ mode: 'dark' })).toEqual({ ...DEFAULT_APPEARANCE, mode: 'dark' });
-    expect(parseAppearance({ density: 'invalid' }).density).toBe('default');
-    expect(parseAppearance({ mode: 'light', tokens: 'classic', board: 'oak' })).toEqual({
-      mode: 'light',
-      tokens: 'classic',
-      board: 'oak',
-      density: 'default',
-    });
-    expect(parseAppearance({ tokens: 'classic', board: 'invalid' })).toEqual({
-      ...DEFAULT_APPEARANCE,
-      tokens: 'classic',
-    });
-  });
-
-  it('changes actual token artwork and board palette without changing game interaction, and restores choices after remount', () => {
-    const view = renderTable();
-    openSettings();
-    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
-    fireEvent.click(screen.getByRole('radio', { name: 'Viking figures' }));
-    fireEvent.click(screen.getByRole('radio', { name: 'Fjord slate' }));
-    const cell = screen.getByRole('gridcell', { name: 'a3, attacker' });
-    expect(cell.querySelector('svg[data-token-art="viking"]')).toBeInTheDocument();
-    expect(cell).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('gridcell', { name: 'b3, empty, legal move' })).toHaveClass('legal');
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'dark');
-    expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#c4d3d5');
-    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
-      mode: 'dark',
-      tokens: 'viking',
-      board: 'slate',
-      density: 'default',
-    });
-    view.unmount();
-    renderTable();
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Viking figures' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Fjord slate' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Dark' })).toBeChecked();
-    fireEvent.click(screen.getByRole('radio', { name: 'Carved wood' }));
-    expect(
-      screen
-        .getByRole('gridcell', { name: 'a3, attacker' })
-        .querySelector('svg[data-token-art="wood"]'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('gridcell', { name: 'b2, king' }).querySelector('.wood-carving'),
-    ).toBeInTheDocument();
-  });
-
-  it('changes and restores interface scale independently of the themes', () => {
-    const view = renderTable();
-    openSettings();
-    for (const density of ['compact', 'large', 'default'] as const) {
-      fireEvent.click(
-        screen.getByRole('radio', {
-          name: density[0].toUpperCase() + density.slice(1),
-        }),
-      );
-      expect(document.documentElement).toHaveAttribute('data-density', density);
-      expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
-        ...DEFAULT_APPEARANCE,
-        density,
-      });
-    }
-    fireEvent.click(screen.getByRole('radio', { name: 'Compact' }));
-    view.unmount();
-    renderTable();
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
-    expect(document.documentElement).toHaveAttribute('data-density', 'compact');
-  });
-
-  it('follows changes to the device color scheme while respecting an explicit override', () => {
-    deviceDark = true;
-    renderTable();
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'dark');
-    changeDevice(false);
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'light');
-    openSettings();
-    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
-    changeDevice(true);
-    changeDevice(false);
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'dark');
-    fireEvent.click(screen.getByRole('radio', { name: 'Follow device' }));
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'light');
-  });
-
-  it('restores wood mode and its decorative motifs without changing board or token choices', () => {
-    const view = renderTable();
-    expect(document.querySelector('[data-wood-ornaments]')).toBeNull();
-    openSettings();
-    // Wood mode belongs to the legacy layer; the named themes own the surfaces.
-    fireEvent.click(screen.getByRole('radio', { name: 'Classic look' }));
-    fireEvent.click(screen.getByRole('radio', { name: 'Wood' }));
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
-    expect(document.documentElement.style.colorScheme).toBe('dark');
-    expect(document.documentElement).toHaveAttribute('data-token-theme', 'wood');
-    expect(document.documentElement).toHaveAttribute('data-board-theme', 'walnut');
-    expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#b69570');
-    expect(document.querySelector('[data-wood-ornaments]')).toHaveAttribute('aria-hidden', 'true');
-    expect(document.querySelectorAll('[data-wood-motif]')).toHaveLength(4);
-    changeDevice(true);
-    changeDevice(false);
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
-    view.unmount();
-    renderTable();
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Wood' })).toBeChecked();
-    fireEvent.click(screen.getByRole('radio', { name: 'Light' }));
-    expect(document.querySelector('[data-wood-ornaments]')).toBeNull();
-    expect(document.documentElement.style.colorScheme).toBe('light');
-  });
-
-  it('uses German appearance labels while saving the same theme identifiers', () => {
-    localStorage.setItem(LANGUAGE_KEY, 'de');
-    renderTable();
-    fireEvent.click(screen.getByRole('button', { name: 'Darstellungseinstellungen' }));
-    expect(screen.getByRole('radio', { name: 'Geschnitztes Holz' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Alter Nussbaum' })).toBeChecked();
-    expect(screen.getByText('Oberflächengröße')).toBeVisible();
-    expect(screen.getByRole('radio', { name: 'Kompakt' })).toBeVisible();
-    expect(screen.getByRole('radio', { name: 'Standard' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Groß' })).toBeVisible();
-    fireEvent.click(screen.getByRole('radio', { name: 'Holz' }));
-    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
-      ...DEFAULT_APPEARANCE,
-      mode: 'wood',
-    });
-    expect(screen.getByRole('button', { name: 'Zurück zum Spieltisch' })).toBeInTheDocument();
-  });
-
-  it('recovers from corrupt or invalid saved preferences instead of breaking the board', () => {
-    localStorage.setItem(APPEARANCE_KEY, '{not valid JSON');
-    const view = renderTable();
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Carved wood' })).toBeChecked();
-    expect(screen.getAllByRole('gridcell')).toHaveLength(9);
-    view.unmount();
+}
+it('offers exactly four UI themes and independent tokens, board and scale without obsolete modes', () => {
+  table();
+  open();
+  for (const theme of UI_THEMES)
+    expect(screen.getByRole('radio', { name: theme.name })).toBeVisible();
+  for (const name of ['Light', 'Dark', 'Wood', 'Follow device', 'Classic look'])
+    expect(screen.queryByRole('radio', { name })).toBeNull();
+  expect(screen.getByRole('radio', { name: 'The King’s Table' })).toBeChecked();
+  expect(screen.getByRole('radio', { name: 'Carved wood' })).toBeChecked();
+  expect(screen.getByRole('radio', { name: 'Old walnut' })).toBeChecked();
+  expect(document.documentElement).not.toHaveAttribute('data-color-mode');
+  expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual(DEFAULT_APPEARANCE);
+});
+it.each(UI_THEMES)(
+  'persists $id without changing board, tokens or explicit scale or gameplay',
+  (theme) => {
     localStorage.setItem(
       APPEARANCE_KEY,
-      JSON.stringify({ mode: 'invalid', tokens: {}, board: '../no' }),
+      JSON.stringify({ mode: 'wood', tokens: 'classic', board: 'slate', density: 'compact' }),
     );
-    renderTable();
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Follow device' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Old walnut' })).toBeChecked();
-  });
-
-  it('still lets users customize and dismiss the dialog when browser storage is unavailable', () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('blocked');
-    });
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('blocked');
-    });
-    renderTable();
-    openSettings();
-    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'dark');
-    expect(screen.getByRole('status')).toHaveTextContent('apply for this visit');
-    const dialog = screen.getByRole('dialog', { name: 'Appearance settings' });
-    fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
-    expect(dialog).not.toHaveAttribute('open');
-  });
-
-  it('applies the catalog default until another theme is chosen and can return to the legacy look', () => {
-    const view = renderTable();
-    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'kings-table');
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'The King’s Table' })).toBeChecked();
-    fireEvent.click(screen.getByRole('radio', { name: 'Iron & Ash' }));
-    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'iron-ash');
+    const view = table();
+    open();
+    fireEvent.click(screen.getByRole('radio', { name: theme.name }));
+    expect(screen.getByRole('gridcell', { name: 'a3, attacker' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('gridcell', { name: 'b3, empty, legal move' })).toHaveClass('legal');
+    expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#c4d3d5');
     expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
-      ...DEFAULT_APPEARANCE,
-      uiTheme: 'iron-ash',
+      version: 2,
+      uiTheme: theme.id,
+      tokens: 'classic',
+      board: 'slate',
+      density: 'compact',
     });
-    // The independent appearance dimensions are untouched.
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'light');
-    expect(document.documentElement).toHaveAttribute('data-token-theme', 'wood');
-    expect(document.documentElement).toHaveAttribute('data-board-theme', 'walnut');
-    expect(document.documentElement).toHaveAttribute('data-density', 'default');
     view.unmount();
-    renderTable();
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Iron & Ash' })).toBeChecked();
-    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'iron-ash');
-    fireEvent.click(screen.getByRole('radio', { name: 'Classic Table' }));
-    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'classic-table');
-    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!).uiTheme).toBe('classic-table');
-    fireEvent.click(screen.getByRole('radio', { name: 'Classic look' }));
-    expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
-    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
-      ...DEFAULT_APPEARANCE,
-      uiTheme: 'legacy',
-    });
-  });
-
-  it('keeps the wood color mode out of the named-theme layer', () => {
-    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ mode: 'wood', uiTheme: 'legacy' }));
-    renderTable();
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
-    expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
-    expect(document.querySelector('[data-wood-ornaments]')).toBeInTheDocument();
-    expect(document.documentElement.style.colorScheme).toBe('dark');
-    openSettings();
-    fireEvent.click(screen.getByRole('radio', { name: 'Saga Hall' }));
-    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'saga-hall');
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
-  });
-
-  it('keeps every named theme independent from every color mode and restores the pair', () => {
-    const themes = [
-      ['The King’s Table', 'kings-table'],
-      ['Iron & Ash', 'iron-ash'],
-      ['Saga Hall', 'saga-hall'],
-    ] as const;
-    const view = renderTable();
-    openSettings();
-    // King's Table is the catalog default and already checked on a fresh browser,
-    // so clicking an already-selected radio would not fire a change. Prime the
-    // stored choice first, then the loop always exercises a real change.
-    fireEvent.click(screen.getByRole('radio', { name: 'Iron & Ash' }));
-    for (const [label, id] of themes) {
-      for (const [mode, resolved] of [
-        ['Light', 'light'],
-        ['Dark', 'dark'],
-        ['Wood', 'wood'],
-        ['Follow device', 'light'],
-      ] as const) {
-        fireEvent.click(screen.getByRole('radio', { name: mode }));
-        fireEvent.click(screen.getByRole('radio', { name: label }));
-        const root = document.documentElement;
-        expect(root).toHaveAttribute('data-ui-theme', id);
-        expect(root).toHaveAttribute('data-color-mode', resolved);
-        // The named theme owns color-scheme through its CSS; no inline mode wins.
-        expect(root.style.colorScheme).toBe('');
-        // Token, board and density choices stay independent of the UI theme.
-        expect(root).toHaveAttribute('data-token-theme', 'wood');
-        expect(root).toHaveAttribute('data-board-theme', 'walnut');
-        expect(root).toHaveAttribute('data-density', 'default');
-        expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({
-          ...DEFAULT_APPEARANCE,
-          uiTheme: id,
-          mode: mode === 'Follow device' ? 'system' : mode.toLowerCase(),
-        });
-      }
-    }
-    view.unmount();
-    renderTable();
-    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'saga-hall');
-    expect(document.documentElement).toHaveAttribute('data-color-mode', 'light');
-    expect(document.documentElement.style.colorScheme).toBe('');
-    openSettings();
-    expect(screen.getByRole('radio', { name: 'Saga Hall' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Follow device' })).toBeChecked();
-  });
+    table();
+    open();
+    expect(screen.getByRole('radio', { name: theme.name })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
+  },
+);
+it('changes actual token art and board colours while retaining independent theme and turn', () => {
+  table();
+  open();
+  fireEvent.click(screen.getByRole('radio', { name: 'Viking figures' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'Golden oak' }));
+  expect(
+    screen
+      .getByRole('gridcell', { name: 'a3, attacker' })
+      .querySelector('svg[data-token-art="viking"]'),
+  ).toBeInTheDocument();
+  expect(document.documentElement.style.getPropertyValue('--board-light')).toBe('#e4d3ac');
+  expect(document.documentElement).toHaveAttribute('data-ui-theme', 'kings-table');
+  fireEvent.click(screen.getByRole('radio', { name: 'Carved wood' }));
+  expect(
+    screen
+      .getByRole('gridcell', { name: 'b2, king' })
+      .querySelector('[data-king-design="fjord-diadem"]'),
+  ).toBeInTheDocument();
 });
+it('uses viewport defaults without persisting an automatic choice, respecting explicit overrides across resize and reload', () => {
+  const view = table();
+  open();
+  expect(screen.getByRole('radio', { name: 'Default' })).toBeChecked();
+  resize(true);
+  expect(screen.getByRole('radio', { name: 'Large' })).toBeChecked();
+  expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).not.toHaveProperty('density');
+  for (const name of ['Compact', 'Default', 'Large']) {
+    fireEvent.click(screen.getByRole('radio', { name }));
+    resize(false);
+    resize(true);
+    expect(screen.getByRole('radio', { name })).toBeChecked();
+  }
+  view.unmount();
+  table();
+  open();
+  resize(false);
+  expect(screen.getByRole('radio', { name: 'Large' })).toBeChecked();
+});
+it('preserves an explicit old default scale at 4K and does not mutate unrelated preferences', () => {
+  large = true;
+  localStorage.setItem('hnefatafl-play-route', '/games/keep');
+  localStorage.setItem(
+    APPEARANCE_KEY,
+    JSON.stringify({
+      mode: 'dark',
+      uiTheme: 'legacy',
+      density: 'default',
+      tokens: 'viking',
+      board: 'oak',
+    }),
+  );
+  const view = table();
+  expect(document.documentElement).toHaveAttribute('data-ui-theme', 'iron-ash');
+  expect(document.documentElement).toHaveAttribute('data-density', 'default');
+  const migrated = localStorage.getItem(APPEARANCE_KEY);
+  view.unmount();
+  table();
+  expect(localStorage.getItem(APPEARANCE_KEY)).toBe(migrated);
+  expect(localStorage.getItem('hnefatafl-play-route')).toBe('/games/keep');
+});
+it('localizes supported appearance controls in German without obsolete labels', () => {
+  localStorage.setItem(LANGUAGE_KEY, 'de');
+  table();
+  fireEvent.click(screen.getByRole('button', { name: 'Darstellungseinstellungen' }));
+  expect(screen.getByRole('radio', { name: 'Geschnitztes Holz' })).toBeChecked();
+  expect(screen.getByRole('radio', { name: 'Standard' })).toBeChecked();
+  expect(screen.queryByText('Farbmodus')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Zurück zum Spieltisch' })).toBeVisible();
+});
+it('recovers from corrupt preferences and permits visit-only changes when storage is blocked', () => {
+  localStorage.setItem(APPEARANCE_KEY, '{');
+  const view = table();
+  open();
+  expect(screen.getAllByRole('gridcell')).toHaveLength(9);
+  view.unmount();
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw Error('blocked');
+  });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw Error('blocked');
+  });
+  table();
+  open();
+  fireEvent.click(screen.getByRole('radio', { name: 'Saga Hall' }));
+  expect(document.documentElement).toHaveAttribute('data-ui-theme', 'saga-hall');
+  expect(screen.getByRole('status')).toHaveTextContent('apply for this visit');
+  const dialog = screen.getByRole('dialog');
+  fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
+  expect(dialog).not.toHaveAttribute('open');
+});
+
+it.each([false, true])(
+  'locks an explicit choice when the already-selected automatic radio is clicked (large viewport: %s)',
+  (value) => {
+    large = value;
+    table();
+    open();
+    const name = value ? 'Large' : 'Default';
+    fireEvent.click(screen.getByRole('radio', { name }));
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toHaveProperty(
+      'density',
+      value ? 'large' : 'default',
+    );
+    resize(!value);
+    expect(screen.getByRole('radio', { name })).toBeChecked();
+  },
+);

@@ -77,11 +77,16 @@
   color: var(--arena-metal, var(--gold));
 }
 .theme-select {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 .theme-select-label {
+  white-space: nowrap;
+  flex: 0 0 auto;
   font-family: var(--font-ui);
   font-size: var(--text-caption);
   font-weight: 600;
@@ -111,5 +116,14 @@
 @media (max-width: 1280px) {
   .arena-topbar-workspace {
     display: none;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1400px) {
+  .arena-topbar-brand small {
+    display: none;
+  }
+  .arena-topbar-band {
+    min-width: 0;
   }
 }

@@ -118,11 +118,11 @@ test('account menu, private profile, verification, password and device preferenc
   await expect(page.getByLabel('Current password')).toHaveValue('');
   await expect(page.getByLabel('New password', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Confirm new password')).toHaveValue('');
-  await page.getByRole('radio', { name: 'Dark', exact: true }).check();
+  await page.getByRole('radio', { name: 'Iron & Ash', exact: true }).check();
   await language.selectOption('de');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
-  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'iron-ash');
   await expect(page.getByRole('option', { name: 'Deutschland', exact: true })).toBeAttached();
   await logoutFromAccount(page);
   await expect(page.getByRole('combobox', { name: 'Sprache' })).toBeVisible();

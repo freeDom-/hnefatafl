@@ -591,7 +591,7 @@ test('names and marks a rejected training field in every appearance', async ({ p
     ),
   );
   await page.goto('/dashboard');
-  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'iron-ash');
   await openWorkshop(page);
   const darkChannels = await rejectTrainingFields(page);
   const darkMarker = await darkChannels.evaluate(marker);

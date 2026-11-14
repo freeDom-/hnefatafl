@@ -1,16 +1,4 @@
-/* Hnefatafl Arena v2 UI themes, imported after appearance.css in main.tsx.
- * `data-ui-theme` is set by default to the catalog default (King's Table); only the
- * explicit legacy option leaves it unset so the existing data-color-mode /
- * data-board-theme / data-token-theme behavior is untouched. Every legacy
- * mode-scoped component override is guarded by :not([data-ui-theme]).
- * A named theme owns the shell surface variables, its rail, its fonts, its
- * controls, chart colors, knot bands and color-scheme. Mode, token,
- * board and density choices stay independent. The tiled `--arena-texture` stays a
- * single low-key layer on the page and the shell chrome instead of covering every
- * panel. Asset URLs resolve under the copied public path: frontend/public/assets/arena-v2/assets/
- * Palettes follow the approved references in docs/DESIGN_SYSTEM.md: King's Table
- * parchment/gold, Iron & Ash slate/gold, Saga Hall timber/copper.
- */
+/* Four UI palettes own the shell and controls. Board, tokens and scale stay independent. */
 :root[data-ui-theme='kings-table'] {
   color-scheme: light;
   --arena-ink: #10291f;
@@ -48,7 +36,7 @@
   --green-dark: #123322;
   --gold: #b77a25;
   --line: var(--arena-line);
-  --muted: #6a7263;
+  --muted: var(--arena-ink-muted);
   --ui-header: #f0e2c6;
   --ui-dialog: #fbf2df;
   --ui-tint: #ece0c6;
@@ -59,7 +47,7 @@
   --ui-border: var(--arena-line);
   --ui-heading: var(--arena-ink);
   --ui-copy: var(--arena-ink-muted);
-  --ui-subtle: #5f6a5c;
+  --ui-subtle: var(--arena-ink-muted);
   --focus-ring: #946019;
 }
 :root[data-ui-theme='iron-ash'] {
@@ -199,10 +187,7 @@
   box-shadow: 0 4px 18px #0002;
   min-width: 0;
 }
-.arena-textured {
-  background-image: linear-gradient(to bottom, #0000, #00000009), var(--arena-texture);
-  background-repeat: no-repeat, repeat;
-}
+
 .arena-primary-action {
   background: var(--arena-accent);
   color: var(--arena-accent-contrast);
@@ -236,10 +221,7 @@
     transition: none;
   }
 }
-/* A named theme owns the shell surface treatment, including the legacy wood
- * overlays: drop those background images so the theme's panel color is not
- * mixed with the old timber texture. Mode, tokens, board and density stay
- * independent and the board palette is untouched. */
+/* Default feature panels use solid palette surfaces; only opted-in panels carry material artwork. */
 :root[data-ui-theme] .panel,
 :root[data-ui-theme] .metric,
 :root[data-ui-theme] .welcome-panel,
@@ -247,10 +229,7 @@
   background-image: none;
 }
 
-/* A named theme also owns its primary control and its error surfaces. The
- * legacy mode-scoped button variants are disabled by the :not([data-ui-theme])
- * guards in appearance.css; these rules keep the contrast pair explicit so
- * every theme stays readable in every color mode. */
+/* Keep the primary text/background contrast pair explicit in every named theme. */
 :root[data-ui-theme] .button.primary {
   background: var(--arena-accent);
   border-color: var(--arena-accent);
@@ -350,7 +329,7 @@
   --green-dark: #123322;
   --gold: #b77a25;
   --line: var(--arena-line);
-  --muted: #6a7263;
+  --muted: var(--arena-ink-muted);
   --ui-header: #f0e2c6;
   --ui-dialog: #fbf2df;
   --ui-tint: #ece0c6;
@@ -361,7 +340,7 @@
   --ui-border: var(--arena-line);
   --ui-heading: var(--arena-ink);
   --ui-copy: var(--arena-ink-muted);
-  --ui-subtle: #5f6a5c;
+  --ui-subtle: var(--arena-ink-muted);
   --focus-ring: #946019;
 }
 
@@ -382,4 +361,120 @@
   height: 1px;
   background-image: none;
   background-color: var(--arena-line);
+}
+
+/* Scene artwork is decorative and static. Solid panel colours remain the fallback. */
+:root[data-ui-theme='saga-hall'] body,
+:root[data-ui-theme='iron-ash'] body {
+  background-image: linear-gradient(var(--scene-overlay), var(--scene-overlay)), var(--scene-art);
+  background-size: cover;
+  background-position: center top;
+  background-attachment: fixed;
+}
+:root[data-ui-theme='saga-hall'] {
+  --scene-art: var(--arena-hall-art, url('/assets/arena-v2/assets/art/saga-hall-great-hall.webp'));
+  --scene-overlay: #120a0633;
+}
+:root[data-ui-theme='iron-ash'] {
+  --scene-art: var(--arena-forge-art, url('/assets/arena-v2/assets/art/iron-ash-forge.webp'));
+  --scene-overlay: #08101838;
+}
+@media (max-width: 1400px) {
+  :root[data-ui-theme='saga-hall'] {
+    --scene-art: var(
+      --arena-hallSmall-art,
+      url('/assets/arena-v2/assets/art/saga-hall-great-hall-small.webp')
+    );
+  }
+  :root[data-ui-theme='iron-ash'] {
+    --scene-art: var(
+      --arena-forgeSmall-art,
+      url('/assets/arena-v2/assets/art/iron-ash-forge-small.webp')
+    );
+  }
+}
+:root[data-ui-theme='iron-ash'] .arena-surface {
+  background-image: linear-gradient(130deg, #ffffff04, #00000018);
+}
+:root[data-ui-theme='saga-hall'] .arena-surface,
+:root[data-ui-theme='saga-hall'] .dashboard-stat,
+:root[data-ui-theme='saga-hall'] .dashboard-game-list > li {
+  border: 3px solid var(--arena-metal);
+  border-image: var(--arena-frame-art, url('/assets/arena-v2/assets/icons/carved-frame.svg')) 24 /
+    10px / 0 stretch;
+  box-shadow:
+    inset 0 0 0 7px #160d09,
+    inset 0 0 28px #0008,
+    0 7px 20px #0006;
+}
+:root[data-ui-theme='saga-hall'] .dashboard-portrait {
+  border-image: var(--arena-frame-art) 24 / 7px / 3px stretch;
+}
+:root[data-ui-theme='saga-hall'] .button,
+:root[data-ui-theme='saga-hall'] .arena-primary-action {
+  border: 2px solid #b38951;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #453124, #241a14);
+  box-shadow:
+    inset 0 0 0 2px #140d09,
+    inset 0 3px 0 #c28e4d44,
+    0 2px 5px #0006;
+  color: #f1ddbb;
+  text-shadow: 0 1px 1px #000;
+  transition:
+    background-color 0.15s,
+    box-shadow 0.15s;
+}
+:root[data-ui-theme='saga-hall'] .button.primary,
+:root[data-ui-theme='saga-hall'] .arena-primary-action {
+  background: linear-gradient(180deg, #f0cf91, #e8bd72 55%, #d6a655);
+  color: #25170e;
+  text-shadow: none;
+  border-color: #eccd91;
+  box-shadow:
+    inset 0 0 0 2px #9b703a,
+    inset 0 0 0 4px #ffedbc77,
+    0 3px 7px #0007;
+}
+:root[data-ui-theme='saga-hall'] .button:hover:not(:disabled),
+:root[data-ui-theme='saga-hall'] .arena-primary-action:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow:
+    inset 0 0 0 2px #9b703a,
+    0 0 0 1px #f5ce8d;
+}
+:root[data-ui-theme='saga-hall'] .button:active:not(:disabled),
+:root[data-ui-theme='saga-hall'] .arena-primary-action:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+:root[data-ui-theme='saga-hall'] .button:disabled,
+:root[data-ui-theme='saga-hall'] .arena-primary-action:disabled {
+  opacity: 0.65;
+  filter: saturate(0.3);
+  cursor: not-allowed;
+}
+:root[data-ui-theme='saga-hall'] .button:focus-visible,
+:root[data-ui-theme='saga-hall'] .arena-primary-action:focus-visible {
+  outline: 3px solid #ffe2a8;
+  outline-offset: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-theme='saga-hall'] .button,
+  :root[data-ui-theme='saga-hall'] .arena-primary-action {
+    transition: none;
+  }
+}
+
+:root[data-ui-theme='saga-hall'] .button,
+:root[data-ui-theme='saga-hall'] .arena-primary-action {
+  background-color: #241a14;
+  border-image: var(--arena-frame-art) 24 / 6px / 0 stretch;
+}
+:root[data-ui-theme='saga-hall'] .button.primary,
+:root[data-ui-theme='saga-hall'] .arena-primary-action {
+  background-color: var(--arena-accent);
+}
+:root[data-ui-theme='kings-table'] body {
+  background-image: var(--arena-texture);
+  background-size: 512px;
 }

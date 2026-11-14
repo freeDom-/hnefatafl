@@ -7,7 +7,8 @@ const catalog = JSON.parse(
 );
 const bootstrapCatalog = {
   defaultTheme: catalog.defaultTheme,
-  legacyTheme: catalog.legacyTheme,
+  legacyModes: catalog.legacyModes,
+  largeViewport: catalog.largeViewport,
   themes: Object.fromEntries(Object.keys(catalog.themes).map((id) => [id, true])),
 };
 const source = await readFile(path, 'utf8');

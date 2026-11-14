@@ -13,10 +13,7 @@
   font-size: 0.875rem;
   line-height: 1.5;
 }
-:root[data-color-mode='dark']:not([data-ui-theme]) .dashboard-verification-warning,
-:root[data-color-mode='wood']:not([data-ui-theme]) .dashboard-verification-warning {
-  color: #ffb4a5;
-}
+
 .play-home > p {
   margin-block: 12px;
 }
@@ -810,7 +807,7 @@ main:has(.arena-dashboard) {
   background-image: var(--arena-texture);
 }
 :root[data-ui-theme='iron-ash'] .arena-surface {
-  background-image: linear-gradient(#152026aa, #152026aa), var(--arena-texture);
+  background-image: linear-gradient(130deg, #ffffff04, #00000018);
 }
 :root[data-ui-theme='classic-table'] .arena-surface {
   box-shadow: none;
@@ -820,10 +817,11 @@ main:has(.arena-dashboard) {
   background: linear-gradient(90deg, #1c3931 25%, #f4efdf 25%);
 }
 :root[data-ui-theme='saga-hall'] .arena-hero {
-  background-image: linear-gradient(90deg, #21150b55, #21150b00), var(--arena-carved-art);
+  background-image:
+    linear-gradient(90deg, #1d130ff5, #1d130fd9 45%, #1d130f88), var(--arena-carved-art);
   background-size: cover;
   background-position: center;
-  padding: 30px;
+  padding: var(--dash-pad);
 }
 :root[data-ui-theme='saga-hall'] .dashboard-profile {
   background-image: linear-gradient(#21150b88, #21150b88), var(--arena-carved-art);
@@ -946,4 +944,105 @@ main:has(.arena-dashboard) {
     gap: 4px;
     font-size: 0.75rem;
   }
+}
+
+/* Size the primary composition using available CSS space. Longer queues grow
+   the document naturally; short windows retain ordinary page scrolling. */
+@media (min-width: 1101px) {
+  body:has(.arena-sidebar) main:not(:has(.game-layout)),
+  body:has(.arena-sidebar) .site-footer {
+    max-width: 2800px;
+    width: 100%;
+  }
+  .personal-dashboard.arena-dashboard {
+    max-width: min(100%, 2600px);
+    --dash-gap: clamp(12px, 0.8vw, 24px);
+    --dash-pad: clamp(18px, 1.4vw, 36px);
+    --dash-pad-sm: clamp(12px, 1vw, 24px);
+  }
+  .arena-hero {
+    --hero-board-size: clamp(280px, min(26vw, 38vh), 740px);
+  }
+  .dashboard-intro-title {
+    font-size: clamp(2rem, 2.6vw, 3.5rem);
+  }
+  .arena-dashboard .arena-hero-headline {
+    font-size: clamp(2rem, 3vw, 4.4rem);
+  }
+  .arena-dashboard .dashboard-profile {
+    min-height: 175px;
+    padding: 16px;
+    gap: 12px;
+  }
+  .arena-dashboard .dashboard-stat {
+    min-height: 90px;
+    padding: 14px;
+    gap: 4px;
+  }
+  .arena-dashboard .leaderboard-compact {
+    padding: 16px;
+  }
+  .arena-dashboard .leaderboard-compact table.leaderboard td {
+    padding: 8px;
+  }
+  .arena-dashboard .leaderboard-compact .leaderboard-controls {
+    margin-block: 8px;
+  }
+  .arena-dashboard .leaderboard-compact .leaderboard-you {
+    padding: 6px 8px;
+  }
+}
+@media (min-width: 1101px) and (max-height: 1200px) {
+  .arena-dashboard .dashboard-profile {
+    min-height: 160px;
+    gap: 10px;
+    padding: 14px;
+  }
+  .arena-dashboard .dashboard-stat strong {
+    font-size: 1.75rem;
+  }
+  .arena-dashboard .leaderboard-compact {
+    padding: 12px;
+  }
+  .arena-dashboard .leaderboard-compact table.leaderboard th {
+    padding-block: 8px;
+  }
+}
+@media (min-width: 3000px) and (min-height: 1600px) {
+  .arena-dashboard {
+    margin-block: 32px;
+  }
+  .arena-hero {
+    --hero-board-size: clamp(740px, 41vh, 880px);
+  }
+  .arena-dashboard .dashboard-profile {
+    min-height: 290px;
+    padding: 28px;
+  }
+  .arena-dashboard .dashboard-stat {
+    min-height: 150px;
+    padding: 24px;
+  }
+  .arena-dashboard .dashboard-portrait {
+    width: 120px;
+    height: 120px;
+  }
+  .arena-dashboard .dashboard-game-list > li {
+    min-height: 240px;
+    padding: 26px;
+  }
+}
+
+.arena-hero-emphasis {
+  color: var(--arena-accent);
+}
+
+.play-home.arena-surface,
+.statistics-page.arena-surface {
+  padding: var(--pad-panel);
+}
+
+:root[data-ui-theme='kings-table'] .arena-hero-emphasis,
+:root[data-ui-theme='classic-table'] .arena-hero-emphasis {
+  color: var(--focus-ring);
 }

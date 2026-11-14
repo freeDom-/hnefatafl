@@ -370,9 +370,10 @@ so versions, optimistic move guards and statistical identity stay
 unchanged. See [profile compatibility](docs/PROFILE.md#names-in-games-and-history).
 
 Appearance is browser-local state, separate from game configuration. A typed catalog
-defines color modes, board palettes and token sets; shared token rendering is used
-for actual pieces and previews. The provider resolves device color preferences and
-persists choices. New artwork and palettes can be added without changing game rules
+defines four UI themes, board palettes and token sets; shared token rendering is used
+for actual pieces and previews. A shared catalog drives deterministic legacy-mode
+migration in the synchronous first-paint script and React. The provider persists
+version-2 choices; absent density follows the CSS viewport while explicit choices survive resizing. New artwork and palettes can be added without changing game rules
 or persistence. See [Personalization](docs/PERSONALIZATION.md).
 
 Ordinary new games store a server-generated base seed; actual decision seeds combine
@@ -415,8 +416,8 @@ See [Analysis](docs/ANALYSIS.md) for sources, settings and probability interpret
 
 English/German source-key catalogs localize presentation while identities and
 stored game/configuration values remain unchanged. Browser preferences select
-language, last successful game mode and independent color/token/board themes.
-The wood color mode changes UI surfaces rather than engine state.
+language, last successful game mode and independent UI/token/board themes.
+The UI palette is owned solely by the selected named theme; appearance never changes engine state.
 
 ## Identity, setup and retained learning state
 

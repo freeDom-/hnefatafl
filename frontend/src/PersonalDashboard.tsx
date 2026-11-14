@@ -333,11 +333,18 @@ function DashboardHome({
                   : t('THE TABLE IS SET')}
               </p>
               <h2 id="dashboard-hero-heading" className="section-title arena-hero-headline">
-                {active
-                  ? heroAwaitsMove
-                    ? t('One move closer to victory.')
-                    : t('Your match is waiting.')
-                  : t('Start a new saga.')}
+                {active ? (
+                  heroAwaitsMove ? (
+                    <>
+                      {t('One move closer to')}{' '}
+                      <span className="arena-hero-emphasis">{t('victory.')}</span>
+                    </>
+                  ) : (
+                    t('Your match is waiting.')
+                  )
+                ) : (
+                  t('Start a new saga.')
+                )}
               </h2>
               {active ? (
                 <p className="arena-hero-meta">

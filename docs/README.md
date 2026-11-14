@@ -19,6 +19,8 @@ Commands assume the repository root unless a different directory is shown.
 - [Background analysis, move advisors and interpretation of winning chances](ANALYSIS.md)
 - [Persistent identity runes](IDENTITIES.md)
 
+- [Arena design system and visual acceptance](DESIGN_SYSTEM.md)
+
 ## Tournaments and statistics
 
 - [Personal ruleset, AI-opponent and side statistics](DASHBOARD.md#detailed-personal-statistics)
