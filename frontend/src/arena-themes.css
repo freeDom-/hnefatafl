@@ -47,7 +47,7 @@
    * copy row on the narrow layout, where the board moves below the copy. Both
    * alphas are the measured worst case of this artwork against the hero's copy ink
    * over the whole copy box, so the copy stays at or above the 4.5:1 AA ratio. */
-  --arena-hero-art: url('/assets/arena-v2/assets/boards/kings-table-board-preview.webp');
+  --arena-hero-art: url('/assets/arena-v2/assets/art/northern-hall-vignette.webp');
   --arena-hero-scrim: radial-gradient(
     115% 48% at 5% 33%,
     #fbf2dfd9 0%,
@@ -117,7 +117,7 @@
   /* Iron & Ash keeps its restrained forged-slate identity, with the pack's own
    * knot band and its decorative board preview as the hero illustration. */
   --arena-band: url('/assets/arena-v2/assets/art/iron-ash-knot-band.webp');
-  --arena-hero-art: url('/assets/arena-v2/assets/boards/iron-ash-board-preview.webp');
+  --arena-hero-art: url('/assets/arena-v2/assets/art/iron-ash-forged-panel.webp');
   --arena-hero-scrim: radial-gradient(
     115% 48% at 5% 33%,
     #1b2225c7 0%,
@@ -185,7 +185,7 @@
   --arena-display-tracking: 0.09em;
   --arena-texture: url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
   --arena-band: url('/assets/arena-v2/assets/art/saga-hall-knot-band.webp');
-  --arena-hero-art: url('/assets/arena-v2/assets/boards/saga-hall-board-preview.webp');
+  --arena-hero-art: url('/assets/arena-v2/assets/art/saga-hall-carved-banner.webp');
   --arena-hero-scrim: radial-gradient(
     115% 48% at 5% 33%,
     #351d14c7 0%,

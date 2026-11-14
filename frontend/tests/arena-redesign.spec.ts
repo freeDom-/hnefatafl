@@ -37,14 +37,14 @@ const viewports = [
 const primaryFitViewports = viewports.filter((viewport) => viewport.width >= 1366);
 
 /**
- * The per-theme hero illustration: the theme's decorative board preview, applied
- * as a contained cover backdrop behind the hero copy. It never replaces the
+ * The per-theme hero illustration: the theme's decorative art panel, applied as a
+ * contained cover backdrop behind the hero copy. It never replaces the
  * interactive board, which stays the live read-only Board component.
  */
 const heroArt: Record<string, string> = {
-  'kings-table': 'boards/kings-table-board-preview.webp',
-  'iron-ash': 'boards/iron-ash-board-preview.webp',
-  'saga-hall': 'boards/saga-hall-board-preview.webp',
+  'kings-table': 'art/northern-hall-vignette.webp',
+  'iron-ash': 'art/iron-ash-forged-panel.webp',
+  'saga-hall': 'art/saga-hall-carved-banner.webp',
 };
 
 /**
@@ -400,7 +400,7 @@ for (const appearance of appearances) {
             size: heroStyle.backgroundSize,
             heroBand: getComputedStyle(hero, '::after'),
             headingBand: getComputedStyle(heading, '::after'),
-            previewImages: hero.querySelectorAll('img[src*="board-preview"]').length,
+            previewImages: hero.querySelectorAll('img').length,
           };
         });
         expect(art.image).toContain(heroArt[appearance.id]);
