@@ -8,7 +8,7 @@ const themes = [
   {
     id: 'classic-table',
     accent: 'rgb(27, 74, 52)',
-    line: 'rgb(216, 196, 156)',
+    cardBorder: 'rgb(216, 196, 156)',
     raised: 'rgb(240, 226, 198)',
     copy: 'rgb(74, 85, 72)',
     colorScheme: 'light',
@@ -16,7 +16,7 @@ const themes = [
   {
     id: 'kings-table',
     accent: 'rgb(27, 74, 52)',
-    line: 'rgb(216, 196, 156)',
+    cardBorder: 'rgb(216, 196, 156)',
     raised: 'rgb(240, 226, 198)',
     copy: 'rgb(74, 85, 72)',
     colorScheme: 'light',
@@ -24,7 +24,7 @@ const themes = [
   {
     id: 'iron-ash',
     accent: 'rgb(214, 165, 80)',
-    line: 'rgb(58, 69, 75)',
+    cardBorder: 'rgb(58, 69, 75)',
     raised: 'rgb(35, 43, 47)',
     copy: 'rgb(185, 194, 198)',
     colorScheme: 'dark',
@@ -32,7 +32,7 @@ const themes = [
   {
     id: 'saga-hall',
     accent: 'rgb(232, 189, 114)',
-    line: 'rgb(107, 68, 41)',
+    cardBorder: 'rgb(214, 160, 68)',
     raised: 'rgb(67, 37, 26)',
     copy: 'rgb(216, 193, 156)',
     colorScheme: 'dark',
@@ -191,11 +191,20 @@ for (const theme of themes) {
       // the colour is asserted through a retrying locator assertion.
       const primary = page.locator('.arena-hero .arena-primary-action').first();
       await expect(primary).toHaveCSS('background-color', theme.accent);
-      // The dashboard standing cards must read the theme's own line token, never
+      const primaryColors = await primary.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { color: style.color, background: style.backgroundColor };
+      });
+      expect(contrastRatio(primaryColors.color, primaryColors.background)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+      // The dashboard standing cards must read the theme's own frame color, never
       // a hard-coded light fallback that would break the dark named themes.
       const card = page.locator('.dashboard-stat').first();
       await expect(card).toBeVisible();
-      expect(await card.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(theme.line);
+      expect(await card.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(
+        theme.cardBorder,
+      );
       expect(await root.evaluate((node) => getComputedStyle(node).colorScheme)).toContain(
         theme.colorScheme,
       );

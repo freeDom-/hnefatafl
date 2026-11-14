@@ -930,3 +930,20 @@ main:has(.arena-dashboard) {
   background: radial-gradient(circle at 35% 25%, #505454, #232727 55%, #111515);
   border-color: #0e1414;
 }
+@media (min-width: 1101px) {
+  /* Keep the standings readable within the reference composition without clipping. */
+  .dashboard-stats {
+    gap: 8px;
+  }
+  .dashboard-stats > .section-heading {
+    margin-bottom: 0;
+  }
+  .arena-dashboard .leaderboard-compact .section-heading {
+    margin-bottom: 8px;
+  }
+  .arena-dashboard .leaderboard-compact .leaderboard-you {
+    padding: 8px;
+    gap: 4px;
+    font-size: 0.75rem;
+  }
+}

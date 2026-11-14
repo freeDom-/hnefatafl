@@ -228,7 +228,7 @@ export default function Leaderboard({
           </button>
         </p>
       )}
-      {data && <YourRank data={data} onPage={onPage} />}
+      {data && !compact && <YourRank data={data} onPage={onPage} />}
       {data && total === 0 && <p>{t('No rated games in this pool yet.')}</p>}
       {data && total > 0 && (
         <>
@@ -254,6 +254,7 @@ export default function Leaderboard({
           )}
         </>
       )}
+      {data && compact && <YourRank data={data} onPage={onPage} />}
       {data && !compact && total > 0 && (
         <p className="leaderboard-total">
           {t('{count} ranked players in this pool.', { count: number.format(total) })}

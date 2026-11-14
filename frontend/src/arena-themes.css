@@ -35,7 +35,7 @@
   --arena-display-weight: 600;
   --arena-display-tracking: 0.02em;
   --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
-  --arena-band: url('/assets/arena-v2/assets/art/kings-table-knot-band.webp');
+  --arena-band: url('/assets/arena-v2/assets/icons/knot-band.svg');
   --arena-board-texture: var(--arena-grain-art);
   --arena-chart-policy: #9c5919;
   --arena-chart-value: #217894;
@@ -88,7 +88,7 @@
   --arena-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
   /* Iron & Ash keeps its restrained forged-slate identity, with the pack's own
    * knot band. The hero uses slate without any baked-in board imagery. */
-  --arena-band: url('/assets/arena-v2/assets/art/iron-ash-knot-band.webp');
+  --arena-band: none;
   --arena-board-texture: var(--arena-grain-art);
   --arena-chart-policy: #efb16b;
   --arena-chart-value: #81c7e5;
@@ -139,7 +139,7 @@
   --arena-display-weight: 500;
   --arena-display-tracking: 0.01em;
   --arena-texture: url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
-  --arena-band: url('/assets/arena-v2/assets/art/saga-hall-knot-band.webp');
+  --arena-band: url('/assets/arena-v2/assets/icons/knot-band.svg');
   --arena-board-texture: var(--arena-grain-art);
   --arena-chart-policy: #f0c184;
   --arena-chart-value: #8fd0e8;
@@ -328,7 +328,7 @@
   --arena-display-weight: 600;
   --arena-display-tracking: 0.02em;
   --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
-  --arena-band: url('/assets/arena-v2/assets/art/kings-table-knot-band.webp');
+  --arena-band: url('/assets/arena-v2/assets/icons/knot-band.svg');
   /* Hero illustration: the theme's decorative board preview (512x512) as a
    * contained cover backdrop behind the hero copy, never a replacement for the
    * interactive board. `--arena-hero-scrim` is the theme-aware overlay that keeps
@@ -373,4 +373,13 @@
 /* Board materials follow the independently selected board palette. */
 :root[data-ui-theme][data-board-theme='slate'] {
   --arena-board-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
+}
+
+/* Transparent vector trim avoids white matte edges from the raster art studies. */
+:root[data-ui-theme='iron-ash'] .arena-topbar-band,
+:root[data-ui-theme='iron-ash'] .sidebar-band,
+:root[data-ui-theme='iron-ash'] .section-heading::after {
+  height: 1px;
+  background-image: none;
+  background-color: var(--arena-line);
 }

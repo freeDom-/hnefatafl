@@ -23,6 +23,9 @@ Short desktop windows scroll normally rather than shrinking the dashboard to fit
 Long game lists and compact standings no longer clip their rows into a tiny
 scrolling region. Mobile retains the compact navigation and stacked layout.
 
+The transparent SVG interlace trim replaces the white-matted raster band studies;
+Iron & Ash uses restrained metal hairlines instead.
+
 ## Desktop captures
 
 These 1672 × 941 browser captures use isolated Brandubh fixtures and the
