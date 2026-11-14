@@ -124,10 +124,23 @@ for (const theme of themes)
       });
       expect(local.ok()).toBe(true);
       const localGame = await local.json();
-      await page.goto(`/games/${localGame.id}`);
-      await expect(page.getByRole('grid')).toBeVisible();
-      await geometry(page);
-      await capture(page, `${name}-local`);
+      try {
+        await page.goto(`/games/${localGame.id}`);
+        await expect(page.getByRole('grid')).toBeVisible();
+        await geometry(page);
+        await capture(page, `${name}-local`);
+      } finally {
+        await page.goto('/dashboard');
+        // Visual fixtures must not leave private local records in the shared
+        // test account: later real-empty-state checks require an empty category.
+        const saved = await (
+          await request.get(`http://127.0.0.1:8001/api/games/${localGame.id}`)
+        ).json();
+        const removed = await request.delete(
+          `http://127.0.0.1:8001/api/games/${localGame.id}?version=${saved.version}`,
+        );
+        expect(removed.ok()).toBe(true);
+      }
       const online = activeOnlineGame();
       online.participants.attackers!.account_id = adminSession.id;
       await page.route(`**/api/online/games/${online.id}`, (route) =>

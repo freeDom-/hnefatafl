@@ -461,7 +461,7 @@ test('advisor highlights a legal move and original estimates survive replay, rel
   await expect(page.getByRole('gridcell', { name: /König/ })).toHaveCount(1);
   await openGameNavigation(page);
   await openProfile(page);
-  await page.getByRole('radio', { name: 'Holz', exact: true }).check();
+  await page.getByRole('radio', { name: 'Sagahalle', exact: true }).check();
   await openDestination(page, 'dashboard');
   await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'saga-hall');
   await returnToGame(page, gamePath);

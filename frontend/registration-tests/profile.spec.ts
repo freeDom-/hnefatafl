@@ -161,8 +161,8 @@ test('header and profile fit narrow and wide screens in every theme and language
     await page.setViewportSize({ width, height: 900 });
     for (const language of ['en', 'de']) {
       await page.locator('.language-select select').selectOption(language);
-      for (const mode of ['light', 'dark', 'wood', 'system']) {
-        await page.locator(`input[name$='-color-mode'][value='${mode}']`).check();
+      for (const theme of ['kings-table', 'iron-ash', 'saga-hall', 'classic-table']) {
+        await page.locator(`input[name$='-ui-theme'][value='${theme}']`).check();
         await page.locator('.account-trigger').scrollIntoViewIfNeeded();
         await expect(page.locator('.language-select select')).toBeVisible();
         await page.locator('.account-trigger').click();
@@ -201,7 +201,7 @@ test('header and profile fit narrow and wide screens in every theme and language
         }));
         expect(
           overflow.scrollWidth,
-          JSON.stringify({ language, mode, ...overflow }),
+          JSON.stringify({ language, theme, ...overflow }),
         ).toBeLessThanOrEqual(width);
         await page.keyboard.press('Escape');
       }
