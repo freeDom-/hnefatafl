@@ -190,14 +190,19 @@ for (const theme of themes) {
       // The hero swaps its action element when the running-game list resolves, so
       // the colour is asserted through a retrying locator assertion.
       const primary = page.locator('.arena-hero .arena-primary-action').first();
-      await expect(primary).toHaveCSS('background-color', theme.accent);
-      const primaryColors = await primary.evaluate((node) => {
-        const style = getComputedStyle(node);
-        return { color: style.color, background: style.backgroundColor };
-      });
-      expect(contrastRatio(primaryColors.color, primaryColors.background)).toBeGreaterThanOrEqual(
-        4.5,
-      );
+      await expect(async () => {
+        const colors = await primary.evaluate((node) => {
+          if (!node.isConnected) return null;
+          const style = getComputedStyle(node);
+          return { color: style.color, background: style.backgroundColor };
+        });
+        // React may replace the action between locator resolution and evaluation.
+        // Retry that transient state rather than parsing an empty computed color.
+        expect(colors).not.toBeNull();
+        expect(colors!.background).toBe(theme.accent);
+        expect(colors!.color).toMatch(/^rgba?\(/);
+        expect(contrastRatio(colors!.color, colors!.background)).toBeGreaterThanOrEqual(4.5);
+      }).toPass({ timeout: 10000 });
       // The dashboard standing cards must read the theme's own frame color, never
       // a hard-coded light fallback that would break the dark named themes.
       const card = page.locator('.dashboard-stat').first();
