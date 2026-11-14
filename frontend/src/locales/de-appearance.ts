@@ -1,4 +1,6 @@
 const appearance: Record<string, string> = {
+  'Classic Table': 'Klassischer Tisch',
+  'Simple parchment and forest green': 'Schlichtes Pergament und Waldgrün',
   'Appearance settings': 'Darstellungseinstellungen',
   Appearance: 'Darstellung',
   'A TABLE OF YOUR OWN': 'DEIN EIGENER SPIELTISCH',

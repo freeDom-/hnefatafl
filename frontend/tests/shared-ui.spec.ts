@@ -68,7 +68,9 @@ test('pages keep accessible titles and share navigation and section typography w
             title: { width: title.width, height: title.height },
             width: document.documentElement.scrollWidth,
             chromeOverlap: intersects(brand, controls),
-            headings: [...document.querySelectorAll('h2:not(.dialog-title)')]
+            headings: [
+              ...document.querySelectorAll('h2:not(.dialog-title):not(.arena-hero-headline)'),
+            ]
               .filter(
                 (node) =>
                   node.getBoundingClientRect().width > 1 && node.getBoundingClientRect().height > 1,

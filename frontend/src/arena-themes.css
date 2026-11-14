@@ -4,9 +4,7 @@
  * data-board-theme / data-token-theme behavior is untouched. Every legacy
  * mode-scoped component override is guarded by :not([data-ui-theme]).
  * A named theme owns the shell surface variables, its rail, its fonts, its
- * controls, its chart colors, its knot band (`--arena-band`), its contained hero
- * illustration (`--arena-hero-art`: the theme's decorative board preview, plus the
- * `--arena-hero-scrim*` contrast overlays) and its own color-scheme; mode, token,
+ * controls, chart colors, knot bands and color-scheme. Mode, token,
  * board and density choices stay independent. The tiled `--arena-texture` stays a
  * single low-key layer on the page and the shell chrome instead of covering every
  * panel. Asset URLs resolve under the copied public path: frontend/public/assets/arena-v2/assets/
@@ -38,33 +36,7 @@
   --arena-display-tracking: 0.02em;
   --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
   --arena-band: url('/assets/arena-v2/assets/art/kings-table-knot-band.webp');
-  /* Hero illustration: the theme's decorative board preview (512x512) as a
-   * contained cover backdrop behind the hero copy, never a replacement for the
-   * interactive board. `--arena-hero-scrim` is the theme-aware overlay that keeps
-   * the hero copy readable: a radial wash centred on the copy column that stays
-   * flat over the copy rows and fades towards the hero's edges, so the artwork
-   * still shows around the text and behind the board. The stack variant washes the
-   * copy row on the narrow layout, where the board moves below the copy. Both
-   * alphas are the measured worst case of this artwork against the hero's copy ink
-   * over the whole copy box, so the copy stays at or above the 4.5:1 AA ratio. */
-  --arena-hero-art: url('/assets/arena-v2/assets/art/northern-hall-vignette.webp');
-  --arena-hero-scrim: radial-gradient(
-    115% 48% at 5% 33%,
-    #fbf2dfd9 0%,
-    #fbf2dfd9 65%,
-    #fbf2df80 80%,
-    #fbf2df33 92%,
-    #fbf2df0f 100%
-  );
-  --arena-hero-scrim-stack: linear-gradient(
-    180deg,
-    #fbf2dfd6 0%,
-    #fbf2dfd6 47%,
-    #fbf2df7d 62%,
-    #fbf2df33 80%,
-    #fbf2df0f 100%
-  );
-  --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --arena-board-texture: var(--arena-grain-art);
   --arena-chart-policy: #9c5919;
   --arena-chart-value: #217894;
   --arena-chart-evaluation: #37763e;
@@ -115,26 +87,9 @@
   --arena-display-tracking: 0.01em;
   --arena-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
   /* Iron & Ash keeps its restrained forged-slate identity, with the pack's own
-   * knot band and its decorative board preview as the hero illustration. */
+   * knot band. The hero uses slate without any baked-in board imagery. */
   --arena-band: url('/assets/arena-v2/assets/art/iron-ash-knot-band.webp');
-  --arena-hero-art: url('/assets/arena-v2/assets/art/iron-ash-forged-panel.webp');
-  --arena-hero-scrim: radial-gradient(
-    115% 48% at 5% 33%,
-    #1b2225c7 0%,
-    #1b2225c7 65%,
-    #1b22256e 80%,
-    #1b222533 92%,
-    #1b22250f 100%
-  );
-  --arena-hero-scrim-stack: linear-gradient(
-    180deg,
-    #1b2225cf 0%,
-    #1b2225cf 47%,
-    #1b222575 62%,
-    #1b222533 80%,
-    #1b22250f 100%
-  );
-  --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --arena-board-texture: var(--arena-grain-art);
   --arena-chart-policy: #efb16b;
   --arena-chart-value: #81c7e5;
   --arena-chart-evaluation: #a2ce8a;
@@ -182,27 +137,10 @@
   --font-display: Georgia, 'Times New Roman', serif;
   --font-ui: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
   --arena-display-weight: 500;
-  --arena-display-tracking: 0.09em;
+  --arena-display-tracking: 0.01em;
   --arena-texture: url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
   --arena-band: url('/assets/arena-v2/assets/art/saga-hall-knot-band.webp');
-  --arena-hero-art: url('/assets/arena-v2/assets/art/saga-hall-carved-banner.webp');
-  --arena-hero-scrim: radial-gradient(
-    115% 48% at 5% 33%,
-    #351d14c7 0%,
-    #351d14c7 65%,
-    #351d146e 80%,
-    #351d1433 92%,
-    #351d140f 100%
-  );
-  --arena-hero-scrim-stack: linear-gradient(
-    180deg,
-    #351d14c4 0%,
-    #351d14c4 47%,
-    #351d146b 62%,
-    #351d1433 80%,
-    #351d140f 100%
-  );
-  --arena-board-texture: url('/assets/arena-v2/assets/textures/board-ash-wood.webp');
+  --arena-board-texture: var(--arena-grain-art);
   --arena-chart-policy: #f0c184;
   --arena-chart-value: #8fd0e8;
   --arena-chart-evaluation: #a9d69a;
@@ -364,4 +302,75 @@
   :root[data-ui-theme] .site-header {
     padding-bottom: 6px;
   }
+}
+
+:root[data-ui-theme='classic-table'] {
+  color-scheme: light;
+  --arena-ink: #10291f;
+  --arena-ink-muted: #4a5548;
+  --arena-ambient: #f4e8d0;
+  --arena-panel: #fbf2df;
+  --arena-raised: #f0e2c6;
+  --arena-accent: #1b4a34;
+  --arena-accent-contrast: #fdf6e6;
+  --arena-metal: #b77a25;
+  --arena-line: #d8c49c;
+  --arena-hero-ink: #0b231a;
+  --arena-rail: #092d22;
+  --arena-rail-ink: #f4e8d0;
+  --arena-rail-muted: #b9cfc2;
+  --arena-rail-line: #1d4a3a;
+  --arena-rail-transform: none;
+  --arena-rail-tracking: 0.02em;
+  /* King's Table is serif throughout, like a printed saga. */
+  --font-display: Georgia, 'Times New Roman', serif;
+  --font-ui: system-ui, sans-serif;
+  --arena-display-weight: 600;
+  --arena-display-tracking: 0.02em;
+  --arena-texture: url('/assets/arena-v2/assets/textures/kings-table-parchment.webp');
+  --arena-band: url('/assets/arena-v2/assets/art/kings-table-knot-band.webp');
+  /* Hero illustration: the theme's decorative board preview (512x512) as a
+   * contained cover backdrop behind the hero copy, never a replacement for the
+   * interactive board. `--arena-hero-scrim` is the theme-aware overlay that keeps
+   * the hero copy readable: a radial wash centred on the copy column that stays
+   * flat over the copy rows and fades towards the hero's edges, so the artwork
+   * still shows around the text and behind the board. The stack variant washes the
+   * copy row on the narrow layout, where the board moves below the copy. Both
+   * alphas are the measured worst case of this artwork against the hero's copy ink
+   * over the whole copy box, so the copy stays at or above the 4.5:1 AA ratio. */
+  --arena-board-texture: var(--arena-grain-art);
+  --arena-chart-policy: #9c5919;
+  --arena-chart-value: #217894;
+  --arena-chart-evaluation: #37763e;
+  --page: var(--arena-ambient);
+  --text: var(--arena-ink);
+  --surface: var(--arena-panel);
+  --surface-raised: var(--arena-raised);
+  --green: var(--arena-accent);
+  --green-dark: #123322;
+  --gold: #b77a25;
+  --line: var(--arena-line);
+  --muted: #6a7263;
+  --ui-header: #f0e2c6;
+  --ui-dialog: #fbf2df;
+  --ui-tint: #ece0c6;
+  --ui-selected: #d9e6d7;
+  --ui-gold-tint: #f2e3c4;
+  --ui-error: #a8452f;
+  --ui-error-surface: #f7e3da;
+  --ui-border: var(--arena-line);
+  --ui-heading: var(--arena-ink);
+  --ui-copy: var(--arena-ink-muted);
+  --ui-subtle: #5f6a5c;
+  --focus-ring: #946019;
+}
+
+:root[data-ui-theme='classic-table'] {
+  --arena-texture: none;
+  --arena-band: none;
+  --arena-rail: #1c3931;
+}
+/* Board materials follow the independently selected board palette. */
+:root[data-ui-theme][data-board-theme='slate'] {
+  --arena-board-texture: url('/assets/arena-v2/assets/textures/iron-ash-slate.webp');
 }

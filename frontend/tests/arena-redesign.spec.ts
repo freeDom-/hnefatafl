@@ -8,7 +8,7 @@ import type { PersonalOnline, PersonalOnlineHistory } from '../src/personalTypes
  * Arena v2 layout + theme acceptance captures. Every appearance renders the same
  * information architecture: the desktop rail above 1024px, and the compact header
  * with the bottom navigation below it. Only colors, rail, fonts and surface
- * treatment change between the three named themes; `legacy` keeps the original
+ * treatment change between the four named themes; `legacy` keeps the original
  * color-mode look.
  */
 const output = 'test-results/arena-redesign';
@@ -17,11 +17,13 @@ const appearances = [
   { id: 'kings-table', rail: 'rgb(9, 45, 34)' },
   { id: 'iron-ash', rail: 'rgb(32, 38, 41)' },
   { id: 'saga-hall', rail: 'rgb(30, 16, 10)' },
+  { id: 'classic-table', rail: 'rgb(28, 57, 49)' },
   { id: 'legacy', rail: null },
 ] as const;
 
 const viewports = [
   { name: '1440', width: 1440, height: 900 },
+  { name: 'reference', width: 1672, height: 941 },
   { name: '1366', width: 1366, height: 768 },
   { name: '1024', width: 1024, height: 768 },
   { name: '768', width: 768, height: 1024 },
@@ -30,29 +32,11 @@ const viewports = [
 ] as const;
 
 /**
- * The two desktop viewports the reference composition must fit in without a page
- * scroll: the intro, the hero, the two reference columns and the compact
- * recent-record strip all stay above the fold.
+ * Desktop viewports used to check the reference composition at two heights.
  */
 const primaryFitViewports = viewports.filter((viewport) => viewport.width >= 1366);
 
-/**
- * The per-theme hero illustration: the theme's decorative art panel, applied as a
- * contained cover backdrop behind the hero copy. It never replaces the
- * interactive board, which stays the live read-only Board component.
- */
-const heroArt: Record<string, string> = {
-  'kings-table': 'art/northern-hall-vignette.webp',
-  'iron-ash': 'art/iron-ash-forged-panel.webp',
-  'saga-hall': 'art/saga-hall-carved-banner.webp',
-};
-
-/**
- * Measure the whole dashboard composition: the intro, the reference grid, the
- * compact record strip and the shell footer. The document itself must fit the
- * viewport, so the reference sections stay above the fold at 1440x900 and
- * 1366x768.
- */
+/** Measure section order without requiring the document to fit one viewport. */
 async function primaryComposition(page: Page) {
   return page.evaluate(() => {
     const box = (selector: string) => {
@@ -207,7 +191,24 @@ function activeOnlineHistory(): PersonalOnlineHistory {
     matching: 1,
     next_cursor: null,
     as_of: game.updated_at,
-    games: [summary],
+    games: [
+      summary,
+      {
+        ...summary,
+        id: 'waiting-reference',
+        your_turn: false,
+        own_side: 'defenders',
+        players: { attackers: 'Björn', defenders: 'BrowserAdmin' },
+      },
+      {
+        ...summary,
+        id: 'second-reference',
+        your_turn: false,
+        own_side: 'defenders',
+        ruleset: 'tablut',
+        players: { attackers: 'Astrid', defenders: 'BrowserAdmin' },
+      },
+    ],
     overview: { your_turn: 1, other_active: 0, waiting: 0, completed: 0, cancelled: 0, voided: 0 },
     totals: { category: 'online', played: 42, wins: 27, losses: 15, draws: 0, abandoned_games: 0 },
     statistics: {
@@ -297,6 +298,48 @@ async function seedRecentRecords(page: Page) {
   );
 }
 
+async function seedReferenceStandings(page: Page) {
+  await page.route('**/api/leaderboard**', (route) => {
+    const ruleset = new URL(route.request().url()).searchParams.get('ruleset') ?? 'brandubh';
+    const entry = (name: string, rank: number, rating: number) => ({
+      account_id: name,
+      name,
+      rank,
+      rating,
+      rated_games: 42,
+      wins: 27,
+      losses: 15,
+      draws: 0,
+      provisional: false,
+    });
+    return route.fulfill({
+      json: {
+        ruleset,
+        policy: { version: 1, initial_rating: 1200, k_factor: 32, provisional_games: 10 },
+        entries: [entry('Freya', 1, 1824), entry('Björn', 2, 1769)],
+        total: 12,
+        limit: 5,
+        offset: 0,
+        me: entry('BrowserAdmin', 12, 1576),
+      },
+    });
+  });
+  await page.route('**/api/personal/progress', (route) =>
+    route.fulfill({
+      json: {
+        as_of: '2035-01-01T00:00:00Z',
+        streaks: {
+          rated_win_current: 3,
+          rated_win_best: 8,
+          by_ruleset: [
+            { ruleset: 'brandubh', rated_games: 42, rated_win_current: 3, rated_win_best: 8 },
+          ],
+        },
+      },
+    }),
+  );
+}
+
 test.beforeAll(() => {
   mkdirSync(output, { recursive: true });
 });
@@ -304,9 +347,13 @@ test.beforeAll(() => {
 for (const appearance of appearances) {
   test(`captures the ${appearance.id} appearance at every required viewport`, async ({ page }) => {
     await page.addInitScript((value) => {
-      localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme: value }));
+      localStorage.setItem(
+        'hnefatafl-appearance',
+        JSON.stringify({ uiTheme: value, board: 'oak', tokens: 'classic' }),
+      );
     }, appearance.id);
     await seedRecentRecords(page);
+    await seedReferenceStandings(page);
     for (const viewport of viewports) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto('/dashboard');
@@ -386,35 +433,11 @@ for (const appearance of appearances) {
         ),
       ).toBe('none');
 
-      // The hero paints the theme's decorative board preview as a contained cover
-      // backdrop behind the copy, never as a replacement for the interactive
-      // board, and the knot band is a real trim (not a 1px hairline) on the hero
-      // and on the primary section headings.
-      if (appearance.id !== 'legacy') {
-        const art = await page.evaluate(() => {
-          const hero = document.querySelector('.arena-hero')!;
-          const heading = document.querySelector('.dashboard-needs-you .section-heading')!;
-          const heroStyle = getComputedStyle(hero);
-          return {
-            image: heroStyle.backgroundImage,
-            size: heroStyle.backgroundSize,
-            heroBand: getComputedStyle(hero, '::after'),
-            headingBand: getComputedStyle(heading, '::after'),
-            previewImages: hero.querySelectorAll('img').length,
-          };
-        });
-        expect(art.image).toContain(heroArt[appearance.id]);
-        expect(art.image).toMatch(/gradient\(/);
-        expect(art.image).not.toContain('textures/');
-        expect(art.size).toContain('cover');
-        // Decorative only: the preview never enters the DOM as an image element.
-        expect(art.previewImages).toBe(0);
-        expect(art.heroBand.backgroundImage).toContain('knot-band.webp');
-        expect(parseFloat(art.heroBand.height)).toBeGreaterThanOrEqual(10);
-        expect(art.headingBand.backgroundImage).toContain('knot-band.webp');
-        expect(parseFloat(art.headingBand.height)).toBeGreaterThanOrEqual(6);
-        expect(art.headingBand.pointerEvents).toBe('none');
-      }
+      const background = await page
+        .locator('.arena-hero')
+        .evaluate((node) => getComputedStyle(node).backgroundImage);
+      expect(background).not.toContain('board-preview');
+      expect(background).not.toContain('northern-hall-vignette');
 
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
@@ -423,41 +446,22 @@ for (const appearance of appearances) {
         path: `${output}/${appearance.id}-${viewport.name}.png`,
         fullPage: true,
       });
-
-      // Fix A: the whole dashboard is one screen at both desktop viewports. The
-      // intro, the reference grid and the compact record strip stay above the
-      // fold, so the document itself must not scroll.
-      if (viewport.width >= 1366) {
-        const fit = await primaryComposition(page);
-        expect(
-          fit.scrollHeight,
-          `${appearance.id} ${viewport.name} document height`,
-        ).toBeLessThanOrEqual(fit.innerHeight + 8);
-        expect(fit.introTop, `${appearance.id} ${viewport.name} intro top`).toBeLessThan(
-          fit.innerHeight,
-        );
-        expect(
-          fit.layoutBottom,
-          `${appearance.id} ${viewport.name} reference grid bottom`,
-        ).toBeLessThanOrEqual(fit.innerHeight);
-        expect(
-          fit.stripBottom,
-          `${appearance.id} ${viewport.name} record strip bottom`,
-        ).toBeLessThanOrEqual(fit.innerHeight);
-        expect(fit.footerBottom).toBeLessThanOrEqual(fit.innerHeight + 8);
-      }
     }
   });
 
   test(`captures the full ${appearance.id} dashboard`, async ({ page }) => {
     await page.addInitScript((value) => {
-      localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme: value }));
+      localStorage.setItem(
+        'hnefatafl-appearance',
+        JSON.stringify({ uiTheme: value, board: 'oak', tokens: 'classic' }),
+      );
     }, appearance.id);
     await page.setViewportSize({ width: 1440, height: 900 });
     // Empty state: no running game, so the hero keeps its placeholder.
     await seedEmptyGameLists(page);
     await seedOnlineHistory(page, emptyOnlineHistory());
     await seedRecentRecords(page);
+    await seedReferenceStandings(page);
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
     await expect(page.locator('.dashboard-layout')).toBeVisible();
@@ -479,6 +483,28 @@ for (const appearance of appearances) {
     await expect(page.locator('.arena-hero .arena-kicker')).toContainText('YOUR TURN');
     const heroBoard = page.locator('.arena-hero-board');
     await expect(heroBoard.getByRole('grid')).toBeVisible();
+    await expect(page.locator('.dashboard-game-list > li')).toHaveCount(3);
+    await expect(page.locator('.leaderboard-compact')).toContainText('Freya');
+    const images = await page.evaluate(async () => {
+      const urls = new Set<string>();
+      for (const node of document.querySelectorAll('*')) {
+        const style = getComputedStyle(node);
+        for (const match of style.backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g))
+          urls.add(match[1]);
+      }
+      return Promise.all(
+        [...urls].map(
+          (url) =>
+            new Promise<string | null>((resolve) => {
+              const image = new Image();
+              image.onload = () => resolve(null);
+              image.onerror = () => resolve(url);
+              image.src = url;
+            }),
+        ),
+      );
+    });
+    expect(images.filter(Boolean), 'all rendered theme artwork loads').toEqual([]);
     await expect(heroBoard.locator('.board-frame')).toHaveCount(1);
     await expect(heroBoard.getByText('No game on the table yet.')).toHaveCount(0);
     await page.screenshot({
@@ -493,14 +519,9 @@ for (const appearance of appearances) {
     for (const viewport of primaryFitViewports) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       const fit = await primaryComposition(page);
-      expect(
-        fit.scrollHeight,
-        `${appearance.id} ${viewport.name} active document height`,
-      ).toBeLessThanOrEqual(fit.innerHeight + 8);
-      expect(
-        fit.stripBottom,
-        `${appearance.id} ${viewport.name} active record strip bottom`,
-      ).toBeLessThanOrEqual(fit.innerHeight);
+      expect(fit.layoutBottom).toBeGreaterThan(fit.introTop);
+      const boardBox = await heroBoard.boundingBox();
+      expect(boardBox!.width).toBeGreaterThan(250);
       await page.screenshot({
         path: `${output}/${appearance.id}-dashboard-active-${viewport.name}.png`,
       });

@@ -70,6 +70,8 @@ Commands assume the repository root unless a different directory is shown.
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
+- [Arena theme completion and visual checks](validation/arena-theme-completion.md)
+
 ## Online foundations and offline feasibility
 
 - [Shared interface and online creation validation](validation/shared-ui-layout.md)

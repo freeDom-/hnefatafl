@@ -302,6 +302,9 @@ describe('appearance preferences', () => {
     openSettings();
     expect(screen.getByRole('radio', { name: 'Iron & Ash' })).toBeChecked();
     expect(document.documentElement).toHaveAttribute('data-ui-theme', 'iron-ash');
+    fireEvent.click(screen.getByRole('radio', { name: 'Classic Table' }));
+    expect(document.documentElement).toHaveAttribute('data-ui-theme', 'classic-table');
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!).uiTheme).toBe('classic-table');
     fireEvent.click(screen.getByRole('radio', { name: 'Classic look' }));
     expect(document.documentElement).not.toHaveAttribute('data-ui-theme');
     expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!)).toEqual({

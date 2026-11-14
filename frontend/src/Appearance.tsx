@@ -1,3 +1,4 @@
+import { ARENA_DECOR } from './arenaAssets';
 import {
   createContext,
   useContext,
@@ -74,6 +75,9 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   }, []);
   useLayoutEffect(() => {
     const root = document.documentElement;
+    root.style.setProperty('--arena-grain-art', `url("${ARENA_DECOR.grain.path}")`);
+    root.style.setProperty('--arena-forest-art', `url("${ARENA_DECOR.forest.path}")`);
+    root.style.setProperty('--arena-carved-art', `url("${ARENA_DECOR.carved.path}")`);
     root.dataset.colorMode = resolvedMode;
     root.dataset.density = appearance.density;
     root.dataset.tokenTheme = appearance.tokens;

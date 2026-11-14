@@ -9,8 +9,13 @@ import {
 } from './appearanceConfig';
 
 describe('uiTheme preference', () => {
-  it('lists the three frozen theme ids', () => {
-    expect(UI_THEMES.map((theme) => theme.id)).toEqual(['kings-table', 'iron-ash', 'saga-hall']);
+  it('lists the four reference theme ids', () => {
+    expect(UI_THEMES.map((theme) => theme.id)).toEqual([
+      'classic-table',
+      'kings-table',
+      'iron-ash',
+      'saga-hall',
+    ]);
   });
 
   it('keeps an explicit valid uiTheme alongside the untouched legacy fields', () => {

@@ -141,11 +141,12 @@ Copenhagen 11×11, in new games, records and training.
 
 ## Color, tokens and boards
 
-Open the username menu → **My Profile** → **Appearance**. The four settings are independent:
+Open the username menu → **My Profile** → **Appearance**. The appearance settings are independent:
 
 | Setting | Choices |
 | --- | --- |
-| Color mode | Follow device, Light, Dark, Wood |
+| UI theme | The King’s Table, Iron & Ash, Saga Hall, Classic Table; Classic look preserves the older appearance |
+| Color mode | Follow device, Light, Dark, Wood (controls surfaces in Classic look) |
 | Token theme | Classic stones, Viking figures, Carved wood |
 | Board theme | Golden oak, Old walnut, Fjord slate |
 | Interface scale | Compact, Default, Large |

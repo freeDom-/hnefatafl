@@ -259,3 +259,50 @@ body:has(.arena-sidebar) {
       clamp(230px, 17vw, 360px);
   }
 }
+
+:root[data-ui-theme='kings-table'] .arena-sidebar::before {
+  background-image: url('/assets/arena-v2/assets/textures/kings-table-pine.webp');
+  opacity: 0.25;
+}
+:root[data-ui-theme='saga-hall'] .arena-sidebar {
+  border: 5px ridge var(--arena-metal);
+}
+:root[data-ui-theme='saga-hall'] .sidebar-brand {
+  border-bottom: 3px double var(--arena-metal);
+  padding-bottom: 20px;
+}
+:root[data-ui-theme='kings-table'] .sidebar-nav a[aria-current='page'],
+:root[data-ui-theme='saga-hall'] .sidebar-nav a[aria-current='page'] {
+  border: 2px solid var(--arena-metal);
+  box-shadow:
+    inset 0 0 0 2px #ffffff20,
+    0 2px 4px #0006;
+}
+:root[data-ui-theme='kings-table'] .arena-sidebar {
+  background-image: linear-gradient(#092d2255, #092d2200), var(--arena-forest-art);
+  background-size: cover;
+  background-position: center bottom;
+}
+:root[data-ui-theme='kings-table'] .sidebar-account {
+  background: #092d22e8;
+}
+:root[data-ui-theme='saga-hall'] .arena-sidebar {
+  background-image:
+    linear-gradient(#160e08bb, #160e08bb),
+    url('/assets/arena-v2/assets/textures/saga-hall-timber.webp');
+}
+
+@media (min-width: 1101px) {
+  .sidebar-nav a,
+  .sidebar-group-toggle,
+  .sidebar-nav-placeholder {
+    font-size: 0.94rem;
+    font-weight: 500;
+  }
+  .sidebar-group-label {
+    font-size: 0.68rem;
+  }
+  .sidebar-brand-text {
+    font-size: 1.2rem;
+  }
+}

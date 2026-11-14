@@ -11,6 +11,7 @@ export const LEGACY_UI_THEME = 'legacy' as const;
 
 /** Named app-shell themes. The catalog default is applied when no theme was chosen. */
 export const UI_THEMES = [
+  { id: 'classic-table', name: 'Classic Table', description: 'Simple parchment and forest green' },
   {
     id: 'kings-table',
     name: 'The King’s Table',
