@@ -667,16 +667,18 @@ historical separation evidence stays in
 
 ## Personal dashboard and review
 
-`PersonalDashboard.tsx` is the authenticated landing with existing account setup and
-embedded `Online.Lobby`, compact per-mode/ruleset performance badges and at most
-three completed visible own records. `StatisticsPage.tsx` owns the authenticated
+`PersonalDashboard.tsx` is the authenticated landing with a live hero board,
+server-owned game totals, bounded running-game previews, selected portrait, four
+standing cards, compact leaderboard and at most three completed visible own records.
+The online lobby has its own `/online` route. The hero countdown is a separate
+seconds-resolution leaf, paused when hidden; it never drives Dashboard-wide ticks. `StatisticsPage.tsx` owns the authenticated
 `/statistics` view, URL-backed mode/ruleset selection and account-keyed polling.
 `PersonalStatistics.tsx` renders detailed results by ruleset, AI configuration and
 account side, using tables on desktop and labelled metric cards on phones.
 `navigation.ts` normalizes obsolete landing URLs while retaining
 search/selection; account gameplay has `/games/{id}` and dedicated online/replay paths
-remain. `RecordedGames` supplies compact rows (named winner, locale-aware date/time with
-Timezone) to Dashboard and `Archive` (Hall). `RecordedReview` restores the full
+remain. `RecordedGames` supplies shared labels (named winner, locale-aware date/time with
+timezone) for the Dashboard record strip and `Archive` (Hall) table. `RecordedReview` restores the full
 single-player presentation (saga move list, board replay, general game information,
 Analytics/Winning chances) using category-specific validated read adapters and
 viewer-local state. Online review permits authorized completed-game analysis; account
@@ -722,8 +724,8 @@ groups, without replay, inference, schema changes or new API grants. Aggregates
 cover the complete account population independently of history pagination.
 Win-rate/length denominators remain completed games; single-player played counts
 also include unfinished games. Multiplayer uses the existing persisted rating,
-shown only when the ruleset has played games. Dashboard badge tiers are cosmetic
-functions of single-player win rate and do not write rewards or ratings. Unexpected
+shown only when the ruleset has played games. Dashboard standing cards project server-owned statistics and entitlements;
+they do not write rewards or ratings. Unexpected
 personal/history API failures log fixed actions, exception types and scrubbed
 tracebacks with generic 503 responses. Local players UI and Archive-only profile
 queries are removed; preset-only account setup replaces local-player selection/APIs; stored data remains. See the

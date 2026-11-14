@@ -50,16 +50,42 @@ Dashboard and Play, and online creation is disabled there. The lobby omits its
 former duplicate verification notice. Existing seats remain playable under the
 same server policy.
 
-## Compact badges and detailed personal statistics
+## Dashboard overview
 
-Dashboard's **Your performance** strip contains three small ruleset badges per
-mode. Singleplayer badges show the win rate; their decoration progresses from
-bronze to silver (40%), gold (65%) and royal (85%). These are cosmetic treatments
-of the current rate, not earned rewards or ratings. Multiplayer badges show the
-win rate and the account's existing Elo for that ruleset. Elo is omitted when no
-eligible games have been played there, including an empty rating pool. A ruleset
-with no completed results shows an em dash. Badges link to its mode/ruleset on
-the Statistics page; detailed tables do not appear on Dashboard.
+The introduction shows the account's status summary. Games awaiting a move combine
+online `overview.your_turn` with the owner-scoped local `totals.in_progress`.
+Single-player records keep their existing semantics and are not presented as
+online turns. These totals cover the account, independently of preview limits.
+
+The live hero shows the first available running game, prioritizing games awaiting
+a move. Its board is rendered from server state, not an illustration. **YOUR TURN**
+appears only when that selected game awaits the account (or a local player).
+For an active online game, the moving side's clock follows the server deadline
+at seconds resolution for both per-move and total-time controls. It clamps to zero,
+pauses ticking while hidden and resynchronizes when visible; waiting and completed
+games do not receive an invented clock. Countdown ticks update only the clock leaf.
+
+The three creation actions remain **Play online**, **Local 1v1** and **Play vs AI**;
+a selected running game provides **Continue game** in the primary slot. **Games
+that need you** previews bounded lists (up to 25 online, five local and one
+single-player record). When aggregate totals exceed the preview, the page states
+how many running games are shown. The preview never claims there are no running
+games merely because other games are outside the returned lists.
+
+The profile card shows the account's name, selected catalog portrait (or its
+initial when artwork is unavailable) and real ruleset standing. Four standing
+cards show ruleset Elo, online win rate, current rated win streak and unlocked
+portraits, with explicit empty states. **Detailed statistics** opens `/statistics`.
+No season progress or unearned reward is fabricated.
+
+The compact leaderboard retains ruleset browsing, qualified/provisional standings
+and the account's own rank. Recent records are a separate compact strip of at most
+three eligible completed account-owned records with replay links and **Game
+archive →**. The online lobby is separate at `/online`; it is not embedded in the
+Dashboard. Short viewports scroll normally, and the shared Arena/Workshop shell
+adapts to desktop, tablet and mobile without changing route permissions.
+
+## Detailed personal statistics
 
 **Statistics** (`/statistics`) is personal and relative to the signed-in
 account's authoritative seat. The Singleplayer/Multiplayer/Local 1v1 tabs and the
@@ -90,7 +116,7 @@ win streaks, and the newest bounded page of entries. A pool with no applied even
 stays empty, a loading read is announced, and a failed or stale read offers Retry
 without inventing a baseline.
 
-Both views use complete account-scoped aggregates, independent of history
+Statistics uses complete account-scoped aggregates, independent of history
 pagination and filters:
 
 - **Singleplayer** uses the account-bound human seat and the persisted
@@ -128,16 +154,15 @@ the standing (rank, Elo, rated games and any provisional threshold) stays readab
 when the account is not on the visible page.
 
 On the Dashboard grid **Recorded games** is a compact strip below the reference
-columns: at most three records in one row, each a single link to its replay (or
-live board) and a **Game archive →** link, so the whole composition stays on one
-desktop screen. The lobby listing is not embedded there any more; it keeps its
+columns: at most three records in one row, each a single link to its read-only replay and a **Game archive →** link, with normal page scrolling on shorter
+desktop screens. The lobby listing is not embedded there any more; it keeps its
 accessible region name and its own `/online` page, where **Open game** uses the
 same primary button style as **New online game** and all cards share the same
 padding and section gap.
 
 ## Shared Recorded games and visibility
 
-Dashboard and Hall share a keyboard-accessible recorded-games table with visible
+Hall provides a keyboard-accessible recorded-games table with visible
 **Status**, **Ruleset**, **Attacker**, **Defender**, **Winner** and **Date**
 headers. The Attacker and Defender cells append the player's immutable start Elo
 in parentheses ("Odin (1354)") when a reliable snapshot exists, and show only the

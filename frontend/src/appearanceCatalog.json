@@ -1,0 +1,22 @@
+{
+  "defaultTheme": "kings-table",
+  "legacyTheme": "legacy",
+  "themes": {
+    "classic-table": {
+      "name": "Classic Table",
+      "description": "Simple parchment and forest green"
+    },
+    "kings-table": {
+      "name": "The King’s Table",
+      "description": "Clean tabletop, parchment and pine"
+    },
+    "iron-ash": {
+      "name": "Iron & Ash",
+      "description": "Dark slate, understated metal and warm gold"
+    },
+    "saga-hall": {
+      "name": "Saga Hall",
+      "description": "Carved timber, leather and Nordic knotwork"
+    }
+  }
+}

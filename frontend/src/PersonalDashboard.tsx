@@ -4,7 +4,12 @@ import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
 import { useOnlinePoll } from './useOnlinePoll';
-import type { AccountHistory, PersonalOnlineHistory, PersonalProgress } from './personalTypes';
+import type {
+  AccountHistory,
+  PersonalOnlineHistory,
+  PersonalProgress,
+  LocalHistory as PersonalLocalHistory,
+} from './personalTypes';
 import { surfaceLink } from './surfaceNavigation';
 import { navigate } from './navigation';
 import {
@@ -21,8 +26,8 @@ import RecordedReview from './RecordedReview';
 import Leaderboard, { readStoredRuleset } from './Leaderboard';
 import Board, { type BoardView } from './Board';
 import LocalGameDialog from './LocalGameDialog';
-import { runningGames, type LocalHistory } from './playModeGames';
-import { RemainingTime, remainingSeconds, useNow } from './remainingTime';
+import { runningGames } from './playModeGames';
+import DashboardCountdown from './DashboardCountdown';
 import type { Leaderboard as LeaderboardData, OnlineGame } from './onlineTypes';
 import type { Profile } from './ProfilePage';
 import type { Game, Side } from './types';
@@ -65,16 +70,13 @@ const statusNames: Record<string, string> = {
   waiting: 'Waiting',
   active: 'Active',
   in_progress: 'In progress',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  voided: 'Voided',
 };
 
 function portraitSrc(id: string) {
   return `/assets/arena-v2/assets/portraits/${id}.webp`;
-}
-/** The side to move for an online game, mirroring the online screen's clock rule. */
-function onlineRemaining(game: OnlineGame, side: Side, now: number) {
-  return game.status === 'active' && game.position.turn === side
-    ? remainingSeconds(game.deadline, now)
-    : Math.ceil(game.remaining_seconds?.[side] ?? game.time_per_move);
 }
 function onlineBoardView(game: OnlineGame): BoardView {
   return {
@@ -114,9 +116,6 @@ function DashboardHome({
   const { account } = useAuth();
   const { t, locale } = useI18n();
   const [localOpen, setLocalOpen] = useState(false);
-  // The hero clock and the season-agnostic streak read refresh on their own; the
-  // remaining-time formatter is coarse enough that a minute keeps it honest.
-  const now = useNow(60000);
   const [storedRuleset] = useState(readStoredRuleset);
   const loadAccount = useCallback(
     (signal: AbortSignal) =>
@@ -140,7 +139,12 @@ function DashboardHome({
   );
   const loadLocal = useCallback(
     (signal: AbortSignal) =>
-      api<LocalHistory>('/personal/local?limit=5&status=in_progress', undefined, undefined, signal),
+      api<PersonalLocalHistory>(
+        '/personal/local?limit=5&status=in_progress',
+        undefined,
+        undefined,
+        signal,
+      ),
     [],
   );
   const loadProgress = useCallback(
@@ -268,8 +272,25 @@ function DashboardHome({
     : heroSingle
       ? heroSingle.turn
       : null;
-  const heroRemaining = heroOnline && heroTurn ? onlineRemaining(heroOnline, heroTurn, now) : null;
-  const yourTurnCount = needsYou.filter((game) => game.yourTurn).length;
+  const yourTurnCount =
+    (online.data?.overview?.your_turn ?? 0) + (local.data?.totals?.in_progress ?? 0);
+  const runningCount =
+    (online.data?.overview?.your_turn ?? 0) +
+    (online.data?.overview?.other_active ?? 0) +
+    (online.data?.overview?.waiting ?? 0) +
+    (local.data?.totals?.in_progress ?? 0) +
+    (single.data?.totals?.in_progress ?? 0);
+  const gamesLoading =
+    single.phase === 'loading' || online.phase === 'loading' || local.phase === 'loading';
+  const gamesStale =
+    single.phase === 'stale' || online.phase === 'stale' || local.phase === 'stale';
+  const heroAwaitsMove =
+    active?.yourTurn === true &&
+    (!heroSingle || (heroSingle.winner == null && heroSingle.recorded_winner == null)) &&
+    (!heroOnline ||
+      (heroOnline.status === 'active' &&
+        heroOnline.position.turn ===
+          online.data?.games.find((game) => game.id === activeId)?.own_side));
   const unverified = account?.email_verified === false;
   const number = new Intl.NumberFormat(locale);
   const percent = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 });
@@ -285,11 +306,13 @@ function DashboardHome({
           </p>
         </div>
         <span className="dashboard-status-badge" role="status">
-          {single.phase === 'loading' && online.phase === 'loading'
+          {gamesLoading
             ? t('Loading your games…')
-            : yourTurnCount > 0
-              ? t('{count} games await your move', { count: number.format(yourTurnCount) })
-              : t('No games await your move.')}
+            : gamesStale
+              ? t('Game totals unavailable or stale.')
+              : yourTurnCount > 0
+                ? t('{count} games await your move', { count: number.format(yourTurnCount) })
+                : t('No games await your move.')}
         </span>
       </header>
       {unverified && (
@@ -305,11 +328,13 @@ function DashboardHome({
           <section className="arena-hero arena-surface" aria-labelledby="dashboard-hero-heading">
             <div className="arena-hero-copy">
               <p className="arena-kicker">
-                {active ? `${t('YOUR TURN')} · ${focusName}` : t('THE TABLE IS SET')}
+                {active
+                  ? `${t(heroAwaitsMove ? 'YOUR TURN' : (statusNames[heroOnline?.status ?? active.status] ?? 'Active'))} · ${focusName}`
+                  : t('THE TABLE IS SET')}
               </p>
               <h2 id="dashboard-hero-heading" className="section-title arena-hero-headline">
                 {active
-                  ? active.yourTurn
+                  ? heroAwaitsMove
                     ? t('One move closer to victory.')
                     : t('Your match is waiting.')
                   : t('Start a new saga.')}
@@ -329,18 +354,25 @@ function DashboardHome({
                       <span>{t('{side} to move', { side: t(sideNames[heroTurn]) })}</span>
                     </>
                   )}
-                  {heroRemaining != null && (
+                  {heroOnline?.status === 'active' && heroTurn && heroOnline.deadline && (
                     <>
                       {' · '}
-                      <RemainingTime seconds={heroRemaining} />
+                      <DashboardCountdown
+                        key={`${accountId}:${activeId}`}
+                        deadline={heroOnline.deadline}
+                      />
                     </>
                   )}
                 </p>
               ) : (
                 <p className="arena-hero-meta">
-                  {single.phase === 'loading' || online.phase === 'loading'
+                  {gamesLoading
                     ? t('Loading your games…')
-                    : t('No games are currently running.')}
+                    : t(
+                        runningCount > 0
+                          ? 'No running games in this preview.'
+                          : 'No games are currently running.',
+                      )}
                 </p>
               )}
               <div className="arena-hero-actions">
@@ -400,7 +432,15 @@ function DashboardHome({
                 {t('Game archive')} →
               </a>
             </div>
-            {single.phase === 'stale' || online.phase === 'stale' ? (
+            {runningCount > needsYou.length && (
+              <p>
+                {t('{shown} of {total} running games shown.', {
+                  shown: number.format(needsYou.length),
+                  total: number.format(runningCount),
+                })}
+              </p>
+            )}
+            {gamesStale ? (
               <p role="alert">
                 {t('History unavailable or stale. Retry to load current records.')}{' '}
                 <button
@@ -414,8 +454,16 @@ function DashboardHome({
                   {t('Retry')}
                 </button>
               </p>
+            ) : gamesLoading ? (
+              <p>{t('Loading your games…')}</p>
             ) : !needsYou.length ? (
-              <p>{t('No games are currently running.')}</p>
+              <p>
+                {t(
+                  runningCount > 0
+                    ? 'No running games in this preview.'
+                    : 'No games are currently running.',
+                )}
+              </p>
             ) : (
               <ul className="dashboard-game-list">
                 {needsYou.map((game) => (

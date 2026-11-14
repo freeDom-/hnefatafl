@@ -424,21 +424,23 @@ it('shows the four standing cards, keeps the detailed statistics link and moves 
 it('shows explicit empty states when no rated pool, streak or portrait data exists', async () => {
   const previous = serve;
   serve = (url) =>
-    url.includes('/personal/online?')
-      ? respond({ ...online, statistics: { groups: [], coverage: { unattributed_games: 0 } } })
-      : url.includes('/personal/progress')
-        ? respond({
-            as_of: '2035-01-01T00:00:00Z',
-            streaks: {
-              rated_win_current: 0,
-              rated_win_best: 0,
-              // The server always lists every pool; a zero-rated pool stays empty.
-              by_ruleset: [
-                { ruleset: 'brandubh', rated_win_current: 0, rated_win_best: 0, rated_games: 0 },
-              ],
-            },
-          })
-        : previous(url);
+    url.includes('/single-player?')
+      ? respond({ ...local, totals: { ...local.totals, in_progress: 0 } })
+      : url.includes('/personal/online?')
+        ? respond({ ...online, statistics: { groups: [], coverage: { unattributed_games: 0 } } })
+        : url.includes('/personal/progress')
+          ? respond({
+              as_of: '2035-01-01T00:00:00Z',
+              streaks: {
+                rated_win_current: 0,
+                rated_win_best: 0,
+                // The server always lists every pool; a zero-rated pool stays empty.
+                by_ruleset: [
+                  { ruleset: 'brandubh', rated_win_current: 0, rated_win_best: 0, rated_games: 0 },
+                ],
+              },
+            })
+          : previous(url);
   render(<PersonalDashboard />);
   await screen.findByRole('heading', { name: 'Brandubh Elo' });
   expect(screen.getByText('No rated games in this pool yet.')).toBeVisible();
@@ -535,4 +537,184 @@ it('translates dashboard actions in German', async () => {
   expect(screen.getByRole('heading', { name: 'Übersicht' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Kriegerprofil' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Partien, die dich brauchen' })).toBeVisible();
+});
+
+it.each(['en', 'de'] as const)(
+  'uses account aggregates beyond 25 online and five local previews in %s without expanding the queue',
+  async (language) => {
+    setLanguage(language, false);
+    const previous = serve;
+    const onlineGames = Array.from({ length: 25 }, (_, i) => ({
+      ...activeOnlineGame,
+      id: i ? `online-${i + 1}` : 'online-1',
+    }));
+    const localGames = Array.from({ length: 5 }, (_, i) => ({
+      id: `local-${i}`,
+      ruleset: 'brandubh',
+      status: 'in_progress',
+    }));
+    serve = (url) =>
+      url.includes('/personal/online?')
+        ? respond({
+            ...online,
+            games: onlineGames,
+            overview: { your_turn: 40, other_active: 10, waiting: 2 },
+          })
+        : url.includes('/personal/local?')
+          ? respond({
+              ...localRunning,
+              games: localGames,
+              totals: { ...localRunning.totals, in_progress: 12 },
+            })
+          : previous(url);
+    render(<PersonalDashboard />);
+    await screen.findByText(
+      language === 'en' ? '52 games await your move' : '52 Partien warten auf deinen Zug',
+    );
+    expect(document.querySelectorAll('.dashboard-game-list > li')).toHaveLength(30);
+    expect(
+      screen.getByText(
+        language === 'en'
+          ? '30 of 67 running games shown.'
+          : '30 von 67 laufenden Partien werden angezeigt.',
+      ),
+    ).toBeVisible();
+    expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/online?limit=25'))).toBe(
+      true,
+    );
+    expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/local?limit=5'))).toBe(true);
+  },
+);
+it('does not claim YOUR TURN when the opponent moves in the selected online game', async () => {
+  const previous = serve;
+  const game = {
+    ...activeOnlineGame,
+    your_turn: false,
+    turn: 'defenders',
+    position: { ...activeOnlineGame.position, turn: 'defenders' },
+  };
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({
+          ...online,
+          games: [game],
+          overview: { your_turn: 0, other_active: 1, waiting: 0 },
+        })
+      : url.includes('/personal/online/')
+        ? respond(game)
+        : previous(url);
+  render(<PersonalDashboard />);
+  await screen.findByRole('heading', { name: 'Your match is waiting.' });
+  expect(document.querySelector('.arena-kicker')).not.toHaveTextContent('YOUR TURN');
+  expect(screen.getByText('No games await your move.')).toBeVisible();
+});
+it.each(['waiting', 'completed'])(
+  'never displays a countdown for an online game that becomes %s',
+  async (status) => {
+    const previous = serve;
+    serve = (url) =>
+      url.includes('/personal/online?')
+        ? respond({ ...online, games: [activeOnlineGame], overview: { your_turn: 1 } })
+        : url.includes('/personal/online/')
+          ? respond({ ...activeOnlineGame, status })
+          : previous(url);
+    render(<PersonalDashboard />);
+    await waitFor(() =>
+      expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/online/online-1'))).toBe(
+        true,
+      ),
+    );
+    await screen.findByText('Archer vs Keeper');
+    expect(document.querySelector('.arena-hero-meta [aria-label$=" remaining"]')).toBeNull();
+    await waitFor(() =>
+      expect(document.querySelector('.arena-kicker')).toHaveTextContent(
+        status === 'waiting' ? 'Waiting' : 'Completed',
+      ),
+    );
+    expect(document.querySelector('.arena-kicker')).not.toHaveTextContent('YOUR TURN');
+  },
+);
+
+it.each(['per_move', 'total'])(
+  'uses the authoritative active deadline for %s rather than inventing time from balances',
+  async (time_control) => {
+    const previous = serve;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2035-01-01T00:00:00Z'));
+    const game = {
+      ...activeOnlineGame,
+      time_control,
+      time_per_move: 999,
+      remaining_seconds: { attackers: 999, defenders: 999 },
+      deadline: '2035-01-01T00:00:45Z',
+    };
+    serve = (url) =>
+      url.includes('/personal/online?')
+        ? respond({ ...online, games: [game], overview: { your_turn: 1 } })
+        : url.includes('/personal/online/')
+          ? respond(game)
+          : previous(url);
+    try {
+      render(<PersonalDashboard />);
+      expect(await screen.findByLabelText('45s remaining')).toBeVisible();
+    } finally {
+      cleanup();
+      now.mockRestore();
+    }
+  },
+);
+
+it('discards delayed aggregate totals on account switches', async () => {
+  const previous = serve;
+  let finishOnline!: (response: Response) => void;
+  let finishLocal!: (response: Response) => void;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? new Promise((resolve) => {
+          finishOnline = resolve;
+        })
+      : url.includes('/personal/local?')
+        ? new Promise((resolve) => {
+            finishLocal = resolve;
+          })
+        : previous(url);
+  const view = render(<PersonalDashboard />);
+  identity.id = 'keeper';
+  serve = previous;
+  view.rerender(<PersonalDashboard />);
+  await screen.findByText('No games await your move.');
+  await act(async () => {
+    finishOnline(await respond({ ...online, overview: { your_turn: 40 } }));
+    finishLocal(
+      await respond({ ...localRunning, totals: { ...localRunning.totals, in_progress: 12 } }),
+    );
+  });
+  expect(screen.queryByText('52 games await your move')).toBeNull();
+  expect(document.querySelector('.dashboard-status-badge')).toHaveTextContent(
+    'No games await your move.',
+  );
+});
+
+it('shows stale local totals as unavailable and recovers through the existing retry', async () => {
+  const previous = serve;
+  serve = (url) => (url.includes('/personal/local?') ? respond({}, 503) : previous(url));
+  render(<PersonalDashboard />);
+  await screen.findByText('Game totals unavailable or stale.');
+  expect(screen.getByRole('alert')).toHaveTextContent('History unavailable or stale.');
+  serve = (url) =>
+    url.includes('/personal/local?')
+      ? respond({ ...localRunning, totals: { ...localRunning.totals, in_progress: 12 } })
+      : previous(url);
+  fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByText('12 games await your move')).toBeVisible();
+});
+it('does not describe an empty bounded preview as an empty account', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({ ...online, games: [], overview: { your_turn: 40, other_active: 0, waiting: 0 } })
+      : previous(url);
+  render(<PersonalDashboard />);
+  expect(await screen.findByText('40 games await your move')).toBeVisible();
+  expect(screen.getByText('0 of 43 running games shown.')).toBeVisible();
+  expect(screen.getAllByText('No running games in this preview.')).toHaveLength(2);
 });

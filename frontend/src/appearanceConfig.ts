@@ -1,3 +1,4 @@
+import catalog from './appearanceCatalog.json';
 /** Add a catalog entry and renderer/palette to extend appearance without changing game rules. */
 export const COLOR_MODES = [
   { id: 'system', name: 'Follow device', description: 'Light or dark with your device' },
@@ -7,27 +8,12 @@ export const COLOR_MODES = [
 ] as const;
 
 /** Legacy/classic UI appearance: no named theme, the color modes own the surfaces. */
-export const LEGACY_UI_THEME = 'legacy' as const;
+export const LEGACY_UI_THEME = catalog.legacyTheme as 'legacy';
 
 /** Named app-shell themes. The catalog default is applied when no theme was chosen. */
-export const UI_THEMES = [
-  { id: 'classic-table', name: 'Classic Table', description: 'Simple parchment and forest green' },
-  {
-    id: 'kings-table',
-    name: 'The King’s Table',
-    description: 'Clean tabletop, parchment and pine',
-  },
-  {
-    id: 'iron-ash',
-    name: 'Iron & Ash',
-    description: 'Dark slate, understated metal and warm gold',
-  },
-  {
-    id: 'saga-hall',
-    name: 'Saga Hall',
-    description: 'Carved timber, leather and Nordic knotwork',
-  },
-] as const;
+export const UI_THEMES = (Object.keys(catalog.themes) as (keyof typeof catalog.themes)[]).map(
+  (id) => ({ id, ...catalog.themes[id] }),
+);
 
 export const TOKEN_THEMES = [
   { id: 'classic', name: 'Classic stones', description: 'Smooth dark, ivory and gold pieces' },
@@ -125,8 +111,8 @@ export interface Appearance {
   density: Density;
 }
 export const APPEARANCE_KEY = 'hnefatafl-appearance';
-/** Catalog default (`theme-catalog.json` → `suggestedDefault`), applied until another is chosen. */
-export const DEFAULT_UI_THEME: UiTheme = 'kings-table';
+/** Default from the shared first-paint/React catalog, applied until another is chosen. */
+export const DEFAULT_UI_THEME = catalog.defaultTheme as keyof typeof catalog.themes;
 export const DEFAULT_APPEARANCE: Appearance = {
   mode: 'system',
   tokens: 'wood',

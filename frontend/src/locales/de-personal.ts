@@ -1,4 +1,8 @@
 const personal: Record<string, string> = {
+  'Game totals unavailable or stale.': 'Partiensummen nicht verfügbar oder veraltet.',
+  'No running games in this preview.': 'Keine laufenden Partien in dieser Vorschau.',
+  '{shown} of {total} running games shown.':
+    '{shown} von {total} laufenden Partien werden angezeigt.',
   Dashboard: 'Übersicht',
   'New online game': 'Neues Onlinespiel',
   'New single-player game': 'Neues Einzelspiel',
