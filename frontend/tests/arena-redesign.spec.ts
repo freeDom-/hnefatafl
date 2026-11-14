@@ -347,6 +347,7 @@ test.beforeAll(() => {
 for (const appearance of appearances) {
   test(`captures the ${appearance.id} appearance at every required viewport`, async ({ page }) => {
     await page.addInitScript((value) => {
+      localStorage.setItem('hnefatafl-leaderboard-ruleset', 'brandubh');
       localStorage.setItem(
         'hnefatafl-appearance',
         JSON.stringify({ uiTheme: value, board: 'oak', tokens: 'classic' }),
@@ -442,6 +443,7 @@ for (const appearance of appearances) {
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
       ).toBe(true);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await page.screenshot({
         path: `${output}/${appearance.id}-${viewport.name}.png`,
         fullPage: true,
@@ -451,6 +453,7 @@ for (const appearance of appearances) {
 
   test(`captures the full ${appearance.id} dashboard`, async ({ page }) => {
     await page.addInitScript((value) => {
+      localStorage.setItem('hnefatafl-leaderboard-ruleset', 'brandubh');
       localStorage.setItem(
         'hnefatafl-appearance',
         JSON.stringify({ uiTheme: value, board: 'oak', tokens: 'classic' }),
@@ -466,12 +469,14 @@ for (const appearance of appearances) {
     await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
     await expect(page.locator('.dashboard-layout')).toBeVisible();
     await expect(page.locator('.arena-hero-empty')).toBeVisible();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.screenshot({
       path: `${output}/${appearance.id}-dashboard-full.png`,
       fullPage: true,
     });
     // Viewport capture: the rail is position:fixed, so a full-page screenshot
     // only shows it for the first viewport. This matches the reference framing.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.screenshot({
       path: `${output}/${appearance.id}-dashboard-empty-viewport.png`,
     });
@@ -507,9 +512,11 @@ for (const appearance of appearances) {
     expect(images.filter(Boolean), 'all rendered theme artwork loads').toEqual([]);
     await expect(heroBoard.locator('.board-frame')).toHaveCount(1);
     await expect(heroBoard.getByText('No game on the table yet.')).toHaveCount(0);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.screenshot({
       path: `${output}/${appearance.id}-dashboard-viewport.png`,
     });
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.screenshot({
       path: `${output}/${appearance.id}-dashboard-active-full.png`,
       fullPage: true,
@@ -522,6 +529,7 @@ for (const appearance of appearances) {
       expect(fit.layoutBottom).toBeGreaterThan(fit.introTop);
       const boardBox = await heroBoard.boundingBox();
       expect(boardBox!.width).toBeGreaterThan(250);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await page.screenshot({
         path: `${output}/${appearance.id}-dashboard-active-${viewport.name}.png`,
       });

@@ -167,8 +167,8 @@ body:has(.arena-sidebar) {
 .sidebar-nav-placeholder > span {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
 }
 /* Placeholders are visibly inert: no hover, no focus, a plain "Soon" tag. */
 .sidebar-nav-placeholder {

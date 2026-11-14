@@ -78,8 +78,8 @@
   --arena-rail-ink: #e8e1d7;
   --arena-rail-muted: #a3adb2;
   --arena-rail-line: #38454c;
-  --arena-rail-transform: uppercase;
-  --arena-rail-tracking: 0.06em;
+  --arena-rail-transform: none;
+  --arena-rail-tracking: 0.01em;
   /* Serif headings, neutral sans for the rail and controls. */
   --font-display: Georgia, 'Times New Roman', serif;
   --font-ui: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -122,8 +122,8 @@
   --arena-ambient: #24130d;
   --arena-panel: #351d14;
   --arena-raised: #43251a;
-  --arena-accent: #a45e2b;
-  --arena-accent-contrast: #fdf3e2;
+  --arena-accent: #e8bd72;
+  --arena-accent-contrast: #25170e;
   --arena-metal: #d6a044;
   --arena-line: #6b4429;
   --arena-hero-ink: #f7e6c8;
@@ -132,7 +132,7 @@
   --arena-rail-muted: #cfae86;
   --arena-rail-line: #4a2a1b;
   --arena-rail-transform: none;
-  --arena-rail-tracking: 0.09em;
+  --arena-rail-tracking: 0.02em;
   /* Saga Hall is serif throughout, with wider tracking on display text. */
   --font-display: Georgia, 'Times New Roman', serif;
   --font-ui: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
@@ -149,7 +149,7 @@
   --surface: var(--arena-panel);
   --surface-raised: var(--arena-raised);
   --green: var(--arena-accent);
-  --green-dark: #c9803f;
+  --green-dark: #f3d39a;
   --gold: #d6a044;
   --line: var(--arena-line);
   --muted: #c8ae8c;

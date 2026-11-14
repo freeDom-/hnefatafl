@@ -6,6 +6,14 @@ import { historicalGame } from './historical-fixture';
 // `npm --prefix frontend run test:e2e` is available with an installed Chromium.
 const themes = [
   {
+    id: 'classic-table',
+    accent: 'rgb(27, 74, 52)',
+    line: 'rgb(216, 196, 156)',
+    raised: 'rgb(240, 226, 198)',
+    copy: 'rgb(74, 85, 72)',
+    colorScheme: 'light',
+  },
+  {
     id: 'kings-table',
     accent: 'rgb(27, 74, 52)',
     line: 'rgb(216, 196, 156)',
@@ -23,7 +31,7 @@ const themes = [
   },
   {
     id: 'saga-hall',
-    accent: 'rgb(164, 94, 43)',
+    accent: 'rgb(232, 189, 114)',
     line: 'rgb(107, 68, 41)',
     raised: 'rgb(67, 37, 26)',
     copy: 'rgb(216, 193, 156)',

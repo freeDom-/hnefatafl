@@ -23,11 +23,23 @@ Short desktop windows scroll normally rather than shrinking the dashboard to fit
 Long game lists and compact standings no longer clip their rows into a tiny
 scrolling region. Mobile retains the compact navigation and stacked layout.
 
+## Desktop captures
+
+These 1672 × 941 browser captures use isolated Brandubh fixtures and the
+production components, with the route-focus outline cleared for the image only.
+
+| Theme | Browser capture |
+| --- | --- |
+| The King’s Table | ![King’s Table](../screenshots/arena-kings-table.webp) |
+| Iron & Ash | ![Iron & Ash](../screenshots/arena-iron-ash.webp) |
+| Saga Hall | ![Saga Hall](../screenshots/arena-saga-hall.webp) |
+| Classic Table | ![Classic Table](../screenshots/arena-classic-table.webp) |
+
 ## Validation procedure
 
 Run `make check` and the Arena redesign, shared UI, play discovery and workspace
 navigation Playwright suites. The redesign suite captures all four themes plus
-legacy at 320, 390, 768, 1024, 1366 and 1440 pixels. Its populated fixture uses
+legacy at 320, 390, 768, 1024, 1366, 1440 and 1672 pixels. Its populated fixture uses
 real production components with isolated test responses for three running games,
 a Brandubh position and standings. Fixture values never enter production views.
 Inspect the resulting screenshots against the supplied handoff references.
