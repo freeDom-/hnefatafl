@@ -58,9 +58,17 @@ test('Shield maiden is localized and selectable for training and advisors', asyn
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(page.getByRole('grid')).toBeVisible();
   await openGameOptions(page);
-  const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
-  await expect(analytics).toBeVisible();
-  const advisor = analytics.getByRole('combobox', { name: 'Move advisor', exact: true });
+  // Desktop exposes the advisor directly in the Analytics region; mobile keeps it
+  // in the Game options dialog behind an empty-state button.
+  let advisor = page
+    .getByRole('region', { name: 'Analytics', exact: true })
+    .getByRole('combobox', { name: 'Move advisor', exact: true });
+  if (!(await advisor.isVisible())) {
+    await page.getByRole('button', { name: 'Move advisor', exact: true }).click();
+    advisor = page
+      .getByRole('dialog', { name: /Game options|Spieloptionen/ })
+      .getByRole('combobox', { name: 'Move advisor', exact: true });
+  }
   await expect(advisor).toBeVisible();
   await advisor.selectOption('profile:shield_maiden');
   await gameTab(page, 'analytics');
