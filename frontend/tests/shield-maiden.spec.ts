@@ -59,9 +59,10 @@ test('Shield maiden is localized and selectable for training and advisors', asyn
   await expect(page.getByRole('grid')).toBeVisible();
   await openGameOptions(page);
   const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
-  await analytics
-    .getByRole('combobox', { name: 'Move advisor', exact: true })
-    .selectOption('profile:shield_maiden');
+  await expect(analytics).toBeVisible();
+  const advisor = analytics.getByRole('combobox', { name: 'Move advisor', exact: true });
+  await expect(advisor).toBeVisible();
+  await advisor.selectOption('profile:shield_maiden');
   await gameTab(page, 'analytics');
   const panel = page.getByRole('region', { name: 'Agent evaluations' });
   await expect(panel).toHaveAttribute('aria-busy', 'false');
