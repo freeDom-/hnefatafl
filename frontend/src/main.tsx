@@ -8,6 +8,7 @@ import { NotificationProvider } from './notifications';
 import './style.css';
 import './appearance.css';
 import './arena-themes.css';
+import './arenaSidebar.css';
 import './identity.css';
 import './ui.css';
 

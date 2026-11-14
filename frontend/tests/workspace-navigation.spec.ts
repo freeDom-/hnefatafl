@@ -200,7 +200,7 @@ test('reserves the bottom strip only where a bottom navigation exists', async ({
 test('keeps a phone dialog action above the compact bar', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/dashboard');
-  await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
+  await page.getByRole('button', { name: 'Play vs AI', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Begin a new saga' });
   await expect(setup).toBeVisible();
   // Playwright refuses a click the fixed bar would intercept.

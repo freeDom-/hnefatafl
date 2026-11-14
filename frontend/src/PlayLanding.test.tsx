@@ -26,13 +26,13 @@ afterEach(() => {
   history.replaceState(null, '', '/');
 });
 
-it('shows Dashboard discovery and the shared creation actions when no games are running', async () => {
+it('shows the lobby link and the shared creation actions when no games are running', async () => {
   const create = vi.fn();
   render(<PlayLanding onNewSingle={create} creatingSingle={false} />);
   await screen.findByText('No games are currently running.');
-  expect(screen.getByRole('link', { name: 'Find online games on Dashboard' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: 'Find online games in the lobby' })).toHaveAttribute(
     'href',
-    '/dashboard',
+    '/online',
   );
   fireEvent.click(screen.getByRole('button', { name: 'New single-player game' }));
   expect(create).toHaveBeenCalledOnce();

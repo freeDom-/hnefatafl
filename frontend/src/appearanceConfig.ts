@@ -1,29 +1,8 @@
-/** Add a catalog entry and renderer/palette to extend appearance without changing game rules. */
-export const COLOR_MODES = [
-  { id: 'system', name: 'Follow device', description: 'Light or dark with your device' },
-  { id: 'light', name: 'Light', description: 'Parchment and daylight' },
-  { id: 'dark', name: 'Dark', description: 'A quiet table after dusk' },
-  { id: 'wood', name: 'Wood', description: 'Timber, bronze and northern sagas' },
-] as const;
-
-/** Named app-shell themes. Optional and additive: absent means the existing mode styling applies. */
-export const UI_THEMES = [
-  {
-    id: 'kings-table',
-    name: 'The King’s Table',
-    description: 'Clean tabletop, parchment and pine',
-  },
-  {
-    id: 'iron-ash',
-    name: 'Iron & Ash',
-    description: 'Dark slate, understated metal and warm gold',
-  },
-  {
-    id: 'saga-hall',
-    name: 'Saga Hall',
-    description: 'Carved timber, leather and Nordic knotwork',
-  },
-] as const;
+import catalog from './appearanceCatalog.json';
+/** Named app-shell themes. The catalog default is applied when no theme was chosen. */
+export const UI_THEMES = (Object.keys(catalog.themes) as (keyof typeof catalog.themes)[]).map(
+  (id) => ({ id, ...catalog.themes[id] }),
+);
 
 export const TOKEN_THEMES = [
   { id: 'classic', name: 'Classic stones', description: 'Smooth dark, ivory and gold pieces' },
@@ -100,55 +79,56 @@ export const BOARD_THEMES = [
   },
 ] as const;
 
-export type ColorMode = (typeof COLOR_MODES)[number]['id'];
 export type TokenTheme = (typeof TOKEN_THEMES)[number]['id'];
 export type BoardTheme = (typeof BOARD_THEMES)[number]['id'];
 export type Density = (typeof DENSITIES)[number]['id'];
-export type UiTheme = (typeof UI_THEMES)[number]['id'];
+export type UiTheme = keyof typeof catalog.themes;
 export interface Appearance {
-  /** Absent until the user explicitly chooses a named theme; see UI_THEMES. */
-  uiTheme?: UiTheme;
-  mode: ColorMode;
+  version: 2;
+  uiTheme: UiTheme;
   tokens: TokenTheme;
   board: BoardTheme;
-  density: Density;
+  /** Absent means viewport-aware automatic scale; a valid saved value is explicit. */
+  density?: Density;
 }
 export const APPEARANCE_KEY = 'hnefatafl-appearance';
-/** Catalog default shown in the picker, not applied until the user selects it. */
-export const DEFAULT_UI_THEME: UiTheme = 'kings-table';
+export const LARGE_VIEWPORT_QUERY = catalog.largeViewport;
+export const DEFAULT_UI_THEME = catalog.defaultTheme as UiTheme;
 export const DEFAULT_APPEARANCE: Appearance = {
-  mode: 'system',
+  version: 2,
+  uiTheme: DEFAULT_UI_THEME,
   tokens: 'wood',
   board: 'walnut',
-  density: 'default',
 };
+export const resolveUiTheme = (appearance: Appearance): UiTheme => appearance.uiTheme;
+export const effectiveDensity = (appearance: Appearance, largeViewport: boolean): Density =>
+  appearance.density ?? (largeViewport ? 'large' : 'default');
 
-/** The active named theme, or the catalog default when the user has not chosen one. */
-export function resolveUiTheme(appearance: Appearance): UiTheme {
-  return appearance.uiTheme ?? DEFAULT_UI_THEME;
-}
-
+/** Idempotent migration: named themes win, legacy modes map without device dependence. */
 export function parseAppearance(value: unknown): Appearance {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...DEFAULT_APPEARANCE };
-  const candidate = value as Record<string, unknown>;
-  // Only an explicit, valid uiTheme is kept; absent or invalid stays unset so the
-  // legacy data-color-mode styling continues to apply unchanged.
-  const uiTheme = UI_THEMES.some((theme) => theme.id === candidate.uiTheme)
-    ? (candidate.uiTheme as UiTheme)
+  const candidate =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const named = UI_THEMES.some((theme) => theme.id === candidate.uiTheme);
+  const old = candidate.uiTheme == null || candidate.uiTheme === 'legacy';
+  const legacy =
+    typeof candidate.mode === 'string' &&
+    Object.prototype.hasOwnProperty.call(catalog.legacyModes, candidate.mode)
+      ? (catalog.legacyModes[candidate.mode as keyof typeof catalog.legacyModes] as UiTheme)
+      : DEFAULT_UI_THEME;
+  const density = DENSITIES.some((item) => item.id === candidate.density)
+    ? (candidate.density as Density)
     : undefined;
   return {
-    ...(uiTheme ? { uiTheme } : {}),
-    mode: COLOR_MODES.some((mode) => mode.id === candidate.mode)
-      ? (candidate.mode as ColorMode)
-      : DEFAULT_APPEARANCE.mode,
+    version: 2,
+    uiTheme: named ? (candidate.uiTheme as UiTheme) : old ? legacy : DEFAULT_UI_THEME,
     tokens: TOKEN_THEMES.some((theme) => theme.id === candidate.tokens)
       ? (candidate.tokens as TokenTheme)
       : DEFAULT_APPEARANCE.tokens,
     board: BOARD_THEMES.some((theme) => theme.id === candidate.board)
       ? (candidate.board as BoardTheme)
       : DEFAULT_APPEARANCE.board,
-    density: DENSITIES.some((density) => density.id === candidate.density)
-      ? (candidate.density as Density)
-      : DEFAULT_APPEARANCE.density,
+    ...(density ? { density } : {}),
   };
 }

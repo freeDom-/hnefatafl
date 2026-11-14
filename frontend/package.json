@@ -14,9 +14,11 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format:check": "node scripts/sync-appearance-catalog.mjs --check && prettier --check .",
     "test:online": "playwright test --config playwright.online.config.ts",
-    "test:personal": "playwright test --config playwright.personal.config.ts"
+    "test:personal": "playwright test --config playwright.personal.config.ts",
+    "predev": "node scripts/sync-appearance-catalog.mjs",
+    "prebuild": "node scripts/sync-appearance-catalog.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",

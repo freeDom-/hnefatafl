@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError } from './api';
 import { useAuth } from './Auth';
 import Board, { coordinate } from './Board';
@@ -273,6 +273,7 @@ export function Lobby({
   creationRequested = 0,
   dialogOnly = false,
   onCloseCreation,
+  createAction,
 }: {
   accountId: string;
   open: (id: string) => void;
@@ -280,11 +281,15 @@ export function Lobby({
   creationRequested?: number;
   dialogOnly?: boolean;
   onCloseCreation?: () => void;
+  /** Optional caller-owned creation control; the caller owns permission gating. */
+  createAction?: ReactNode;
 }) {
   const { t } = useI18n();
   const pageSize = embedded ? 10 : 25;
+  // The creation dialog opens for the `?setup=online` deep link or when the caller
+  // requests it; the lobby listing itself never blocks the page behind a modal.
   const [createOpen, setCreateOpen] = useState(
-    !embedded || new URLSearchParams(location.search).get('setup') === 'online',
+    new URLSearchParams(location.search).get('setup') === 'online',
   );
   const creationVisible = useRef(createOpen);
   const closeCreation = () => {
@@ -414,7 +419,7 @@ export function Lobby({
   };
   return (
     <section
-      className={dialogOnly ? 'creation-host' : 'panel dashboard-lobby'}
+      className={dialogOnly ? 'creation-host' : 'panel online-lobby'}
       aria-label={t('Online lobby')}
     >
       {poll.phase === 'loading' && <p role="status">{t('Loading online games…')}</p>}
@@ -592,7 +597,14 @@ export function Lobby({
         )}
         {!dialogOnly && (
           <section className="online-games">
-            <h2>{t('Online games')}</h2>
+            {createAction ? (
+              <div className="section-heading">
+                <h2>{t('Online games')}</h2>
+                {createAction}
+              </div>
+            ) : (
+              <h2>{t('Online games')}</h2>
+            )}
             <p className="subtle">
               {t(
                 'Live games only. Completed games open read-only replay and analysis in the Hall of records.',
@@ -1185,9 +1197,17 @@ function GameRoom({
     </PlayPage>
   );
 }
+/**
+ * The authenticated lobby surface: the full listing at `/online`, or the game
+ * room at `/online/games/{id}`. The lobby keeps its own creation control here so
+ * `/online` is self-contained; the Play entry opens the same creation dialog
+ * through the `?setup=online` deep link.
+ */
 export default function Online() {
   const { account } = useAuth();
+  const { t } = useI18n();
   const [path, setPath] = useState(location.pathname);
+  const [creation, setCreation] = useState(0);
   const heading = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const update = () => setPath(location.pathname);
@@ -1218,11 +1238,24 @@ export default function Online() {
           lobby={() => navigate('/dashboard')}
         />
       ) : (
-        <Lobby
-          key={account.id}
-          accountId={account.id}
-          open={(id) => navigate(`/online/games/${id}`)}
-        />
+        <PlayPage className="online-page" heading={t('Online lobby')}>
+          <Lobby
+            key={account.id}
+            accountId={account.id}
+            creationRequested={creation}
+            open={(id) => navigate(`/online/games/${id}`)}
+            createAction={
+              <button
+                className="button primary"
+                type="button"
+                disabled={account.email_verified === false}
+                onClick={() => setCreation((value) => value + 1)}
+              >
+                {t('New online game')}
+              </button>
+            }
+          />
+        </PlayPage>
       )}
     </div>
   );

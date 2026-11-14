@@ -6,27 +6,35 @@ import { historicalGame } from './historical-fixture';
 // `npm --prefix frontend run test:e2e` is available with an installed Chromium.
 const themes = [
   {
+    id: 'classic-table',
+    accent: 'rgb(27, 74, 52)',
+    cardBorder: 'rgb(216, 196, 156)',
+    raised: 'rgb(240, 226, 198)',
+    copy: 'rgb(74, 85, 72)',
+    colorScheme: 'light',
+  },
+  {
     id: 'kings-table',
-    accent: 'rgb(30, 80, 55)',
-    line: 'rgb(199, 176, 139)',
-    raised: 'rgb(239, 228, 209)',
-    copy: 'rgb(78, 89, 76)',
+    accent: 'rgb(27, 74, 52)',
+    cardBorder: 'rgb(216, 196, 156)',
+    raised: 'rgb(240, 226, 198)',
+    copy: 'rgb(74, 85, 72)',
     colorScheme: 'light',
   },
   {
     id: 'iron-ash',
-    accent: 'rgb(233, 194, 126)',
-    line: 'rgb(86, 100, 106)',
-    raised: 'rgb(43, 54, 61)',
-    copy: 'rgb(196, 206, 208)',
+    accent: 'rgb(214, 165, 80)',
+    cardBorder: 'rgb(58, 69, 75)',
+    raised: 'rgb(35, 43, 47)',
+    copy: 'rgb(185, 194, 198)',
     colorScheme: 'dark',
   },
   {
     id: 'saga-hall',
-    accent: 'rgb(233, 191, 121)',
-    line: 'rgb(146, 112, 80)',
-    raised: 'rgb(72, 51, 40)',
-    copy: 'rgb(224, 205, 177)',
+    accent: 'rgb(232, 189, 114)',
+    cardBorder: 'rgb(214, 160, 68)',
+    raised: 'rgb(67, 37, 26)',
+    copy: 'rgb(216, 193, 156)',
     colorScheme: 'dark',
   },
 ] as const;
@@ -53,24 +61,24 @@ const liveBadgeAppearances: readonly {
   })),
   {
     id: 'legacy-light',
-    stored: { mode: 'light' },
-    background: 'rgb(240, 242, 232)',
-    color: 'rgb(38, 53, 46)',
-    border: 'rgb(23, 61, 55)',
+    stored: { uiTheme: 'legacy', mode: 'light' },
+    background: 'rgb(240, 226, 198)',
+    color: 'rgb(74, 85, 72)',
+    border: 'rgb(27, 74, 52)',
   },
   {
     id: 'legacy-dark',
-    stored: { mode: 'dark' },
-    background: 'rgb(41, 55, 45)',
-    color: 'rgb(191, 204, 179)',
-    border: 'rgb(167, 208, 187)',
+    stored: { uiTheme: 'legacy', mode: 'dark' },
+    background: 'rgb(35, 43, 47)',
+    color: 'rgb(185, 194, 198)',
+    border: 'rgb(214, 165, 80)',
   },
   {
     id: 'legacy-wood',
-    stored: { mode: 'wood' },
-    background: 'rgb(71, 50, 37)',
-    color: 'rgb(222, 204, 172)',
-    border: 'rgb(230, 189, 125)',
+    stored: { uiTheme: 'legacy', mode: 'wood' },
+    background: 'rgb(67, 37, 26)',
+    color: 'rgb(216, 193, 156)',
+    border: 'rgb(232, 189, 114)',
   },
 ];
 /** A live online record: the Hall lists it with the `.record-live` badge. */
@@ -155,11 +163,10 @@ for (const theme of themes) {
   });
 
   for (const mode of modes) {
-    test(`keeps the ${theme.id} controls and color-scheme on the theme in ${mode} mode`, async ({
+    test(`keeps the ${theme.id} controls and color-scheme despite an obsolete ${mode} preference`, async ({
       page,
     }) => {
-      // `wood` is an application color mode, not a browser preference; the stored
-      // mode still drives data-color-mode and the theme's own color-scheme.
+      // Valid named themes take precedence over all migrated mode fields.
       await page.emulateMedia({
         colorScheme: mode === 'dark' || mode === 'system' ? 'dark' : 'light',
       });
@@ -176,18 +183,40 @@ for (const theme of themes) {
       await page.goto('/dashboard');
       const root = page.locator('html');
       await expect(root).toHaveAttribute('data-ui-theme', theme.id);
-      await expect(root).toHaveAttribute('data-color-mode', mode === 'system' ? 'dark' : mode);
+      await expect(root).not.toHaveAttribute('data-color-mode');
       // The legacy data-color-mode button variants must not repaint the theme.
-      const primary = page.getByRole('button', { name: 'New online game' });
-      await expect(primary).toBeVisible();
-      expect(await primary.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
-        theme.accent,
-      );
-      // The Play cards must read the theme's own line token, never a hard-coded
-      // light fallback that would break the dark named themes.
-      const card = page.locator('.play-mode-card').first();
+      // The hero's primary action is the dashboard's creation entry point.
+      // The hero swaps its action element when the running-game list resolves, so
+      // the colour is asserted through a retrying locator assertion.
+      const primary = page.locator('.arena-hero .arena-primary-action').first();
+      await expect(async () => {
+        const colors = await primary.evaluate((node) => {
+          if (!node.isConnected) return null;
+          const style = getComputedStyle(node);
+          return { color: style.color, background: style.backgroundColor };
+        });
+        // React may replace the action between locator resolution and evaluation.
+        // Retry that transient state rather than parsing an empty computed color.
+        expect(colors).not.toBeNull();
+        expect(colors!.background).toBe(theme.accent);
+        expect(colors!.color).toMatch(/^rgba?\(/);
+        expect(contrastRatio(colors!.color, colors!.background)).toBeGreaterThanOrEqual(4.5);
+      }).toPass({ timeout: 10000 });
+      // The dashboard standing cards must read the theme's own frame color, never
+      // a hard-coded light fallback that would break the dark named themes.
+      const card = page.locator('.dashboard-stat').first();
       await expect(card).toBeVisible();
-      expect(await card.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(theme.line);
+      expect(await card.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(
+        theme.cardBorder,
+      );
+      await expect(async () => {
+        const colors = await card.evaluate((node) => ({
+          background: getComputedStyle(node).backgroundColor,
+          text: getComputedStyle(node.querySelector('small')!).color,
+        }));
+        expect(contrastRatio(colors.text, colors.background)).toBeGreaterThanOrEqual(4.5);
+      }).toPass({ timeout: 10000 });
+
       expect(await root.evaluate((node) => getComputedStyle(node).colorScheme)).toContain(
         theme.colorScheme,
       );
@@ -228,11 +257,22 @@ for (const appearance of liveBadgeAppearances) {
   });
 }
 
-test('keeps the legacy appearance when no UI theme is stored', async ({ page }) => {
+test("applies King's Table when no UI theme is stored", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/dashboard');
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-  await expect(page.locator('html')).not.toHaveAttribute('data-ui-theme');
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'kings-table');
+  await page.screenshot({ path: `${output}/default-kings-table-desktop.png`, fullPage: true });
+});
+
+test('migrates the old Classic look to the supported default', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme: 'legacy' }));
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/dashboard');
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'kings-table');
   await page.screenshot({ path: `${output}/legacy-default-desktop.png`, fullPage: true });
 });
 

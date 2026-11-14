@@ -55,23 +55,24 @@ export default function App() {
   const { account, logout } = useAuth();
   const permissions = account?.permissions ?? [];
   const [path, setPath] = useState(canonicalLocation);
-  const tab: Tab = path.startsWith('/online/games/')
-    ? 'online'
-    : path.split('?')[0] === '/profile'
-      ? 'profile'
-      : path.split('?')[0] === '/statistics'
-        ? 'statistics'
-        : path.startsWith('/games/') || path.split('?')[0] === '/play'
-          ? 'play'
-          : path.split('?')[0] === '/archive'
-            ? 'archive'
-            : path.split('?')[0] === '/leaderboard'
-              ? 'leaderboard'
-              : path.startsWith('/training') && permissions.includes('training')
-                ? 'training'
-                : path.startsWith('/tournaments') && permissions.includes('tournaments')
-                  ? 'tournaments'
-                  : 'dashboard';
+  const tab: Tab =
+    path.startsWith('/online/games/') || path.split('?')[0] === '/online'
+      ? 'online'
+      : path.split('?')[0] === '/profile'
+        ? 'profile'
+        : path.split('?')[0] === '/statistics'
+          ? 'statistics'
+          : path.startsWith('/games/') || path.split('?')[0] === '/play'
+            ? 'play'
+            : path.split('?')[0] === '/archive'
+              ? 'archive'
+              : path.split('?')[0] === '/leaderboard'
+                ? 'leaderboard'
+                : path.startsWith('/training') && permissions.includes('training')
+                  ? 'training'
+                  : path.startsWith('/tournaments') && permissions.includes('tournaments')
+                    ? 'tournaments'
+                    : 'dashboard';
   const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());

@@ -172,8 +172,12 @@ test.describe('Play auto-resume respects newer navigation', () => {
   test('auto-resume with an online game survives Browser Back', async ({ page }) => {
     const id = `online-${'b'.repeat(32)}`;
     await page.route('**/api/personal/single-player**', (route) => route.fulfill({ json: empty }));
+    // The dashboard also reads /personal/online for its hero; only the Play entry
+    // (limit=100) should see the running game so it can auto-resume there.
     await page.route('**/api/personal/online**', (route) =>
-      route.fulfill({ json: activeOnline(id) }),
+      route.fulfill({
+        json: route.request().url().includes('limit=100') ? activeOnline(id) : empty,
+      }),
     );
     await page.goto('/dashboard');
     await openDestination(page, 'play');

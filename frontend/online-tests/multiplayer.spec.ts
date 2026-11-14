@@ -154,8 +154,9 @@ test('two accounts play, reconnect, finish and view a local read-only replay', a
   const url = await create(page);
   const id = new URL(url).pathname.split('/').pop()!;
   await join(other.page, url);
-  await page.goto('/dashboard');
-  await expect(page).toHaveURL(/\/dashboard$/);
+  // The authenticated lobby listing lives on its own Play-owned route.
+  await page.goto('/online');
+  await expect(page).toHaveURL(/\/online$/);
   await page.getByRole('tab', { name: 'My games', exact: true }).click();
   await page.getByRole('button', { name: 'Open game', exact: true }).first().click();
   await expect(page).toHaveURL(url);
@@ -414,8 +415,10 @@ test('disabled admission preserves existing seats; timeout automatically complet
   const completed = await (await page.request.get(`/api/online/games/${id}`)).json();
   expect(completed.status).toBe('completed');
   expect(completed.result.termination_reason).toBe('timeout');
+  // The dashboard keeps the unverified warning and a disabled link to the Play
+  // entry, which owns online creation.
   await page.goto('/dashboard');
-  await expect(page.getByRole('button', { name: 'New online game', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Play online', exact: true })).toBeDisabled();
   await expect(
     page.getByText('Verify your email address before creating or joining online games.'),
   ).toBeVisible();
@@ -429,12 +432,11 @@ test('lobby automatically observes creation, join and completion and resynchroni
   await login(page, 'OnlineArcher');
   const viewer = await opponent(browser, 'OnlineViewer');
   extra.push(viewer.context);
-  const close = viewer.page
-    .getByRole('dialog', { name: 'Create an online game' })
-    .getByRole('button', { name: 'Cancel', exact: true });
-  await expect(close).toBeVisible();
-  await close.click();
+  // Signing in opens the lobby listing itself; the creation dialog stays closed
+  // until the account asks for it.
   const lobby = viewer.page.getByRole('region', { name: 'Online lobby', exact: true });
+  await expect(lobby.getByRole('heading', { name: 'Online games', exact: true })).toBeVisible();
+  await expect(viewer.page.getByRole('dialog')).toHaveCount(0);
   await expect(lobby.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
   await expect(lobby.getByText('Connected · refreshes automatically')).toHaveCount(0);
   const url = await create(page, 'single', 'attackers', '3600');
@@ -468,12 +470,19 @@ test('online setup shares modal spacing, restores focus on Escape and rejects in
   page,
 }) => {
   await login(page, 'OnlineArcher');
+  // The authenticated lobby page owns online creation; the dashboard hero owns
+  // the single-player entry. Opening the online dialog on /play would auto-resume
+  // a running game, so both entries are exercised on their own routes.
+  await page.goto('/online');
+  const trigger = page.getByRole('button', { name: 'New online game', exact: true });
+  await trigger.click();
   const online = page.getByRole('dialog', { name: 'Create an online game', exact: true });
   await expect(online).toBeVisible();
   const modalPadding = await online.evaluate((n) => getComputedStyle(n).padding);
   const formPadding = await online.locator('form').evaluate((n) => getComputedStyle(n).padding);
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
+  await page.goto('/dashboard');
+  await page.getByRole('button', { name: 'Play vs AI', exact: true }).click();
   const single = page.getByRole('dialog', { name: 'Begin a new saga' });
   await expect(single).toBeVisible();
   expect(await single.evaluate((n) => getComputedStyle(n).padding)).toBe(modalPadding);
@@ -481,7 +490,7 @@ test('online setup shares modal spacing, restores focus on Escape and rejects in
     formPadding,
   );
   await page.keyboard.press('Escape');
-  const trigger = page.getByRole('button', { name: 'New online game', exact: true });
+  await page.goto('/online');
   await trigger.click();
   await expect(online).toBeVisible();
   expect(await online.evaluate((node) => node.contains(document.activeElement))).toBe(true);
@@ -537,6 +546,7 @@ test('total clocks retain per-player balances and increments across moves and re
   await login(page, 'OnlineArcher');
   const other = await opponent(browser);
   extra.push(other.context);
+  await page.getByRole('button', { name: 'New online game', exact: true }).click();
   await page.getByLabel('Time control').selectOption('total');
   await page.getByLabel('Increment per move (seconds)').fill('5');
   const url = await create(page, 'single', 'attackers', '60');

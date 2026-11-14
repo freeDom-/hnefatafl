@@ -1,16 +1,14 @@
 const appearance: Record<string, string> = {
+  'Classic Table': 'Klassischer Tisch',
+  'Simple parchment and forest green': 'Schlichtes Pergament und Waldgrün',
   'Appearance settings': 'Darstellungseinstellungen',
   Appearance: 'Darstellung',
   'A TABLE OF YOUR OWN': 'DEIN EIGENER SPIELTISCH',
   'Make the table yours.': 'Gestalte deinen Spieltisch.',
   'Close appearance settings': 'Darstellungseinstellungen schließen',
-  'Choose the light, the pieces and the battlefield. Your games stay just as you left them.':
-    'Wähle Beleuchtung, Figuren und Spielfeld. Deine Partien bleiben dabei erhalten.',
-  'Color mode': 'Farbmodus',
+  'Choose your theme, pieces and battlefield. Your games stay just as you left them.':
+    'Wähle Design, Figuren und Spielfeld. Deine Partien bleiben dabei erhalten.',
   'UI theme': 'Oberflächendesign',
-  'Appearance default': 'Standarddarstellung',
-  'Keeps the current color mode without a named theme':
-    'Behält den aktuellen Farbmodus ohne benanntes Design',
   'The King’s Table': 'Der Königstisch',
   'Clean tabletop, parchment and pine': 'Klarer Spieltisch, Pergament und Kiefer',
   'Iron & Ash': 'Eisen & Asche',
@@ -19,14 +17,6 @@ const appearance: Record<string, string> = {
   'Saga Hall': 'Sagahalle',
   'Carved timber, leather and Nordic knotwork':
     'Geschnitztes Holz, Leder und nordische Knotenmuster',
-  'Follow device': 'Wie auf dem Gerät',
-  'Light or dark with your device': 'Hell oder dunkel gemäß Geräteeinstellung',
-  Light: 'Hell',
-  'Parchment and daylight': 'Pergament und Tageslicht',
-  Dark: 'Dunkel',
-  'A quiet table after dusk': 'Ein ruhiger Spieltisch nach Einbruch der Nacht',
-  Wood: 'Holz',
-  'Timber, bronze and northern sagas': 'Holz, Bronze und nordische Sagen',
   'Token theme': 'Figurendesign',
   'Classic stones': 'Klassische Spielsteine',
   'Smooth dark, ivory and gold pieces': 'Glatte Figuren in Dunkel, Elfenbein und Gold',

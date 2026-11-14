@@ -30,11 +30,16 @@ test('account menu, private profile, verification, password and device preferenc
   await expect(page.getByRole('heading', { name: 'My Profile', exact: true })).toBeVisible();
   const trigger = page.getByRole('button', { name: `Account menu for ${username}` });
   const language = page.getByRole('combobox', { name: 'Language' });
+  const header = page.locator('.arena-topbar, .site-header');
+  await expect(header).toHaveCount(1);
+  await expect(header.getByRole('combobox', { name: 'Language' })).toBeVisible();
+  await expect(header.getByRole('button', { name: `Account menu for ${username}` })).toBeVisible();
+  const languageBox = await language.boundingBox();
+  const accountBox = await trigger.boundingBox();
+  expect(languageBox!.x + languageBox!.width).toBeLessThanOrEqual(accountBox!.x + 1);
   expect(
-    await language
-      .locator('..')
-      .evaluate((node) => node.nextElementSibling?.classList.contains('account-menu')),
-  ).toBe(true);
+    Math.abs(languageBox!.y + languageBox!.height / 2 - accountBox!.y - accountBox!.height / 2),
+  ).toBeLessThan(32);
   await expect(page.getByRole('combobox', { name: 'Language' })).toHaveCount(1);
   await expect(
     page.locator('.profile-page').getByRole('combobox', { name: 'Language' }),
@@ -113,11 +118,11 @@ test('account menu, private profile, verification, password and device preferenc
   await expect(page.getByLabel('Current password')).toHaveValue('');
   await expect(page.getByLabel('New password', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Confirm new password')).toHaveValue('');
-  await page.getByRole('radio', { name: 'Dark', exact: true }).check();
+  await page.getByRole('radio', { name: 'Iron & Ash', exact: true }).check();
   await language.selectOption('de');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
-  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'iron-ash');
   await expect(page.getByRole('option', { name: 'Deutschland', exact: true })).toBeAttached();
   await logoutFromAccount(page);
   await expect(page.getByRole('combobox', { name: 'Sprache' })).toBeVisible();
@@ -156,8 +161,8 @@ test('header and profile fit narrow and wide screens in every theme and language
     await page.setViewportSize({ width, height: 900 });
     for (const language of ['en', 'de']) {
       await page.locator('.language-select select').selectOption(language);
-      for (const mode of ['light', 'dark', 'wood', 'system']) {
-        await page.locator(`input[name$='-color-mode'][value='${mode}']`).check();
+      for (const theme of ['kings-table', 'iron-ash', 'saga-hall', 'classic-table']) {
+        await page.locator(`input[name$='-ui-theme'][value='${theme}']`).check();
         await page.locator('.account-trigger').scrollIntoViewIfNeeded();
         await expect(page.locator('.language-select select')).toBeVisible();
         await page.locator('.account-trigger').click();
@@ -196,7 +201,7 @@ test('header and profile fit narrow and wide screens in every theme and language
         }));
         expect(
           overflow.scrollWidth,
-          JSON.stringify({ language, mode, ...overflow }),
+          JSON.stringify({ language, theme, ...overflow }),
         ).toBeLessThanOrEqual(width);
         await page.keyboard.press('Escape');
       }
