@@ -57,3 +57,11 @@ Intermediate breakpoints, real 200% zoom, physical mobile/Safari and final merge
 cross-route acceptance remain program-level work. Planned dates do not auto-start
 competitions; administrators confirm seeds and start. Anonymous tournaments are
 not exposed. No merge, release or tag is performed.
+
+First full CI passed backend checks and all 1,328 unit tests; the main browser
+suite had 368 passes and one pre-existing advisor-helper readiness failure. The
+board could mount before its advisor catalog added the Analytics tab, and the
+helper silently skipped a temporarily missing tab. At the actual tabbed layout
+breakpoints it now waits for the control; the plain tablet layout remains inline.
+Four real Shield maiden cases and 18 analysis/replay/localization cases passed
+with this correction. No application behavior, permission or timeout changed.
