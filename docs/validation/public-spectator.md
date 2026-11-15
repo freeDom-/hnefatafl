@@ -1,0 +1,59 @@
+# Public spectator frontend acceptance
+
+The signed-out Watch Hall implements the existing read-only public online API.
+[Public API and UI guide](../PUBLIC_ONLINE.md#public-watch-hall-frontend).
+It branches before Auth, lazily separating the protected application graph; public
+GETs omit credentials and never request session state, private records or analysis.
+
+## Implemented and verified
+
+- Ruleset/status/result/public-player filtering and bounded cursor pagination.
+- Live/waiting spectator board with server-deadline countdown, no move/hint/legal
+  overlays or evaluations; completed validated replay with buttons and keyboard.
+- Public player attribution and allowlisted portrait IDs only.
+- Visible-only adaptive polling, cancellation/generation guards, completed polling
+  stop, public-off/empty/private-ID/rate-limit/error states and explicit retry.
+- Login/registration links, account-form discovery link, four themes and EN/DE.
+- Explicit route-load failure boundary with full reload retry; no automatic loop.
+- Replay keyboard focus stays on its control group when Home/End disables a step
+  button. This fixes a real failure found by the browser regression.
+
+Local browser checks: **11 passed, 1 intentional skip** (the seven-breakpoint matrix
+runs once, not redundantly in both projects). Further real-backend discovery cases
+run without mocked public responses. Public/AccountForms unit tests: **21 passed**.
+Final full CI results are recorded on the pull request, not inferred from these
+focused runs. Existing public backend privacy/rate-limit tests remain unchanged.
+
+The matrix checks theme attributes, actual normal-text contrast >=4.5:1 and no
+horizontal overflow at 320,390,768,1024,1366,1920,3840 CSS pixels in both languages.
+It also proves protected modules and API requests are absent. The live/replay
+checks assert GET-only traffic, no analysis, keyboard navigation and read-only
+behavior. Initial test-only name/label locator mismatches were corrected using
+separate name markup and accessible combobox roles; no threshold was reduced.
+
+## Inspected screenshots
+
+- [Four desktop themes](../screenshots/public-arena/themes-1920.jpg)
+- [Four phone themes](../screenshots/public-arena/themes-390.jpg)
+
+| Theme | 1920×1080 | 3840×2160 |
+| --- | --- | --- |
+| King's Table | [Capture](../screenshots/public-arena/kings-table-1920.webp) | [Capture](../screenshots/public-arena/kings-table-3840.webp) |
+| Iron & Ash | [Capture](../screenshots/public-arena/iron-ash-1920.webp) | [Capture](../screenshots/public-arena/iron-ash-3840.webp) |
+| Saga Hall | [Capture](../screenshots/public-arena/saga-hall-1920.webp) | [Capture](../screenshots/public-arena/saga-hall-3840.webp) |
+| Classic Table | [Capture](../screenshots/public-arena/classic-table-1920.webp) | [Capture](../screenshots/public-arena/classic-table-3840.webp) |
+
+Full 56-image matrix is retained in the CI `public-spectator-visual-acceptance`
+artifact before later configurations clear browser output. These are controlled
+populated discovery fixtures, not invented community records in the application.
+Real empty discovery and backend privacy are tested separately. Physical Safari
+and final all-route 200% zoom review remain separate completion-program gates.
+
+## Build and performance limits
+
+Production build passes. Rounded Vite output: entry 437.81 KB /140.21 KB gzip;
+public view 12.43 KB /4.52 KB gzip and shared header 4.73 KB /2.11 KB gzip.
+Protected App remains a separate 574.21 KB /169.74 KB gzip chunk with the existing
+large-chunk advisory. These figures establish a smaller public startup graph, not
+an authenticated Dashboard or server-throughput improvement. No browser Python,
+neural library, backend schema, rules or dependency change is included.

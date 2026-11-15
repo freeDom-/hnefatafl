@@ -1,0 +1,265 @@
+.public-arena {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  color: var(--ui-copy);
+}
+.public-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4, 1rem);
+  padding: 1rem clamp(1rem, 3vw, 3rem);
+  border-radius: 0;
+}
+.public-brand {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  text-decoration: none;
+}
+.public-brand small {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+}
+.public-header nav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.public-header label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.public-arena main {
+  flex: 1;
+  min-height: 0;
+  align-content: start;
+  width: min(100% - 2rem, 110rem);
+  margin: 2rem auto;
+  display: grid;
+  gap: 1.5rem;
+}
+.public-intro {
+  padding: clamp(1.25rem, 3vw, 3rem);
+}
+.public-intro h1 {
+  font-size: clamp(1.8rem, 3vw, 3.5rem);
+  margin: 0.5rem 0;
+}
+.public-intro p {
+  max-width: 70ch;
+}
+.public-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(8rem, 1fr)) minmax(10rem, 1.5fr) auto;
+  gap: 1rem;
+  align-items: end;
+  padding: 1.25rem;
+}
+.public-filters label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.public-filters input,
+.public-filters select {
+  width: 100%;
+  min-width: 0;
+}
+.public-games {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+.public-match {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  min-width: 0;
+}
+.public-match-meta,
+.public-view-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.public-match-meta {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.public-player {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.public-player img {
+  width: 3rem;
+  height: 3rem;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 2px solid var(--arena-accent);
+  flex: 0 0 auto;
+}
+.public-player small {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--ui-copy);
+}
+.public-empty,
+.public-notice {
+  padding: 1.5rem;
+  display: grid;
+  gap: 0.75rem;
+}
+.public-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 3rem 1.5rem;
+}
+.public-empty h2 {
+  font-size: 1.75rem;
+}
+.public-notice {
+  color: var(--ui-error);
+  background: var(--ui-error-surface);
+  border: 1px solid var(--ui-error);
+}
+.public-notice button {
+  justify-self: start;
+}
+.public-pagination,
+.public-replay-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.public-view {
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(1rem, 2vw, 2rem);
+}
+.public-view h1 {
+  font-size: clamp(1.5rem, 2vw, 2.5rem);
+}
+.public-readonly {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius-card, 6px);
+  font-size: 0.85rem;
+}
+.public-players {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.public-board {
+  width: min(100%, 75vh, 64rem);
+  margin-inline: auto;
+}
+.public-board .board-with-labels {
+  width: 100%;
+}
+.public-live-note {
+  text-align: center;
+  font-size: 0.875rem;
+}
+.public-arena footer {
+  text-align: center;
+  padding: 1.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.public-arena a {
+  text-underline-offset: 0.18em;
+}
+.public-arena a.button {
+  text-align: center;
+}
+@media (max-width: 1100px) {
+  .public-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .public-games {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 767px) {
+  .public-header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 1rem;
+  }
+  .public-header nav {
+    justify-content: flex-start;
+  }
+  .public-header .theme-select {
+    width: auto;
+  }
+  .public-header select {
+    max-width: 12rem;
+  }
+  .public-games {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .public-arena main {
+    flex: 1;
+    min-height: 0;
+    align-content: start;
+    width: calc(100% - 1rem);
+    margin-block: 1rem;
+    gap: 1rem;
+  }
+  .public-players {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .public-replay-controls {
+    gap: 0.5rem;
+  }
+  .public-replay-controls output {
+    width: 100%;
+    text-align: center;
+    order: -1;
+  }
+}
+@media (max-width: 389px) {
+  .public-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .public-header nav {
+    gap: 0.6rem;
+  }
+  .public-header label {
+    flex-wrap: wrap;
+  }
+  .public-header select {
+    max-width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-arena *,
+  .public-arena *::before,
+  .public-arena *::after {
+    transition: none;
+    animation: none;
+    scroll-behavior: auto;
+  }
+}
+
+.public-replay-controls:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}

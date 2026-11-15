@@ -141,7 +141,9 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 
 ## Current limitations
 
-A server connection and an authenticated account are required. Verified accounts
+A server connection is required. The public Watch Hall at `/watch` offers
+read-only online discovery, live viewing and completed replay without an account.
+Playing games, private history and profiles require authentication. Verified accounts
 can create/join games in the online lobby when the operator enables admission;
 registration and online admission default off. Automatic timeout losses and rating
 updates are enabled by default; operators can explicitly pause finalization during maintenance or recovery. See

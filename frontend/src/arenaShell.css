@@ -4,23 +4,6 @@
   --bottom-nav-h: 56px;
 }
 
-.skip-link {
-  position: absolute;
-  top: 0;
-  left: -10000px;
-  z-index: 100;
-  padding: 10px 16px;
-  border: 1px solid var(--ui-border, #e2e4d8);
-  border-radius: 0 0 8px 0;
-  background: var(--surface, #fffefa);
-  color: var(--text, #26352e);
-  font-size: var(--text-label);
-  font-weight: 600;
-}
-.skip-link:focus {
-  left: 0;
-}
-
 .workspace-switch {
   display: inline-flex;
   align-items: center;

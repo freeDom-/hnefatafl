@@ -121,3 +121,31 @@ feature.
   reachable through this namespace.
 - Existing authenticated lobby, personal and Hall routes keep their current
   authorization and behavior; the flag gates only the additive public namespace.
+
+## Public Watch Hall frontend
+
+`/watch` is a signed-out discovery page with ruleset, status, result and published
+player filters and bounded cursor navigation. `/watch/games/{id}` watches an online
+position; `/watch/games/{id}/replay` navigates validated completed states with
+first/previous/next/last controls and Arrow/Home/End shortcuts. Read-only board
+cells expose no legal moves, hints or analysis. The frontend deliberately ignores
+cached analysis rather than mounting an advisor.
+
+The public entry loads before the protected Auth/App graph. Public requests are
+GET-only with credentials omitted and cannot trigger session/CSRF side effects.
+Session service failure does not block watching. Login/registration are ordinary
+full-page links; account forms also link to Watch Hall. Public-off, missing/private
+IDs, empty communities, rate limits and read failures have explicit states/retry.
+A failed dynamic route import offers an explicit full reload; it never loops.
+
+Discovery polls at 15 seconds while visible; active viewers at 5 seconds and
+waiting viewers at 15 seconds. Completed replay stops recurring requests. Hidden
+views abort and suspend polling, then refresh on return. Countdown seconds derive
+from the server deadline without polling each second. Stale responses and previous
+filter/game generations are rejected. All four themes, language and independent
+board/token/scale preferences use the shared providers.
+
+The public shell is intentionally independent from authenticated Arena navigation.
+Its build entry is split from the protected application; this reduces public
+startup code, not the full authenticated Dashboard bundle. Further route-level
+Workshop splitting and shared protected polling remain separate workstreams.

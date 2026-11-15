@@ -58,6 +58,12 @@ jobs:
           name: arena-final-visual-acceptance
           path: frontend/test-results/arena-final/
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-spectator-visual-acceptance
+          path: frontend/test-results/public-arena/
+          retention-days: 14
       - run: npm run test:registration
       - run: npm run test:online
       - run: npm run test:personal
