@@ -73,3 +73,19 @@ Five expected reload aborts occurred during startup. This first multi-context ru
 used nominal 60-second windows; the runner now also records actual elapsed window
 time and normalized rates to reveal timer/scheduler delay. It is a shared-account
 observation, not unique-player load or a capacity claim.
+
+## Verified five-context result with actual window timing
+
+Clean source/build `9bab822580e5afd784813ee2d957550394d41d46`, matching asset
+fingerprint, no dirty override: [full record](../benchmarks/arena-polling-five-contexts.json).
+
+| Phase | Actual elapsed | Total requests | Per context/minute | Failures | p95 completion |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Empty visible | 60,000.40 ms | 55 | 11.00 | 0 | 22.37 ms |
+| Active visible | 59,999.92 ms | 115 | 23.00 | 0 | 28.51 ms |
+| Simulated hidden | 60,000.64 ms | 0 | 0 | 0 | No requests |
+
+All steady HTTP statuses were200. Five startup reload aborts remain excluded from
+steady failure counts. Separate contexts still share one disposable account; this
+is not eight distinct players, a population limit or a write/AI workload. The
+normalized rates use actual monotonic elapsed time, not an assumed timer duration.
