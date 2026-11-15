@@ -11,6 +11,15 @@ there is no evidence requiring a separately maintained JavaScript rules engine.
 Such a rewrite would duplicate all three rulesets, repetition history and variant
 outcomes, and require permanent differential tests on every engine change.
 
+## Current-engine analysis extension
+
+The current worker also exposes the existing classical analysis API, exact-position
+cache, bounded scheduling and termination-based cancellation. See the
+[current-engine feasibility report](../../docs/validation/browser-analysis-prototype.md)
+for fresh measurements, native/browser differential tests and production gates.
+The Phase 0 measurements and limitations below describe the original baseline-only
+experiment; they are retained as historical evidence, not new validation.
+
 ## Reproduce
 
 From the repository root, with existing Python/Node development dependencies:

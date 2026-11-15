@@ -70,6 +70,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
+- [Current-engine browser analysis feasibility](validation/browser-analysis-prototype.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
 - [Arena theme completion and visual checks](validation/arena-theme-completion.md)
