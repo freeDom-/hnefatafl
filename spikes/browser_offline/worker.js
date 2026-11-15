@@ -5,7 +5,10 @@ const ready = (async () => {
   runtime = await loadPyodide({ indexURL: "./runtime/" });
   if (runtime.version !== "0.27.7") throw new Error("Expected Pyodide 0.27.7");
   runtime.FS.mkdirTree("/home/pyodide/hnefatafl");
-  for (const name of ["__init__.py", "engine.py", "ai.py"]) {
+  const manifest = await (await fetch("./assets.json")).json();
+  for (const name of manifest.python_modules) {
+    if (!/^[a-z_]+\.py$/.test(name))
+      throw new Error("Invalid staged module name");
     const response = await fetch(`./python/hnefatafl/${name}`);
     if (!response.ok)
       throw new Error(`Cannot load ${name}: ${response.status}`);
@@ -19,12 +22,28 @@ const ready = (async () => {
   runtime.runPython(await response.text());
 })();
 // Attach a rejection handler immediately; each request still receives the failure.
-ready.catch(() => {});
+ready.then(
+  () =>
+    postMessage({
+      id: 0,
+      value: {
+        heap_capacity_bytes:
+          runtime._module?.HEAPU8?.buffer?.byteLength ??
+          runtime._module?.HEAP8?.buffer?.byteLength ??
+          null,
+      },
+    }),
+  (error) => postMessage({ id: 0, error: String(error) }),
+);
 onmessage = async ({ data: { id, request } }) => {
   try {
     await ready;
     runtime.globals.set("spike_request", JSON.stringify(request));
     const value = JSON.parse(runtime.runPython("dispatch(spike_request)"));
+    value.heap_capacity_bytes =
+      runtime._module?.HEAPU8?.buffer?.byteLength ??
+      runtime._module?.HEAP8?.buffer?.byteLength ??
+      null;
     postMessage({ id, value });
   } catch (error) {
     postMessage({ id, error: String(error) });

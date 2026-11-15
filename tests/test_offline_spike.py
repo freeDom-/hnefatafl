@@ -65,3 +65,162 @@ def test_native_bridge_exercises_same_worker_interface():
         ai = json.loads(dispatch(json.dumps({"action": "ai", "state": moved["state"]})))
         assert ai["state"]["ply"] == 2 and ai["move"] in moved["legal_moves"]
         assert ai["ai_ms"] >= 0
+
+
+def _analysis_bridge():
+    namespace = {}
+    exec(compile((SPIKE / "bridge.py").read_text(), "bridge.py", "exec"), namespace)
+    return namespace["dispatch"]
+
+
+def test_staged_classical_dependency_closure_is_unchanged(tmp_path):
+    subprocess.run(
+        [sys.executable, str(SPIKE / "prepare.py"), "--shell-only", "--output", str(tmp_path)],
+        check=True,
+    )
+    manifest = json.loads((tmp_path / "assets.json").read_text())
+    expected = {
+        "__init__.py",
+        "engine.py",
+        "ai.py",
+        "openings.py",
+        "symmetry.py",
+        "tournament_statistics.py",
+        "shield_maiden.py",
+    }
+    assert set(manifest["python_modules"]) == expected
+    for name in expected:
+        assert (tmp_path / "python/hnefatafl" / name).read_bytes() == (
+            SPIKE.parents[1] / "hnefatafl" / name
+        ).read_bytes()
+    assert "models.py" not in manifest["python_modules"]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.path.insert(0, sys.argv[1]); "
+            "from hnefatafl.ai import analyze_position; "
+            "assert 'torch' not in sys.modules",
+            str(tmp_path / "python"),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0
+    references = json.loads((tmp_path / "search-fixtures.json").read_text())
+    assert len(references) == 3
+    assert all(row["analysis"]["completed_depth"] == 1 for row in references)
+
+
+def test_local_analysis_preserves_states_and_uses_real_completed_diagnostics():
+    from hnefatafl.engine import new_game
+
+    dispatch = _analysis_bridge()
+    for rule in ("brandubh", "tablut", "copenhagen"):
+        state = new_game(rule).to_dict()
+        before = json.dumps(state, sort_keys=True)
+        for algorithm in ("baseline", "alpha_beta", "mcts"):
+            result = json.loads(
+                dispatch(
+                    json.dumps(
+                        {
+                            "action": "analysis",
+                            "state": state,
+                            "config": {
+                                "algorithm": algorithm,
+                                "depth": 1,
+                                "time_limit": 0.02,
+                                "iterations": 4,
+                                "rollout_depth": 0,
+                            },
+                        }
+                    )
+                )
+            )
+            assert result["schema"] == 1 and result["authoritative"] is False
+            assert result["backend"] == "local-python"
+            assert result["ruleset"] == rule
+            assert -1 <= result["analysis"]["value"] <= 1
+            assert result["analysis"]["best_move"] in [
+                m.to_dict() for m in legal_moves(State.from_dict(state))
+            ]
+            assert json.dumps(state, sort_keys=True) == before
+
+
+def test_local_terminal_repetition_and_history_identity():
+    from hnefatafl.engine import new_game
+
+    dispatch = _analysis_bridge()
+    state = new_game("brandubh").to_dict()
+    first = json.loads(dispatch(json.dumps({"action": "analysis", "state": state})))
+    state["history"] = ["attackers:" + "".join(state["board"])] * 2
+    second = json.loads(dispatch(json.dumps({"action": "analysis", "state": state})))
+    assert first["position_key"] != second["position_key"]
+    spec = importlib.util.spec_from_file_location("analysis_fixtures", SPIKE / "fixtures.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for row in module.vectors():
+        if row["after"]["state"]["winner"] is None:
+            continue
+        result = json.loads(
+            dispatch(json.dumps({"action": "analysis", "state": row["after"]["state"]}))
+        )
+        assert result["analysis"]["best_move"] is None
+        assert result["analysis"]["source"] == "terminal"
+        assert result["analysis"]["value"] == (
+            0
+            if row["after"]["state"]["winner"] == "draw"
+            else 1
+            if row["after"]["state"]["winner"] == "defenders"
+            else -1
+        )
+
+
+def test_local_analysis_refuses_unbounded_and_neural_inputs():
+    import pytest
+    from hnefatafl.engine import new_game
+
+    dispatch = _analysis_bridge()
+    for config in (
+        {"algorithm": "neural"},
+        {"model_path": "arbitrary.pt"},
+        {"iterations": 129},
+        {"depth": 6},
+        {"rollout_depth": 9},
+        {"time_limit": 1},
+        {"time_limit": float("nan")},
+        {"time_limit": True},
+        {"seed": -1},
+    ):
+        with pytest.raises(ValueError):
+            dispatch(
+                json.dumps(
+                    {
+                        "action": "analysis",
+                        "state": new_game("brandubh").to_dict(),
+                        "config": config,
+                    }
+                )
+            )
+    with pytest.raises(ValueError, match="512 KiB"):
+        dispatch(" " * (512 * 1024 + 1))
+
+
+def test_staging_refuses_runtime_digest_mismatch(tmp_path):
+    runtime = tmp_path / "runtime-input"
+    runtime.mkdir()
+    (runtime / "pyodide.js").write_text("wrong runtime")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "prepare.py"),
+            "--runtime-dir",
+            str(runtime),
+            "--output",
+            str(tmp_path / "output"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "Pinned runtime digest mismatch: pyodide.js" in result.stderr

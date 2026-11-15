@@ -1,36 +1,10 @@
-const worker = new Worker("./worker.js");
-const pending = new Map();
-let sequence = 0;
+import { LocalAnalysisClient } from "./analysis-client.js";
+const client = new LocalAnalysisClient();
 let current;
 let pulses = 0;
 const status = document.querySelector("#status");
 const metrics = { startup_ms: null, ai_ms: [], worker: true };
-function request(payload) {
-  return new Promise((resolve, reject) => {
-    const id = ++sequence;
-    const timeout = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error("Worker timed out after 60 seconds"));
-    }, 60000);
-    pending.set(id, { resolve, reject, timeout });
-    worker.postMessage({ id, request: payload });
-  });
-}
-worker.onmessage = ({ data }) => {
-  const call = pending.get(data.id);
-  if (!call) return;
-  clearTimeout(call.timeout);
-  pending.delete(data.id);
-  if (data.error) call.reject(new Error(data.error));
-  else call.resolve(data.value);
-};
-worker.onerror = (event) => {
-  for (const call of pending.values()) {
-    clearTimeout(call.timeout);
-    call.reject(new Error(event.message));
-  }
-  pending.clear();
-};
+const request = (payload, options) => client.request(payload, options);
 function render(value) {
   current = value;
   const n = Math.sqrt(value.state.board.length);
@@ -68,7 +42,21 @@ const api = {
   info: () => request({ action: "info" }),
   probe: () => request({ action: "probe" }),
   newGame: (ruleset) =>
-    run(async () => render(await request({ action: "new", ruleset }))),
+    run(async () => {
+      if (client.busy) client.cancel("Game changed");
+      return render(await request({ action: "new", ruleset }));
+    }),
+  restore: (state) =>
+    run(async () => {
+      if (client.busy) client.cancel("Replay cursor changed");
+      return render(await request({ action: "restore", state }));
+    }),
+  analyze: (config) => client.analyze(current.state, config),
+  analyzeState: (state, config) => client.analyze(state, config),
+  cancel: () => client.cancel(),
+  memory: () => client.info,
+  cacheSize: () => client.cache.size,
+  raw: request,
   move: (move) =>
     run(async () =>
       render(await request({ action: "move", state: current.state, move })),
@@ -92,11 +80,29 @@ window.spike = api;
 for (const [id, action] of Object.entries({
   new: () => api.newGame(document.querySelector("#ruleset").value),
   ai: api.ai,
+  analyze: async () => {
+    const value = await api.analyze({
+      algorithm: document.querySelector("#algorithm").value,
+      depth: 2,
+      time_limit: 0.2,
+    });
+    document.querySelector("#analysis").textContent = JSON.stringify(
+      value,
+      null,
+      2,
+    );
+    return value;
+  },
+  cancel: api.cancel,
   fixtures: api.fixtures,
   move: () => api.move(JSON.parse(document.querySelector("#moves").value)),
 }))
   document.querySelector(`#${id}`).onclick = () => {
-    action().catch(() => {});
+    Promise.resolve()
+      .then(action)
+      .catch((error) => {
+        status.textContent = `Spike error: ${error.message}`;
+      });
   };
 document.querySelector("#pulse").onclick = () => {
   document.querySelector("#pulses").textContent = String(++pulses);

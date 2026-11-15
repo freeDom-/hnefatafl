@@ -24,6 +24,17 @@
     >Legal move
     <select id="moves"></select></label
   ><button id="move">Play move</button>
+  <label
+    >Classical analysis
+    <select id="algorithm">
+      <option>baseline</option>
+      <option>alpha_beta</option>
+      <option>mcts</option>
+    </select>
+  </label>
+  <button id="analyze">Analyze current position</button>
+  <button id="cancel">Cancel local work</button>
+  <pre id="analysis" aria-live="polite"></pre>
   <pre id="metrics"></pre>
   <script src="./app.js" type="module"></script>
 </html>
