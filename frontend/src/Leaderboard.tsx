@@ -170,7 +170,15 @@ export default function Leaderboard({
   const poll = useOnlinePoll(
     `leaderboard:${account?.id ?? 'anonymous'}:${ruleset}:${offset}`,
     load,
+    { intervalMs: compact ? 60000 : 5000 },
   );
+  useEffect(() => {
+    const changed = () => {
+      void poll.refresh();
+    };
+    window.addEventListener('rated-results-changed', changed);
+    return () => window.removeEventListener('rated-results-changed', changed);
+  }, [poll.refresh]);
   const data = poll.data;
   const entries = data?.entries ?? [];
   const total = data?.total ?? 0;

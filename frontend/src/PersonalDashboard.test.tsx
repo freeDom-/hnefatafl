@@ -277,6 +277,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   setLanguage('en', false);
   localStorage.removeItem('hnefatafl-leaderboard-ruleset');
 });
@@ -718,3 +719,143 @@ it('does not describe an empty bounded preview as an empty account', async () =>
   expect(screen.getByText('0 of 43 running games shown.')).toBeVisible();
   expect(screen.getAllByText('No running games in this preview.')).toHaveLength(2);
 });
+
+it('bounds a quiet Dashboard to ten periodic HTTP reads per minute without a hero', async () => {
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(10); // Auth is tested separately: at most one/minute.
+  const paths = fetcher.mock.calls.map(([path]) => path);
+  expect(paths.filter((path) => path.includes('/personal/online?'))).toHaveLength(6);
+  for (const fragment of [
+    '/single-player?',
+    '/personal/local?',
+    '/history/games?',
+    '/leaderboard?',
+  ]) {
+    expect(paths.filter((path) => path.includes(fragment))).toHaveLength(1);
+  }
+});
+
+it('keeps the active hero at five seconds with at most twenty-two Dashboard HTTP reads per minute', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({ ...online, games: [activeOnlineGame], overview: { your_turn: 1 } })
+      : url.includes('/personal/online/')
+        ? respond({ ...activeOnlineGame, version: 1 })
+        : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(22);
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/online/'))).toHaveLength(
+    12,
+  );
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  try {
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    fetcher.mockClear();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(180000);
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  } finally {
+    visibility.mockRestore();
+  }
+});
+
+it('refreshes the authoritative queue when a hero version changes but ignores unchanged clock snapshots', async () => {
+  let version = 1;
+  let yourTurn = true;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({
+          ...online,
+          games: [{ ...activeOnlineGame, your_turn: yourTurn }],
+          overview: { your_turn: yourTurn ? 1 : 0 },
+        })
+      : url.includes('/personal/online/')
+        ? respond({ ...activeOnlineGame, version, own_side: yourTurn ? 'attackers' : 'defenders' })
+        : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  fetcher.mockClear();
+  version = 2;
+  yourTurn = false;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/online?'))).toHaveLength(1);
+  expect(screen.getByText('No games await your move.')).toBeVisible();
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/online/'))).toHaveLength(1);
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/online?'))).toHaveLength(0);
+});
+
+it('invalidates event-driven result projections after a server correction without creating a poll loop', async () => {
+  let wins = 1;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({
+          ...online,
+          statistics: {
+            ...online.statistics,
+            groups: [{ ...online.statistics.groups[0], wins, losses: 2 - wins }],
+          },
+        })
+      : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  fetcher.mockClear();
+  wins = 2;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  for (const fragment of ['/personal/progress', '/leaderboard?']) {
+    expect(fetcher.mock.calls.some(([path]) => path.includes(fragment))).toBe(true);
+  }
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(fetcher.mock.calls.map(([path]) => path)).toEqual(['/api/personal/online?limit=25']);
+});
+
+it.each(['en', 'de'] as const)(
+  'uses the authoritative singular total in %s even when the bounded preview is empty',
+  async (language) => {
+    const previous = serve;
+    serve = (url) =>
+      url.includes('/personal/online?')
+        ? respond({ ...online, games: [], overview: { your_turn: 1 } })
+        : previous(url);
+    setLanguage(language, false);
+    render(<PersonalDashboard />);
+    expect(
+      await screen.findByText(
+        language === 'en' ? '1 game awaits your move' : '1 Partie wartet auf deinen Zug',
+      ),
+    ).toBeVisible();
+    expect(document.querySelector('.dashboard-status-badge')).not.toHaveTextContent('1 games');
+  },
+);

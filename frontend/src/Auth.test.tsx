@@ -152,3 +152,109 @@ it('does not restore an old session response after logout and clears the retaine
   await screen.findByRole('heading', { name: 'HNEFATAFL' });
   expect(screen.queryByText('Protected gameplay for First')).toBeNull();
 });
+
+it('pauses periodic session reads while hidden, then revalidates and isolates the replacement account', async () => {
+  vi.useFakeTimers();
+  let name = 'First';
+  const fetcher = vi.fn((_path: string) =>
+    response({ account: { id: name, username: name, permissions: ['play'] }, csrf_token: 'csrf' }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <RememberedProfile />
+        </Auth>,
+      );
+    });
+    expect(screen.getByText('Cached profile First')).toBeVisible();
+    const count = () =>
+      fetcher.mock.calls.filter(([path]) => String(path) === '/api/auth/me').length;
+    const initial = count();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(count()).toBe(initial + 1);
+    visibility.mockReturnValue('hidden');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    name = 'Second';
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(180000);
+    });
+    expect(count()).toBe(initial + 1);
+    visibility.mockReturnValue('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(count()).toBe(initial + 2);
+    expect(screen.getByText('Cached profile Second')).toBeVisible();
+    expect(screen.queryByText('Cached profile First')).toBeNull();
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it('does not accept an aborted hidden session read and queues a fresh read on visibility', async () => {
+  vi.useFakeTimers();
+  let resolveOld!: (value: Response) => void;
+  const old = new Promise<Response>((resolve) => {
+    resolveOld = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((_path: string, _options?: RequestInit) => {
+    call++;
+    return call === 2
+      ? old
+      : response({
+          account: {
+            id: call === 1 ? 'First' : 'Current',
+            username: call === 1 ? 'First' : 'Current',
+            permissions: ['play'],
+          },
+          csrf_token: 'csrf',
+        });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <RememberedProfile />
+        </Auth>,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    const signal = fetcher.mock.calls[1][1]?.signal as AbortSignal;
+    visibility.mockReturnValue('hidden');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(signal.aborted).toBe(true);
+    visibility.mockReturnValue('visible');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await act(async () => {
+      resolveOld(
+        await response({
+          account: { id: 'Stale', username: 'Stale', permissions: ['play'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await old;
+    });
+    expect(screen.queryByText('Cached profile Stale')).toBeNull();
+    expect(screen.getByText('Cached profile Current')).toBeVisible();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});

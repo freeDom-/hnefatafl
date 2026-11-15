@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "source_head": "2579a86b82ed1eca91f39e7d8064196597e873ed",
+  "measured_at": "2026-11-15T02:38:03.547Z",
+  "environment": {
+    "node": "v24.22.2",
+    "chromium": "156.0.8078.4",
+    "kernel": "7.0.14-26-pve",
+    "logical_cpus": 4,
+    "viewport": {
+      "width": 1920,
+      "height": 1080
+    }
+  },
+  "production_build": {
+    "javascript_raw_bytes": 1013700,
+    "javascript_gzip_level9_bytes": 308928,
+    "css_raw_bytes": 176657,
+    "css_gzip_level9_bytes": 32599,
+    "bootstrap_raw_bytes": 1862,
+    "bootstrap_gzip_level9_bytes": 700
+  },
+  "fixture": "real seeded BrowserAdmin, one real active same-device Brandubh game after empty phase",
+  "transport": "Production Vite preview with real isolated browser-fixture backend. No endpoint responses mocked.",
+  "sample_window_ms": 60000,
+  "startup_warmup_ms": 5000,
+  "request_scope": "Browser page /api/ request starts; login and fixture creation APIRequestContext requests excluded. Random game IDs normalized; no event timestamps, account data, credentials or payloads retained.",
+  "phases": {
+    "startup": {
+      "requests": 11,
+      "endpoints": {
+        "/api/auth/me": 1,
+        "/api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 1,
+        "/api/personal/single-player?limit=1&status=in_progress": 1,
+        "/api/personal/online?limit=25": 1,
+        "/api/history/games?dashboard=true": 1,
+        "/api/personal/local?limit=5&status=in_progress": 1,
+        "/api/personal/progress": 1,
+        "/api/portraits/catalog": 1,
+        "/api/personal/achievements": 1,
+        "/api/profile": 1,
+        "/api/leaderboard?ruleset=copenhagen&limit=1&offset=0": 1
+      }
+    },
+    "empty-visible": {
+      "requests": 61,
+      "endpoints": {
+        "/api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 12,
+        "/api/personal/single-player?limit=1&status=in_progress": 12,
+        "/api/personal/online?limit=25": 12,
+        "/api/history/games?dashboard=true": 12,
+        "/api/personal/local?limit=5&status=in_progress": 12,
+        "/api/auth/me": 1
+      }
+    },
+    "active-startup": {
+      "requests": 19,
+      "endpoints": {
+        "/api/auth/me": 1,
+        "/api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 2,
+        "/api/personal/single-player?limit=1&status=in_progress": 2,
+        "/api/personal/online?limit=25": 2,
+        "/api/history/games?dashboard=true": 2,
+        "/api/personal/local?limit=5&status=in_progress": 2,
+        "/api/personal/progress": 1,
+        "/api/portraits/catalog": 1,
+        "/api/personal/achievements": 1,
+        "/api/profile": 1,
+        "/api/leaderboard?ruleset=copenhagen&limit=1&offset=0": 1,
+        "/api/games/:id": 2,
+        "/api/leaderboard?ruleset=brandubh&limit=1&offset=0": 1
+      }
+    },
+    "active-visible": {
+      "requests": 69,
+      "endpoints": {
+        "/api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 12,
+        "/api/personal/online?limit=25": 12,
+        "/api/personal/single-player?limit=1&status=in_progress": 11,
+        "/api/personal/local?limit=5&status=in_progress": 11,
+        "/api/history/games?dashboard=true": 11,
+        "/api/games/:id": 11,
+        "/api/auth/me": 1
+      }
+    },
+    "active-simulated-hidden": {
+      "requests": 71,
+      "endpoints": {
+        "/api/personal/local?limit=5&status=in_progress": 12,
+        "/api/history/games?dashboard=true": 12,
+        "/api/personal/single-player?limit=1&status=in_progress": 12,
+        "/api/games/:id": 12,
+        "/api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 11,
+        "/api/personal/online?limit=25": 11,
+        "/api/auth/me": 1
+      }
+    }
+  },
+  "caveats": [
+    "Sample counts vary with timer phase and request latency because polling is completion-relative; 11 or 12 recurring cycles can fall in a 60-second window. Startup warmup can include the first recurring tick.",
+    "Hidden means document.visibilityState override plus visibilitychange signal; this verifies application policy but does not reproduce OS background throttling or physical-mobile behavior.",
+    "One browser/admin and a small real local-game fixture; not a multi-client scalability, populated-database, online-clock latency or CPU-strength benchmark.",
+    "Prototype production-preview trace was used for these measurements; the repository harness implements equivalent portable setup and is validated separately."
+  ],
+  "reproduce": [
+    "npm --prefix frontend run build",
+    "node frontend/benchmarks/arena-polling.mjs --output=/tmp/arena-polling.json"
+  ]
+}

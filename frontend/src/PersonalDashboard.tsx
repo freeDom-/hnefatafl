@@ -1,5 +1,5 @@
 import PageHeading from './PageHeading';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -166,10 +166,12 @@ function DashboardHome({
     (signal: AbortSignal) => api<Profile>('/profile', undefined, undefined, signal),
     [],
   );
-  const single = useOnlinePoll(`dashboard-account:${accountId}`, loadAccount);
-  const online = useOnlinePoll(`dashboard-online:${accountId}`, loadOnline);
-  const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent);
-  const local = useOnlinePoll(`dashboard-local:${accountId}`, loadLocal);
+  const single = useOnlinePoll(`dashboard-account:${accountId}`, loadAccount, {
+    intervalMs: 60000,
+  });
+  const online = useOnlinePoll(`dashboard-online:${accountId}`, loadOnline, { intervalMs: 10000 });
+  const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent, { intervalMs: 60000 });
+  const local = useOnlinePoll(`dashboard-local:${accountId}`, loadLocal, { intervalMs: 60000 });
   const progress = useOnlinePoll(`dashboard-progress:${accountId}`, loadProgress, {
     intervalMs: 0,
   });
@@ -212,6 +214,7 @@ function DashboardHome({
   const board = useOnlinePoll(
     `dashboard-board:${accountId}:${activeId || 'none'}`,
     loadActiveBoard,
+    { intervalMs: activeId ? 5000 : 0 },
   );
   const loadStanding = useCallback(
     (signal: AbortSignal) =>
@@ -226,6 +229,66 @@ function DashboardHome({
   const standing = useOnlinePoll(`dashboard-standing:${accountId}:${focusRuleset}`, loadStanding, {
     intervalMs: 0,
   });
+  const lastBoardVersion = useRef<{ id: string; version: number } | null>(null);
+  const boardVersion = board.data?.game.version;
+  const boardKind = board.data?.kind;
+  const boardMode = board.data?.kind === 'single' ? board.data.game.mode : null;
+  const boardCompleted =
+    board.data?.kind === 'online'
+      ? board.data.game.status === 'completed' || board.data.game.status === 'voided'
+      : Boolean(
+          board.data?.game.winner ||
+            (board.data?.kind === 'single' && board.data.game.recorded_winner),
+        );
+  useEffect(() => {
+    if (!activeId || typeof boardVersion !== 'number') {
+      lastBoardVersion.current = null;
+      return;
+    }
+    const previous = lastBoardVersion.current;
+    lastBoardVersion.current = { id: activeId, version: boardVersion };
+    if (previous?.id !== activeId || previous.version === boardVersion) return;
+    // The five-second live board carries a server version. Only actual changes
+    // invalidate its owning queue; unchanged clock snapshots do not reload stats.
+    if (boardKind === 'online') void online.refresh();
+    else if (boardMode === 'local') void local.refresh();
+    else void single.refresh();
+    if (boardCompleted) void recent.refresh();
+  }, [
+    activeId,
+    boardVersion,
+    boardKind,
+    boardMode,
+    boardCompleted,
+    online.refresh,
+    local.refresh,
+    single.refresh,
+    recent.refresh,
+  ]);
+  const resultSignature = online.data
+    ? JSON.stringify(
+        online.data.statistics?.groups?.map((group) => [
+          group.ruleset,
+          group.played,
+          group.wins,
+          group.losses,
+          group.draws,
+          group.rating,
+        ]) ?? [],
+      )
+    : null;
+  const previousResults = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousResults.current;
+    previousResults.current = resultSignature;
+    if (previous === null || resultSignature === null || previous === resultSignature) return;
+    // Also catches results/corrections in another game/client, including when the
+    // bounded queue removes a completed hero before its next board poll arrives.
+    void progress.refresh();
+    void standing.refresh();
+    void recent.refresh();
+    window.dispatchEvent(new Event('rated-results-changed'));
+  }, [resultSignature, progress.refresh, standing.refresh, recent.refresh]);
   const onlineGroup = online.data?.statistics?.groups?.find(
     (group) => group.ruleset === focusRuleset,
   );
@@ -311,7 +374,12 @@ function DashboardHome({
             : gamesStale
               ? t('Game totals unavailable or stale.')
               : yourTurnCount > 0
-                ? t('{count} games await your move', { count: number.format(yourTurnCount) })
+                ? t(
+                    yourTurnCount === 1
+                      ? '{count} game awaits your move'
+                      : '{count} games await your move',
+                    { count: number.format(yourTurnCount) },
+                  )
                 : t('No games await your move.')}
         </span>
       </header>

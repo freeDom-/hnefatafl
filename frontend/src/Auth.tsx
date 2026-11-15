@@ -211,7 +211,11 @@ export default function Auth({ children }: { children: ReactNode }) {
     let controller: AbortController | null = null;
     let invalidated = false;
     const refresh = (event?: Event) => {
-      if (signingOut.current) return;
+      if (
+        signingOut.current ||
+        (document.visibilityState === 'hidden' && event?.type !== 'permissions-changed')
+      )
+        return;
       if (controller) {
         if (event?.type === 'permissions-changed') invalidated = true;
         return;
@@ -222,7 +226,12 @@ export default function Auth({ children }: { children: ReactNode }) {
       controller = attempt;
       void api<Session>('/auth/me', undefined, undefined, attempt.signal)
         .then((session) => {
-          if (alive && expected === generation.current && !signingOut.current)
+          if (
+            alive &&
+            expected === generation.current &&
+            !signingOut.current &&
+            !attempt.signal.aborted
+          )
             accept(session, revision);
         })
         .catch((failure) => {
@@ -243,13 +252,32 @@ export default function Auth({ children }: { children: ReactNode }) {
           }
         });
     };
-    const timer = window.setInterval(refresh, 60000);
+    let timer: number | undefined;
+    const startTimer = () => {
+      window.clearInterval(timer);
+      if (document.visibilityState !== 'hidden') timer = window.setInterval(refresh, 60000);
+    };
+    const visibility = () => {
+      if (document.visibilityState === 'hidden') {
+        window.clearInterval(timer);
+        controller?.abort();
+      } else {
+        startTimer();
+        // A hidden request may still be unwinding after abort. Queue one fresh
+        // session read rather than reusing its stale completion on visibility.
+        if (controller) invalidated = true;
+        refresh();
+      }
+    };
+    startTimer();
+    document.addEventListener('visibilitychange', visibility);
     window.addEventListener('focus', refresh);
     window.addEventListener('permissions-changed', refresh);
     return () => {
       alive = false;
       controller?.abort();
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('permissions-changed', refresh);
     };
