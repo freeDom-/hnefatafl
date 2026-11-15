@@ -21,18 +21,25 @@ test('Play shows the continue hierarchy and creates a real local 1v1 game', asyn
 
   // Narrow phones stack the three equal-start modes without page overflow.
   await page.setViewportSize({ width: 320, height: 640 });
-  const stacked = await page.evaluate(() => {
-    const cards = [...document.querySelectorAll('.play-mode-card')].map((node) =>
-      node.getBoundingClientRect().toJSON(),
-    );
-    return {
-      count: cards.length,
-      stacked: cards.every((card, index) => index === 0 || card.y >= cards[index - 1].bottom - 1),
-      // CI can report a 1px subpixel/scrollbar rounding difference at 320px.
-      fits: document.documentElement.scrollWidth <= innerWidth + 1,
-    };
-  });
-  expect(stacked).toEqual({ count: 3, stacked: true, fits: true });
+  // Resizing updates CSS and the matchMedia-backed shell on separate frames.
+  // Keep the exact geometry contract, but measure its settled state.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const cards = [...document.querySelectorAll('.play-mode-card')].map((node) =>
+          node.getBoundingClientRect().toJSON(),
+        );
+        return {
+          count: cards.length,
+          stacked: cards.every(
+            (card, index) => index === 0 || card.y >= cards[index - 1].bottom - 1,
+          ),
+          // CI can report a 1px subpixel/scrollbar rounding difference at 320px.
+          fits: document.documentElement.scrollWidth <= innerWidth + 1,
+        };
+      }),
+    )
+    .toEqual({ count: 3, stacked: true, fits: true });
 
   await page.getByRole('button', { name: 'New local 1v1 game' }).click();
   const dialog = page.getByRole('dialog', { name: 'Start a local 1v1 game' });
