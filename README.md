@@ -142,7 +142,9 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 ## Current limitations
 
 The current React player interface requires a server connection and an authenticated
-account. Read-only public online APIs already exist, but signed-out spectator pages
+account. The authenticated Portrait Hall, achievement claiming and portrait
+selection are delivered by PR #86. Read-only public online APIs already exist, but
+signed-out spectator pages
 are not implemented yet. See the [completion audit](docs/designs/arena-completion.md)
 and [public release-readiness checklist](docs/RELEASE_READINESS.md). Verified accounts
 can create/join games in the online lobby when the operator enables admission;

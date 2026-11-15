@@ -5,6 +5,17 @@ Baseline: `2579a86b82ed1eca91f39e7d8064196597e873ed`, merged PR #84, audited
 dependencies and acceptance gates, **not a claim that the missing features ship**.
 [Current contracts](arena-v2-contracts.md) · [Release readiness](../RELEASE_READINESS.md)
 
+## Post-audit delivery status
+
+This report is the historical post-#84 baseline and its matrix statuses are not
+rewritten as later work lands. After the audit, **Portrait Hall, achievement
+claiming and selection are delivered by PR #86**, which adds the authenticated
+`/portraits` route on the existing authority without schema changes. The human
+tournament backend (schema 18) already existed at the baseline; automatic
+tournament settlement and the tournament UI, leagues, the signed-out spectator
+frontend, Workshop consolidation and local-analysis research remain separate
+workstreams. Do not read a matrix row below as current status without this note.
+
 ## Audit method and phase terminology
 
 Reviewed AGENTS, README, ARCHITECTURE, DESIGN_SYSTEM, the handoff implementation
@@ -228,7 +239,12 @@ node frontend/benchmarks/arena-polling.mjs --output=/tmp/arena-polling.json
 
 The harness launches disposable real fixture storage and preview services, checks
 port ownership, cleans up its own processes/data, and stores endpoint/status
-counts without credentials or raw event payloads. See the [machine-readable
+counts without credentials or raw event payloads. It also verifies that the
+production bundle carries a `dist/arena-build.json` revision and asset fingerprint
+matching the current checkout, rejecting a missing, stale or dirty build before
+starting any service (`--allow-dirty` only records a non-reproducible local run).
+The committed baseline predates that field and remains historical evidence, not a
+fresh matching run. See the [machine-readable
 baseline](../benchmarks/arena-baseline.json). Representative fresh-store query
 plans use `games_category_owner`, online participant indexes, result revision PK,
 `online_due`, `player_tournaments_status` and `player_ratings_pool`. This proves

@@ -6,9 +6,16 @@ separate release-preparation report, not a release/tag/version authorization.
 [Completion matrix and dependencies](designs/arena-completion.md) ·
 [Deployment](DEPLOYMENT.md) · [Security](SECURITY.md) · [Release procedure](RELEASING.md)
 
+Post-audit delivery: **Portrait Hall, achievement claiming and selection are
+delivered by PR #86** and its checks are not re-run here. The human tournament
+backend (schema 18) already existed at the baseline; automatic settlement, leagues,
+the signed-out spectator frontend, Workshop consolidation and local-analysis
+research remain outstanding. Checkbox state below records the audited baseline.
+
 ## Blocking product and evidence gaps
 
-- [ ] Portrait Hall/claim/select/profile integration complete and accessible.
+- [ ] Portrait Hall/claim/select/profile integration complete and accessible
+  (delivered by PR #86; verify that PR's evidence before release).
 - [ ] Human tournaments have automatic durable server settlement and complete UI.
 - [ ] Signed-out public discovery/live viewing/replay works independently of Auth.
 - [ ] League policy, result accounting, queue, season lifecycle and recovery tested.

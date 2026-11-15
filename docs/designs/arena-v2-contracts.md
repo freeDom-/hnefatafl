@@ -3,7 +3,10 @@
 Status: current implementation boundaries after PR #84, audited at
 `2579a86b82ed1eca91f39e7d8064196597e873ed` on 2026-11-15. This replaces the
 proposed-only contract from PR #73. It distinguishes implemented authority from
-planned UI; it does not implement the remaining features.
+planned UI; it does not implement the remaining features. Portrait Hall,
+achievement claiming and selection are delivered by the separate Portrait Hall PR
+(#86), whose authenticated `/portraits` route reuses the contracts below; the other
+remaining deliveries are unchanged.
 
 See the [verified feature matrix and completion plan](arena-completion.md),
 [current architecture](../../ARCHITECTURE.md), [design system](../DESIGN_SYSTEM.md)
@@ -19,7 +22,7 @@ The original contract remains historical evidence, not the current feature list.
 | Online play | Online core, real clocks, side-swapped match legs and result revisions | Reuse for spectators, tournament legs and league games |
 | Public online discovery | Three GET routes in `public_api.py`, enabled by configurable switch | Dedicated signed-out frontend outside authenticated initialization |
 | Ratings | Immutable ledger and applied revisions, three pools | League progress is a separate policy, never an Elo replacement |
-| Progression | Catalog, achievements, confirmation and portrait selection APIs | Portrait Hall, claim feedback and portrait propagation |
+| Progression | Catalog, achievements, confirmation and portrait selection APIs | Portrait Hall, claim feedback and selection delivered by PR #86; keep eligibility, awards and selection server-owned |
 | Human tournaments | Double elimination, schema 18, real casual online legs | UI, hierarchical bracket and reliable server settlement |
 | Leagues | None | Explicit policy, queue, ledger, season lifecycle and UI |
 | Workshop | Existing training, tuning, models, workers and AI tournaments | Visual consolidation, progressive disclosure and lazy loading |
@@ -28,15 +31,18 @@ The original contract remains historical evidence, not the current feature list.
 
 Current frontend routes are `/dashboard`, `/play`, `/games/{id}`, `/online`,
 `/online/games/{id}`, `/archive`, `/statistics`, `/leaderboard`, `/profile`,
-`/training` and `/tournaments`. `/online` is the separate authenticated lobby;
+`/portraits`, `/training` and `/tournaments`. `/portraits` is delivered by PR #86.
+`/online` is the separate authenticated lobby;
 it does **not** redirect to Dashboard. `/tournaments` is administrative AI
 benchmarking, never the human tournament page. The public API exists but there
-is no signed-out spectator page. Portrait Hall, human tournaments and leagues
-are sidebar placeholders.
+is no signed-out spectator page. At the audited baseline, Portrait Hall, human
+tournaments and leagues were sidebar placeholders; Portrait Hall is delivered by
+PR #86.
 
-Planned canonical frontend routes are `/portraits`, `/player-tournaments`,
+Planned canonical frontend routes are `/player-tournaments`,
 `/player-tournaments/{id}`, `/watch`, `/watch/games/{id}`, `/watch/games/{id}/replay` and
-`/leagues`. These are reservations, not shipped routes. Shared navigation,
+`/leagues`. These are reservations, not shipped routes; `/portraits` is no longer
+planned and ships in PR #86. Shared navigation,
 `safeDestination`, route focus and Browser Back handling have one integration
 owner per PR. Public routes must render without mounting authenticated `App` or
 making protected startup requests.
