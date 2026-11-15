@@ -306,3 +306,140 @@ it('announces server-confirmed awards after selecting another already-earned por
   expect(notify.success).toHaveBeenCalledWith('Portrait selected.');
   expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned');
 });
+
+it('keeps a confirmed selection successful when the follow-up award read fails', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  let failReads = false;
+  vi.mocked(api).mockImplementation((path, data, method, signal) => {
+    if (path === '/profile/portrait' && method === 'PATCH') {
+      failReads = true;
+      return original(path, data, method, signal);
+    }
+    if (path === '/personal/achievements' && failReads)
+      return Promise.reject(new Error('Awards unavailable'));
+    return original(path, data, method, signal);
+  });
+  render(<PortraitHall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
+  await waitFor(() => expect(card('Skald')).toHaveAttribute('data-portrait-state', 'selected'));
+  expect(notify.success).toHaveBeenCalledWith('Portrait selected.');
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Portrait progress could not be refreshed.');
+  expect(alert).not.toHaveTextContent('Awards unavailable');
+  expect(notify.success).not.toHaveBeenCalledWith(expect.stringContaining('unlocked'));
+});
+
+it('recovers automatically when the follow-up award read fails once and then succeeds', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  let failNextRead = false;
+  vi.mocked(api).mockImplementation((path, data, method, signal) => {
+    if (path === '/profile/portrait' && method === 'PATCH') {
+      failNextRead = true;
+      achievements = {
+        ...achievements,
+        items: achievements.items.map((item) =>
+          item.progress >= item.threshold ? { ...item, unlocked: true } : item,
+        ),
+      };
+      return original(path, data, method, signal);
+    }
+    if (path === '/personal/achievements' && failNextRead) {
+      failNextRead = false;
+      return Promise.reject(new Error('Transient read failure'));
+    }
+    return original(path, data, method, signal);
+  });
+  render(<PortraitHall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
+  await waitFor(() =>
+    expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned'),
+  );
+  expect(card('Skald')).toHaveAttribute('data-portrait-state', 'selected');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(notify.success).toHaveBeenCalledWith('Portrait selected.');
+});
+
+it('reports a failed selection without a success notice or local award', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, ...rest) =>
+    path === '/profile/portrait'
+      ? Promise.reject(new Error('Portrait is not earned.'))
+      : original(path, ...rest),
+  );
+  render(<PortraitHall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Portrait is not earned.');
+  expect(notify.success).not.toHaveBeenCalled();
+  expect(card('Skald')).toHaveAttribute('data-portrait-state', 'earned');
+  expect(card('Shieldbearer')).toHaveAttribute('data-portrait-state', 'selected');
+});
+
+it('aborts an old-account selection and rejects its response and notifications', async () => {
+  let finish: (value: { portrait_id: string }) => void = () => {};
+  let signal: AbortSignal | undefined;
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, data, method, requestSignal) => {
+    if (path === '/profile/portrait') {
+      signal = requestSignal;
+      return new Promise((resolve) => {
+        finish = resolve as typeof finish;
+      });
+    }
+    return original(path, data, method, requestSignal);
+  });
+  const view = render(<PortraitHall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
+  identity.id = 'keeper';
+  view.rerender(<PortraitHall />);
+  expect(signal?.aborted).toBe(true);
+  await act(async () => finish({ portrait_id: 'skald' }));
+  await screen.findByRole('heading', { name: 'Shieldbearer' });
+  expect(card('Skald')).toHaveAttribute('data-portrait-state', 'earned');
+  expect(notify.success).not.toHaveBeenCalled();
+});
+
+it('coalesces repeated selection clicks into one request', async () => {
+  let finish: (value: { portrait_id: string }) => void = () => {};
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, data, method, signal) => {
+    if (path === '/profile/portrait' && method === 'PATCH')
+      return new Promise((resolve) => {
+        finish = resolve as typeof finish;
+      });
+    return original(path, data, method, signal);
+  });
+  render(<PortraitHall />);
+  const button = await screen.findByRole('button', { name: 'Select portrait: Skald' });
+  fireEvent.click(button);
+  fireEvent.click(button);
+  expect(
+    vi
+      .mocked(api)
+      .mock.calls.filter(([path, , method]) => path === '/profile/portrait' && method === 'PATCH'),
+  ).toHaveLength(1);
+  await act(async () => finish({ portrait_id: 'skald' }));
+});
+
+it('does not repeat a confirmation while one is already in flight', async () => {
+  let finish: (value: AchievementProgress) => void = () => {};
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, data, method, signal) => {
+    if (path === '/personal/achievements/confirm')
+      return new Promise((resolve) => {
+        finish = resolve as typeof finish;
+      });
+    return original(path, data, method, signal);
+  });
+  render(<PortraitHall />);
+  const claim = await screen.findByRole('button', { name: 'Claim eligible achievements' });
+  fireEvent.click(claim);
+  fireEvent.click(claim);
+  expect(
+    vi
+      .mocked(api)
+      .mock.calls.filter(
+        ([path, , method]) => path === '/personal/achievements/confirm' && method === 'POST',
+      ),
+  ).toHaveLength(1);
+  await act(async () => finish(achievements));
+});

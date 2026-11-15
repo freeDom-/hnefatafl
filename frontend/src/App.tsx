@@ -2,7 +2,7 @@ import { ArenaShell, SHELL_MAIN_ID, WorkshopShell } from './ArenaShell';
 import NewGame from './NewGame';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n } from './i18n';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Board, { coordinate } from './Board';
 import { api, errorMessage } from './api';
@@ -36,8 +36,10 @@ import { sideGlyph } from './sideGlyph';
 import { usePlayHistory } from './usePlayHistory';
 import { useModelCatalogue } from './useModelCatalogue';
 import PlayLanding from './PlayLanding';
-import PortraitHall from './PortraitHall';
 import { PlayTabsProvider } from './PlayTabs';
+
+// Route-level code split: the gallery and its styles load only on /portraits.
+const PortraitHall = lazy(() => import('./PortraitHall'));
 
 type Tab =
   | 'statistics'
@@ -502,7 +504,18 @@ export default function App() {
     <PlayTabsProvider key={account?.id}>
       <Shell account={account} logout={logout} current={shellCurrent}>
         <main id={SHELL_MAIN_ID} tabIndex={-1}>
-          {tab === 'portraits' && <PortraitHall />}
+          {tab === 'portraits' && (
+            <Suspense
+              fallback={
+                <div className="empty-state">
+                  <div className="spinner" />
+                  <h2 role="status">{t('Loading your portraits…')}</h2>
+                </div>
+              }
+            >
+              <PortraitHall />
+            </Suspense>
+          )}
           {tab === 'statistics' && <StatisticsPage />}
           {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
           {tab === 'play' &&

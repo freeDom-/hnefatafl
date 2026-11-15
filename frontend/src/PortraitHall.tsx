@@ -98,20 +98,29 @@ export default function PortraitHall() {
           controller.signal,
         );
         if (!current()) return;
-        // Selection also confirms eligible awards on the server. Publish the
-        // selected portrait immediately, then read the authoritative award list.
+        // The PATCH is the mutation: a confirmed selection stays successful even
+        // when the follow-up award read fails. Publish it immediately and keep it
+        // authoritative against any older in-flight read.
         hall.accept({ ...data, profile });
         notify.success(t('Portrait selected.'));
         window.dispatchEvent(new Event('profile-changed'));
-        const achievements = await api<AchievementProgress>(
-          '/personal/achievements',
-          undefined,
-          undefined,
-          controller.signal,
-        );
-        if (!current()) return;
-        hall.accept({ ...data, profile, achievements });
-        announceAwards(achievements);
+        // Reading the authoritative award list is a separate, recoverable refresh.
+        // Its failure must not be reported as a mutation failure; `resume` below
+        // re-reads and raises the poll's stale/retry notice only if that also fails.
+        try {
+          const achievements = await api<AchievementProgress>(
+            '/personal/achievements',
+            undefined,
+            undefined,
+            controller.signal,
+          );
+          if (!current()) return;
+          hall.accept({ ...data, profile, achievements });
+          announceAwards(achievements);
+        } catch {
+          // The confirmed selection is already applied; the resume below owns
+          // refresh-failure reporting and automatic recovery.
+        }
       }
     } catch (failure) {
       if (current()) setMutation({ owner, kind: '', error: errorMessage(failure) });

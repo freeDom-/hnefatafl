@@ -36,7 +36,12 @@ const fieldLabels = { display_name: 'Display name', country_code: 'Country', cit
 export default function ProfilePage() {
   const { account, observeVerification } = useAuth();
   const { t, locale } = useI18n();
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const owner = account?.id ?? '';
+  // The loaded profile is only authoritative for the account that requested it,
+  // so an account switch can never briefly show another account's selection.
+  const [loadedProfile, setLoadedProfile] = useState<Profile | null>(null);
+  const [loadedOwner, setLoadedOwner] = useState('');
+  const profile = loadedOwner === owner ? loadedProfile : null;
   const [dirty, setDirty] = useState(new Set<keyof Editable>());
   const [loadError, setLoadError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -66,7 +71,8 @@ export default function ProfilePage() {
       .then((data) => {
         if (request.signal.aborted) return;
         acceptVerification(data.email_verified);
-        setProfile(data);
+        setLoadedProfile(data);
+        setLoadedOwner(owner);
         setDirty(new Set());
       })
       .catch((error) => {
@@ -101,7 +107,7 @@ export default function ProfilePage() {
   function edit(patch: Partial<Editable>) {
     setSaved(false);
     setDirty((current) => new Set([...current, ...(Object.keys(patch) as (keyof Editable)[])]));
-    setProfile((current) => (current ? { ...current, ...patch } : current));
+    setLoadedProfile((current) => (current ? { ...current, ...patch } : current));
   }
   function legacyConfirmation(field: Profile['legacy_private_fields'][number]) {
     if (!profile?.legacy_private_fields.includes(field) || !profile[field]?.trim()) return null;
@@ -152,7 +158,8 @@ export default function ProfilePage() {
     try {
       const updated = await api<Profile>('/profile', changes, 'PATCH', controller.current?.signal);
       acceptVerification(updated.email_verified);
-      setProfile(updated);
+      setLoadedProfile(updated);
+      setLoadedOwner(owner);
       setDirty(new Set());
       setSaved(true);
       window.dispatchEvent(new Event('profile-changed'));
@@ -239,7 +246,15 @@ export default function ProfilePage() {
         aria-labelledby="profile-portrait-heading"
       >
         <h2 id="profile-portrait-heading">{t('Selected portrait')}</h2>
-        <Portrait id={profile?.portrait_id} />
+        {profile ? (
+          <Portrait id={profile.portrait_id} />
+        ) : loadError ? (
+          <p className="form-help profile-portrait-status">{t('Selected portrait unavailable.')}</p>
+        ) : (
+          <p className="form-help profile-portrait-status" role="status">
+            {t('Loading your portrait…')}
+          </p>
+        )}
         <a className="button secondary" href="/portraits" onClick={surfaceLink}>
           {t('Open Portrait Hall')}
         </a>

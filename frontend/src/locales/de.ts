@@ -69,6 +69,8 @@ const translations: Record<string, string> = {
     'Besiege einen Computergegner in einem abgeschlossenen Einzelspiel.',
   'Open Portrait Hall': 'Porträthalle öffnen',
   'Selected portrait': 'Ausgewähltes Porträt',
+  'Loading your portrait…': 'Dein Porträt wird geladen…',
+  'Selected portrait unavailable.': 'Ausgewähltes Porträt nicht verfügbar.',
   'Inference initialization (seconds)': 'Inferenzinitialisierung (Sekunden)',
   'Training device': 'Trainingsgerät',
   'Neural inference backend': 'Backend für neuronale Inferenz',
