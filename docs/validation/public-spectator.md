@@ -57,3 +57,15 @@ Protected App remains a separate 574.21 KB /169.74 KB gzip chunk with the existi
 large-chunk advisory. These figures establish a smaller public startup graph, not
 an authenticated Dashboard or server-throughput improvement. No browser Python,
 neural library, backend schema, rules or dependency change is included.
+
+## Protected-entry timer regression
+
+Full CI exposed a Suspense timed-reveal deadlock when existing advisor tests pause
+application timers before navigation. Repeated failing-worker logins subsequently
+hit the unchanged login limiter and produced cascading failures. Entry loading
+now resolves its dynamic module directly into component state, preserving code
+splitting without relying on a fallback-reveal timer. The new frozen-clock entry
+regression fails before this correction and passes afterward, without advancing
+the clock. Entry, all advisor/localization cases and public discovery/replay cases
+then pass together: **41 passed, 1 intentional skip**. No timer, authentication
+limit or existing advisor assertion was weakened.
