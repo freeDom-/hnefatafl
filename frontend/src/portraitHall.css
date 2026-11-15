@@ -1,4 +1,6 @@
 .portrait-hall {
+  /* Original artwork is 320x320; never render it larger than native resolution. */
+  --portrait-art-max: 320px;
   width: min(100%, 1600px);
   margin: var(--gap-stack) auto;
   display: grid;
@@ -53,6 +55,9 @@
   padding: 10px;
 }
 .portrait-card-art {
+  width: 100%;
+  max-width: var(--portrait-art-max);
+  align-self: center;
   aspect-ratio: 1;
   display: grid;
   place-items: center;

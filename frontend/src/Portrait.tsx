@@ -44,8 +44,8 @@ export default function Portrait({
       className={`portrait-art ${className}`}
       src={path}
       alt={name}
-      width={256}
-      height={256}
+      width={320}
+      height={320}
       loading="lazy"
       decoding="async"
       onError={() => setFailed(true)}

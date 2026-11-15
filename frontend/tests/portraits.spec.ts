@@ -125,6 +125,25 @@ for (const theme of themes) {
             ).toBe(true);
           }).toPass({ timeout: 10000 });
         }
+        // Artwork is 320x320: never upscale it, keep it square and inside its card.
+        const naturalSizes = await gallery
+          .locator('img')
+          .evaluateAll((nodes) =>
+            (nodes as HTMLImageElement[]).map((node) => [node.naturalWidth, node.naturalHeight]),
+          );
+        for (const [width, height] of naturalSizes) expect([width, height]).toEqual([320, 320]);
+        for (const card of await gallery.locator('> li').all()) {
+          const art = card.locator('.portrait-card-art');
+          const artBox = await art.boundingBox();
+          const cardBox = await card.boundingBox();
+          expect(artBox).not.toBeNull();
+          expect(cardBox).not.toBeNull();
+          expect(artBox!.width).toBeLessThanOrEqual(320.5);
+          expect(artBox!.height).toBeLessThanOrEqual(320.5);
+          expect(Math.abs(artBox!.width - artBox!.height)).toBeLessThanOrEqual(1);
+          expect(artBox!.width).toBeLessThanOrEqual(cardBox!.width + 0.5);
+          expect(artBox!.height).toBeLessThanOrEqual(cardBox!.height + 0.5);
+        }
         await page.locator('#portrait-hall-heading').scrollIntoViewIfNeeded();
         await page.screenshot({
           path: `test-results/portraits/${theme}-${language}-${size.width}.png`,
