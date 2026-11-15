@@ -22,6 +22,29 @@ Deliberately out of scope: paid currency, any XP or soft-currency economy, clien
 awarded unlocks, login/activity streaks, leagues and player tournaments. Those
 reserved systems keep their own future schema numbers (18/19) and namespaces.
 
+## Portrait Hall and player artwork
+
+The authenticated `/portraits` page shows every catalog portrait in a locked,
+ready-to-claim, unlocked or selected state. Requirements and actual numeric
+progress come from the server, including achievements without a portrait reward.
+The explicit **Claim eligible achievements** action confirms all currently
+eligible awards through the existing idempotent POST; reading progress does not
+claim. Earned portraits can be selected using the existing profile PATCH.
+
+Mutation responses update the gallery immediately. Account-switch/unmount guards
+reject stale responses and notices; the existing payload-free `profile-changed`
+event refreshes owner-scoped views. Profile displays the selected artwork and links
+to the gallery; the Dashboard's Unlocked portraits heading links there too. Safe
+published portrait IDs are included in online and leaderboard projections, with
+batched page lookup and retired/default fallback. No achievement progress or
+private profile field is included in those published projections.
+
+Artwork uses the existing local allowlist and original 320px portrait assets;
+unknown IDs and failed loads have a safe fallback. Four themes, explicit progress
+labels, keyboard controls, visible focus, responsive cards and accessible unlock
+notices use the existing design system. There is no XP, currency or client-awarded
+entitlement. Existing confirmed awards remain earned after later result correction.
+
 ## Portrait catalog
 
 IDs are the contract; display names and artwork are not. The frontend bundles the

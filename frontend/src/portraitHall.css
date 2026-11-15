@@ -1,0 +1,174 @@
+.portrait-hall {
+  width: min(100%, 1600px);
+  margin: var(--gap-stack) auto;
+  display: grid;
+  gap: var(--gap-stack);
+}
+.portrait-hall-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-stack);
+  padding: clamp(16px, 2vw, 32px);
+}
+.portrait-hall-intro > div {
+  flex: 1 1 28rem;
+}
+.portrait-hall-intro h1 {
+  margin-block: 8px 12px;
+}
+.portrait-hall-intro p,
+.portrait-card p,
+.portrait-achievements p {
+  color: var(--ui-copy, var(--text));
+  line-height: 1.6;
+}
+.portrait-hall-count {
+  font-weight: 700;
+}
+.portrait-hall-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-stack);
+}
+.portrait-hall-actions .button {
+  white-space: normal;
+}
+.portrait-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr));
+  gap: var(--gap-stack);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.portrait-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--border);
+  padding: 10px;
+}
+.portrait-card-art {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: inherit;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+.portrait-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  aspect-ratio: 1;
+}
+.portrait-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 3rem;
+  color: var(--ui-copy, var(--text));
+  background: var(--surface-raised);
+}
+.portrait-card-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 6px 6px;
+  overflow-wrap: anywhere;
+}
+.portrait-card h2 {
+  font-size: 1.3rem;
+}
+.portrait-state {
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--ui-copy, var(--text));
+}
+.portrait-locked {
+  border-style: dashed;
+}
+.portrait-locked .portrait-art {
+  filter: grayscale(1);
+}
+.portrait-available {
+  border-color: var(--focus-ring);
+  border-style: double;
+  border-width: 4px;
+  padding: 8px;
+}
+.portrait-earned .portrait-card-art {
+  border-width: 3px;
+  border-color: var(--green);
+}
+.portrait-selected {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.portrait-selected .portrait-state {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.portrait-progress,
+.portrait-achievement-list li {
+  display: grid;
+  gap: 8px;
+}
+.portrait-progress {
+  margin-top: auto;
+}
+.portrait-hall progress {
+  width: 100%;
+  height: 12px;
+  accent-color: var(--green);
+}
+.portrait-progress label,
+.portrait-achievement-list label,
+.portrait-lock-note {
+  font-size: 0.875rem;
+}
+.portrait-achievements {
+  padding: clamp(16px, 2vw, 32px);
+  display: grid;
+  gap: 16px;
+}
+.portrait-achievement-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--gap-stack);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.portrait-achievement-list li {
+  align-content: start;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+}
+.portrait-achievement-list h3 {
+  font-size: 1.1rem;
+  margin-bottom: 6px;
+}
+.portrait-hall-notice {
+  padding: 12px 16px;
+  color: var(--ui-error);
+  background: var(--ui-error-surface);
+  border: 1px solid var(--ui-error);
+}
+:root[data-ui-theme='saga-hall'] .portrait-card-art {
+  border-image: var(--arena-frame-art) 24 / 7px / 0 stretch;
+}
+@media (min-width: 3000px) {
+  .portrait-hall {
+    width: min(100%, 2400px);
+  }
+  .portrait-gallery {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
+}

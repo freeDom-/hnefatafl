@@ -8,6 +8,8 @@ import { profileText } from './profileText';
 import { profileDate } from './profileDate';
 import { validatePassword, validatePasswordLength } from './passwordPolicy';
 import './profile.css';
+import Portrait from './Portrait';
+import { surfaceLink } from './surfaceNavigation';
 
 export type Profile = {
   username: string;
@@ -232,6 +234,16 @@ export default function ProfilePage() {
         </h1>
         <p>{t('Manage your account and preferences.')}</p>
       </div>
+      <section
+        className="panel profile-section profile-portrait"
+        aria-labelledby="profile-portrait-heading"
+      >
+        <h2 id="profile-portrait-heading">{t('Selected portrait')}</h2>
+        <Portrait id={profile?.portrait_id} />
+        <a className="button secondary" href="/portraits" onClick={surfaceLink}>
+          {t('Open Portrait Hall')}
+        </a>
+      </section>
       <div className="profile-sections">
         <section className="panel profile-section" aria-labelledby="personal-info-heading">
           <h2 id="personal-info-heading">{t('Personal Information')}</h2>

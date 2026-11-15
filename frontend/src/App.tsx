@@ -36,6 +36,7 @@ import { sideGlyph } from './sideGlyph';
 import { usePlayHistory } from './usePlayHistory';
 import { useModelCatalogue } from './useModelCatalogue';
 import PlayLanding from './PlayLanding';
+import PortraitHall from './PortraitHall';
 import { PlayTabsProvider } from './PlayTabs';
 
 type Tab =
@@ -46,6 +47,7 @@ type Tab =
   | 'archive'
   | 'leaderboard'
   | 'profile'
+  | 'portraits'
   | 'training'
   | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -58,21 +60,23 @@ export default function App() {
   const tab: Tab =
     path.startsWith('/online/games/') || path.split('?')[0] === '/online'
       ? 'online'
-      : path.split('?')[0] === '/profile'
-        ? 'profile'
-        : path.split('?')[0] === '/statistics'
-          ? 'statistics'
-          : path.startsWith('/games/') || path.split('?')[0] === '/play'
-            ? 'play'
-            : path.split('?')[0] === '/archive'
-              ? 'archive'
-              : path.split('?')[0] === '/leaderboard'
-                ? 'leaderboard'
-                : path.startsWith('/training') && permissions.includes('training')
-                  ? 'training'
-                  : path.startsWith('/tournaments') && permissions.includes('tournaments')
-                    ? 'tournaments'
-                    : 'dashboard';
+      : path.split('?')[0] === '/portraits'
+        ? 'portraits'
+        : path.split('?')[0] === '/profile'
+          ? 'profile'
+          : path.split('?')[0] === '/statistics'
+            ? 'statistics'
+            : path.startsWith('/games/') || path.split('?')[0] === '/play'
+              ? 'play'
+              : path.split('?')[0] === '/archive'
+                ? 'archive'
+                : path.split('?')[0] === '/leaderboard'
+                  ? 'leaderboard'
+                  : path.startsWith('/training') && permissions.includes('training')
+                    ? 'training'
+                    : path.startsWith('/tournaments') && permissions.includes('tournaments')
+                      ? 'tournaments'
+                      : 'dashboard';
   const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
@@ -498,6 +502,7 @@ export default function App() {
     <PlayTabsProvider key={account?.id}>
       <Shell account={account} logout={logout} current={shellCurrent}>
         <main id={SHELL_MAIN_ID} tabIndex={-1}>
+          {tab === 'portraits' && <PortraitHall />}
           {tab === 'statistics' && <StatisticsPage />}
           {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
           {tab === 'play' &&
