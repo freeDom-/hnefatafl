@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit && vite build && npm run test:bundle && npm run bundle:check",
+    "build": "tsc --noEmit && vite build && npm run test:bundle && npm run bundle:check && node scripts/write-build-revision.mjs",
     "benchmark:learning": "node benchmarks/run.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
@@ -20,7 +20,8 @@
     "predev": "node scripts/sync-appearance-catalog.mjs",
     "prebuild": "node scripts/sync-appearance-catalog.mjs",
     "test:bundle": "node --test scripts/check-bundle-budget.test.mjs",
-    "bundle:check": "node scripts/check-bundle-budget.mjs"
+    "bundle:check": "node scripts/check-bundle-budget.mjs",
+    "test:benchmarks": "node --test \"benchmarks/**/*.test.mjs\""
   },
   "dependencies": {
     "react": "^19.2.0",

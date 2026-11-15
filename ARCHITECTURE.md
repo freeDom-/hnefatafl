@@ -745,3 +745,18 @@ actions. Full dates stay private; `account_policy.py` supplies completed-years a
 on one UTC date per leaderboard response (February 29 advances March 1 in common
 years). The compact table, ranking calculations, game records and permission
 inventory are unchanged. See [account profile](docs/PROFILE.md).
+
+## Frontend feature loading
+
+The authenticated shell and live board remain immediately available. Workshop,
+AI tournaments, model-bearing setup, online management, profile/statistics,
+recorded review, Markdown rules and rich analysis load on first use.
+`deferredFeature` shares code-loading promises only; account data and component
+state remain owned by each mounted component. Failed imports offer retry and
+reload, and unmounted loaders cannot commit late state. This avoids coupling
+feature readiness to paused gameplay clocks. The canonical `useGameAnalysis`
+hook remains independent of the deferred analysis presentation.
+
+Production builds enforce budgets across the complete transitive eager manifest
+graph, including the first-paint appearance script. See the
+[measurement scope and validation](docs/validation/frontend-feature-splitting.md).
