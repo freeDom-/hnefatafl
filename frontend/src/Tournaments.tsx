@@ -33,6 +33,7 @@ import type {
 } from './tournamentTypes';
 import './features.css';
 import './tournaments.css';
+import './workshopConsolidation.css';
 
 const date = (value: string, locale: string) =>
   new Date(value).toLocaleDateString(locale, {
@@ -554,13 +555,23 @@ export default function Tournaments({
 
   return (
     <>
-      <section className="page-toolbar tournament-intro">
+      <section className="page-toolbar tournament-intro workshop-comparison-intro arena-surface">
         <PageHeading
           title={t('The tournament hall.')}
           subtitle={t(
             'Set your strategists against each other. Every result becomes part of their saga.',
           )}
         />
+        <div className="workshop-heading">
+          <p className="arena-kicker">{t('AI COMPARISONS')}</p>
+          <h2>{t('Measure your strategists.')}</h2>
+          <p>
+            {t(
+              'Compare computer opponents with repeatable matches. These benchmarks are separate from human player tournaments.',
+            )}
+          </p>
+          <a href="/training">{t('Return to the AI workshop')}</a>
+        </div>
         <div className="tournament-create">
           <button className="button primary" onClick={openSetup} disabled={loading || running}>
             <span aria-hidden="true">＋</span>
@@ -591,7 +602,9 @@ export default function Tournaments({
             {t('{count} completed · saved on this server', { count: completed })}
           </p>
           {loading ? (
-            <p className="empty-copy">{t('Opening the hall…')}</p>
+            <p className="empty-copy" role="status">
+              {t('Opening the hall…')}
+            </p>
           ) : !tournaments.length ? (
             <div className="tournament-history-empty">
               <span aria-hidden="true">ᛟ</span>

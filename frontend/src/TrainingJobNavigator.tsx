@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useI18n } from './i18n';
 import type { Job, Model } from './types';
 import { jobGameCounts } from './trainingGameCounts';
@@ -22,10 +22,33 @@ export default function TrainingJobNavigator({
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [sort, setSort] = useState('active');
+  const [page, setPage] = useState(0);
   const visible = useMemo(
     () => filterJobs(jobs, query, status, sort, models),
     [jobs, query, status, sort, models],
   );
+  const pageCount = Math.max(1, Math.ceil(visible.length / 20));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageJobs = visible.slice(currentPage * 20, currentPage * 20 + 20);
+  const selectedJob = jobs.find((job) => job.id === selected);
+  const selectedOnPage = pageJobs.some((job) => job.id === selected);
+  // Follow an explicit selection, not every poll/sort update or page click.
+  useEffect(() => {
+    const index = visible.findIndex((job) => job.id === selected);
+    if (index >= 0) setPage(Math.floor(index / 20));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+  const showSelected = () => {
+    if (!selected) return;
+    const filteredIndex = visible.findIndex((job) => job.id === selected);
+    if (filteredIndex >= 0) setPage(Math.floor(filteredIndex / 20));
+    else {
+      const all = filterJobs(jobs, '', 'all', sort, models);
+      setQuery('');
+      setStatus('all');
+      setPage(Math.max(0, Math.floor(all.findIndex((job) => job.id === selected) / 20)));
+    }
+  };
   const formatGames = (games: number | undefined) =>
     games === undefined
       ? t('Not recorded')
@@ -43,21 +66,57 @@ export default function TrainingJobNavigator({
           }}
         >
           {!selected && <option value="">{t('Select a training job')}</option>}
-          {selected && !visible.some((job) => job.id === selected) && (
+          {selected && !selectedOnPage && (
             <option value={selected}>
               {jobs.some((job) => job.id === selected)
                 ? jobName(jobs.find((job) => job.id === selected)!)
                 : selected.slice(0, 8)}{' '}
-              · {t('Outside current filters')}
+              ·{' '}
+              {t(
+                visible.some((job) => job.id === selected)
+                  ? 'Outside current page'
+                  : 'Outside current filters',
+              )}
             </option>
           )}
-          {visible.map((job) => (
+          {pageJobs.map((job) => (
             <option key={job.id} value={job.id}>
               {jobName(job)} · {t(job.status)} · {formatGames(jobGameCounts(job).job)}
             </option>
           ))}
         </select>
       </label>
+      {selectedJob && !selectedOnPage && (
+        <div className="navigator-selection">
+          <span>
+            {t('Selected job')}: <strong>{jobName(selectedJob)}</strong>
+          </span>
+          <button className="button secondary small" onClick={showSelected}>
+            {t('Show selected job')}
+          </button>
+        </div>
+      )}
+      {visible.length > 20 && (
+        <div className="job-pagination" role="group" aria-label={t('Training job pages')}>
+          <button
+            className="button secondary small"
+            disabled={currentPage === 0}
+            onClick={() => setPage(currentPage - 1)}
+          >
+            {t('Previous job page')}
+          </button>
+          <output aria-live="polite">
+            {t('Page {current} of {total}', { current: currentPage + 1, total: pageCount })}
+          </output>
+          <button
+            className="button secondary small"
+            disabled={currentPage === pageCount - 1}
+            onClick={() => setPage(currentPage + 1)}
+          >
+            {t('Next job page')}
+          </button>
+        </div>
+      )}
       <details
         className="job-navigation-options"
         open={expanded}
@@ -71,7 +130,10 @@ export default function TrainingJobNavigator({
               type="search"
               value={query}
               placeholder={t('Job or model name')}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(0);
+              }}
             />
           </label>
           <div className="job-filter-row">
@@ -80,7 +142,10 @@ export default function TrainingJobNavigator({
               <select
                 aria-label={t('Status')}
                 value={status}
-                onChange={(event) => setStatus(event.target.value)}
+                onChange={(event) => {
+                  setStatus(event.target.value);
+                  setPage(0);
+                }}
               >
                 {[
                   'all',
@@ -106,7 +171,10 @@ export default function TrainingJobNavigator({
               <select
                 aria-label={t('Sort jobs')}
                 value={sort}
-                onChange={(event) => setSort(event.target.value)}
+                onChange={(event) => {
+                  setSort(event.target.value);
+                  setPage(0);
+                }}
               >
                 <option value="active">{t('Active first')}</option>
                 <option value="newest">{t('Newest first')}</option>
@@ -117,9 +185,14 @@ export default function TrainingJobNavigator({
         </div>
         <p className="navigator-count subtle" role="status">
           {t('{shown} of {total} jobs', { shown: visible.length, total: jobs.length })}
+          {' · '}
+          {t('Showing {first}–{last}', {
+            first: visible.length ? currentPage * 20 + 1 : 0,
+            last: Math.min((currentPage + 1) * 20, visible.length),
+          })}
         </p>
         <div className="jobs-list">
-          {visible.map((job) => {
+          {pageJobs.map((job) => {
             const progress = jobProgress(job);
             const games = jobGameCounts(job).job;
             return (
