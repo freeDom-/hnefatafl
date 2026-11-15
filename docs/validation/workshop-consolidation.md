@@ -60,8 +60,20 @@ pages, not every tuning/resume/import/worker dialog. Physical devices/Safari,
 true 200% zoom and merged cross-route acceptance remain later work. No backend,
 model, checkpoint, schema or dependency changes; no release or merge.
 
-Integrated browser recheck: comparison King's Table passed; Training King's Table
-failed twice at the 1024px transition while initializing the session/jobs. The
-failure trace contains the heading only after its visibility wait expired; API
-responses were successful. This remains under investigation, with no timeout or
-assertion relaxation. The integrated branch is not yet accepted for merge.
+## Final integrated browser verification
+
+The matrix now isolates each theme, language and viewport, with one locale
+initializer and explicit document-language assertions. Four separate keyboard
+workflows preserve the original paging, selection and model/worker link checks.
+The same 88 visual combinations retain every geometry/contrast assertion. Desktop
+screenshots are native 1920×1080/Default and 3840×2160/Large; narrower screenshots
+remain full-page. Capture-only animations are disabled for reproducible images.
+
+The complete integrated run had **91 passed and one 768px timeout**
+during a managed tool-runtime restart. Its unchanged isolated recheck passed in
+1.9 seconds (6.8-second run). Earlier native-desktop validation had 31 passed and
+one 4K image-generation stall; its unchanged isolated recheck passed in 2.9 seconds.
+The original full-page 4K image-generation timeout and earlier protocol stalls are
+retained as failures, not hidden by increasing the 90-second test or 10-second
+assertion limits. All 88 current captures are preserved. Full CI must establish a
+clean full-suite result before merging.
