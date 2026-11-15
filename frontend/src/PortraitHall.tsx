@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -24,7 +24,7 @@ export default function PortraitHall() {
   const owner = account?.id ?? '';
   const currentOwner = useRef(owner);
   currentOwner.current = owner;
-  const number = new Intl.NumberFormat(locale);
+  const number = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const load = useCallback(async (signal: AbortSignal): Promise<HallData> => {
     const [catalog, achievements, profile] = await Promise.all([
       api<PortraitCatalog>('/portraits/catalog', undefined, undefined, signal),
@@ -38,21 +38,70 @@ export default function PortraitHall() {
     null,
   );
   const pending = useRef<AbortController | null>(null);
+  const failedOperation = useRef<{
+    owner: string;
+    kind: string;
+    previous: AchievementProgress;
+    eligible: string[];
+  } | null>(null);
   const generation = useRef(0);
   useEffect(() => {
     generation.current++;
     pending.current?.abort();
     pending.current = null;
+    failedOperation.current = null;
     setMutation(null);
     return () => {
       generation.current++;
       pending.current?.abort();
       pending.current = null;
+      failedOperation.current = null;
     };
   }, [owner]);
   const data = hall.data;
   const busy = mutation?.owner === owner && Boolean(mutation.kind);
   const error = mutation?.owner === owner ? mutation.error : '';
+
+  const announceAwards = useCallback(
+    (previous: AchievementProgress, next: AchievementProgress) => {
+      const oldAwards = new Set(
+        previous.items.filter((item) => item.unlocked).map((item) => item.id),
+      );
+      const added = next.items.filter((item) => item.unlocked && !oldAwards.has(item.id)).length;
+      if (added)
+        notify.success(t('Achievements unlocked: {count}', { count: number.format(added) }));
+    },
+    [t, number],
+  );
+
+  // A lost HTTP response can hide a server-side commit. When the authoritative
+  // refresh already shows the requested outcome, the earlier mutation error is
+  // obsolete; otherwise it stays because the operation genuinely failed. This
+  // never invents an award from client state.
+  useEffect(() => {
+    const operation = failedOperation.current;
+    if (!operation || operation.owner !== owner || hall.phase !== 'ready' || !data) return;
+    if (operation.kind === 'claim') {
+      const applied =
+        operation.eligible.length > 0 &&
+        operation.eligible.every(
+          (id) => data.achievements.items.find((item) => item.id === id)?.unlocked === true,
+        );
+      if (!applied) return;
+      failedOperation.current = null;
+      setMutation((previous) =>
+        previous?.owner === owner ? { ...previous, error: '' } : previous,
+      );
+      announceAwards(operation.previous, data.achievements);
+      window.dispatchEvent(new Event('profile-changed'));
+      return;
+    }
+    if (data.profile.portrait_id !== operation.kind) return;
+    failedOperation.current = null;
+    setMutation((previous) => (previous?.owner === owner ? { ...previous, error: '' } : previous));
+    notify.success(t('Portrait selected.'));
+    window.dispatchEvent(new Event('profile-changed'));
+  }, [data, hall.phase, owner, announceAwards, t]);
 
   async function mutate(kind: 'claim' | string) {
     if (!data || !owner || pending.current) return;
@@ -68,15 +117,18 @@ export default function PortraitHall() {
     // Hold the resource while applying a mutation response: an older read must
     // not overwrite confirmed awards or the selected portrait.
     hall.hold();
-    const announceAwards = (achievements: AchievementProgress) => {
-      const oldAwards = new Set(
-        data.achievements.items.filter((item) => item.unlocked).map((item) => item.id),
-      );
-      const added = achievements.items.filter(
-        (item) => item.unlocked && !oldAwards.has(item.id),
-      ).length;
-      if (added)
-        notify.success(t('Achievements unlocked: {count}', { count: number.format(added) }));
+    // Remember the pre-mutation authority so a later refresh can prove whether a
+    // failed request actually committed on the server.
+    failedOperation.current = {
+      owner,
+      kind,
+      previous: data.achievements,
+      eligible:
+        kind === 'claim'
+          ? data.achievements.items
+              .filter((item) => !item.unlocked && item.progress >= item.threshold)
+              .map((item) => item.id)
+          : [],
     };
     try {
       if (kind === 'claim') {
@@ -87,8 +139,9 @@ export default function PortraitHall() {
           controller.signal,
         );
         if (!current()) return;
+        failedOperation.current = null;
         hall.accept({ ...data, achievements });
-        announceAwards(achievements);
+        announceAwards(data.achievements, achievements);
         window.dispatchEvent(new Event('profile-changed'));
       } else {
         const profile = await api<Profile>(
@@ -101,6 +154,7 @@ export default function PortraitHall() {
         // The PATCH is the mutation: a confirmed selection stays successful even
         // when the follow-up award read fails. Publish it immediately and keep it
         // authoritative against any older in-flight read.
+        failedOperation.current = null;
         hall.accept({ ...data, profile });
         notify.success(t('Portrait selected.'));
         window.dispatchEvent(new Event('profile-changed'));
@@ -116,7 +170,7 @@ export default function PortraitHall() {
           );
           if (!current()) return;
           hall.accept({ ...data, profile, achievements });
-          announceAwards(achievements);
+          announceAwards(data.achievements, achievements);
         } catch {
           // The confirmed selection is already applied; the resume below owns
           // refresh-failure reporting and automatic recovery.

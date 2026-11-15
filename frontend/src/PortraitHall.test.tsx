@@ -443,3 +443,95 @@ it('does not repeat a confirmation while one is already in flight', async () => 
   ).toHaveLength(1);
   await act(async () => finish(achievements));
 });
+
+it('clears a lost-response claim error once the authoritative refresh confirms the award', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, data, method, signal) => {
+    if (path === '/personal/achievements/confirm') {
+      // The server commits the confirmation but the HTTP response is lost.
+      achievements = {
+        ...achievements,
+        items: achievements.items.map((item) =>
+          item.progress >= item.threshold
+            ? { ...item, unlocked: true, awarded_at: '2035-01-01T00:00:00Z' }
+            : item,
+        ),
+      };
+      return Promise.reject(new Error('Network error'));
+    }
+    return original(path, data, method, signal);
+  });
+  render(<PortraitHall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Claim eligible achievements' }));
+  await waitFor(() =>
+    expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned'),
+  );
+  expect(notify.success).toHaveBeenCalledWith('Achievements unlocked: 1');
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+});
+
+it('clears a lost-response claim error after a later successful retry refresh', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  let committed = false;
+  let recoveryReads = 0;
+  vi.mocked(api).mockImplementation((path, data, method, signal) => {
+    if (path === '/personal/achievements/confirm') {
+      committed = true;
+      return Promise.reject(new Error('Response lost'));
+    }
+    if (path === '/personal/achievements' && committed) {
+      recoveryReads++;
+      if (recoveryReads === 1) return Promise.reject(new Error('Still offline'));
+      return Promise.resolve({
+        ...achievements,
+        items: achievements.items.map((item) =>
+          item.progress >= item.threshold
+            ? { ...item, unlocked: true, awarded_at: '2035-01-01T00:00:00Z' }
+            : item,
+        ),
+      });
+    }
+    return original(path, data, method, signal);
+  });
+  render(<PortraitHall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Claim eligible achievements' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+  await waitFor(() =>
+    expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned'),
+  );
+  expect(notify.success).toHaveBeenCalledWith('Achievements unlocked: 1');
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+});
+
+it('clears a lost-response selection error once the profile refresh shows the selection', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, data, method, signal) => {
+    if (path === '/profile/portrait' && method === 'PATCH') {
+      // The server commits the selection but the HTTP response is lost.
+      selected = (data as { portrait_id: string }).portrait_id;
+      return Promise.reject(new Error('Network error'));
+    }
+    return original(path, data, method, signal);
+  });
+  render(<PortraitHall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
+  await waitFor(() => expect(card('Skald')).toHaveAttribute('data-portrait-state', 'selected'));
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  expect(notify.success).toHaveBeenCalledWith('Portrait selected.');
+});
+
+it('keeps a genuine selection error when the refresh does not show the selection', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, ...rest) =>
+    path === '/profile/portrait'
+      ? Promise.reject(new Error('Portrait is not earned.'))
+      : original(path, ...rest),
+  );
+  render(<PortraitHall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
+  await waitFor(() =>
+    expect(screen.getByRole('alert')).toHaveTextContent('Portrait is not earned.'),
+  );
+  expect(card('Skald')).toHaveAttribute('data-portrait-state', 'earned');
+  expect(notify.success).not.toHaveBeenCalled();
+});
