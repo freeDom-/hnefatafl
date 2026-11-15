@@ -123,3 +123,10 @@ production build passed. The unchanged production entry remains 1,013.70 kB
 minified; its existing large-chunk warning is recorded rather than suppressed.
 Full backend/frontend/browser CI runs separately on this focused PR; its actual
 result belongs to that run, not to the standalone browser benchmark above.
+
+The first full PR CI passed backend verification and all 1,312 frontend unit tests;
+its browser run had 354 passed, 19 skipped and one existing resize-timing failure.
+The same settled-geometry and transient-board retry corrections already green in
+Portrait Hall CI are retained here without changing any layout thresholds. The
+[neural/CSP report](browser-neural-feasibility.md) adds actual trained-native probes
+and concrete production policy/runtime gaps; it does not claim browser inference.

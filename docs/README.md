@@ -71,6 +71,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Current-engine browser analysis feasibility](validation/browser-analysis-prototype.md)
+- [Browser neural execution and CSP feasibility](validation/browser-neural-feasibility.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
 - [Arena theme completion and visual checks](validation/arena-theme-completion.md)
