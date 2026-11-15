@@ -47,6 +47,7 @@ const online = {
         losses: 1,
         draws: 0,
         timed_out: 1,
+        rating: 1537,
         win_rate: 0.5,
         win_rate_attackers: 0.5,
         win_rate_defenders: null,
@@ -57,6 +58,132 @@ const online = {
     coverage: { unattributed_games: 0 },
   },
   overview: {},
+};
+const localRunning = {
+  games: [],
+  totals: {
+    total_games: 0,
+    completed_games: 0,
+    in_progress: 0,
+    attackers_wins: 0,
+    defenders_wins: 0,
+    draws: 0,
+    average_game_length: 0,
+  },
+};
+const progress = {
+  as_of: '2035-01-01T00:00:00Z',
+  streaks: {
+    rated_win_current: 3,
+    rated_win_best: 8,
+    by_ruleset: [{ ruleset: 'brandubh', rated_win_current: 3, rated_win_best: 8, rated_games: 12 }],
+  },
+};
+const portraits = {
+  catalog_version: 1,
+  default_portrait_id: 'shieldbearer',
+  items: [
+    { id: 'shieldbearer', name: 'Shieldbearer', unlock_achievement_id: null },
+    { id: 'shieldmaiden', name: 'Shieldmaiden', unlock_achievement_id: 'first-rated-win' },
+  ],
+};
+const achievements = {
+  catalog_version: 1,
+  portrait_catalog_version: 1,
+  items: [
+    { id: 'first-rated-win', unlocked: true, portrait_id: 'shieldmaiden' },
+    { id: 'defender-hold', unlocked: false, portrait_id: 'iron-helm' },
+  ],
+  summary: { unlocked: 1, total: 2 },
+  as_of: '2035-01-01T00:00:00Z',
+};
+const profile = {
+  username: 'archer',
+  email: 'archer@example.test',
+  email_verified: true,
+  display_name: 'Archer',
+  country_code: null,
+  city: null,
+  date_of_birth: null,
+  legacy_birth_year: null,
+  legacy_private_fields: [],
+  country_codes: ['DE'],
+  portrait_id: 'shieldbearer',
+};
+const activeOnlineGame = {
+  id: 'online-1',
+  category: 'online',
+  status: 'active',
+  ruleset: 'brandubh',
+  time_per_move: 259200,
+  time_control: 'per_move',
+  increment_seconds: 0,
+  remaining_seconds: null,
+  deadline: '2035-01-01T14:00:00Z',
+  rated: true,
+  own_side: 'attackers',
+  your_turn: true,
+  turn: 'attackers',
+  players: { attackers: 'Archer', defenders: 'Keeper' },
+  position: {
+    ruleset: 'brandubh',
+    board: [
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      'K',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+      '.',
+    ],
+    turn: 'attackers',
+    ply: 0,
+    winner: null,
+    reason: null,
+  },
+  terminal_king_square: null,
+  moves: [],
 };
 const row = {
   id: fixture.replay.game.id,
@@ -115,29 +242,64 @@ beforeEach(() => {
   identity.email_verified = true;
   history.replaceState(null, '', '/dashboard');
   setLanguage('en', false);
+  // The dashboard's standing cards follow the same stored pool as the compact
+  // leaderboard, so a deterministic pool keeps the fixture meaningful.
+  localStorage.setItem('hnefatafl-leaderboard-ruleset', 'brandubh');
   fetcher.mockClear();
   serve = (url) =>
-    respond(
-      url.includes('/single-player?')
-        ? local
-        : url.includes('/personal/online?')
-          ? online
-          : url.includes('/history/')
-            ? recent
-            : url.includes('/leaderboard')
-              ? leaderboard
-              : url.includes('/online/games?')
-                ? { games: [], limit: 25, offset: 0 }
-                : url.includes('/availability')
-                  ? { enabled: false, eligible: false }
-                  : [],
-    );
+    url.includes('/portraits/catalog')
+      ? respond(portraits)
+      : url.includes('/personal/achievements')
+        ? respond(achievements)
+        : url.includes('/personal/progress')
+          ? respond(progress)
+          : url.includes('/profile')
+            ? respond(profile)
+            : url.includes('/personal/online/')
+              ? respond(activeOnlineGame)
+              : url.includes('/single-player?')
+                ? respond(local)
+                : url.includes('/personal/online?')
+                  ? respond(online)
+                  : url.includes('/personal/local?')
+                    ? respond(localRunning)
+                    : url.includes('/history/')
+                      ? respond(recent)
+                      : url.includes('/leaderboard')
+                        ? respond(leaderboard)
+                        : url.includes('/online/games?')
+                          ? respond({ games: [], limit: 25, offset: 0 })
+                          : url.includes('/availability')
+                            ? respond({ enabled: false, eligible: false })
+                            : respond([]);
   vi.stubGlobal('fetch', fetcher);
 });
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   setLanguage('en', false);
+  localStorage.removeItem('hnefatafl-leaderboard-ruleset');
+});
+it('renders the bundled Forge Keeper artwork for the server-selected earned portrait', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/portraits/catalog')
+      ? respond({
+          ...portraits,
+          items: [
+            ...portraits.items,
+            { id: 'forge-keeper', name: 'Forge Keeper', unlock_achievement_id: 'ai-first-victory' },
+          ],
+        })
+      : url.includes('/profile')
+        ? respond({ ...profile, portrait_id: 'forge-keeper' })
+        : previous(url);
+  render(<PersonalDashboard />);
+  await screen.findByText('Forge Keeper');
+  expect(document.querySelector('.dashboard-portrait img')).toHaveAttribute(
+    'src',
+    '/assets/arena-v2/assets/portraits/forge-keeper.webp',
+  );
 });
 it('shows the verification warning before creation actions and disables only online creation', async () => {
   identity.email_verified = false;
@@ -145,7 +307,7 @@ it('shows the verification warning before creation actions and disables only onl
   serve = (url) =>
     url.includes('/availability') ? respond({ enabled: true, eligible: false }) : previous(url);
   render(<PersonalDashboard />);
-  await screen.findByRole('heading', { name: 'Online games' });
+  await screen.findByRole('heading', { name: 'Start a new saga.' });
   const warning = screen.getByText(
     'Verify your email address before creating or joining online games.',
   );
@@ -154,76 +316,160 @@ it('shows the verification warning before creation actions and disables only onl
     '/profile#email-verification',
   );
   expect(
-    warning.compareDocumentPosition(screen.getByRole('button', { name: 'New online game' })) &
+    warning.compareDocumentPosition(screen.getByRole('button', { name: 'Play online' })) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(warning).toHaveAttribute('role', 'alert');
-  expect(screen.getByRole('button', { name: 'New online game' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'New single-player game' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Play online' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Play vs AI' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Local 1v1' })).toBeEnabled();
   expect(screen.queryByText(/Creating and joining require/)).toBeNull();
 });
-it('combines existing lobby with distinct personal stats, shared latest records and upcoming leaderboard without device-local reads', async () => {
+it('renders the reference layout with real standing cards, records and leaderboard without device-local reads', async () => {
   const open = vi.fn();
   vi.stubGlobal('indexedDB', { open });
   const start = vi.fn();
   render(<PersonalDashboard onNewSingle={start} />);
-  const link = await screen.findByRole('link', { name: 'Open review: Archer vs Keeper' });
+  const link = await screen.findByRole('link', { name: /Open review: .*Archer vs Keeper/ });
   expect(link).toHaveAttribute('href', `/archive?review=online&selected=${row.id}`);
-  expect(link.closest('table')).toHaveClass('recorded-games');
+  expect(link.closest('.record-strip-item')).toBe(link);
+  expect(link.closest('ul')).toHaveClass('record-strip');
   expect(screen.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   // The compact table shows the localized rating; the rank summary repeats it.
   expect(
     await within(screen.getByRole('table', { name: 'Leaderboard' })).findByText('1,516'),
   ).toBeVisible();
-  expect(screen.getByRole('link', { name: /Brandubh Singleplayer statistics.*67%/ })).toBeVisible();
+  // The four standing cards read the same ruleset pool as the leaderboard.
+  const elo = screen.getByRole('heading', { name: 'Brandubh Elo' }).closest('article')!;
+  expect(within(elo).getByText('1,537')).toBeVisible();
+  expect(within(elo).getByText('2 rated games')).toBeVisible();
+  const winRate = screen.getByRole('heading', { name: 'Win rate' }).closest('article')!;
+  expect(within(winRate).getByText('50%')).toBeVisible();
+  const streak = screen.getByRole('heading', { name: 'Current streak' }).closest('article')!;
+  expect(within(streak).getByText('3 wins')).toBeVisible();
+  expect(within(streak).getByText('Highest: 8')).toBeVisible();
+  const portraits = screen.getByRole('heading', { name: 'Unlocked portraits' }).closest('article')!;
+  expect(within(portraits).getByText('2 / 2')).toBeVisible();
   expect(screen.queryByText('Timed-out games')).toBeNull();
   expect(screen.queryByRole('table', { name: /results by side/ })).toBeNull();
-  // Lobby takes the old Recorded games slot; records move below the Leaderboard.
-  const overview = document.querySelector('.dashboard-overview')!;
-  const order = Array.from(overview.children).map((node) => node.className);
-  expect(order.findIndex((value) => value.includes('dashboard-lobby'))).toBeLessThan(
-    order.findIndex((value) => value.includes('leaderboard-compact')),
+  // The reference sections keep their order: hero then games that need you in
+  // the main column; profile, the four standing cards and the standings in the
+  // right column, so the cards sit directly beneath the profile.
+  const main = Array.from(document.querySelector('.dashboard-main')!.children).map(
+    (node) => node.className,
   );
-  expect(order.findIndex((value) => value.includes('leaderboard-compact'))).toBeLessThan(
-    order.findIndex((value) => value.includes('dashboard-recent')),
+  expect(main.findIndex((value) => value.includes('arena-hero'))).toBe(0);
+  expect(main.findIndex((value) => value.includes('dashboard-needs-you'))).toBe(1);
+  const aside = Array.from(document.querySelector('.dashboard-aside')!.children).map(
+    (node) => node.className,
   );
+  expect(aside.findIndex((value) => value.includes('dashboard-profile'))).toBe(0);
+  expect(aside.findIndex((value) => value.includes('dashboard-stats'))).toBe(1);
+  expect(aside.findIndex((value) => value.includes('leaderboard-compact'))).toBe(2);
+  // The compact record strip is the dashboard's last row: at most three records,
+  // each a single link, and the archive link.
+  const recentSection = document.querySelector('.dashboard-recent')!;
+  expect(recentSection.querySelectorAll('.record-strip-item')).toHaveLength(1);
+  expect(recentSection.querySelector('.record-strip-item')).toHaveAttribute(
+    'href',
+    `/archive?review=online&selected=${row.id}`,
+  );
+  expect(document.querySelectorAll('.recorded-games')).toHaveLength(0);
   expect(screen.queryByText('Local players')).toBeNull();
   expect(fetcher.mock.calls.some(([url]) => url === '/api/history/games?dashboard=true')).toBe(
     true,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'New single-player game' }));
+  expect(fetcher.mock.calls.some(([url]) => url === '/api/personal/progress')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Play vs AI' }));
   expect(start).toHaveBeenCalledOnce();
-  fireEvent.click(screen.getByRole('button', { name: 'New online game' }));
-  await screen.findByRole('heading', { name: 'Create an online game' });
+  // Online creation lives on the Play entry, which owns the lobby dialog.
+  fireEvent.click(screen.getByRole('button', { name: 'Play online' }));
+  expect(location.pathname + location.search).toBe('/play?setup=online');
   expect(open).not.toHaveBeenCalled();
 });
-it('keeps six visible badges and moves detailed statistics to a dedicated page', async () => {
+it('shows the real active board and your-turn cards for an owned running game', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({ ...online, games: [activeOnlineGame] })
+      : previous(url);
   render(<PersonalDashboard />);
-  await screen.findByRole('link', { name: /Brandubh Singleplayer statistics.*67%/ });
-  expect(document.querySelectorAll('.performance-badge')).toHaveLength(6);
+  await screen.findByRole('grid');
+  expect(screen.getByRole('heading', { name: 'One move closer to victory.' })).toBeVisible();
+  expect(screen.getByText('Archer vs Keeper')).toBeVisible();
+  expect(screen.getByText('Attackers to move')).toBeVisible();
+  const card = document.querySelector('.dashboard-game-list > li')!;
+  expect(within(card as HTMLElement).getByText('Your turn')).toBeVisible();
+  expect(within(card as HTMLElement).getByRole('link', { name: 'Continue' })).toHaveAttribute(
+    'href',
+    '/online/games/online-1',
+  );
+  expect(screen.getByRole('link', { name: /Continue game/ })).toHaveAttribute(
+    'href',
+    '/online/games/online-1',
+  );
+});
+it('shows the four standing cards, keeps the detailed statistics link and moves the badges off the dashboard', async () => {
+  render(<PersonalDashboard />);
+  await screen.findByRole('heading', { name: 'Brandubh Elo' });
+  expect(document.querySelectorAll('.dashboard-stat')).toHaveLength(4);
+  expect(document.querySelectorAll('.performance-badge')).toHaveLength(0);
   expect(screen.getByRole('link', { name: 'Detailed statistics' })).toHaveAttribute(
     'href',
     '/statistics',
   );
+  expect(screen.getByRole('link', { name: 'Game archive →' })).toHaveAttribute('href', '/archive');
   expect(screen.queryByText('Average game length')).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Singleplayer' })).toBeNull();
 });
-
+it('shows explicit empty states when no rated pool, streak or portrait data exists', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/single-player?')
+      ? respond({ ...local, totals: { ...local.totals, in_progress: 0 } })
+      : url.includes('/personal/online?')
+        ? respond({ ...online, statistics: { groups: [], coverage: { unattributed_games: 0 } } })
+        : url.includes('/personal/progress')
+          ? respond({
+              as_of: '2035-01-01T00:00:00Z',
+              streaks: {
+                rated_win_current: 0,
+                rated_win_best: 0,
+                // The server always lists every pool; a zero-rated pool stays empty.
+                by_ruleset: [
+                  { ruleset: 'brandubh', rated_win_current: 0, rated_win_best: 0, rated_games: 0 },
+                ],
+              },
+            })
+          : previous(url);
+  render(<PersonalDashboard />);
+  await screen.findByRole('heading', { name: 'Brandubh Elo' });
+  expect(screen.getByText('No rated games in this pool yet.')).toBeVisible();
+  expect(screen.getByText('No rated win streak yet.')).toBeVisible();
+  expect(
+    within(document.querySelector('.arena-hero') as HTMLElement).getByText(
+      'No games are currently running.',
+    ),
+  ).toBeVisible();
+  expect(
+    within(document.querySelector('.dashboard-needs-you') as HTMLElement).getByText(
+      'No games are currently running.',
+    ),
+  ).toBeVisible();
+});
 it('shows stale retry and recovers empty recent results', async () => {
   serve = (url) =>
     url.includes('/history/')
       ? respond({}, 503)
-      : respond(
-          url.includes('/games?')
-            ? { games: [] }
-            : url.includes('/personal/')
-              ? { ...local, ...online }
-              : [],
-        );
+      : url.includes('/games?')
+        ? respond({ games: [] })
+        : url.includes('/personal/')
+          ? respond({ ...local, ...online })
+          : respond([]);
   render(<PersonalDashboard />);
-  await screen.findByRole('button', { name: 'Retry' });
+  const retries = await screen.findAllByRole('button', { name: 'Retry' });
+  expect(retries).toHaveLength(1);
   serve = () => respond({ ...recent, games: [] });
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  fireEvent.click(retries[0]);
   await screen.findByText('No completed games yet.');
 });
 it('aborts old-account history/statistics and rejects late responses', async () => {
@@ -243,7 +489,8 @@ it('aborts old-account history/statistics and rejects late responses', async () 
   await screen.findByText('No completed games yet.');
   await act(async () => finish(await respond(recent)));
   expect(signals.every((signal) => signal.aborted)).toBe(true);
-  expect(screen.queryByRole('link', { name: 'Open review: Archer vs Keeper' })).toBeNull();
+  expect(screen.queryByRole('link', { name: /Open review: .*Archer vs Keeper/ })).toBeNull();
+  expect(document.querySelectorAll('.dashboard-stat')).toHaveLength(4);
 });
 it('retains canonical private account replay at its existing deep link', async () => {
   history.replaceState(null, '', '/dashboard/single-player/local-owned');
@@ -288,4 +535,186 @@ it('translates dashboard actions in German', async () => {
   render(<PersonalDashboard />);
   await waitFor(() => expect(fetcher.mock.calls.length).toBeGreaterThan(3));
   expect(screen.getByRole('heading', { name: 'Übersicht' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Kriegerprofil' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Partien, die dich brauchen' })).toBeVisible();
+});
+
+it.each(['en', 'de'] as const)(
+  'uses account aggregates beyond 25 online and five local previews in %s without expanding the queue',
+  async (language) => {
+    setLanguage(language, false);
+    const previous = serve;
+    const onlineGames = Array.from({ length: 25 }, (_, i) => ({
+      ...activeOnlineGame,
+      id: i ? `online-${i + 1}` : 'online-1',
+    }));
+    const localGames = Array.from({ length: 5 }, (_, i) => ({
+      id: `local-${i}`,
+      ruleset: 'brandubh',
+      status: 'in_progress',
+    }));
+    serve = (url) =>
+      url.includes('/personal/online?')
+        ? respond({
+            ...online,
+            games: onlineGames,
+            overview: { your_turn: 40, other_active: 10, waiting: 2 },
+          })
+        : url.includes('/personal/local?')
+          ? respond({
+              ...localRunning,
+              games: localGames,
+              totals: { ...localRunning.totals, in_progress: 12 },
+            })
+          : previous(url);
+    render(<PersonalDashboard />);
+    await screen.findByText(
+      language === 'en' ? '52 games await your move' : '52 Partien warten auf deinen Zug',
+    );
+    expect(document.querySelectorAll('.dashboard-game-list > li')).toHaveLength(30);
+    expect(
+      screen.getByText(
+        language === 'en'
+          ? '30 of 67 running games shown.'
+          : '30 von 67 laufenden Partien werden angezeigt.',
+      ),
+    ).toBeVisible();
+    expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/online?limit=25'))).toBe(
+      true,
+    );
+    expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/local?limit=5'))).toBe(true);
+  },
+);
+it('does not claim YOUR TURN when the opponent moves in the selected online game', async () => {
+  const previous = serve;
+  const game = {
+    ...activeOnlineGame,
+    your_turn: false,
+    turn: 'defenders',
+    position: { ...activeOnlineGame.position, turn: 'defenders' },
+  };
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({
+          ...online,
+          games: [game],
+          overview: { your_turn: 0, other_active: 1, waiting: 0 },
+        })
+      : url.includes('/personal/online/')
+        ? respond(game)
+        : previous(url);
+  render(<PersonalDashboard />);
+  await screen.findByRole('heading', { name: 'Your match is waiting.' });
+  expect(document.querySelector('.arena-kicker')).not.toHaveTextContent('YOUR TURN');
+  expect(screen.getByText('No games await your move.')).toBeVisible();
+});
+it.each(['waiting', 'completed'])(
+  'never displays a countdown for an online game that becomes %s',
+  async (status) => {
+    const previous = serve;
+    serve = (url) =>
+      url.includes('/personal/online?')
+        ? respond({ ...online, games: [activeOnlineGame], overview: { your_turn: 1 } })
+        : url.includes('/personal/online/')
+          ? respond({ ...activeOnlineGame, status })
+          : previous(url);
+    render(<PersonalDashboard />);
+    await waitFor(() =>
+      expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/online/online-1'))).toBe(
+        true,
+      ),
+    );
+    await screen.findByText('Archer vs Keeper');
+    expect(document.querySelector('.arena-hero-meta [aria-label$=" remaining"]')).toBeNull();
+    await waitFor(() =>
+      expect(document.querySelector('.arena-kicker')).toHaveTextContent(
+        status === 'waiting' ? 'Waiting' : 'Completed',
+      ),
+    );
+    expect(document.querySelector('.arena-kicker')).not.toHaveTextContent('YOUR TURN');
+  },
+);
+
+it.each(['per_move', 'total'])(
+  'uses the authoritative active deadline for %s rather than inventing time from balances',
+  async (time_control) => {
+    const previous = serve;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2035-01-01T00:00:00Z'));
+    const game = {
+      ...activeOnlineGame,
+      time_control,
+      time_per_move: 999,
+      remaining_seconds: { attackers: 999, defenders: 999 },
+      deadline: '2035-01-01T00:00:45Z',
+    };
+    serve = (url) =>
+      url.includes('/personal/online?')
+        ? respond({ ...online, games: [game], overview: { your_turn: 1 } })
+        : url.includes('/personal/online/')
+          ? respond(game)
+          : previous(url);
+    try {
+      render(<PersonalDashboard />);
+      expect(await screen.findByLabelText('45s remaining')).toBeVisible();
+    } finally {
+      cleanup();
+      now.mockRestore();
+    }
+  },
+);
+
+it('discards delayed aggregate totals on account switches', async () => {
+  const previous = serve;
+  let finishOnline!: (response: Response) => void;
+  let finishLocal!: (response: Response) => void;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? new Promise((resolve) => {
+          finishOnline = resolve;
+        })
+      : url.includes('/personal/local?')
+        ? new Promise((resolve) => {
+            finishLocal = resolve;
+          })
+        : previous(url);
+  const view = render(<PersonalDashboard />);
+  identity.id = 'keeper';
+  serve = previous;
+  view.rerender(<PersonalDashboard />);
+  await screen.findByText('No games await your move.');
+  await act(async () => {
+    finishOnline(await respond({ ...online, overview: { your_turn: 40 } }));
+    finishLocal(
+      await respond({ ...localRunning, totals: { ...localRunning.totals, in_progress: 12 } }),
+    );
+  });
+  expect(screen.queryByText('52 games await your move')).toBeNull();
+  expect(document.querySelector('.dashboard-status-badge')).toHaveTextContent(
+    'No games await your move.',
+  );
+});
+
+it('shows stale local totals as unavailable and recovers through the existing retry', async () => {
+  const previous = serve;
+  serve = (url) => (url.includes('/personal/local?') ? respond({}, 503) : previous(url));
+  render(<PersonalDashboard />);
+  await screen.findByText('Game totals unavailable or stale.');
+  expect(screen.getByRole('alert')).toHaveTextContent('History unavailable or stale.');
+  serve = (url) =>
+    url.includes('/personal/local?')
+      ? respond({ ...localRunning, totals: { ...localRunning.totals, in_progress: 12 } })
+      : previous(url);
+  fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByText('12 games await your move')).toBeVisible();
+});
+it('does not describe an empty bounded preview as an empty account', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({ ...online, games: [], overview: { your_turn: 40, other_active: 0, waiting: 0 } })
+      : previous(url);
+  render(<PersonalDashboard />);
+  expect(await screen.findByText('40 games await your move')).toBeVisible();
+  expect(screen.getByText('0 of 43 running games shown.')).toBeVisible();
+  expect(screen.getAllByText('No running games in this preview.')).toHaveLength(2);
 });

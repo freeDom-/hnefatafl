@@ -209,8 +209,9 @@ refused. No production migration or deployment is performed by tests.
 ## Device preferences and implementation boundaries
 
 Appearance controls reuse the existing provider, catalogs, CSS and startup script,
-now embedded directly in the profile. System, Light, Dark and Wood, piece themes,
-board themes and interface scale remain supported. Language selection remains in
+now embedded directly in the profile. The four named UI themes, piece themes, board themes and interface scale remain supported;
+old color-mode and Classic look preferences follow the documented
+[migration](PERSONALIZATION.md#existing-preference-migration). Language selection remains in
 the header, with no duplicate on the profile. Both settings apply immediately.
 
 Appearance stays in `hnefatafl-appearance` and language in `hnefatafl-language` on

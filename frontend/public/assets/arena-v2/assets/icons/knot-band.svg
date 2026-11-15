@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 32">
+  <title>Interlaced gold trim</title>
+  <defs>
+    <pattern id="braid" width="80" height="32" patternUnits="userSpaceOnUse">
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M-40 16Q-20-8 0 16T40 16T80 16T120 16M-40 16Q-20 40 0 16T40 16T80 16T120 16" stroke="#4b3420" stroke-width="7"/>
+        <path d="M-40 16Q-20-8 0 16T40 16T80 16T120 16M-40 16Q-20 40 0 16T40 16T80 16T120 16" stroke="#c49b60" stroke-width="4"/>
+        <path d="M-40 16Q-20-8 0 16T40 16T80 16T120 16" stroke="#f3d6a2" stroke-width="1"/>
+      </g>
+    </pattern>
+  </defs>
+  <path fill="url(#braid)" d="M0 0h480v32H0z"/>
+</svg>

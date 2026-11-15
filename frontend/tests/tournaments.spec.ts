@@ -648,11 +648,11 @@ test('a fixed-role comparison keeps one model attacking and one defending', asyn
   expect((await request.delete(`${tournamentApi}/${tournament.id}`)).ok()).toBe(true);
 });
 
-/** Apply one colour mode and interface scale through the shared profile appearance controls. */
-async function setAppearance(page: Page, mode: string, density: string) {
+/** Apply a supported UI theme and scale through the shared profile controls. */
+async function setAppearance(page: Page, theme: string, density: string) {
   const previous = page.url();
   await openProfile(page);
-  await page.getByRole('radio', { name: mode, exact: true }).check();
+  await page.getByRole('radio', { name: theme, exact: true }).check();
   await page.getByRole('radio', { name: density, exact: true }).check();
   await page.goto(previous);
 }
@@ -675,14 +675,15 @@ test('the fixed-role dialog and results follow the shared appearance settings', 
   ).json();
   const name = `Fixed layout ${info.project.name}`;
   const appearances = [
-    ['Light', 'Compact'],
-    ['Dark', 'Default'],
-    ['Wood', 'Large'],
+    ['The King’s Table', 'Compact'],
+    ['Iron & Ash', 'Default'],
+    ['Saga Hall', 'Large'],
+    ['Classic Table', 'Default'],
   ] as const;
   await openTournaments(page);
-  // The setup dialog stays inside the viewport at every colour mode and scale.
-  for (const [mode, density] of appearances) {
-    await setAppearance(page, mode, density);
+  // The setup dialog stays inside the viewport at every supported theme and scale.
+  for (const [theme, density] of appearances) {
+    await setAppearance(page, theme, density);
     await page.getByRole('button', { name: 'Fixed-role comparison', exact: true }).first().click();
     const setup = page.getByRole('dialog', { name: 'Fixed-role comparison', exact: true });
     await expect(setup.getByLabel('Attackers trained model', { exact: true })).toBeVisible();
@@ -714,8 +715,8 @@ test('the fixed-role dialog and results follow the shared appearance settings', 
   await expect(page.locator('.tournament-detail .tournament-status')).toHaveText('Completed', {
     timeout: 120000,
   });
-  for (const [mode, density] of appearances) {
-    await setAppearance(page, mode, density);
+  for (const [theme, density] of appearances) {
+    await setAppearance(page, theme, density);
     await expect(page.locator('.tournament-standing.rival-1')).toBeVisible();
     await expect(page.locator('.tournament-standing.rival-2')).toBeVisible();
     await expect(page.locator('.tournament-outcome-legend li')).toHaveCount(4);

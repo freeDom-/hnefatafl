@@ -1,4 +1,10 @@
-import { openDestination, openGameNavigation, openWorkshop } from './play-helpers';
+import {
+  openArena,
+  openDestination,
+  openGameNavigation,
+  openNewSinglePlayer,
+  openWorkshop,
+} from './play-helpers';
 import { fixtureModel, historicalGame } from './historical-fixture';
 import { openCollection } from './workshop-helpers';
 import { expect, test, type APIRequestContext } from './auth-fixture';
@@ -50,7 +56,7 @@ test('AI vs AI offers only named opponents with fixed presets and the dialog clo
   });
   await expect(page.getByRole('grid')).toBeVisible();
   await openGameNavigation(page);
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
+  await openNewSinglePlayer(page);
   await expect(setup.getByRole('option', { name: 'Trained model', exact: true })).toHaveCount(0);
   await expect(setup.getByRole('spinbutton')).toHaveCount(0);
   // A drag that begins inside the dialog must not close it when released on the backdrop.
@@ -158,7 +164,7 @@ test('historical trained opponents retain names, runes and legal play while the 
   );
   await page.reload();
   await openGameNavigation(page);
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
+  await openNewSinglePlayer(page);
   const setup = page.getByRole('dialog', { name: 'Begin a new saga', exact: true });
   await setup.getByRole('button', { name: 'AI vs AI', exact: true }).click();
   await expect(setup.getByRole('button', { name: 'AI vs AI', exact: true })).toHaveClass('active');
@@ -175,7 +181,7 @@ test('historical trained opponents retain names, runes and legal play while the 
     .getByRole('article')
     .filter({ has: page.getByRole('heading', { name: ulf.name, exact: true }) });
   await expect(ulfCard.locator('[data-rune]')).toHaveAttribute('data-rune', ulf.rune);
-  await page.getByRole('button', { name: 'Arena', exact: true }).click();
+  await openArena(page);
   await openDestination(page, 'archive');
   const row = page.locator('.recorded-games tbody tr').filter({ hasText: ulf.name });
   await expect(row).toContainText(freydis.name);

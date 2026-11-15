@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './auth-fixture';
-import { openWorkshop } from './play-helpers';
+import { openArena, openWorkshop } from './play-helpers';
 import { workshopFixture, workshopFixtures } from './workshop-fixtures';
 import { openCreation, selectWorkshopJob } from './workshop-helpers';
 async function open(
@@ -401,8 +401,8 @@ test('empty workshop opens creation; theme and German dashboard controls remain 
   await page.getByRole('tab', { name: 'Leistung', exact: true }).click();
   await expect(page.getByLabel('Leistungskennzahl', { exact: true })).toBeVisible();
   jobs = [];
-  await page.getByRole('button', { name: 'Arena', exact: true }).click();
-  await page.getByRole('button', { name: 'Werkstatt', exact: true }).click();
+  await openArena(page);
+  await openWorkshop(page);
   await expect(
     page.getByRole('button', { name: 'Schmiede einen neuen Strategen', exact: true }),
   ).toHaveAttribute('aria-expanded', 'true');
@@ -562,7 +562,7 @@ async function rejectTrainingFields(page: Page) {
 test('names and marks a rejected training field in every appearance', async ({ page }, info) => {
   const marker = (element: Element) => getComputedStyle(element).boxShadow;
   await refuseTrainingFields(page);
-  await open(page);
+  await open(page, { mode: 'wood', tokens: 'wood', board: 'walnut', uiTheme: 'legacy' });
   const channels = await rejectTrainingFields(page);
   const woodMarker = await channels.evaluate(marker);
   expect(woodMarker).not.toBe('none');
@@ -587,11 +587,11 @@ test('names and marks a rejected training field in every appearance', async ({ p
   await page.addInitScript(() =>
     localStorage.setItem(
       'hnefatafl-appearance',
-      JSON.stringify({ mode: 'dark', tokens: 'wood', board: 'walnut' }),
+      JSON.stringify({ mode: 'dark', tokens: 'wood', board: 'walnut', uiTheme: 'legacy' }),
     ),
   );
   await page.goto('/dashboard');
-  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'iron-ash');
   await openWorkshop(page);
   const darkChannels = await rejectTrainingFields(page);
   const darkMarker = await darkChannels.evaluate(marker);

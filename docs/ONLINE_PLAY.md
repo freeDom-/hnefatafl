@@ -3,8 +3,10 @@
 [Documentation index](README.md) · [Rules and board controls](GAMEPLAY.md) ·
 [Online operations](ONLINE.md) · [Phase 3 evidence](validation/online-phase3.md)
 
-Online play requires a signed-in account. Open **New online game** on Dashboard. The old `/online` entry redirects to
-Dashboard with online setup selected. Admission is disabled by default; the lobby explains when the
+Online play requires a signed-in account. Open **New online game** on Play, or the
+authenticated lobby listing at `/online`. The old `/dashboard?setup=online` entry
+redirects to Play with the online creation dialog open. Admission is disabled by
+default; the lobby explains when the
 operator has disabled new games or your account is not eligible. Creating/joining
 requires the backend's current active/verified/play eligibility. An existing seat
 can keep playing after verification is removed, while its account/session remains
@@ -16,10 +18,11 @@ records and never generates analysis.
 Single-player is a separate authenticated surface; it never feeds online
 results, and online IDs never enter its replay/AI adapter.
 
-The authenticated [personal dashboard](DASHBOARD.md) combines the existing lobby with personal statistics and compact recent records.
+The authenticated [personal dashboard](DASHBOARD.md) keeps the reference sections
+and a compact recent-record strip; the lobby listing is its own `/online` page.
 Hall provides participant-scoped online history and read-only review.
 
-The lobby shares Dashboard card spacing and loads automatically. Five-second polling,
+The lobby shares the shared panel card spacing and loads automatically. Five-second polling,
 bounded failure backoff and online/focus/visible-tab resynchronization cover creation,
 joining, activation and completion. It retains stale data with an actionable warning
 and retry while disconnected. There is no manual lobby Refresh or persistent connected

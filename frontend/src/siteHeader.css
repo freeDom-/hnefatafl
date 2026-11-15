@@ -151,12 +151,6 @@
   min-width: 9em;
 }
 
-:root[data-color-mode='wood']:not([data-ui-theme]) .site-header {
-  background-image: repeating-linear-gradient(2deg, #e6ba7c08 0 1px, transparent 1px 5px);
-  border-bottom: 3px double #9a7349;
-  box-shadow: 0 4px 16px #0c08053d;
-}
-
 @media (max-width: 1600px) {
   .site-header {
     grid-template-columns: minmax(0, 1fr) auto;

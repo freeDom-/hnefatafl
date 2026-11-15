@@ -28,7 +28,8 @@ test('Play shows the continue hierarchy and creates a real local 1v1 game', asyn
     return {
       count: cards.length,
       stacked: cards.every((card, index) => index === 0 || card.y >= cards[index - 1].bottom - 1),
-      fits: document.documentElement.scrollWidth <= innerWidth,
+      // CI can report a 1px subpixel/scrollbar rounding difference at 320px.
+      fits: document.documentElement.scrollWidth <= innerWidth + 1,
     };
   });
   expect(stacked).toEqual({ count: 3, stacked: true, fits: true });

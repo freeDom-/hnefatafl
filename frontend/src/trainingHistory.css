@@ -92,14 +92,7 @@
   --chart-value: #217894;
   --chart-evaluation: #37763e;
 }
-:root[data-color-mode='wood']:not([data-ui-theme]) .training-job-dashboard,
-:root[data-color-mode='dark']:not([data-ui-theme]) .training-job-dashboard,
-:root[data-color-mode='wood']:not([data-ui-theme]) .training-history,
-:root[data-color-mode='dark']:not([data-ui-theme]) .training-history {
-  --chart-policy: #efb16b;
-  --chart-value: #81c7e5;
-  --chart-evaluation: #a2ce8a;
-}
+
 .training-chart figcaption {
   font-size: 0.9375rem;
   margin-bottom: 8px;

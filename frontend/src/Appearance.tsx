@@ -1,3 +1,4 @@
+import { ARENA_DECOR } from './arenaAssets';
 import {
   createContext,
   useContext,
@@ -12,27 +13,29 @@ import {
 import {
   APPEARANCE_KEY,
   BOARD_THEMES,
-  COLOR_MODES,
   DEFAULT_APPEARANCE,
   DENSITIES,
+  LARGE_VIEWPORT_QUERY,
+  effectiveDensity,
+  type Density,
   TOKEN_THEMES,
   UI_THEMES,
   parseAppearance,
+  resolveUiTheme,
   type Appearance,
-  type ColorMode,
 } from './appearanceConfig';
 import { Token } from './Tokens';
 import { useI18n } from './i18n';
 
 interface AppearanceContext {
   appearance: Appearance;
-  resolvedMode: Exclude<ColorMode, 'system'>;
+  density: Density;
   updateAppearance: (patch: Partial<Appearance>) => void;
   canPersist: boolean;
 }
 const AppearanceContext = createContext<AppearanceContext>({
   appearance: DEFAULT_APPEARANCE,
-  resolvedMode: 'light',
+  density: 'default',
   updateAppearance: () => {},
   canPersist: true,
 });
@@ -45,41 +48,32 @@ function storedAppearance(): Appearance {
     return { ...DEFAULT_APPEARANCE };
   }
 }
-function mediaPreference() {
-  return typeof window.matchMedia === 'function'
-    ? window.matchMedia('(prefers-color-scheme: dark)')
-    : null;
+function largeViewport() {
+  return typeof window.matchMedia === 'function' && window.matchMedia(LARGE_VIEWPORT_QUERY).matches;
 }
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const [appearance, setAppearance] = useState<Appearance>(storedAppearance);
-  const [systemDark, setSystemDark] = useState(() => mediaPreference()?.matches ?? false);
+  const [large, setLarge] = useState(largeViewport);
   const [canPersist, setCanPersist] = useState(true);
-  const resolvedMode =
-    appearance.mode === 'system' ? (systemDark ? 'dark' : 'light') : appearance.mode;
+  const density = effectiveDensity(appearance, large);
   useEffect(() => {
-    const preference = mediaPreference();
-    if (!preference) return;
-    const changed = (event: MediaQueryListEvent) => setSystemDark(event.matches);
-    setSystemDark(preference.matches);
-    if (preference.addEventListener) preference.addEventListener('change', changed);
-    else preference.addListener(changed);
-    return () => {
-      if (preference.removeEventListener) preference.removeEventListener('change', changed);
-      else preference.removeListener(changed);
-    };
+    if (typeof window.matchMedia !== 'function') return;
+    const preference = window.matchMedia(LARGE_VIEWPORT_QUERY);
+    const changed = () => setLarge(preference.matches);
+    changed();
+    preference.addEventListener('change', changed);
+    return () => preference.removeEventListener('change', changed);
   }, []);
   useLayoutEffect(() => {
     const root = document.documentElement;
-    root.dataset.colorMode = resolvedMode;
-    root.dataset.density = appearance.density;
+    for (const [name, asset] of Object.entries(ARENA_DECOR))
+      root.style.setProperty(`--arena-${name}-art`, `url("${asset.path}")`);
+    delete root.dataset.colorMode;
+    root.dataset.density = density;
     root.dataset.tokenTheme = appearance.tokens;
     root.dataset.boardTheme = appearance.board;
-    // A named UI theme is applied only when the user explicitly chose one. With no
-    // attribute the existing data-color-mode surface treatment (including wood) applies.
-    if (appearance.uiTheme) root.dataset.uiTheme = appearance.uiTheme;
-    else delete root.dataset.uiTheme;
-    if (appearance.uiTheme) root.style.removeProperty('color-scheme');
-    else root.style.colorScheme = resolvedMode === 'wood' ? 'dark' : resolvedMode;
+    root.dataset.uiTheme = appearance.uiTheme;
+    root.style.removeProperty('color-scheme');
     const board = BOARD_THEMES.find((theme) => theme.id === appearance.board)!;
     for (const [key, value] of Object.entries(board.palette))
       root.style.setProperty(
@@ -87,122 +81,40 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
         value,
       );
     try {
-      localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance));
+      const serialized = JSON.stringify(appearance);
+      if (localStorage.getItem(APPEARANCE_KEY) !== serialized)
+        localStorage.setItem(APPEARANCE_KEY, serialized);
       setCanPersist(true);
     } catch {
       setCanPersist(false);
     }
-  }, [appearance, resolvedMode]);
+  }, [appearance, density]);
   return (
     <AppearanceContext.Provider
       value={{
         appearance,
-        resolvedMode,
+        density,
         updateAppearance: (patch) =>
           setAppearance((current) => parseAppearance({ ...current, ...patch })),
         canPersist,
       }}
     >
-      {resolvedMode === 'wood' && <WoodOrnaments />}
       {children}
     </AppearanceContext.Provider>
   );
 }
 
-function WoodOrnaments() {
-  return (
-    <div className="wood-ornaments" data-wood-ornaments="true" aria-hidden="true">
-      <svg className="wood-frieze" viewBox="0 0 520 128" fill="none">
-        <path d="M5 96h510M5 101h510" stroke="currentColor" strokeWidth="1" />
-        <g
-          data-wood-motif="axes"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="m28 24 48 58m0-58L28 82" strokeWidth="3" />
-          <path d="m25 20 21 3-12 20-15-9Zm54 0-21 3 12 20 15-9Z" strokeWidth="2" />
-          <path d="m32 28 6 6m28 0 6-6" opacity=".55" />
-        </g>
-        <g data-wood-motif="shield" stroke="currentColor" strokeWidth="2">
-          <path d="M145 23q26-11 52 0v26q-4 24-26 37-22-13-26-37Z" />
-          <path d="M151 28q20-8 40 0v21q-4 18-20 30-16-12-20-30Z" opacity=".5" />
-          <path d="M171 33v32m-10-24 10 10 10-10" strokeLinecap="round" strokeLinejoin="round" />
-        </g>
-        <g
-          data-wood-motif="dragonboat"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M263 67q38 22 76 0l-9 17h-57Zm76 0 4-21 8-8-1-9-10-3-5 7 8 4m-80 30-7-14-6-3-3 3 2 6 10 4" />
-          <path d="M300 16v58m0-56 28 13-28 23m3-33 18 11-18 16M277 84l-3 6m14-4-1 5m28-5 1 5m12-8 3 7" />
-          <path d="M265 95q12-5 24 0t24 0 24 0" opacity=".6" />
-          <circle cx="345" cy="31" r="1" fill="currentColor" stroke="none" />
-        </g>
-        <g data-wood-motif="hammer" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
-          <path d="m431 25 15-9 15 9 13 2-4 23-16-3v33l-8 7-8-7V47l-16 3-4-23Z" />
-          <path d="m431 31 15-8 15 8m-21 23 12 9-12 9m0-29 6-5 6 5" opacity=".6" />
-        </g>
-        <text
-          x="260"
-          y="121"
-          textAnchor="middle"
-          fill="currentColor"
-          fontSize="15"
-          letterSpacing="8"
-        >
-          ᛏ ᚱ ᛉ ᛟ ᚠ ᛞ ᚱ ᛏ
-        </text>
-      </svg>
-    </div>
-  );
-}
-
-function ModeIcon({ mode }: { mode: ColorMode }) {
+function AppearanceIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      {mode === 'wood' ? (
-        <>
-          <path d="M5 5q7-4 14 0v7q-1 6-7 9-6-3-7-9Z" stroke="currentColor" strokeWidth="1.5" />
-          <path
-            d="M12 7v9m-3-7 3 3 3-3"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-          />
-        </>
-      ) : mode === 'dark' ? (
-        <path
-          d="M19.7 15.1A8.3 8.3 0 0 1 8.9 4.3a8.3 8.3 0 1 0 10.8 10.8Z"
-          stroke="currentColor"
-          strokeWidth="1.7"
-        />
-      ) : mode === 'system' ? (
-        <>
-          <rect x="3" y="4" width="18" height="13" rx="2" stroke="currentColor" strokeWidth="1.7" />
-          <path d="M8 21h8m-4-4v4M12 4v13" stroke="currentColor" strokeWidth="1.7" />
-          <path d="M12 4h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7Z" fill="currentColor" opacity=".2" />
-        </>
-      ) : (
-        <>
-          <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.7" />
-          <path
-            d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-          />
-        </>
-      )}
+      <path d="m12 2 10 10-10 10L2 12Z" stroke="currentColor" strokeWidth="1.6" />
+      <path d="m12 6 5 6-5 6-5-6Z" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }
 
 export function AppearanceSettings() {
   const { t } = useI18n();
-  const { resolvedMode } = useAppearance();
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -217,7 +129,7 @@ export function AppearanceSettings() {
         onClick={() => setOpen(true)}
         aria-label={t('Appearance settings')}
       >
-        <ModeIcon mode={resolvedMode} />
+        <AppearanceIcon />
         <span>{t('Appearance')}</span>
       </button>
       <dialog
@@ -259,73 +171,34 @@ export function AppearanceSettings() {
 /** The same controls and browser persistence, also available directly in the profile. */
 export function AppearancePreferences() {
   const { t } = useI18n();
-  const { appearance, updateAppearance, canPersist } = useAppearance();
+  const { appearance, density: currentDensity, updateAppearance, canPersist } = useAppearance();
   const groupId = useId();
   return (
     <>
       <p className="appearance-intro">
-        {t(
-          'Choose the light, the pieces and the battlefield. Your games stay just as you left them.',
-        )}
+        {t('Choose your theme, pieces and battlefield. Your games stay just as you left them.')}
       </p>
       <fieldset className="appearance-section">
         <legend>{t('UI theme')}</legend>
         <div className="appearance-choices appearance-themes">
-          <label
-            className={`appearance-choice ${appearance.uiTheme ? '' : 'chosen'}`}
-            key="default"
-          >
-            <input
-              type="radio"
-              name={`${groupId}-ui-theme`}
-              value=""
-              checked={!appearance.uiTheme}
-              onChange={() => updateAppearance({ uiTheme: undefined })}
-              aria-label={t('Appearance default')}
-            />
-            <span className="theme-preview theme-preview-default" aria-hidden="true" />
-            <strong>{t('Appearance default')}</strong>
-            <small>{t('Keeps the current color mode without a named theme')}</small>
-          </label>
           {UI_THEMES.map((theme) => (
             <label
-              className={`appearance-choice ${appearance.uiTheme === theme.id ? 'chosen' : ''}`}
+              className={`appearance-choice ${
+                resolveUiTheme(appearance) === theme.id ? 'chosen' : ''
+              }`}
               key={theme.id}
             >
               <input
                 type="radio"
                 name={`${groupId}-ui-theme`}
                 value={theme.id}
-                checked={appearance.uiTheme === theme.id}
+                checked={resolveUiTheme(appearance) === theme.id}
                 onChange={() => updateAppearance({ uiTheme: theme.id })}
                 aria-label={t(theme.name)}
               />
               <span className={`theme-preview theme-preview-${theme.id}`} aria-hidden="true" />
               <strong>{t(theme.name)}</strong>
               <small>{t(theme.description)}</small>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset className="appearance-section">
-        <legend>{t('Color mode')}</legend>
-        <div className="appearance-modes">
-          {COLOR_MODES.map((mode) => (
-            <label
-              className={`appearance-mode ${appearance.mode === mode.id ? 'chosen' : ''}`}
-              key={mode.id}
-            >
-              <input
-                type="radio"
-                name={`${groupId}-color-mode`}
-                value={mode.id}
-                checked={appearance.mode === mode.id}
-                onChange={() => updateAppearance({ mode: mode.id })}
-                aria-label={t(mode.name)}
-              />
-              <ModeIcon mode={mode.id} />
-              <strong>{t(mode.name)}</strong>
-              <small>{t(mode.description)}</small>
             </label>
           ))}
         </div>
@@ -404,15 +277,21 @@ export function AppearancePreferences() {
         <div className="appearance-choices">
           {DENSITIES.map((density) => (
             <label
-              className={`appearance-choice ${appearance.density === density.id ? 'chosen' : ''}`}
+              className={`appearance-choice ${currentDensity === density.id ? 'chosen' : ''}`}
               key={density.id}
             >
               <input
                 type="radio"
                 name={`${groupId}-density`}
                 value={density.id}
-                checked={appearance.density === density.id}
+                checked={currentDensity === density.id}
                 onChange={() => updateAppearance({ density: density.id })}
+                onClick={() => {
+                  // Clicking the already-selected automatic value is still an
+                  // explicit choice (radio onChange does not fire in that case).
+                  if (appearance.density == null && currentDensity === density.id)
+                    updateAppearance({ density: density.id });
+                }}
                 aria-label={t(density.name)}
               />
               <strong>{t(density.name)}</strong>

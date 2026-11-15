@@ -140,3 +140,19 @@
     display: none;
   }
 }
+/* The actual top bar participates in sizing, including density and translation.
+   Let short pages fill the remaining space and long pages grow naturally. */
+#root:has(.arena-topbar) {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+#root:has(.arena-topbar) > .arena-topbar,
+#root:has(.arena-topbar) > .site-footer {
+  flex: none;
+}
+#root:has(.arena-topbar) > main:not(:has(.game-layout)) {
+  display: flow-root;
+  flex: 1;
+  min-height: 0;
+}

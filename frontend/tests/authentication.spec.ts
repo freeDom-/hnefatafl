@@ -15,7 +15,7 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   await expect(primaryNavigation(page)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Workshop', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'AI testing', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'New single-player game', exact: true }).click();
+  await page.getByRole('button', { name: 'Play vs AI', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Begin a new saga' });
   await expect(setup.getByText('BrowserUser', { exact: true })).toHaveCount(0);
   await expect(setup.getByLabel('Game mode')).toHaveCount(0);

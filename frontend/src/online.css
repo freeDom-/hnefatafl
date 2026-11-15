@@ -133,8 +133,21 @@
 }
 
 .online-page .button,
-.dashboard-lobby .button {
+.online-lobby .button {
   white-space: normal;
+}
+/* The authenticated lobby listing is its own page at `/online`; it has no details
+   sidebar, so the discovery layout is a single column and the panel keeps the
+   shared panel padding. */
+.online-lobby {
+  padding: var(--pad-panel);
+}
+.online-lobby .online-games > h2 {
+  margin-top: 0;
+}
+.online-lobby .online-lobby-layout {
+  margin-top: 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .online-create-fields {

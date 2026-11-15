@@ -5,6 +5,7 @@ import {
   closeGameOptions,
   showMove,
   gameTab,
+  openNewSinglePlayer,
   openWorkshop,
 } from './play-helpers';
 import { historicalGame } from './historical-fixture';
@@ -159,7 +160,7 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
   ).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Resume AI|Next move/ })).toHaveCount(0);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
+  await openNewSinglePlayer(page);
   await page.getByRole('radio', { name: /Copenhagen/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(
@@ -367,7 +368,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   await expect(card.getByRole('heading', { name: renamedName, exact: true })).toBeVisible();
   expect(await (await request.get(`${api}/games/${history.id}`)).json()).toEqual(history);
 
-  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
+  await openDestination(page, 'tournaments');
   await page.getByRole('button', { name: 'New tournament', exact: true }).click();
   const tournamentSetup = page.getByRole('dialog', { name: 'Set up a tournament', exact: true });
   await expect(tournamentSetup.getByRole('textbox')).toHaveCount(1);
@@ -426,7 +427,7 @@ test('training dashboard resumes, renames, reuses parameters and deletes trainin
   ).toContainText('4 channels · 0 blocks');
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'AI testing', exact: true }).click();
+  await openDestination(page, 'tournaments');
   await page
     .getByRole('button', { name: 'View tournament Fjord model provenance', exact: true })
     .click();

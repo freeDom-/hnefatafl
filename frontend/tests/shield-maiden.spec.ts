@@ -1,4 +1,11 @@
-import { openGameNavigation, openGameOptions, gameTab, openWorkshop } from './play-helpers';
+import {
+  openArena,
+  openGameNavigation,
+  openGameOptions,
+  gameTab,
+  openNewSinglePlayer,
+  openWorkshop,
+} from './play-helpers';
 import { openCreation, openCollection } from './workshop-helpers';
 import { expect, test } from './auth-fixture';
 
@@ -44,17 +51,26 @@ test('Shield maiden is localized and selectable for training and advisors', asyn
   await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de');
   await expect(page.getByRole('option', { name: 'Schildmaid', exact: true })).toHaveCount(1);
   await page.getByRole('combobox', { name: 'Sprache', exact: true }).selectOption('en');
-  await page.getByRole('button', { name: 'Arena', exact: true }).click();
+  await openArena(page);
   await openGameNavigation(page);
-  await page.getByRole('button', { name: /New (?:single-player )?game/ }).click();
+  await openNewSinglePlayer(page);
   await page.getByRole('radio', { name: /Brandubh/ }).check();
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(page.getByRole('grid')).toBeVisible();
   await openGameOptions(page);
-  const analytics = page.getByRole('region', { name: 'Analytics', exact: true });
-  await analytics
-    .getByRole('combobox', { name: 'Move advisor', exact: true })
-    .selectOption('profile:shield_maiden');
+  // Desktop exposes the advisor directly in the Analytics region; mobile keeps it
+  // in the Game options dialog behind an empty-state button.
+  let advisor = page
+    .getByRole('region', { name: 'Analytics', exact: true })
+    .getByRole('combobox', { name: 'Move advisor', exact: true });
+  if (!(await advisor.isVisible())) {
+    await page.getByRole('button', { name: 'Move advisor', exact: true }).click();
+    advisor = page
+      .getByRole('dialog', { name: /Game options|Spieloptionen/ })
+      .getByRole('combobox', { name: 'Move advisor', exact: true });
+  }
+  await expect(advisor).toBeVisible();
+  await advisor.selectOption('profile:shield_maiden');
   await gameTab(page, 'analytics');
   const panel = page.getByRole('region', { name: 'Agent evaluations' });
   await expect(panel).toHaveAttribute('aria-busy', 'false');

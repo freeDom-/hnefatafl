@@ -1,14 +1,14 @@
 import { expect, test } from './auth-fixture';
 import { historicalGame } from './historical-fixture';
-import { openDestination, gameTab, openGameNavigation } from './play-helpers';
+import { openDestination, gameTab, openGameNavigation, openNewSinglePlayer } from './play-helpers';
 
 test('Play has the shared creation dialogs when no game is running', async ({ page }) => {
   await page.route('**/api/personal/**', (route) => route.fulfill({ json: { games: [] } }));
   await page.goto('/play');
   await expect(page.getByText('No games are currently running.')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Find online games on Dashboard' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'Find online games in the lobby' })).toHaveAttribute(
     'href',
-    '/dashboard',
+    '/online',
   );
   await page.getByRole('button', { name: 'New online game' }).click();
   const online = page.getByRole('dialog', { name: 'Create an online game' });
@@ -18,7 +18,7 @@ test('Play has the shared creation dialogs when no game is running', async ({ pa
     /secondary/,
   );
   await online.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'New single-player game' }).click();
+  await openNewSinglePlayer(page);
   await expect(page.getByRole('dialog', { name: 'Begin a new saga' })).toBeVisible();
   await page.getByRole('button', { name: 'To the table' }).click();
   await expect(page.getByRole('grid')).toBeVisible();
@@ -108,7 +108,10 @@ test('Hall replay uses the play layout at reduced desktop heights and on mobile 
           fits,
           height: document.documentElement.scrollHeight,
           width: document.documentElement.scrollWidth,
-          header: document.querySelector('.site-header')!.getBoundingClientRect().toJSON(),
+          header: document
+            .querySelector('.site-header, .arena-sidebar')
+            ?.getBoundingClientRect()
+            .toJSON(),
           board: board.toJSON(),
           sidebar: sidebar?.toJSON(),
           footer: footer.toJSON(),
@@ -138,7 +141,7 @@ test('Hall replay uses the play layout at reduced desktop heights and on mobile 
   await expect(page.getByRole('link', { name: 'Return to selected review' })).toBeVisible();
 });
 
-test('an unverified account sees a red Dashboard warning instead of the lobby label', async ({
+test('an unverified account sees a red Dashboard warning before the disabled online action', async ({
   page,
 }) => {
   // Keep the worker's shared administrator session valid for subsequent tests.
@@ -153,15 +156,23 @@ test('an unverified account sees a red Dashboard warning instead of the lobby la
   await expect(warning).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toHaveCount(1);
   const warningBox = await warning.boundingBox();
-  const actionsBox = await page
-    .getByRole('button', { name: 'New online game', exact: true })
-    .boundingBox();
-  expect(warningBox!.y + warningBox!.height).toBeLessThanOrEqual(actionsBox!.y);
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toHaveCount(1);
+  // Online creation lives on the Play entry; the dashboard keeps the disabled
+  // state for an unverified account. A running game replaces the online action
+  // with "Continue game", so assert whichever hero action is present.
+  const playOnline = page.getByRole('button', { name: 'Play online', exact: true });
+  if (await playOnline.count()) {
+    const actionsBox = await playOnline.boundingBox();
+    expect(warningBox!.y + warningBox!.height).toBeLessThanOrEqual(actionsBox!.y);
+    await expect(playOnline).toBeDisabled();
+  } else {
+    const heroBox = await page.locator('.arena-hero').boundingBox();
+    expect(warningBox!.y + warningBox!.height).toBeLessThanOrEqual(heroBox!.y);
+  }
   const color = await warning.evaluate((node) =>
     getComputedStyle(node).color.match(/\d+/g)!.map(Number),
   );
   expect(color[0]).toBeGreaterThan(color[1]);
-  await expect(page.getByRole('button', { name: 'New online game' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'New single-player game' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Play vs AI' })).toBeEnabled();
   await expect(page.getByText(/Creating and joining require an active/)).toHaveCount(0);
 });

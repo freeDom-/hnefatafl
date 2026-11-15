@@ -11,9 +11,13 @@ export async function isCompactShell(page: Page) {
   );
 }
 
-/** The single primary workspace navigation a viewport actually shows. */
+/** The single primary workspace navigation a viewport actually shows: the
+ * compact bottom bar on phones, the full header navigation on tablets, and the
+ * desktop rail on wide viewports. */
 export function primaryNavigation(page: Page) {
-  return page.locator('.site-header nav:visible, .workspace-bottom-nav:visible');
+  return page.locator(
+    '.arena-sidebar nav:visible, .site-header nav:visible, .workspace-bottom-nav:visible',
+  );
 }
 
 /**
@@ -80,7 +84,9 @@ export async function openGameNavigation(page: Page) {
   if (await back.isVisible()) {
     await back.click();
   } else if (play) {
-    await page.getByRole('button', { name: /^(Dashboard|Übersicht)$/ }).click();
+    // Language-independent: the compact header, the desktop rail and the bottom
+    // bar all expose the same stable destination id.
+    await primaryNavigation(page).locator('[data-destination="dashboard"]').click();
   }
   if (play) {
     await expect(page).toHaveURL(/\/dashboard$/);
@@ -94,9 +100,36 @@ export async function openGameNavigation(page: Page) {
  * is the only shell-level entry point.
  */
 export async function openWorkshop(page: Page, destination?: string) {
-  await page.getByRole('button', { name: /^(Workshop|Werkstatt)$/, exact: true }).click();
+  // The desktop rail exposes an "AI Workshop" link; the compact header keeps the
+  // workspace switch button. Support both so the helper is shell-agnostic.
+  const railEntry = page.getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ });
+  if (await railEntry.isVisible().catch(() => false)) {
+    await railEntry.click();
+  } else {
+    await page.getByRole('button', { name: /^(Workshop|Werkstatt)$/, exact: true }).click();
+  }
   await expect(page).toHaveURL(/\/training$/);
   if (destination) await openDestination(page, destination);
+}
+
+/** Leave the Workshop for the Arena workspace in whichever shell is visible. */
+export async function openArena(page: Page) {
+  const railHome = page.locator('.arena-sidebar a[data-destination="dashboard"]');
+  if (await railHome.isVisible().catch(() => false)) {
+    await railHome.click();
+  } else {
+    await page.getByRole('button', { name: 'Arena', exact: true }).click();
+  }
+  await expect(page).toHaveURL(/\/dashboard/);
+}
+
+/** Start a new single-player game from whichever entry is visible: the dashboard
+ * hero "Play vs AI" button or the Play card "New single-player game" button. */
+export async function openNewSinglePlayer(page: Page) {
+  await page
+    .getByRole('button', { name: /^(Play vs AI|New single-player game)$/ })
+    .first()
+    .click();
 }
 
 export async function returnToGame(page: Page, path: string) {

@@ -7,7 +7,9 @@ async function openWorkshop(page: Page) {
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Workshop', exact: true }).click();
+  const railEntry = page.getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ });
+  if (await railEntry.isVisible().catch(() => false)) await railEntry.click();
+  else await page.getByRole('button', { name: 'Workshop', exact: true }).click();
   await expect(page).toHaveURL(/\/training$/);
 }
 
@@ -258,7 +260,7 @@ test('a resume-dialog tooltip renders inside the modal and Escape keeps it open'
   else await channels.click();
   await expect(tooltip).toBeVisible();
   await page.mouse.move(0, 0);
-  await page.setViewportSize({ width: 390, height: 600 });
+  await page.setViewportSize({ width: 390, height: 480 });
   const client = await context.newCDPSession(page);
   await client.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
   const panel = dialog.getByRole('region', { name: 'Network channels' });

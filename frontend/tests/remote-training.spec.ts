@@ -8,7 +8,9 @@ const api = 'http://127.0.0.1:8001/api';
 async function openWorkshop(page: Page) {
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Workshop', exact: true }).click();
+  const railEntry = page.getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ });
+  if (await railEntry.isVisible().catch(() => false)) await railEntry.click();
+  else await page.getByRole('button', { name: 'Workshop', exact: true }).click();
   await expect(page).toHaveURL(/\/training$/);
 }
 

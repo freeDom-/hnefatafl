@@ -54,7 +54,7 @@ export default function StatisticsPage() {
     groups: statistics.groups.filter((group) => ruleset === 'all' || group.ruleset === ruleset),
   };
   return (
-    <section className="statistics-page">
+    <section className="statistics-page arena-surface">
       <div className="page-toolbar">
         <PageHeading
           title={t('Your statistics')}

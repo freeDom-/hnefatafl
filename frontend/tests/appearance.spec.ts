@@ -55,7 +55,7 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   await page.goto(`/games/${game.id}`);
   const root = page.locator('html');
   const board = page.getByRole('grid', { name: 'tablut game board' });
-  await expect(root).toHaveAttribute('data-color-mode', 'dark');
+  await expect(root).toHaveAttribute('data-ui-theme', 'kings-table');
   await expect(root).toHaveAttribute('data-token-theme', 'wood');
   await expect(root).toHaveAttribute('data-board-theme', 'walnut');
   await expect(board.locator('.token-wood')).toHaveCount(25);
@@ -65,7 +65,9 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
 
   await openGameNavigation(page);
   await openProfile(page);
-  await page.getByRole('radio', { name: 'Light', exact: true }).check();
+  // The color modes own their surfaces only in the legacy layer; a named theme
+  // (King's Table by default) keeps the theme tokens instead.
+  await page.getByRole('radio', { name: 'Classic Table', exact: true }).check();
   await page.getByRole('radio', { name: 'Viking figures' }).check();
   await page.getByRole('radio', { name: 'Golden oak' }).check();
   const previewKing = await page
@@ -76,17 +78,17 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
   expect(previewKing!.height).toBeLessThan(55);
   await openDestination(page, 'dashboard');
   await returnToGame(page, `/games/${game.id}`);
-  await expect(root).toHaveAttribute('data-color-mode', 'light');
+  await expect(root).toHaveAttribute('data-ui-theme', 'classic-table');
   await expect(board.locator('svg[data-token-art="viking"]')).toHaveCount(25);
   const oakColor = await empty.evaluate((cell) => getComputedStyle(cell).backgroundColor);
   expect(oakColor).not.toBe(originalColor);
   await page.reload();
-  await expect(root).toHaveAttribute('data-color-mode', 'light');
+  await expect(root).toHaveAttribute('data-ui-theme', 'classic-table');
   await expect(board.locator('svg[data-token-art="viking"]')).toHaveCount(25);
 
   await openGameNavigation(page);
   await openProfile(page);
-  await page.getByRole('radio', { name: 'Dark', exact: true }).check();
+  await page.getByRole('radio', { name: 'Iron & Ash', exact: true }).check();
   await page.getByRole('radio', { name: 'Carved wood' }).check();
   await page.getByRole('radio', { name: 'Fjord slate' }).check();
   await openDestination(page, 'dashboard');
@@ -105,29 +107,28 @@ test('appearance changes real artwork and colors, persists, and preserves touch 
 
   await openGameNavigation(page);
   await openProfile(page);
-  await page.getByRole('radio', { name: 'Wood', exact: true }).check();
+  await page.getByRole('radio', { name: 'Saga Hall', exact: true }).check();
   await openDestination(page, 'dashboard');
   await returnToGame(page, `/games/${game.id}`);
-  await expect(root).toHaveAttribute('data-color-mode', 'wood');
+  await expect(root).toHaveAttribute('data-ui-theme', 'saga-hall');
   await expect(root).toHaveCSS('color-scheme', 'dark');
-  await expect(root).toHaveCSS('background-color', 'rgb(33, 24, 18)');
-  await expect(page.locator('[data-wood-ornaments]')).toBeVisible();
-  await expect(page.locator('[data-wood-motif]')).toHaveCount(4);
+  await expect(root).toHaveCSS('background-color', 'rgb(36, 19, 13)');
+  await expect(page.locator('body')).toHaveCSS('background-image', /saga-hall-great-hall/);
   await expect(board.locator('.token-wood')).toHaveCount(25);
   await page.reload();
-  await expect(root).toHaveAttribute('data-color-mode', 'wood');
+  await expect(root).toHaveAttribute('data-ui-theme', 'saga-hall');
   await expect(root).toHaveAttribute('data-board-theme', 'slate');
   await expect(page.getByLabel('Attackers to move')).toBeVisible();
 
   await openGameNavigation(page);
   await openProfile(page);
-  await page.getByRole('radio', { name: 'Follow device' }).check();
+  await page.getByRole('radio', { name: 'The King’s Table' }).check();
   await openDestination(page, 'dashboard');
   await returnToGame(page, `/games/${game.id}`);
   await page.emulateMedia({ colorScheme: 'light' });
-  await expect(root).toHaveAttribute('data-color-mode', 'light');
+  await expect(root).toHaveAttribute('data-ui-theme', 'kings-table');
   await page.emulateMedia({ colorScheme: 'dark' });
-  await expect(root).toHaveAttribute('data-color-mode', 'dark');
+  await expect(root).toHaveAttribute('data-ui-theme', 'kings-table');
   await expect(page.locator('[data-wood-ornaments]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

@@ -32,6 +32,7 @@ const initial: Profile = {
   legacy_birth_year: null,
   legacy_private_fields: [],
   country_codes: ['DE', 'JP', 'SE'],
+  portrait_id: 'shieldbearer',
 };
 const apiMock = vi.mocked(api);
 let stored: Profile;
@@ -87,7 +88,7 @@ it('loads once, starts with empty fields and has appearance settings without ano
   expect(screen.queryByText('Leaderboard visibility')).toBeNull();
   expect(document.getElementById('profile-privacy-help')).toBeNull();
   expect(screen.getByLabelText('Date of birth')).toHaveAttribute('type', 'date');
-  expect(screen.getByRole('radio', { name: 'Follow device' })).toBeChecked();
+  expect(screen.getByRole('radio', { name: 'The King’s Table' })).toBeChecked();
   expect(screen.queryByRole('combobox', { name: 'Language' })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole('textbox', { name: 'City' }), { target: { value: 'Dresden' } });
   expect(apiMock.mock.calls.filter(([path]) => path === '/profile')).toHaveLength(1);
@@ -345,9 +346,9 @@ it('does not interrupt a password change when retrying optional profile data', a
 });
 it('localizes the profile and country names and preserves theme preferences through remounts', async () => {
   const view = await page();
-  fireEvent.click(screen.getByRole('radio', { name: 'Wood' }));
-  expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
-  expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!).mode).toBe('wood');
+  fireEvent.click(screen.getByRole('radio', { name: 'Saga Hall' }));
+  expect(document.documentElement).toHaveAttribute('data-ui-theme', 'saga-hall');
+  expect(JSON.parse(localStorage.getItem(APPEARANCE_KEY)!).uiTheme).toBe('saga-hall');
   act(() => setLanguage('de'));
   expect(screen.getByRole('heading', { name: 'Mein Profil' })).toBeVisible();
   expect(screen.getByRole('option', { name: 'Deutschland' })).toBeInTheDocument();
@@ -355,7 +356,7 @@ it('localizes the profile and country names and preserves theme preferences thro
   expect(screen.queryByRole('checkbox')).toBeNull();
   view.unmount();
   await page();
-  expect(document.documentElement).toHaveAttribute('data-color-mode', 'wood');
+  expect(document.documentElement).toHaveAttribute('data-ui-theme', 'saga-hall');
 });
 
 it.each(['en', 'de'] as const)(

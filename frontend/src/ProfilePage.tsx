@@ -20,6 +20,8 @@ export type Profile = {
   legacy_birth_year: number | null;
   legacy_private_fields: ('display_name' | 'country_code' | 'city')[];
   country_codes: string[];
+  /** Effective server-owned portrait id; never a client-supplied URL. */
+  portrait_id: string;
 };
 type Editable = Pick<Profile, 'display_name' | 'country_code' | 'city' | 'date_of_birth'>;
 const legacyLabels = {

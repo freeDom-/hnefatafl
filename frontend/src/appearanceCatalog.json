@@ -1,0 +1,28 @@
+{
+  "defaultTheme": "kings-table",
+  "themes": {
+    "kings-table": {
+      "name": "The King’s Table",
+      "description": "Clean tabletop, parchment and pine"
+    },
+    "iron-ash": {
+      "name": "Iron & Ash",
+      "description": "Dark slate, understated metal and warm gold"
+    },
+    "saga-hall": {
+      "name": "Saga Hall",
+      "description": "Carved timber, leather and Nordic knotwork"
+    },
+    "classic-table": {
+      "name": "Classic Table",
+      "description": "Simple parchment and forest green"
+    }
+  },
+  "legacyModes": {
+    "light": "classic-table",
+    "dark": "iron-ash",
+    "wood": "saga-hall",
+    "system": "kings-table"
+  },
+  "largeViewport": "(min-width: 3000px) and (min-height: 1600px)"
+}
