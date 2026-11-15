@@ -970,8 +970,9 @@ it('turns a description taller than the viewport into a scrollable region', () =
   const panel = screen.getByRole('region', { name: 'Training iterations' });
   expect(panel).toHaveClass('field-tooltip', 'field-tooltip-scroll');
   expect(panel).toHaveAttribute('tabindex', '0');
-  // 200 − 2 × 8 = 184, and the full text is still present in the panel.
-  expect(panel.style.maxHeight).toBe('184px');
+  // The roomier side leaves the trigger reachable: 200 - 97 - 6 - 8 = 89.
+  expect(panel.style.maxHeight).toBe('89px');
+  expect(parseFloat(panel.style.top)).toBeGreaterThanOrEqual(103);
   expect(panel).toHaveTextContent(trainingTooltips.iterations);
   expect(button).toHaveAttribute('aria-describedby', `${panel.id}-text`);
 });
@@ -988,7 +989,7 @@ it('keeps the tooltip role and no tab stop for a description that fits', () => {
   const tooltip = screen.getByRole('tooltip');
   expect(tooltip).not.toHaveClass('field-tooltip-scroll');
   expect(tooltip).not.toHaveAttribute('tabindex');
-  expect(tooltip.style.maxHeight).toBe('584px');
+  expect(tooltip.style.maxHeight).toBe('489px');
 });
 
 it('updates the presentation when the visual viewport grows', () => {
@@ -1001,8 +1002,11 @@ it('updates the presentation when the visual viewport grows', () => {
   render(<CreationHarness />);
   fireEvent.click(helpButton('Training iterations'), { detail: 1 });
   expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
-  // The taller viewport fits the whole description, so it is a tooltip again.
+  // At 600px the text still needs scrolling to keep the trigger uncovered.
   act(() => visual.resize(390, 600));
+  expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
+  // At 650px one side fits the whole description again.
+  act(() => visual.resize(390, 650));
   expect(screen.queryByRole('region')).toBeNull();
   expect(screen.getByRole('tooltip')).toBeInTheDocument();
 });

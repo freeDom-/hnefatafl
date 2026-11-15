@@ -1,5 +1,6 @@
 import { expect, test, type Page } from './auth-fixture';
 import { openCollection, openCreation } from './workshop-helpers';
+import { openWorkshop as enterWorkshop } from './play-helpers';
 
 const api = 'http://127.0.0.1:8001/api';
 
@@ -7,9 +8,7 @@ async function openWorkshop(page: Page) {
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  const railEntry = page.getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ });
-  if (await railEntry.isVisible().catch(() => false)) await railEntry.click();
-  else await page.getByRole('button', { name: 'Workshop', exact: true }).click();
+  await enterWorkshop(page);
   await expect(page).toHaveURL(/\/training$/);
 }
 
@@ -366,6 +365,12 @@ test('hovering into an oversized help panel keeps it open', async ({ page }) => 
   await icon.hover();
   const panel = page.getByRole('region', { name: 'Inferenzcache' });
   await expect(panel).toBeVisible();
+  const triggerBox = await icon.boundingBox();
+  const panelBox = await panel.boundingBox();
+  expect(
+    panelBox!.y >= triggerBox!.y + triggerBox!.height + 5 ||
+      panelBox!.y + panelBox!.height <= triggerBox!.y - 5,
+  ).toBe(true);
   // Moving from the icon onto the panel must keep it open so it can be scrolled.
   await panel.hover();
   await expect(panel).toBeVisible();

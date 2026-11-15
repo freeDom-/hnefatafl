@@ -20,8 +20,8 @@ import { trainingTooltip } from './trainingTooltips';
  * moves between them. The tooltip is portaled into that same hover group, which
  * keeps it a `position: fixed` descendant of the surrounding native dialog so it
  * is never clipped, and it is positioned from the button's viewport rectangle so
- * it stays inside the visual viewport. A description taller than the visual
- * viewport becomes a focusable, scrollable region so the whole text is reachable.
+ * it stays inside the visual viewport. A description taller than the available
+ * space beside its trigger becomes a focusable, scrollable region so the whole text is reachable.
  *
  * Native `title` attributes are deliberately not used: they cannot be styled,
  * translated or reached reliably on touch. Copy goes through the module-level
@@ -205,13 +205,24 @@ function FieldTooltipBox({
       const visual = window.visualViewport;
       const viewWidth = visual?.width ?? window.innerWidth;
       const viewHeight = visual?.height ?? window.innerHeight;
+      const rect = trigger.getBoundingClientRect();
+      const viewLeft = visual?.offsetLeft ?? 0;
+      const viewTop = visual?.offsetTop ?? 0;
+      const viewRight = viewLeft + viewWidth;
+      const viewBottom = viewTop + viewHeight;
+      const roomBelow = viewBottom - rect.bottom - GAP - MARGIN;
+      const roomAbove = rect.top - viewTop - GAP - MARGIN;
       const maxWidth = Math.max(0, Math.min(MAX_WIDTH, viewWidth - 2 * MARGIN));
-      const maxHeight = Math.max(0, viewHeight - 2 * MARGIN);
+      // Preserve the trigger and its gap even when the description is taller
+      // than either side. The remaining text stays in the scrollable panel.
+      const maxHeight = Math.max(
+        0,
+        Math.min(viewHeight - 2 * MARGIN, Math.max(roomAbove, roomBelow)),
+      );
       const maxWidthStyle = `${maxWidth}px`;
       const maxHeightStyle = `${maxHeight}px`;
       if (element.style.maxWidth !== maxWidthStyle) element.style.maxWidth = maxWidthStyle;
       if (element.style.maxHeight !== maxHeightStyle) element.style.maxHeight = maxHeightStyle;
-      const rect = trigger.getBoundingClientRect();
       const size = element.getBoundingClientRect();
       // `scrollHeight` is the full text; `clientHeight` is what the max-height
       // lets through. Only the overflow becomes an interactive scroll panel.
@@ -225,22 +236,15 @@ function FieldTooltipBox({
       // a pinch zoom), and its rectangle is what is actually readable. Both
       // getBoundingClientRect and the fixed coordinates are in layout-viewport
       // space, so the offset is added rather than ignored.
-      const viewLeft = visual?.offsetLeft ?? 0;
-      const viewTop = visual?.offsetTop ?? 0;
-      const viewRight = viewLeft + viewWidth;
-      const viewBottom = viewTop + viewHeight;
       const left = Math.max(
         viewLeft + MARGIN,
         Math.min(rect.left + rect.width / 2 - size.width / 2, viewRight - size.width - MARGIN),
       );
-      const roomBelow = viewBottom - rect.bottom - GAP - MARGIN;
-      const roomAbove = rect.top - viewTop - GAP - MARGIN;
       const below = rect.bottom + GAP;
       const above = rect.top - size.height - GAP;
       // Prefer a side that fits the whole tooltip, then the roomier side, and
-      // finally clamp so a tooltip that fits anywhere is never partly off screen
-      // (a description taller than the viewport starts at the top edge and
-      // scrolls inside its max-height).
+      // finally clamp to the viewport if its trigger is temporarily off-screen.
+      // Long descriptions scroll beside the trigger instead of covering it.
       const wanted =
         size.height <= roomBelow
           ? below

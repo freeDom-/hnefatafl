@@ -69,3 +69,12 @@ regression fails before this correction and passes afterward, without advancing
 the clock. Entry, all advisor/localization cases and public discovery/replay cases
 then pass together: **41 passed, 1 intentional skip**. No timer, authentication
 limit or existing advisor assertion was weakened.
+
+A subsequent full run passed protected initialization and the new public cases but
+found two Workshop regressions. The navigation helper now resolves the visible
+rail link or compact button at action time instead of branching before a lazy
+shell mounts. Oversized parameter help now scrolls in the available space above
+or below its trigger, preserving the trigger and six-pixel gap rather than
+covering it and intercepting pointer events. All 49 tooltip unit tests pass, with
+stricter trigger-clearance coverage; the four affected desktop/mobile browser
+cases pass. Existing viewport, scroll, focus and pointer assertions remain intact.
