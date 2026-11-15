@@ -191,6 +191,12 @@ try {
       'active-simulated-hidden',
     ].map((name) => [name, { requests: 0, endpoints: {}, failed: 0, statuses: {} }]),
   );
+  const sampleWindow = async (name) => {
+    phase = name;
+    const started = performance.now();
+    await wait(options.windowMs);
+    phases[name].elapsedMs = performance.now() - started;
+  };
   const pending = new WeakMap();
   const normalize = (url) =>
     url.pathname.replace(/\/games\/[A-Za-z0-9_-]+$/, '/games/:id') + url.search;
@@ -228,8 +234,7 @@ try {
     }),
   );
   await wait(options.warmupMs);
-  phase = 'empty-visible';
-  await wait(options.windowMs);
+  await sampleWindow('empty-visible');
   phase = 'fixture-setup';
   const game = await context.request.post(`${origin}/api/games/local`, {
     headers: { Origin: origin, 'X-CSRF-Token': session.csrf_token },
@@ -248,8 +253,7 @@ try {
     }),
   );
   await wait(options.warmupMs);
-  phase = 'active-visible';
-  await wait(options.windowMs);
+  await sampleWindow('active-visible');
   await Promise.all(
     pages.map((page) =>
       page.evaluate(() => {
@@ -261,8 +265,7 @@ try {
       }),
     ),
   );
-  phase = 'active-simulated-hidden';
-  await wait(options.windowMs);
+  await sampleWindow('active-simulated-hidden');
   const report = {
     schema: 1,
     clients: options.clients,
@@ -306,6 +309,10 @@ try {
           {
             ...counts,
             requestsPerClient: sample.requests / options.clients,
+            requestsPerMinutePerClient:
+              sample.elapsedMs > 0
+                ? ((sample.requests / options.clients) * 60000) / sample.elapsedMs
+                : null,
             latencyMs: {
               observations: durations.length,
               p50: percentile(0.5),

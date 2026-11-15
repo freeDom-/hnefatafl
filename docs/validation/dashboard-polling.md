@@ -65,3 +65,11 @@ Full locked-dependency repository/browser CI is required on the focused PR.
 
 No backend/API/schema/game-rule/dependency changes. This optimizes polling, not
 bundle size or database query complexity. Final merge/release acceptance is pending.
+
+Verified clean build `d90f783`: five independent contexts produced 55 empty-window
+requests and 115 active-window requests (11 and 23 per context), zero periodic
+hidden requests. Steady failures: zero; p95 loopback completion 27.31/49.14 ms.
+Five expected reload aborts occurred during startup. This first multi-context run
+used nominal 60-second windows; the runner now also records actual elapsed window
+time and normalized rates to reveal timer/scheduler delay. It is a shared-account
+observation, not unique-player load or a capacity claim.
