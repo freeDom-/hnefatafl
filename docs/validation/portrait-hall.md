@@ -8,7 +8,14 @@ explains server confirmation and permanent awards.
 The gallery shows selected, unlocked, ready-to-claim and locked portraits, actual
 progress and all achievements including those without portrait rewards. Explicit
 confirmation and selection use existing CSRF-protected APIs. Mutation generations,
-abort controllers and account-keyed poll state reject stale updates/notices. Profile
+abort controllers and account-keyed poll state reject stale updates/notices. A
+confirmed portrait `PATCH` is published immediately and stays successful even when
+the follow-up award read fails; that read is a separate refresh whose failure is
+reported only through the existing stale/retry notice, with automatic recovery on
+the next successful refresh. The Profile selected-portrait section shows an
+accessible loading state and never invents artwork before the server confirms the
+profile. The `/portraits` route is lazy-loaded behind the existing shell loading
+state so unrelated routes do not download the gallery chunk. Profile
 and Dashboard link to the gallery. Published leaderboard/online DTOs include only
 the effective portrait ID, batch-resolved with default/retirement fallback.
 
@@ -44,7 +51,7 @@ acceptance remain separate completion-program work, not claimed by these capture
 ## Local validation
 
 - Gallery browser matrix: **8 passed**; focused sidebar-current-page case: **1 passed**.
-- Gallery unit tests: **11 passed**; integration selection covering gallery,
+- Gallery unit tests: **17 passed**; integration selection covering gallery,
   Dashboard, Profile and leaderboard: **72 passed** before the last two additional
   gallery cases; final full CI supplies complete counts.
 - Progression/ratings/online core/online API/public API: **212 passed**, one existing
