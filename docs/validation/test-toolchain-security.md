@@ -38,7 +38,7 @@ Node 24.22.2, isolated checkout; exact commands:
 | `npm --prefix frontend audit --json` | **Zero findings, all dependencies** |
 | `npm --prefix frontend audit --omit=dev --json` | **Zero findings, runtime dependencies** |
 
-No test assertions, mocks, timeouts or snapshots were modified to obtain this
+No unit-test assertions, mocks, timeouts or snapshots were modified to obtain this
 result. Constructor/hoisted mocks, fake timers and restoration behavior are
 covered by the full existing suite rather than assumed compatible. The complete
 repository/browser CI is required on the PR; its exact result is recorded there.
@@ -47,3 +47,12 @@ The existing large-entry-chunk advisory and npm's esbuild install-script review
 notice remain. They are not new runtime vulnerabilities and are not hidden by
 raising limits or suppressing warnings. Security findings are time-sensitive;
 repeat audits at release preparation instead of treating this record as permanent.
+
+## Browser resize correction
+
+The first full CI run passed the Python job but exposed one browser timing failure
+in Play mode discovery (354 passed, 19 skipped, one failed). The test now waits for
+the existing geometry assertions after a viewport resize instead of reading the
+transitional layout immediately. The expected card count, stacked layout and
+maximum document width are unchanged. This is the same correction validated in
+the Portrait Hall full CI run. The updated PR CI result is recorded on the PR.
