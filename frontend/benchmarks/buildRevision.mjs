@@ -7,12 +7,23 @@ import { join } from 'node:path';
 /**
  * Read the current git revision and whether the working tree has uncommitted
  * changes. `run` is injectable so the verification can be tested without git.
+ * A source archive without `.git` yields `git: false` instead of breaking the
+ * production build; the benchmark rejects it because it cannot be verified.
  */
 export function readGitRevision(repository, run = execFileSync) {
-  const options = { cwd: repository, encoding: 'utf8', timeout: 5000 };
-  const revision = run('git', ['rev-parse', 'HEAD'], options).trim();
-  const dirty = run('git', ['status', '--porcelain'], options).trim().length > 0;
-  return { revision, dirty };
+  const options = {
+    cwd: repository,
+    encoding: 'utf8',
+    timeout: 5000,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  };
+  try {
+    const revision = run('git', ['rev-parse', 'HEAD'], options).trim();
+    const dirty = run('git', ['status', '--porcelain'], options).trim().length > 0;
+    return { revision, dirty, git: true };
+  } catch {
+    return { revision: 'unknown', dirty: true, git: false };
+  }
 }
 
 async function walk(directory, prefix = '') {
@@ -51,6 +62,13 @@ export function verifyBuildRevision(build, current, { allowDirty = false } = {})
       reason: 'missing',
       message:
         'No build revision recorded in dist/arena-build.json. Rebuild with `npm --prefix frontend run build`.',
+    };
+  if (current.git === false || build.git === false || build.revision === 'unknown')
+    return {
+      ok: false,
+      reason: 'no-git',
+      message:
+        'Build revision cannot be verified because this is not a git checkout. Run the benchmark from a git clone of the repository.',
     };
   if (build.revision !== current.revision)
     return {

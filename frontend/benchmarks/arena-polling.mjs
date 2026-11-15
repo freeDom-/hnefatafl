@@ -221,10 +221,11 @@ try {
   const report = {
     schema: 1,
     sourceHead: sourceRecord.revision,
-    source: { revision: sourceRecord.revision, dirty: sourceRecord.dirty },
+    source: { revision: sourceRecord.revision, dirty: sourceRecord.dirty, git: sourceRecord.git },
     build: {
       revision: buildRecord.revision,
       dirty: buildRecord.dirty,
+      git: buildRecord.git ?? null,
       builtAt: buildRecord.builtAt ?? null,
       fingerprint: bundleFingerprint,
       allowDirty: options.allowDirty,

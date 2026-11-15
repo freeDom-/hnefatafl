@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fingerprintDirectory, readGitRevision, verifyBuildRevision } from './buildRevision.mjs';
 
-const current = { revision: 'a'.repeat(40), dirty: false };
+const current = { revision: 'a'.repeat(40), dirty: false, git: true };
 
 test('accepts a clean build recorded at the current revision', () => {
   const result = verifyBuildRevision({ revision: current.revision, dirty: false }, current);
@@ -20,6 +20,22 @@ test('rejects a missing fingerprint with rebuild instructions', () => {
     assert.equal(result.reason, 'missing');
     assert.match(result.message, /npm --prefix frontend run build/);
   }
+});
+
+test('rejects an unverifiable build from a non-git checkout', () => {
+  const noGit = verifyBuildRevision(
+    { revision: 'unknown', dirty: true, git: false },
+    { revision: 'unknown', dirty: true, git: false },
+  );
+  assert.equal(noGit.ok, false);
+  assert.equal(noGit.reason, 'no-git');
+  assert.match(noGit.message, /git checkout/);
+  const sourceNoGit = verifyBuildRevision(
+    { revision: current.revision, dirty: false, git: true },
+    { revision: 'unknown', dirty: true, git: false },
+  );
+  assert.equal(sourceNoGit.ok, false);
+  assert.equal(sourceNoGit.reason, 'no-git');
 });
 
 test('rejects a stale build and names both revisions', () => {
@@ -59,8 +75,20 @@ test('reads the revision and dirty state through the injected runner', () => {
   assert.deepEqual(readGitRevision('/repo', run), {
     revision: current.revision,
     dirty: true,
+    git: true,
   });
   assert.equal(calls.length, 2);
+});
+
+test('falls back safely when git is unavailable', () => {
+  const run = () => {
+    throw new Error('not a git repository');
+  };
+  assert.deepEqual(readGitRevision('/archive', run), {
+    revision: 'unknown',
+    dirty: true,
+    git: false,
+  });
 });
 
 test('fingerprints directory contents deterministically and detects changes', async () => {

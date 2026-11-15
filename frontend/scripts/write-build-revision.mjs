@@ -16,5 +16,7 @@ const record = {
 };
 await writeFile(join(frontend, 'dist', 'arena-build.json'), JSON.stringify(record, null, 2) + '\n');
 console.log(
-  `Recorded build revision ${revision.revision}${revision.dirty ? ' (dirty working tree)' : ''}.`,
+  revision.git
+    ? `Recorded build revision ${revision.revision}${revision.dirty ? ' (dirty working tree)' : ''}.`
+    : 'Recorded an unverifiable build revision (no git checkout).',
 );
