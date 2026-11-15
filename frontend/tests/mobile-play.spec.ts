@@ -12,8 +12,13 @@ async function fits(page: Page) {
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const board = document.querySelector('.board')!.getBoundingClientRect();
-        const panel = document.querySelector('.mobile-inspector')!.getBoundingClientRect();
+        const boardNode = document.querySelector('.board');
+        const panelNode = document.querySelector('.mobile-inspector');
+        // Route/game replacement can briefly unmount either node. A missing
+        // element must fail this poll iteration, not throw out of the retry.
+        if (!boardNode || !panelNode) return false;
+        const board = boardNode.getBoundingClientRect();
+        const panel = panelNode.getBoundingClientRect();
         return (
           document.documentElement.scrollHeight <= innerHeight &&
           document.documentElement.scrollWidth <= innerWidth &&

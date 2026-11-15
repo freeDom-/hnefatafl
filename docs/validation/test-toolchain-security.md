@@ -56,3 +56,9 @@ the existing geometry assertions after a viewport resize instead of reading the
 transitional layout immediately. The expected card count, stacked layout and
 maximum document width are unchanged. This is the same correction validated in
 the Portrait Hall full CI run. The updated PR CI result is recorded on the PR.
+
+The second full run passed Python and all 1,312 unit tests; its main browser suite
+had 354 passed, 19 skipped and one failure when a board temporarily disappeared
+during navigation. The existing geometry poll now retries that transient missing
+node instead of throwing before it can measure. Width/height assertions remain
+unchanged, matching the correction already green in Portrait Hall CI.
