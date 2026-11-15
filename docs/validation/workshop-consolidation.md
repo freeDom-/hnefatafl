@@ -77,3 +77,13 @@ The original full-page 4K image-generation timeout and earlier protocol stalls a
 retained as failures, not hidden by increasing the 90-second test or 10-second
 assertion limits. All 88 current captures are preserved. Full CI must establish a
 clean full-suite result before merging.
+
+First full CI: backend verification passed; **1,319 unit tests** passed and main
+browser validation had **446 passed, 111 skipped, one failure**. The failure was
+the existing shared typography contract: new display introductions lacked the
+established `arena-hero-headline` marker that distinguishes display headings from
+normal sections. Both introductions now reuse that class. The shared typography
+selector and every assertion remain unchanged; the scoped Workshop styling keeps
+the reviewed appearance. The full local typography sweep progressed without the
+original mismatch but reached its existing180-second limit later while applying
+interface scale. That timeout is retained; updated full CI is required.

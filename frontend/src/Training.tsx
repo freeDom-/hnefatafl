@@ -937,7 +937,7 @@ export default function Training({
         <PageHeading title={t('The AI workshop.')} />
         <div className="workshop-heading">
           <p className="arena-kicker">{t('AI WORKSHOP')}</p>
-          <h2>{t('Build, test and refine.')}</h2>
+          <h2 className="arena-hero-headline">{t('Build, test and refine.')}</h2>
           <p>
             {t(
               'Create a strategist, follow its learning and compare the results. Your models and checkpoints stay under your control.',

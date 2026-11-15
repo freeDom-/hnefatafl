@@ -564,7 +564,7 @@ export default function Tournaments({
         />
         <div className="workshop-heading">
           <p className="arena-kicker">{t('AI COMPARISONS')}</p>
-          <h2>{t('Measure your strategists.')}</h2>
+          <h2 className="arena-hero-headline">{t('Measure your strategists.')}</h2>
           <p>
             {t(
               'Compare computer opponents with repeatable matches. These benchmarks are separate from human player tournaments.',
