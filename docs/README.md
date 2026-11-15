@@ -68,6 +68,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Arena v2 contracts, feature preservation inventory and integration plan](designs/arena-v2-contracts.md)
 - [Shared frontend notification layer, migrated surfaces and exceptions](NOTIFICATIONS.md)
 - [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)
+- [Frontend test-toolchain security update](validation/test-toolchain-security.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
