@@ -19,8 +19,10 @@ Delivered:
 - `PATCH /api/profile/portrait` — CSRF-protected selection of an earned portrait
 
 Deliberately out of scope: paid currency, any XP or soft-currency economy, client
-awarded unlocks, login/activity streaks, leagues and player tournaments. Those
-reserved systems keep their own future schema numbers (18/19) and namespaces.
+awarded unlocks and login/activity streaks. Human player tournaments are a separate
+implemented backend using schema 18; leagues remain unimplemented (schema 19
+reserved). The Portrait Hall/claim/select frontend is not yet implemented at the
+post-PR #84 baseline; see the [completion audit](designs/arena-completion.md).
 
 ## Portrait catalog
 
