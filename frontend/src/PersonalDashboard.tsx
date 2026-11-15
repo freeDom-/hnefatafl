@@ -22,7 +22,7 @@ import {
   type RecordedGame,
   type RecordedPage,
 } from './RecordedGames';
-import RecordedReview from './RecordedReview';
+import { deferredFeature } from './deferredFeature';
 import Leaderboard, { readStoredRuleset } from './Leaderboard';
 import Board, { type BoardView } from './Board';
 import LocalGameDialog from './LocalGameDialog';
@@ -32,6 +32,8 @@ import type { Leaderboard as LeaderboardData, OnlineGame } from './onlineTypes';
 import type { Profile } from './ProfilePage';
 import type { Game, Side } from './types';
 import './personalDashboard.css';
+
+const RecordedReview = deferredFeature(() => import('./RecordedReview'));
 
 /** Authenticated portrait catalog metadata; the asset mapping stays bundled here. */
 type PortraitCatalog = {

@@ -1,4 +1,8 @@
 const translations: Record<string, string> = {
+  'This page could not be loaded.': 'Diese Seite konnte nicht geladen werden.',
+  'Retry to load this feature. Reload the application if the problem continues.':
+    'Versuche erneut, diese Funktion zu laden. Lade die Anwendung neu, falls das Problem weiterhin besteht.',
+  'Reload application': 'Anwendung neu laden',
   'Skip to main content': 'Zum Hauptinhalt springen',
   'Mobile navigation': 'Mobile Navigation',
   'Workshop navigation': 'Werkstatt-Navigation',

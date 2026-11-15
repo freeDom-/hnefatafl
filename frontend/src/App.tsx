@@ -1,27 +1,19 @@
 import { ArenaShell, SHELL_MAIN_ID, WorkshopShell } from './ArenaShell';
-import NewGame from './NewGame';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n } from './i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import Board, { coordinate } from './Board';
 import { api, errorMessage } from './api';
 import { notify } from './notifications';
 import type { AIProfile, Game, Ruleset, Side } from './types';
-import Archive from './Archive';
-import Training from './Training';
-import Tournaments from './Tournaments';
-import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
-import { AnalyticsSettingsPanel } from './AdvisorSelect';
+import { useGameAnalysis } from './useGameAnalysis';
+import { deferredFeature } from './deferredFeature';
 import Rune, { participantName } from './Rune';
 import { accountAttribution } from './accountIdentity';
 
-import Online from './Online';
 import Modal from './Modal';
 import PersonalDashboard from './PersonalDashboard';
-import StatisticsPage from './StatisticsPage';
 import Leaderboard from './Leaderboard';
-import ProfilePage from './ProfilePage';
 import ActiveGameSwitcher from './ActiveGameSwitcher';
 import { useAuth } from './Auth';
 import { canonicalLocation, navigate } from './navigation';
@@ -35,8 +27,21 @@ import Battlefield from './Battlefield';
 import { sideGlyph } from './sideGlyph';
 import { usePlayHistory } from './usePlayHistory';
 import { useModelCatalogue } from './useModelCatalogue';
-import PlayLanding from './PlayLanding';
 import { PlayTabsProvider } from './PlayTabs';
+
+const NewGame = deferredFeature(() => import('./NewGame'));
+const ReactMarkdown = deferredFeature(() => import('react-markdown'));
+const Archive = deferredFeature(() => import('./Archive'));
+const Training = deferredFeature(() => import('./Training'));
+const Tournaments = deferredFeature(() => import('./Tournaments'));
+const Online = deferredFeature(() => import('./Online'));
+const StatisticsPage = deferredFeature(() => import('./StatisticsPage'));
+const ProfilePage = deferredFeature(() => import('./ProfilePage'));
+const PlayLanding = deferredFeature(() => import('./PlayLanding'));
+const AgentAnalysis = deferredFeature(() => import('./AgentAnalysis'));
+const AnalyticsSettingsPanel = deferredFeature(() =>
+  import('./AdvisorSelect').then((module) => ({ default: module.AnalyticsSettingsPanel })),
+);
 
 type Tab =
   | 'statistics'
@@ -729,5 +734,3 @@ export default function App() {
 }
 
 export { default as Modal } from './Modal';
-
-export { default as NewGame } from './NewGame';
