@@ -240,8 +240,10 @@ node frontend/benchmarks/arena-polling.mjs --output=/tmp/arena-polling.json
 The harness launches disposable real fixture storage and preview services, checks
 port ownership, cleans up its own processes/data, and stores endpoint/status
 counts without credentials or raw event payloads. It also verifies that the
-production bundle carries a `dist/arena-build.json` revision and asset fingerprint
-matching the current checkout, rejecting a missing, stale or dirty build before
+production bundle carries a `dist/arena-build.json` revision and a nonempty
+SHA-256 fingerprint of the complete bundle (`dist/index.html` plus every file
+under `dist/`, excluding `arena-build.json`) matching the current checkout,
+rejecting a missing, malformed, stale or dirty build before
 starting any service (`--allow-dirty` only records a non-reproducible local run).
 The committed baseline predates that field and remains historical evidence, not a
 fresh matching run. See the [machine-readable

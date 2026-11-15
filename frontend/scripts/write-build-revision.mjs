@@ -2,12 +2,12 @@
 import { writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fingerprintDirectory, readGitRevision } from '../benchmarks/buildRevision.mjs';
+import { fingerprintProductionBundle, readGitRevision } from '../benchmarks/buildRevision.mjs';
 
 const frontend = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repository = resolve(frontend, '..');
 const revision = readGitRevision(repository);
-const fingerprint = await fingerprintDirectory(join(frontend, 'dist', 'assets'));
+const fingerprint = await fingerprintProductionBundle(join(frontend, 'dist'));
 const record = {
   schema: 1,
   ...revision,
