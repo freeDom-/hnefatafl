@@ -1,11 +1,12 @@
 /** Read-only Arena request baseline against disposable real browser fixtures. */
 import { chromium } from 'playwright';
-import { spawn, execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile, access } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdtemp, mkdir, rm, writeFile, access, readFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir, cpus, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fingerprintDirectory, readGitRevision, verifyBuildRevision } from './buildRevision.mjs';
 
 const frontend = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repository = resolve(frontend, '..');
@@ -14,11 +15,12 @@ const options = {
   windowMs: 60000,
   warmupMs: 5000,
   port: 4273,
+  allowDirty: false,
 };
 for (const arg of process.argv.slice(2)) {
   if (arg === '--help') {
     console.log(
-      'Build first: npm --prefix frontend run build\nRun: node frontend/benchmarks/arena-polling.mjs [--output=/tmp/result.json] [--window-ms=60000] [--warmup-ms=5000] [--port=4273]\nRequires installed Playwright Chromium and repository .venv. Uses fixture ports 8001/8002.',
+      'Build first: npm --prefix frontend run build\nRun: node frontend/benchmarks/arena-polling.mjs [--output=/tmp/result.json] [--window-ms=60000] [--warmup-ms=5000] [--port=4273] [--allow-dirty]\nRequires installed Playwright Chromium and repository .venv. Uses fixture ports 8001/8002.\nThe production dist must carry a matching dist/arena-build.json revision; --allow-dirty only permits a non-reproducible local run.',
     );
     process.exit(0);
   }
@@ -28,6 +30,7 @@ for (const arg of process.argv.slice(2)) {
   else if (key === '--window-ms') options.windowMs = Number(value);
   else if (key === '--warmup-ms') options.warmupMs = Number(value);
   else if (key === '--port') options.port = Number(value);
+  else if (key === '--allow-dirty') options.allowDirty = true;
   else throw new Error(`Unknown option: ${arg}`);
 }
 if (
@@ -44,6 +47,24 @@ if (
 )
   throw new Error('Invalid benchmark duration, warmup or port.');
 await access(join(frontend, 'dist', 'index.html'));
+// The preview bundle must come from this checkout. A stale or dirty dist would
+// make the request counts unreproducible, so reject it before starting services.
+let buildRecord = null;
+try {
+  buildRecord = JSON.parse(await readFile(join(frontend, 'dist', 'arena-build.json'), 'utf8'));
+} catch {
+  buildRecord = null;
+}
+const sourceRecord = readGitRevision(repository);
+const buildCheck = verifyBuildRevision(buildRecord, sourceRecord, {
+  allowDirty: options.allowDirty,
+});
+if (!buildCheck.ok) throw new Error(buildCheck.message);
+const bundleFingerprint = await fingerprintDirectory(join(frontend, 'dist', 'assets'));
+if (buildRecord.fingerprint && buildRecord.fingerprint !== bundleFingerprint)
+  throw new Error(
+    `Stale production build: dist assets changed since the recorded build (${buildRecord.fingerprint} -> ${bundleFingerprint}). Rebuild with \`npm --prefix frontend run build\`.`,
+  );
 const python = process.env.ARENA_BENCH_PYTHON || join(repository, '.venv', 'bin', 'python');
 await access(python);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -199,11 +220,15 @@ try {
   await wait(options.windowMs);
   const report = {
     schema: 1,
-    sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: repository,
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim(),
+    sourceHead: sourceRecord.revision,
+    source: { revision: sourceRecord.revision, dirty: sourceRecord.dirty },
+    build: {
+      revision: buildRecord.revision,
+      dirty: buildRecord.dirty,
+      builtAt: buildRecord.builtAt ?? null,
+      fingerprint: bundleFingerprint,
+      allowDirty: options.allowDirty,
+    },
     measuredAt: new Date().toISOString(),
     node: process.version,
     chromium: browser.version(),
