@@ -89,3 +89,11 @@ keyboard focus and Escape checks. Added unit coverage for text that fits the ful
 viewport but not the available space beside its trigger. Focused verification:
 50 tooltip unit tests and six desktop/mobile browser cases passed; formatting and
 TypeScript passed. Updated full CI remains required.
+
+The next full run passed backend verification and 1,324 unit tests; main browser
+validation had 367 passes and one shared advisor-helper failure. The board was
+visible before tab navigation was ready, so an immediate visibility probe skipped
+opening Analytics. The helper now waits at the actual tabbed breakpoints. All 34
+focused public-entry, paused-clock, advisor, gameplay/replay and localization cases
+passed on desktop/mobile with this correction; no application permission or
+assertion/timeout limit changed. Full CI is rerun on the updated head.

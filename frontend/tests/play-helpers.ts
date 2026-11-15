@@ -66,7 +66,16 @@ export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') 
   const button = page
     .locator('.mobile-inspector, .desktop-inspector')
     .getByRole('tab', { name: names[tab] });
-  if (await button.isVisible()) await button.click();
+  // The board can commit before the advisor catalog adds the Analytics tab.
+  // At tabbed breakpoints wait for that control instead of treating a transient
+  // missing tab as the plain tablet layout.
+  const tabbed = await page.evaluate(
+    () =>
+      matchMedia(
+        '(min-width: 1101px), (max-width: 760px), (max-height: 480px) and (pointer: coarse)',
+      ).matches,
+  );
+  if (tabbed) await button.click();
 }
 
 export async function showMove(page: Page, ply: number) {
