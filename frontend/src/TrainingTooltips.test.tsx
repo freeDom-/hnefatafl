@@ -1316,3 +1316,22 @@ it('translates the help affordance and its descriptions into German', () => {
   );
   expect(screen.getByRole('button', { name: 'Trainingsiterationen erklären' })).toBeInTheDocument();
 });
+
+it('scrolls content that fits the viewport but cannot fit beside its trigger', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 600 });
+  mockOverflowingTooltip(
+    { left: 100, top: 300, width: 17, height: 17 },
+    { width: 300, height: 350 },
+  );
+  render(<CreationHarness />);
+  const button = helpButton('Training iterations');
+  fireEvent.click(button, { detail: 1 });
+  // 350px fits the 584px viewport cap, but the roomier side only has 286px.
+  const panel = screen.getByRole('region', { name: 'Training iterations' });
+  expect(panel.style.maxHeight).toBe('286px');
+  expect(panel.style.top).toBe('8px');
+  expect(panel).toHaveAttribute('tabindex', '0');
+  expect(button).toHaveAttribute('aria-describedby', `${panel.id}-text`);
+  expect(screen.queryByRole('tooltip')).toBeNull();
+});

@@ -78,3 +78,14 @@ or below its trigger, preserving the trigger and six-pixel gap rather than
 covering it and intercepting pointer events. All 49 tooltip unit tests pass, with
 stricter trigger-clearance coverage; the four affected desktop/mobile browser
 cases pass. Existing viewport, scroll, focus and pointer assertions remain intact.
+
+The subsequent full CI passed backend verification and all 1,323 unit tests; main
+browser validation had 366 passed, 20 skipped and two failures in the German zoom
+tooltip test. Both failed before zoom: the corrected non-overlap layout already
+required a scrollable region at the initial viewport, while the test expected a
+tooltip. The regression now asserts the actual accessible region, trigger clearance
+and all viewport bounds before/after zoom, preserving scrolling, description,
+keyboard focus and Escape checks. Added unit coverage for text that fits the full
+viewport but not the available space beside its trigger. Focused verification:
+50 tooltip unit tests and six desktop/mobile browser cases passed; formatting and
+TypeScript passed. Updated full CI remains required.
