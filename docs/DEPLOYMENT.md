@@ -188,6 +188,14 @@ verification/token/mail/limiter state without reassigning owners; run the
 before a separately authorized upgrade. No production migration is implied by
 development validation.
 
+Schema 19 adds the player-tournament settlement outbox and optional planned start
+column. It is additive; it does not remove games, training history, checkpoints or
+models. The lifespan worker resumes committed bracket work without a browser and
+reconciles terminal result revisions once at startup. Retained tournament and queue
+tables participate in the same stopped-writer backup/restore boundary as their
+online games; automatic restore requires matching current schemas. Preserve and
+test a backup before upgrading. See [player tournaments](PLAYER_TOURNAMENTS.md).
+
 Schema 13 includes configurable online clocks alongside the
 [durable online core](ONLINE.md), the
 [rated-game/leaderboard pool](RATINGS.md) and immutable per-game start-rating

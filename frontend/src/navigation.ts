@@ -14,9 +14,11 @@ export function safeDestination(value: string | null): string {
     '/profile',
     '/training',
     '/tournaments',
+    '/player-tournaments',
     '/archive',
     '/online',
   ].includes(path) ||
+    /^\/player-tournaments\/ptournament-[0-9a-f]{32}$/.test(path) ||
     /^\/online\/games\/online-[0-9a-f]{32}(?:\/review)?$/.test(path) ||
     /^\/(?:games|dashboard\/single-player)\/(?!online-)[A-Za-z0-9_-]{1,100}$/.test(path)
     ? path + url.search + url.hash

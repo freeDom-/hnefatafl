@@ -1460,3 +1460,211 @@ def test_legs_link_authoritative_online_games_and_never_rate_them(rig):
             "SELECT COUNT(*) FROM player_tournament_legs l JOIN online_games g ON g.id=l.game_id"
         ).fetchone()[0]
         assert linked == len(ready_matches(rig, tournament["id"]))
+
+
+def test_durable_worker_settles_without_browser_and_consumers_are_idempotent(rig):
+    tournament = tournament_with_entrants(rig, PLAYERS[:4], capacity=4, match_legs=2)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    matches = ready_matches(rig, tournament["id"])
+    for match in matches:
+        force_match(rig, match, match["participants"]["a"]["account_id"])
+    with rig.store.connection() as c:
+        assert (
+            c.execute("SELECT COUNT(*) FROM player_tournament_settlement_queue").fetchone()[0] == 1
+        )
+    from hnefatafl.player_tournament_settlement import TournamentSettlement
+
+    # A recreated process sees the committed outbox; no participant API is used.
+    workers = [TournamentSettlement(rig.core), TournamentSettlement(rig.core)]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sum(pool.map(lambda worker: worker.drain(), workers)) == 1
+    assert workers[0].drain() == 0
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    assert all(m["status"] == "complete" for r in bracket["upper"][:1] for m in r["matches"])
+    with rig.store.connection() as c:
+        assert (
+            c.execute("SELECT COUNT(*) FROM player_tournament_settlement_queue").fetchone()[0] == 0
+        )
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM player_tournament_audit WHERE action='automatic_settlement' AND actor_id IS NULL"
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_worker_recovers_missing_outbox_and_timeout_results(rig):
+    tournament = tournament_with_entrants(rig, PLAYERS[:3], capacity=4)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    rig.clock.value += timedelta(seconds=601)
+    assert rig.online.sweep()["finalized"] == 1
+    with rig.store.connection() as c:
+        c.execute("DELETE FROM player_tournament_settlement_queue")
+    worker = rig.app.state.tournament_settlement
+    worker.recover()
+    worker.recover()
+    assert worker.drain() == 1
+    assert worker.drain() == 0
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    assert any(m["status"] == "complete" for r in bracket["upper"] for m in r["matches"])
+
+
+def test_worker_revision_reopens_completed_tournament_and_freezes(rig):
+    tournament = tournament_with_entrants(rig, PLAYERS[:4], capacity=4)
+    finished = play_out(rig, tournament["id"])
+    assert finished["status"] == "complete"
+    worker = rig.app.state.tournament_settlement
+    worker.drain()
+    game_id = rig.core.bracket(rig.admin, tournament["id"])["final"]["legs"][0]["game_id"]
+    game = rig.online.read(rig.admin, game_id)
+    rig.online.mutate(rig.admin, game_id, game["version"], "void", note="late correction")
+    assert worker.drain() == 1
+    reopened = rig.core.detail(rig.admin, tournament["id"])
+    assert reopened["review_state"] == "disputed"
+    assert reopened["status"] == "running"
+    assert reopened["official_winner"] is None
+    assert worker.drain() == 0
+
+
+def test_worker_failed_transaction_is_retained_with_bounded_retry(rig, monkeypatch):
+    tournament = tournament_with_entrants(rig, PLAYERS[:4], capacity=4)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    match = ready_matches(rig, tournament["id"])[0]
+    force_match(rig, match, match["participants"]["a"]["account_id"])
+    advance = rig.core._advance
+
+    def fail(*args):
+        raise RuntimeError("private payload must not be persisted")
+
+    monkeypatch.setattr(rig.core, "_advance", fail)
+    worker = rig.app.state.tournament_settlement
+    assert worker.drain() == 0
+    with rig.store.connection() as c:
+        row = c.execute("SELECT * FROM player_tournament_settlement_queue").fetchone()
+        assert row["attempts"] == 1 and row["last_error"] == "settlement_failed"
+    assert worker.drain() == 0
+    monkeypatch.setattr(rig.core, "_advance", advance)
+    rig.clock.value += timedelta(seconds=3)
+    assert worker.drain() == 1
+
+
+def test_planned_start_filters_and_cursor_scope(rig):
+    def planned(name, ruleset):
+        return rig.core.create(
+            rig.admin,
+            name=name,
+            ruleset=ruleset,
+            capacity=4,
+            match_legs=1,
+            time_per_move=600,
+            scheduled_start_at=rig.clock.value + timedelta(days=1),
+        )
+
+    planned("First", "brandubh")
+    planned("Second", "brandubh")
+    planned("Other", "tablut")
+    create(rig, name="Unscheduled")
+    page = rig.core.listing(rig.admin, ruleset="brandubh", phase="upcoming", limit=1)
+    assert len(page["items"]) == 1
+    assert page["items"][0]["scheduled_start_at"] is not None
+    assert page["next_cursor"]
+    second = rig.core.listing(
+        rig.admin, ruleset="brandubh", phase="upcoming", limit=1, cursor=page["next_cursor"]
+    )
+    assert len(second["items"]) == 1
+    assert second["items"][0]["id"] != page["items"][0]["id"]
+    with pytest.raises(Exception, match="cursor"):
+        rig.core.listing(rig.admin, ruleset="tablut", phase="upcoming", cursor=page["next_cursor"])
+    with pytest.raises(Exception, match="timezone"):
+        rig.core.create(
+            rig.admin,
+            name="Bad",
+            ruleset="brandubh",
+            capacity=4,
+            match_legs=1,
+            time_per_move=600,
+            scheduled_start_at=datetime(2027, 1, 2),
+        )
+    with pytest.raises(Exception, match="Registration"):
+        rig.core.create(
+            rig.admin,
+            name="Bad",
+            ruleset="brandubh",
+            capacity=4,
+            match_legs=1,
+            time_per_move=600,
+            registration_deadline=rig.clock.value + timedelta(days=2),
+            scheduled_start_at=rig.clock.value + timedelta(days=1),
+        )
+    # A planned start is informational; a clock passing it never starts a bracket.
+    rig.clock.value += timedelta(days=2)
+    assert rig.core.listing(rig.admin, phase="upcoming")["items"] == []
+    assert all(item["status"] == "registration" for item in rig.core.listing(rig.admin)["items"])
+
+
+def test_restore_retains_live_tournament_outbox_and_authoritative_results(rig, tmp_path):
+    import sqlite3
+
+    from hnefatafl.online_migrations import retain_online_on_restore
+
+    snapshot = tmp_path / "before-results.sqlite3"
+    with rig.store.connection() as source, sqlite3.connect(snapshot) as target:
+        source.backup(target)
+    tournament = tournament_with_entrants(rig, PLAYERS[:4], capacity=4)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    match = ready_matches(rig, tournament["id"])[0]
+    force_match(rig, match, match["participants"]["a"]["account_id"])
+    with rig.store.connection() as source, sqlite3.connect(snapshot) as target:
+        target.row_factory = sqlite3.Row
+        retain_online_on_restore(source, target)
+        assert (
+            target.execute(
+                "SELECT tournament_id FROM player_tournament_settlement_queue"
+            ).fetchone()[0]
+            == tournament["id"]
+        )
+        assert target.execute("SELECT COUNT(*) FROM online_results").fetchone()[0] > 0
+        assert not target.execute("PRAGMA foreign_key_check").fetchall()
+
+
+def test_background_worker_advances_with_no_client_polling(rig, monkeypatch):
+    import threading
+
+    tournament = tournament_with_entrants(rig, PLAYERS[:4], capacity=4)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    match = ready_matches(rig, tournament["id"])[0]
+    worker = rig.app.state.tournament_settlement
+    committed = threading.Event()
+    drain = worker.drain
+
+    def observe():
+        count = drain()
+        if count:
+            committed.set()
+        return count
+
+    monkeypatch.setattr(worker, "drain", observe)
+    worker.start()
+    try:
+        force_match(rig, match, match["participants"]["a"]["account_id"])
+        assert committed.wait(5), "server worker did not settle committed result"
+    finally:
+        worker.shutdown()
+    assert worker.thread is not None and not worker.thread.is_alive()
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    decided = next(m for r in bracket["upper"] for m in r["matches"] if m["id"] == match["id"])
+    assert decided["status"] == "complete"
+
+
+def test_automatic_progress_invalidates_reviewed_admin_version(rig):
+    tournament = tournament_with_entrants(rig, PLAYERS[:4], capacity=4)
+    reviewed = rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    match = ready_matches(rig, tournament["id"])[0]
+    force_match(rig, match, match["participants"]["a"]["account_id"])
+    assert rig.app.state.tournament_settlement.drain() == 1
+    updated = rig.core.detail(rig.admin, tournament["id"])
+    assert updated["version"] > reviewed["version"]
+    with pytest.raises(Exception, match="changed"):
+        rig.core.cancel(rig.admin, tournament["id"], reviewed["version"])
+    stable = rig.core.settle(rig.admin, tournament["id"])
+    assert stable["version"] == updated["version"]

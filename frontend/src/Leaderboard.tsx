@@ -201,6 +201,11 @@ export default function Leaderboard({
             {t('Full standings')} →
           </a>
         )}
+        {!compact && (
+          <a className="button button-secondary" href="/player-tournaments" onClick={surfaceLink}>
+            {t('Player tournaments')}
+          </a>
+        )}
         <div className="leaderboard-filter">
           <select
             aria-label={t('Ruleset')}

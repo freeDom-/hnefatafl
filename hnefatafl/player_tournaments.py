@@ -87,13 +87,15 @@ def decode_cursor(cursor: str) -> dict:
     return payload
 
 
-def listing_cursor(cursor: str, status: str | None) -> tuple[int, str]:
-    """Decode a listing cursor, bound to the requested status filter."""
+def listing_cursor(cursor: str, status: str | None, ruleset=None, phase=None) -> tuple[int, str]:
+    """Decode a listing cursor, bound to the requested discovery filters."""
     payload = decode_cursor(cursor)
     created, identifier = payload.get("t"), payload.get("i")
     if (
         payload.get("k") != "listing"
         or payload.get("s") != status
+        or payload.get("r") != ruleset
+        or payload.get("p") != phase
         or type(created) is not int
         or not isinstance(identifier, str)
         or not identifier
@@ -219,6 +221,7 @@ class PlayerTournaments:
         match_legs: int,
         time_per_move: int,
         registration_deadline: datetime | None = None,
+        scheduled_start_at: datetime | None = None,
     ) -> dict:
         name = name.strip()
         if not name or len(name) > 120:
@@ -236,6 +239,13 @@ class PlayerTournaments:
             if registration_deadline.tzinfo is None or registration_deadline.utcoffset() is None:
                 raise OnlineError(422, "The registration deadline must include a timezone.")
             deadline = micros(registration_deadline)
+        scheduled = None
+        if scheduled_start_at is not None:
+            if scheduled_start_at.tzinfo is None or scheduled_start_at.utcoffset() is None:
+                raise OnlineError(422, "The planned start must include a timezone.")
+            scheduled = micros(scheduled_start_at)
+            if deadline is not None and deadline > scheduled:
+                raise OnlineError(422, "Registration must close no later than the planned start.")
         with self._write() as c:
             account = self._identity(c, credential, require="tournaments")
             now = self._now()
@@ -253,6 +263,10 @@ class PlayerTournaments:
                     account["id"],
                     micros(now),
                 ),
+            )
+            c.execute(
+                "UPDATE player_tournaments SET scheduled_start_at=? WHERE id=?",
+                (scheduled, identifier),
             )
             self._audit(
                 c,
@@ -416,6 +430,14 @@ class PlayerTournaments:
             )
             return self._detail(c, identifier)
 
+    def settle_committed(self, c, identifier: str, actor_id: str | None, now: datetime):
+        """Advance and invalidate reviewed snapshots only when bracket data changes."""
+        version = self._load(c, identifier)["version"]
+        before = c.total_changes
+        self._advance(c, identifier, actor_id, now)
+        if c.total_changes != before and self._load(c, identifier)["version"] == version:
+            self._bump(c, identifier, version)
+
     def settle(self, credential: str, identifier: str) -> dict:
         with self._write() as c:
             account = self._identity(c, credential)
@@ -423,7 +445,7 @@ class PlayerTournaments:
             if row["status"] not in ("running", "complete"):
                 return self._detail(c, identifier)
             now = self._now()
-            self._advance(c, identifier, account["id"], now)
+            self.settle_committed(c, identifier, account["id"], now)
             return self._detail(c, identifier)
 
     def override(
@@ -658,7 +680,7 @@ class PlayerTournaments:
             return None
         return first, second
 
-    def _retire(self, c, game_ids: list[str], actor_id: str, now: datetime) -> int:
+    def _retire(self, c, game_ids: list[str], actor_id: str | None, now: datetime) -> int:
         """Void live games that a rebuild or reseat detached from the bracket.
 
         Displaced games are retired through the authoritative online lifecycle so
@@ -666,17 +688,20 @@ class PlayerTournaments:
         reached a terminal state keeps its immutable result and audit history;
         only the leg link is removed.
         """
-        actor = lifecycle.Actor(actor_id, True)
+        if game_ids and actor_id is None:
+            raise OnlineError(409, "Displaced tournament games require administrator review.")
+        actor = lifecycle.Actor(actor_id, True) if actor_id is not None else None
         retired = 0
         for game_id in game_ids:
             row = c.execute("SELECT status FROM online_games WHERE id=?", (game_id,)).fetchone()
             if row is None or row["status"] not in ("waiting", "active"):
                 continue
+            assert actor is not None
             if self.online.void_game(c, game_id, actor, DISPLACED_GAME_NOTE, now):
                 retired += 1
         return retired
 
-    def _prepare_legs(self, c, identifier: str, match, actor_id: str, now: datetime) -> int:
+    def _prepare_legs(self, c, identifier: str, match, actor_id: str | None, now: datetime) -> int:
         participants = {match["participant_a"], match["participant_b"]}
         displaced: list[str] = []
         for leg in c.execute(
@@ -832,7 +857,7 @@ class PlayerTournaments:
             details={"reason": "authoritative result revision changed"},
         )
 
-    def _advance(self, c, identifier: str, actor_id: str, now: datetime) -> int:
+    def _advance(self, c, identifier: str, actor_id: str | None, now: datetime) -> int:
         """Derive the bracket; returns the number of displaced games retired."""
         if self._load(c, identifier)["review_state"] != "ok":
             # Bracket-wide freeze: a disputed tournament creates no new games or
@@ -944,6 +969,14 @@ class PlayerTournaments:
     # -- projections ------------------------------------------------------
 
     @staticmethod
+    def _accounts(c, identifiers):
+        from .progression import selected_portrait_ids
+
+        accounts = resolve_accounts(c, identifiers)
+        portraits = selected_portrait_ids(c, accounts)
+        return {key: {**value, "portrait_id": portraits[key]} for key, value in accounts.items()}
+
+    @staticmethod
     def _public(accounts: dict, account_id: str | None):
         if not account_id:
             return None
@@ -955,7 +988,7 @@ class PlayerTournaments:
             (row["id"],),
         ).fetchone()[0]
         if accounts is None:
-            accounts = resolve_accounts(c, [row["official_winner"]])
+            accounts = self._accounts(c, [row["official_winner"]])
         return {
             "id": row["id"],
             "name": row["name"],
@@ -968,10 +1001,19 @@ class PlayerTournaments:
             "time_per_move": row["time_per_move"],
             "bracket_size": row["bracket_size"],
             "entrant_count": entrants,
+            "registration_open": row["status"] == "registration"
+            and entrants < row["capacity"]
+            and (
+                row["registration_deadline"] is None
+                or micros(self._now()) < row["registration_deadline"]
+            ),
             "version": row["version"],
             "created_at": stamp(instant(row["created_at"])),
             "started_at": stamp(instant(row["started_at"])) if row["started_at"] else None,
             "completed_at": stamp(instant(row["completed_at"])) if row["completed_at"] else None,
+            "scheduled_start_at": stamp(instant(row["scheduled_start_at"]))
+            if row["scheduled_start_at"] is not None
+            else None,
             "registration_deadline": stamp(instant(row["registration_deadline"]))
             if row["registration_deadline"] is not None
             else None,
@@ -984,14 +1026,20 @@ class PlayerTournaments:
             "SELECT * FROM player_tournament_entrants WHERE tournament_id=? AND status='registered' ORDER BY seed,registered_at,account_id",
             (identifier,),
         ).fetchall()
-        accounts = resolve_accounts(
-            c, [row["official_winner"], *[e["account_id"] for e in entrants]]
-        )
+        accounts = self._accounts(c, [row["official_winner"], *[e["account_id"] for e in entrants]])
         detail = self._summary(c, row, accounts)
+        losses = dict(
+            c.execute(
+                "SELECT loser,COUNT(*) FROM player_tournament_matches WHERE tournament_id=? AND status='complete' AND loser IS NOT NULL GROUP BY loser",
+                (identifier,),
+            )
+        )
         detail["entrants"] = [
             {
                 "account_id": entry["account_id"],
                 "seed": entry["seed"],
+                "losses": losses.get(entry["account_id"], 0),
+                "eliminated": losses.get(entry["account_id"], 0) >= 2,
                 "registered_at": stamp(instant(entry["registered_at"])),
                 **accounts.get(entry["account_id"], {"name": ""}),
             }
@@ -1006,7 +1054,9 @@ class PlayerTournaments:
         }
         return detail
 
-    def listing(self, credential: str, *, status=None, limit=20, cursor=None) -> dict:
+    def listing(
+        self, credential: str, *, status=None, ruleset=None, phase=None, limit=20, cursor=None
+    ) -> dict:
         if status is not None and status not in (
             "registration",
             "running",
@@ -1014,6 +1064,10 @@ class PlayerTournaments:
             "cancelled",
         ):
             raise OnlineError(422, "Unknown tournament status.")
+        if ruleset is not None and ruleset not in RULESETS:
+            raise OnlineError(422, "Unknown tournament ruleset.")
+        if phase not in (None, "upcoming"):
+            raise OnlineError(422, "Unknown tournament phase.")
         if type(limit) is not int or not 1 <= limit <= MAX_LIST_PAGE:
             raise OnlineError(422, "Invalid pagination.")
         with self.store.connection() as c:
@@ -1023,8 +1077,14 @@ class PlayerTournaments:
             if status is not None:
                 clauses.append("status=?")
                 params.append(status)
+            if ruleset is not None:
+                clauses.append("ruleset=?")
+                params.append(ruleset)
+            if phase == "upcoming":
+                clauses.append("status='registration' AND scheduled_start_at>?")
+                params.append(micros(self._now()))
             if cursor is not None:
-                created, identifier = listing_cursor(cursor, status)
+                created, identifier = listing_cursor(cursor, status, ruleset, phase)
                 clauses.append("(created_at,id) < (?,?)")
                 params.extend([created, identifier])
             where = "WHERE " + " AND ".join(clauses) if clauses else ""
@@ -1037,11 +1097,18 @@ class PlayerTournaments:
             ]
             has_more = len(rows) > limit
             rows = rows[:limit]
-            accounts = resolve_accounts(c, [row["official_winner"] for row in rows])
+            accounts = self._accounts(c, [row["official_winner"] for row in rows])
             items = [self._summary(c, row, accounts) for row in rows]
             next_cursor = (
                 encode_cursor(
-                    {"k": "listing", "s": status, "t": rows[-1]["created_at"], "i": rows[-1]["id"]}
+                    {
+                        "k": "listing",
+                        "s": status,
+                        "r": ruleset,
+                        "p": phase,
+                        "t": rows[-1]["created_at"],
+                        "i": rows[-1]["id"],
+                    }
                 )
                 if has_more and rows
                 else None
@@ -1075,6 +1142,8 @@ class PlayerTournaments:
             "slot": match["slot"],
             "status": match["status"],
             "decided_by": match["decided_by"],
+            "source_a": match["source_a"],
+            "source_b": match["source_b"],
             "participants": {
                 "a": self._public(accounts, match["participant_a"]),
                 "b": self._public(accounts, match["participant_b"]),
@@ -1102,7 +1171,7 @@ class PlayerTournaments:
             "SELECT * FROM player_tournament_matches WHERE tournament_id=? ORDER BY bracket,round,slot",
             (identifier,),
         ).fetchall()
-        accounts = resolve_accounts(
+        accounts = self._accounts(
             c,
             [
                 seat
@@ -1128,6 +1197,7 @@ class PlayerTournaments:
                 reset = projection
         return {
             "tournament_id": identifier,
+            "version": row["version"],
             "status": row["status"],
             "review_state": row["review_state"],
             "bracket_size": row["bracket_size"],
@@ -1168,7 +1238,7 @@ class PlayerTournaments:
             ).fetchall()
             has_more = len(rows) > limit
             rows = rows[:limit]
-            accounts = resolve_accounts(
+            accounts = self._accounts(
                 c,
                 [
                     seat
@@ -1201,7 +1271,7 @@ class PlayerTournaments:
             ).fetchone()
             if row is None:
                 raise OnlineError(404, "Tournament match not found.")
-            accounts = resolve_accounts(
+            accounts = self._accounts(
                 c,
                 [row["participant_a"], row["participant_b"], row["winner"], row["loser"]],
             )

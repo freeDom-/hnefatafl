@@ -11,6 +11,7 @@ import type { AIProfile, Game, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
 import Tournaments from './Tournaments';
+import PlayerTournaments from './PlayerTournaments';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
@@ -47,7 +48,8 @@ type Tab =
   | 'leaderboard'
   | 'profile'
   | 'training'
-  | 'tournaments';
+  | 'tournaments'
+  | 'player-tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 
 export default function App() {
@@ -58,21 +60,23 @@ export default function App() {
   const tab: Tab =
     path.startsWith('/online/games/') || path.split('?')[0] === '/online'
       ? 'online'
-      : path.split('?')[0] === '/profile'
-        ? 'profile'
-        : path.split('?')[0] === '/statistics'
-          ? 'statistics'
-          : path.startsWith('/games/') || path.split('?')[0] === '/play'
-            ? 'play'
-            : path.split('?')[0] === '/archive'
-              ? 'archive'
-              : path.split('?')[0] === '/leaderboard'
-                ? 'leaderboard'
-                : path.startsWith('/training') && permissions.includes('training')
-                  ? 'training'
-                  : path.startsWith('/tournaments') && permissions.includes('tournaments')
-                    ? 'tournaments'
-                    : 'dashboard';
+      : /^\/player-tournaments(?:\/ptournament-[a-f0-9]{32})?$/.test(path.split('?')[0])
+        ? 'player-tournaments'
+        : path.split('?')[0] === '/profile'
+          ? 'profile'
+          : path.split('?')[0] === '/statistics'
+            ? 'statistics'
+            : path.startsWith('/games/') || path.split('?')[0] === '/play'
+              ? 'play'
+              : path.split('?')[0] === '/archive'
+                ? 'archive'
+                : path.split('?')[0] === '/leaderboard'
+                  ? 'leaderboard'
+                  : path.startsWith('/training') && permissions.includes('training')
+                    ? 'training'
+                    : path.startsWith('/tournaments') && permissions.includes('tournaments')
+                      ? 'tournaments'
+                      : 'dashboard';
   const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
@@ -667,6 +671,7 @@ export default function App() {
             ))}
           {tab === 'online' && <Online />}
           {tab === 'leaderboard' && <Leaderboard />}
+          {tab === 'player-tournaments' && <PlayerTournaments />}
           {tab === 'profile' && <ProfilePage />}
           {tab === 'archive' && <Archive />}
           {tab === 'tournaments' && permissions.includes('tournaments') && (

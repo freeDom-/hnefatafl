@@ -20,6 +20,7 @@ class TournamentCreation(BaseModel):
     match_legs: StrictInt = Field(default=1, ge=1, le=5)
     time_per_move: StrictInt = Field(default=259200, ge=60, le=1209600)
     registration_deadline: datetime | None = None
+    scheduled_start_at: datetime | None = None
 
 
 class ExpectedVersion(BaseModel):
@@ -59,11 +60,15 @@ def attach_player_tournaments(app, auth, online, *, clock=None):
     @app.get("/api/player-tournaments")
     def listing(
         status: Literal["registration", "running", "complete", "cancelled"] | None = None,
+        ruleset: Literal["brandubh", "tablut", "copenhagen"] | None = None,
+        phase: Literal["upcoming"] | None = None,
         limit: int = Query(default=20, ge=1, le=50),
         cursor: str | None = None,
     ):
         return execute(
-            lambda credential: core.listing(credential, status=status, limit=limit, cursor=cursor)
+            lambda credential: core.listing(
+                credential, status=status, ruleset=ruleset, phase=phase, limit=limit, cursor=cursor
+            )
         )
 
     @app.post("/api/player-tournaments", status_code=201)
@@ -77,6 +82,7 @@ def attach_player_tournaments(app, auth, online, *, clock=None):
                 match_legs=body.match_legs,
                 time_per_move=body.time_per_move,
                 registration_deadline=body.registration_deadline,
+                scheduled_start_at=body.scheduled_start_at,
             )
         )
 

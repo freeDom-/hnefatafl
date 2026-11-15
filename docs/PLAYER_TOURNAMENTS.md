@@ -3,7 +3,8 @@
 [Documentation index](README.md) · [Online play](ONLINE_PLAY.md) · [Rated games](RATINGS.md)
 
 Human player competitions live under `/api/player-tournaments/*` and are stored
-in their own schema-18 tables. They are deliberately **separate** from the
+in their own tournament tables. Schema 19 adds durable settlement and a planned
+start field. They are deliberately **separate** from the
 workshop [AI tournaments](TOURNAMENTS.md) (`/api/tournaments/*`, the
 `tournaments` table, model strength comparisons). Neither namespace reads or
 writes the other's storage, and neither can grant the other's entitlements.
@@ -88,6 +89,22 @@ legs materialised) → `complete`, or `bye` (a participant is missing), or
 
 Leg outcome: `a`, `b`, `draw`, `void`, or unset while the game is unfinished.
 
+## Arena interface
+
+`/player-tournaments` is the human competition section, linked from the Arena
+Compete sidebar and the full leaderboard on compact screens. The Workshop's
+`/tournaments` remains AI evaluation. Discovery supports bounded cursor pages,
+status, ruleset and planned upcoming filters. Details expose real participants,
+seeding, losses, rules and clocks, champion, playable online legs and results.
+The upper/lower bracket, grand final and reset have source-based progression paths,
+horizontal touch scrolling and an accessible list alternative. Registration and
+withdrawal use server authority; creation, start, cancellation, rebuild and overrides
+remain permission-gated, version-checked administrative actions.
+
+An optional planned start is informational, shown in the viewer's locale. It does
+not start a tournament automatically: an administrator still confirms the seeds
+and starts it. Registration deadlines must not exceed the planned start.
+
 ## Advancing from authoritative games
 
 When a match becomes ready, the service creates its `match_legs` games through
@@ -95,6 +112,22 @@ the online core inside the same transaction and records the returned `game_id`.
 Participants then play those games through the normal online endpoints, so
 clocks, deadlines, timeouts, concessions, moves and privacy behave exactly as in
 ordinary online play.
+
+Each committed result or result revision enqueues its affected tournament in the
+same SQLite transaction, deduplicated by tournament ID using the indexed leg game
+lookup. A server lifespan worker drains at most 20 due tournaments each second,
+serializing each advancement and queue deletion in one write transaction. No
+browser or manual settlement request is needed. Timeout results use the same path.
+A one-time startup reconciliation finds pre-worker/restored terminal revisions.
+
+Failed transactions remain queued across restart, with bounded exponential retries
+(up to 300 seconds). Logs and retry status contain no private exception payloads.
+Successful automatic settlement records a null system actor in the audit trail.
+Disputes retain the existing bracket freeze and require administrator rebuild;
+automatic settlement never impersonates an administrator to retire displaced games.
+The existing settlement endpoint remains an explicit immediate retry; the admin
+audit identifies automatic attempts. The queue's due index avoids periodic full
+history scans. Shutdown stops between tournament transactions.
 
 Settlement reads the authoritative `online_games.status` and the effective
 `online_results` revision:
@@ -147,12 +180,12 @@ retired the same way.
 All routes require an authenticated session. Reads are available to any account
 with `play`; moderation requires the administrator-only `tournaments` permission
 and the audit read requires `accounts`. Every response exposes published fields
-only: display name and username, never email addresses, session state, private
+only: display name, username and selected portrait ID, never email addresses, session state, private
 notes or another account's private profile.
 
 | Method | Route | Permission | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/player-tournaments` | play | Cursor-paged list; optional `status` filter |
+| `GET` | `/api/player-tournaments` | play | Cursor-paged list; optional `status`, `ruleset`, `phase=upcoming` filters |
 | `POST` | `/api/player-tournaments` | tournaments | Create a tournament |
 | `GET` | `/api/player-tournaments/{id}` | play | Detail with entrants and match counts |
 | `GET` | `/api/player-tournaments/{id}/bracket` | play | Upper/lower rounds, grand final and reset |
@@ -191,14 +224,13 @@ failures, `403` for missing permission and `401` for a missing session.
 
 ## Schema
 
-Schema 18 adds `player_tournaments`, `player_tournament_entrants`,
-`player_tournament_matches`, `player_tournament_legs` and
-`player_tournament_audit`. This branch also carries schema 17 (the Arena v2
-progression tables merged from PR #78), so the schema versions are monotonic
-(16 → 17 → 18) and neither is skipped. The audit table is append-only
-and every participant-visible mutation records an actor. The tournament tables
-participate in the online restore/retain boundary, so a restore keeps bracket
-state consistent with the online games it references.
+Schema 18 introduced the tournament, entrant, match, leg and append-only audit
+tables. Schema 19 adds `player_tournament_settlement_queue` and nullable
+`scheduled_start_at`. This additive upgrade preserves games, training jobs,
+checkpoints and models. Queue entries participate in the online restore/retain
+boundary, keeping bracket work consistent with the retained authoritative games.
+Fresh installations initialize the same schema. Keep a backup before upgrading;
+restore compatibility still requires matching schemas.
 
 ## Limitations
 
