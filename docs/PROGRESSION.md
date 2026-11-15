@@ -21,8 +21,8 @@ Delivered:
 Deliberately out of scope: paid currency, any XP or soft-currency economy, client
 awarded unlocks and login/activity streaks. Human player tournaments are a separate
 implemented backend using schema 18; leagues remain unimplemented (schema 19
-reserved). Portrait Hall, achievement claiming and selection are delivered by the
-separate Portrait Hall PR (#86); the post-#84 audit baseline predates them.
+reserved). Portrait Hall, achievement claiming and selection are implemented; the
+post-#84 audit baseline predates them.
 
 ## Portrait Hall and player artwork
 
@@ -242,28 +242,35 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 
 ## Frontend integration
 
-- `GET /api/portraits/catalog` is the gallery: stable IDs, names and the unlocking
-  achievement ID
-- `GET /api/personal/achievements` is the lock explanation and the entitlement
-  source: a portrait is selectable when it is the default or when its unlocking
-  achievement reports `unlocked: true`
-- F4 must persist a new unlock with `POST /api/personal/achievements/confirm`; the
-  read alone never confirms anything, so the UI confirms first (for example when the
-  achievements view opens) and renders the projection that comes back
-- `PATCH /api/profile/portrait` returns the same projection as `GET /api/profile`, so
-  the client can update its profile state from one response
-- never derive an unlock from client state or a local "best streak"; the backend
-  rechecks entitlement inside the selection transaction
+- `GET /api/portraits/catalog` supplies the gallery's stable IDs, names and the
+  unlocking achievement ID; the client maps IDs to bundled artwork and never accepts
+  a URL or path from the account
+- `GET /api/personal/achievements` explains each lock and supplies entitlement: a
+  portrait is selectable when it is the default or when its unlocking achievement
+  reports `unlocked: true`
+- the authenticated `/portraits` page renders locked, ready-to-claim, unlocked and
+  selected states from the server projection; reading progress never confirms
+- **Claim eligible achievements** posts `POST /api/personal/achievements/confirm`
+  and renders the returned projection; the action is idempotent and coalesces while
+  one request is in flight
+- selecting an earned portrait posts `PATCH /api/profile/portrait`; the returned
+  profile projection updates the client immediately, and the payload-free
+  `profile-changed` event refreshes owner-scoped views. A confirmed selection
+  survives a failed follow-up read, and a mutation error is cleared once a later
+  authoritative refresh proves the server committed the operation
+- the client never derives an unlock from client state or a local "best streak";
+  the backend rechecks entitlement inside the selection transaction
 
 ## Known limitations
 
 - awards are confirmed by an explicit `POST /api/personal/achievements/confirm` (or
   when a portrait is first selected), not by a background job, so `awarded_at` is
   the confirmation time and the read never confirms anything
-- no unlock notification, history entry or audit trail beyond the confirmed award row
+- unlock notifications are in-session only; there is no persisted notification
+  history or audit trail beyond the confirmed award row
 - only the aggregate best rated win streak has achievements; per-ruleset streaks stay
   a progress projection
 - `local-first-game` grants no portrait, and neither the catalog nor the profile
   reports an entitlement flag; the client joins the catalog with the achievement list
-- the leaderboard and online lobby participant projections are unchanged and do not
-  expose `portrait_id` in this change
+- leaderboard and online lobby participant projections publish the effective
+  `portrait_id` only; detailed achievement progress stays private

@@ -15,8 +15,11 @@ reported only through the existing stale/retry notice, with automatic recovery o
 the next successful refresh. The Profile selected-portrait section shows an
 accessible loading state and never invents artwork before the server confirms the
 profile. The `/portraits` route is lazy-loaded behind the existing shell loading
-state so unrelated routes do not download the gallery chunk. Profile
-and Dashboard link to the gallery. Published leaderboard/online DTOs include only
+state so unrelated routes do not download the gallery chunk. Gallery artwork is
+capped at its native 320px resolution and centered in its card, so very wide
+displays cannot upscale the original images; the card frame and copy still fill the
+available column. Profile and Dashboard link to the gallery. Published
+leaderboard/online DTOs include only
 the effective portrait ID, batch-resolved with default/retirement fallback.
 
 ## Browser evidence
@@ -25,7 +28,9 @@ Inspected all four themes on desktop and phone in English and German. The browse
 spec checks real catalog assets, server-shaped progress/confirmation/selection,
 keyboard actions, paragraph contrast >=4.5:1, no horizontal overflow, profile and
 Dashboard propagation and links. It scrolls/decode-checks all twelve lazy artworks
-before full-page capture. The standalone backend tests drive real awards/selection;
+before full-page capture and verifies each 320x320 artwork stays square, never
+exceeds its native size and never overflows its card at 320/390/1920/3840 CSS px.
+The standalone backend tests drive real awards/selection;
 visual tests use controlled authoritative responses for all four collectible states.
 
 - [Desktop four-theme contact sheet](../screenshots/portrait-hall/desktop-themes.jpg)
@@ -51,7 +56,7 @@ acceptance remain separate completion-program work, not claimed by these capture
 ## Local validation
 
 - Gallery browser matrix: **8 passed**; focused sidebar-current-page case: **1 passed**.
-- Gallery unit tests: **17 passed**; integration selection covering gallery,
+- Gallery unit tests: **21 passed**; integration selection covering gallery,
   Dashboard, Profile and leaderboard: **72 passed** before the last two additional
   gallery cases; final full CI supplies complete counts.
 - Progression/ratings/online core/online API/public API: **212 passed**, one existing
