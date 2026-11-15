@@ -62,7 +62,12 @@ minutes. The failed run completed real training/checkpoint writes after unusuall
 slow startup; it is not reported as an all-green suite. No timeout or gameplay,
 geometry or accessibility assertion was weakened.
 
-Full branch CI and final clean-build network evidence are pending. These results
+Clean production revision `64819d6ebd16d61f46f8873676b994c1c91bbb4a` passed
+[the actual request probe](measurements/frontend-feature-network.json): only the
+1,862-byte first-paint script and 535,529-byte application entry arrived initially.
+Workshop navigation subsequently requested Training and its four shared chunks;
+all nine excluded feature families were absent initially. Source/build Git
+identity and the complete asset fingerprint matched. Full branch CI is pending. These results
 do not establish physical-device performance, merged cross-feature visual
 acceptance or release readiness. Separate tournament, spectator and league work
 is outside this branch.
