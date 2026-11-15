@@ -26,6 +26,13 @@ visual tests use controlled authoritative responses for all four collectible sta
 - [King's Table 1920×1080 / Default](../screenshots/portrait-hall/kings-table-1920.webp)
 - [King's Table 3840×2160 / Large](../screenshots/portrait-hall/kings-table-3840.webp)
 
+| Theme | 1920×1080 | 3840×2160 |
+| --- | --- | --- |
+| King's Table | [Capture](../screenshots/portrait-hall/kings-table-1920.webp) | [Capture](../screenshots/portrait-hall/kings-table-3840.webp) |
+| Iron & Ash | [Capture](../screenshots/portrait-hall/iron-ash-1920.webp) | [Capture](../screenshots/portrait-hall/iron-ash-3840.webp) |
+| Saga Hall | [Capture](../screenshots/portrait-hall/saga-hall-1920.webp) | [Capture](../screenshots/portrait-hall/saga-hall-3840.webp) |
+| Classic Table | [Capture](../screenshots/portrait-hall/classic-table-1920.webp) | [Capture](../screenshots/portrait-hall/classic-table-3840.webp) |
+
 The contact sheets are viewport reviews; native images are full-page captures.
 The CI `arena-final-visual-acceptance` artifact also retains all 32 full gallery
 captures (four themes × two languages × four desktop/phone sizes) before later
@@ -50,3 +57,18 @@ An initial new backend test called `list` instead of `listing`; corrected before
 the clean 212-case run. An initial browser computed-style read detached during
 React replacement; the assertion now retries connected elements with the unchanged
 4.5:1 requirement. No layout or accessibility threshold was lowered.
+
+## Full-CI correction pass
+
+Initial CI found six backend exact-projection/restore assertions not yet updated
+for published portraits, and two transition-time browser measurements. Unavailable
+accounts now retain their original anonymous seat shape without portrait metadata;
+active public DTO allowlists explicitly include only `portrait_id`. The restore
+fixture captures current profile metadata after selecting the retained portrait,
+then still compares the full restored game and every retained table.
+
+The browser measurements keep every geometry threshold and expected card count,
+retrying a settled resize and returning false while a board is temporarily absent
+instead of throwing out of `expect.poll`. Corrected affected backend suites:
+**69 passed**, one existing warning. Corrected browser regressions: **3 passed,
+1 intentional desktop skip**. Complete CI is rerun on the final head.

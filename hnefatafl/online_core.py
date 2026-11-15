@@ -692,7 +692,9 @@ class OnlineCore:
                 {
                     "account_id": identifier,
                     **accounts.get(identifier, public_identity(None)),
-                    "portrait_id": portraits[identifier],
+                    # An unavailable account keeps its authoritative seat but
+                    # must not disclose saved profile/portrait metadata.
+                    **({"portrait_id": portraits[identifier]} if identifier in accounts else {}),
                 }
                 if identifier
                 else None
