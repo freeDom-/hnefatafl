@@ -33,7 +33,14 @@ bitmap assets in the application and no added animation.
 | Iron and Ash, mobile | [390px, Chromium phone emulation](../screenshots/tiered-achievements/iron-ash-390.png) |
 | Classic Table, 4K | [3840px](../screenshots/tiered-achievements/classic-table-3840.png) |
 
-The tests additionally exercise all four themes at 320/390/1920/3840 CSS pixels,
+Full Portrait Hall and score captures:
+
+- [King's Table desktop gallery and score](../screenshots/tiered-achievements/gallery-kings-table-1920.jpg)
+- [Iron and Ash mobile gallery and score](../screenshots/tiered-achievements/gallery-iron-ash-390.jpg)
+- [Saga Hall tablet portraits at 768px](../screenshots/tiered-achievements/gallery-saga-hall-768.jpg)
+- [Overall score and unclaimed points](../screenshots/tiered-achievements/score-kings-table.jpg)
+
+The tests additionally exercise all four themes at 320/390/768/1920/3840 CSS pixels,
 English and German, keyboard collection/selection, portrait fallback on direct
 routes, contrast and horizontal overflow. Image checks compare rendered width
 multiplied by device pixel ratio against the native 320px bitmap, and require
@@ -51,17 +58,27 @@ acceptance artifact.
   legacy portraits, actual rulesets/roles, simultaneous/sequential return legs,
   replay identity/authorization and bounded query counts.
 - Migration/progression and new replay worker/partial-report checks: **40 passed**.
-- Final tier browser matrix: **8 passed**, all four themes on desktop and phone;
-  desktop cases include 1920px and 3840px captures.
+- Combined gallery/tier/fallback browser matrix: **22 passed**, all four themes,
+  English/German, keyboard claims and portrait selection, direct-route fallback,
+  native bitmap bounds, contrast and overflow.
+- Final extended tier matrix: **8 passed**, including 768px tablet portrait bounds,
+  phone views, 1920px desktop and 3840px captures across all four themes.
+- Final analysis regression suites: **91 passed** (API, background and coordination).
+- Markdown links, Ruff lint/formatting, mypy, frontend formatting/TypeScript,
+  frontend benchmark test and production build: passed. Existing large-chunk
+  advisory and Starlette/httpx deprecation warning remain.
 - The initial full `make check` backend run reported **3,392 passed, 48 skipped**
   and one failing future-schema fixture, which still used schema 19 as a future
   version. The fixture now uses 21 and passes in the focused migration rerun.
   Hardware/optional-runtime skips remain limitations; this is not a claim that
   that initial `make check` invocation passed.
 
-The final PR checks provide validation of the committed source. The gallery
-matrix, final analysis regressions and production build are recorded on the PR
-when their runs finish.
+The final PR checks provide full validation of the committed source. Browser
+runs used disposable storage and isolated local ports because the default test
+port was occupied. Temporary port overrides were removed after validation.
+Repository screenshot copies use JPEG encoding for full gallery captures;
+original PNG captures remain in the CI artifact. No image sharpening or UI bitmap
+upscaling is used.
 
 ## Remaining scope
 

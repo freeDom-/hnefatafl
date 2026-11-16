@@ -54,11 +54,11 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
       localStorage.setItem('hnefatafl-appearance', JSON.stringify({ version: 2, uiTheme: theme }));
     }, theme);
     mkdirSync('test-results/achievement-tiers', { recursive: true });
-    const widths = info.project.name === 'mobile' ? [390] : [1920, 3840];
+    const widths = info.project.name === 'mobile' ? [390, 768] : [1920, 3840];
     for (const width of widths) {
       await page.setViewportSize({
         width,
-        height: width === 390 ? 844 : width === 1920 ? 1080 : 2160,
+        height: width === 390 ? 844 : width === 768 ? 1024 : width === 1920 ? 1080 : 2160,
       });
       await page.goto('/portraits');
       const list = page.locator('.portrait-achievement-list');
@@ -80,6 +80,29 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
       ).toBe(true);
+      if (width === 768) {
+        const gallery = page.locator('.portrait-gallery');
+        for (const image of await gallery.locator('img').all()) {
+          await image.scrollIntoViewIfNeeded();
+          await expect(async () => {
+            const size = await image.evaluate((node: HTMLImageElement) => ({
+              complete: node.complete && node.naturalWidth > 0,
+              pixels: node.getBoundingClientRect().width * devicePixelRatio,
+              native: node.naturalWidth,
+            }));
+            expect(size.complete).toBe(true);
+            expect(size.pixels).toBeLessThanOrEqual(size.native + 1);
+          }).toPass();
+        }
+        await gallery.screenshot({
+          path: `test-results/achievement-tiers/${theme}-tablet-gallery.png`,
+        });
+      }
+      if (width === 1920) {
+        await page
+          .locator('.achievement-score')
+          .screenshot({ path: `test-results/achievement-tiers/${theme}-score.png` });
+      }
       await page
         .locator('.portrait-achievements')
         .screenshot({ path: `test-results/achievement-tiers/${theme}-${width}.png` });
