@@ -60,6 +60,22 @@ transport so the next request creates a fresh worker. Terminal positions disable
 Move and AI selection (analysis remains available), invalid or empty moves are
 rejected, and playable positions restore the controls.
 
+### Third review corrections
+
+Foreground gameplay has explicit priority over background analysis. The client
+tracks whether the active worker job is foreground; a background request or cached
+result never terminates a foreground New Game, Restore, Move or AI operation.
+Foreground work still preempts background analysis, multiple background analyses
+retain newest-request-wins behavior, and a background request that cannot preempt
+the foreground is discarded with `ForegroundPriorityError` instead of disturbing
+the current position or status.
+
+Fixture loading is wrapped in the same foreground ownership: a delayed fetch that
+is superseded by a newer game returns without starting worker work or overwriting
+the status, and manual Cancel invalidates it. An active analysis failure now clears
+the `Analyzing…` indicator before reporting the error, and cancellation with no
+active work is a no-op that preserves the healthy idle worker.
+
 ## Reproduce
 
 From the repository root, with existing Python/Node development dependencies:

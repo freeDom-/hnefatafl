@@ -180,6 +180,25 @@ Worker startup-failure recovery was exercised at the client level with a fake
 transport; the app-level early-Cancel and rapid-New-Game recovery used the real
 worker and an offline reload. No external or `/api/` request was observed.
 
+### Third review follow-up
+
+Both profiles also passed the final asynchronous-lifecycle corrections:
+
+| Third follow-up check | Desktop | Mobile-emulated 4× |
+| --- | --- | --- |
+| Background cache miss does not preempt a foreground job | Passed | Passed |
+| Background cache hit does not terminate a foreground job | Passed | Passed |
+| App-level background analysis yields to a foreground job | Passed | Passed |
+| Delayed fixture load cannot preempt or overwrite a newer game | Passed | Passed |
+| Invalid analysis settings clear the pending indicator | Passed | Passed |
+| Simulated worker transport failure clears the indicator and recovers | Passed | Passed |
+| Repeated idle cancellation preserves the worker instance | Passed | Passed |
+| Active cancellation still terminates and recovers | Passed | Passed |
+
+Foreground priority was exercised both at the client level with a delayed fake
+worker (deterministic message ordering) and at the app level with the real worker
+probe. No external or `/api/` request was observed.
+
 ## Production and neural decision
 
 **Classical engine reuse is feasible experimentally; production integration is not
