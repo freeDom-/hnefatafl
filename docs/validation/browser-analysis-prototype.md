@@ -149,11 +149,36 @@ and the added lifecycle cases:
 | ASCII/multibyte/exact/over 512 KiB UTF-8 boundary | Passed | Passed |
 | Synchronous `postMessage` failure clears pending state | Passed | Passed |
 
-Cancellation still acknowledged with `AbortError` and hard-timeout termination with
-`AbortError`; worker restart after termination measured ~2.0 s desktop and ~2.7 s
+Cancellation still acknowledged with `AbortError`; hard-deadline termination now
+raises a distinct `TimeoutError` so it is not reported as successful user
+cancellation. Worker restart after termination measured ~2.0 s desktop and ~2.7 s
 mobile-emulated. No external or `/api/` request was observed. These are single
 observations on the same cloud host, not percentiles. The machine-readable
 `browser-analysis-prototype.json` remains the original run and is not recast.
+
+### Second review follow-up
+
+The same desktop and mobile-emulated profiles passed the additional corrections:
+
+| Second follow-up check | Desktop | Mobile-emulated 4× |
+| --- | --- | --- |
+| Early Cancel still registers the service worker and startup resolves | Passed | Passed |
+| Rapid New Game recovery (newest wins) | Passed | Passed |
+| Offline reload after cancelled/recovered startup | Passed | Passed |
+| Cache-hit preemption cancels the slower search | Passed | Passed |
+| Cached result, not the superseded search, stays displayed | Passed | Passed |
+| Manual Cancel clears "Analyzing…" immediately and is idempotent | Passed | Passed |
+| `AbortError` / `TimeoutError` / failure have distinct status | Passed | Passed |
+| Obsolete analysis error cannot overwrite newer status | Passed | Passed |
+| `postMessage` failure resets transport; replacement worker recovers | Passed | Passed |
+| Worker startup failure followed by recovery | Passed | Passed |
+| Idempotent, spike-scoped service-worker registration | Passed | Passed |
+| Terminal Move/AI disabled across all three rulesets | Passed | Passed |
+| Invalid/empty moves rejected; playable position restores controls | Passed | Passed |
+
+Worker startup-failure recovery was exercised at the client level with a fake
+transport; the app-level early-Cancel and rapid-New-Game recovery used the real
+worker and an offline reload. No external or `/api/` request was observed.
 
 ## Production and neural decision
 

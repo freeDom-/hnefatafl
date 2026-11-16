@@ -41,6 +41,25 @@ bytes on both sides of the worker boundary; the Python `dispatch` check remains 
 independent safety boundary. Multibyte payloads whose UTF-16 length is within the
 limit but whose UTF-8 encoding exceeds it are rejected.
 
+### Second review corrections
+
+Offline service-worker registration is independent of the cancellable initial
+game. Cancelling or replacing that game cannot prevent registration, a failed or
+cancelled attempt can be retried, duplicate registrations are avoided by a cached
+startup promise, installation failure or a stalled activation is surfaced
+explicitly, and the scope stays the isolated spike directory. The startup promise
+always settles.
+
+A cache hit is treated as the newest request: it cancels any slower in-flight
+search instead of leaving it running, while an idle worker is never restarted for
+an ordinary cache hit. Manual Cancel clears the analyzing indicator immediately and
+is idempotent. Cancellation (`AbortError`), hard timeout (`TimeoutError`), worker
+failure and supersession now produce distinct feedback, and obsolete handlers
+cannot overwrite newer status. A synchronous `postMessage` failure resets the
+transport so the next request creates a fresh worker. Terminal positions disable
+Move and AI selection (analysis remains available), invalid or empty moves are
+rejected, and playable positions restore the controls.
+
 ## Reproduce
 
 From the repository root, with existing Python/Node development dependencies:
