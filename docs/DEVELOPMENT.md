@@ -6,9 +6,9 @@
 
 Use the existing checkout; cloud tasks are already isolated. Do not create a Git
 worktree unless explicitly requested. Python 3.12 is recommended (3.11+ supported),
-Node 22+ is required (CI runs the frontend unit/build job on Node 22.12 and the
-browser suite on Node 24, and fails on moderate npm advisories), and CI pins uv
-0.12.23. From the root:
+Node.js 22.12+ (or Node.js 24+) is required (CI runs the frontend unit/build job
+on Node 22.12 and the browser suite on Node 24, and fails on moderate npm
+advisories), and CI pins uv 0.12.23. From the root:
 
 ```sh
 make install
@@ -120,6 +120,11 @@ Run focused tests first when appropriate, for example:
 .venv/bin/python -m pytest tests/test_engine.py
 npm --prefix frontend test -- src/Board.test.tsx
 ```
+
+Vitest already defaults to one worker per reported CPU minus one. On a loaded or
+CPU-limited host, cap it explicitly, for example
+`npm --prefix frontend test -- --maxWorkers=4`. Do not raise `testTimeout` to hide
+worker contention.
 
 Full browser validation starts actual backend/Vite services with isolated temporary
 storage, ports 8001/4173 and one worker. From the root:

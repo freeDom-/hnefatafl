@@ -13,7 +13,7 @@ package counts, not unique advisory counts. Production-only audit was already ze
 
 The selected 4.x release resolves the reported mocker advisories and removes the
 old tinypool/vite-node graph. It is a smaller major-line migration than npm's
-suggested latest-5.x force upgrade, and supports the repository's Node 22+/Vite 7
+suggested latest-5.x force upgrade, and supports the repository's Node 22.12+/Vite 7
 configuration. No `--force` or blanket test-reset flags are used.
 
 Primary advisory references:
@@ -76,8 +76,42 @@ count):
 The full unit suite also passes on Node 24.11.1 on the same host, so the earlier
 full-suite timeouts on a high-core development host are host oversubscription (two
 long async table tests exceed the 20 s per-test timeout when more workers run than
-CPU capacity supports), not a Node 22 or Vitest 4 regression. Limiting workers to
-the CI runner count reproduces the green suite; CI uses the runner's worker count.
+CPU capacity supports), not a Node 22 or Vitest 4 regression.
+
+## Vitest worker count
+
+Vitest 4 already bounds `maxWorkers`: it defaults to
+`max(availableParallelism() - 1, 1)`, not to an unbounded value. The reported
+timeouts occur when a host reports more CPUs than the run can actually schedule,
+so the default spawns more workers than the machine can service. The full unit
+suite was measured on the 4-CPU verification host at several explicit worker
+counts:
+
+| Workers | Node 22.23.4 | Node 24.22.2 |
+| --- | --- | --- |
+| 3 (default) | **1,312 passed**, 199 s | **1,312 passed**, 179 s |
+| 4 | **1,312 passed**, 203 s | not rerun |
+| 8 | 1,310 passed, 2 failed, 220 s | 1,311 passed, 1 failed, 205 s |
+| 16 | 1,298 passed, 14 failed, 229 s | not rerun |
+
+The failures are the same two long async table tests exceeding the unchanged
+20 s per-test timeout, not assertion differences, and they reproduce on both
+Node lines. Oversubscription is also slower than the default, so more workers is
+not a performance trade-off worth making. Durations are wall-clock on the
+verification host and move with host load.
+
+No `maxWorkers` bound is committed. The default already tracks the reported CPU
+count, and no static cap can correct a host that over-reports capacity: a cap low
+enough to keep the affected host green (four) would impose a large parallelism
+loss on genuine high-core hosts, and a higher cap would not prevent the reported
+failure. `frontend/vite.config.ts` therefore keeps Vitest's default and relies on
+Vitest's built-in override for loaded or CPU-limited hosts:
+
+```sh
+npm --prefix frontend test -- --maxWorkers=4
+```
+
+The 20 s `testTimeout` is unchanged; contention is not hidden by raising it.
 
 ## Browser resize correction
 
