@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "clients": 5,
+  "clientIsolation": "Independent browser contexts share one disposable account/session; not a unique-player population benchmark.",
+  "aggregateLatency": "Request start through body completion on loopback, including client scheduling; not production capacity.",
+  "sourceHead": "3b83d910c0dca9b1867d043344c47e06d9dbd666",
+  "source": {
+    "revision": "3b83d910c0dca9b1867d043344c47e06d9dbd666",
+    "dirty": false,
+    "git": true
+  },
+  "build": {
+    "revision": "3b83d910c0dca9b1867d043344c47e06d9dbd666",
+    "dirty": false,
+    "git": true,
+    "builtAt": "2026-11-16T22:29:48.937Z",
+    "fingerprint": "49735ca9e79f26d4ecb4c643d2e1002c7f63b196489b683cadb64bf801200916",
+    "recordedFingerprint": "49735ca9e79f26d4ecb4c643d2e1002c7f63b196489b683cadb64bf801200916",
+    "fingerprintScope": "dist/index.html and every file under dist/ except arena-build.json",
+    "allowDirty": false
+  },
+  "measuredAt": "2026-11-16T22:33:07.037Z",
+  "node": "v22.23.4",
+  "chromium": "156.0.8078.4",
+  "os": "7.0.14-26-pve",
+  "logicalCpus": 4,
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "frontend": "production Vite preview of existing frontend/dist; build before running",
+  "fixture": "isolated real browser fixture backend, authenticated administrator; empty, then one active same-device Brandubh game",
+  "sampleWindowMs": 60000,
+  "warmupMs": 5000,
+  "scope": "Browser page /api/ request starts only; setup APIRequestContext traffic excluded. Normalized identifiers; no payloads or credentials recorded.",
+  "hiddenCaveat": "document.visibilityState override and visibilitychange signal test app policy; this is not real OS background throttling or a physical device.",
+  "phases": {
+    "empty-startup": {
+      "requests": 55,
+      "endpoints": {
+        "GET /api/auth/me": 5,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 5,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 5,
+        "GET /api/personal/online?limit=25": 5,
+        "GET /api/history/games?dashboard=true": 5,
+        "GET /api/personal/local?limit=5&status=in_progress": 5,
+        "GET /api/personal/progress": 5,
+        "GET /api/portraits/catalog": 5,
+        "GET /api/personal/achievements": 5,
+        "GET /api/profile": 5,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=1&offset=0": 5
+      },
+      "failed": 0,
+      "statuses": {
+        "200": 55
+      },
+      "requestsPerClient": 11,
+      "requestsPerMinutePerClient": null,
+      "latencyMs": {
+        "observations": 55,
+        "p50": 250.2609950000001,
+        "p95": 416.30221200000005,
+        "maximum": 453.4613089999998
+      }
+    },
+    "empty-visible": {
+      "requests": 55,
+      "endpoints": {
+        "GET /api/personal/online?limit=25": 30,
+        "GET /api/auth/me": 5,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 5,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 5,
+        "GET /api/history/games?dashboard=true": 5,
+        "GET /api/personal/local?limit=5&status=in_progress": 5
+      },
+      "failed": 0,
+      "statuses": {
+        "200": 55
+      },
+      "elapsedMs": 60000.66037499999,
+      "requestsPerClient": 11,
+      "requestsPerMinutePerClient": 10.999878932582499,
+      "latencyMs": {
+        "observations": 55,
+        "p50": 8.4769780000006,
+        "p95": 17.194284999997762,
+        "maximum": 23.888538999999582
+      }
+    },
+    "fixture-setup": {
+      "requests": 0,
+      "endpoints": {},
+      "failed": 0,
+      "statuses": {},
+      "requestsPerClient": 0,
+      "requestsPerMinutePerClient": null,
+      "latencyMs": {
+        "observations": 0,
+        "p50": null,
+        "p95": null,
+        "maximum": null
+      }
+    },
+    "active-startup": {
+      "requests": 70,
+      "endpoints": {
+        "GET /api/auth/me": 5,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 5,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 5,
+        "GET /api/personal/online?limit=25": 5,
+        "GET /api/history/games?dashboard=true": 5,
+        "GET /api/personal/local?limit=5&status=in_progress": 5,
+        "GET /api/personal/progress": 5,
+        "GET /api/portraits/catalog": 5,
+        "GET /api/personal/achievements": 5,
+        "GET /api/profile": 5,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=1&offset=0": 5,
+        "GET /api/games/:id": 10,
+        "GET /api/leaderboard?ruleset=brandubh&limit=1&offset=0": 5
+      },
+      "failed": 5,
+      "statuses": {
+        "200": 65
+      },
+      "requestsPerClient": 14,
+      "requestsPerMinutePerClient": null,
+      "latencyMs": {
+        "observations": 65,
+        "p50": 182.5546980000072,
+        "p95": 408.19634600001154,
+        "maximum": 443.5970440000092
+      }
+    },
+    "active-visible": {
+      "requests": 115,
+      "endpoints": {
+        "GET /api/personal/online?limit=25": 30,
+        "GET /api/games/:id": 60,
+        "GET /api/auth/me": 5,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 5,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 5,
+        "GET /api/history/games?dashboard=true": 5,
+        "GET /api/personal/local?limit=5&status=in_progress": 5
+      },
+      "failed": 0,
+      "statuses": {
+        "200": 115
+      },
+      "elapsedMs": 60000.44364500001,
+      "requestsPerClient": 23,
+      "requestsPerMinutePerClient": 22.999829937340788,
+      "latencyMs": {
+        "observations": 115,
+        "p50": 15.827335000009043,
+        "p95": 34.92974900000263,
+        "maximum": 51.02138799999375
+      }
+    },
+    "active-simulated-hidden": {
+      "requests": 0,
+      "endpoints": {},
+      "failed": 0,
+      "statuses": {},
+      "elapsedMs": 60001.07582699999,
+      "requestsPerClient": 0,
+      "requestsPerMinutePerClient": 0,
+      "latencyMs": {
+        "observations": 0,
+        "p50": null,
+        "p95": null,
+        "maximum": null
+      }
+    }
+  }
+}

@@ -16,12 +16,17 @@ cadence: 5s/10s callers keep the historical 30-second ceiling, while a failing
 60-second read backs off to 120 seconds and resets after success. Server hero
 versions invalidate the owning queue only when changed. Server result aggregate
 changes refresh progress/standing/recent/achievement projections, including
-external results and corrections; the unlocked-portrait count follows the
+external results and corrections; per-side wins are part of the change signature
+so a correction that keeps total wins/losses but moves the winning seat is still
+detected. The active hero reaching or correcting a terminal result refreshes the
+same projections once, covering local completion and single-player AI victories
+without reading on ordinary moves. The unlocked-portrait count follows the
 server-authoritative award list. A permissions-changed event that lands while a
-hidden-tab abort is unwinding is revalidated instead of discarded, and repeated
-events coalesce into one follow-up read. No client-derived winners/rewards/counts
-or shared cache are introduced. English/German authoritative singular labels are
-corrected.
+hidden-tab abort is unwinding is revalidated instead of discarded, a
+permission-initiated read aborted by hiding is reissued even while hidden, only a
+security read clears the pending invalidation, and repeated events coalesce into
+one follow-up read. No client-derived winners/rewards/counts or shared cache are
+introduced. English/German authoritative singular labels are corrected.
 
 ## Recorded production candidate measurement
 
@@ -60,16 +65,18 @@ cadence is separately covered with fake timers.
 
 ## Validation
 
-Focused polling/auth/dashboard suite on the integrated revision: **69 passed
+Focused polling/auth/dashboard suite on the final integrated revision: **77 passed
 across four files** (`useOnlinePoll`, `Auth`, `PersonalDashboard`, `Leaderboard`).
 TypeScript, formatting and the production build passed. The twelve
-recorded-build/source/fingerprint tests also passed. A full parallel frontend run
-reported 1,355 passed with one timing-sensitive `StatisticsPage` failure that
-passed in isolation and is not a regression. No assertion or timeout was relaxed.
-Added tests cover 5s/10s/60s failure backoff and recovery, hidden-tab pausing and
-cleanup, a permission event during a hidden abort, repeated permission events
-during an active refresh, and a rated-result achievement refresh without a poll
-loop. Full locked-dependency repository/browser CI is required on the PR.
+recorded-build/source/fingerprint tests also passed. The full parallel frontend
+run reported **1,364 passed** with no failures. No assertion or timeout was
+relaxed. Added tests cover 5s/10s/60s failure backoff and recovery, hidden-tab
+pausing and cleanup, a permission event during a hidden abort, a
+permission-initiated read aborted by hiding, repeated permission events during an
+active refresh, redundant visibility/focus suppression while a security read is
+pending, local completion, single-player AI victory, active-hero terminal
+transitions, side-specific rated corrections and stable-state idle behavior. Full
+locked-dependency repository/browser CI is required on the PR.
 
 No backend/API/schema/game-rule/dependency changes. This optimizes polling, not
 bundle size or database query complexity. Final merge/release acceptance is pending.
@@ -123,4 +130,31 @@ write/AI test.
 npm --prefix frontend run build
 node frontend/benchmarks/arena-polling.mjs --clients=5 \
   --output=docs/benchmarks/arena-polling-integrated-five-contexts.json
+```
+
+## Final integrated measurement
+
+Clean source/build `3b83d910c0dca9b1867d043344c47e06d9dbd666`, matching complete
+bundle fingerprint (`49735ca9e79f26d4ecb4c643d2e1002c7f63b196489b683cadb64bf801200916`),
+no dirty override: [full record](../benchmarks/arena-polling-final-five-contexts.json).
+This revision merges the latest `main` (test-toolchain security) and the
+permission-invalidation and achievement-invalidation fixes.
+
+| Phase | Actual elapsed | Total requests | Per context/minute | Failures | p95 completion |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Empty visible | 60,000.66 ms | 55 | 11.00 | 0 | 17.19 ms |
+| Active visible | 60,000.44 ms | 115 | 23.00 | 0 | 34.93 ms |
+| Simulated hidden | 60,001.08 ms | 0 | 0 | 0 | No requests |
+
+The steady request counts are unchanged from the earlier measurements, which is
+expected: the new invalidations only fire on a terminal or corrected result, and
+the benchmark's active game never completes. All steady HTTP statuses were200;
+five expected reload aborts during active startup remain separate. Five
+independent browser contexts still share one disposable account/session: this is
+not a distinct-player population, capacity or write/AI test.
+
+```sh
+npm --prefix frontend run build
+node frontend/benchmarks/arena-polling.mjs --clients=5 \
+  --output=docs/benchmarks/arena-polling-final-five-contexts.json
 ```
