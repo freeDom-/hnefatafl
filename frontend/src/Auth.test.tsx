@@ -392,3 +392,169 @@ it('coalesces repeated permission events during an active refresh into one follo
     vi.useRealTimers();
   }
 });
+
+it('reissues a permission-initiated read that hiding the tab aborts', async () => {
+  vi.useFakeTimers();
+  let resolveSecurity!: (value: Response) => void;
+  const security = new Promise<Response>((resolve) => {
+    resolveSecurity = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((_path: string, _options?: RequestInit) => {
+    call++;
+    // Call 2 is the permission-initiated read, left pending so hiding can abort it.
+    return call === 2
+      ? security
+      : response({
+          account: {
+            id: 'owner',
+            username: 'Owner',
+            permissions: call >= 3 ? ['play', 'training'] : ['play'],
+          },
+          csrf_token: 'csrf',
+        });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <PermissionView />
+        </Auth>,
+      );
+    });
+    expect(screen.getByText('Permissions play')).toBeVisible();
+    // A permission event starts a security read even though none was running.
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const signal = fetcher.mock.calls[1][1]?.signal as AbortSignal;
+    // Hiding aborts that security read before it settles.
+    visibility.mockReturnValue('hidden');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(signal.aborted).toBe(true);
+    // The security read is reissued even while hidden rather than discarded.
+    await act(async () => {
+      resolveSecurity(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await security;
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Permissions play,training')).toBeVisible();
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it('does not queue a redundant read when a security revalidation is already pending', async () => {
+  vi.useFakeTimers();
+  let resolveSecurity!: (value: Response) => void;
+  const security = new Promise<Response>((resolve) => {
+    resolveSecurity = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((_path: string, _options?: RequestInit) => {
+    call++;
+    return call === 2
+      ? security
+      : response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+          csrf_token: 'csrf',
+        });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <PermissionView />
+        </Auth>,
+      );
+    });
+    // A permission event while hidden starts the security read.
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    // Visibility and focus must not add a second read while it is in flight.
+    visibility.mockReturnValue('visible');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    act(() => fireEvent(window, new Event('focus')));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveSecurity(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await security;
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it('aborts a pending security revalidation and removes listeners on unmount', async () => {
+  vi.useFakeTimers();
+  let resolveSecurity!: (value: Response) => void;
+  const security = new Promise<Response>((resolve) => {
+    resolveSecurity = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((_path: string, _options?: RequestInit) => {
+    call++;
+    return call === 2
+      ? security
+      : response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+          csrf_token: 'csrf',
+        });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  try {
+    const view = render(
+      <Auth>
+        <PermissionView />
+      </Auth>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    const signal = fetcher.mock.calls[1][1]?.signal as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      resolveSecurity(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play', 'admin'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await security;
+    });
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120000);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});

@@ -209,16 +209,23 @@ export default function Auth({ children }: { children: ReactNode }) {
     if (!account) return;
     let alive = true;
     let controller: AbortController | null = null;
-    // Ordinary refreshes coalesce into one follow-up read. A permissions-changed
-    // invalidation is tracked separately because it is security-relevant: it must
-    // survive a hidden-tab abort instead of being dropped with the paused cadence.
+    let activeSecurity = false;
+    // A permissions-changed invalidation stays pending until a fresh /auth/me
+    // completes. It is never dropped by a hidden-tab abort, so the active
+    // request's own security purpose must be tracked, not only later events.
+    let securityPending = false;
     let queuedRefresh = false;
-    let queuedPermission = false;
-    const start = () => {
+    const pump = () => {
+      if (!alive || controller || signingOut.current) return;
+      const permissions = securityPending;
+      // Ordinary reads pause while hidden; a security revalidation may run so a
+      // permission change is not lost across the hidden transition.
+      if (!permissions && document.visibilityState === 'hidden') return;
       const expected = generation.current;
       const revision = ++readSequence.current;
       const attempt = new AbortController();
       controller = attempt;
+      activeSecurity = permissions;
       void api<Session>('/auth/me', undefined, undefined, attempt.signal)
         .then((session) => {
           if (
@@ -226,8 +233,13 @@ export default function Auth({ children }: { children: ReactNode }) {
             expected === generation.current &&
             !signingOut.current &&
             !attempt.signal.aborted
-          )
+          ) {
+            // Only a security-initiated read satisfies the invalidation; an
+            // ordinary response may predate the permission event that arrived
+            // while it was in flight, so it must not clear the pending flag.
+            if (permissions) securityPending = false;
             accept(session, revision);
+          }
         })
         .catch((failure) => {
           if (
@@ -241,32 +253,32 @@ export default function Auth({ children }: { children: ReactNode }) {
         })
         .finally(() => {
           if (controller === attempt) controller = null;
+          activeSecurity = false;
           if (!alive || expected !== generation.current || signingOut.current) return;
-          // Revalidate an explicit permission change even while hidden: hiding the
-          // tab aborted the read that would have observed it, so dropping it would
-          // silently keep stale authorization until the next visibility return.
-          if (queuedPermission) {
-            queuedPermission = false;
-            queuedRefresh = false;
-            start();
+          // A security read aborted by hiding is reissued even while hidden; a
+          // permission event that landed during an ordinary read is also honored
+          // here. A failed security read waits for the normal cadence instead of
+          // spinning.
+          if (securityPending && (!permissions || attempt.signal.aborted)) {
+            pump();
             return;
           }
           if (queuedRefresh && document.visibilityState !== 'hidden') {
             queuedRefresh = false;
-            start();
+            pump();
           }
         });
     };
     const refresh = (event?: Event) => {
       if (signingOut.current) return;
-      const permissions = event?.type === 'permissions-changed';
-      if (document.visibilityState === 'hidden' && !permissions) return;
+      if (event?.type === 'permissions-changed') securityPending = true;
       if (controller) {
-        if (permissions) queuedPermission = true;
-        else queuedRefresh = true;
+        // A pending or active security read already satisfies an ordinary
+        // refresh; ordinary refreshes otherwise coalesce into one follow-up.
+        if (!securityPending && !activeSecurity) queuedRefresh = true;
         return;
       }
-      start();
+      pump();
     };
     let timer: number | undefined;
     const startTimer = () => {
