@@ -37,23 +37,32 @@ export class PublicOnlineError extends Error {
 
 /** Bounded anonymous request timeout; long enough for a slow API worker. */
 export const PUBLIC_REQUEST_TIMEOUT_MS = 10000;
-/** Cap a server `Retry-After` so a hostile/large value cannot stall a viewer. */
-const MAX_RETRY_AFTER_MS = 300000;
+/**
+ * Long `Retry-After` cooldowns are scheduled in bounded timer chunks. The
+ * absolute retry deadline is preserved; only the timer is split so a very long
+ * value cannot overflow the platform timer and fire immediately.
+ */
+export const RETRY_TIMER_CHUNK_MS = 60000;
 const BASE_RETRY_MS = 5000;
 const MAX_RETRY_MS = 30000;
 const MAX_BACKOFF_STEPS = 4;
 
 /**
- * `Retry-After` is either delta-seconds or an HTTP-date. Returns a bounded
- * delay in milliseconds, or `0` when the header is absent or invalid.
+ * `Retry-After` is either delta-seconds or an HTTP-date. Returns the full delay
+ * in milliseconds so a valid server deadline is never shortened, or `0` when
+ * the header is absent, malformed or not representable so the caller falls back
+ * to bounded exponential backoff. Very long waits are chunked by the viewers.
  */
 export function parseRetryAfter(header: string | null, now = Date.now()): number {
   if (!header) return 0;
   const value = header.trim();
-  if (/^\d+$/.test(value)) return Math.min(Number(value) * 1000, MAX_RETRY_AFTER_MS);
+  if (/^\d+$/.test(value)) {
+    const ms = Number(value) * 1000;
+    return Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  }
   const date = Date.parse(value);
   if (Number.isNaN(date)) return 0;
-  return Math.min(Math.max(0, date - now), MAX_RETRY_AFTER_MS);
+  return Math.max(0, date - now);
 }
 
 /**

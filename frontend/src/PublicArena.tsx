@@ -11,6 +11,7 @@ import {
   publicGames,
   publicReplay,
   publicRetryDelay,
+  RETRY_TIMER_CHUNK_MS,
 } from './publicOnlineApi';
 import {
   publicBoardView,
@@ -25,6 +26,27 @@ import './arenaTopBar.css';
 import './publicArena.css';
 
 const noop = () => {};
+/**
+ * Run `onDeadline` after `delay` while preserving the absolute deadline. A long
+ * Retry-After is split into bounded chunks so it cannot overflow the platform
+ * timer and fire immediately; `setTimer` stores the latest handle for cleanup.
+ */
+function scheduleDeadline(
+  delay: number,
+  onDeadline: () => void,
+  setTimer: (timer: ReturnType<typeof setTimeout>) => void,
+  canRun: () => boolean,
+) {
+  const deadline = Date.now() + delay;
+  const tick = () => {
+    if (!canRun()) return;
+    const remaining = deadline - Date.now();
+    if (remaining > RETRY_TIMER_CHUNK_MS) setTimer(setTimeout(tick, RETRY_TIMER_CHUNK_MS));
+    else if (remaining > 0) setTimer(setTimeout(onDeadline, remaining));
+    else onDeadline();
+  };
+  tick();
+}
 const rulesetNames: Record<string, string> = {
   brandubh: 'Brandubh',
   tablut: 'Tablut',
@@ -119,6 +141,12 @@ function errorLabel(error: unknown) {
 function sideLabel(side: 'attackers' | 'defenders') {
   return side === 'attackers' ? 'Attackers' : 'Defenders';
 }
+/** Terminal status message for a game that is no longer polling. */
+function finalStatusLabel(status: PublicGame['status']) {
+  if (status === 'cancelled') return 'Waiting game cancelled.';
+  if (status === 'voided') return 'Game voided.';
+  return statusLabels[status];
+}
 /** Shared error/cooldown notice so both viewers expose identical retry behavior. */
 function RetryNotice({
   error,
@@ -182,7 +210,14 @@ function Discovery() {
     let epoch = 0;
     const schedule = (delay: number) => {
       clearTimeout(timer);
-      if (alive && !stopped && !document.hidden) timer = setTimeout(() => void load(), delay);
+      scheduleDeadline(
+        delay,
+        () => void load(),
+        (next) => {
+          timer = next;
+        },
+        () => alive && !stopped && !document.hidden,
+      );
     };
     const load = async () => {
       if (!alive || running || stopped || document.hidden) return;
@@ -249,7 +284,7 @@ function Discovery() {
       } else if (!stopped) {
         clearTimeout(timer);
         const remaining = cooldown.current - Date.now();
-        if (remaining > 0) timer = setTimeout(() => void load(), remaining);
+        if (remaining > 0) schedule(remaining);
         else void load();
       }
     };
@@ -403,7 +438,14 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
     let epoch = 0;
     const schedule = (delay: number) => {
       clearTimeout(timer);
-      if (alive && !stopped && !document.hidden) timer = setTimeout(() => void load(), delay);
+      scheduleDeadline(
+        delay,
+        () => void load(),
+        (next) => {
+          timer = next;
+        },
+        () => alive && !stopped && !document.hidden,
+      );
     };
     const load = async () => {
       if (!alive || running || stopped || document.hidden) return;
@@ -483,7 +525,7 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
       } else if (!stopped) {
         clearTimeout(timer);
         const remaining = cooldown.current - Date.now();
-        if (remaining > 0) timer = setTimeout(() => void load(), remaining);
+        if (remaining > 0) schedule(remaining);
         else void load();
       }
     };
@@ -608,7 +650,7 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
                 {t('Last move')}
               </button>
             </div>
-          ) : (
+          ) : game.status === 'waiting' || game.status === 'active' ? (
             <p className="public-live-note">
               {t('Live positions refresh automatically while this page is visible.')}
               {game.status === 'active' && game.deadline && (
@@ -628,6 +670,8 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
                 </>
               )}
             </p>
+          ) : (
+            <p className="public-live-note">{t(finalStatusLabel(game.status))}</p>
           )}
           {replay && (
             <p className="public-live-note">

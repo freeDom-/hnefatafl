@@ -380,13 +380,41 @@ it('stops automatic discovery polling after a public-disabled 404', async () => 
   expect(fetchMock.mock.calls.length).toBe(calls);
 });
 
-it('parses Retry-After seconds and HTTP-date values with a cap', () => {
+it('parses Retry-After seconds and HTTP-date values without shortening valid deadlines', () => {
   expect(parseRetryAfter('2', 0)).toBe(2000);
   expect(parseRetryAfter('0', 0)).toBe(0);
   expect(parseRetryAfter(new Date(5000).toUTCString(), 0)).toBe(5000);
   expect(parseRetryAfter('not-a-date', 0)).toBe(0);
   expect(parseRetryAfter(null, 0)).toBe(0);
-  expect(parseRetryAfter('999999', 0)).toBe(300000);
+  // Values longer than five minutes are preserved rather than capped.
+  expect(parseRetryAfter('600', 0)).toBe(600000);
+  expect(parseRetryAfter('999999', 0)).toBe(999999000);
+  expect(parseRetryAfter(new Date(600000).toUTCString(), 0)).toBe(600000);
+});
+
+it('preserves a Retry-After cooldown longer than five minutes in bounded chunks', async () => {
+  vi.useFakeTimers();
+  fetchMock.mockImplementationOnce(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({}), { status: 429, headers: { 'Retry-After': '600' } }),
+    ),
+  );
+  fetchMock.mockImplementation(() => response({ items: [], next_cursor: null, limit: 12 }));
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  // The long wait is chunked, but the absolute 10-minute deadline is preserved.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(599999);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('The tables are quiet.')).toBeVisible();
 });
 
 it('waits for a rate-limit Retry-After before the next discovery request', async () => {
@@ -635,6 +663,22 @@ it('shows the active side to move for a live game', async () => {
   render(<PublicArena />);
   await screen.findByRole('grid');
   expect(screen.getByText('Defenders to move')).toBeVisible();
+});
+
+it('shows the terminal status instead of the live-refresh note for cancelled and voided games', async () => {
+  history.replaceState(null, '', '/watch/games/public-game');
+  const refreshNote = 'Live positions refresh automatically while this page is visible.';
+  fetchMock.mockImplementation(() => response({ ...game, status: 'cancelled' }));
+  const cancelled = render(<PublicArena />);
+  await screen.findByRole('grid');
+  expect(screen.getByText('Waiting game cancelled.')).toBeVisible();
+  expect(screen.queryByText(refreshNote)).not.toBeInTheDocument();
+  cancelled.unmount();
+  fetchMock.mockImplementation(() => response({ ...game, status: 'voided' }));
+  render(<PublicArena />);
+  await screen.findByRole('grid');
+  expect(screen.getByText('Game voided.')).toBeVisible();
+  expect(screen.queryByText(refreshNote)).not.toBeInTheDocument();
 });
 
 it('formats the time control with the shared duration formatter', async () => {
