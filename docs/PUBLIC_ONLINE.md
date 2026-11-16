@@ -11,11 +11,11 @@ deployment switch and bounded per connecting IP.
 
 ## Endpoints
 
-| Method and path | Purpose |
-| --- | --- |
-| `GET /api/public/online/games` | Bounded, filterable index of public online games |
-| `GET /api/public/online/games/{game_id}` | Read-only detail of a live or completed game |
-| `GET /api/public/online/games/{game_id}/replay` | Completed-game replay with validated states |
+| Method and path                                 | Purpose                                          |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `GET /api/public/online/games`                  | Bounded, filterable index of public online games |
+| `GET /api/public/online/games/{game_id}`        | Read-only detail of a live or completed game     |
+| `GET /api/public/online/games/{game_id}/replay` | Completed-game replay with validated states      |
 
 No `POST`, `PATCH` or `DELETE` route exists under this namespace, and there is no
 public analysis endpoint. Unknown and live-replay identifiers return a consistent
@@ -95,11 +95,11 @@ schema.
 
 ## Deployment switch
 
-| Environment setting | Default | Meaning |
-| --- | --- | --- |
-| `HNEFATAFL_PUBLIC_ONLINE_ENABLED` | `true` | Enables the whole `/api/public/online/*` namespace |
-| `HNEFATAFL_PUBLIC_RATE_LIMIT` | `60` | Public requests allowed per window per IP, integer 1–100000 |
-| `HNEFATAFL_PUBLIC_RATE_WINDOW_SECONDS` | `60` | Public rate window in seconds, integer 1–86400 |
+| Environment setting                    | Default | Meaning                                                     |
+| -------------------------------------- | ------- | ----------------------------------------------------------- |
+| `HNEFATAFL_PUBLIC_ONLINE_ENABLED`      | `true`  | Enables the whole `/api/public/online/*` namespace          |
+| `HNEFATAFL_PUBLIC_RATE_LIMIT`          | `60`    | Public requests allowed per window per IP, integer 1–100000 |
+| `HNEFATAFL_PUBLIC_RATE_WINDOW_SECONDS` | `60`    | Public rate window in seconds, integer 1–86400              |
 
 Setting `HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` withdraws the namespace on the next
 service start (no code change or migration needed): every public handler then
@@ -144,6 +144,19 @@ views abort and suspend polling, then refresh on return. Countdown seconds deriv
 from the server deadline without polling each second. Stale responses and previous
 filter/game generations are rejected. All four themes, language and independent
 board/token/scale preferences use the shared providers.
+
+Every anonymous read is bounded by a 10 s timeout and cancels cleanly on
+navigation, unmount or a hidden tab. Failures are classified: `404` (including
+withheld private IDs) shows the privacy-preserving unavailable state and stops
+automatic polling; a `409` replay validation failure stops retries with an
+explicit message; `429` honours `Retry-After` (delta-seconds or HTTP-date) before
+the next attempt; `5xx` and network failures retry with bounded backoff.
+Recoverable states keep a manual retry. A live game that completes keeps its
+final position with replay controls available, while an explicit
+`/watch/games/{id}/replay` link starts at move zero. Only `/watch`,
+`/watch/games/{id}` and `/watch/games/{id}/replay` are valid public routes; other
+`/watch` paths render a translated not-found state with a link back to the Watch
+Hall and issue no API requests.
 
 The public shell is intentionally independent from authenticated Arena navigation.
 Its build entry is split from the protected application; this reduces public
