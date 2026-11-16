@@ -170,6 +170,21 @@ games hide AI playback and restart controls, including when seeking to an earlie
 position. Captured kings remain visible in the finished board presentation;
 the authoritative engine state and capture rules are unchanged.
 
+## Replay achievement evidence
+
+Schema 20 records account-scoped successful analysis of completed replays for
+[achievement progress](PROGRESSION.md#award-rules). Credit requires an explicit
+analysis POST and a completed stored advisor report; presentation merges are
+never used as completion evidence because they omit the raw partial flag.
+Background workers record the initiating account on successful completion.
+Subsequent explicit POSTs may reuse completed cached analysis. Ordinary GET/view
+requests, active games, partial searches and failed reports do not earn credit.
+A unique `(account_id, category, game_id)` receipt prevents repeated analysis of
+one replay from increasing progress. This records successful position analysis
+within a completed replay, not proof of a whole-game batch analysis. Browser-local
+analysis is not eligible. Analysis positions, advisor settings and move guards
+retain their existing contracts.
+
 ## Statistics across seeds
 
 AI identity includes algorithm, effective search parameters and model ID while

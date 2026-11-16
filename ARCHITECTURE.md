@@ -56,7 +56,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [profile_api.py](hnefatafl/profile_api.py), [profile_migrations.py](hnefatafl/profile_migrations.py) | Owned optional profiles, automatic publication with legacy privacy protection, private birth dates and additive schema-15 fields |
 | [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
-| [progression.py](hnefatafl/progression.py), [progression_api.py](hnefatafl/progression_api.py) | Code-owned portrait/achievement catalogs (schema 17), idempotent awards derived only from authoritative records, permanent entitlements and CSRF-protected portrait selection |
+| [progression.py](hnefatafl/progression.py), [progression_api.py](hnefatafl/progression_api.py) | Code-owned tier/portrait catalogs, points derived from permanent awards, account-scoped replay-analysis receipts (schema 20) and CSRF-protected claims/portrait selection |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py), [tournament_statistics.py](hnefatafl/tournament_statistics.py), [openings.py](hnefatafl/openings.py) | Separate tournament lifecycle, incremental role statistics and reproducible legal openings |
 | [player_tournaments.py](hnefatafl/player_tournaments.py), [player_tournament_api.py](hnefatafl/player_tournament_api.py) | Double-elimination human tournaments over authoritative online games: bracket derivation, idempotent advancement, disputes/rebuilds and authenticated bounded projections |
@@ -211,8 +211,8 @@ online result revision. A corrected or voided result marks the affected match
 `disputed` instead of silently rewriting advancement; an administrator `rebuild`
 re-derives the whole bracket from the authoritative games and unlinks legs whose
 participants no longer match. This branch carries both schema 17 (progression:
-achievement/portrait catalogs, awards, entitlements and the selected portrait)
-and schema 18 (player tournaments).
+achievement/portrait catalogs, awards, entitlements and the selected portrait),
+schema 18 (player tournaments) and schema 20 (account-scoped replay-analysis receipts).
 See [Player tournaments](docs/PLAYER_TOURNAMENTS.md).
 
 ## Training execution and inference

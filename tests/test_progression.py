@@ -203,7 +203,7 @@ def test_achievement_read_stays_available_under_the_freeze_but_confirmation_does
 def test_achievement_empty_state_lists_every_milestone_at_zero(web):
     app, client = web
     payload = client.get("/api/personal/achievements").json()
-    assert payload["catalog_version"] == 1
+    assert payload["catalog_version"] == 2
     assert payload["portrait_catalog_version"] == 1
     assert [item["id"] for item in payload["items"]] == [
         achievement.id for achievement in ACHIEVEMENTS
@@ -212,7 +212,13 @@ def test_achievement_empty_state_lists_every_milestone_at_zero(web):
         item["progress"] == 0 and item["unlocked"] is False and item["awarded_at"] is None
         for item in payload["items"]
     )
-    assert payload["summary"] == {"unlocked": 0, "total": len(ACHIEVEMENTS)}
+    assert payload["summary"] == {
+        "unlocked": 0,
+        "total": len(ACHIEVEMENTS),
+        "earned_points": 0,
+        "total_points": 6290,
+        "claimable_points": 0,
+    }
     assert payload["as_of"].endswith("Z")
     # A fresh account's read confirms nothing: no award, entitlement or selection.
     with app.state.store.connection() as c:
@@ -529,7 +535,7 @@ def test_schema17_migration_seeds_catalogs_without_granting_awards(rig):
     with migrated.connection() as c:
         # Combined schema-18 migration: schema-16 upgrade reaches 18 while the
         # schema-17 progression tables are (re)created and seeded.
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 20
         assert c.execute("SELECT COUNT(*) FROM portrait_catalog").fetchone()[0] == len(PORTRAITS)
         assert c.execute("SELECT COUNT(*) FROM achievement_catalog").fetchone()[0] == len(
             ACHIEVEMENTS
@@ -592,3 +598,225 @@ def test_selected_portraits_propagate_to_online_and_leaderboard_without_private_
     )
     standings = rig.core.leaderboard(rig.credentials["Archer"], "brandubh")
     assert standings["me"]["portrait_id"] == "shieldbearer"
+
+
+def test_tier_catalog_schedule_and_legacy_ids():
+    from hnefatafl.progression import FAMILIES
+
+    assert len(FAMILIES) == 9
+    assert len(ACHIEVEMENTS) == 77
+    assert sum(a.points for a in ACHIEVEMENTS if a.family != "local-first-game") == 6280
+    assert sum(a.points for a in ACHIEVEMENTS) == 6290
+    assert len({a.id for a in ACHIEVEMENTS}) == 77
+    for family, *_ in FAMILIES:
+        tiers = [a for a in ACHIEVEMENTS if a.family == family]
+        expected = (
+            (1, 3, 5, 10)
+            if family == "rated-win-streak"
+            else (1, 3, 10, 25, 50, 100, 250, 500, 1000)
+        )
+        assert tuple(a.threshold for a in tiers) == expected
+        points = (
+            (10, 30, 60, 100)
+            if family == "rated-win-streak"
+            else (10, 20, 30, 40, 60, 80, 120, 160, 240)
+        )
+        assert tuple(a.points for a in tiers) == points
+        assert [a.tier for a in tiers] == list(range(1, len(tiers) + 1))
+    assert all(
+        p.unlock_achievement_id is None
+        or any(a.id == p.unlock_achievement_id for a in ACHIEVEMENTS)
+        for p in PORTRAITS
+    )
+
+
+def test_every_tier_boundary_and_permanent_points(rig, monkeypatch):
+    """Exercise all 76 boundaries against the actual transactional award path.
+
+    Counter correctness is covered separately by real ledger/game tests; this
+    isolates thresholds, skips, score calculation and permanent confirmation.
+    """
+    service = progression(rig)
+    current = {}
+    monkeypatch.setattr(
+        service,
+        "_measure",
+        lambda c, account, achievement, cache: current.get(achievement.family, 0),
+    )
+    credential = rig.credentials["Archer"]
+    score = 0
+    for achievement in ACHIEVEMENTS:
+        current[achievement.family] = achievement.threshold - 1
+        below = service.confirm(credential, achievement.family)
+        assert not items_of(below)[achievement.id]["unlocked"]
+        assert below["summary"]["earned_points"] == score
+        current[achievement.family] += 1
+        at = service.confirm(credential, achievement.family)
+        score += achievement.points
+        assert items_of(at)[achievement.id]["unlocked"]
+        assert at["summary"]["earned_points"] == score
+        assert service.confirm(credential, achievement.family)["summary"]["earned_points"] == score
+    current.clear()
+    final = service.confirm(credential)
+    assert final["summary"]["earned_points"] == final["summary"]["total_points"] == 6290
+    assert final["summary"]["claimable_points"] == 0
+    assert all(
+        family["complete"] and family["next_milestone"] is None for family in final["families"]
+    )
+
+
+def test_skipping_tiers_and_concurrent_selected_claims(rig):
+    from concurrent.futures import ThreadPoolExecutor
+
+    service = progression(rig)
+    for _ in range(10):
+        finish(rig, active(rig), "attackers")
+    credential = rig.credentials["Archer"]
+    before = service.achievements(credential)
+    family = next(f for f in before["families"] if f["id"] == "rated-wins")
+    assert family["collected_tier"] == 0
+    assert family["claimable_points"] == 60
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(lambda _: service.confirm(credential, "rated-wins"), range(12)))
+    assert all(result["summary"]["earned_points"] == 60 for result in results)
+    result = results[-1]
+    assert {item["id"] for item in result["items"] if item["unlocked"]} == {
+        "first-rated-win",
+        "rated-wins-3",
+        "rated-wins-10",
+    }
+    family = next(f for f in result["families"] if f["id"] == "rated-wins")
+    assert family["collected_tier"] == 3
+    assert family["collected_threshold"] == 10
+    assert family["next_milestone"]["threshold"] == 25
+    assert family["next_milestone"]["points"] == 40
+    assert result["summary"]["claimable_points"] > 0  # unrelated families stay unclaimed
+    assert service.confirm(credential)["summary"]["earned_points"] > 60
+
+
+def test_selected_claim_api_rejects_arbitrary_progress_and_family(web):
+    _, client = web
+    for body in (
+        {"family_id": "unknown"},
+        {"progress": 1000},
+        {"points": 1000},
+        {"account_id": "other"},
+    ):
+        assert client.post("/api/personal/achievements/confirm", json=body).status_code == 422
+    assert (
+        client.post(
+            "/api/personal/achievements/confirm", json={"family_id": "rated-wins"}
+        ).status_code
+        == 200
+    )
+
+
+def test_replay_analysis_receipts_require_success_completion_and_owner(rig):
+    store = rig.store
+    account = rig.accounts["Archer"]
+    unfinished = persist_game(store, account)
+    completed = persist_game(store, account, winner="defenders")
+    report = {"evaluations": [{"agent_id": "advisor", "source": "alpha_beta"}]}
+    # Views, partial or failed searches and playing-agent evaluations don't count.
+    for invalid in (
+        None,
+        {**report, "partial": True},
+        {"evaluations": [{"agent_id": "advisor", "source": "unavailable"}]},
+        {"evaluations": [{"agent_id": "attackers", "source": "alpha_beta"}]},
+    ):
+        store.record_replay_analysis(completed, invalid, account["id"])
+    store.record_replay_analysis(unfinished, report, account["id"])
+    store.record_replay_analysis(completed, report, rig.accounts["Keeper"]["id"])
+    service = progression(rig)
+    assert (
+        items_of(service.achievements(rig.credentials["Archer"]))["analyzed-replays-1"]["progress"]
+        == 0
+    )
+    for _ in range(5):
+        store.record_replay_analysis(completed, report, account["id"])
+    assert (
+        items_of(service.achievements(rig.credentials["Archer"]))["analyzed-replays-1"]["progress"]
+        == 1
+    )
+    # The same string ID in the online category is a distinct replay identity.
+    online = finish(rig, active(rig), "attackers")
+    with store.connection() as c:
+        c.execute(
+            "INSERT INTO replay_analysis_completions VALUES(?,?,?)",
+            (account["id"], "local", online["id"]),
+        )
+    store.record_replay_analysis(
+        {"id": online["id"], "online": True, "recorded_result": {"winner": "attackers"}},
+        report,
+        account["id"],
+    )
+    assert (
+        items_of(service.achievements(rig.credentials["Archer"]))["analyzed-replays-3"]["progress"]
+        == 3
+    )
+
+
+def test_opening_hall_uses_bounded_batched_counter_queries(rig):
+    queries = []
+    with rig.store.connection() as c:
+        c.set_trace_callback(queries.append)
+        result = progression(rig)._projection(c, rig.accounts["Archer"]["id"], 1)
+    assert len(result["items"]) == 77
+    assert len(result["families"]) == 10
+    selects = [q for q in queries if q.lstrip().upper().startswith("SELECT")]
+    assert len(selects) < 20  # independent of the 77 milestone count
+    assert not any(q.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for q in queries)
+
+
+def test_replay_completion_rechecks_a_game_undone_while_analysis_runs(rig):
+    game = persist_game(rig.store, rig.accounts["Archer"], winner="defenders")
+    with rig.store.connection() as c:
+        c.execute(
+            "UPDATE games SET data=json_set(data,'$.recorded_result',NULL) WHERE id=?",
+            (game["id"],),
+        )
+    rig.store.record_replay_analysis(
+        game,
+        {"evaluations": [{"agent_id": "advisor", "source": "heuristic"}]},
+        rig.accounts["Archer"]["id"],
+    )
+    assert (
+        items_of(progression(rig).achievements(rig.credentials["Archer"]))["analyzed-replays-1"][
+            "progress"
+        ]
+        == 0
+    )
+
+
+@pytest.mark.parametrize("mode", ["simultaneous", "sequential"])
+def test_two_leg_roles_and_thresholds_use_each_finalized_game(rig, mode):
+    from uuid import uuid4
+
+    first = rig.core.create(
+        rig.credentials["Archer"], "brandubh", "attackers", 60, uuid4().hex, mode=mode
+    )["game"]
+    first = rig.core.mutate(rig.credentials["Keeper"], first["id"], 0, "join")["game"]
+    first = finish(rig, first, "attackers")
+    second = rig.core.read(rig.credentials["Archer"], first["match"]["games"][1]["id"])
+    finish(rig, second, "defenders")  # Same account wins the side-swapped return.
+    service = progression(rig)
+    result = service.confirm(rig.credentials["Archer"])
+    items = items_of(result)
+    assert items["first-rated-win"]["progress"] == 2
+    assert items["brandubh-initiate"]["progress"] == 2
+    assert items["attacker-wins-1"]["progress"] == 1
+    assert items["defender-hold"]["progress"] == 1
+    assert items["rated-win-streak-1"]["progress"] == 2
+    assert not items["rated-wins-3"]["unlocked"]
+    assert result["summary"]["earned_points"] == 50
+    assert service.confirm(rig.credentials["Archer"])["summary"] == result["summary"]
+
+
+@pytest.mark.parametrize("ruleset", ["brandubh", "tablut", "copenhagen"])
+def test_each_ruleset_and_actual_defender_seat_are_counted(rig, ruleset):
+    finish(rig, active(rig, ruleset), "defenders")
+    items = items_of(progression(rig).achievements(rig.credentials["Keeper"]))
+    assert items["defender-hold"]["progress"] == 1
+    assert items["attacker-wins-1"]["progress"] == 0
+    for pool in ("brandubh", "tablut", "copenhagen"):
+        assert items[f"{pool}-initiate"]["progress"] == int(pool == ruleset)

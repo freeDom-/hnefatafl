@@ -8,6 +8,12 @@ catalog, per-account portrait entitlements and a permanent achievement ledger.
 Awards are derived only from authoritative server records, and a client can never
 grant itself a reward, supply a portrait image or read another account's progress.
 
+Catalog **2**, schema **20** extend these foundations with nine tiered families,
+76 milestones and server-owned achievement points. The unrelated Fireside Game
+remains available for 10 points: **77 milestones, 6,290 points** overall. Schema 19
+remains reserved for leagues. Portrait catalog version 1 and every existing unlock
+ID are unchanged.
+
 ## Scope and non-goals
 
 Delivered:
@@ -124,23 +130,49 @@ catalog already cover the invariants, so there is no actual failure to repair.
 
 ## Achievement catalog
 
-| ID | Category | Requirement | Threshold | Portrait |
-| --- | --- | --- | --- | --- |
-| `first-rated-win` | rated | rated online wins | 1 | `shieldmaiden` |
-| `rated-wins-10` | rated | rated online wins | 10 | `raven-seer` |
-| `rated-wins-25` | rated | rated online wins | 25 | `einherjar` |
-| `defender-hold` | rated | rated online wins as defender | 1 | `iron-helm` |
-| `defender-wins-10` | rated | rated online wins as defender | 10 | `valkyrie` |
-| `rated-win-streak-5` | streak | best rated win streak | 5 | `berserker` |
-| `rated-win-streak-10` | streak | best rated win streak | 10 | `one-eyed-jarl` |
-| `brandubh-initiate` | ruleset | rated Brandubh wins | 1 | `wanderer` |
-| `tablut-initiate` | ruleset | rated Tablut wins | 1 | `skald` |
-| `copenhagen-initiate` | ruleset | rated Copenhagen wins | 1 | `fjord-scout` |
-| `local-first-game` | local | finished same-device local games | 1 | none |
-| `ai-first-victory` | ai | finished single-player games won against a computer | 1 | `forge-keeper` |
+The declarative catalog in `hnefatafl/progression.py` defines incremental points.
+Eight families use the ordinary schedule: rated online victories; rated Brandubh,
+Tablut and Copenhagen victories; rated victories as defender and attacker;
+single-player victories against AI; distinct completed replays analyzed.
 
-An achievement does not have to unlock a portrait: `local-first-game` is a
-milestone without one.
+| Ordinary threshold | Points for this milestone |
+| --- | --- |
+| 1 | 10 |
+| 3 | 20 |
+| 10 | 30 |
+| 25 | 40 |
+| 50 | 60 |
+| 100 | 80 |
+| 250 | 120 |
+| 500 | 160 |
+| 1000 | 240 |
+
+Each ordinary family offers 760 points. Best rated win streak uses:
+
+| Streak threshold | Points for this milestone |
+| --- | --- |
+| 1 | 10 |
+| 3 | 30 |
+| 5 | 60 |
+| 10 | 100 |
+
+The nine families offer 6,280 points. `local-first-game` adds 10 points and has no
+portrait reward. Points are summed from unique confirmed award IDs and the
+code-owned catalog, never stored as a separately mutable balance. Point values
+are stable rewards; changing them would change the projection for existing awards.
+
+Legacy IDs stay attached to their original thresholds: `first-rated-win` (1),
+`rated-wins-10`, `rated-wins-25`, `defender-hold` (1), `defender-wins-10`,
+`brandubh-initiate`, `tablut-initiate`, `copenhagen-initiate` (each 1),
+`rated-win-streak-5`, `rated-win-streak-10`, and `ai-first-victory` (1). Additional
+IDs use `<family>-<threshold>`, e.g. `attacker-wins-100` and `analyzed-replays-3`.
+
+Each family has one evolving card. Collected tier is the highest **confirmed**
+tier, independent of current progress or unclaimed eligibility. Engraved, bronze,
+silver, gold and legendary treatments use CSS and the existing Arena surfaces;
+no new bitmap assets or animations are required. Every milestone and its reward
+remain inspectable. An earlier missing milestone stays collectible even if a
+higher milestone has already been confirmed.
 
 ## Award rules
 
@@ -154,8 +186,18 @@ Awards are derived from authoritative records only:
   correction therefore changes the streak that a later read derives
 - the local milestone counts completed local games in the account's own
   `category='local'` records
-- the vs-AI milestone counts completed `human-ai` account games the account's own
-  human seat won
+- vs-AI milestones count completed `human-ai` account games the account's own
+  human seat won, once per game ID; replaying, undoing and redoing that game
+  cannot create additional game identities
+- replay milestones count durable `replay_analysis_completions` keys:
+  `(account_id, category, game_id)`. An explicit analysis POST must successfully
+  retain or consume a completed advisor report for an already completed game.
+  Merely opening a replay, automatic playing-agent evaluations, partial searches,
+  missing models and failed evaluations do not qualify. Background completion
+  records the initiating account; subsequent explicit POSTs can consume an
+  already retained successful report. The write rechecks the owned game or online
+  participant and terminal status. Existing active-online analysis prohibitions
+  remain in force. Browser-local analysis is not eligible
 
 Unrated/casual games, unfinished games, AI-vs-AI self-play, another account's games
 and client-supplied claims never contribute.
@@ -183,7 +225,16 @@ Confirmation is explicit, idempotent and permanent:
 
 ## Migration and existing accounts
 
-Schema 17 is additive and idempotent. `migrate_online` creates the catalog, award,
+Schema 20 is additive and idempotent. It adds the replay-completion table with a
+composite primary key (also the account-count index) and append-only protection.
+Compatible restores retain these receipts alongside awards and portraits; a
+schema-18 snapshot requires the existing explicit migration/restore workflow.
+No old award or portrait row is rewritten and no points balance is migrated.
+Historical position reports cannot prove who analyzed an online replay, or whether
+a local game was already complete at analysis time, so there is no speculative
+backfill. Explicitly analyzing a completed replay can reuse retained evidence.
+
+Schema 17 remains the original foundation. `migrate_online` creates the catalog, award,
 entitlement and selection tables and mirrors the code-owned catalogs on every
 startup; schema 16 and the local 1v1 `category` column are untouched.
 
@@ -207,8 +258,8 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 | Method/path | Permission | Behavior |
 | --- | --- | --- |
 | `GET /api/portraits/catalog` | `play` | `catalog_version`, `default_portrait_id`, `items[{id,name,unlock_achievement_id}]` |
-| `GET /api/personal/achievements` | `play` | read-only own `items` with `progress`, `unlocked`, `awarded_at`, `portrait_id`, plus `summary` and `as_of` |
-| `POST /api/personal/achievements/confirm` | `play` | dedicated confirmation action: materializes every award the records already prove inside one `BEGIN IMMEDIATE`; returns the same projection as the read |
+| `GET /api/personal/achievements` | `play` | read-only own milestone `items`, grouped `families`, point `summary` and `as_of` |
+| `POST /api/personal/achievements/confirm` | `play` | optional strict body `{"family_id":"rated-wins"}` confirms only that family; absent/empty body confirms all eligible awards inside one `BEGIN IMMEDIATE`; returns the read projection |
 | `PATCH /api/profile/portrait` | `profile` | `{"portrait_id": "<catalog id>"}`; materializes eligible awards in the same write, then selects the earned portrait and returns the profile projection |
 
 - all four routes require a current authenticated session and take the account from
@@ -235,12 +286,21 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 ### Empty states
 
 - a fresh account receives the complete achievement list with `progress: 0`,
-  `unlocked: false`, `awarded_at: null`, `summary: {"unlocked": 0, "total": 12}` and
+  `unlocked: false`, `awarded_at: null`, `summary: {"unlocked": 0, "total": 77, "earned_points": 0, "total_points": 6290, "claimable_points": 0}` and
   no award, entitlement or selection row
 - a fresh account receives the complete catalog and the default portrait as its
   effective `portrait_id`, because the default is always available
 - an account with no rated games receives zero-valued rated and streak progress, not
   an omitted section
+
+Milestone items additionally include `family_id`, one-based `tier` and `points`.
+Each family includes `milestones`, `progress`, `collected_tier`,
+`collected_threshold`, `achieved_threshold`, `collected_count`, `total_tiers`,
+`next_milestone` (null when complete), `claimable_points` and `complete`. Summary
+includes `earned_points`, `total_points` and `claimable_points`, in addition to
+milestone counts. GET remains read-only; eligibility alone never earns points.
+Unknown families and extra request fields return 422. Both all-family and scoped
+claims use the same identity recheck, transaction and primary-key protection.
 
 ## Frontend integration
 
@@ -263,6 +323,11 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 - the client never derives an unlock from client state or a local "best streak";
   the backend rechecks entitlement inside the selection transaction
 
+Portrait Hall caps bitmap width at `320 / max(1, devicePixelRatio)` CSS pixels,
+updates it on display-density/resize changes and uses `object-fit: contain` with
+centered artwork. Frames can grow independently. This rule is scoped to the Hall;
+profile, leaderboard, dashboard and player-card portraits keep their own sizing.
+
 ## Known limitations
 
 - awards are confirmed by an explicit `POST /api/personal/achievements/confirm` (or
@@ -272,7 +337,13 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
   history or audit trail beyond the confirmed award row
 - only the aggregate best rated win streak has achievements; per-ruleset streaks stay
   a progress projection
+- replay eligibility requires a completed server advisor report, rather than proof
+  that every position in the replay was analyzed; no whole-replay batch analysis
+  service currently exists
 - `local-first-game` grants no portrait, and neither the catalog nor the profile
   reports an entitlement flag; the client joins the catalog with the achievement list
 - leaderboard and online lobby participant projections publish the effective
   `portrait_id` only; detailed achievement progress stays private
+
+See [tiered achievement validation and screenshots](validation/tiered-achievements.md)
+for current implementation evidence; original Portrait Hall evidence stays historical.

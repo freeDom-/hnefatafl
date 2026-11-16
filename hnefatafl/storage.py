@@ -360,6 +360,53 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
+    def record_replay_analysis(
+        self, game: dict, report: dict | None, account_id: str | None
+    ) -> None:
+        """Record successful advisor analysis of a terminal replay, never a view.
+
+        Called only with retained server reports. Recheck identity/category and
+        completion under the write lock; a worker never trusts browser progress.
+        """
+        if (
+            not account_id
+            or not report
+            or report.get("partial")
+            or not (game.get("recorded_result") or {}).get("winner")
+        ):
+            return
+        if not any(
+            entry.get("agent_id") == "advisor"
+            and entry.get("source") not in (None, "unavailable")
+            and not entry.get("unavailable_reason")
+            for entry in report.get("evaluations", [])
+        ):
+            return
+        with self.connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            if game.get("online"):
+                row = c.execute(
+                    "SELECT status FROM online_games WHERE id=? AND (attackers_id=? OR defenders_id=?)",
+                    (game["id"], account_id, account_id),
+                ).fetchone()
+                if row is None or row["status"] != "completed":
+                    return
+                category = "online"
+            else:
+                row = c.execute(
+                    "SELECT category,data FROM games WHERE id=? AND owner_account_id=?",
+                    (game["id"], account_id),
+                ).fetchone()
+                if row is None or not (json.loads(row["data"]).get("recorded_result") or {}).get(
+                    "winner"
+                ):
+                    return
+                category = row["category"]
+            c.execute(
+                "INSERT OR IGNORE INTO replay_analysis_completions(account_id,category,game_id) VALUES(?,?,?)",
+                (account_id, category, game["id"]),
+            )
+
     def save_analysis_entry(
         self,
         original: dict,

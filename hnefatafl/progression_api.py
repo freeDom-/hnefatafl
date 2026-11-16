@@ -11,10 +11,17 @@ import logging
 import sqlite3
 
 from fastapi import HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 from .online_core import OnlineError
 from .progression import Progression
 from .security_context import session_identity
+
+
+class ConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    family_id: str | None = Field(default=None, max_length=80)
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,5 +58,8 @@ def attach_progression(app, online):
         return execute("achievements", progression.achievements)
 
     @app.post("/api/personal/achievements/confirm")
-    def confirm_achievements():
-        return execute("confirm_achievements", progression.confirm)
+    def confirm_achievements(request: ConfirmRequest = ConfirmRequest()):
+        return execute(
+            "confirm_achievements",
+            lambda credential: progression.confirm(credential, request.family_id),
+        )

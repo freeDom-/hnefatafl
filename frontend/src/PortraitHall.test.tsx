@@ -26,10 +26,14 @@ const initial: AchievementProgress = {
   catalog_version: 1,
   portrait_catalog_version: 1,
   as_of: '2035-01-01T00:00:00Z',
-  summary: { unlocked: 1, total: 3 },
+  summary: { unlocked: 1, total: 3, earned_points: 10, total_points: 30, claimable_points: 10 },
+  families: [],
   items: [
     {
       id: 'first-rated-win',
+      family_id: 'rated-wins',
+      tier: 1,
+      points: 10,
       name: 'First Raid',
       description: 'Win your first rated online game.',
       category: 'rated',
@@ -42,6 +46,9 @@ const initial: AchievementProgress = {
     },
     {
       id: 'defender-hold',
+      family_id: 'defender-wins',
+      tier: 1,
+      points: 10,
       name: 'Shield Wall',
       description: 'Win a rated online game as the defender.',
       category: 'rated',
@@ -54,6 +61,9 @@ const initial: AchievementProgress = {
     },
     {
       id: 'tablut-initiate',
+      family_id: 'tablut-wins',
+      tier: 1,
+      points: 10,
       name: 'Tablut Initiate',
       description: 'Win a rated Tablut game.',
       category: 'ruleset',
@@ -66,6 +76,48 @@ const initial: AchievementProgress = {
     },
   ],
 };
+function project(value: AchievementProgress): AchievementProgress {
+  return {
+    ...value,
+    summary: {
+      ...value.summary,
+      total: value.items.length,
+      unlocked: value.items.filter((item) => item.unlocked).length,
+      earned_points: value.items
+        .filter((item) => item.unlocked)
+        .reduce((sum, item) => sum + item.points, 0),
+      total_points: value.items.reduce((sum, item) => sum + item.points, 0),
+      claimable_points: value.items
+        .filter((item) => !item.unlocked && item.progress >= item.threshold)
+        .reduce((sum, item) => sum + item.points, 0),
+    },
+    families: [...new Set(value.items.map((item) => item.family_id))].map((id) => {
+      const milestones = value.items.filter((item) => item.family_id === id);
+      const collected = milestones.filter((item) => item.unlocked);
+      return {
+        id,
+        name: milestones[0].name,
+        progress: milestones[0].progress,
+        collected_tier: Math.max(0, ...collected.map((item) => item.tier)),
+        collected_threshold: Math.max(0, ...collected.map((item) => item.threshold)),
+        achieved_threshold: Math.max(
+          0,
+          ...milestones
+            .filter((item) => item.progress >= item.threshold)
+            .map((item) => item.threshold),
+        ),
+        total_tiers: milestones.length,
+        collected_count: collected.length,
+        next_milestone: milestones.find((item) => !item.unlocked) ?? null,
+        claimable_points: milestones
+          .filter((item) => !item.unlocked && item.progress >= item.threshold)
+          .reduce((sum, item) => sum + item.points, 0),
+        complete: collected.length === milestones.length,
+        milestones,
+      };
+    }),
+  };
+}
 let achievements: AchievementProgress;
 let selected: string;
 beforeEach(() => {
@@ -76,18 +128,20 @@ beforeEach(() => {
   setLanguage('en');
   vi.mocked(api).mockImplementation(async (path, _data, method) => {
     if (path === '/portraits/catalog') return catalog as never;
-    if (path === '/personal/achievements') return achievements as never;
+    if (path === '/personal/achievements') return project(achievements) as never;
     if (path === '/profile') return { portrait_id: selected } as never;
     if (path === '/personal/achievements/confirm' && method === 'POST') {
       achievements = {
         ...achievements,
         items: achievements.items.map((item) =>
-          item.progress >= item.threshold
+          item.progress >= item.threshold &&
+          (!(_data as { family_id?: string })?.family_id ||
+            item.family_id === (_data as { family_id?: string }).family_id)
             ? { ...item, unlocked: true, awarded_at: '2035-01-01T00:00:00Z' }
             : item,
         ),
       };
-      return achievements as never;
+      return project(achievements) as never;
     }
     if (path === '/profile/portrait' && method === 'PATCH') {
       selected = (_data as { portrait_id: string }).portrait_id;
@@ -132,7 +186,7 @@ it('confirms on the server before selection, announces only new awards and reuse
     'POST',
     expect.any(AbortSignal),
   );
-  expect(notify.success).toHaveBeenCalledWith('Achievements unlocked: 1');
+  expect(notify.success).toHaveBeenCalledWith('Collected 1 milestones · +10 points');
   expect(claim).toBeDisabled();
   await user.click(screen.getByRole('button', { name: 'Select portrait: Shieldmaiden' }));
   await waitFor(() =>
@@ -271,6 +325,9 @@ it('shows an accessible retry when progress cannot load and recovers without cla
 it('shows progress for achievements without a portrait reward', async () => {
   achievements.items.push({
     id: 'local-first-game',
+    family_id: 'local-first-game',
+    tier: 1,
+    points: 10,
     name: 'Fireside Game',
     description: 'Finish a same-device local game.',
     category: 'local',
@@ -284,9 +341,10 @@ it('shows progress for achievements without a portrait reward', async () => {
   render(<PortraitHall />);
   const heading = await screen.findByRole('heading', { name: 'Fireside Game' });
   const achievement = heading.closest('li')!;
-  expect(within(achievement).getByText('Finish a same-device local game.')).toBeVisible();
-  expect(within(achievement).getByText('Progress: 1 / 1')).toBeVisible();
-  expect(within(achievement).getByRole('progressbar')).toHaveAccessibleName('Progress: 1 / 1');
+  expect(within(achievement).getByText('Recorded progress: 1 · highest achieved: 1')).toBeVisible();
+  expect(within(achievement).getByRole('progressbar')).toHaveAccessibleName(
+    'Next milestone: 1 · 10 points',
+  );
 });
 it('announces server-confirmed awards after selecting another already-earned portrait', async () => {
   const original = vi.mocked(api).getMockImplementation()!;
@@ -302,7 +360,9 @@ it('announces server-confirmed awards after selecting another already-earned por
   });
   render(<PortraitHall />);
   fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
-  await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Achievements unlocked: 1'));
+  await waitFor(() =>
+    expect(notify.success).toHaveBeenCalledWith('Collected 1 milestones · +10 points'),
+  );
   expect(notify.success).toHaveBeenCalledWith('Portrait selected.');
   expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned');
 });
@@ -466,7 +526,7 @@ it('clears a lost-response claim error once the authoritative refresh confirms t
   await waitFor(() =>
     expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned'),
   );
-  expect(notify.success).toHaveBeenCalledWith('Achievements unlocked: 1');
+  expect(notify.success).toHaveBeenCalledWith('Collected 1 milestones · +10 points');
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 });
 
@@ -482,14 +542,16 @@ it('clears a lost-response claim error after a later successful retry refresh', 
     if (path === '/personal/achievements' && committed) {
       recoveryReads++;
       if (recoveryReads === 1) return Promise.reject(new Error('Still offline'));
-      return Promise.resolve({
-        ...achievements,
-        items: achievements.items.map((item) =>
-          item.progress >= item.threshold
-            ? { ...item, unlocked: true, awarded_at: '2035-01-01T00:00:00Z' }
-            : item,
-        ),
-      });
+      return Promise.resolve(
+        project({
+          ...achievements,
+          items: achievements.items.map((item) =>
+            item.progress >= item.threshold
+              ? { ...item, unlocked: true, awarded_at: '2035-01-01T00:00:00Z' }
+              : item,
+          ),
+        }),
+      );
     }
     return original(path, data, method, signal);
   });
@@ -499,7 +561,7 @@ it('clears a lost-response claim error after a later successful retry refresh', 
   await waitFor(() =>
     expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned'),
   );
-  expect(notify.success).toHaveBeenCalledWith('Achievements unlocked: 1');
+  expect(notify.success).toHaveBeenCalledWith('Collected 1 milestones · +10 points');
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 });
 
@@ -534,4 +596,86 @@ it('keeps a genuine selection error when the refresh does not show the selection
   );
   expect(card('Skald')).toHaveAttribute('data-portrait-state', 'earned');
   expect(notify.success).not.toHaveBeenCalled();
+});
+
+function tieredFixture(progress = 10) {
+  const base = { ...initial.items[0], name: 'Rated online victories', progress };
+  achievements.items = [
+    ...[1, 3, 10, 25].map((threshold, index) => ({
+      ...base,
+      id: index === 0 ? base.id : `rated-wins-${threshold}`,
+      threshold,
+      tier: index + 1,
+      points: [10, 20, 30, 40][index],
+      portrait_id: index === 0 ? base.portrait_id : null,
+    })),
+    { ...initial.items[1], progress: 1 },
+  ];
+}
+it('groups eligible tiers into one card, collects only that family and updates its score and visual tier', async () => {
+  tieredFixture();
+  render(<PortraitHall />);
+  const family = (await screen.findByRole('heading', { name: 'Rated online victories' })).closest(
+    'li',
+  )!;
+  expect(document.querySelectorAll('[data-family="rated-wins"]')).toHaveLength(1);
+  expect(family).toHaveAttribute('data-tier', '0');
+  expect(family).toHaveClass('achievement-engraved');
+  expect(within(family).getByText('Next milestone: 1 · 10 points')).toBeVisible();
+  expect(screen.getByText('Achievement Score — 0 / 110 points')).toBeVisible();
+  fireEvent.click(
+    within(family).getByRole('button', { name: 'Collect milestones: Rated online victories' }),
+  );
+  await waitFor(() => expect(family).toHaveAttribute('data-tier', '3'));
+  expect(family).toHaveClass('achievement-gold');
+  expect(within(family).getByText('Next milestone: 25 · 40 points')).toBeVisible();
+  expect(screen.getByText('Achievement Score — 60 / 110 points')).toBeVisible();
+  expect(screen.getByText('54.5% complete · 3 / 5 milestones collected')).toBeVisible();
+  expect(api).toHaveBeenCalledWith(
+    '/personal/achievements/confirm',
+    { family_id: 'rated-wins' },
+    'POST',
+    expect.any(AbortSignal),
+  );
+  expect(notify.success).toHaveBeenCalledWith('Collected 3 milestones · +60 points');
+  expect(document.querySelector('[data-family="defender-wins"]')).toHaveAttribute('data-tier', '0');
+});
+it('renders full completion without a next milestone or claim action', async () => {
+  tieredFixture(25);
+  achievements.items = achievements.items.map((item) => ({
+    ...item,
+    unlocked: true,
+    awarded_at: '2035-01-01T00:00:00Z',
+  }));
+  render(<PortraitHall />);
+  const family = (await screen.findByRole('heading', { name: 'Rated online victories' })).closest(
+    'li',
+  )!;
+  expect(family).toHaveClass('achievement-legendary');
+  expect(family).toHaveAttribute('data-state', 'complete');
+  expect(within(family).getByText('Fully completed')).toBeVisible();
+  expect(within(family).queryByRole('progressbar')).not.toBeInTheDocument();
+  expect(within(family).queryByRole('button')).not.toBeInTheDocument();
+  expect(screen.getByText('100% complete · 5 / 5 milestones collected')).toBeVisible();
+  expect(
+    screen.getByRole('progressbar', { name: 'Achievement Score — 110 / 110 points' }),
+  ).toHaveAttribute('value', '110');
+});
+it('localizes family milestones and zero score in German', async () => {
+  tieredFixture(0);
+  achievements.items = achievements.items.map((item) => ({ ...item, progress: 0 }));
+  setLanguage('de');
+  render(<PortraitHall />);
+  await screen.findByRole('heading', { name: 'Gewertete Online-Siege' });
+  expect(screen.getByText('Errungenschaftspunkte — 0 / 110 Punkte')).toBeVisible();
+  expect(screen.getByText('0% abgeschlossen · 0 / 5 Meilensteine gesammelt')).toBeVisible();
+  expect(screen.getAllByText('Nächster Meilenstein: 1 · 10 Punkte')).toHaveLength(2);
+});
+it('caps only Portrait Hall artwork for fractional high-DPI screens', async () => {
+  const previous = window.devicePixelRatio;
+  Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 2.5 });
+  render(<PortraitHall />);
+  await screen.findByRole('heading', { name: 'Shieldbearer' });
+  expect(document.querySelector('.portrait-hall')).toHaveStyle('--portrait-art-max: 128px');
+  Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: previous });
 });

@@ -188,13 +188,14 @@ class AnalysisService:
             check()
             entry = self.evaluate(game, role, agent, settings, progress, state=state)
             check()
-            self.store.save_analysis_entry(
+            report = self.store.save_analysis_entry(
                 game,
                 snapshot,
                 entry,
                 advisor_revision=revision,
                 online=bool(game.get("online")),
             )
+            self.store.record_replay_analysis(game, report, game.get("_analysis_account_id"))
         except (ConflictError, SupersededAnalysis):
             # Cancellation is expected: a late opinion must not revive a game,
             # replace a new advisor, or attach itself to a different branch.

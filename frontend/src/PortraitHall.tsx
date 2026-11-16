@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { api, errorMessage } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -21,6 +21,17 @@ const labels: Record<PortraitState, string> = {
 export default function PortraitHall() {
   const { account } = useAuth();
   const { t, locale } = useI18n();
+  const [pixelRatio, setPixelRatio] = useState(() => Math.max(1, window.devicePixelRatio || 1));
+  useEffect(() => {
+    const update = () => setPixelRatio(Math.max(1, window.devicePixelRatio || 1));
+    const media = window.matchMedia?.(`(resolution: ${pixelRatio}dppx)`);
+    media?.addEventListener('change', update);
+    window.addEventListener('resize', update);
+    return () => {
+      media?.removeEventListener('change', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [pixelRatio]);
   const owner = account?.id ?? '';
   const currentOwner = useRef(owner);
   currentOwner.current = owner;
@@ -68,8 +79,15 @@ export default function PortraitHall() {
         previous.items.filter((item) => item.unlocked).map((item) => item.id),
       );
       const added = next.items.filter((item) => item.unlocked && !oldAwards.has(item.id)).length;
-      if (added)
-        notify.success(t('Achievements unlocked: {count}', { count: number.format(added) }));
+      if (added) {
+        const points = next.summary.earned_points - previous.summary.earned_points;
+        notify.success(
+          t('Collected {count} milestones · +{points} points', {
+            count: number.format(added),
+            points: number.format(points),
+          }),
+        );
+      }
     },
     [t, number],
   );
@@ -103,7 +121,7 @@ export default function PortraitHall() {
     window.dispatchEvent(new Event('profile-changed'));
   }, [data, hall.phase, owner, announceAwards, t]);
 
-  async function mutate(kind: 'claim' | string) {
+  async function mutate(kind: 'claim' | string, familyId?: string) {
     if (!data || !owner || pending.current) return;
     const expectedOwner = owner;
     const expectedGeneration = generation.current;
@@ -126,7 +144,12 @@ export default function PortraitHall() {
       eligible:
         kind === 'claim'
           ? data.achievements.items
-              .filter((item) => !item.unlocked && item.progress >= item.threshold)
+              .filter(
+                (item) =>
+                  !item.unlocked &&
+                  item.progress >= item.threshold &&
+                  (!familyId || item.family_id === familyId),
+              )
               .map((item) => item.id)
           : [],
     };
@@ -134,7 +157,7 @@ export default function PortraitHall() {
       if (kind === 'claim') {
         const achievements = await api<AchievementProgress>(
           '/personal/achievements/confirm',
-          {},
+          familyId ? { family_id: familyId } : {},
           'POST',
           controller.signal,
         );
@@ -204,6 +227,7 @@ export default function PortraitHall() {
   return (
     <section
       className="portrait-hall"
+      style={{ '--portrait-art-max': `${320 / pixelRatio}px` } as CSSProperties}
       aria-labelledby="portrait-hall-heading"
       aria-busy={hall.phase === 'loading'}
     >
@@ -239,6 +263,38 @@ export default function PortraitHall() {
       )}
       {data && (
         <>
+          <div className="arena-surface achievement-score">
+            <label htmlFor="achievement-score">
+              {t('Achievement Score — {earned} / {total} points', {
+                earned: number.format(data.achievements.summary.earned_points),
+                total: number.format(data.achievements.summary.total_points),
+              })}
+            </label>
+            <progress
+              id="achievement-score"
+              aria-describedby="achievement-score-detail"
+              value={data.achievements.summary.earned_points}
+              max={data.achievements.summary.total_points || 1}
+            />
+            <p id="achievement-score-detail">
+              {t('{percent}% complete · {count} / {total} milestones collected', {
+                percent: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(
+                  data.achievements.summary.total_points
+                    ? (data.achievements.summary.earned_points /
+                        data.achievements.summary.total_points) *
+                        100
+                    : 0,
+                ),
+                count: number.format(data.achievements.summary.unlocked),
+                total: number.format(data.achievements.summary.total),
+              })}
+            </p>
+            <p>
+              {t('Ready to collect: {points} points', {
+                points: number.format(data.achievements.summary.claimable_points),
+              })}
+            </p>
+          </div>
           <div className="portrait-hall-actions">
             <p>{t('Eligible achievements: {count}', { count: number.format(eligible) })}</p>
             <button
@@ -286,7 +342,7 @@ export default function PortraitHall() {
                   <div className="portrait-card-copy">
                     <span className="portrait-state">{t(labels[state])}</span>
                     <h2>{t(item.name)}</h2>
-                    <p>{achievement ? t(achievement.description) : t('Always available.')}</p>
+                    <p>{achievement ? t(achievement.name) : t('Always available.')}</p>
                     {achievement && (
                       <div className="portrait-progress">
                         <label htmlFor={`portrait-progress-${item.id}`}>
@@ -344,34 +400,110 @@ export default function PortraitHall() {
               )}
             </p>
             <ul className="portrait-achievement-list">
-              {data.achievements.items.map((item) => (
-                <li key={item.id}>
-                  <div>
-                    <h3>{t(item.name)}</h3>
-                    <p>{t(item.description)}</p>
-                  </div>
-                  <span className="portrait-state">
-                    {t(
-                      item.unlocked
-                        ? 'Unlocked'
-                        : item.progress >= item.threshold
-                          ? 'Ready to claim'
-                          : 'Locked',
+              {data.achievements.families.map((family, index) => {
+                const next = family.next_milestone;
+                const state = family.complete
+                  ? 'complete'
+                  : family.claimable_points > 0
+                    ? 'claimable'
+                    : family.collected_tier
+                      ? 'collected'
+                      : 'locked';
+                const treatment =
+                  family.collected_tier === family.total_tiers
+                    ? 'legendary'
+                    : family.collected_tier / family.total_tiers >= 0.7
+                      ? 'gold'
+                      : family.collected_tier / family.total_tiers >= 0.4
+                        ? 'silver'
+                        : family.collected_tier
+                          ? 'bronze'
+                          : 'engraved';
+                return (
+                  <li
+                    key={family.id}
+                    className={`achievement-card achievement-${treatment} achievement-${state}`}
+                    data-family={family.id}
+                    data-tier={family.collected_tier}
+                    data-state={state}
+                  >
+                    <span className="achievement-rune" aria-hidden="true">
+                      {['ᛏ', 'ᛒ', 'ᛉ', 'ᚲ', 'ᛟ', 'ᚦ', 'ᚠ', 'ᚱ', 'ᛋ', 'ᛗ'][index]}
+                    </span>
+                    <h3>{t(family.name)}</h3>
+                    <span className="portrait-state">
+                      {t(
+                        family.complete
+                          ? 'Fully completed'
+                          : family.claimable_points > 0
+                            ? 'Ready to claim'
+                            : family.collected_tier
+                              ? 'Unlocked'
+                              : 'Locked',
+                      )}
+                    </span>
+                    <p>
+                      {t('Collected tier: {tier} / {total} · threshold {threshold}', {
+                        tier: number.format(family.collected_tier),
+                        total: number.format(family.total_tiers),
+                        threshold: number.format(family.collected_threshold),
+                      })}
+                    </p>
+                    <p>
+                      {t('Recorded progress: {progress} · highest achieved: {threshold}', {
+                        progress: number.format(family.progress),
+                        threshold: number.format(family.achieved_threshold),
+                      })}
+                    </p>
+                    {next && (
+                      <>
+                        <label htmlFor={`achievement-progress-${family.id}`}>
+                          {t('Next milestone: {target} · {points} points', {
+                            target: number.format(next.threshold),
+                            points: number.format(next.points),
+                          })}
+                        </label>
+                        <progress
+                          id={`achievement-progress-${family.id}`}
+                          value={Math.min(family.progress, next.threshold)}
+                          max={next.threshold}
+                        />
+                      </>
                     )}
-                  </span>
-                  <label htmlFor={`achievement-progress-${item.id}`}>
-                    {t('Progress: {count} / {total}', {
-                      count: number.format(item.progress),
-                      total: number.format(item.threshold),
-                    })}
-                  </label>
-                  <progress
-                    id={`achievement-progress-${item.id}`}
-                    value={Math.min(item.progress, item.threshold)}
-                    max={item.threshold}
-                  />
-                </li>
-              ))}
+                    {family.claimable_points > 0 && (
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={busy || hall.phase !== 'ready'}
+                        onClick={() => void mutate('claim', family.id)}
+                        aria-label={t('Collect milestones: {name}', { name: t(family.name) })}
+                      >
+                        {t('Collect · {points} points', {
+                          points: number.format(family.claimable_points),
+                        })}
+                      </button>
+                    )}
+                    <details>
+                      <summary>{t('Milestone rewards')}</summary>
+                      <ul>
+                        {family.milestones.map((milestone) => (
+                          <li key={milestone.id}>
+                            {number.format(milestone.threshold)} ·{' '}
+                            {t('{points} points', { points: number.format(milestone.points) })} ·{' '}
+                            {t(
+                              milestone.unlocked
+                                ? 'Unlocked'
+                                : milestone.progress >= milestone.threshold
+                                  ? 'Ready to claim'
+                                  : 'Locked',
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         </>

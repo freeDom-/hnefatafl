@@ -51,7 +51,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border: 2px solid var(--border);
+  border: 2px solid var(--ui-border);
   padding: 10px;
 }
 .portrait-card-art {
@@ -61,7 +61,7 @@
   aspect-ratio: 1;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--ui-border);
   border-radius: inherit;
   overflow: hidden;
   background: var(--surface-raised);
@@ -107,7 +107,7 @@
   text-underline-offset: 3px;
 }
 .portrait-progress,
-.portrait-achievement-list li {
+.portrait-achievement-list > li {
   display: grid;
   gap: 8px;
 }
@@ -137,10 +137,10 @@
   margin: 0;
   padding: 0;
 }
-.portrait-achievement-list li {
+.portrait-achievement-list > li {
   align-content: start;
   padding: 16px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--ui-border);
   border-radius: var(--radius, 8px);
 }
 .portrait-achievement-list h3 {
@@ -163,4 +163,94 @@
   .portrait-gallery {
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   }
+}
+
+/* The artwork size is independent of the card/frame and all other portrait contexts. */
+.portrait-card-art .portrait-art {
+  width: min(100%, var(--portrait-art-max));
+  height: auto;
+  max-height: var(--portrait-art-max);
+  object-fit: contain;
+}
+.achievement-score {
+  display: grid;
+  gap: 10px;
+  padding: clamp(16px, 2vw, 24px);
+}
+.achievement-score > label {
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  font-weight: 700;
+}
+.achievement-score p {
+  margin: 0;
+}
+.achievement-rune {
+  font-size: 2.5rem;
+  line-height: 1.2;
+  justify-self: center;
+}
+.portrait-achievement-list > .achievement-card {
+  position: relative;
+  border-top-width: 4px;
+}
+.portrait-achievement-list > .achievement-engraved {
+  border-style: dashed;
+}
+.portrait-achievement-list > .achievement-bronze {
+  border-top-color: #ad7954;
+}
+.portrait-achievement-list > .achievement-silver {
+  border-top-color: #afbfc8;
+  border-style: double;
+}
+.portrait-achievement-list > .achievement-gold {
+  border-color: #c9a452;
+  border-style: double;
+}
+.portrait-achievement-list > .achievement-legendary {
+  border: 4px double var(--focus-ring);
+  background-image: radial-gradient(
+    ellipse at top,
+    color-mix(in srgb, var(--focus-ring) 15%, transparent),
+    transparent 65%
+  );
+}
+.achievement-silver .achievement-rune,
+.achievement-gold .achievement-rune,
+.achievement-legendary .achievement-rune {
+  border: 3px double currentColor;
+  border-radius: 50%;
+  padding: 12px 20px;
+}
+.achievement-claimable > .portrait-state {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.portrait-achievement-list details ul {
+  padding-left: 20px;
+}
+.portrait-achievement-list details li {
+  padding: 4px 0;
+  border: 0;
+}
+
+.achievement-legendary .achievement-rune {
+  background: var(--ui-gold-tint);
+  box-shadow:
+    0 0 0 4px var(--surface-raised),
+    0 0 0 5px var(--gold);
+}
+.achievement-legendary::before,
+.achievement-legendary::after {
+  content: '✧';
+  position: absolute;
+  top: 10px;
+  color: var(--gold);
+  font-size: 1.5rem;
+}
+.achievement-legendary::before {
+  left: 12px;
+}
+.achievement-legendary::after {
+  right: 12px;
 }

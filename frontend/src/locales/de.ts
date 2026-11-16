@@ -1,4 +1,31 @@
 const translations: Record<string, string> = {
+  'Rated online victories': 'Gewertete Online-Siege',
+  'Rated Brandubh victories': 'Gewertete Brandubh-Siege',
+  'Rated Tablut victories': 'Gewertete Tablut-Siege',
+  'Rated Copenhagen victories': 'Gewertete Copenhagen-Siege',
+  'Rated victories as Defender': 'Gewertete Siege als Verteidiger',
+  'Rated victories as Attacker': 'Gewertete Siege als Angreifer',
+  'Single-player victories against AI': 'Einzelspieler-Siege gegen KI',
+  'Replays analyzed': 'Analysierte Wiederholungen',
+  'Best rated win streak': 'Beste gewertete Siegesserie',
+  'Achievement Score — {earned} / {total} points':
+    'Errungenschaftspunkte — {earned} / {total} Punkte',
+  '{percent}% complete · {count} / {total} milestones collected':
+    '{percent}% abgeschlossen · {count} / {total} Meilensteine gesammelt',
+  'Ready to collect: {points} points': 'Zum Sammeln bereit: {points} Punkte',
+  'Collected {count} milestones · +{points} points':
+    '{count} Meilensteine gesammelt · +{points} Punkte',
+  'Fully completed': 'Vollständig abgeschlossen',
+  'Collected tier: {tier} / {total} · threshold {threshold}':
+    'Gesammelte Stufe: {tier} / {total} · Schwelle {threshold}',
+  'Recorded progress: {progress} · highest achieved: {threshold}':
+    'Erfasster Fortschritt: {progress} · höchste erreichte Schwelle: {threshold}',
+  'Next milestone: {target} · {points} points': 'Nächster Meilenstein: {target} · {points} Punkte',
+  'Collect milestones: {name}': 'Meilensteine sammeln: {name}',
+  'Collect · {points} points': 'Sammeln · {points} Punkte',
+  'Milestone rewards': 'Meilenstein-Belohnungen',
+  '{points} points': '{points} Punkte',
+
   'Your saga, your portrait': 'Deine Saga, dein Porträt',
   'Portrait hall': 'Porträthalle',
   'Earn Viking portraits through your games. Every achievement is confirmed from official results.':

@@ -3,7 +3,7 @@
 import sqlite3
 import time
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 20
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -24,6 +24,7 @@ ONLINE_TABLES = (
     # while awards, entitlements and the selected portrait are retained player
     # state that a compatible restore must keep from live authority. Children
     # follow their parents so restore deletes/inserts children-first.
+    "replay_analysis_completions",
     "achievement_catalog",
     "portrait_catalog",
     "achievement_awards",
@@ -38,6 +39,7 @@ ONLINE_TABLES = (
     "player_tournament_audit",
 )
 APPEND_ONLY = (
+    "replay_analysis_completions",
     "online_moves",
     "online_results",
     "online_void_audit",
@@ -427,6 +429,13 @@ def migrate_online(c: sqlite3.Connection) -> None:
         )""",
     ):
         c.execute(statement)
+    # Schema 20 (19 remains reserved for leagues). One successful server analysis
+    # per account and replay identity; the primary key also indexes account reads.
+    c.execute("""CREATE TABLE IF NOT EXISTS replay_analysis_completions (
+        account_id TEXT NOT NULL REFERENCES accounts(id),
+        category TEXT NOT NULL, game_id TEXT NOT NULL,
+        PRIMARY KEY(account_id,category,game_id)
+    )""")
     for table in APPEND_ONLY:
         for action in ("UPDATE", "DELETE"):
             c.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_{action.lower()}_immutable

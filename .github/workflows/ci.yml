@@ -60,6 +60,7 @@ jobs:
           path: |
             frontend/test-results/arena-final/
             frontend/test-results/portraits/
+            frontend/test-results/achievement-tiers/
           retention-days: 14
       - run: npm run test:registration
       - run: npm run test:online

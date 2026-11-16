@@ -24,7 +24,7 @@ from .personal import rated_streaks
 
 # A catalog change (adding, renaming, retiring) bumps its version; awards record
 # the achievement catalog version that granted them.
-ACHIEVEMENT_CATALOG_VERSION = 1
+ACHIEVEMENT_CATALOG_VERSION = 2
 PORTRAIT_CATALOG_VERSION = 1
 
 
@@ -37,6 +37,9 @@ class Achievement:
     criterion: str
     scope: str | None
     threshold: int
+    points: int = 10
+    family: str = "local-first-game"
+    tier: int = 1
 
 
 @dataclass(frozen=True)
@@ -66,118 +69,98 @@ _AI_DEFEATED = """SELECT count(*) FROM games
 _CRITERIA: dict[str, tuple[str | None, str | None]] = {
     "rated_wins": (_RATED_WINS, "a.pool"),
     "rated_defender_wins": (_RATED_WINS + " AND e.defenders_id=a.account_id", None),
+    "rated_attacker_wins": (_RATED_WINS + " AND e.attackers_id=a.account_id", None),
+    "analyzed_replays": (
+        "SELECT count(*) FROM replay_analysis_completions WHERE account_id=?",
+        None,
+    ),
     "rated_win_streak_best": (None, None),
     "completed_local_games": (_LOCAL_COMPLETED, None),
     "defeated_ai_games": (_AI_DEFEATED, None),
 }
-_CATEGORIES = ("rated", "ruleset", "streak", "local", "ai")
+_CATEGORIES = ("rated", "ruleset", "streak", "local", "ai", "analysis")
 
-ACHIEVEMENTS = (
-    Achievement(
-        "first-rated-win",
-        "First Raid",
-        "Win your first rated online game.",
-        "rated",
-        "rated_wins",
-        None,
-        1,
-    ),
-    Achievement(
-        "rated-wins-10",
-        "Veteran of Ten",
-        "Win ten rated online games.",
-        "rated",
-        "rated_wins",
-        None,
-        10,
-    ),
-    Achievement(
-        "rated-wins-25",
-        "Saga-Worthy",
-        "Win twenty-five rated online games.",
-        "rated",
-        "rated_wins",
-        None,
-        25,
-    ),
-    Achievement(
-        "defender-hold",
-        "Shield Wall",
-        "Win a rated online game as the defender.",
-        "rated",
-        "rated_defender_wins",
-        None,
-        1,
-    ),
-    Achievement(
-        "defender-wins-10",
-        "Wall of Shields",
-        "Win ten rated online games as the defender.",
-        "rated",
-        "rated_defender_wins",
-        None,
-        10,
-    ),
-    Achievement(
-        "rated-win-streak-5",
-        "Unbroken Line",
-        "Reach a five-game rated win streak.",
-        "streak",
-        "rated_win_streak_best",
-        None,
-        5,
-    ),
-    Achievement(
-        "rated-win-streak-10",
-        "Champion of the Long Hall",
-        "Reach a ten-game rated win streak.",
-        "streak",
-        "rated_win_streak_best",
-        None,
-        10,
-    ),
-    Achievement(
-        "brandubh-initiate",
-        "Brandubh Initiate",
-        "Win a rated Brandubh game.",
+# Incremental points: 760 per ordinary family, 200 for streaks.
+MILESTONES = (1, 3, 10, 25, 50, 100, 250, 500, 1000)
+TIER_POINTS = (10, 20, 30, 40, 60, 80, 120, 160, 240)
+STREAK_MILESTONES = (1, 3, 5, 10)
+STREAK_POINTS = (10, 30, 60, 100)
+# family, name, category, criterion, scope, legacy threshold IDs
+FAMILIES: tuple[tuple[str, str, str, str, str | None, dict[int, str]], ...] = (
+    ("rated-wins", "Rated online victories", "rated", "rated_wins", None, {1: "first-rated-win"}),
+    (
+        "brandubh-wins",
+        "Rated Brandubh victories",
         "ruleset",
         "rated_wins",
         "brandubh",
-        1,
+        {1: "brandubh-initiate"},
     ),
-    Achievement(
-        "tablut-initiate",
-        "Tablut Initiate",
-        "Win a rated Tablut game.",
+    (
+        "tablut-wins",
+        "Rated Tablut victories",
         "ruleset",
         "rated_wins",
         "tablut",
-        1,
+        {1: "tablut-initiate"},
     ),
-    Achievement(
-        "copenhagen-initiate",
-        "Copenhagen Initiate",
-        "Win a rated Copenhagen game.",
+    (
+        "copenhagen-wins",
+        "Rated Copenhagen victories",
         "ruleset",
         "rated_wins",
         "copenhagen",
-        1,
+        {1: "copenhagen-initiate"},
     ),
+    (
+        "defender-wins",
+        "Rated victories as Defender",
+        "rated",
+        "rated_defender_wins",
+        None,
+        {1: "defender-hold"},
+    ),
+    ("attacker-wins", "Rated victories as Attacker", "rated", "rated_attacker_wins", None, {}),
+    (
+        "ai-wins",
+        "Single-player victories against AI",
+        "ai",
+        "defeated_ai_games",
+        None,
+        {1: "ai-first-victory"},
+    ),
+    ("analyzed-replays", "Replays analyzed", "analysis", "analyzed_replays", None, {}),
+    ("rated-win-streak", "Best rated win streak", "streak", "rated_win_streak_best", None, {}),
+)
+ACHIEVEMENTS = tuple(
+    Achievement(
+        legacy.get(threshold, f"{family}-{threshold}"),
+        name,
+        f"{name}: {threshold}.",
+        category,
+        criterion,
+        scope,
+        threshold,
+        points,
+        family,
+        tier,
+    )
+    for family, name, category, criterion, scope, legacy in FAMILIES
+    for tier, (threshold, points) in enumerate(
+        zip(
+            STREAK_MILESTONES if category == "streak" else MILESTONES,
+            STREAK_POINTS if category == "streak" else TIER_POINTS,
+            strict=True,
+        ),
+        1,
+    )
+) + (
     Achievement(
         "local-first-game",
         "Fireside Game",
         "Finish a same-device local game.",
         "local",
         "completed_local_games",
-        None,
-        1,
-    ),
-    Achievement(
-        "ai-first-victory",
-        "Trial of Steel",
-        "Beat a computer opponent in a finished single-player game.",
-        "ai",
-        "defeated_ai_games",
         None,
         1,
     ),
@@ -218,7 +201,7 @@ def _validate_catalogs() -> None:
             raise ValueError(f"Unknown achievement criterion {achievement.criterion!r}")
         if achievement.category not in _CATEGORIES:
             raise ValueError(f"Unknown achievement category {achievement.category!r}")
-        if achievement.threshold < 1:
+        if achievement.threshold < 1 or achievement.points < 1:
             raise ValueError(f"Achievement {achievement.id!r} needs a positive threshold")
         scope_column = _CRITERIA[achievement.criterion][1]
         if achievement.scope is not None and (
@@ -402,7 +385,9 @@ class Progression:
                 cache[key] = c.execute(statement, values).fetchone()[0]
         return cache[key]
 
-    def _materialize(self, c: sqlite3.Connection, account_id: str, now: int) -> None:
+    def _materialize(
+        self, c: sqlite3.Connection, account_id: str, now: int, family: str | None = None
+    ) -> None:
         """Confirm every milestone the authoritative records already prove.
 
         Idempotent: a repeated confirmation, a duplicated result update or a
@@ -412,6 +397,8 @@ class Progression:
         """
         cache: dict = {}
         for achievement in ACHIEVEMENTS:
+            if family is not None and achievement.family != family:
+                continue
             if self._measure(c, account_id, achievement, cache) >= achievement.threshold:
                 c.execute(
                     """INSERT OR IGNORE INTO achievement_awards(
@@ -446,12 +433,15 @@ class Progression:
             )
         }
         cache: dict = {}
-        items = []
+        items: list[dict] = []
         for achievement in ACHIEVEMENTS:
             awarded_at = awards.get(achievement.id)
             items.append(
                 {
                     "id": achievement.id,
+                    "family_id": achievement.family,
+                    "tier": achievement.tier,
+                    "points": achievement.points,
                     "name": achievement.name,
                     "description": achievement.description,
                     "category": achievement.category,
@@ -463,13 +453,56 @@ class Progression:
                     "portrait_id": PORTRAIT_BY_ACHIEVEMENT.get(achievement.id),
                 }
             )
+        families = []
+        for family_id in dict.fromkeys(item["family_id"] for item in items):
+            tiers = [item for item in items if item["family_id"] == family_id]
+            collected = [item for item in tiers if item["unlocked"]]
+            eligible = [
+                item
+                for item in tiers
+                if not item["unlocked"] and item["progress"] >= item["threshold"]
+            ]
+            next_tier = next((item for item in tiers if not item["unlocked"]), None)
+            families.append(
+                {
+                    "id": family_id,
+                    "name": tiers[0]["name"],
+                    "progress": tiers[0]["progress"],
+                    "collected_tier": max((item["tier"] for item in collected), default=0),
+                    "collected_threshold": max(
+                        (item["threshold"] for item in collected), default=0
+                    ),
+                    "achieved_threshold": max(
+                        (
+                            item["threshold"]
+                            for item in tiers
+                            if item["progress"] >= item["threshold"]
+                        ),
+                        default=0,
+                    ),
+                    "total_tiers": len(tiers),
+                    "collected_count": len(collected),
+                    "next_milestone": next_tier,
+                    "claimable_points": sum(item["points"] for item in eligible),
+                    "complete": len(collected) == len(tiers),
+                    "milestones": tiers,
+                }
+            )
         return {
             "catalog_version": ACHIEVEMENT_CATALOG_VERSION,
+            "families": families,
             "portrait_catalog_version": PORTRAIT_CATALOG_VERSION,
             "items": items,
             "summary": {
                 "unlocked": sum(1 for item in items if item["unlocked"]),
                 "total": len(items),
+                "earned_points": sum(item["points"] for item in items if item["unlocked"]),
+                "total_points": sum(item["points"] for item in items),
+                "claimable_points": sum(
+                    item["points"]
+                    for item in items
+                    if not item["unlocked"] and item["progress"] >= item["threshold"]
+                ),
             },
             "as_of": stamp(instant(now)),
         }
@@ -487,7 +520,7 @@ class Progression:
             account = self.online._identity(c, credential)
             return self._projection(c, account["id"], micros(self.online.clock()))
 
-    def confirm(self, credential: str) -> dict:
+    def confirm(self, credential: str, family_id: str | None = None) -> dict:
         """Confirm every milestone the authoritative records already prove.
 
         The whole confirmation runs inside one ``BEGIN IMMEDIATE`` and returns
@@ -495,11 +528,13 @@ class Progression:
         boundary requires a non-SAFE method (origin, CSRF, body size) and obeys
         the deployment freeze before this is reached.
         """
+        if family_id is not None and family_id not in {a.family for a in ACHIEVEMENTS}:
+            raise OnlineError(422, "Unknown achievement family.")
         with self.store.connection() as c:
             c.execute("BEGIN IMMEDIATE")
             account = self.online._identity(c, credential)
             now = micros(self.online.clock())
-            self._materialize(c, account["id"], now)
+            self._materialize(c, account["id"], now, family_id)
             return self._projection(c, account["id"], now)
 
     def select(self, c: sqlite3.Connection, account_id: str, portrait_id: str) -> str:

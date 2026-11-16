@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test } from './auth-fixture';
+import { projectAchievements } from './achievement-fixture';
 
 const themes = ['kings-table', 'iron-ash', 'saga-hall', 'classic-table'];
 function contrast(foreground: string, background: string) {
@@ -37,7 +38,7 @@ for (const theme of themes) {
             ? '2035-01-01T00:00:00Z'
             : null,
       }));
-      return progress;
+      return projectAchievements(progress);
     };
     await page.route('**/api/personal/achievements', async (route) =>
       route.fulfill({ json: await achievements() }),
@@ -93,6 +94,9 @@ for (const theme of themes) {
         await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
         const gallery = page.locator('.portrait-gallery');
         await expect(gallery.locator('> li')).toHaveCount(12);
+        await expect(page.locator('.portrait-achievement-list > li')).toHaveCount(10);
+        await expect(page.locator('[data-family="rated-wins"]')).toHaveAttribute('data-tier', '0');
+        await expect(page.locator('#achievement-score')).toHaveAttribute('value', '10');
         await expect(gallery.locator('[data-portrait-state="selected"]')).toHaveCount(1);
         await expect(gallery.locator('[data-portrait-state="available"]')).toHaveCount(1);
         await expect(gallery.locator('[data-portrait-state="earned"]')).toHaveCount(1);
@@ -124,6 +128,16 @@ for (const theme of themes) {
               ),
             ).toBe(true);
           }).toPass({ timeout: 10000 });
+        }
+        // Device pixels must fit the native bitmap, including fractional DPI.
+        for (const image of await gallery.locator('img').all()) {
+          const pixels = await image.evaluate((node: HTMLImageElement) => ({
+            rendered: node.getBoundingClientRect().width * devicePixelRatio,
+            native: node.naturalWidth,
+            fit: getComputedStyle(node).objectFit,
+          }));
+          expect(pixels.rendered).toBeLessThanOrEqual(pixels.native + 1);
+          expect(pixels.fit).toBe('contain');
         }
         // Artwork is 320x320: never upscale it, keep it square and inside its card.
         const naturalSizes = await gallery
@@ -159,6 +173,8 @@ for (const theme of themes) {
         await page.keyboard.press('Enter');
         await expect(gallery.locator('[data-portrait-state="available"]')).toHaveCount(0);
         expect(confirmations).toBe(before + 1);
+        await expect(page.locator('[data-family="rated-wins"]')).toHaveAttribute('data-tier', '1');
+        await expect(page.locator('#achievement-score')).toHaveAttribute('value', '20');
         await expect(claim).toBeDisabled();
         const shieldmaiden = gallery
           .locator('li')
