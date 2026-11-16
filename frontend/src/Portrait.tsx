@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import './portrait.css';
 
 /** Explicit local allowlist: never interpolate an account-controlled asset URL. */
 export const PORTRAIT_ASSETS: Readonly<Record<string, string>> = {
@@ -37,7 +38,7 @@ export default function Portrait({
       aria-label={name || undefined}
       aria-hidden={name ? undefined : true}
     >
-      ᛟ
+      <span aria-hidden="true">ᛟ</span>
     </span>
   ) : (
     <img

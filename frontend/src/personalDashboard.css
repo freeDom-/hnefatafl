@@ -1046,11 +1046,3 @@ main:has(.arena-dashboard) {
 :root[data-ui-theme='classic-table'] .arena-hero-emphasis {
   color: var(--focus-ring);
 }
-
-.leaderboard-avatar .portrait-art,
-.army-symbol .portrait-art {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
-}
