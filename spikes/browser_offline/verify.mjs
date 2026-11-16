@@ -41,6 +41,58 @@ const legal = (moves, move) =>
     (candidate) =>
       candidate.source === move?.source && candidate.target === move?.target,
   );
+async function exerciseStartupRecovery(context, origin) {
+  const page = await context.newPage();
+  try {
+    await page.goto(origin);
+    await page.waitForFunction(() => window.spike);
+    // Cancel the initial game while its worker is still starting.
+    await page.evaluate(() => window.spike.cancel());
+    const cancelled_status = await page.textContent("#status");
+    // Startup must still resolve even though the initial game was cancelled.
+    await page.evaluate(() => window.spike.ready);
+    const board_after_cancel = await page.evaluate(
+      () => document.querySelector("#board").textContent,
+    );
+    // Rapid New Game requests: the newest wins and controls recover.
+    const rapid = await page.evaluate(async () => {
+      const settled = await Promise.allSettled([
+        window.spike.newGame("brandubh"),
+        window.spike.newGame("tablut"),
+        window.spike.newGame("copenhagen"),
+      ]);
+      const last = settled[settled.length - 1];
+      return {
+        fulfilled: settled.filter((entry) => entry.status === "fulfilled")
+          .length,
+        ruleset:
+          last.status === "fulfilled" && last.value
+            ? last.value.state.ruleset
+            : null,
+        move_enabled: !document.querySelector("#move").disabled,
+      };
+    });
+    // Offline infrastructure must be active and controlling the scope.
+    await page.waitForFunction(() => navigator.serviceWorker.controller);
+    // Offline reload must still work after recovery.
+    await context.setOffline(true);
+    await page.reload();
+    await page.evaluate(() => window.spike.ready);
+    const offline_board = await page.evaluate(
+      () => document.querySelector("#board").textContent.length,
+    );
+    return {
+      cancelled_status,
+      board_after_cancel,
+      rapid,
+      offline_board,
+      recovered: rapid.ruleset === "copenhagen" && offline_board > 0,
+    };
+  } finally {
+    await context.setOffline(false).catch(() => {});
+    await page.close();
+  }
+}
 let browser;
 try {
   browser = await chromium.launch({
@@ -84,14 +136,26 @@ try {
         ? route.continue()
         : route.abort(),
     );
+    const processSession = await browser.newBrowserCDPSession();
+    const cpuBefore = await processSession.send("SystemInfo.getProcessInfo");
+    const startupRecovery = shellOnly
+      ? null
+      : await exerciseStartupRecovery(context, origin);
+    if (startupRecovery) {
+      assert.equal(startupRecovery.cancelled_status, "Local work cancelled");
+      assert.equal(startupRecovery.board_after_cancel, "");
+      assert.equal(startupRecovery.rapid.fulfilled, 3);
+      assert.equal(startupRecovery.rapid.ruleset, "copenhagen");
+      assert.equal(startupRecovery.rapid.move_enabled, true);
+      assert(startupRecovery.offline_board > 0);
+      assert.equal(startupRecovery.recovered, true);
+    }
     const page = await context.newPage();
     const cdp = await context.newCDPSession(page);
     if (profile.cpuRate)
       await cdp.send("Emulation.setCPUThrottlingRate", {
         rate: profile.cpuRate,
       });
-    const processSession = await browser.newBrowserCDPSession();
-    const cpuBefore = await processSession.send("SystemInfo.getProcessInfo");
     await page.goto(origin);
     if (shellOnly) {
       await page.waitForFunction(() =>
@@ -296,7 +360,7 @@ try {
       };
     }, current);
     assert.equal(cancellation.outcome, "AbortError");
-    assert.equal(cancellation.hard_timeout, "AbortError");
+    assert.equal(cancellation.hard_timeout, "TimeoutError");
     const unsupported = await page.evaluate(async () => {
       const { LocalAnalysisClient } = await import("./analysis-client.js");
       const original = window.Worker;
@@ -370,24 +434,28 @@ try {
     assert.equal(sizeValidation.unicode_utf8_over, true);
     assert.equal(sizeValidation.exact_bytes, 512 * 1024);
     assert.equal(sizeValidation.exact_accepted, true);
-    // Synchronous postMessage failures must clear pending state and the busy flag.
+    // Synchronous postMessage failures must reset the transport and recover.
     const postFailure = await page.evaluate(async () => {
       const { LocalAnalysisClient } = await import("./analysis-client.js");
       const original = window.Worker;
-      class ThrowingWorker {
+      let calls = 0;
+      class FlakyPostWorker {
         constructor() {
           this.onmessage = null;
           this.onerror = null;
+          this.messages = [];
+          this.fail = ++calls === 1;
         }
-        postMessage() {
-          throw new Error("post failed");
+        postMessage(message) {
+          if (this.fail) throw new Error("post failed");
+          this.messages.push(message);
         }
         terminate() {}
       }
-      window.Worker = ThrowingWorker;
+      window.Worker = FlakyPostWorker;
       try {
         const client = new LocalAnalysisClient();
-        const outcome = client
+        const first = client
           .request({ action: "info" }, { timeoutMs: 1000 })
           .then(
             () => "resolved",
@@ -395,15 +463,123 @@ try {
           );
         client.worker.onmessage({ data: { id: 0, value: {} } });
         await new Promise((resolve) => setTimeout(resolve, 0));
-        const result = await outcome;
-        return { result, pending: client.pending, busy: client.busy };
+        const firstResult = await first;
+        const failedTransport = {
+          pending: client.pending,
+          busy: client.busy,
+          worker: client.worker,
+        };
+        // The failed transport must be released; a fresh worker serves the next request.
+        const second = client
+          .request({ action: "info" }, { timeoutMs: 1000 })
+          .then(
+            (value) => value,
+            (error) => error.message,
+          );
+        const secondWorker = client.worker;
+        secondWorker.onmessage({ data: { id: 0, value: {} } });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        secondWorker.onmessage({
+          data: { id: secondWorker.messages[0].id, value: "recovered" },
+        });
+        const secondResult = await second;
+        return {
+          firstResult,
+          firstPending: failedTransport.pending,
+          firstBusy: failedTransport.busy,
+          firstWorkerReset: failedTransport.worker === null,
+          workerReplaced: secondWorker !== failedTransport.worker,
+          secondResult,
+          finalBusy: client.busy,
+        };
       } finally {
         window.Worker = original;
       }
     });
-    assert.equal(postFailure.result, "post failed");
-    assert.equal(postFailure.pending, null);
-    assert.equal(postFailure.busy, false);
+    assert.equal(postFailure.firstResult, "post failed");
+    assert.equal(postFailure.firstPending, null);
+    assert.equal(postFailure.firstBusy, false);
+    assert.equal(postFailure.firstWorkerReset, true);
+    assert.equal(postFailure.workerReplaced, true);
+    assert.equal(postFailure.secondResult, "recovered");
+    assert.equal(postFailure.finalBusy, false);
+    // A worker startup failure must not poison the client; the next request recovers.
+    const startupFailure = await page.evaluate(async () => {
+      const { LocalAnalysisClient } = await import("./analysis-client.js");
+      const original = window.Worker;
+      let calls = 0;
+      class FlakyStartupWorker {
+        constructor() {
+          this.onmessage = null;
+          this.onerror = null;
+          this.messages = [];
+          this.calls = ++calls;
+        }
+        postMessage(message) {
+          this.messages.push(message);
+        }
+        terminate() {}
+      }
+      window.Worker = FlakyStartupWorker;
+      try {
+        const client = new LocalAnalysisClient();
+        const failed = client
+          .request({ action: "info" }, { timeoutMs: 1000 })
+          .then(
+            () => "resolved",
+            (error) => error.message,
+          );
+        client.worker.onmessage({ data: { id: 0, error: "runtime exploded" } });
+        const failedResult = await failed;
+        const busyAfterFailure = client.busy;
+        const resetWorker = client.worker === null;
+        const recovered = client
+          .request({ action: "info" }, { timeoutMs: 1000 })
+          .then(
+            (value) => value,
+            (error) => error.message,
+          );
+        const recoveredWorker = client.worker;
+        recoveredWorker.onmessage({
+          data: { id: 0, value: { strategy: "baseline" } },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        recoveredWorker.onmessage({
+          data: {
+            id: recoveredWorker.messages[0].id,
+            value: { strategy: "baseline" },
+          },
+        });
+        return {
+          failedResult,
+          busyAfterFailure,
+          resetWorker,
+          freshWorker: recoveredWorker.calls === 2,
+          recovered: await recovered,
+        };
+      } finally {
+        window.Worker = original;
+      }
+    });
+    assert.equal(startupFailure.failedResult, "runtime exploded");
+    assert.equal(startupFailure.busyAfterFailure, false);
+    assert.equal(startupFailure.resetWorker, true);
+    assert.equal(startupFailure.freshWorker, true);
+    assert.deepEqual(startupFailure.recovered, { strategy: "baseline" });
+    // Offline infrastructure registration is idempotent and scoped to the spike.
+    const offlineRegistration = await page.evaluate(async (expected) => {
+      const first = window.spike.offlineReady();
+      const second = window.spike.offlineReady();
+      const scope = await first;
+      return {
+        same_promise: first === second,
+        scope,
+        scoped: scope === expected,
+      };
+    }, `${origin}/`);
+    assert.equal(offlineRegistration.same_promise, true);
+    assert.equal(offlineRegistration.scope, `${origin}/`);
+    assert.equal(offlineRegistration.scoped, true);
     // Obsolete worker responses and post-cancellation replies must be ignored.
     const lateResponses = await page.evaluate(async () => {
       const { LocalAnalysisClient } = await import("./analysis-client.js");
@@ -560,6 +736,185 @@ try {
     assert.equal(concurrent.obsolete_discarded, true);
     assert.equal(concurrent.latest_published, true);
     assert.equal(concurrent.displayed, true);
+    // Cache-hit preemption: a warm entry cancels a slower in-flight search.
+    const cachePreemption = await page.evaluate(
+      async ({ state }) => {
+        const { LocalAnalysisClient } = await import("./analysis-client.js");
+        const client = new LocalAnalysisClient();
+        const warmConfig = { algorithm: "baseline", time_limit: 0.01 };
+        const slowConfig = {
+          algorithm: "alpha_beta",
+          depth: 5,
+          time_limit: 0.5,
+        };
+        const warm = await client.analyze(state, warmConfig);
+        const slow = client.analyze(state, slowConfig);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        const hit = await client.analyze(state, warmConfig);
+        const slowOutcome = await slow.then(
+          () => "resolved",
+          (error) => error.name,
+        );
+        const busyAfterHit = client.busy;
+        const info = await client.request({ action: "info" });
+        return {
+          warm_cached: warm.cached,
+          hit_cached: hit.cached,
+          hit_key_matches: hit.position_key === warm.position_key,
+          slow_cancelled: slowOutcome === "AbortError",
+          busy_after_hit: busyAfterHit,
+          worker_valid: Boolean(info && info.strategy),
+          cache_size: client.cache.size,
+        };
+      },
+      { state: opening },
+    );
+    assert.equal(cachePreemption.warm_cached, false);
+    assert.equal(cachePreemption.hit_cached, true);
+    assert.equal(cachePreemption.hit_key_matches, true);
+    assert.equal(cachePreemption.slow_cancelled, true);
+    assert.equal(cachePreemption.busy_after_hit, false);
+    assert.equal(cachePreemption.worker_valid, true);
+    assert.equal(cachePreemption.cache_size, 1);
+    // The cached result, not the superseded slow search, stays displayed.
+    const cacheDisplay = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      const warmConfig = { algorithm: "baseline", time_limit: 0.01 };
+      const warm = await window.spike.analyze(warmConfig);
+      const slow = window.spike.analyze({
+        algorithm: "alpha_beta",
+        depth: 5,
+        time_limit: 0.5,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const hit = await window.spike.analyze(warmConfig);
+      await slow.catch(() => {});
+      const displayed = document.querySelector("#analysis").textContent;
+      return {
+        hit_cached: hit.cached,
+        hit_key_matches: hit.position_key === warm.position_key,
+        displayed_matches_hit: displayed.includes(hit.position_key),
+      };
+    }, opening);
+    assert.equal(cacheDisplay.hit_cached, true);
+    assert.equal(cacheDisplay.hit_key_matches, true);
+    assert.equal(cacheDisplay.displayed_matches_hit, true);
+    // Manual Cancel clears the analyzing indicator immediately and is idempotent.
+    const cancelFeedback = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      const analysis = window.spike.analyze({
+        algorithm: "alpha_beta",
+        depth: 5,
+        time_limit: 0.5,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const before = document.querySelector("#analysis").textContent;
+      window.spike.cancel();
+      const after = document.querySelector("#analysis").textContent;
+      const cancelStatus = document.querySelector("#status").textContent;
+      await analysis.catch(() => {});
+      window.spike.cancel();
+      window.spike.cancel();
+      const stillCancelled = document.querySelector("#status").textContent;
+      const info = await window.spike.info();
+      return {
+        before,
+        after,
+        cancel_status: cancelStatus,
+        still_cancelled: stillCancelled,
+        recovered: Boolean(info && info.strategy),
+      };
+    }, opening);
+    assert.equal(cancelFeedback.before, "Analyzing…");
+    assert.equal(cancelFeedback.after, "");
+    assert.equal(cancelFeedback.cancel_status, "Local work cancelled");
+    assert.equal(cancelFeedback.still_cancelled, "Local work cancelled");
+    assert.equal(cancelFeedback.recovered, true);
+    // Cancellation, hard timeout and failure have distinct status feedback.
+    const errorClassification = await page.evaluate(() => {
+      const results = {};
+      window.spike.handleError(new DOMException("x", "AbortError"));
+      results.abort = document.querySelector("#status").textContent;
+      window.spike.handleError(new DOMException("x", "TimeoutError"));
+      results.timeout = document.querySelector("#status").textContent;
+      window.spike.handleError(new Error("boom"));
+      results.failure = document.querySelector("#status").textContent;
+      return results;
+    });
+    assert.deepEqual(errorClassification, {
+      abort: "Local work cancelled",
+      timeout: "Local analysis timed out",
+      failure: "Spike error: boom",
+    });
+    // Obsolete analysis errors must not overwrite a newer status message.
+    const staleStatus = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      const analysis = window.spike.analyze({
+        algorithm: "alpha_beta",
+        depth: 5,
+        time_limit: 0.5,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const game = await window.spike.newGame("tablut");
+      await analysis.catch(() => {});
+      return {
+        ruleset: game.state.ruleset,
+        status: document.querySelector("#status").textContent,
+      };
+    }, opening);
+    assert.equal(staleStatus.ruleset, "tablut");
+    assert.equal(staleStatus.status, "defenders to move");
+    // Terminal positions disable Move and AI but keep analysis available.
+    const terminalStates = {};
+    for (const ruleset of ["brandubh", "tablut", "copenhagen"])
+      terminalStates[ruleset] = vectors.find(
+        (v) => v.name === `${ruleset}-king-escape`,
+      ).after.state;
+    const terminalControls = await page.evaluate(async (states) => {
+      const results = {};
+      for (const [ruleset, state] of Object.entries(states)) {
+        const snapshot = await window.spike.restore(state);
+        results[ruleset] = {
+          winner: snapshot.state.winner,
+          legal_moves: snapshot.legal_moves.length,
+          move_disabled: document.querySelector("#move").disabled,
+          ai_disabled: document.querySelector("#ai").disabled,
+          analyze_disabled: document.querySelector("#analyze").disabled,
+          status: document.querySelector("#status").textContent,
+        };
+      }
+      // Invalid and empty moves are rejected rather than throwing.
+      results.invalid_move = await window.spike.move({}).then(
+        () => "resolved",
+        (error) => error.message,
+      );
+      results.no_move = await window.spike.move(null).then(
+        () => "resolved",
+        (error) => error.message,
+      );
+      return results;
+    }, terminalStates);
+    for (const ruleset of ["brandubh", "tablut", "copenhagen"]) {
+      const entry = terminalControls[ruleset];
+      assert.equal(entry.winner, "defenders");
+      assert.equal(entry.legal_moves, 0);
+      assert.equal(entry.move_disabled, true);
+      assert.equal(entry.ai_disabled, true);
+      assert.equal(entry.analyze_disabled, false);
+      assert(entry.status.startsWith("defenders:"));
+    }
+    assert.equal(terminalControls.invalid_move, "Invalid move");
+    assert.equal(terminalControls.no_move, "Invalid move");
+    // A playable position restores normal controls.
+    const restoredControls = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      return {
+        move_disabled: document.querySelector("#move").disabled,
+        ai_disabled: document.querySelector("#ai").disabled,
+      };
+    }, opening);
+    assert.equal(restoredControls.move_disabled, false);
+    assert.equal(restoredControls.ai_disabled, false);
     const pageErrors = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.click("#cancel");
@@ -608,7 +963,17 @@ try {
       unsupported_worker_feedback: unsupported,
       size_validation: sizeValidation,
       post_failure_cleanup: postFailure,
+      startup_failure_recovery: startupFailure,
       late_responses: lateResponses,
+      cache_preemption: cachePreemption,
+      cache_display: cacheDisplay,
+      cancel_feedback: cancelFeedback,
+      error_classification: errorClassification,
+      stale_status: staleStatus,
+      terminal_controls: terminalControls,
+      restored_controls: restoredControls,
+      offline_registration: offlineRegistration,
+      startup_recovery: startupRecovery,
       lifecycle: {
         completed_cleared: completedCleared.afterChange === "",
         superseded_display_cleared: supersededDisplay.afterChange === "",
