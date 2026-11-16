@@ -557,7 +557,12 @@ class OnlineCore:
                     json.dumps(result_payload(result)),
                 ),
             )
-            self.ratings.apply(c, row["match_id"], game.id, result, now)
+            if self.ratings.apply(c, row["match_id"], game.id, result, now):
+                from .progression import RATED_CRITERIA, award_achievements
+
+                award_achievements(
+                    c, (result.attackers, result.defenders), micros(now), RATED_CRITERIA
+                )
         self._return_game(c, row, game, now)
         if actor is not None:
             c.execute(
@@ -879,6 +884,9 @@ class OnlineCore:
                 self.ratings.rebuild_all(c, now)
             else:
                 self.ratings.rebuild_pool(c, pool, now)
+            from .progression import reconcile_achievements
+
+            reconcile_achievements(c, micros(now))
         return {
             "rebuilt": sorted(RULESETS) if pool is None else [pool],
             "policy_version": rating.RATING_POLICY_VERSION,

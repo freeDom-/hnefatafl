@@ -1,4 +1,11 @@
 const translations: Record<string, string> = {
+  'Earned tier: {tier} / {total} · threshold {threshold}':
+    'Verdiente Stufe: {tier} / {total} · Schwelle {threshold}',
+  '{percent}% complete · {count} / {total} milestones earned':
+    '{percent}% abgeschlossen · {count} / {total} Meilensteine verdient',
+  'New milestones: {count} · +{points} points': 'Neue Meilensteine: {count} · +{points} Punkte',
+  'New portraits available: {count}': 'Neue Porträts verfügbar: {count}',
+
   'Rated online victories': 'Gewertete Online-Siege',
   'Rated Brandubh victories': 'Gewertete Brandubh-Siege',
   'Rated Tablut victories': 'Gewertete Tablut-Siege',
@@ -10,36 +17,23 @@ const translations: Record<string, string> = {
   'Best rated win streak': 'Beste gewertete Siegesserie',
   'Achievement Score — {earned} / {total} points':
     'Errungenschaftspunkte — {earned} / {total} Punkte',
-  '{percent}% complete · {count} / {total} milestones collected':
-    '{percent}% abgeschlossen · {count} / {total} Meilensteine gesammelt',
-  'Ready to collect: {points} points': 'Zum Sammeln bereit: {points} Punkte',
-  'Collected {count} milestones · +{points} points':
-    '{count} Meilensteine gesammelt · +{points} Punkte',
   'Fully completed': 'Vollständig abgeschlossen',
-  'Collected tier: {tier} / {total} · threshold {threshold}':
-    'Gesammelte Stufe: {tier} / {total} · Schwelle {threshold}',
   'Recorded progress: {progress} · highest achieved: {threshold}':
     'Erfasster Fortschritt: {progress} · höchste erreichte Schwelle: {threshold}',
   'Next milestone: {target} · {points} points': 'Nächster Meilenstein: {target} · {points} Punkte',
-  'Collect milestones: {name}': 'Meilensteine sammeln: {name}',
-  'Collect · {points} points': 'Sammeln · {points} Punkte',
   'Milestone rewards': 'Meilenstein-Belohnungen',
   '{points} points': '{points} Punkte',
 
   'Your saga, your portrait': 'Deine Saga, dein Porträt',
   'Portrait hall': 'Porträthalle',
-  'Earn Viking portraits through your games. Every achievement is confirmed from official results.':
-    'Verdiene Wikingerporträts durch deine Spiele. Jede Errungenschaft wird anhand offizieller Ergebnisse bestätigt.',
+  'Earn Viking portraits through your games. Achievements unlock automatically from official results.':
+    'Verdiene Wikingerporträts durch deine Spiele. Errungenschaften werden anhand offizieller Ergebnisse automatisch freigeschaltet.',
   'Portraits unlocked: {count} / {total}': 'Freigeschaltete Porträts: {count} / {total}',
   'Loading your portraits…': 'Deine Porträts werden geladen…',
   'Portrait progress could not be refreshed. Displayed progress may be out of date.':
     'Der Porträtfortschritt konnte nicht aktualisiert werden. Die angezeigten Werte sind möglicherweise veraltet.',
-  'Eligible achievements: {count}': 'Bereit zum Freischalten: {count}',
-  'Confirming achievements…': 'Errungenschaften werden bestätigt…',
-  'Claim eligible achievements': 'Erfüllte Errungenschaften freischalten',
   'Portrait collection': 'Porträtsammlung',
   Locked: 'Gesperrt',
-  'Ready to claim': 'Bereit zum Freischalten',
   Unlocked: 'Freigeschaltet',
   Selected: 'Ausgewählt',
   'Always available.': 'Immer verfügbar.',
@@ -47,13 +41,11 @@ const translations: Record<string, string> = {
   'Select portrait: {name}': 'Porträt auswählen: {name}',
   'Selecting…': 'Wird ausgewählt…',
   'Use portrait': 'Porträt verwenden',
-  'Claim eligible achievements to unlock this portrait.':
-    'Schalte die erfüllten Errungenschaften frei, um dieses Porträt zu erhalten.',
   'Keep playing to complete this achievement.':
     'Spiele weiter, um diese Errungenschaft zu erfüllen.',
   Achievements: 'Errungenschaften',
-  'Confirmed achievements remain earned, even if a later result correction changes current progress.':
-    'Bestätigte Errungenschaften bleiben erhalten, auch wenn eine spätere Ergebniskorrektur den aktuellen Fortschritt verändert.',
+  'Earned achievements remain unlocked, even if a later result correction changes current progress.':
+    'Verdiente Errungenschaften bleiben freigeschaltet, auch wenn eine spätere Ergebniskorrektur den aktuellen Fortschritt verändert.',
   'Achievements unlocked: {count}': 'Errungenschaften freigeschaltet: {count}',
   'Portrait selected.': 'Porträt ausgewählt.',
   Shieldbearer: 'Schildträger',

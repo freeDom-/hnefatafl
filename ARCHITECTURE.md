@@ -12,7 +12,7 @@ The [post-PR #84 audit](docs/designs/arena-completion.md) is a historical snapsh
 At that baseline, Portrait Hall, signed-out spectator UI and human tournament UI
 were missing, tournament settlement was manually invoked and leagues were not
 implemented; schema is 18. Later work ships separately: Portrait Hall, achievement
-claiming and selection are delivered by PR #86. Automatic tournament settlement,
+selection originated in PR #86; automatic progression is delivered in PR #94. Automatic tournament settlement,
 leagues, the public spectator frontend, Workshop consolidation and local-analysis
 research remain separate workstreams. See the [current Arena contracts](docs/designs/arena-v2-contracts.md)
 and [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
@@ -56,7 +56,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [profile_api.py](hnefatafl/profile_api.py), [profile_migrations.py](hnefatafl/profile_migrations.py) | Owned optional profiles, automatic publication with legacy privacy protection, private birth dates and additive schema-15 fields |
 | [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
-| [progression.py](hnefatafl/progression.py), [progression_api.py](hnefatafl/progression_api.py) | Code-owned tier/portrait catalogs, points derived from permanent awards, account-scoped replay-analysis receipts (schema 20) and CSRF-protected claims/portrait selection |
+| [progression.py](hnefatafl/progression.py), [progression_api.py](hnefatafl/progression_api.py) | Code-owned tier/portrait catalogs, points derived from permanent awards, account-scoped replay-analysis receipts (schema 20), transactional automatic awards (schema 21) and CSRF-protected portrait selection |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py), [tournament_statistics.py](hnefatafl/tournament_statistics.py), [openings.py](hnefatafl/openings.py) | Separate tournament lifecycle, incremental role statistics and reproducible legal openings |
 | [player_tournaments.py](hnefatafl/player_tournaments.py), [player_tournament_api.py](hnefatafl/player_tournament_api.py) | Double-elimination human tournaments over authoritative online games: bracket derivation, idempotent advancement, disputes/rebuilds and authenticated bounded projections |
@@ -712,11 +712,11 @@ returns sequence-ordered applied events with an opaque cursor, and
 Both are strictly self-scoped and add no schema or rating-math change; a durable
 login/activity-day streak remains deferred to a future progression migration.
 Schema 17 adds the read-only own-progress read `GET /api/personal/achievements`
-beside the authenticated `GET /api/portraits/catalog`, an explicit CSRF-protected
-`POST /api/personal/achievements/confirm` and the `profile`-scoped
-`PATCH /api/profile/portrait`; awards and entitlements are confirmed idempotently
-from the applied rating ledger and completed account games only. See
-[portraits and achievements](docs/PROGRESSION.md). Two additional read-only `/api/history` routes use `history.py`:
+beside authenticated `GET /api/portraits/catalog` and the `profile`-scoped
+`PATCH /api/profile/portrait`. Schema 21 reconciles historical achievements once;
+authoritative game/rating/analysis transactions automatically grant permanent
+awards and portrait entitlements. Reads and selection never grant rewards.
+See [portraits and achievements](docs/PROGRESSION.md). Two additional read-only `/api/history` routes use `history.py`:
 normal-user lists/review cover own account games and participating online games;
 trusted current `all_data` sessions can filter/review all server-recorded online/account records. Dashboard
 history always applies own-account scope, visibility and eligible completion before

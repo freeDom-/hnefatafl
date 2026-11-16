@@ -3,13 +3,13 @@
 This module is the single authority for stable portrait and achievement IDs, the
 unlock relationship between them and the catalog versions published by the API.
 ``migrate_online`` mirrors both catalogs into the database on every startup so the
-SQL reads can join them, and never invents a row for an existing account.
+SQL reads can join them. A controlled schema migration reconciles historical records.
 
 Awards are materialized idempotently from authoritative records only: rated
-outcomes come from the applied rating ledger (so a withdrawn or corrected result
-is never rewarded), local and vs-AI milestones from completed account games.
+outcomes come from the applied rating ledger; local and vs-AI milestones come
+from completed account games. Corrections change future eligibility, never earned rewards.
 Nothing here accepts a client-supplied award, image URL or another account's
-scope, and a milestone that was already confirmed is never revoked.
+scope, and an earned milestone is never revoked.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ from .personal import rated_streaks
 
 # A catalog change (adding, renaming, retiring) bumps its version; awards record
 # the achievement catalog version that granted them.
-ACHIEVEMENT_CATALOG_VERSION = 2
-PORTRAIT_CATALOG_VERSION = 1
+ACHIEVEMENT_CATALOG_VERSION = 3
+PORTRAIT_CATALOG_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -52,9 +52,12 @@ class Portrait:
 
 # Counts are derived per read from authoritative records; nothing is cached in a
 # per-account counter that a correction could not recompute.
-_RATED_WINS = """SELECT count(*) FROM rating_applications a
-    JOIN rating_events e ON e.game_id=a.game_id
-    WHERE a.account_id=? AND e.state='applied' AND a.score=1.0"""
+_RATED_WINS = """SELECT a.pool,
+    CASE WHEN e.attackers_id=a.account_id THEN 'attackers' ELSE 'defenders' END AS side,
+    count(*) AS wins FROM rating_applications a
+    JOIN rating_events e ON e.game_id=a.game_id AND e.pool=a.pool
+    WHERE a.account_id=? AND e.state='applied' AND a.score=1.0
+    GROUP BY a.pool,side"""
 _LOCAL_COMPLETED = """SELECT count(*) FROM games
     WHERE category='local' AND owner_account_id=?
       AND json_extract(data,'$.recorded_result.winner') IS NOT NULL"""
@@ -68,8 +71,8 @@ _AI_DEFEATED = """SELECT count(*) FROM games
 # best run is not a count of matching rows.
 _CRITERIA: dict[str, tuple[str | None, str | None]] = {
     "rated_wins": (_RATED_WINS, "a.pool"),
-    "rated_defender_wins": (_RATED_WINS + " AND e.defenders_id=a.account_id", None),
-    "rated_attacker_wins": (_RATED_WINS + " AND e.attackers_id=a.account_id", None),
+    "rated_defender_wins": (_RATED_WINS, None),
+    "rated_attacker_wins": (_RATED_WINS, None),
     "analyzed_replays": (
         "SELECT count(*) FROM replay_analysis_completions WHERE account_id=?",
         None,
@@ -169,20 +172,32 @@ ACHIEVEMENTS = tuple(
 # ``shieldbearer`` is the always-available default: every other portrait is
 # unlocked by exactly one achievement. ``local-first-game`` deliberately grants no
 # portrait, so an achievement is not required to carry one.
-PORTRAITS = (
+PORTRAITS: tuple[Portrait, ...] = (
     Portrait("shieldbearer", "Shieldbearer", None),
-    Portrait("shieldmaiden", "Shieldmaiden", "first-rated-win"),
-    Portrait("iron-helm", "Iron Helm", "defender-hold"),
-    Portrait("wanderer", "Wanderer", "brandubh-initiate"),
-    Portrait("skald", "Skald", "tablut-initiate"),
-    Portrait("fjord-scout", "Fjord Scout", "copenhagen-initiate"),
-    Portrait("raven-seer", "Raven Seer", "rated-wins-10"),
+    Portrait("shieldmaiden", "Shieldmaiden", "rated-wins-10"),
+    Portrait("iron-helm", "Iron Helm", "defender-wins-10"),
+    Portrait("wanderer", "Wanderer", "brandubh-wins-10"),
+    Portrait("skald", "Skald", "tablut-wins-10"),
+    Portrait("fjord-scout", "Fjord Scout", "copenhagen-wins-10"),
+    Portrait("raven-seer", "Raven Seer", "rated-wins-25"),
     Portrait("berserker", "Berserker", "rated-win-streak-5"),
     Portrait("one-eyed-jarl", "One-Eyed Jarl", "rated-win-streak-10"),
-    Portrait("valkyrie", "Valkyrie", "defender-wins-10"),
-    Portrait("einherjar", "Einherjar", "rated-wins-25"),
-    Portrait("forge-keeper", "Forge Keeper", "ai-first-victory"),
+    Portrait("valkyrie", "Valkyrie", "attacker-wins-10"),
+    Portrait("einherjar", "Einherjar", "rated-wins-50"),
+    Portrait("forge-keeper", "Forge Keeper", "ai-wins-10"),
 )
+
+_ACHIEVEMENT_BY_ID = {item.id: item for item in ACHIEVEMENTS}
+
+
+def _portrait_difficulty(portrait: Portrait) -> tuple:
+    if portrait.unlock_achievement_id is None:
+        return (0, 0, portrait.id)
+    achievement = _ACHIEVEMENT_BY_ID[portrait.unlock_achievement_id]
+    return (2 if achievement.category == "streak" else 1, achievement.threshold, portrait.id)
+
+
+PORTRAITS = tuple(sorted(PORTRAITS, key=_portrait_difficulty))
 
 PORTRAIT_BY_ACHIEVEMENT = {
     portrait.unlock_achievement_id: portrait.id
@@ -370,6 +385,23 @@ class Progression:
     @staticmethod
     def _measure(c: sqlite3.Connection, account_id: str, achievement, cache: dict) -> int:
         key = (achievement.criterion, achievement.scope)
+        if key not in cache and achievement.criterion in {
+            "rated_wins",
+            "rated_defender_wins",
+            "rated_attacker_wins",
+        }:
+            rows = c.execute(_RATED_WINS, (account_id,)).fetchall()
+            cache[("rated_wins", None)] = sum(row["wins"] for row in rows)
+            for pool in RULESETS:
+                cache[("rated_wins", pool)] = sum(
+                    row["wins"] for row in rows if row["pool"] == pool
+                )
+            cache[("rated_defender_wins", None)] = sum(
+                row["wins"] for row in rows if row["side"] == "defenders"
+            )
+            cache[("rated_attacker_wins", None)] = sum(
+                row["wins"] for row in rows if row["side"] == "attackers"
+            )
         if key not in cache:
             statement, scope_column = _CRITERIA[achievement.criterion]
             if statement is None:
@@ -385,45 +417,11 @@ class Progression:
                 cache[key] = c.execute(statement, values).fetchone()[0]
         return cache[key]
 
-    def _materialize(
-        self, c: sqlite3.Connection, account_id: str, now: int, family: str | None = None
-    ) -> None:
-        """Confirm every milestone the authoritative records already prove.
-
-        Idempotent: a repeated confirmation, a duplicated result update or a
-        rebuilt pool can only re-insert the same primary keys, so an award is
-        written once and an award that was already granted is never removed by a
-        later correction.
-        """
-        cache: dict = {}
-        for achievement in ACHIEVEMENTS:
-            if family is not None and achievement.family != family:
-                continue
-            if self._measure(c, account_id, achievement, cache) >= achievement.threshold:
-                c.execute(
-                    """INSERT OR IGNORE INTO achievement_awards(
-                         account_id,achievement_id,awarded_at,catalog_version)
-                       VALUES(?,?,?,?)""",
-                    (account_id, achievement.id, now, ACHIEVEMENT_CATALOG_VERSION),
-                )
-        # Entitlements mirror the award ledger and self-heal: every currently
-        # offered portrait of an already-awarded achievement is granted, so a
-        # portrait added to the catalog later still becomes selectable.
-        c.execute(
-            """INSERT OR IGNORE INTO account_portraits(
-                 account_id,portrait_id,granted_at,source_achievement_id)
-               SELECT ?,p.id,?,p.unlock_achievement_id FROM portrait_catalog p
-               JOIN achievement_awards a ON a.achievement_id=p.unlock_achievement_id
-               WHERE a.account_id=? AND p.retired=0 AND p.unlock_achievement_id IS NOT NULL""",
-            (account_id, now, account_id),
-        )
-
     def _projection(self, c: sqlite3.Connection, account_id: str, now: int) -> dict:
         """Complete own progress from stored awards and authoritative records.
 
-        Read-only: it never confirms an award or writes anything, so the caller
-        owns the transaction it runs in. ``now`` is the server time reported as
-        ``as_of`` and is the confirmation time when a caller confirms first.
+        Read-only: the caller owns the transaction. ``now`` supplies ``as_of``;
+        authoritative event transactions alone grant awards.
         """
         awards = {
             row["achievement_id"]: row["awarded_at"]
@@ -456,22 +454,22 @@ class Progression:
         families = []
         for family_id in dict.fromkeys(item["family_id"] for item in items):
             tiers = [item for item in items if item["family_id"] == family_id]
-            collected = [item for item in tiers if item["unlocked"]]
-            eligible = [
-                item
-                for item in tiers
-                if not item["unlocked"] and item["progress"] >= item["threshold"]
-            ]
-            next_tier = next((item for item in tiers if not item["unlocked"]), None)
+            awarded = [item for item in tiers if item["unlocked"]]
+            next_tier = next(
+                (
+                    item
+                    for item in tiers
+                    if not item["unlocked"] and item["threshold"] > item["progress"]
+                ),
+                None,
+            )
             families.append(
                 {
                     "id": family_id,
                     "name": tiers[0]["name"],
                     "progress": tiers[0]["progress"],
-                    "collected_tier": max((item["tier"] for item in collected), default=0),
-                    "collected_threshold": max(
-                        (item["threshold"] for item in collected), default=0
-                    ),
+                    "awarded_tier": max((item["tier"] for item in awarded), default=0),
+                    "awarded_threshold": max((item["threshold"] for item in awarded), default=0),
                     "achieved_threshold": max(
                         (
                             item["threshold"]
@@ -481,16 +479,22 @@ class Progression:
                         default=0,
                     ),
                     "total_tiers": len(tiers),
-                    "collected_count": len(collected),
+                    "awarded_count": len(awarded),
                     "next_milestone": next_tier,
-                    "claimable_points": sum(item["points"] for item in eligible),
-                    "complete": len(collected) == len(tiers),
+                    "complete": len(awarded) == len(tiers),
                     "milestones": tiers,
                 }
             )
         return {
             "catalog_version": ACHIEVEMENT_CATALOG_VERSION,
             "families": families,
+            "unlocked_portrait_ids": [
+                row[0]
+                for row in c.execute(
+                    "SELECT portrait_id FROM account_portraits WHERE account_id=? ORDER BY portrait_id",
+                    (account_id,),
+                )
+            ],
             "portrait_catalog_version": PORTRAIT_CATALOG_VERSION,
             "items": items,
             "summary": {
@@ -498,11 +502,6 @@ class Progression:
                 "total": len(items),
                 "earned_points": sum(item["points"] for item in items if item["unlocked"]),
                 "total_points": sum(item["points"] for item in items),
-                "claimable_points": sum(
-                    item["points"]
-                    for item in items
-                    if not item["unlocked"] and item["progress"] >= item["threshold"]
-                ),
             },
             "as_of": stamp(instant(now)),
         }
@@ -510,32 +509,13 @@ class Progression:
     def achievements(self, credential: str) -> dict:
         """Read-only own progress; a fresh account receives every item at zero.
 
-        Confirmation is a separate, explicit operation (``confirm``), so this
-        read never mutates state and is safe as an idempotent GET. Progress is
-        derived live, so an award already confirmed by ``confirm`` is still
-        reported as ``unlocked``.
+        Authoritative event transactions award milestones. This read only
+        projects durable awards and current progress; it never grants rewards.
         """
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self.online._identity(c, credential)
             return self._projection(c, account["id"], micros(self.online.clock()))
-
-    def confirm(self, credential: str, family_id: str | None = None) -> dict:
-        """Confirm every milestone the authoritative records already prove.
-
-        The whole confirmation runs inside one ``BEGIN IMMEDIATE`` and returns
-        the same projection as the read. It is a state change, so the HTTP
-        boundary requires a non-SAFE method (origin, CSRF, body size) and obeys
-        the deployment freeze before this is reached.
-        """
-        if family_id is not None and family_id not in {a.family for a in ACHIEVEMENTS}:
-            raise OnlineError(422, "Unknown achievement family.")
-        with self.store.connection() as c:
-            c.execute("BEGIN IMMEDIATE")
-            account = self.online._identity(c, credential)
-            now = micros(self.online.clock())
-            self._materialize(c, account["id"], now, family_id)
-            return self._projection(c, account["id"], now)
 
     def select(self, c: sqlite3.Connection, account_id: str, portrait_id: str) -> str:
         """Select an earned, currently offered portrait inside the caller's write.
@@ -544,7 +524,6 @@ class Progression:
         for a client-supplied image, URL or entitlement.
         """
         now = micros(self.online.clock())
-        self._materialize(c, account_id, now)
         row = c.execute(
             "SELECT unlock_achievement_id,retired FROM portrait_catalog WHERE id=?",
             (portrait_id,),
@@ -566,3 +545,54 @@ class Progression:
             (account_id, portrait_id, now),
         )
         return portrait_id
+
+
+RATED_CRITERIA = frozenset(
+    {"rated_wins", "rated_defender_wins", "rated_attacker_wins", "rated_win_streak_best"}
+)
+LOCAL_CRITERIA = frozenset({"completed_local_games", "defeated_ai_games"})
+
+
+def award_achievements(
+    c: sqlite3.Connection,
+    account_ids: Iterable[str],
+    now: int,
+    criteria: frozenset[str] | None = None,
+) -> None:
+    """Award proven milestones and entitlements in the caller's event transaction.
+
+    Counter reads are cached by criterion/scope; events measure only affected
+    counters. Award and portrait keys plus append-only guards preserve permanence.
+    """
+    for account_id in dict.fromkeys(account_ids):
+        cache: dict = {}
+        awarded = {
+            row[0]
+            for row in c.execute(
+                "SELECT achievement_id FROM achievement_awards WHERE account_id=?", (account_id,)
+            )
+        }
+        for achievement in ACHIEVEMENTS:
+            if achievement.id in awarded:
+                continue
+            if criteria is not None and achievement.criterion not in criteria:
+                continue
+            if Progression._measure(c, account_id, achievement, cache) >= achievement.threshold:
+                c.execute(
+                    """INSERT OR IGNORE INTO achievement_awards(
+                       account_id,achievement_id,awarded_at,catalog_version) VALUES(?,?,?,?)""",
+                    (account_id, achievement.id, now, ACHIEVEMENT_CATALOG_VERSION),
+                )
+        c.execute(
+            """INSERT OR IGNORE INTO account_portraits(account_id,portrait_id,granted_at,source_achievement_id)
+               SELECT ?,p.id,?,p.unlock_achievement_id FROM portrait_catalog p
+               JOIN achievement_awards a ON a.achievement_id=p.unlock_achievement_id
+               WHERE a.account_id=? AND p.retired=0""",
+            (account_id, now, account_id),
+        )
+
+
+def reconcile_achievements(c: sqlite3.Connection, now: int) -> None:
+    """Controlled migration/admin reconciliation, never called by a GET."""
+    accounts = [row[0] for row in c.execute("SELECT id FROM accounts")]
+    award_achievements(c, accounts, now)

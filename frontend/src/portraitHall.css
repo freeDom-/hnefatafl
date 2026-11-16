@@ -1,6 +1,5 @@
 .portrait-hall {
-  /* Original artwork is 320x320; never render it larger than native resolution. */
-  --portrait-art-max: 320px;
+  /* Gallery art is a native 1024px counterpart; small avatars keep 320px assets. */
   width: min(100%, 1600px);
   margin: var(--gap-stack) auto;
   display: grid;
@@ -29,19 +28,9 @@
 .portrait-hall-count {
   font-weight: 700;
 }
-.portrait-hall-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--gap-stack);
-}
-.portrait-hall-actions .button {
-  white-space: normal;
-}
 .portrait-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
   gap: var(--gap-stack);
   list-style: none;
   padding: 0;
@@ -56,7 +45,7 @@
 }
 .portrait-card-art {
   width: 100%;
-  max-width: var(--portrait-art-max);
+  max-width: 440px;
   align-self: center;
   aspect-ratio: 1;
   display: grid;
@@ -87,12 +76,6 @@
 }
 .portrait-locked .portrait-art {
   filter: grayscale(1);
-}
-.portrait-available {
-  border-color: var(--focus-ring);
-  border-style: double;
-  border-width: 4px;
-  padding: 8px;
 }
 .portrait-earned .portrait-card-art {
   border-width: 3px;
@@ -161,21 +144,23 @@
     width: min(100%, 2400px);
   }
   .portrait-gallery {
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
   }
 }
 
 /* The artwork size is independent of the card/frame and all other portrait contexts. */
 .portrait-card-art .portrait-art {
-  width: min(100%, var(--portrait-art-max));
+  width: 100%;
+  max-width: calc(var(--portrait-native-width, 1024px) / var(--portrait-pixel-ratio, 1));
   height: auto;
-  max-height: var(--portrait-art-max);
+  max-height: none;
   object-fit: contain;
 }
 .achievement-score {
   display: grid;
   gap: 10px;
-  padding: clamp(16px, 2vw, 24px);
+  padding-block: var(--gap-stack);
+  border-block: 1px solid var(--ui-border);
 }
 .achievement-score > label {
   font-size: clamp(1.1rem, 2vw, 1.5rem);
@@ -197,14 +182,15 @@
   border-style: dashed;
 }
 .portrait-achievement-list > .achievement-bronze {
-  border-top-color: #ad7954;
+  border-top-color: var(--arena-metal, var(--gold));
 }
 .portrait-achievement-list > .achievement-silver {
-  border-top-color: #afbfc8;
+  border-top-color: var(--ui-subtle);
   border-style: double;
 }
 .portrait-achievement-list > .achievement-gold {
-  border-color: #c9a452;
+  background: var(--ui-gold-tint);
+  border-color: var(--gold);
   border-style: double;
 }
 .portrait-achievement-list > .achievement-legendary {
@@ -221,10 +207,6 @@
   border: 3px double currentColor;
   border-radius: 50%;
   padding: 12px 20px;
-}
-.achievement-claimable > .portrait-state {
-  text-decoration: underline;
-  text-underline-offset: 4px;
 }
 .portrait-achievement-list details ul {
   padding-left: 20px;

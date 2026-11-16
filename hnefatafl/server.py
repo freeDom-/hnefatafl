@@ -1053,7 +1053,7 @@ def create_app(
     def record_completed_replay(game: dict, settings: dict, recorded: dict | None) -> None:
         # Presentation merges intentionally omit the advisor's partial flag.
         # Eligibility must use raw retained evidence, never that merged display.
-        if not recorded:
+        if not recorded or not (game.get("recorded_result") or {}).get("winner"):
             return
         raw = store.advisor_analysis(game["id"], recorded["position_key"], settings["revision"])
         if raw is None and store.analytics(game["id"]) is None:
@@ -1261,7 +1261,13 @@ def create_app(
     def analyze_game(game_id: str, request: AnalysisRequest):
         from .ai import analyze_position
 
-        game = game_or_404(game_id, request.version)
+        from .security_context import principal
+
+        identity = principal.get()
+        game = {
+            **game_or_404(game_id, request.version),
+            "_analysis_account_id": identity["id"] if identity else None,
+        }
         if request.historical:
             if not 0 <= request.cursor <= len(game["moves"]):
                 fail("The requested position is outside this recorded game.", 422)
@@ -1444,6 +1450,7 @@ def create_app(
         return {
             "id": game_id,
             "online": True,
+            "_analysis_account_id": account["id"],
             "ruleset": row["ruleset"],
             "mode": "human-human",
             "players": players,

@@ -283,4 +283,4 @@ remain private and age uses completed years on the UTC date; see
 
 The **Unlocked portraits** standing-card heading links to `/portraits`, where
 [Portrait Hall](PROGRESSION.md#portrait-hall-and-player-artwork) displays actual
-achievement progress, confirms eligible awards and selects earned artwork.
+automatically awarded achievement progress and selects earned artwork.

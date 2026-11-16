@@ -2,6 +2,8 @@ import { mkdirSync } from 'node:fs';
 import { expect, test } from './auth-fixture';
 import { projectAchievements } from './achievement-fixture';
 
+test.use({ deviceScaleFactor: 2 });
+
 const themes = ['kings-table', 'iron-ash', 'saga-hall', 'classic-table'];
 function contrast(foreground: string, background: string) {
   const luminance = (value: string) => {
@@ -19,36 +21,40 @@ function contrast(foreground: string, background: string) {
   return (light + 0.05) / (dark + 0.05);
 }
 for (const theme of themes) {
-  test(`Portrait hall has authoritative collectible states and accessible controls in ${theme}`, async ({
+  test(`Portrait hall has automatic rewards and accessible controls in ${theme}`, async ({
     page,
   }, info) => {
+    // Four localized high-DPI viewport captures per theme need a larger image-encoding budget.
+    test.setTimeout(240_000);
     let selected = 'shieldbearer';
-    let claimed = false;
-    let confirmations = 0;
+    let awarded = false;
     const achievements = async () => {
       const response = await page.request.get('/api/personal/achievements');
       expect(response.ok()).toBe(true);
       const progress = await response.json();
       progress.items = progress.items.map((item: { id: string }) => ({
         ...item,
-        progress: item.id === 'first-rated-win' ? 1 : 0,
-        unlocked: item.id === 'brandubh-initiate' || (claimed && item.id === 'first-rated-win'),
+        progress:
+          item.id.startsWith('rated-wins') || item.id === 'first-rated-win'
+            ? awarded
+              ? 10
+              : 0
+            : 0,
+        unlocked:
+          item.id === 'brandubh-initiate' ||
+          (awarded && ['first-rated-win', 'rated-wins-3', 'rated-wins-10'].includes(item.id)),
         awarded_at:
-          item.id === 'brandubh-initiate' || (claimed && item.id === 'first-rated-win')
+          item.id === 'brandubh-initiate' ||
+          (awarded && ['first-rated-win', 'rated-wins-3', 'rated-wins-10'].includes(item.id))
             ? '2035-01-01T00:00:00Z'
             : null,
       }));
+      progress.unlocked_portrait_ids = ['wanderer', ...(awarded ? ['shieldmaiden'] : [])];
       return projectAchievements(progress);
     };
     await page.route('**/api/personal/achievements', async (route) =>
       route.fulfill({ json: await achievements() }),
     );
-    await page.route('**/api/personal/achievements/confirm', async (route) => {
-      expect(route.request().method()).toBe('POST');
-      confirmations++;
-      claimed = true;
-      await route.fulfill({ json: await achievements() });
-    });
     await page.route('**/api/profile', async (route) => {
       const response = await route.fetch();
       await route.fulfill({ json: { ...(await response.json()), portrait_id: selected } });
@@ -62,7 +68,7 @@ for (const theme of themes) {
     const sizes =
       info.project.name === 'mobile'
         ? [
-            { width: 320, height: 640 },
+            { width: 768, height: 1024 },
             { width: 390, height: 844 },
           ]
         : [
@@ -82,7 +88,7 @@ for (const theme of themes) {
         { theme, language },
       );
       for (const size of sizes) {
-        claimed = false;
+        awarded = false;
         selected = 'shieldbearer';
         await page.setViewportSize(size);
         await page.goto('/portraits');
@@ -98,9 +104,8 @@ for (const theme of themes) {
         await expect(page.locator('[data-family="rated-wins"]')).toHaveAttribute('data-tier', '0');
         await expect(page.locator('#achievement-score')).toHaveAttribute('value', '10');
         await expect(gallery.locator('[data-portrait-state="selected"]')).toHaveCount(1);
-        await expect(gallery.locator('[data-portrait-state="available"]')).toHaveCount(1);
         await expect(gallery.locator('[data-portrait-state="earned"]')).toHaveCount(1);
-        await expect(gallery.locator('[data-portrait-state="locked"]')).toHaveCount(9);
+        await expect(gallery.locator('[data-portrait-state="locked"]')).toHaveCount(10);
         for (const card of await gallery.locator('> li').all()) {
           await expect(async () => {
             const colors = await card.evaluate((node) => {
@@ -139,21 +144,21 @@ for (const theme of themes) {
           expect(pixels.rendered).toBeLessThanOrEqual(pixels.native + 1);
           expect(pixels.fit).toBe('contain');
         }
-        // Artwork is 320x320: never upscale it, keep it square and inside its card.
+        // Native 1024px gallery counterparts remain sharp at the actual display density.
         const naturalSizes = await gallery
           .locator('img')
           .evaluateAll((nodes) =>
             (nodes as HTMLImageElement[]).map((node) => [node.naturalWidth, node.naturalHeight]),
           );
-        for (const [width, height] of naturalSizes) expect([width, height]).toEqual([320, 320]);
+        for (const [width, height] of naturalSizes) expect([width, height]).toEqual([1024, 1024]);
         for (const card of await gallery.locator('> li').all()) {
           const art = card.locator('.portrait-card-art');
           const artBox = await art.boundingBox();
           const cardBox = await card.boundingBox();
           expect(artBox).not.toBeNull();
           expect(cardBox).not.toBeNull();
-          expect(artBox!.width).toBeLessThanOrEqual(320.5);
-          expect(artBox!.height).toBeLessThanOrEqual(320.5);
+          expect(artBox!.width).toBeLessThanOrEqual(440.5);
+          expect(artBox!.height).toBeLessThanOrEqual(440.5);
           expect(Math.abs(artBox!.width - artBox!.height)).toBeLessThanOrEqual(1);
           expect(artBox!.width).toBeLessThanOrEqual(cardBox!.width + 0.5);
           expect(artBox!.height).toBeLessThanOrEqual(cardBox!.height + 0.5);
@@ -163,24 +168,45 @@ for (const theme of themes) {
           path: `test-results/portraits/${theme}-${language}-${size.width}.png`,
           fullPage: true,
         });
-        const claim = page.locator('.portrait-hall-actions button');
-        const before = confirmations;
-        await claim.focus();
-        await page.keyboard.press('Tab');
-        await page.keyboard.press('Shift+Tab');
-        await expect(claim).toBeFocused();
-        expect(await claim.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
-        await page.keyboard.press('Enter');
-        await expect(gallery.locator('[data-portrait-state="available"]')).toHaveCount(0);
-        expect(confirmations).toBe(before + 1);
-        await expect(page.locator('[data-family="rated-wins"]')).toHaveAttribute('data-tier', '1');
-        await expect(page.locator('#achievement-score')).toHaveAttribute('value', '20');
-        await expect(claim).toBeDisabled();
+        await expect(page.getByRole('button', { name: /claim|collect/i })).toHaveCount(0);
+        expect(
+          await gallery
+            .locator('> li img')
+            .evaluateAll((nodes) =>
+              nodes.map((node) =>
+                (node as HTMLImageElement).src.split('/').pop()?.replace('-large.webp', ''),
+              ),
+            ),
+        ).toEqual([
+          'shieldbearer',
+          'fjord-scout',
+          'forge-keeper',
+          'iron-helm',
+          'shieldmaiden',
+          'skald',
+          'valkyrie',
+          'wanderer',
+          'raven-seer',
+          'einherjar',
+          'berserker',
+          'one-eyed-jarl',
+        ]);
+        await expect(page.locator('.portrait-achievements .achievement-score')).toBeVisible();
+        // Simulate a game-completion wake with an updated server-owned projection.
+        awarded = true;
+        await page.evaluate(() => window.dispatchEvent(new Event('progression-changed')));
+        await expect(page.locator('[data-family="rated-wins"]')).toHaveAttribute('data-tier', '3');
+        await expect(page.locator('#achievement-score')).toHaveAttribute('value', '70');
+        await expect(gallery.locator('[data-portrait-state="selected"] img')).toHaveAttribute(
+          'src',
+          /shieldbearer-large.webp$/,
+        );
         const shieldmaiden = gallery
           .locator('li')
-          .filter({ has: page.locator('img[src$="/shieldmaiden.webp"]') });
+          .filter({ has: page.locator('img[src$="/shieldmaiden-large.webp"]') });
         const select = shieldmaiden.getByRole('button');
         await select.focus();
+        expect(await select.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
         await page.keyboard.press('Enter');
         await expect(shieldmaiden).toHaveAttribute('data-portrait-state', 'selected');
         await expect(select).toBeDisabled();
@@ -192,7 +218,7 @@ for (const theme of themes) {
         await page.locator('.profile-portrait a[href="/portraits"]').click();
         await expect(
           page.locator('.portrait-gallery [data-portrait-state="selected"] img'),
-        ).toHaveAttribute('src', /\/shieldmaiden.webp$/);
+        ).toHaveAttribute('src', /\/shieldmaiden-large.webp$/);
         await page.goto('/dashboard');
         await expect(page.locator('.dashboard-portrait img')).toHaveAttribute(
           'src',
@@ -203,7 +229,7 @@ for (const theme of themes) {
           .click();
         await expect(
           page.locator('.portrait-gallery [data-portrait-state="selected"] img'),
-        ).toHaveAttribute('src', /\/shieldmaiden.webp$/);
+        ).toHaveAttribute('src', /\/shieldmaiden-large.webp$/);
       }
     }
   });

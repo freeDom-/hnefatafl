@@ -217,10 +217,7 @@ function DashboardHome({
     ? catalogItems.filter(
         (item) =>
           item.unlock_achievement_id === null ||
-          (achievements.data?.items?.some(
-            (achievement) => achievement.id === item.unlock_achievement_id && achievement.unlocked,
-          ) ??
-            false),
+          (achievements.data?.unlocked_portrait_ids?.includes(item.id) ?? false),
       ).length
     : null;
   const portraitId = profile.data?.portrait_id ?? null;

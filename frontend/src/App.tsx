@@ -1,5 +1,6 @@
 import { ArenaShell, SHELL_MAIN_ID, WorkshopShell } from './ArenaShell';
 import NewGame from './NewGame';
+import { useAchievementNotifications } from './useAchievementNotifications';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n } from './i18n';
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
@@ -57,6 +58,7 @@ const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defen
 export default function App() {
   useI18n();
   const { account, logout } = useAuth();
+  useAchievementNotifications(account?.id);
   const permissions = account?.permissions ?? [];
   const [path, setPath] = useState(canonicalLocation);
   const tab: Tab =
@@ -289,6 +291,8 @@ export default function App() {
       });
       if (currentGame.current?.id === active.id) {
         setGame(next);
+        if (!active.recorded_winner && next.recorded_winner)
+          window.dispatchEvent(new Event('progression-changed'));
         setAiRetryDelay(900);
         if (next.id !== active.id) {
           loadedRoute.current = next.id;

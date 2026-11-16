@@ -92,3 +92,7 @@ automatic tournament progress, leagues, the owner's license decision and capacit
 recovery/deployment evidence are outstanding. Re-evaluate this checklist after the
 focused completion PRs; the owner makes the merge and release decisions. No tag,
 version bump, release asset or automatic deployment is part of this audit.
+
+The automatic-award revision in PR #94 supersedes manual collection. Its separate
+[validation record](validation/automatic-achievements.md) does not change the
+historical audit evidence above.

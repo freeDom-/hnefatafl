@@ -135,7 +135,7 @@ class Ratings:
                 (game_id, account, pool, value, at),
             )
 
-    def apply(self, c, match_id: str, game_id: str, result, now: datetime) -> None:
+    def apply(self, c, match_id: str, game_id: str, result, now: datetime) -> bool:
         """Apply or withdraw the rating event for one terminal result revision.
 
         Idempotent: a repeated notification for the same effective revision is a
@@ -144,7 +144,7 @@ class Ratings:
         """
         match = c.execute("SELECT rated FROM online_matches WHERE id=?", (match_id,)).fetchone()
         if match is None or not match["rated"]:
-            return
+            return False
         pool = result.ruleset
         existing = c.execute("SELECT * FROM rating_events WHERE game_id=?", (game_id,)).fetchone()
         eligible = (
@@ -160,10 +160,11 @@ class Ratings:
                     (result.revision, _micros(result.completed_at), game_id),
                 )
                 self.rebuild_pool(c, pool, now)
-            return
+                return True
+            return False
         if existing is not None:
             if existing["state"] == "applied" and existing["effective_revision"] == result.revision:
-                return
+                return False
             c.execute(
                 """UPDATE rating_events SET state='applied',effective_revision=?,winner=?,
                      attackers_id=?,defenders_id=?,completed_at=?,policy_version=? WHERE game_id=?""",
@@ -178,7 +179,7 @@ class Ratings:
                 ),
             )
             self.rebuild_pool(c, pool, now)
-            return
+            return True
         sequence = c.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM rating_events").fetchone()[0]
         c.execute(
             """INSERT INTO rating_events(game_id,pool,sequence,state,effective_revision,winner,
@@ -199,6 +200,7 @@ class Ratings:
         )
         event = c.execute("SELECT * FROM rating_events WHERE game_id=?", (game_id,)).fetchone()
         self._apply_one(c, pool, event, now)
+        return True
 
     @staticmethod
     def _entry(row, rank: int, today: date) -> dict:

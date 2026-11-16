@@ -25,7 +25,7 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
       'brandubh-wins': 1000,
       'tablut-wins': 250,
       'copenhagen-wins': 3,
-      'defender-wins': 1000,
+      'defender-wins': 0,
       'attacker-wins': 0,
       'ai-wins': 10,
       'analyzed-replays': 55,
@@ -41,15 +41,6 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
     await page.route('**/api/personal/achievements', (route) =>
       route.fulfill({ json: projectAchievements(progress) }),
     );
-    await page.route('**/api/personal/achievements/confirm', async (route) => {
-      expect(route.request().postDataJSON()).toEqual({ family_id: 'defender-wins' });
-      progress.items = progress.items.map((item) =>
-        item.family_id === 'defender-wins'
-          ? { ...item, unlocked: true, awarded_at: '2035-01-01T00:00:00Z' }
-          : item,
-      );
-      await route.fulfill({ json: projectAchievements(progress) });
-    });
     await page.addInitScript((theme) => {
       localStorage.setItem('hnefatafl-appearance', JSON.stringify({ version: 2, uiTheme: theme }));
     }, theme);
@@ -109,14 +100,59 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
     }
     const defender = page.locator('[data-family="defender-wins"]');
     const before = Number(await page.locator('#achievement-score').getAttribute('value'));
-    const claim = defender.getByRole('button', {
-      name: 'Collect milestones: Rated victories as Defender',
-    });
-    await claim.focus();
-    await page.keyboard.press('Enter');
+    // A completed authoritative event upgrades the response; there is no collection mutation.
+    progress.items = progress.items.map((item) =>
+      item.family_id === 'defender-wins'
+        ? { ...item, progress: 1000, unlocked: true, awarded_at: '2035-01-01T00:00:00Z' }
+        : item,
+    );
+    await page.evaluate(() => window.dispatchEvent(new Event('profile-changed')));
     await expect(defender).toHaveAttribute('data-tier', '9');
     await expect(defender).toHaveClass(/achievement-legendary/);
     await expect(page.locator('#achievement-score')).toHaveAttribute('value', String(before + 760));
     await expect(defender.locator('progress')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /claim|collect/i })).toHaveCount(0);
   });
 }
+
+test('a real local game awards a milestone automatically without a Hall visit', async ({
+  page,
+  request,
+}) => {
+  const created = await request.post('http://127.0.0.1:8001/api/games/local', {
+    data: { ruleset: 'brandubh', attackers_label: 'Raven', defenders_label: 'Wolf' },
+  });
+  expect(created.ok()).toBe(true);
+  let game = await created.json();
+  for (const [source, target] of [
+    [3, 2],
+    [17, 16],
+    [2, 3],
+    [16, 17],
+    [3, 2],
+    [17, 16],
+    [2, 3],
+    [16, 17],
+  ]) {
+    const moved = await request.post(`http://127.0.0.1:8001/api/games/${game.id}/moves`, {
+      data: { version: game.version, source, target },
+    });
+    expect(moved.ok()).toBe(true);
+    game = await moved.json();
+  }
+  expect(game.recorded_winner).toBe('draw');
+  const earned = await request.get('http://127.0.0.1:8001/api/personal/achievements');
+  expect(
+    (await earned.json()).items.find((item: { id: string }) => item.id === 'local-first-game')
+      .unlocked,
+  ).toBe(true);
+  await page.goto('/portraits');
+  await expect(page.locator('[data-family="local-first-game"]')).toHaveAttribute('data-tier', '1');
+  // Keep the shared fixture's later statistics empty-state regression isolated.
+  expect(
+    (
+      await request.delete(`http://127.0.0.1:8001/api/games/${game.id}?version=${game.version}`)
+    ).ok(),
+  ).toBe(true);
+  await expect(page.getByRole('button', { name: /claim|collect/i })).toHaveCount(0);
+});

@@ -693,12 +693,10 @@ def test_completed_replay_analysis_records_once_without_followup_poll(client):
     for _ in range(3):
         analyze(client, game)
     assert receipts() == 1
-    payload = client.post(
-        "/api/personal/achievements/confirm", json={"family_id": "analyzed-replays"}
-    ).json()
+    payload = client.get("/api/personal/achievements").json()
     assert payload["summary"]["earned_points"] == 10
     assert (
-        next(f for f in payload["families"] if f["id"] == "analyzed-replays")["collected_tier"] == 1
+        next(f for f in payload["families"] if f["id"] == "analyzed-replays")["awarded_tier"] == 1
     )
 
 

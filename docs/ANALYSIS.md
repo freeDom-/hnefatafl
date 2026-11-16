@@ -176,10 +176,18 @@ Schema 20 records account-scoped successful analysis of completed replays for
 [achievement progress](PROGRESSION.md#award-rules). Credit requires an explicit
 analysis POST and a completed stored advisor report; presentation merges are
 never used as completion evidence because they omit the raw partial flag.
-Background workers record the initiating account on successful completion.
+Background workers retain a bounded set of authorized requesting accounts (at
+most the two participants) for deduplicated computation. Successful completion
+saves the report, all eligible requester receipts and automatic milestone awards
+in one transaction, without follow-up browser polling. Cancellation, failure,
+shutdown and supersession discard requester registrations without credit. A
+separate requester lock serializes enrollment with completion without blocking
+existing task scheduling/cache coordination.
 Subsequent explicit POSTs may reuse completed cached analysis. Ordinary GET/view
 requests, active games, partial searches and failed reports do not earn credit.
-A unique `(account_id, category, game_id)` receipt prevents repeated analysis of
+Existing receipts use a read-only fast path after scope/completion validation;
+new receipts revalidate inside their insertion transaction. A unique
+`(account_id, category, game_id)` receipt prevents repeated analysis of
 one replay from increasing progress. This records successful position analysis
 within a completed replay, not proof of a whole-game batch analysis. Browser-local
 analysis is not eligible. Analysis positions, advisor settings and move guards

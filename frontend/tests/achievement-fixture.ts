@@ -1,36 +1,37 @@
 import type { AchievementProgress } from '../src/portraitTypes';
 
-/** Keep controlled browser responses consistent with the server family contract. */
+/** Server-shaped projections for controlled UI tests; scoring remains server-owned. */
 export function projectAchievements(progress: AchievementProgress): AchievementProgress {
-  progress.families = progress.families.map((family) => {
-    const milestones = progress.items.filter((item) => item.family_id === family.id);
-    const collected = milestones.filter((item) => item.unlocked);
-    const eligible = milestones.filter((item) => !item.unlocked && item.progress >= item.threshold);
+  progress.families = [...new Set(progress.items.map((item) => item.family_id))].map((id) => {
+    const milestones = progress.items.filter((item) => item.family_id === id);
+    const awarded = milestones.filter((item) => item.unlocked);
     return {
-      ...family,
+      id,
+      name: milestones[0].name,
       milestones,
       progress: milestones[0].progress,
-      collected_tier: Math.max(0, ...collected.map((item) => item.tier)),
-      collected_threshold: Math.max(0, ...collected.map((item) => item.threshold)),
+      awarded_tier: Math.max(0, ...awarded.map((item) => item.tier)),
+      awarded_threshold: Math.max(0, ...awarded.map((item) => item.threshold)),
       achieved_threshold: Math.max(
         0,
         ...milestones
           .filter((item) => item.progress >= item.threshold)
           .map((item) => item.threshold),
       ),
-      collected_count: collected.length,
-      complete: collected.length === milestones.length,
-      next_milestone: milestones.find((item) => !item.unlocked) ?? null,
-      claimable_points: eligible.reduce((sum, item) => sum + item.points, 0),
+      total_tiers: milestones.length,
+      awarded_count: awarded.length,
+      next_milestone:
+        milestones.find((item) => !item.unlocked && item.threshold > item.progress) ?? null,
+      complete: awarded.length === milestones.length,
     };
   });
-  progress.summary.earned_points = progress.items
-    .filter((item) => item.unlocked)
-    .reduce((sum, item) => sum + item.points, 0);
-  progress.summary.unlocked = progress.items.filter((item) => item.unlocked).length;
-  progress.summary.claimable_points = progress.families.reduce(
-    (sum, family) => sum + family.claimable_points,
-    0,
-  );
+  progress.summary = {
+    total: progress.items.length,
+    unlocked: progress.items.filter((item) => item.unlocked).length,
+    earned_points: progress.items
+      .filter((item) => item.unlocked)
+      .reduce((sum, item) => sum + item.points, 0),
+    total_points: progress.items.reduce((sum, item) => sum + item.points, 0),
+  };
   return progress;
 }

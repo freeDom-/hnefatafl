@@ -88,6 +88,7 @@ const portraits = {
   ],
 };
 const achievements = {
+  unlocked_portrait_ids: ['shieldmaiden'],
   catalog_version: 1,
   portrait_catalog_version: 1,
   items: [

@@ -23,13 +23,12 @@ export type AchievementFamily = {
   id: string;
   name: string;
   progress: number;
-  collected_tier: number;
-  collected_threshold: number;
+  awarded_tier: number;
+  awarded_threshold: number;
   achieved_threshold: number;
   total_tiers: number;
-  collected_count: number;
+  awarded_count: number;
   next_milestone: Achievement | null;
-  claimable_points: number;
   complete: boolean;
   milestones: Achievement[];
 };
@@ -42,9 +41,9 @@ export type AchievementProgress = {
     total: number;
     earned_points: number;
     total_points: number;
-    claimable_points: number;
   };
+  unlocked_portrait_ids: string[];
   families: AchievementFamily[];
   items: Achievement[];
 };
-export type PortraitState = 'locked' | 'available' | 'earned' | 'selected';
+export type PortraitState = 'locked' | 'earned' | 'selected';
