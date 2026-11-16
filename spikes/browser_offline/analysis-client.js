@@ -17,6 +17,7 @@ export class LocalAnalysisClient {
     this.boot = null;
     this.pending = null;
     this.busy = false;
+    this.foregroundActive = false;
     this.generation = 0;
     this.sequence = 0;
     this.cache = new Map();
@@ -62,7 +63,9 @@ export class LocalAnalysisClient {
     return this.boot;
   }
   // Hard cancellation: terminates the worker and rejects in-flight work as AbortError.
+  // Cancelling with no active work is a no-op so an idle worker stays reusable.
   cancel(reason = "Local analysis cancelled") {
+    if (!this.busy && !this.startup && !this.pending) return;
     this.abort(new DOMException(reason, "AbortError"));
   }
   // Failure path: terminates the worker and rejects in-flight work with the real error.
@@ -73,6 +76,7 @@ export class LocalAnalysisClient {
     this.boot = null;
     this.info = null;
     this.busy = false;
+    this.foregroundActive = false;
     if (this.startup) {
       clearTimeout(this.startup.timer);
       this.startup.reject(error);
@@ -84,7 +88,10 @@ export class LocalAnalysisClient {
       this.pending = null;
     }
   }
-  async request(request, { timeoutMs = 5000, preempt = false } = {}) {
+  async request(
+    request,
+    { timeoutMs = 5000, preempt = false, foreground = false } = {},
+  ) {
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000)
       throw new Error("Local job deadline must be between 1 and 5000 ms");
     let serialized;
@@ -103,10 +110,17 @@ export class LocalAnalysisClient {
     if (this.busy) {
       if (!preempt)
         throw new Error("Only one local job can run; cancel or await it first");
+      // Background work never terminates an active foreground operation.
+      if (this.foregroundActive && !foreground)
+        throw new DOMException(
+          "Foreground gameplay has priority",
+          "ForegroundPriorityError",
+        );
       this.cancel("Superseded by a newer local job");
     }
     const generation = this.generation;
     this.busy = true;
+    this.foregroundActive = foreground;
     try {
       await this.load();
       if (this.generation !== generation)
@@ -132,7 +146,10 @@ export class LocalAnalysisClient {
         }
       });
     } finally {
-      if (this.generation === generation) this.busy = false;
+      if (this.generation === generation) {
+        this.busy = false;
+        this.foregroundActive = false;
+      }
     }
   }
   async analyze(state, config = {}, { preempt = false } = {}) {
@@ -140,9 +157,9 @@ export class LocalAnalysisClient {
     const key = stable({ protocol: 1, ...snapshot });
     const cached = this.cache.get(key);
     if (cached) {
-      // A cache hit is the newest request: stop any slower computation it
-      // supersedes instead of leaving it running in the worker.
-      if (this.busy) this.cancel("Superseded by a cached result");
+      // A cache hit is the newest request, but it never terminates foreground work.
+      if (this.busy && !this.foregroundActive)
+        this.cancel("Superseded by a cached result");
       this.cache.delete(key);
       this.cache.set(key, cached);
       return { ...structuredClone(cached), cached: true };

@@ -4,6 +4,7 @@ let current = null;
 let positionEpoch = 0;
 let analysisToken = 0;
 let foregroundToken = 0;
+let foregroundActive = false;
 let pulses = 0;
 const status = document.querySelector("#status");
 const analysisOutput = document.querySelector("#analysis");
@@ -69,17 +70,20 @@ function beginForeground(label) {
   invalidateAnalysis();
   setStatus(client.info ? label : "Loading local runtime…");
 }
-async function foreground(label, action) {
+async function foreground(label, action, { renderResult = true } = {}) {
   const token = ++foregroundToken;
+  foregroundActive = true;
   beginForeground(label);
   try {
-    const value = await action();
+    const value = await action(() => token === foregroundToken);
     // A newer foreground operation owns the board and status from here on.
     if (token !== foregroundToken) return undefined;
-    return render(value);
+    return renderResult ? render(value) : value;
   } catch (error) {
     if (token !== foregroundToken) return undefined;
     throw error;
+  } finally {
+    if (token === foregroundToken) foregroundActive = false;
   }
 }
 const api = {
@@ -87,14 +91,19 @@ const api = {
   probe: () => request({ action: "probe" }),
   newGame: (ruleset) =>
     foreground("Starting new game…", () =>
-      request({ action: "new", ruleset }, { preempt: true }),
+      request({ action: "new", ruleset }, { preempt: true, foreground: true }),
     ),
   restore: (state) =>
     foreground("Restoring position…", () =>
-      request({ action: "restore", state }, { preempt: true }),
+      request(
+        { action: "restore", state },
+        { preempt: true, foreground: true },
+      ),
     ),
   analyze: async (config) => {
     if (!current) throw new Error("No position loaded");
+    // Foreground gameplay owns the UI; background analysis never preempts it.
+    if (foregroundActive || client.foregroundActive) return undefined;
     const epoch = positionEpoch;
     const token = ++analysisToken;
     setAnalysis("Analyzing…");
@@ -110,15 +119,19 @@ const api = {
       return value;
     } catch (error) {
       if (token !== analysisToken || epoch !== positionEpoch) return undefined;
+      // Never leave the pending indicator behind after an active failure.
+      setAnalysis("");
+      if (error?.name === "ForegroundPriorityError") return undefined;
       throw error;
     }
   },
   analyzeState: (state, config) => client.analyze(state, config),
   cancel: () => {
-    const active = client.busy;
+    const active = client.busy || foregroundActive;
     invalidateAnalysis();
     foregroundToken++;
-    client.cancel("Cancelled by user");
+    foregroundActive = false;
+    if (client.busy) client.cancel("Cancelled by user");
     if (active) setStatus("Local work cancelled");
   },
   memory: () => client.info,
@@ -135,7 +148,7 @@ const api = {
     return foreground("Applying move…", () =>
       request(
         { action: "move", state: current.state, move },
-        { preempt: true },
+        { preempt: true, foreground: true },
       ),
     );
   },
@@ -145,22 +158,28 @@ const api = {
     return foreground("Choosing local AI move…", async () => {
       const value = await request(
         { action: "ai", state: current.state },
-        { preempt: true },
+        { preempt: true, foreground: true },
       );
       metrics.ai_ms.push(value.ai_ms);
       return value;
     });
   },
-  fixtures: async () => {
-    beginForeground("Comparing CPython fixtures…");
-    const vectors = await (await fetch("./fixtures.json")).json();
-    const result = await request(
-      { action: "fixtures", vectors },
-      { preempt: true },
-    );
-    setStatus(`${result.passed} CPython fixtures matched`);
-    return result;
-  },
+  fixtures: () =>
+    foreground(
+      "Comparing CPython fixtures…",
+      async (isCurrent) => {
+        const vectors = await (await fetch("./fixtures.json")).json();
+        // Do not start worker work if a newer operation already owns the UI.
+        if (!isCurrent()) return undefined;
+        const result = await request(
+          { action: "fixtures", vectors },
+          { preempt: true, foreground: true },
+        );
+        setStatus(`${result.passed} CPython fixtures matched`);
+        return result;
+      },
+      { renderResult: false },
+    ),
   metrics,
 };
 window.spike = api;
@@ -236,10 +255,8 @@ api.offlineReady = ensureOfflineInfrastructure;
 const started = performance.now();
 api.ready = (async () => {
   // Offline infrastructure is independent of cancellable gameplay.
-  const infrastructure = ensureOfflineInfrastructure().catch((error) => {
-    setStatus(`Offline cache unavailable: ${error.message}`);
-    return null;
-  });
+  const infrastructure = ensureOfflineInfrastructure();
+  let gameError = null;
   try {
     const value = await api.newGame("brandubh");
     if (value) {
@@ -248,8 +265,17 @@ api.ready = (async () => {
     }
   } catch (error) {
     // A cancelled or superseded first game must not block startup or the cache.
-    if (error?.name !== "AbortError") handleError(error);
+    if (error?.name !== "AbortError") {
+      handleError(error);
+      gameError = error;
+    }
   }
-  return infrastructure;
+  try {
+    return await infrastructure;
+  } catch (error) {
+    // A game failure is more relevant than a missing offline cache.
+    if (!gameError) setStatus(`Offline cache unavailable: ${error.message}`);
+    return null;
+  }
 })();
 api.ready.catch(handleError);
