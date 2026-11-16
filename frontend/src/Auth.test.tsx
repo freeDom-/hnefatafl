@@ -258,3 +258,137 @@ it('does not accept an aborted hidden session read and queues a fresh read on vi
     vi.useRealTimers();
   }
 });
+
+function PermissionView() {
+  const { account } = useAuth();
+  return <p>Permissions {account?.permissions.join(',')}</p>;
+}
+
+it('revalidates a permission change that arrives while a hidden-tab abort is unwinding', async () => {
+  vi.useFakeTimers();
+  let resolveOld!: (value: Response) => void;
+  const old = new Promise<Response>((resolve) => {
+    resolveOld = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((_path: string, _options?: RequestInit) => {
+    call++;
+    return call === 2
+      ? old
+      : response({
+          account: {
+            id: 'owner',
+            username: 'Owner',
+            permissions: call >= 3 ? ['play', 'training'] : ['play'],
+          },
+          csrf_token: 'csrf',
+        });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <PermissionView />
+        </Auth>,
+      );
+    });
+    expect(screen.getByText('Permissions play')).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    const signal = fetcher.mock.calls[1][1]?.signal as AbortSignal;
+    visibility.mockReturnValue('hidden');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(signal.aborted).toBe(true);
+    // The permission invalidation must not be discarded with the aborted read.
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveOld(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await old;
+    });
+    // The queued security revalidation runs even while the tab stays hidden.
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Permissions play,training')).toBeVisible();
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it('coalesces repeated permission events during an active refresh into one follow-up read', async () => {
+  vi.useFakeTimers();
+  let resolveActive!: (value: Response) => void;
+  const active = new Promise<Response>((resolve) => {
+    resolveActive = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((_path: string) => {
+    call++;
+    return call === 2
+      ? active
+      : response({
+          account: {
+            id: 'owner',
+            username: 'Owner',
+            permissions: call >= 3 ? ['play', 'admin'] : ['play'],
+          },
+          csrf_token: 'csrf',
+        });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <PermissionView />
+        </Auth>,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    act(() => {
+      fireEvent(window, new Event('permissions-changed'));
+      fireEvent(window, new Event('permissions-changed'));
+    });
+    // Both events coalesce while the read is in flight; no extra request yet.
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveActive(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await active;
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Permissions play,admin')).toBeVisible();
+    // No polling loop: the settled follow-up does not schedule further reads.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});

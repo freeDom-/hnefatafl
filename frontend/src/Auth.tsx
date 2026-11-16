@@ -209,17 +209,12 @@ export default function Auth({ children }: { children: ReactNode }) {
     if (!account) return;
     let alive = true;
     let controller: AbortController | null = null;
-    let invalidated = false;
-    const refresh = (event?: Event) => {
-      if (
-        signingOut.current ||
-        (document.visibilityState === 'hidden' && event?.type !== 'permissions-changed')
-      )
-        return;
-      if (controller) {
-        if (event?.type === 'permissions-changed') invalidated = true;
-        return;
-      }
+    // Ordinary refreshes coalesce into one follow-up read. A permissions-changed
+    // invalidation is tracked separately because it is security-relevant: it must
+    // survive a hidden-tab abort instead of being dropped with the paused cadence.
+    let queuedRefresh = false;
+    let queuedPermission = false;
+    const start = () => {
       const expected = generation.current;
       const revision = ++readSequence.current;
       const attempt = new AbortController();
@@ -246,11 +241,32 @@ export default function Auth({ children }: { children: ReactNode }) {
         })
         .finally(() => {
           if (controller === attempt) controller = null;
-          if (alive && expected === generation.current && invalidated && !signingOut.current) {
-            invalidated = false;
-            refresh();
+          if (!alive || expected !== generation.current || signingOut.current) return;
+          // Revalidate an explicit permission change even while hidden: hiding the
+          // tab aborted the read that would have observed it, so dropping it would
+          // silently keep stale authorization until the next visibility return.
+          if (queuedPermission) {
+            queuedPermission = false;
+            queuedRefresh = false;
+            start();
+            return;
+          }
+          if (queuedRefresh && document.visibilityState !== 'hidden') {
+            queuedRefresh = false;
+            start();
           }
         });
+    };
+    const refresh = (event?: Event) => {
+      if (signingOut.current) return;
+      const permissions = event?.type === 'permissions-changed';
+      if (document.visibilityState === 'hidden' && !permissions) return;
+      if (controller) {
+        if (permissions) queuedPermission = true;
+        else queuedRefresh = true;
+        return;
+      }
+      start();
     };
     let timer: number | undefined;
     const startTimer = () => {
@@ -265,7 +281,6 @@ export default function Auth({ children }: { children: ReactNode }) {
         startTimer();
         // A hidden request may still be unwinding after abort. Queue one fresh
         // session read rather than reusing its stale completion on visibility.
-        if (controller) invalidated = true;
         refresh();
       }
     };
