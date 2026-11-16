@@ -321,6 +321,245 @@ try {
         );
     });
     assert.equal(deadlineRejected, true);
+    // UTF-8 byte sizing: multibyte payloads whose UTF-16 length is within
+    // 512 KiB but whose serialized UTF-8 bytes exceed it must be rejected.
+    const sizeValidation = await page.evaluate(async () => {
+      const { LocalAnalysisClient } = await import("./analysis-client.js");
+      const encoder = new TextEncoder();
+      const overhead = encoder.encode(
+        JSON.stringify({ action: "info", pad: "" }),
+      ).length;
+      const ascii = (bytes) => ({
+        action: "info",
+        pad: "x".repeat(bytes - overhead),
+      });
+      const multibyte = (bytes) => ({
+        action: "info",
+        pad: "\u00e9".repeat(Math.floor((bytes - overhead) / 2)),
+      });
+      const unicodeOverLimit = multibyte(512 * 1024 + 2);
+      const unicodeSerialized = JSON.stringify(unicodeOverLimit);
+      const exactLimit = ascii(512 * 1024);
+      const rejects = (client, payload) =>
+        client.request(payload).then(
+          () => false,
+          (error) => error.message === "Input exceeds 512 KiB",
+        );
+      return {
+        ascii_rejected: await rejects(
+          new LocalAnalysisClient(),
+          ascii(512 * 1024 + 1),
+        ),
+        unicode_rejected: await rejects(
+          new LocalAnalysisClient(),
+          unicodeOverLimit,
+        ),
+        unicode_utf16_within: unicodeSerialized.length <= 512 * 1024,
+        unicode_utf8_over:
+          encoder.encode(unicodeSerialized).length > 512 * 1024,
+        exact_bytes: encoder.encode(JSON.stringify(exactLimit)).length,
+        exact_accepted: await window.spike.raw(exactLimit).then(
+          (value) => value.strategy === "baseline",
+          () => false,
+        ),
+      };
+    });
+    assert.equal(sizeValidation.ascii_rejected, true);
+    assert.equal(sizeValidation.unicode_rejected, true);
+    assert.equal(sizeValidation.unicode_utf16_within, true);
+    assert.equal(sizeValidation.unicode_utf8_over, true);
+    assert.equal(sizeValidation.exact_bytes, 512 * 1024);
+    assert.equal(sizeValidation.exact_accepted, true);
+    // Synchronous postMessage failures must clear pending state and the busy flag.
+    const postFailure = await page.evaluate(async () => {
+      const { LocalAnalysisClient } = await import("./analysis-client.js");
+      const original = window.Worker;
+      class ThrowingWorker {
+        constructor() {
+          this.onmessage = null;
+          this.onerror = null;
+        }
+        postMessage() {
+          throw new Error("post failed");
+        }
+        terminate() {}
+      }
+      window.Worker = ThrowingWorker;
+      try {
+        const client = new LocalAnalysisClient();
+        const outcome = client
+          .request({ action: "info" }, { timeoutMs: 1000 })
+          .then(
+            () => "resolved",
+            (error) => error.message,
+          );
+        client.worker.onmessage({ data: { id: 0, value: {} } });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const result = await outcome;
+        return { result, pending: client.pending, busy: client.busy };
+      } finally {
+        window.Worker = original;
+      }
+    });
+    assert.equal(postFailure.result, "post failed");
+    assert.equal(postFailure.pending, null);
+    assert.equal(postFailure.busy, false);
+    // Obsolete worker responses and post-cancellation replies must be ignored.
+    const lateResponses = await page.evaluate(async () => {
+      const { LocalAnalysisClient } = await import("./analysis-client.js");
+      const original = window.Worker;
+      const posted = [];
+      class FakeWorker {
+        constructor() {
+          this.onmessage = null;
+          this.onerror = null;
+        }
+        postMessage(message) {
+          posted.push(message);
+        }
+        terminate() {}
+      }
+      window.Worker = FakeWorker;
+      try {
+        const client = new LocalAnalysisClient();
+        const first = client
+          .request({ action: "info" }, { timeoutMs: 1000 })
+          .then(
+            (value) => ({ ok: true, value }),
+            (error) => ({ ok: false, name: error.name }),
+          );
+        const firstWorker = client.worker;
+        firstWorker.onmessage({ data: { id: 0, value: {} } });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        firstWorker.onmessage({ data: { id: 999, value: "stale" } });
+        firstWorker.onmessage({ data: { id: posted[0].id, value: "fresh" } });
+        const firstResult = await first;
+        const second = new LocalAnalysisClient();
+        const secondOutcome = second
+          .request({ action: "info" }, { timeoutMs: 1000 })
+          .then(
+            () => "resolved",
+            (error) => error.name,
+          );
+        const secondWorker = second.worker;
+        secondWorker.onmessage({ data: { id: 0, value: {} } });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        second.cancel();
+        secondWorker.onmessage({ data: { id: posted[1].id, value: "late" } });
+        return { first: firstResult, second: await secondOutcome };
+      } finally {
+        window.Worker = original;
+      }
+    });
+    assert.deepEqual(lateResponses.first, { ok: true, value: "fresh" });
+    assert.equal(lateResponses.second, "AbortError");
+    // Lifecycle: displayed analysis is bound to the exact position and settings.
+    const opening = vectors.find((v) => v.name === "brandubh-opening-0").before
+      .state;
+    const other = vectors.find((v) => v.name === "tablut-opening-0").before
+      .state;
+    const completedCleared = await page.evaluate(
+      async ({ first, second }) => {
+        await window.spike.restore(first);
+        await window.spike.analyze({
+          algorithm: "baseline",
+          time_limit: 0.01,
+        });
+        const displayed =
+          document.querySelector("#analysis").textContent.length;
+        await window.spike.restore(second);
+        return {
+          displayed,
+          afterChange: document.querySelector("#analysis").textContent,
+        };
+      },
+      { first: opening, second: other },
+    );
+    assert(completedCleared.displayed > 0, "completed analysis must display");
+    assert.equal(completedCleared.afterChange, "");
+    // Changing position while analysis is still running cancels and clears it.
+    const supersededDisplay = await page.evaluate(
+      async ({ first, second }) => {
+        await window.spike.restore(first);
+        const pending = window.spike.analyze({
+          algorithm: "alpha_beta",
+          depth: 5,
+          time_limit: 0.5,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        const analyzing = document.querySelector("#analysis").textContent;
+        await window.spike.restore(second);
+        await pending.catch(() => {});
+        return {
+          analyzing,
+          afterChange: document.querySelector("#analysis").textContent,
+        };
+      },
+      { first: opening, second: other },
+    );
+    assert.equal(supersededDisplay.analyzing, "Analyzing…");
+    assert.equal(supersededDisplay.afterChange, "");
+    // A human move supersedes background analysis without a manual Cancel.
+    const moveSupersedes = await page.evaluate(async (state) => {
+      const snapshot = await window.spike.restore(state);
+      const analysis = window.spike.analyze({
+        algorithm: "alpha_beta",
+        depth: 5,
+        time_limit: 0.5,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const moved = await window.spike.move(snapshot.legal_moves[0]);
+      await analysis.catch(() => {});
+      return {
+        ply: moved.state.ply,
+        analysisText: document.querySelector("#analysis").textContent,
+      };
+    }, opening);
+    assert.equal(moveSupersedes.ply, opening.ply + 1);
+    assert.equal(moveSupersedes.analysisText, "");
+    // Replacing the game supersedes background analysis.
+    const newGameSupersedes = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      const analysis = window.spike.analyze({
+        algorithm: "alpha_beta",
+        depth: 5,
+        time_limit: 0.5,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const game = await window.spike.newGame("tablut");
+      await analysis.catch(() => {});
+      return {
+        ruleset: game.state.ruleset,
+        ply: game.state.ply,
+        analysisText: document.querySelector("#analysis").textContent,
+      };
+    }, opening);
+    assert.equal(newGameSupersedes.ruleset, "tablut");
+    assert.equal(newGameSupersedes.ply, 0);
+    assert.equal(newGameSupersedes.analysisText, "");
+    // Repeated cancellation stays safe and the worker restarts reliably.
+    const repeatedCancel = await page.evaluate(async () => {
+      for (let attempt = 0; attempt < 4; attempt++) window.spike.cancel();
+      const info = await window.spike.info();
+      return Boolean(info && info.strategy);
+    });
+    assert.equal(repeatedCancel, true);
+    // Concurrent analyses: newest wins, obsolete result is discarded.
+    const concurrent = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      const config = { algorithm: "alpha_beta", depth: 4, time_limit: 0.4 };
+      const first = window.spike.analyze(config);
+      const second = window.spike.analyze(config);
+      const [a, b] = await Promise.all([first, second]);
+      return {
+        obsolete_discarded: a === undefined,
+        latest_published: Boolean(b && b.analysis),
+        displayed: document.querySelector("#analysis").textContent.length > 0,
+      };
+    }, opening);
+    assert.equal(concurrent.obsolete_discarded, true);
+    assert.equal(concurrent.latest_published, true);
+    assert.equal(concurrent.displayed, true);
     const pageErrors = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.click("#cancel");
@@ -367,6 +606,17 @@ try {
       busy_search_ms: busySearch.elapsed_ms,
       cancellation,
       unsupported_worker_feedback: unsupported,
+      size_validation: sizeValidation,
+      post_failure_cleanup: postFailure,
+      late_responses: lateResponses,
+      lifecycle: {
+        completed_cleared: completedCleared.afterChange === "",
+        superseded_display_cleared: supersededDisplay.afterChange === "",
+        move_superseded: moveSupersedes.analysisText === "",
+        new_game_superseded: newGameSupersedes.analysisText === "",
+        repeated_cancel_restart: repeatedCancel,
+        concurrent_latest_wins: concurrent.latest_published,
+      },
       history_cache_isolated: true,
       cache_capacity: 8,
       browser_process_cpu_seconds_lower_bound,

@@ -206,6 +206,32 @@ def test_local_analysis_refuses_unbounded_and_neural_inputs():
         dispatch(" " * (512 * 1024 + 1))
 
 
+def test_input_size_uses_utf8_bytes_and_serialized_boundary():
+    import pytest
+
+    dispatch = _analysis_bridge()
+    base = json.dumps({"action": "info", "pad": ""})
+    overhead = len(base.encode("utf-8"))
+    exact = json.dumps({"action": "info", "pad": "x" * (512 * 1024 - overhead)})
+    assert len(exact.encode("utf-8")) == 512 * 1024
+    assert json.loads(dispatch(exact))["strategy"] == "baseline"
+    over = json.dumps({"action": "info", "pad": "x" * (512 * 1024 - overhead + 1)})
+    with pytest.raises(ValueError, match="512 KiB"):
+        dispatch(over)
+    # Multibyte characters: the string length is within 512 Ki chars but the
+    # serialized UTF-8 payload is larger, so the byte boundary must reject it.
+    unicode_payload = json.dumps(
+        {"action": "info", "pad": "é" * (512 * 1024 - overhead)},
+        ensure_ascii=False,
+    )
+    assert len(unicode_payload) <= 512 * 1024
+    assert len(unicode_payload.encode("utf-8")) > 512 * 1024
+    with pytest.raises(ValueError, match="512 KiB"):
+        dispatch(unicode_payload)
+    with pytest.raises(ValueError, match="serialized JSON string"):
+        dispatch({"action": "info"})
+
+
 def test_staging_refuses_runtime_digest_mismatch(tmp_path):
     runtime = tmp_path / "runtime-input"
     runtime.mkdir()
