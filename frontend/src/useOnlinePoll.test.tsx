@@ -209,6 +209,110 @@ it('retains a 60-second historical cadence instead of accelerating to the old 30
   expect(load).toHaveBeenCalledTimes(2);
 });
 
+it('backs a failing 60-second poll off to a bounded 120-second retry and resets after recovery', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockRejectedValue(new Error('offline'));
+  const { result, unmount } = renderHook(() =>
+    useOnlinePoll('slow-history', load, { intervalMs: 60000 }),
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+  expect(result.current.phase).toBe('stale');
+  // A failed 60-second read is never retried sooner than its own cadence.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(59999);
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60001);
+  });
+  expect(load).toHaveBeenCalledTimes(2);
+  // The second failure keeps the bounded 120-second retry, not the old flat 60.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(119999);
+  });
+  expect(load).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(load).toHaveBeenCalledTimes(3);
+  // A successful read resets the backoff to the configured cadence.
+  load.mockResolvedValue('history');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(load).toHaveBeenCalledTimes(4);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(59999);
+  });
+  expect(load).toHaveBeenCalledTimes(4);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(load).toHaveBeenCalledTimes(5);
+  // Cleanup clears the long retry timer instead of leaving a pending read.
+  unmount();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(600000);
+  });
+  expect(load).toHaveBeenCalledTimes(5);
+});
+
+it('retains the bounded 30-second ceiling for a failing 10-second poll', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockRejectedValue(new Error('offline'));
+  renderHook(() => useOnlinePoll('medium-history', load, { intervalMs: 10000 }));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(19999);
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(load).toHaveBeenCalledTimes(2); // first failure doubles to 20 s
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30000);
+  });
+  expect(load).toHaveBeenCalledTimes(3); // second failure caps at 30 s
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30000);
+  });
+  expect(load).toHaveBeenCalledTimes(4);
+});
+
+it('pauses a 60-second historical poll while hidden and reads once on return', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockResolvedValue('history');
+  const { result } = renderHook(() => useOnlinePoll('slow-history', load, { intervalMs: 60000 }));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  try {
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600000);
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+    load.mockResolvedValue('returned');
+    visibility.mockReturnValue('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(result.current.data).toBe('returned');
+  } finally {
+    visibility.mockRestore();
+  }
+});
+
 it('aborts and invalidates a hidden read, sends no periodic or focus traffic while hidden, then wakes fresh', async () => {
   vi.useFakeTimers();
   const first = deferred<number>();

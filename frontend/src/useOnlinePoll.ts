@@ -53,10 +53,13 @@ export function useOnlinePoll<T>(
     /** `null` means no recurring read: an interval of 0 is event-driven only. */
     const nextDelay = (queuedRun: boolean): number | null => {
       if (queuedRun) return 0;
-      // A slow historical cadence must never be shortened to the old 30s cap.
-      return intervalMs > 0
-        ? Math.min(intervalMs * 2 ** failures, Math.max(intervalMs, MAX_POLL_BACKOFF_MS))
-        : null;
+      if (intervalMs <= 0) return null;
+      // Never retry a failed read sooner than its configured cadence, and grow
+      // the delay exponentially up to a bounded ceiling. Short cadences keep the
+      // shared 30 s ceiling; a long historical cadence caps at twice its own
+      // interval so repeated failures still back off instead of staying pinned.
+      const ceiling = Math.max(intervalMs * 2, MAX_POLL_BACKOFF_MS);
+      return Math.min(intervalMs * 2 ** failures, ceiling);
     };
     const run = async (initialRead = false) => {
       if (!alive || held || (!initialRead && document.visibilityState === 'hidden')) return;
