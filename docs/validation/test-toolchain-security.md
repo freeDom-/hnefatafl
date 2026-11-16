@@ -48,6 +48,37 @@ notice remain. They are not new runtime vulnerabilities and are not hidden by
 raising limits or suppressing warnings. Security findings are time-sensitive;
 repeat audits at release preparation instead of treating this record as permanent.
 
+## CI audit enforcement and Node.js 22 compatibility
+
+`.github/workflows/ci.yml` now runs `npm audit --audit-level=moderate` immediately
+after the `browser` job's `npm ci`; moderate or higher findings fail that job. No
+`--force`, audit suppression, blanket ignore list or relaxed check is used, and the
+committed lockfile reports zero findings.
+
+A dedicated `node22` job exercises the minimum supported Vite 7 line
+(`node-version: "22.12"`) with the same npm cache configuration: `npm ci`,
+`npm run typecheck`, `npm test` and `npm run build`. The full Playwright browser
+suites stay on the existing Node 24 `browser` job so the compatibility check does
+not duplicate them.
+
+Local Node 22.12.0 (the pinned CI version) and Node 22.22.1 verification
+(isolated checkout, fresh `npm ci`; unit suite limited to the CI runner worker
+count):
+
+| Command | Result |
+| --- | --- |
+| `npm ci` | Passed; 246 added, 247 audited, zero vulnerabilities |
+| `npm audit --audit-level=moderate` | **Zero findings** (exit 0) |
+| `npm run typecheck` | Passed |
+| `npx vitest run --maxWorkers=4` | **1,312 passed, 93 files** |
+| `npm run build` | Passed |
+
+The full unit suite also passes on Node 24.11.1 on the same host, so the earlier
+full-suite timeouts on a high-core development host are host oversubscription (two
+long async table tests exceed the 20 s per-test timeout when more workers run than
+CPU capacity supports), not a Node 22 or Vitest 4 regression. Limiting workers to
+the CI runner count reproduces the green suite; CI uses the runner's worker count.
+
 ## Browser resize correction
 
 The first full CI run passed the Python job but exposed one browser timing failure

@@ -6,7 +6,9 @@
 
 Use the existing checkout; cloud tasks are already isolated. Do not create a Git
 worktree unless explicitly requested. Python 3.12 is recommended (3.11+ supported),
-Node 22+ is required (CI uses 24), and CI pins uv 0.12.23. From the root:
+Node 22+ is required (CI runs the frontend unit/build job on Node 22.12 and the
+browser suite on Node 24, and fails on moderate npm advisories), and CI pins uv
+0.12.23. From the root:
 
 ```sh
 make install
