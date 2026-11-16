@@ -1,5 +1,12 @@
 # Tiered achievements and sharp Portrait Hall artwork
 
+> Historical evidence: the manual Claim/Collect workflow below was superseded.
+> See [automatic achievements and current validation](automatic-achievements.md).
+> Achievements and portrait rewards now unlock automatically; players explicitly
+> select their equipped portrait. The catalog has 77 milestones worth 6,290 points.
+> Victory portraits use 10/25/50 thresholds, Valkyrie requires 10 attacker wins,
+> and streak requirements remain 5/10. Historical screenshots/results are retained.
+
 [Progression contract and point schedule](../PROGRESSION.md) ·
 [Original Portrait Hall evidence](portrait-hall.md)
 

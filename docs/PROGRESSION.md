@@ -163,8 +163,12 @@ to the Hall. Already earned awards/portraits remain untouched. Reopening an upgr
 installation does not repeat the reconciliation. Back up before upgrading; a large
 history may increase the one-time upgrade duration.
 
-The existing administrator rating-ledger rebuild performs reconciliation at its
-transaction boundary. Ordinary GET endpoints and portrait selection never reconcile.
+Administrator rating-ledger rebuilds reconcile only actors present in the affected
+pool (including withdrawn events), or all ledger actors for a full rebuild, and
+only rated achievement criteria, inside the existing transaction. Migration
+reconciliation remains all-account and all-criteria. Dashboard account-result
+polling signals the existing notification hook when authoritative totals change;
+refreshes defer while hidden and resume on visibility. Ordinary GET endpoints and portrait selection never reconcile.
 Old analysis without a durable successful receipt is not retroactively inferred
 from viewing history; a qualifying explicit analysis request can establish it.
 

@@ -653,3 +653,70 @@ def test_completion_and_awards_roll_back_together(rig, monkeypatch):
     assert progression_rows(rig.store) == before
     with rig.store.connection() as c:
         assert c.execute("SELECT count(*) FROM rating_applications").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("pool", ["brandubh", None])
+def test_rating_rebuild_scopes_award_queries_to_ledger_actors(rig, pool):
+    from uuid import uuid4
+
+    other = rig.core.create(
+        rig.credentials["Visitor"], "tablut", "attackers", 60, uuid4().hex, rated=True
+    )["game"]
+    other = rig.core.mutate(rig.credentials["Archer"], other["id"], 0, "join")["game"]
+    finish(rig, other, "attackers")
+    game = finish(rig, active(rig), "attackers")
+    fabricate_correction(rig, game, "defenders")
+    queries = []
+    original = Progression._measure
+
+    def measured(c, actor, achievement, cache):
+        queries.append((actor, achievement.criterion))
+        return original(c, actor, achievement, cache)
+
+    from unittest.mock import patch
+
+    rig.core.rebuild_ratings(rig.credentials["Archer"], pool)
+    before = progression_rows(rig.store)
+    with patch.object(Progression, "_measure", staticmethod(measured)):
+        rig.core.rebuild_ratings(rig.credentials["Archer"], pool)
+        rig.core.rebuild_ratings(rig.credentials["Archer"], pool)
+    assert queries
+    assert {actor for actor, _ in queries} <= {
+        rig.accounts[n]["id"]
+        for n in (("Archer", "Keeper", "Visitor") if pool is None else ("Archer", "Keeper"))
+    }
+    assert not {criterion for _, criterion in queries} & {
+        "completed_local_games",
+        "defeated_ai_games",
+        "analyzed_replays",
+    }
+    assert progression_rows(rig.store) == before
+
+
+def test_rebuild_query_trace_avoids_unrelated_game_history(rig, capsys):
+    from hnefatafl.progression import reconcile_achievements
+    from unittest.mock import patch
+
+    for i in range(10):
+        finish(rig, active(rig, ("brandubh", "tablut", "copenhagen")[i % 3]), "attackers")
+    traces = {"historical": [], "rated": []}
+    with rig.core._write() as c:
+        c.set_trace_callback(traces["historical"].append)
+        reconcile_achievements(c, 1)
+    original = rig.store.connection
+    from contextlib import contextmanager
+
+    @contextmanager
+    def traced():
+        with original() as c:
+            c.set_trace_callback(traces["rated"].append)
+            yield c
+
+    with patch.object(rig.store, "connection", traced):
+        rig.core.rebuild_ratings(rig.credentials["Archer"], "brandubh")
+    counts = {
+        name: sum("SELECT count(*) FROM games" in q for q in queries)
+        for name, queries in traces.items()
+    }
+    assert counts == {"historical": 6, "rated": 0}
+    print(counts)

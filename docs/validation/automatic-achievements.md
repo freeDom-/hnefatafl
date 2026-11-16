@@ -68,3 +68,27 @@ failures. All five pass on targeted rerun (15 passed, one project skip) after
 correcting temporary port mapping, cleaning the new game fixture and avoiding a
 hover retry through the oversized tooltip that had already opened. The original
 visibility, persistence and close-on-leave assertions remain intact.
+
+## Final review corrections
+
+The Dashboard's existing own-account online-history poll now signals progression
+refresh when authoritative result totals change. No new timer is added. Repeated
+unchanged results do not signal again; notification refreshes coalesce, defer
+while hidden, resume on visibility and discard old-account responses. Game Room
+completion signals require participation, excluding passive spectators. The
+Dashboard regression test runs the real polling and notification hooks together,
+observes an opponent completion without focus/navigation, and asserts exactly one
+localized milestone notice and one portrait notice.
+
+Administrative rating rebuilds now reconcile only ledger actors in the affected
+pool, or all ledger actors for full rebuilds, and only rated criteria. Withdrawn
+ledger entries remain in actor selection; current eligibility uses the applied
+ledger. Migration reconciliation still covers every account and criterion.
+
+A deterministic query trace with three accounts and ten rated games across all
+three pools compares historical reconciliation with a pool rebuild: local/AI
+history count queries fall from **6 to 0**. This measures query elimination, not a
+wall-clock speedup. Tests cover other-pool-only actors, full rebuilds, corrections,
+permanent rewards and repeated reconciliation. No mutable counters or schema
+changes are introduced. The earlier manual-claim validation page is explicitly
+marked historical and points here.

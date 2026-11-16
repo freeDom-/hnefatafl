@@ -14,7 +14,12 @@ export function useAchievementNotifications(owner: string | undefined) {
       queued = false;
     let previous: AchievementProgress | null = null;
     const controller = new AbortController();
+    const hidden = () => document.visibilityState === 'hidden';
     const refresh = async () => {
+      if (hidden()) {
+        queued = true;
+        return;
+      }
       if (running) {
         queued = true;
         return;
@@ -59,18 +64,23 @@ export function useAchievementNotifications(owner: string | undefined) {
         } catch {
           /* Existing views own error/retry notices; focus retries this baseline. */
         }
-      } while (queued && alive);
+      } while (queued && alive && !hidden());
       running = false;
     };
     const wake = () => {
       void refresh();
     };
+    const visible = () => {
+      if (document.visibilityState === 'visible') wake();
+    };
+    document.addEventListener('visibilitychange', visible);
     window.addEventListener('progression-changed', wake);
     window.addEventListener('focus', wake);
     void refresh();
     return () => {
       alive = false;
       controller.abort();
+      document.removeEventListener('visibilitychange', visible);
       window.removeEventListener('progression-changed', wake);
       window.removeEventListener('focus', wake);
     };

@@ -1,5 +1,5 @@
 import PageHeading from './PageHeading';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -139,6 +139,15 @@ function DashboardHome({
   );
   const single = useOnlinePoll(`dashboard-account:${accountId}`, loadAccount);
   const online = useOnlinePoll(`dashboard-online:${accountId}`, loadOnline);
+  const observedOnline = useRef<{ owner: string; results: string } | null>(null);
+  const onlineResults = online.data ? JSON.stringify(online.data.totals) : null;
+  useEffect(() => {
+    if (onlineResults === null) return;
+    const previous = observedOnline.current;
+    observedOnline.current = { owner: accountId, results: onlineResults };
+    if (previous?.owner === accountId && previous.results !== onlineResults)
+      window.dispatchEvent(new Event('progression-changed'));
+  }, [accountId, onlineResults]);
   const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent);
   const local = useOnlinePoll(`dashboard-local:${accountId}`, loadLocal);
   const progress = useOnlinePoll(`dashboard-progress:${accountId}`, loadProgress, {

@@ -100,3 +100,24 @@ it('does not poll or announce historical awards on initial load, and localizes n
   );
   expect(notify.success).toHaveBeenCalledWith('Neue Porträts verfügbar: 1');
 });
+
+it('defers completion refreshes while hidden and resumes once visible', async () => {
+  let visibility = 'visible';
+  const getter = vi
+    .spyOn(document, 'visibilityState', 'get')
+    .mockImplementation(() => visibility as DocumentVisibilityState);
+  vi.mocked(api).mockResolvedValue(snapshot() as never);
+  renderHook(() => useAchievementNotifications('archer'));
+  await act(async () => {});
+  visibility = 'hidden';
+  act(() => {
+    window.dispatchEvent(new Event('progression-changed'));
+    window.dispatchEvent(new Event('focus'));
+  });
+  expect(api).toHaveBeenCalledTimes(1);
+  visibility = 'visible';
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await act(async () => {});
+  expect(api).toHaveBeenCalledTimes(2);
+  getter.mockRestore();
+});

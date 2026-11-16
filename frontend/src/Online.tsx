@@ -739,7 +739,8 @@ function GameRoom({
       previous?.owner === accountId &&
       previous.id === game.id &&
       previous.version !== game.version &&
-      game.status === 'completed'
+      game.status === 'completed' &&
+      Object.values(game.participants).some((player) => player?.account_id === accountId)
     )
       window.dispatchEvent(new Event('progression-changed'));
     previousResult.current = game ? { owner: accountId, id: game.id, version: game.version } : null;

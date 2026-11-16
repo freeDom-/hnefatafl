@@ -884,9 +884,17 @@ class OnlineCore:
                 self.ratings.rebuild_all(c, now)
             else:
                 self.ratings.rebuild_pool(c, pool, now)
-            from .progression import reconcile_achievements
+            from .progression import RATED_CRITERIA, award_achievements
 
-            reconcile_achievements(c, micros(now))
+            # Include withdrawn events: their actors may retain earned rewards,
+            # while current eligibility is always measured from the applied ledger.
+            scope = " WHERE pool=?" if pool is not None else ""
+            actors = c.execute(
+                f"SELECT attackers_id FROM rating_events{scope} "
+                f"UNION SELECT defenders_id FROM rating_events{scope}",
+                (pool, pool) if pool is not None else (),
+            ).fetchall()
+            award_achievements(c, (row[0] for row in actors), micros(now), RATED_CRITERIA)
         return {
             "rebuilt": sorted(RULESETS) if pool is None else [pool],
             "policy_version": rating.RATING_POLICY_VERSION,

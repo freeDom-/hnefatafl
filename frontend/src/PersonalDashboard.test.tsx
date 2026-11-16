@@ -1,3 +1,5 @@
+import { useAchievementNotifications } from './useAchievementNotifications';
+import { notify } from './notifications';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PersonalDashboard from './PersonalDashboard';
@@ -718,4 +720,49 @@ it('does not describe an empty bounded preview as an empty account', async () =>
   expect(await screen.findByText('40 games await your move')).toBeVisible();
   expect(screen.getByText('0 of 43 running games shown.')).toBeVisible();
   expect(screen.getAllByText('No running games in this preview.')).toHaveLength(2);
+});
+
+it('observes an opponent completion through Dashboard polling without focus or navigation', async () => {
+  const wake = vi.fn();
+  window.addEventListener('progression-changed', wake);
+  let completed = false;
+  const notice = vi.spyOn(notify, 'success');
+  const original = serve;
+  serve = (url) =>
+    url.includes('/personal/achievements')
+      ? respond({
+          ...achievements,
+          items: completed ? achievements.items.slice(0, 1) : [],
+          unlocked_portrait_ids: completed ? ['shieldmaiden'] : [],
+          summary: { ...achievements.summary, earned_points: completed ? 30 : 0 },
+        })
+      : url.includes('/personal/online?')
+        ? respond({
+            ...online,
+            totals: { ...online.totals, played: completed ? 3 : 2, wins: completed ? 2 : 1 },
+          })
+        : original(url);
+  try {
+    function DashboardSession() {
+      useAchievementNotifications(identity.id);
+      return <PersonalDashboard />;
+    }
+    render(<DashboardSession />);
+    await waitFor(() =>
+      expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/online?'))).toBe(true),
+    );
+    await act(async () => {});
+    expect(wake).not.toHaveBeenCalled();
+    completed = true;
+    await waitFor(() => expect(wake).toHaveBeenCalledTimes(1), { timeout: 6000 });
+    await new Promise((resolve) => setTimeout(resolve, 2300));
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(notice).toHaveBeenCalledWith('New milestones: 1 · +30 points');
+    expect(notice).toHaveBeenCalledWith('New portraits available: 1');
+    expect(notice).toHaveBeenCalledTimes(2);
+    expect(location.pathname).toBe('/dashboard');
+  } finally {
+    notice.mockRestore();
+    window.removeEventListener('progression-changed', wake);
+  }
 });
