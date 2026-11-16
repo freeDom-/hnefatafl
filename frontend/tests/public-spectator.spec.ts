@@ -132,6 +132,79 @@ test('signed-out discovery, bounded filters and pagination initialize without an
   );
 });
 
+test('match cards name both sides, mark the winner and separate statuses', async ({ page }) => {
+  await page.route('**/api/public/online/games**', (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          live,
+          { ...live, id: 'waiting-game', status: 'waiting' },
+          { ...record.game, id: 'done-attackers' },
+          {
+            ...record.game,
+            id: 'done-defenders',
+            result: { ...record.game.result, winner: 'defenders' },
+          },
+        ],
+        next_cursor: null,
+        limit: 12,
+      },
+    }),
+  );
+  await page.goto('/watch');
+  await expect(page.getByText('Attackers', { exact: true })).toHaveCount(4);
+  await expect(page.getByText('Defenders', { exact: true })).toHaveCount(4);
+  await expect(page.locator('.public-match.match-active')).toHaveCount(1);
+  await expect(page.locator('.public-match.match-waiting')).toHaveCount(1);
+  await expect(page.locator('.public-match.match-completed')).toHaveCount(2);
+  await expect(page.locator('.public-side.is-winner')).toHaveCount(2);
+  await expect(page.getByText('Winner', { exact: true })).toHaveCount(2);
+  await expect(page.getByRole('link', { name: 'Watch replay', exact: true })).toHaveCount(2);
+  await expect(
+    page.locator('.public-match.match-completed .public-match-action.primary'),
+  ).toHaveCount(2);
+  await expect(page.getByRole('link', { name: 'Watch game', exact: true })).toHaveCount(2);
+});
+
+test('match cards adapt columns and widths to the viewport without overflow', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'chromium', 'Explicit geometry matrix runs once.');
+  let items = [live];
+  await page.route('**/api/public/online/games**', (route) =>
+    route.fulfill({ json: { items, next_cursor: null, limit: 12 } }),
+  );
+  for (const width of [320, 768, 1366, 3840]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/watch');
+    await expect(page.getByText('Archer', { exact: true }).first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
+      true,
+    );
+    const card = await page.locator('.public-match').first().boundingBox();
+    expect(card!.width).toBeLessThanOrEqual(545);
+    if (width >= 768) {
+      // A lone card grows past a third of the row instead of leaving dead space.
+      const grid = await page.locator('.public-games').boundingBox();
+      expect(card!.width).toBeGreaterThan(grid!.width / 3 + 20);
+    }
+  }
+  // Several cards use more than one column once there is room.
+  items = Array.from({ length: 5 }, (_, index) => ({ ...live, id: `many-${index}` }));
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.goto('/watch');
+  await expect(page.locator('.public-match')).toHaveCount(5);
+  const columns = await page
+    .locator('.public-match')
+    .evaluateAll(
+      (nodes) => new Set(nodes.map((node) => Math.round(node.getBoundingClientRect().x))).size,
+    );
+  expect(columns).toBeGreaterThan(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
+    true,
+  );
+});
+
 test('public live and replay boards never request analysis or mutate games; replay is keyboard navigable', async ({
   page,
 }) => {

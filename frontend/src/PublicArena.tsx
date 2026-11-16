@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import Board from './Board';
 import DashboardCountdown from './DashboardCountdown';
 import ThemeSelect from './ThemeSelect';
-import { useI18n } from './i18n';
+import { LanguageSelect, useI18n } from './i18n';
 import { portraitAssetSrc } from './portraitAssets';
 import { formatRemaining } from './remainingTime';
 import {
@@ -107,16 +107,35 @@ function PublicPlayer({ player }: { player: PublicParticipant | null }) {
 }
 function PublicMatch({ game }: { game: PublicGameSummary }) {
   const { t } = useI18n();
+  const winner =
+    game.result?.winner === 'attackers' || game.result?.winner === 'defenders'
+      ? game.result.winner
+      : null;
+  const replay = game.status === 'completed';
   return (
-    <article className="public-match arena-surface">
+    <article className={`public-match arena-surface match-${game.status}`}>
       <div className="public-match-meta">
-        <span>{t(rulesetNames[game.ruleset] ?? game.ruleset)}</span>
-        <span>{t(statusLabels[game.status])}</span>
+        <span className="public-match-ruleset">
+          {t(rulesetNames[game.ruleset] ?? game.ruleset)}
+        </span>
+        <span className="badge public-status">{t(statusLabels[game.status])}</span>
       </div>
-      <PublicPlayer player={game.participants.attackers} />
-      <PublicPlayer player={game.participants.defenders} />
+      <div className="public-match-sides">
+        {(['attackers', 'defenders'] as const).map((side) => (
+          <div
+            key={side}
+            className={`public-side public-side-${side}${winner === side ? ' is-winner' : ''}`}
+          >
+            <div className="public-side-heading">
+              <span className="public-side-label">{t(sideLabel(side))}</span>
+              {winner === side && <span className="public-winner-tag">{t('Winner')}</span>}
+            </div>
+            <PublicPlayer player={game.participants[side]} />
+          </div>
+        ))}
+      </div>
       {game.result && (
-        <p>
+        <p className="public-match-result">
           {game.result.winner === 'draw'
             ? t('Draw')
             : game.result.winner
@@ -125,10 +144,10 @@ function PublicMatch({ game }: { game: PublicGameSummary }) {
         </p>
       )}
       <a
-        className="button"
-        href={`/watch/games/${encodeURIComponent(game.id)}${game.status === 'completed' ? '/replay' : ''}`}
+        className={`button public-match-action${replay ? ' primary' : ''}`}
+        href={`/watch/games/${encodeURIComponent(game.id)}${replay ? '/replay' : ''}`}
       >
-        {t(game.status === 'completed' ? 'Watch replay' : 'Watch game')}
+        {t(replay ? 'Watch replay' : 'Watch game')}
       </a>
     </article>
   );
@@ -704,7 +723,7 @@ function PublicNotFound() {
 }
 /** Mounted by the entry router before Auth; intentionally no account hooks. */
 export default function PublicArena() {
-  const { t, language, setLanguage } = useI18n();
+  const { t } = useI18n();
   const route = matchPublicRoute(location.pathname);
   return (
     <div className="public-arena">
@@ -715,19 +734,22 @@ export default function PublicArena() {
         <a href="/watch" className="public-brand">
           HNEFATAFL <small>{t('THE KING’S TABLE')}</small>
         </a>
-        <nav aria-label={t('Public navigation')}>
-          <ThemeSelect />
-          <label>
-            {t('Language')}
-            <select value={language} onChange={(e) => setLanguage(e.target.value as 'en' | 'de')}>
-              <option value="en">English</option>
-              <option value="de">Deutsch</option>
-            </select>
-          </label>
-          <a href="/login">{t('Log in')}</a>
-          <a className="button" href="/register">
-            {t('Create account')}
-          </a>
+        <nav className="public-header-nav" aria-label={t('Public navigation')}>
+          <div className="public-header-preferences">
+            <ThemeSelect />
+            <LanguageSelect />
+          </div>
+          <div className="public-header-actions">
+            <a className="public-header-login" href="/login">
+              {t('Log in')}
+            </a>
+            <a className="public-header-register" href="/register">
+              {t('Create account')}
+            </a>
+            <a className="button primary public-header-play" href="/play">
+              {t('Play')}
+            </a>
+          </div>
         </nav>
       </header>
       <main id="public-content" tabIndex={-1}>
@@ -741,7 +763,7 @@ export default function PublicArena() {
       </main>
       <footer>
         <p>{t('Three battlefields. Real players. New sagas.')}</p>
-        <a href="/login">{t('Join the table')}</a>
+        <a href="/register">{t('Join the table')}</a>
       </footer>
     </div>
   );

@@ -77,8 +77,59 @@ it('renders independently of Auth and uses only credential-free public GET reque
   expect(options.headers).toEqual({ Accept: 'application/json' });
   expect(screen.getByRole('link', { name: 'Log in' })).toHaveAttribute('href', '/login');
   expect(screen.getByRole('link', { name: 'Create account' })).toHaveAttribute('href', '/register');
+  expect(screen.getByRole('link', { name: 'Play' })).toHaveAttribute('href', '/play');
+  expect(screen.getByLabelText('Theme')).toBeInTheDocument();
+  expect(screen.getByLabelText('Language')).toBeInTheDocument();
   expect(expired).not.toHaveBeenCalled();
   window.removeEventListener('authentication-required', expired);
+});
+it('labels each side, marks the winning side and distinguishes match statuses', async () => {
+  const completed = (winner: 'attackers' | 'defenders') => ({
+    ...game,
+    id: `done-${winner}`,
+    status: 'completed' as const,
+    participants: {
+      attackers: { ...game.participants.attackers! },
+      defenders: {
+        display_name: 'Keeper',
+        username: 'Keeper',
+        portrait_id: 'shieldmaiden',
+        start_rating: 1480,
+        current_rating: 1475,
+      },
+    },
+    result: { winner, termination_reason: 'resignation', rated: true, winner_delta: 16 },
+  });
+  fetchMock.mockImplementation(() =>
+    response({
+      items: [
+        { ...game, id: 'live' },
+        { ...game, id: 'waiting', status: 'waiting' },
+        completed('attackers'),
+        completed('defenders'),
+      ],
+      next_cursor: null,
+      limit: 12,
+    }),
+  );
+  render(<PublicArena />);
+  await screen.findAllByText('Archer');
+  // Both roles are named explicitly in every card.
+  expect(screen.getAllByText('Attackers')).toHaveLength(4);
+  expect(screen.getAllByText('Defenders')).toHaveLength(4);
+  // Status variants are distinct and reuse the shared badge.
+  expect(document.querySelectorAll('.public-match.match-active')).toHaveLength(1);
+  expect(document.querySelectorAll('.public-match.match-waiting')).toHaveLength(1);
+  expect(document.querySelectorAll('.public-match.match-completed')).toHaveLength(2);
+  expect(document.querySelectorAll('.public-match .badge.public-status')).toHaveLength(4);
+  // Only completed cards mark a winner and offer the primary replay action.
+  expect(document.querySelectorAll('.public-side.is-winner')).toHaveLength(2);
+  expect(screen.getAllByText('Winner')).toHaveLength(2);
+  expect(screen.getAllByRole('link', { name: 'Watch replay' })).toHaveLength(2);
+  expect(
+    document.querySelectorAll('.public-match.match-completed .public-match-action.primary'),
+  ).toHaveLength(2);
+  expect(screen.getAllByRole('link', { name: 'Watch game' })).toHaveLength(2);
 });
 it('bounds filters, resets paging on a filter change, and follows opaque cursors', async () => {
   fetchMock.mockImplementation((url: string) =>
