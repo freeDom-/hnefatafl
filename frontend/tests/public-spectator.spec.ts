@@ -34,6 +34,18 @@ const participant = {
   start_rating: 1500,
   current_rating: 1500,
 };
+/** Valid square board of a given size: a king, four defenders and edge attackers. */
+function squareBoard(size: number) {
+  const board = Array.from({ length: size * size }, () => '.');
+  const center = Math.floor((size * size) / 2);
+  board[center] = 'K';
+  board[center - 1] = 'D';
+  board[center + 1] = 'D';
+  board[center - size] = 'D';
+  board[center + size] = 'D';
+  for (const index of [0, size - 1, size * size - size, size * size - 1]) board[index] = 'A';
+  return board;
+}
 const live = {
   id: 'public-game',
   category: 'online',
@@ -203,6 +215,77 @@ test('match cards adapt columns and widths to the viewport without overflow', as
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true,
   );
+});
+
+test('spectator views keep a square, fully visible board and accessible replay controls', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'chromium', 'Explicit geometry matrix runs once.');
+  const active = { ...live, position: { ...position, board: squareBoard(9) } };
+  const waiting = {
+    ...live,
+    id: 'waiting-game',
+    status: 'waiting',
+    deadline: null,
+    position: { ...position, board: squareBoard(7) },
+  };
+  const cancelled = { ...live, id: 'cancelled-game', status: 'cancelled', deadline: null };
+  const replay = { ...record, states: [position, { ...position, ply: 1, turn: 'defenders' }] };
+  await page.route('**/api/public/online/games**', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/replay')) return route.fulfill({ json: replay });
+    if (path.includes('waiting-game')) return route.fulfill({ json: waiting });
+    if (path.includes('cancelled-game')) return route.fulfill({ json: cancelled });
+    return route.fulfill({ json: active });
+  });
+  for (const width of [320, 768, 1440]) {
+    await page.setViewportSize({ width, height: width <= 390 ? 844 : 900 });
+    await page.goto('/watch/games/public-game');
+    await expect(page.getByRole('grid')).toBeVisible();
+    const board = (await page.locator('.board').boundingBox())!;
+    expect(Math.abs(board.width - board.height)).toBeLessThanOrEqual(1.5);
+    expect(board.x).toBeGreaterThanOrEqual(-1);
+    expect(board.x + board.width).toBeLessThanOrEqual(width + 1);
+    expect(board.width).toBeGreaterThanOrEqual(180);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
+      true,
+    );
+    await expect(page.getByText('Read-only spectator', { exact: true })).toBeVisible();
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/watch/games/public-game/replay');
+  await expect(page.getByText('Move 0 of 1', { exact: true })).toBeVisible();
+  await page.getByRole('group', { name: 'Replay controls' }).focus();
+  await page.keyboard.press('End');
+  await expect(page.getByText('Move 1 of 1', { exact: true })).toBeVisible();
+  await page.keyboard.press('Home');
+  await expect(page.getByText('Move 0 of 1', { exact: true })).toBeVisible();
+  await page.goto('/watch/games/cancelled-game');
+  await expect(page.getByText('Waiting game cancelled.', { exact: true })).toBeVisible();
+  expect(await page.locator('.public-replay-controls').count()).toBe(0);
+});
+
+test('spectator primary actions meet the mobile touch target without inflating desktop', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'chromium', 'Explicit geometry matrix runs once.');
+  await page.route('**/api/public/online/games**', (route) =>
+    route.fulfill({
+      json: { items: [live, record.game], next_cursor: null, limit: 12 },
+    }),
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/watch');
+  for (const name of ['Watch game', 'Watch replay', 'Play']) {
+    const box = (await page.getByRole('link', { name, exact: true }).boundingBox())!;
+    expect(box.height, `${name} mobile height`).toBeGreaterThanOrEqual(44);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/watch');
+  const desktop = (await page
+    .getByRole('link', { name: 'Watch game', exact: true })
+    .boundingBox())!;
+  expect(desktop.height).toBeLessThanOrEqual(44);
 });
 
 test('public live and replay boards never request analysis or mutate games; replay is keyboard navigable', async ({

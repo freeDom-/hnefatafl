@@ -142,7 +142,9 @@ Discovery cards name both sides explicitly, mark the winning side and reuse the
 shared status badge to separate live, waiting, completed and terminal games;
 completed cards expose the replay action as the primary action. Card width and
 column count follow the available space while each card stays capped, from 320 px
-phones to 4K desktops. The compact public header keeps the theme and language
+phones to 4K desktops. Spectator boards stay square and fully visible, and primary
+spectator actions keep at least a 44 px mobile touch target without enlarging
+desktop controls. The compact public header keeps the theme and language
 selectors and adds a session-neutral `Play` link to `/play` alongside login and
 registration, so signed-out visitors can reach either without protected state.
 

@@ -320,6 +320,9 @@
   }
 }
 @media (max-width: 767px) {
+  .public-arena .button {
+    min-height: 44px;
+  }
   .public-header {
     flex-wrap: wrap;
     align-items: center;
