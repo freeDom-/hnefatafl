@@ -79,6 +79,7 @@ export function publicRetryDelay(
 async function readPublic<T>(
   path: string,
   signal: AbortSignal,
+  cache: RequestCache = 'no-store',
   timeoutMs = PUBLIC_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   // Compose the caller's signal with a timeout using only AbortController so
@@ -96,7 +97,7 @@ async function readPublic<T>(
     const response = await fetch(`/api/public/online/games${path}`, {
       method: 'GET',
       credentials: 'omit',
-      cache: 'no-store',
+      cache,
       signal: controller.signal,
       headers: { Accept: 'application/json' },
     });
@@ -134,6 +135,8 @@ export function publicGames(filters: PublicFilters, cursor: string | null, signa
   return readPublic<PublicGamePage>(`?${query}`, signal);
 }
 export const publicGame = (id: string, signal: AbortSignal) =>
-  readPublic<PublicGame>(`/${identifier(id)}`, signal);
+  // The server marks live/private detail `no-store` and completed detail
+  // `public, max-age=60`, so let it own the cache decision.
+  readPublic<PublicGame>(`/${identifier(id)}`, signal, 'default');
 export const publicReplay = (id: string, signal: AbortSignal) =>
-  readPublic<PublicReplay>(`/${identifier(id)}/replay`, signal);
+  readPublic<PublicReplay>(`/${identifier(id)}/replay`, signal, 'default');

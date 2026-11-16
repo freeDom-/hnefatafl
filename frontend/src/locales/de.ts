@@ -18,6 +18,8 @@ const translations: Record<string, string> = {
     'Das öffentliche Zuschauen ist ausgelastet. Bitte versuche es gleich erneut.',
   'Public viewing timed out. Please retry.':
     'Das öffentliche Zuschauen hat zu lange gedauert. Bitte versuche es erneut.',
+  'Retry is temporarily unavailable. The viewer will retry automatically.':
+    'Erneut versuchen ist vorübergehend nicht möglich. Die Ansicht versucht es automatisch erneut.',
   'This replay could not be validated.': 'Diese Aufzeichnung konnte nicht überprüft werden.',
   'Public games could not be loaded. Please retry.':
     'Öffentliche Partien konnten nicht geladen werden. Bitte versuche es erneut.',
@@ -27,9 +29,14 @@ const translations: Record<string, string> = {
   'Back to public games': 'Zurück zu den öffentlichen Partien',
   'Watch replay': 'Aufzeichnung ansehen',
   'Watch game': 'Partie ansehen',
+  'Attackers win': 'Angreifer gewinnen',
+  'Defenders win': 'Verteidiger gewinnen',
+  'Replay controls': 'Wiedergabesteuerung',
+  'Skip to content': 'Zum Inhalt springen',
   'All public games': 'Alle öffentlichen Partien',
   'Public game viewer': 'Öffentliche Partieansicht',
   WATCHING: 'ZUSCHAUEN',
+  REPLAY: 'WIEDERGABE',
   'Read-only spectator': 'Zuschauen ohne Spieleingriff',
   'Live positions refresh automatically while this page is visible.':
     'Laufende Stellungen werden automatisch aktualisiert, solange diese Seite sichtbar ist.',

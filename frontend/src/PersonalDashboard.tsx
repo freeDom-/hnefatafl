@@ -31,9 +31,10 @@ import DashboardCountdown from './DashboardCountdown';
 import type { Leaderboard as LeaderboardData, OnlineGame } from './onlineTypes';
 import type { Profile } from './ProfilePage';
 import type { Game, Side } from './types';
+import { portraitAssetSrc } from './portraitAssets';
 import './personalDashboard.css';
 
-/** Authenticated portrait catalog metadata; the asset mapping stays bundled here. */
+/** Authenticated portrait catalog metadata; assets come from the shared allowlist. */
 type PortraitCatalog = {
   default_portrait_id: string;
   items: { id: string; name: string; unlock_achievement_id: string | null }[];
@@ -51,20 +52,6 @@ type ActiveBoard = { kind: 'online'; game: OnlineGame } | { kind: 'single'; game
  * keeps asset mapping frontend-controlled, so an unknown id falls back to the
  * account initial rather than a broken image.
  */
-const PORTRAIT_ASSETS = new Set([
-  'shieldbearer',
-  'shieldmaiden',
-  'iron-helm',
-  'wanderer',
-  'skald',
-  'fjord-scout',
-  'raven-seer',
-  'berserker',
-  'one-eyed-jarl',
-  'valkyrie',
-  'einherjar',
-  'forge-keeper',
-]);
 const sideNames: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const statusNames: Record<string, string> = {
   waiting: 'Waiting',
@@ -75,9 +62,6 @@ const statusNames: Record<string, string> = {
   voided: 'Voided',
 };
 
-function portraitSrc(id: string) {
-  return `/assets/arena-v2/assets/portraits/${id}.webp`;
-}
 function onlineBoardView(game: OnlineGame): BoardView {
   return {
     ruleset: game.ruleset,
@@ -253,6 +237,7 @@ function DashboardHome({
       ).length
     : null;
   const portraitId = profile.data?.portrait_id ?? null;
+  const portraitSrc = portraitId ? portraitAssetSrc(portraitId) : null;
   const portraitName = catalogItems?.find((item) => item.id === portraitId)?.name ?? null;
   const displayName = profile.data?.display_name?.trim() || account?.username || t('Unassigned');
   const standingRank = standing.data?.me ? Math.round(standing.data.me.rank) : null;
@@ -515,8 +500,8 @@ function DashboardHome({
             </div>
             <div className="dashboard-profile-identity">
               <span className="dashboard-portrait" aria-hidden="true">
-                {portraitId && PORTRAIT_ASSETS.has(portraitId) ? (
-                  <img src={portraitSrc(portraitId)} alt="" />
+                {portraitSrc ? (
+                  <img src={portraitSrc} alt="" />
                 ) : (
                   (Array.from(displayName)[0]?.toUpperCase() ?? '?')
                 )}

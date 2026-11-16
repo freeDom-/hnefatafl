@@ -1,7 +1,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PublicArena, { matchPublicRoute } from './PublicArena';
-import { PublicOnlineError, parseRetryAfter, publicGame, publicGames } from './publicOnlineApi';
+import {
+  PublicOnlineError,
+  parseRetryAfter,
+  publicGame,
+  publicGames,
+  publicReplay,
+} from './publicOnlineApi';
+import { portraitAssetSrc } from './portraitAssets';
 import { publicBoardView, type PublicGame, type PublicReplay } from './publicOnlineTypes';
 import { setLanguage } from './i18n';
 
@@ -487,4 +494,164 @@ it('shows a replacement portrait after the previous image failed to load', async
   const second = document.querySelector('img') as HTMLImageElement;
   expect(second.hidden).toBe(false);
   expect(second.getAttribute('src')).toContain('shieldmaiden.webp');
+});
+
+it('applies a rate-limit cooldown to manual retry and recovers after it expires', async () => {
+  vi.useFakeTimers();
+  fetchMock.mockImplementationOnce(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({}), { status: 429, headers: { 'Retry-After': '30' } }),
+    ),
+  );
+  fetchMock.mockImplementation(() => response({ items: [], next_cursor: null, limit: 12 }));
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByText('Public viewing is busy. Please retry shortly.')).toBeVisible();
+  const cooldownNotice = 'Retry is temporarily unavailable. The viewer will retry automatically.';
+  expect(screen.getByText(cooldownNotice)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Retry' })).toHaveAttribute('aria-disabled', 'true');
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30000);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('The tables are quiet.')).toBeVisible();
+  expect(screen.queryByText(cooldownNotice)).not.toBeInTheDocument();
+});
+
+it('preserves the rate-limit cooldown across hidden and visible transitions', async () => {
+  vi.useFakeTimers();
+  fetchMock.mockImplementationOnce(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({}), { status: 429, headers: { 'Retry-After': '30' } }),
+    ),
+  );
+  fetchMock.mockImplementation(() => response({ items: [], next_cursor: null, limit: 12 }));
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+  fireEvent(document, new Event('visibilitychange'));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+  fireEvent(document, new Event('visibilitychange'));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(19999);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('applies a rate-limit cooldown to manual retry in the game viewer', async () => {
+  vi.useFakeTimers();
+  history.replaceState(null, '', '/watch/games/public-game');
+  fetchMock.mockImplementationOnce(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({}), { status: 429, headers: { 'Retry-After': '20' } }),
+    ),
+  );
+  fetchMock.mockImplementation(() => response(game));
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByText('Public viewing is busy. Please retry shortly.')).toBeVisible();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20000);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('grid')).toBeVisible();
+});
+
+it('uses server-authoritative caching for detail and replay but keeps discovery uncached', async () => {
+  fetchMock.mockImplementation(() => response({ items: [], next_cursor: null, limit: 12 }));
+  await publicGames(
+    { ruleset: '', status: '', outcome: '', player: '' },
+    null,
+    new AbortController().signal,
+  );
+  expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ cache: 'no-store' });
+
+  fetchMock.mockImplementation(() => response(game));
+  await publicGame('valid', new AbortController().signal);
+  expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ cache: 'default' });
+
+  fetchMock.mockImplementation(() =>
+    response({ game, validated: true, states: [position], moves: [] }),
+  );
+  await publicReplay('valid', new AbortController().signal);
+  expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ cache: 'default' });
+});
+
+it('translates public spectator controls and replay labels into German', async () => {
+  setLanguage('de', false);
+  fetchMock.mockImplementation(() => response({ items: [], next_cursor: null, limit: 12 }));
+  const { unmount } = render(<PublicArena />);
+  await screen.findByText('An den Tischen ist es still.');
+  expect(screen.getByRole('option', { name: 'Angreifer gewinnen' })).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: 'Verteidiger gewinnen' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Zum Inhalt springen' })).toBeInTheDocument();
+  unmount();
+  history.replaceState(null, '', '/watch/games/public-game/replay');
+  fetchMock.mockImplementation(() =>
+    response({
+      game: { ...game, status: 'completed' },
+      validated: true,
+      states: [position],
+      moves: [],
+    }),
+  );
+  render(<PublicArena />);
+  expect(await screen.findByText('WIEDERGABE')).toBeVisible();
+  expect(screen.getByRole('group', { name: 'Wiedergabesteuerung' })).toBeInTheDocument();
+});
+
+it('shows the active side to move for a live game', async () => {
+  history.replaceState(null, '', '/watch/games/public-game');
+  fetchMock.mockImplementation(() =>
+    response({ ...game, position: { ...position, turn: 'defenders' } }),
+  );
+  render(<PublicArena />);
+  await screen.findByRole('grid');
+  expect(screen.getByText('Defenders to move')).toBeVisible();
+});
+
+it('formats the time control with the shared duration formatter', async () => {
+  history.replaceState(null, '', '/watch/games/public-game');
+  fetchMock.mockImplementation(() =>
+    response({ ...game, time_control: 'total', time_per_move: 3600, increment_seconds: 30 }),
+  );
+  render(<PublicArena />);
+  await screen.findByRole('grid');
+  expect(screen.getByText(/1h 00m 00s/)).toBeVisible();
+  expect(screen.getByText(/\+ 30s/)).toBeVisible();
+});
+
+it('exposes bundled portrait URLs only for allowlisted ids', () => {
+  expect(portraitAssetSrc('shieldbearer')).toBe(
+    '/assets/arena-v2/assets/portraits/shieldbearer.webp',
+  );
+  expect(portraitAssetSrc('../../secret')).toBeNull();
+  expect(portraitAssetSrc('unknown-portrait')).toBeNull();
 });

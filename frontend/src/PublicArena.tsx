@@ -3,6 +3,8 @@ import Board from './Board';
 import DashboardCountdown from './DashboardCountdown';
 import ThemeSelect from './ThemeSelect';
 import { useI18n } from './i18n';
+import { portraitAssetSrc } from './portraitAssets';
+import { formatRemaining } from './remainingTime';
 import {
   PublicOnlineError,
   publicGame,
@@ -22,20 +24,6 @@ import {
 import './arenaTopBar.css';
 import './publicArena.css';
 
-const portraits = new Set([
-  'shieldbearer',
-  'shieldmaiden',
-  'iron-helm',
-  'wanderer',
-  'skald',
-  'fjord-scout',
-  'raven-seer',
-  'berserker',
-  'one-eyed-jarl',
-  'valkyrie',
-  'einherjar',
-  'forge-keeper',
-]);
 const noop = () => {};
 const rulesetNames: Record<string, string> = {
   brandubh: 'Brandubh',
@@ -66,14 +54,15 @@ export function matchPublicRoute(pathname: string): PublicRoute {
 function PublicPlayer({ player }: { player: PublicParticipant | null }) {
   const { t } = useI18n();
   const id = player?.portrait_id;
+  const src = id ? portraitAssetSrc(id) : null;
   return (
     <span className="public-player">
-      {id && portraits.has(id) && (
+      {src && (
         <img
           // Remount when the resolved portrait changes so a previously failed
           // image does not stay hidden after its source updates.
           key={id}
-          src={`/assets/arena-v2/assets/portraits/${id}.webp`}
+          src={src}
           alt=""
           width={48}
           height={48}
@@ -109,9 +98,7 @@ function PublicMatch({ game }: { game: PublicGameSummary }) {
           {game.result.winner === 'draw'
             ? t('Draw')
             : game.result.winner
-              ? t('{side} won', {
-                  side: t(game.result.winner === 'attackers' ? 'Attackers' : 'Defenders'),
-                })
+              ? t('{side} won', { side: t(sideLabel(game.result.winner)) })
               : t('No official result')}
         </p>
       )}
@@ -129,6 +116,38 @@ function errorLabel(error: unknown) {
     ? error.message
     : 'Public games could not be loaded. Please retry.';
 }
+function sideLabel(side: 'attackers' | 'defenders') {
+  return side === 'attackers' ? 'Attackers' : 'Defenders';
+}
+/** Shared error/cooldown notice so both viewers expose identical retry behavior. */
+function RetryNotice({
+  error,
+  cooldown,
+  onRetry,
+}: {
+  error: string;
+  cooldown: boolean;
+  onRetry: () => void;
+}) {
+  const { t } = useI18n();
+  const id = useId();
+  return (
+    <div role="alert" className="arena-surface public-notice">
+      <p>{t(error)}</p>
+      {cooldown && (
+        <p id={id}>{t('Retry is temporarily unavailable. The viewer will retry automatically.')}</p>
+      )}
+      <button
+        className="button secondary"
+        aria-disabled={cooldown}
+        aria-describedby={cooldown ? id : undefined}
+        onClick={onRetry}
+      >
+        {t('Retry')}
+      </button>
+    </div>
+  );
+}
 function Discovery() {
   const { t } = useI18n();
   const id = useId();
@@ -145,7 +164,13 @@ function Discovery() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const cooldown = useRef(0);
   const revision = useRef(0);
+  const retry = () => {
+    if (Date.now() < cooldown.current) return;
+    setAttempt((v) => v + 1);
+  };
   useEffect(() => {
     let alive = true;
     const generation = ++revision.current;
@@ -155,14 +180,25 @@ function Discovery() {
     let stopped = false;
     let failures = 0;
     let epoch = 0;
-    let cooldownUntil = 0;
-    const schedule = (delay: number, cooldown = false) => {
+    const schedule = (delay: number) => {
       clearTimeout(timer);
-      cooldownUntil = cooldown ? Date.now() + delay : 0;
       if (alive && !stopped && !document.hidden) timer = setTimeout(() => void load(), delay);
     };
     const load = async () => {
       if (!alive || running || stopped || document.hidden) return;
+      // A server Retry-After cooldown blocks automatic and manual retries alike:
+      // reschedule the remaining wait instead of issuing a request.
+      const wait = cooldown.current - Date.now();
+      if (wait > 0) {
+        schedule(wait);
+        return;
+      }
+      // The cooldown has elapsed: clear the notice before requesting so Retry is
+      // advertised as available again, even if this request fails later.
+      if (cooldown.current !== 0) {
+        cooldown.current = 0;
+        setCooldownUntil(0);
+      }
       running = true;
       const sequence = ++epoch;
       const requestController = new AbortController();
@@ -171,6 +207,8 @@ function Discovery() {
         const value = await publicGames(applied, cursor, requestController.signal);
         if (alive && sequence === epoch && revision.current === generation) {
           failures = 0;
+          cooldown.current = 0;
+          setCooldownUntil(0);
           setPage(value);
           setError('');
           setLoading(false);
@@ -182,8 +220,18 @@ function Discovery() {
           failures += 1;
           setError(errorLabel(e));
           setLoading(false);
-          if (delay === null) stopped = true;
-          else schedule(delay, e instanceof PublicOnlineError && e.failure === 'busy');
+          if (delay === null) {
+            stopped = true;
+          } else {
+            if (e instanceof PublicOnlineError && e.failure === 'busy') {
+              cooldown.current = Date.now() + delay;
+              setCooldownUntil(cooldown.current);
+            } else {
+              cooldown.current = 0;
+              setCooldownUntil(0);
+            }
+            schedule(delay);
+          }
         }
       } finally {
         if (sequence === epoch) running = false;
@@ -200,7 +248,7 @@ function Discovery() {
         running = false;
       } else if (!stopped) {
         clearTimeout(timer);
-        const remaining = cooldownUntil - Date.now();
+        const remaining = cooldown.current - Date.now();
         if (remaining > 0) timer = setTimeout(() => void load(), remaining);
         else void load();
       }
@@ -287,14 +335,7 @@ function Discovery() {
         </button>
       </form>
       {loading && <p role="status">{t('Loading public games…')}</p>}
-      {error && (
-        <div role="alert" className="arena-surface public-notice">
-          <p>{t(error)}</p>
-          <button className="button secondary" onClick={() => setAttempt((v) => v + 1)}>
-            {t('Retry')}
-          </button>
-        </div>
-      )}
+      {error && <RetryNotice error={error} cooldown={cooldownUntil > 0} onRetry={retry} />}
       {page && (
         <section aria-label={t('Public games')} className="public-games">
           {page.items.length ? (
@@ -346,6 +387,12 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
   const [cursor, setCursor] = useState(0);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const cooldown = useRef(0);
+  const retry = () => {
+    if (Date.now() < cooldown.current) return;
+    setAttempt((v) => v + 1);
+  };
   useEffect(() => {
     let alive = true;
     let controller: AbortController | undefined;
@@ -354,14 +401,25 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
     let stopped = false;
     let failures = 0;
     let epoch = 0;
-    let cooldownUntil = 0;
-    const schedule = (delay: number, cooldown = false) => {
+    const schedule = (delay: number) => {
       clearTimeout(timer);
-      cooldownUntil = cooldown ? Date.now() + delay : 0;
       if (alive && !stopped && !document.hidden) timer = setTimeout(() => void load(), delay);
     };
     const load = async () => {
       if (!alive || running || stopped || document.hidden) return;
+      // A server Retry-After cooldown blocks automatic and manual retries alike:
+      // reschedule the remaining wait instead of issuing a request.
+      const wait = cooldown.current - Date.now();
+      if (wait > 0) {
+        schedule(wait);
+        return;
+      }
+      // The cooldown has elapsed: clear the notice before requesting so Retry is
+      // advertised as available again, even if this request fails later.
+      if (cooldown.current !== 0) {
+        cooldown.current = 0;
+        setCooldownUntil(0);
+      }
       running = true;
       const sequence = ++epoch;
       const requestController = new AbortController();
@@ -372,6 +430,8 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
           const record = await publicReplay(id, requestController.signal);
           if (!record.validated || !record.states.length) throw new PublicOnlineError(409);
           if (alive && sequence === epoch) {
+            cooldown.current = 0;
+            setCooldownUntil(0);
             setGame(record.game);
             setReplay(record);
             // An explicit replay link starts at the first position; a live game
@@ -382,6 +442,8 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
           }
         } else if (alive && sequence === epoch && current) {
           failures = 0;
+          cooldown.current = 0;
+          setCooldownUntil(0);
           setGame(current);
           setError('');
           if (current.status === 'cancelled' || current.status === 'voided') stopped = true;
@@ -392,8 +454,18 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
           const delay = publicRetryDelay(e, failures);
           failures += 1;
           setError(errorLabel(e));
-          if (delay === null) stopped = true;
-          else schedule(delay, e instanceof PublicOnlineError && e.failure === 'busy');
+          if (delay === null) {
+            stopped = true;
+          } else {
+            if (e instanceof PublicOnlineError && e.failure === 'busy') {
+              cooldown.current = Date.now() + delay;
+              setCooldownUntil(cooldown.current);
+            } else {
+              cooldown.current = 0;
+              setCooldownUntil(0);
+            }
+            schedule(delay);
+          }
         }
       } finally {
         if (sequence === epoch) running = false;
@@ -410,7 +482,7 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
         running = false;
       } else if (!stopped) {
         clearTimeout(timer);
-        const remaining = cooldownUntil - Date.now();
+        const remaining = cooldown.current - Date.now();
         if (remaining > 0) timer = setTimeout(() => void load(), remaining);
         else void load();
       }
@@ -441,14 +513,7 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
   return (
     <>
       <a href="/watch">← {t('All public games')}</a>
-      {error && (
-        <div role="alert" className="arena-surface public-notice">
-          <p>{t(error)}</p>
-          <button className="button secondary" onClick={() => setAttempt((v) => v + 1)}>
-            {t('Retry')}
-          </button>
-        </div>
-      )}
+      {error && <RetryNotice error={error} cooldown={cooldownUntil > 0} onRetry={retry} />}
       {!game && !error && <p role="status">{t('Loading public game…')}</p>}
       {game && (
         <section
@@ -476,21 +541,22 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
               <PublicPlayer player={game.participants.defenders} />
             </div>
           </div>
+          {!replay && game.status === 'active' && (
+            <p className="public-live-note">
+              {t('{side} to move', { side: t(sideLabel(game.position.turn)) })}
+            </p>
+          )}
           <p className="public-live-note">
             {t('Time control')}: {t(game.time_control === 'total' ? 'Total time' : 'Per move')} ·{' '}
-            {t('{seconds} seconds', { seconds: game.time_per_move })}
-            {game.increment_seconds > 0 && (
-              <> + {t('{seconds} seconds', { seconds: game.increment_seconds })}</>
-            )}
+            {formatRemaining(game.time_per_move)}
+            {game.increment_seconds > 0 && <> + {formatRemaining(game.increment_seconds)}</>}
           </p>
           {game.result && (
             <p className="public-live-note">
               {game.result.winner === 'draw'
                 ? t('Draw')
                 : game.result.winner
-                  ? t('{side} won', {
-                      side: t(game.result.winner === 'attackers' ? 'Attackers' : 'Defenders'),
-                    })
+                  ? t('{side} won', { side: t(sideLabel(game.result.winner)) })
                   : t('No official result')}
             </p>
           )}
