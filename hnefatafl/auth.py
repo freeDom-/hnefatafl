@@ -51,6 +51,12 @@ ACCOUNT_ACTIONS = {
     "/api/auth/password-reset/confirm": "confirm",
 }
 ACCOUNT_PAGES = {"/register", "/verify-email", "/forgot-password", "/reset-password"}
+# Signed-out shells load without a session: the login/account pages and the
+# public Watch Hall (`/watch` plus its game and replay children). The frontend
+# entry router owns the remaining `/watch` path shape; the boundary only needs
+# to serve the shell so an anonymous visitor is never redirected to login.
+PUBLIC_SHELL_PAGES = {"/", "/login", "/index.html", "/favicon.svg", "/watch", *ACCOUNT_PAGES}
+PUBLIC_SHELL_PREFIXES = ("/watch/",)
 
 
 def digest(value: str) -> str:
@@ -583,18 +589,12 @@ class SecurityBoundary:
                 return message
 
             receive = bounded_login_receive
-        # Only immutable frontend build assets and the login shell are public.
+        # Only immutable frontend build assets and the public shells (login/
+        # account pages and the signed-out Watch Hall) are reachable anonymously.
         shell = method == "GET" and (
             (
                 route_path == "/{path:path}"
-                and path
-                in {
-                    "/",
-                    "/login",
-                    "/index.html",
-                    "/favicon.svg",
-                    *ACCOUNT_PAGES,
-                }
+                and (path in PUBLIC_SHELL_PAGES or path.startswith(PUBLIC_SHELL_PREFIXES))
             )
             or (route_path == "/assets" and path.startswith("/assets/"))
         )
