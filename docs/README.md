@@ -65,6 +65,8 @@ Commands assume the repository root unless a different directory is shown.
 ## Architecture, development and testing
 
 - [Current architecture and module boundaries](../ARCHITECTURE.md)
+- [Arena completion audit, verified feature matrix and PR dependencies](designs/arena-completion.md)
+- [Initial public release readiness and outstanding gates](RELEASE_READINESS.md)
 - [Arena v2 contracts, feature preservation inventory and integration plan](designs/arena-v2-contracts.md)
 - [Shared frontend notification layer, migrated surfaces and exceptions](NOTIFICATIONS.md)
 - [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)
