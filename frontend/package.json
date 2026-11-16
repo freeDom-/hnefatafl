@@ -9,6 +9,7 @@
     "benchmark:learning": "node benchmarks/run.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
+    "test:benchmarks": "node --test \"benchmarks/**/*.test.mjs\"",
     "test:e2e": "playwright test",
     "test:registration": "playwright test --config playwright.registration.config.ts",
     "lint": "tsc --noEmit",
@@ -18,8 +19,7 @@
     "test:online": "playwright test --config playwright.online.config.ts",
     "test:personal": "playwright test --config playwright.personal.config.ts",
     "predev": "node scripts/sync-appearance-catalog.mjs",
-    "prebuild": "node scripts/sync-appearance-catalog.mjs",
-    "test:benchmarks": "node --test \"benchmarks/**/*.test.mjs\""
+    "prebuild": "node scripts/sync-appearance-catalog.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",

@@ -26,6 +26,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Personal ruleset, AI-opponent and side statistics](DASHBOARD.md#detailed-personal-statistics)
 - [Rated online games, Elo policy, eligibility, leaderboards and rebuilds](RATINGS.md)
 - [Earnable portraits, achievement progress, catalog IDs and award permanence](PROGRESSION.md)
+- [Portrait Hall implementation and visual acceptance](validation/portrait-hall.md)
 - [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
 - [Double-elimination player tournaments, bracket policy and moderation](PLAYER_TOURNAMENTS.md)
 - [Hall of records and seed-independent AI statistics](PERSONALIZATION.md#ai-configurations-in-the-hall-of-records)
@@ -65,6 +66,8 @@ Commands assume the repository root unless a different directory is shown.
 ## Architecture, development and testing
 
 - [Current architecture and module boundaries](../ARCHITECTURE.md)
+- [Arena completion audit, verified feature matrix and PR dependencies](designs/arena-completion.md)
+- [Initial public release readiness and outstanding gates](RELEASE_READINESS.md)
 - [Arena v2 contracts, feature preservation inventory and integration plan](designs/arena-v2-contracts.md)
 - [Shared frontend notification layer, migrated surfaces and exceptions](NOTIFICATIONS.md)
 - [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)

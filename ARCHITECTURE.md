@@ -6,6 +6,19 @@ This describes current boundaries and invariants. Schema introduction dates and
 release-specific delivery details live in [Deployment](docs/DEPLOYMENT.md#data-and-configuration)
 and the [historical release index](docs/README.md#rulesets-release-history-and-historical-requirements).
 
+## Arena completion status
+
+The [post-PR #84 audit](docs/designs/arena-completion.md) is a historical snapshot.
+At that baseline, Portrait Hall, signed-out spectator UI and human tournament UI
+were missing, tournament settlement was manually invoked and leagues were not
+implemented; schema is 18. Later work ships separately: Portrait Hall, achievement
+claiming and selection are delivered by PR #86. Automatic tournament settlement,
+leagues, the public spectator frontend, Workshop consolidation and local-analysis
+research remain separate workstreams. See the [current Arena contracts](docs/designs/arena-v2-contracts.md)
+and [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
+remove obsolete formats after a tested development-data recovery path; it must not
+silently delete games, jobs, checkpoints or model files.
+
 ## Decisions
 
 Python 3.11+ owns the deterministic engine, search, persistence and training. FastAPI

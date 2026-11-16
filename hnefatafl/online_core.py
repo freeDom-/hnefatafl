@@ -673,11 +673,17 @@ class OnlineCore:
             "action_accepted": transition_name == action,
         }
 
-    def _projection(self, c, row, game, accounts=None) -> dict:
+    def _projection(self, c, row, game, accounts=None, portraits=None) -> dict:
         match = c.execute("SELECT * FROM online_matches WHERE id=?", (row["match_id"],)).fetchone()
         if accounts is None:
             accounts = resolve_accounts(
                 c, (row[side + "_id"] for side in ("attackers", "defenders"))
+            )
+        if portraits is None:
+            from .progression import selected_portrait_ids
+
+            portraits = selected_portrait_ids(
+                c, (row[side + "_id"] for side in ("attackers", "defenders") if row[side + "_id"])
             )
         participants = {}
         for side in ("attackers", "defenders"):
@@ -686,6 +692,9 @@ class OnlineCore:
                 {
                     "account_id": identifier,
                     **accounts.get(identifier, public_identity(None)),
+                    # An unavailable account keeps its authoritative seat but
+                    # must not disclose saved profile/portrait metadata.
+                    **({"portrait_id": portraits[identifier]} if identifier in accounts else {}),
                 }
                 if identifier
                 else None
@@ -942,8 +951,21 @@ class OnlineCore:
             accounts = resolve_accounts(
                 c, (row[side + "_id"] for row, _ in loaded for side in ("attackers", "defenders"))
             )
+            from .progression import selected_portrait_ids
+
+            portraits = selected_portrait_ids(
+                c,
+                (
+                    row[side + "_id"]
+                    for row, _ in loaded
+                    for side in ("attackers", "defenders")
+                    if row[side + "_id"]
+                ),
+            )
             return {
-                "games": [self._projection(c, row, game, accounts) for row, game in loaded],
+                "games": [
+                    self._projection(c, row, game, accounts, portraits) for row, game in loaded
+                ],
                 "limit": limit,
                 "offset": offset,
                 "section": section or ("mine" if mine else "all"),

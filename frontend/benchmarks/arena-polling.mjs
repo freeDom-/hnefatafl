@@ -6,7 +6,12 @@ import { createServer } from 'node:net';
 import { tmpdir, cpus, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fingerprintDirectory, readGitRevision, verifyBuildRevision } from './buildRevision.mjs';
+import {
+  fingerprintProductionBundle,
+  readGitRevision,
+  verifyBuildFingerprint,
+  verifyBuildRevision,
+} from './buildRevision.mjs';
 
 const frontend = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repository = resolve(frontend, '..');
@@ -65,11 +70,11 @@ const buildCheck = verifyBuildRevision(buildRecord, sourceRecord, {
   allowDirty: options.allowDirty,
 });
 if (!buildCheck.ok) throw new Error(buildCheck.message);
-const bundleFingerprint = await fingerprintDirectory(join(frontend, 'dist', 'assets'));
-if (buildRecord.fingerprint && buildRecord.fingerprint !== bundleFingerprint)
-  throw new Error(
-    `Stale production build: dist assets changed since the recorded build (${buildRecord.fingerprint} -> ${bundleFingerprint}). Rebuild with \`npm --prefix frontend run build\`.`,
-  );
+// Hash the complete production bundle (index.html plus assets) and require it to
+// match the recorded fingerprint; arena-build.json itself is excluded.
+const bundleFingerprint = await fingerprintProductionBundle(join(frontend, 'dist'));
+const fingerprintCheck = verifyBuildFingerprint(buildRecord, bundleFingerprint);
+if (!fingerprintCheck.ok) throw new Error(fingerprintCheck.message);
 const python = process.env.ARENA_BENCH_PYTHON || join(repository, '.venv', 'bin', 'python');
 await access(python);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -281,6 +286,8 @@ try {
       git: buildRecord.git ?? null,
       builtAt: buildRecord.builtAt ?? null,
       fingerprint: bundleFingerprint,
+      recordedFingerprint: buildRecord.fingerprint,
+      fingerprintScope: 'dist/index.html and every file under dist/ except arena-build.json',
       allowDirty: options.allowDirty,
     },
     measuredAt: new Date().toISOString(),
