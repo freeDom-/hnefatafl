@@ -65,8 +65,16 @@ export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') 
   };
   const button = page
     .locator('.mobile-inspector, .desktop-inspector')
-    .getByRole('tab', { name: names[tab] });
-  if (await button.isVisible()) await button.click();
+    .getByRole('tab', { name: names[tab] })
+    .first();
+  // The inspector mounts after the board and once the viewport media query has
+  // resolved, so a tab that has not rendered yet must not be read as absent.
+  // The wait is bounded because some layouts legitimately have no inspector.
+  const visible = await button
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (visible) await button.click();
 }
 
 export async function showMove(page: Page, ply: number) {
