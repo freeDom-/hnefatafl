@@ -20,6 +20,27 @@ for fresh measurements, native/browser differential tests and production gates.
 The Phase 0 measurements and limitations below describe the original baseline-only
 experiment; they are retained as historical evidence, not new validation.
 
+### Lifecycle and scheduling corrections
+
+Displayed analysis is bound to the exact position and settings that produced it.
+Starting a new game, restoring a position, making a human move or completing an AI
+move clears the analysis pane and invalidates any in-flight analysis render, so a
+superseded result can never publish. Cache reuse still applies when the identical
+position, repetition history and settings are analyzed again.
+
+Foreground gameplay preempts background analysis: a human move, AI move, new game
+or restore cancels the active analysis through the existing generation guard and
+terminates/recreates the worker. Ordinary analysis cache hits never restart the
+worker, and a synchronous `postMessage` failure clears the pending timer, request
+state and busy flag. Expected `AbortError` cancellation is reported as a cancelled
+state rather than a generic spike error, and position-dependent controls stay
+disabled until the first position is rendered.
+
+The 512 KiB request limit is enforced on the exact serialized payload in UTF-8
+bytes on both sides of the worker boundary; the Python `dispatch` check remains an
+independent safety boundary. Multibyte payloads whose UTF-16 length is within the
+limit but whose UTF-8 encoding exceeds it are rejected.
+
 ## Reproduce
 
 From the repository root, with existing Python/Node development dependencies:

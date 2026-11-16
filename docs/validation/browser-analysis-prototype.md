@@ -37,6 +37,25 @@ clock, account, rating, achievement, tournament or league mutation is possible;
 the verifier rejects any `/api/` request. This does not authorize live online advice
 in the production app.
 
+### Review follow-up corrections
+
+- Displayed analysis is associated with the exact position and effective settings.
+  New game, restore, human move and AI completion clear the pane and invalidate any
+  in-flight render through the existing generation guard, so a superseded analysis
+  cannot update the board or pane. Identical position/history/settings still reuse
+  the cache, and cancellation never clears valid cache entries.
+- Foreground gameplay takes precedence over background analysis. Human/AI moves, new
+  game and restore cancel the active analysis without a manual Cancel click and
+  terminate/recreate the worker; ordinary cache hits avoid the restart. Concurrent
+  analyses are last-wins and the obsolete promise is discarded. Repeated cancellation
+  and worker restart remain safe, and stale worker responses are ignored.
+- Expected cancellation (`AbortError`) is presented as a cancelled state, distinct
+  from unexpected failures. Position-dependent controls stay disabled until a position
+  exists, and every async event handler and the initialization chain handle rejection.
+- The 512 KiB limit is checked against the exact serialized payload using UTF-8 bytes
+  before the worker boundary; Python re-checks independently. A synchronous
+  `postMessage` failure clears the pending timer, pending request and busy flag.
+
 ## Fresh real-browser evidence
 
 Chromium 156.0.8078.4, Linux cloud host, desktop 1920×1080 and mobile-emulated
@@ -98,6 +117,44 @@ the missing-runtime/error path without a runtime download. Native pytest alone
 does **not** rerun the Wasm/browser proof. Original Phase 0 evidence remains
 historical and unmodified.
 
+### Continuous verification choice
+
+The default PR CI keeps running `tests/test_offline_spike.py` (staging closure,
+native bridge parity, UTF-8 sizing, bounded/neural refusal) with no runtime
+download. The full Wasm gate stays a documented manual/opt-in command rather than
+an ordinary-PR CI job: it needs a ~14 MB pinned Pyodide download plus Chromium and
+several worker restarts, which is disproportionate for every pull request and
+would make browser-runtime regressions hide behind slow, flaky infrastructure. The
+staged runtime is digest-verified, and the manual command above is the reproducible
+gate to run before merging changes to the worker, client or bridge.
+
+## Review follow-up validation
+
+Re-ran the staged browser gate after the lifecycle, scheduling and UTF-8 sizing
+corrections. Both the desktop 1920×1080 and mobile-emulated 390×844 profiles passed
+every original assertion (three rulesets, 68 native/browser fixture comparisons,
+tactical king-escape parity, repetition/terminal outcomes, history-aware cache
+identity, busy-search UI responsiveness, offline reload, no external/API requests)
+and the added lifecycle cases:
+
+| Follow-up check | Desktop | Mobile-emulated 4× |
+| --- | --- | --- |
+| Completed analysis cleared after position change | Passed | Passed |
+| Restore while analysis running clears superseded result | Passed | Passed |
+| Human move supersedes background analysis | Passed | Passed |
+| New game supersedes background analysis | Passed | Passed |
+| Repeated cancellation then reliable restart | Passed | Passed |
+| Concurrent analyses: newest wins, obsolete discarded | Passed | Passed |
+| Late/obsolete worker responses ignored | Passed | Passed |
+| ASCII/multibyte/exact/over 512 KiB UTF-8 boundary | Passed | Passed |
+| Synchronous `postMessage` failure clears pending state | Passed | Passed |
+
+Cancellation still acknowledged with `AbortError` and hard-timeout termination with
+`AbortError`; worker restart after termination measured ~2.0 s desktop and ~2.7 s
+mobile-emulated. No external or `/api/` request was observed. These are single
+observations on the same cloud host, not percentiles. The machine-readable
+`browser-analysis-prototype.json` remains the original run and is not recast.
+
 ## Production and neural decision
 
 **Classical engine reuse is feasible experimentally; production integration is not
@@ -117,7 +174,8 @@ authoritative and unchanged.
 
 ## Repository checks
 
-Fresh native spike tests: **8 passed**. Ruff check/format covers spike Python and
+Fresh native spike tests: **9 passed** (the original 8 plus the UTF-8 size-boundary
+case). Ruff check/format covers spike Python and
 its tests; repository Ruff, frontend formatting, mypy (69 files), TypeScript and
 production build passed. The unchanged production entry remains 1,013.70 kB
 minified; its existing large-chunk warning is recorded rather than suppressed.
