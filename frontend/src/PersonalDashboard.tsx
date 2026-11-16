@@ -31,27 +31,12 @@ import DashboardCountdown from './DashboardCountdown';
 import type { Leaderboard as LeaderboardData, OnlineGame } from './onlineTypes';
 import type { Profile } from './ProfilePage';
 import type { Game, Side } from './types';
-import { portraitAssetSrc } from './portraitAssets';
+import type { PortraitCatalog, AchievementProgress } from './portraitTypes';
+import Portrait from './Portrait';
 import './personalDashboard.css';
 
-/** Authenticated portrait catalog metadata; assets come from the shared allowlist. */
-type PortraitCatalog = {
-  default_portrait_id: string;
-  items: { id: string; name: string; unlock_achievement_id: string | null }[];
-};
-/** Own achievement progress, used to count genuinely unlocked portraits. */
-type AchievementProgress = {
-  items: { id: string; unlocked: boolean }[];
-  summary: { unlocked: number; total: number };
-};
 /** The active game's authoritative state, discriminated by its API source. */
 type ActiveBoard = { kind: 'online'; game: OnlineGame } | { kind: 'single'; game: Game };
-
-/**
- * Only catalog ids with a bundled portrait render a picture; the frozen contract
- * keeps asset mapping frontend-controlled, so an unknown id falls back to the
- * account initial rather than a broken image.
- */
 const sideNames: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const statusNames: Record<string, string> = {
   waiting: 'Waiting',
@@ -237,7 +222,6 @@ function DashboardHome({
       ).length
     : null;
   const portraitId = profile.data?.portrait_id ?? null;
-  const portraitSrc = portraitId ? portraitAssetSrc(portraitId) : null;
   const portraitName = catalogItems?.find((item) => item.id === portraitId)?.name ?? null;
   const displayName = profile.data?.display_name?.trim() || account?.username || t('Unassigned');
   const standingRank = standing.data?.me ? Math.round(standing.data.me.rank) : null;
@@ -500,8 +484,8 @@ function DashboardHome({
             </div>
             <div className="dashboard-profile-identity">
               <span className="dashboard-portrait" aria-hidden="true">
-                {portraitSrc ? (
-                  <img src={portraitSrc} alt="" />
+                {portraitId ? (
+                  <Portrait id={portraitId} />
                 ) : (
                   (Array.from(displayName)[0]?.toUpperCase() ?? '?')
                 )}
@@ -587,7 +571,11 @@ function DashboardHome({
                 className="arena-surface dashboard-stat"
                 aria-labelledby="stat-portraits-heading"
               >
-                <h3 id="stat-portraits-heading">{t('Unlocked portraits')}</h3>
+                <h3 id="stat-portraits-heading">
+                  <a href="/portraits" onClick={surfaceLink}>
+                    {t('Unlocked portraits')}
+                  </a>
+                </h3>
                 <strong>
                   {unlockedPortraitCount === null || !catalogItems
                     ? '—'

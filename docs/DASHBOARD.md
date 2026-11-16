@@ -280,3 +280,7 @@ below the current offset instead of stranding an empty slice. Populated optional
 fields are public after any required one-time legacy confirmation. Birth dates
 remain private and age uses completed years on the UTC date; see
 [profile publication and migration](PROFILE.md).
+
+The **Unlocked portraits** standing-card heading links to `/portraits`, where
+[Portrait Hall](PROGRESSION.md#portrait-hall-and-player-artwork) displays actual
+achievement progress, confirms eligible awards and selects earned artwork.
