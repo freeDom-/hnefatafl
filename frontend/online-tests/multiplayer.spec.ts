@@ -613,8 +613,8 @@ test('online army portrait falls back inside its symbol without the gallery chun
   expect(metrics.display).toBe('grid');
   expect(metrics.box.width).toBeGreaterThan(0);
   expect(metrics.box.height).toBeGreaterThan(0);
-  expect(metrics.box.width).toBeLessThanOrEqual(metrics.symbol.width + 1);
-  expect(metrics.box.height).toBeLessThanOrEqual(metrics.symbol.height + 1);
+  expect(metrics.box.width).toBeCloseTo(metrics.symbol.width, 0);
+  expect(metrics.box.height).toBeCloseTo(metrics.symbol.height, 0);
   expect(metrics.glyph.width).toBeLessThanOrEqual(metrics.box.width + 0.5);
   expect(metrics.glyph.height).toBeLessThanOrEqual(metrics.box.height + 0.5);
   expect(Math.abs(metrics.glyph.cx - metrics.box.cx)).toBeLessThanOrEqual(3);

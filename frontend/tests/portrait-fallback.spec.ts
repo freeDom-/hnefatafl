@@ -30,7 +30,11 @@ const leaderboard = {
  * chunk. Check that the placeholder is visible, contained by its context and
  * centred, using only the shared stylesheet plus the context rule.
  */
-async function expectContainedFallback(page: Page, container: string) {
+async function expectContainedFallback(
+  page: Page,
+  container: string,
+  expected?: { width?: number; height?: number },
+) {
   const element = page.locator(container).first();
   const fallback = element.locator('.portrait-art.portrait-fallback');
   await expect(fallback).toBeVisible({ timeout: 30000 });
@@ -65,6 +69,8 @@ async function expectContainedFallback(page: Page, container: string) {
   expect(metrics!.box.height).toBeGreaterThan(0);
   expect(metrics!.box.width).toBeLessThanOrEqual(metrics!.container.width + 1);
   expect(metrics!.box.height).toBeLessThanOrEqual(metrics!.container.height + 1);
+  if (expected?.width !== undefined) expect(metrics!.box.width).toBeCloseTo(expected.width, 0);
+  if (expected?.height !== undefined) expect(metrics!.box.height).toBeCloseTo(expected.height, 0);
   expect(metrics!.glyph.width).toBeLessThanOrEqual(metrics!.box.width + 0.5);
   expect(metrics!.glyph.height).toBeLessThanOrEqual(metrics!.box.height + 0.5);
   expect(Math.abs(metrics!.glyph.cx - metrics!.box.cx)).toBeLessThanOrEqual(3);
@@ -93,7 +99,7 @@ test('shared portrait fallback is styled on direct routes without the gallery ch
     // Direct navigation: never open Portrait Hall first.
     await page.goto('/profile');
     await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
-    await expectContainedFallback(page, '.profile-portrait');
+    await expectContainedFallback(page, '.profile-portrait', { width: 88, height: 88 });
     await page.goto('/dashboard');
     await expectContainedFallback(page, '.dashboard-portrait');
     await page.goto('/leaderboard');
@@ -120,7 +126,7 @@ test('portrait fallback scales across mobile and desktop viewports without overf
   for (const size of sizes) {
     await page.setViewportSize(size);
     await page.goto('/profile');
-    await expectContainedFallback(page, '.profile-portrait');
+    await expectContainedFallback(page, '.profile-portrait', { width: 88, height: 88 });
     await page.goto('/dashboard');
     await expectContainedFallback(page, '.dashboard-portrait');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
