@@ -272,6 +272,15 @@ class Ratings:
             f"WHERE pr.pool=? AND a.active=1 {cls._ORDER} LIMIT ? OFFSET ?",
             (pool, limit, offset),
         ).fetchall()
+        # Resolve published selections once for the page and the viewer, never
+        # expose private achievements or perform one portrait query per row.
+        from .progression import selected_portrait_ids
+
+        portraits = selected_portrait_ids(c, [row["account_id"] for row in rows] + [account_id])
+        entries = [cls._entry(row, offset + index + 1, today) for index, row in enumerate(rows)]
+        me = cls._standing(c, pool, account_id, today)
+        for entry in entries + ([me] if me is not None else []):
+            entry["portrait_id"] = portraits[entry["account_id"]]
         return {
             "ruleset": pool,
             "policy": {
@@ -280,11 +289,9 @@ class Ratings:
                 "k_factor": rating.K_FACTOR,
                 "provisional_games": rating.PROVISIONAL_GAMES,
             },
-            "entries": [
-                cls._entry(row, offset + index + 1, today) for index, row in enumerate(rows)
-            ],
+            "entries": entries,
             "total": total,
             "limit": limit,
             "offset": offset,
-            "me": cls._standing(c, pool, account_id, today),
+            "me": me,
         }

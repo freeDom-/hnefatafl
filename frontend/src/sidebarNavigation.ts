@@ -22,7 +22,7 @@ export const ARENA_SIDEBAR_ITEMS: SidebarItem[] = [
     ],
   },
   { kind: 'destination', id: 'archive', label: 'Replays & analysis', href: '/archive' },
-  { kind: 'placeholder', id: 'portraits', label: 'Portrait hall' },
+  { kind: 'destination', id: 'portraits', label: 'Portrait hall', href: '/portraits' },
 ];
 
 /** The stable destination id the workshop entry links to, for `aria-current`. */

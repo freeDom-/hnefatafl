@@ -25,6 +25,7 @@ export type RatingApplication = {
   policy_version: number;
 };
 export type LeaderboardEntry = {
+  portrait_id?: string;
   account_id: string;
   name: string;
   username?: string;
@@ -80,7 +81,10 @@ export type OnlineGame = {
   started_at: string | null;
   deadline: string | null;
   completed_at: string | null;
-  participants: Record<Side, { account_id: string; name: string; username?: string } | null>;
+  participants: Record<
+    Side,
+    { account_id: string; name: string; username?: string; portrait_id?: string } | null
+  >;
   position: OnlinePosition;
   terminal_king_square: number | null;
   captured: { attackers: number; defenders: number };

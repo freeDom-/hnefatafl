@@ -19,8 +19,33 @@ Delivered:
 - `PATCH /api/profile/portrait` — CSRF-protected selection of an earned portrait
 
 Deliberately out of scope: paid currency, any XP or soft-currency economy, client
-awarded unlocks, login/activity streaks, leagues and player tournaments. Those
-reserved systems keep their own future schema numbers (18/19) and namespaces.
+awarded unlocks and login/activity streaks. Human player tournaments are a separate
+implemented backend using schema 18; leagues remain unimplemented (schema 19
+reserved). Portrait Hall, achievement claiming and selection are implemented; the
+post-#84 audit baseline predates them.
+
+## Portrait Hall and player artwork
+
+The authenticated `/portraits` page shows every catalog portrait in a locked,
+ready-to-claim, unlocked or selected state. Requirements and actual numeric
+progress come from the server, including achievements without a portrait reward.
+The explicit **Claim eligible achievements** action confirms all currently
+eligible awards through the existing idempotent POST; reading progress does not
+claim. Earned portraits can be selected using the existing profile PATCH.
+
+Mutation responses update the gallery immediately. Account-switch/unmount guards
+reject stale responses and notices; the existing payload-free `profile-changed`
+event refreshes owner-scoped views. Profile displays the selected artwork and links
+to the gallery; the Dashboard's Unlocked portraits heading links there too. Safe
+published portrait IDs are included in online and leaderboard projections, with
+batched page lookup and retired/default fallback. No achievement progress or
+private profile field is included in those published projections.
+
+Artwork uses the existing local allowlist and original 320px portrait assets;
+unknown IDs and failed loads have a safe fallback. Four themes, explicit progress
+labels, keyboard controls, visible focus, responsive cards and accessible unlock
+notices use the existing design system. There is no XP, currency or client-awarded
+entitlement. Existing confirmed awards remain earned after later result correction.
 
 ## Portrait catalog
 
@@ -142,7 +167,8 @@ Confirmation is explicit, idempotent and permanent:
   it is safe as a repeatable `GET`
 - an explicit `POST /api/personal/achievements/confirm` evaluates the same records
   and confirms every milestone they already prove inside one `BEGIN IMMEDIATE`
-  transaction, then returns the same projection; the award key is
+  transaction, then returns the same projection; `PATCH /api/profile/portrait`
+  materializes the same eligible awards inside its selection write. The award key is
   `(account_id, achievement_id)` with `INSERT OR IGNORE`, so a repeated
   confirmation, a duplicated result update, a replay or a pool rebuild can never
   duplicate a reward
@@ -182,8 +208,8 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 | --- | --- | --- |
 | `GET /api/portraits/catalog` | `play` | `catalog_version`, `default_portrait_id`, `items[{id,name,unlock_achievement_id}]` |
 | `GET /api/personal/achievements` | `play` | read-only own `items` with `progress`, `unlocked`, `awarded_at`, `portrait_id`, plus `summary` and `as_of` |
-| `POST /api/personal/achievements/confirm` | `play` | confirms the awards the records already prove; returns the same projection as the read |
-| `PATCH /api/profile/portrait` | `profile` | `{"portrait_id": "<catalog id>"}`; returns the profile projection |
+| `POST /api/personal/achievements/confirm` | `play` | dedicated confirmation action: materializes every award the records already prove inside one `BEGIN IMMEDIATE`; returns the same projection as the read |
+| `PATCH /api/profile/portrait` | `profile` | `{"portrait_id": "<catalog id>"}`; materializes eligible awards in the same write, then selects the earned portrait and returns the profile projection |
 
 - all four routes require a current authenticated session and take the account from
   that session; none accepts an account parameter, so a client can never confirm or
@@ -201,9 +227,10 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 - the profile projection publishes the effective `portrait_id` only — the stored
   selection while the catalog still offers it, otherwise the default. Detailed
   achievement progress stays private to `GET /api/personal/achievements`
-- `POST /api/personal/achievements/confirm` is the only route that confirms awards,
-  so it is the one listed as persistent state in the
-  [endpoint inventory](API_PERMISSIONS.json); the read is not
+- `POST /api/personal/achievements/confirm` is the dedicated confirmation action,
+  and `PATCH /api/profile/portrait` also materializes eligible awards inside its
+  selection write. Both are persistent-state mutations and both are listed as such
+  in the [endpoint inventory](API_PERMISSIONS.json); the read is not
 
 ### Empty states
 
@@ -217,28 +244,35 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 
 ## Frontend integration
 
-- `GET /api/portraits/catalog` is the gallery: stable IDs, names and the unlocking
-  achievement ID
-- `GET /api/personal/achievements` is the lock explanation and the entitlement
-  source: a portrait is selectable when it is the default or when its unlocking
-  achievement reports `unlocked: true`
-- F4 must persist a new unlock with `POST /api/personal/achievements/confirm`; the
-  read alone never confirms anything, so the UI confirms first (for example when the
-  achievements view opens) and renders the projection that comes back
-- `PATCH /api/profile/portrait` returns the same projection as `GET /api/profile`, so
-  the client can update its profile state from one response
-- never derive an unlock from client state or a local "best streak"; the backend
-  rechecks entitlement inside the selection transaction
+- `GET /api/portraits/catalog` supplies the gallery's stable IDs, names and the
+  unlocking achievement ID; the client maps IDs to bundled artwork and never accepts
+  a URL or path from the account
+- `GET /api/personal/achievements` explains each lock and supplies entitlement: a
+  portrait is selectable when it is the default or when its unlocking achievement
+  reports `unlocked: true`
+- the authenticated `/portraits` page renders locked, ready-to-claim, unlocked and
+  selected states from the server projection; reading progress never confirms
+- **Claim eligible achievements** posts `POST /api/personal/achievements/confirm`
+  and renders the returned projection; the action is idempotent and coalesces while
+  one request is in flight
+- selecting an earned portrait posts `PATCH /api/profile/portrait`; the returned
+  profile projection updates the client immediately, and the payload-free
+  `profile-changed` event refreshes owner-scoped views. A confirmed selection
+  survives a failed follow-up read, and a mutation error is cleared once a later
+  authoritative refresh proves the server committed the operation
+- the client never derives an unlock from client state or a local "best streak";
+  the backend rechecks entitlement inside the selection transaction
 
 ## Known limitations
 
 - awards are confirmed by an explicit `POST /api/personal/achievements/confirm` (or
   when a portrait is first selected), not by a background job, so `awarded_at` is
   the confirmation time and the read never confirms anything
-- no unlock notification, history entry or audit trail beyond the confirmed award row
+- unlock notifications are in-session only; there is no persisted notification
+  history or audit trail beyond the confirmed award row
 - only the aggregate best rated win streak has achievements; per-ruleset streaks stay
   a progress projection
 - `local-first-game` grants no portrait, and neither the catalog nor the profile
   reports an entitlement flag; the client joins the catalog with the achievement list
-- the leaderboard and online lobby participant projections are unchanged and do not
-  expose `portrait_id` in this change
+- leaderboard and online lobby participant projections publish the effective
+  `portrait_id` only; detailed achievement progress stays private

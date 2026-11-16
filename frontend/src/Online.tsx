@@ -1,3 +1,4 @@
+import Portrait from './Portrait';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError } from './api';
 import { useAuth } from './Auth';
@@ -971,7 +972,11 @@ function GameRoom({
     <ArmiesPanel
       rows={(['attackers', 'defenders'] as Side[]).map((side) => ({
         side,
-        symbol: sideGlyph(side),
+        symbol: game.participants[side]?.portrait_id ? (
+          <Portrait id={game.participants[side]?.portrait_id} />
+        ) : (
+          sideGlyph(side)
+        ),
         name: game.participants[side]?.name || t('Unassigned'),
         detail: [
           accountAttribution(game.participants[side]),

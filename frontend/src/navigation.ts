@@ -12,6 +12,7 @@ export function safeDestination(value: string | null): string {
     '/statistics',
     '/leaderboard',
     '/profile',
+    '/portraits',
     '/training',
     '/tournaments',
     '/archive',
