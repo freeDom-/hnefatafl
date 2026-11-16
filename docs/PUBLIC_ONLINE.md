@@ -149,14 +149,20 @@ Every anonymous read is bounded by a 10 s timeout and cancels cleanly on
 navigation, unmount or a hidden tab. Failures are classified: `404` (including
 withheld private IDs) shows the privacy-preserving unavailable state and stops
 automatic polling; a `409` replay validation failure stops retries with an
-explicit message; `429` honours `Retry-After` (delta-seconds or HTTP-date) before
-the next attempt; `5xx` and network failures retry with bounded backoff.
-Recoverable states keep a manual retry. A live game that completes keeps its
-final position with replay controls available, while an explicit
-`/watch/games/{id}/replay` link starts at move zero. Only `/watch`,
+explicit message; `429` honours `Retry-After` (delta-seconds or HTTP-date) for
+both automatic and manual retries, keeps the cooldown across tab visibility
+changes, and explains why Retry is temporarily unavailable; `5xx` and network
+failures retry with bounded backoff. Recoverable states keep a manual retry. A
+live game that completes keeps its final position with replay controls
+available, while an explicit `/watch/games/{id}/replay` link starts at move zero.
+Live games show the active side to move from the server position and format
+time controls with the shared duration formatter. Only `/watch`,
 `/watch/games/{id}` and `/watch/games/{id}/replay` are valid public routes; other
 `/watch` paths render a translated not-found state with a link back to the Watch
-Hall and issue no API requests.
+Hall and issue no API requests. Discovery and live reads stay uncached; completed
+detail and replay reads defer to the server's public `Cache-Control` policy.
+Portrait assets come from one shared allowlist used by both the public spectator
+and the authenticated dashboard, so an unknown server id never becomes a URL.
 
 The public shell is intentionally independent from authenticated Arena navigation.
 Its build entry is split from the protected application; this reduces public
