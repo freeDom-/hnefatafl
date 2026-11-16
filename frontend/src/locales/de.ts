@@ -16,8 +16,15 @@ const translations: Record<string, string> = {
   'Public viewing is unavailable.': 'Öffentliches Zuschauen ist nicht verfügbar.',
   'Public viewing is busy. Please retry shortly.':
     'Das öffentliche Zuschauen ist ausgelastet. Bitte versuche es gleich erneut.',
+  'Public viewing timed out. Please retry.':
+    'Das öffentliche Zuschauen hat zu lange gedauert. Bitte versuche es erneut.',
+  'This replay could not be validated.': 'Diese Aufzeichnung konnte nicht überprüft werden.',
   'Public games could not be loaded. Please retry.':
     'Öffentliche Partien konnten nicht geladen werden. Bitte versuche es erneut.',
+  'Public page not found.': 'Öffentliche Seite nicht gefunden.',
+  'This public link does not exist. Return to the Watch Hall to browse live games and replays.':
+    'Dieser öffentliche Link existiert nicht. Kehre zur Zuschauerhalle zurück, um laufende Partien und Aufzeichnungen zu durchsuchen.',
+  'Back to public games': 'Zurück zu den öffentlichen Partien',
   'Watch replay': 'Aufzeichnung ansehen',
   'Watch game': 'Partie ansehen',
   'All public games': 'Alle öffentlichen Partien',

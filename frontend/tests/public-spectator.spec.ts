@@ -192,6 +192,36 @@ test('public-off, empty and private-id states give useful feedback without authe
   await expect(page).toHaveURL(/\/watch\/games\/private-account-game$/);
 });
 
+test('unsupported public routes render the not-found state without protected initialization', async ({
+  page,
+}) => {
+  const publicRequests: string[] = [];
+  const protectedRequests: string[] = [];
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.startsWith('/api/public/online/games')) {
+      publicRequests.push(path);
+      await route.fulfill({ json: { items: [], next_cursor: null, limit: 12 } });
+    } else {
+      protectedRequests.push(path);
+      await route.fulfill({ status: 401, json: { detail: 'Session unavailable' } });
+    }
+  });
+  for (const path of ['/watch/games/bad!id', '/watch/games/valid-id/extra', '/watch/unknown']) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { name: 'Public page not found.' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Back to public games' })).toHaveAttribute(
+      'href',
+      '/watch',
+    );
+  }
+  expect(publicRequests).toEqual([]);
+  expect(protectedRequests).toEqual([]);
+  await page.goto('/watch');
+  await expect(page.getByRole('heading', { name: 'Every table tells a saga.' })).toBeVisible();
+  expect(publicRequests.length).toBeGreaterThan(0);
+});
+
 test('all four public themes fit phone through 4K viewports in English and German', async ({
   page,
 }, info) => {

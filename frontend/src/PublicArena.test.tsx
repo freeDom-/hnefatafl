@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import PublicArena from './PublicArena';
-import { PublicOnlineError, publicGame, publicGames } from './publicOnlineApi';
+import PublicArena, { matchPublicRoute } from './PublicArena';
+import { PublicOnlineError, parseRetryAfter, publicGame, publicGames } from './publicOnlineApi';
 import { publicBoardView, type PublicGame, type PublicReplay } from './publicOnlineTypes';
 import { setLanguage } from './i18n';
 
@@ -247,4 +247,244 @@ it('rejects delayed responses from a superseded filter request', async () => {
     resolveOld(new Response(JSON.stringify({ items: [game], next_cursor: null, limit: 12 })));
   });
   expect(screen.queryByText('Archer')).not.toBeInTheDocument();
+});
+
+it('keeps the final position and stops polling when a watched live game completes', async () => {
+  vi.useFakeTimers();
+  history.replaceState(null, '', '/watch/games/public-game');
+  const completed: PublicGame = {
+    ...game,
+    status: 'completed',
+    result: {
+      winner: 'attackers',
+      termination_reason: 'king_captured',
+      rated: true,
+      winner_delta: 12,
+    },
+  };
+  const record: PublicReplay = {
+    game: completed,
+    validated: true,
+    states: [
+      position,
+      { ...position, ply: 1, turn: 'defenders' },
+      { ...position, ply: 2, winner: 'attackers', reason: 'king_captured' },
+    ],
+    moves: [
+      { source: 3, target: 2 },
+      { source: 24, target: 0 },
+    ],
+  };
+  let detail = 0;
+  fetchMock.mockImplementation((url: string) => {
+    if (url.endsWith('/replay')) return response(record);
+    detail += 1;
+    return response(detail === 1 ? game : completed);
+  });
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.queryByText('Move 0 of 2')).not.toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(screen.getByText('Move 2 of 2')).toBeVisible();
+  expect(screen.queryByText('Move 0 of 2')).not.toBeInTheDocument();
+  expect(screen.getByText('Attackers won')).toBeVisible();
+  const calls = fetchMock.mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(fetchMock.mock.calls.length).toBe(calls);
+});
+
+it('times out an indefinitely pending public request and recovers on retry', async () => {
+  vi.useFakeTimers();
+  history.replaceState(null, '', '/watch');
+  fetchMock.mockImplementation(
+    (_url: string, options: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        );
+      }),
+  );
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(screen.getByText('Public viewing timed out. Please retry.')).toBeVisible();
+  fetchMock.mockImplementation(() => response({ items: [], next_cursor: null, limit: 12 }));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByText('The tables are quiet.')).toBeVisible();
+});
+
+it('preserves caller cancellation instead of reporting a timeout', async () => {
+  fetchMock.mockImplementation(
+    (_url: string, options: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        );
+      }),
+  );
+  const controller = new AbortController();
+  const pending = publicGames(
+    { ruleset: '', status: '', outcome: '', player: '' },
+    null,
+    controller.signal,
+  );
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+});
+
+it('stops automatic polling when a replay cannot be validated', async () => {
+  vi.useFakeTimers();
+  history.replaceState(null, '', '/watch/games/public-game/replay');
+  fetchMock.mockImplementation(() => response({}, 409));
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByText('This replay could not be validated.')).toBeVisible();
+  const calls = fetchMock.mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(fetchMock.mock.calls.length).toBe(calls);
+});
+
+it('stops automatic discovery polling after a public-disabled 404', async () => {
+  vi.useFakeTimers();
+  fetchMock.mockImplementation(() => response({}, 404));
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByText('Public viewing is unavailable.')).toBeVisible();
+  const calls = fetchMock.mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(fetchMock.mock.calls.length).toBe(calls);
+});
+
+it('parses Retry-After seconds and HTTP-date values with a cap', () => {
+  expect(parseRetryAfter('2', 0)).toBe(2000);
+  expect(parseRetryAfter('0', 0)).toBe(0);
+  expect(parseRetryAfter(new Date(5000).toUTCString(), 0)).toBe(5000);
+  expect(parseRetryAfter('not-a-date', 0)).toBe(0);
+  expect(parseRetryAfter(null, 0)).toBe(0);
+  expect(parseRetryAfter('999999', 0)).toBe(300000);
+});
+
+it('waits for a rate-limit Retry-After before the next discovery request', async () => {
+  vi.useFakeTimers();
+  fetchMock.mockImplementationOnce(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({}), { status: 429, headers: { 'Retry-After': '30' } }),
+    ),
+  );
+  fetchMock.mockImplementation(() => response({ items: [], next_cursor: null, limit: 12 }));
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByText('Public viewing is busy. Please retry shortly.')).toBeVisible();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(29999);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('backs off before retrying a discovery server failure', async () => {
+  vi.useFakeTimers();
+  fetchMock.mockImplementationOnce(() => response({}, 500));
+  fetchMock.mockImplementation(() => response({ items: [], next_cursor: null, limit: 12 }));
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(14999);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('classifies documented public routes and rejects malformed ids', () => {
+  expect(matchPublicRoute('/watch')).toEqual({ kind: 'discovery' });
+  expect(matchPublicRoute('/watch/')).toEqual({ kind: 'discovery' });
+  expect(matchPublicRoute('/watch/games/abc-123')).toEqual({
+    kind: 'game',
+    id: 'abc-123',
+    replay: false,
+  });
+  expect(matchPublicRoute('/watch/games/abc-123/replay')).toEqual({
+    kind: 'game',
+    id: 'abc-123',
+    replay: true,
+  });
+  expect(matchPublicRoute('/watch/games/abc-123/replay/')).toEqual({
+    kind: 'game',
+    id: 'abc-123',
+    replay: true,
+  });
+  expect(matchPublicRoute('/watch/games/')).toEqual({ kind: 'not-found' });
+  expect(matchPublicRoute('/watch/games/bad!id')).toEqual({ kind: 'not-found' });
+  expect(matchPublicRoute('/watch/games/abc-123/extra')).toEqual({ kind: 'not-found' });
+  expect(matchPublicRoute('/watch/unknown')).toEqual({ kind: 'not-found' });
+});
+
+it('renders an accessible not-found state for unsupported public routes without fetching', () => {
+  history.replaceState(null, '', '/watch/games/bad!id');
+  render(<PublicArena />);
+  expect(screen.getByRole('heading', { name: 'Public page not found.' })).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Back to public games' })).toHaveAttribute(
+    'href',
+    '/watch',
+  );
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('shows a replacement portrait after the previous image failed to load', async () => {
+  vi.useFakeTimers();
+  history.replaceState(null, '', '/watch/games/public-game');
+  let portrait = 'shieldbearer';
+  fetchMock.mockImplementation(() =>
+    response({
+      ...game,
+      participants: {
+        ...game.participants,
+        attackers: { ...game.participants.attackers!, portrait_id: portrait },
+      },
+    }),
+  );
+  render(<PublicArena />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  const first = document.querySelector('img') as HTMLImageElement;
+  fireEvent.error(first);
+  expect(first.hidden).toBe(true);
+  portrait = 'shieldmaiden';
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  const second = document.querySelector('img') as HTMLImageElement;
+  expect(second.hidden).toBe(false);
+  expect(second.getAttribute('src')).toContain('shieldmaiden.webp');
 });

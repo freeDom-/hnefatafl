@@ -3,7 +3,13 @@ import Board from './Board';
 import DashboardCountdown from './DashboardCountdown';
 import ThemeSelect from './ThemeSelect';
 import { useI18n } from './i18n';
-import { PublicOnlineError, publicGame, publicGames, publicReplay } from './publicOnlineApi';
+import {
+  PublicOnlineError,
+  publicGame,
+  publicGames,
+  publicReplay,
+  publicRetryDelay,
+} from './publicOnlineApi';
 import {
   publicBoardView,
   type PublicFilters,
@@ -43,6 +49,20 @@ const statusLabels = {
   cancelled: 'Cancelled',
   voided: 'Voided',
 };
+const GAME_ID = '[A-Za-z0-9_-]{1,128}';
+const GAME_ROUTE = new RegExp(`^/watch/games/(${GAME_ID})(/replay)?$`);
+export type PublicRoute =
+  | { kind: 'discovery' }
+  | { kind: 'game'; id: string; replay: boolean }
+  | { kind: 'not-found' };
+/** Only the three documented public shapes are valid; everything else is a 404. */
+export function matchPublicRoute(pathname: string): PublicRoute {
+  const clean = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  if (clean === '/watch') return { kind: 'discovery' };
+  const match = clean.match(GAME_ROUTE);
+  if (match) return { kind: 'game', id: match[1], replay: Boolean(match[2]) };
+  return { kind: 'not-found' };
+}
 function PublicPlayer({ player }: { player: PublicParticipant | null }) {
   const { t } = useI18n();
   const id = player?.portrait_id;
@@ -50,6 +70,9 @@ function PublicPlayer({ player }: { player: PublicParticipant | null }) {
     <span className="public-player">
       {id && portraits.has(id) && (
         <img
+          // Remount when the resolved portrait changes so a previously failed
+          // image does not stay hidden after its source updates.
+          key={id}
           src={`/assets/arena-v2/assets/portraits/${id}.webp`}
           alt=""
           width={48}
@@ -129,51 +152,65 @@ function Discovery() {
     let controller: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let running = false;
+    let stopped = false;
+    let failures = 0;
     let epoch = 0;
+    let cooldownUntil = 0;
+    const schedule = (delay: number, cooldown = false) => {
+      clearTimeout(timer);
+      cooldownUntil = cooldown ? Date.now() + delay : 0;
+      if (alive && !stopped && !document.hidden) timer = setTimeout(() => void load(), delay);
+    };
     const load = async () => {
-      if (!alive || running || document.hidden) return;
+      if (!alive || running || stopped || document.hidden) return;
       running = true;
       const sequence = ++epoch;
       const requestController = new AbortController();
       controller = requestController;
-      let delay = 15000;
       try {
         const value = await publicGames(applied, cursor, requestController.signal);
         if (alive && sequence === epoch && revision.current === generation) {
+          failures = 0;
           setPage(value);
           setError('');
+          setLoading(false);
+          schedule(15000);
         }
       } catch (e) {
         if (alive && sequence === epoch && !requestController.signal.aborted) {
+          const delay = publicRetryDelay(e, failures, 15000);
+          failures += 1;
           setError(errorLabel(e));
-          delay = Math.max(30000, e instanceof PublicOnlineError ? e.retryAfterMs : 0);
+          setLoading(false);
+          if (delay === null) stopped = true;
+          else schedule(delay, e instanceof PublicOnlineError && e.failure === 'busy');
         }
       } finally {
-        if (sequence !== epoch) return;
-        running = false;
-        if (alive) {
-          setLoading(false);
-          timer = setTimeout(() => void load(), delay);
-        }
+        if (sequence === epoch) running = false;
       }
     };
     setPage(null);
     setError('');
     setLoading(true);
     const visible = () => {
-      if (timer) clearTimeout(timer);
       if (document.hidden) {
+        clearTimeout(timer);
         epoch++;
         controller?.abort();
         running = false;
-      } else void load();
+      } else if (!stopped) {
+        clearTimeout(timer);
+        const remaining = cooldownUntil - Date.now();
+        if (remaining > 0) timer = setTimeout(() => void load(), remaining);
+        else void load();
+      }
     };
     document.addEventListener('visibilitychange', visible);
     void load();
     return () => {
       alive = false;
       controller?.abort();
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
       document.removeEventListener('visibilitychange', visible);
     };
   }, [applied, cursor, attempt]);
@@ -314,61 +351,76 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
     let controller: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let running = false;
+    let stopped = false;
+    let failures = 0;
     let epoch = 0;
-    let finished = false;
+    let cooldownUntil = 0;
+    const schedule = (delay: number, cooldown = false) => {
+      clearTimeout(timer);
+      cooldownUntil = cooldown ? Date.now() + delay : 0;
+      if (alive && !stopped && !document.hidden) timer = setTimeout(() => void load(), delay);
+    };
     const load = async () => {
-      if (!alive || running || finished || document.hidden) return;
+      if (!alive || running || stopped || document.hidden) return;
       running = true;
       const sequence = ++epoch;
       const requestController = new AbortController();
       controller = requestController;
-      let delay = 5000;
       try {
         const current = replayRequested ? null : await publicGame(id, requestController.signal);
         if (replayRequested || current?.status === 'completed') {
           const record = await publicReplay(id, requestController.signal);
-          if (!record.validated || !record.states.length) throw new Error('Invalid replay');
+          if (!record.validated || !record.states.length) throw new PublicOnlineError(409);
           if (alive && sequence === epoch) {
             setGame(record.game);
             setReplay(record);
-            setCursor(0);
-            finished = true;
+            // An explicit replay link starts at the first position; a live game
+            // that just completed keeps showing its final position.
+            setCursor(replayRequested ? 0 : record.states.length - 1);
+            stopped = true;
             setError('');
           }
         } else if (alive && sequence === epoch && current) {
+          failures = 0;
           setGame(current);
           setError('');
-          if (current.status === 'cancelled' || current.status === 'voided') finished = true;
-          if (current.status === 'waiting') delay = 15000;
+          if (current.status === 'cancelled' || current.status === 'voided') stopped = true;
+          else schedule(current.status === 'waiting' ? 15000 : 5000);
         }
       } catch (e) {
         if (alive && sequence === epoch && !requestController.signal.aborted) {
+          const delay = publicRetryDelay(e, failures);
+          failures += 1;
           setError(errorLabel(e));
-          delay = Math.max(30000, e instanceof PublicOnlineError ? e.retryAfterMs : 0);
+          if (delay === null) stopped = true;
+          else schedule(delay, e instanceof PublicOnlineError && e.failure === 'busy');
         }
       } finally {
-        if (sequence !== epoch) return;
-        running = false;
-        if (alive && !finished) timer = setTimeout(() => void load(), delay);
+        if (sequence === epoch) running = false;
       }
     };
     setGame(null);
     setReplay(null);
     setError('');
     const visible = () => {
-      if (timer) clearTimeout(timer);
       if (document.hidden) {
+        clearTimeout(timer);
         epoch++;
         controller?.abort();
         running = false;
-      } else void load();
+      } else if (!stopped) {
+        clearTimeout(timer);
+        const remaining = cooldownUntil - Date.now();
+        if (remaining > 0) timer = setTimeout(() => void load(), remaining);
+        else void load();
+      }
     };
     document.addEventListener('visibilitychange', visible);
     void load();
     return () => {
       alive = false;
       controller?.abort();
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
       document.removeEventListener('visibilitychange', visible);
     };
   }, [id, replayRequested, attempt]);
@@ -524,10 +576,26 @@ function GameView({ id, replayRequested }: { id: string; replayRequested: boolea
     </>
   );
 }
+function PublicNotFound() {
+  const { t } = useI18n();
+  return (
+    <section className="arena-surface public-empty">
+      <h1>{t('Public page not found.')}</h1>
+      <p>
+        {t(
+          'This public link does not exist. Return to the Watch Hall to browse live games and replays.',
+        )}
+      </p>
+      <a className="button" href="/watch">
+        {t('Back to public games')}
+      </a>
+    </section>
+  );
+}
 /** Mounted by the entry router before Auth; intentionally no account hooks. */
 export default function PublicArena() {
   const { t, language, setLanguage } = useI18n();
-  const match = location.pathname.match(/^\/watch\/games\/([A-Za-z0-9_-]{1,128})(\/replay)?\/?$/);
+  const route = matchPublicRoute(location.pathname);
   return (
     <div className="public-arena">
       <a className="skip-link" href="#public-content">
@@ -553,7 +621,13 @@ export default function PublicArena() {
         </nav>
       </header>
       <main id="public-content" tabIndex={-1}>
-        {match ? <GameView id={match[1]} replayRequested={!!match[2]} /> : <Discovery />}
+        {route.kind === 'game' ? (
+          <GameView id={route.id} replayRequested={route.replay} />
+        ) : route.kind === 'discovery' ? (
+          <Discovery />
+        ) : (
+          <PublicNotFound />
+        )}
       </main>
       <footer>
         <p>{t('Three battlefields. Real players. New sagas.')}</p>
