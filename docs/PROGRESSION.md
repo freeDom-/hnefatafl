@@ -167,7 +167,8 @@ Confirmation is explicit, idempotent and permanent:
   it is safe as a repeatable `GET`
 - an explicit `POST /api/personal/achievements/confirm` evaluates the same records
   and confirms every milestone they already prove inside one `BEGIN IMMEDIATE`
-  transaction, then returns the same projection; the award key is
+  transaction, then returns the same projection; `PATCH /api/profile/portrait`
+  materializes the same eligible awards inside its selection write. The award key is
   `(account_id, achievement_id)` with `INSERT OR IGNORE`, so a repeated
   confirmation, a duplicated result update, a replay or a pool rebuild can never
   duplicate a reward
@@ -207,8 +208,8 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 | --- | --- | --- |
 | `GET /api/portraits/catalog` | `play` | `catalog_version`, `default_portrait_id`, `items[{id,name,unlock_achievement_id}]` |
 | `GET /api/personal/achievements` | `play` | read-only own `items` with `progress`, `unlocked`, `awarded_at`, `portrait_id`, plus `summary` and `as_of` |
-| `POST /api/personal/achievements/confirm` | `play` | confirms the awards the records already prove; returns the same projection as the read |
-| `PATCH /api/profile/portrait` | `profile` | `{"portrait_id": "<catalog id>"}`; returns the profile projection |
+| `POST /api/personal/achievements/confirm` | `play` | dedicated confirmation action: materializes every award the records already prove inside one `BEGIN IMMEDIATE`; returns the same projection as the read |
+| `PATCH /api/profile/portrait` | `profile` | `{"portrait_id": "<catalog id>"}`; materializes eligible awards in the same write, then selects the earned portrait and returns the profile projection |
 
 - all four routes require a current authenticated session and take the account from
   that session; none accepts an account parameter, so a client can never confirm or
@@ -226,9 +227,10 @@ startup; schema 16 and the local 1v1 `category` column are untouched.
 - the profile projection publishes the effective `portrait_id` only — the stored
   selection while the catalog still offers it, otherwise the default. Detailed
   achievement progress stays private to `GET /api/personal/achievements`
-- `POST /api/personal/achievements/confirm` is the only route that confirms awards,
-  so it is the one listed as persistent state in the
-  [endpoint inventory](API_PERMISSIONS.json); the read is not
+- `POST /api/personal/achievements/confirm` is the dedicated confirmation action,
+  and `PATCH /api/profile/portrait` also materializes eligible awards inside its
+  selection write. Both are persistent-state mutations and both are listed as such
+  in the [endpoint inventory](API_PERMISSIONS.json); the read is not
 
 ### Empty states
 
