@@ -114,16 +114,21 @@ export class LocalAnalysisClient {
       return await new Promise((resolve, reject) => {
         const id = ++this.sequence;
         const timer = setTimeout(
-          () => this.cancel("Local job exceeded its hard deadline"),
+          () =>
+            this.abort(
+              new DOMException(
+                "Local job exceeded its hard deadline",
+                "TimeoutError",
+              ),
+            ),
           timeoutMs,
         );
         this.pending = { id, resolve, reject, timer };
         try {
           this.worker.postMessage({ id, request: serialized });
         } catch (error) {
-          clearTimeout(timer);
-          if (this.pending?.id === id) this.pending = null;
-          reject(error);
+          // Reset the failed transport so the next request starts a fresh worker.
+          this.abort(error);
         }
       });
     } finally {
@@ -135,6 +140,9 @@ export class LocalAnalysisClient {
     const key = stable({ protocol: 1, ...snapshot });
     const cached = this.cache.get(key);
     if (cached) {
+      // A cache hit is the newest request: stop any slower computation it
+      // supersedes instead of leaving it running in the worker.
+      if (this.busy) this.cancel("Superseded by a cached result");
       this.cache.delete(key);
       this.cache.set(key, cached);
       return { ...structuredClone(cached), cached: true };
