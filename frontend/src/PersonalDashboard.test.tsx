@@ -841,6 +841,70 @@ it('invalidates event-driven result projections after a server correction withou
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual(['/api/personal/online?limit=25']);
 });
 
+it('refreshes achievement progress after a rated result change without a poll loop', async () => {
+  let wins = 1;
+  let defenderUnlocked = false;
+  const previous = serve;
+  const catalog = {
+    ...portraits,
+    items: [
+      ...portraits.items,
+      { id: 'iron-helm', name: 'Iron Helm', unlock_achievement_id: 'defender-hold' },
+    ],
+  };
+  serve = (url) =>
+    url.includes('/portraits/catalog')
+      ? respond(catalog)
+      : url.includes('/personal/achievements')
+        ? respond({
+            ...achievements,
+            items: achievements.items.map((item) =>
+              item.id === 'defender-hold' ? { ...item, unlocked: defenderUnlocked } : item,
+            ),
+          })
+        : url.includes('/personal/online?')
+          ? respond({
+              ...online,
+              statistics: {
+                ...online.statistics,
+                groups: [{ ...online.statistics.groups[0], wins, losses: 2 - wins }],
+              },
+            })
+          : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  const portraitsCard = () =>
+    screen.getByRole('heading', { name: 'Unlocked portraits' }).closest('article')!;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(within(portraitsCard()).getByText('2 / 3')).toBeVisible();
+  fetcher.mockClear();
+  wins = 2;
+  defenderUnlocked = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  // The rated-result change invalidates the event-driven achievement read once.
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(within(portraitsCard()).getByText('3 / 3')).toBeVisible();
+  // The achievement read stays event-driven: no extra timer after the change.
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(0);
+});
+
 it.each(['en', 'de'] as const)(
   'uses the authoritative singular total in %s even when the bounded preview is empty',
   async (language) => {

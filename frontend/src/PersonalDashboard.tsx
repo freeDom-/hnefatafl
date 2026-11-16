@@ -255,11 +255,14 @@ function DashboardHome({
     if (previous === null || resultSignature === null || previous === resultSignature) return;
     // Also catches results/corrections in another game/client, including when the
     // bounded queue removes a completed hero before its next board poll arrives.
+    // Achievements reuse this event-driven poll, so the unlocked-portrait count
+    // reflects newly earned (or corrected) awards without another timer.
     void progress.refresh();
     void standing.refresh();
     void recent.refresh();
+    void achievements.refresh();
     window.dispatchEvent(new Event('rated-results-changed'));
-  }, [resultSignature, progress.refresh, standing.refresh, recent.refresh]);
+  }, [resultSignature, progress.refresh, standing.refresh, recent.refresh, achievements.refresh]);
   const onlineGroup = online.data?.statistics?.groups?.find(
     (group) => group.ruleset === focusRuleset,
   );
