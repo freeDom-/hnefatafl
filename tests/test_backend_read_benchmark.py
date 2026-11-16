@@ -1,0 +1,82 @@
+"""Safety and evidence guards for the optional disposable read benchmark."""
+
+from pathlib import Path
+import subprocess
+
+import pytest
+
+from scripts.benchmark_backend_reads import validate_parameters, verified_source
+
+
+@pytest.mark.parametrize(
+    "users,rounds,concurrency,port",
+    [
+        (1, 3, "1", 8501),
+        (17, 3, "1", 8501),
+        (8, 0, "1", 8501),
+        (8, 11, "1", 8501),
+        (8, 3, "0", 8501),
+        (8, 3, "9", 8501),
+        (8, 3, "1,1", 8501),
+        (8, 3, "", 8501),
+        (8, 3, "x", 8501),
+        (8, 3, "1,2,3,4,5,6", 8501),
+        (8, 3, "1", 80),
+        (8, 3, "1", 65536),
+    ],
+)
+def test_fixture_bounds(users, rounds, concurrency, port):
+    with pytest.raises(ValueError):
+        validate_parameters(users, rounds, concurrency, port)
+
+
+def test_defaults_represent_distinct_account_concurrency():
+    assert validate_parameters(8, 3, "1,4,8", 8501) == [1, 4, 8]
+
+
+def git(directory: Path, *arguments: str) -> str:
+    return subprocess.check_output(
+        ["git", *arguments], cwd=directory, text=True, stderr=subprocess.DEVNULL
+    ).strip()
+
+
+def test_source_identity_rejects_dirty_nested_and_missing_checkout(tmp_path):
+    with pytest.raises(ValueError, match="Git checkout"):
+        verified_source(tmp_path)
+    git(tmp_path, "init")
+    server = tmp_path / "hnefatafl" / "server.py"
+    server.parent.mkdir()
+    server.write_text("# fixture\n")
+    git(tmp_path, "add", ".")
+    git(
+        tmp_path,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "commit",
+        "-m",
+        "fixture",
+    )
+    revision = verified_source(tmp_path)
+    assert revision == git(tmp_path, "rev-parse", "HEAD")
+    with pytest.raises(ValueError, match="repository root"):
+        verified_source(server.parent)
+    server.write_text("# changed\n")
+    with pytest.raises(ValueError, match="clean repository"):
+        verified_source(tmp_path)
+    git(tmp_path, "checkout", "--", "hnefatafl/server.py")
+    server.unlink()
+    git(tmp_path, "add", "-u")
+    git(
+        tmp_path,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "commit",
+        "-m",
+        "remove fixture",
+    )
+    with pytest.raises(ValueError, match="does not contain"):
+        verified_source(tmp_path)
