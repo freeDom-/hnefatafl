@@ -915,6 +915,269 @@ try {
     }, opening);
     assert.equal(restoredControls.move_disabled, false);
     assert.equal(restoredControls.ai_disabled, false);
+    // Foreground priority: background analysis never preempts a foreground job.
+    const priorityScheduling = await page.evaluate(
+      async ({ state, config }) => {
+        const { LocalAnalysisClient } = await import("./analysis-client.js");
+        const original = window.Worker;
+        class DelayedWorker {
+          constructor() {
+            this.onmessage = null;
+            this.onerror = null;
+            this.messages = [];
+            this.terminated = false;
+          }
+          postMessage(message) {
+            this.messages.push(message);
+          }
+          terminate() {
+            this.terminated = true;
+          }
+        }
+        window.Worker = DelayedWorker;
+        const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+        try {
+          const client = new LocalAnalysisClient();
+          // Warm one cache entry through a completed background analysis.
+          const warm = client.analyze(state, config, { preempt: true });
+          client.worker.onmessage({ data: { id: 0, value: {} } });
+          await tick();
+          const worker = client.worker;
+          worker.onmessage({
+            data: { id: worker.messages[0].id, value: { cached: false } },
+          });
+          const warmResult = await warm;
+          // Start a foreground job and keep it pending.
+          const beforeForeground = worker.messages.length;
+          const foreground = client.request(
+            { action: "new", ruleset: "tablut" },
+            { preempt: true, foreground: true },
+          );
+          await tick();
+          const foregroundId = worker.messages[beforeForeground].id;
+          // A background cache miss must not preempt the foreground job.
+          const blocked = await client
+            .analyze({ ...state, ply: state.ply + 1 }, config, {
+              preempt: true,
+            })
+            .then(
+              () => "resolved",
+              (error) => error.name,
+            );
+          const foregroundAlive = !worker.terminated;
+          // A background cache hit must not terminate the foreground either.
+          const hit = await client.analyze(state, config, { preempt: true });
+          const foregroundAliveAfterHit = !worker.terminated;
+          // The foreground job still completes normally.
+          worker.onmessage({
+            data: {
+              id: foregroundId,
+              value: { state: { ruleset: "tablut" }, legal_moves: [] },
+            },
+          });
+          const foregroundResult = await foreground;
+          return {
+            warm_cached: warmResult.cached,
+            blocked,
+            foreground_alive: foregroundAlive,
+            foreground_alive_after_hit: foregroundAliveAfterHit,
+            hit_cached: hit.cached,
+            foreground_ruleset: foregroundResult.state.ruleset,
+          };
+        } finally {
+          window.Worker = original;
+        }
+      },
+      { state: opening, config: { algorithm: "baseline", time_limit: 0.01 } },
+    );
+    assert.equal(priorityScheduling.warm_cached, false);
+    assert.equal(priorityScheduling.blocked, "ForegroundPriorityError");
+    assert.equal(priorityScheduling.foreground_alive, true);
+    assert.equal(priorityScheduling.foreground_alive_after_hit, true);
+    assert.equal(priorityScheduling.hit_cached, true);
+    assert.equal(priorityScheduling.foreground_ruleset, "tablut");
+    // App-level foreground priority with the real delayed worker action.
+    const foregroundPriority = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      const foreground = window.spike.raw(
+        { action: "probe" },
+        { preempt: true, foreground: true },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const analysis = await window.spike
+        .analyze({ algorithm: "alpha_beta", depth: 3, time_limit: 0.3 })
+        .then(
+          () => "resolved",
+          (error) => error.name,
+        );
+      const probe = await foreground.then(
+        (value) => value.worker_busy_ms > 0,
+        (error) => error.name,
+      );
+      return {
+        analysis,
+        probe,
+        status: document.querySelector("#status").textContent,
+        analysis_text: document.querySelector("#analysis").textContent,
+      };
+    }, opening);
+    assert.equal(foregroundPriority.analysis, "resolved");
+    assert.equal(foregroundPriority.probe, true);
+    assert.equal(foregroundPriority.analysis_text, "");
+    assert.equal(foregroundPriority.status, "attackers to move");
+    // Delayed fixture loading must not preempt or overwrite a newer game.
+    const fixtureRace = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      let release;
+      const gate = new Promise((resolve) => {
+        release = resolve;
+      });
+      const originalFetch = window.fetch;
+      window.fetch = async (...args) => {
+        await gate;
+        return originalFetch(...args);
+      };
+      try {
+        const fixtures = window.spike.fixtures();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const game = await window.spike.newGame("tablut");
+        release();
+        const outcome = await fixtures.then(
+          () => "resolved",
+          (error) => error.name,
+        );
+        return {
+          ruleset: game.state.ruleset,
+          outcome,
+          status: document.querySelector("#status").textContent,
+        };
+      } finally {
+        window.fetch = originalFetch;
+      }
+    }, opening);
+    assert.equal(fixtureRace.ruleset, "tablut");
+    assert.equal(fixtureRace.outcome, "resolved");
+    assert.equal(fixtureRace.status, "defenders to move");
+    // Invalid analysis settings clear the pending indicator and report failure.
+    const invalidAnalysis = await page.evaluate(async () => {
+      const outcome = await window.spike.analyze({ algorithm: "neural" }).then(
+        () => ({ ok: true }),
+        (error) => {
+          window.spike.handleError(error);
+          return { ok: false, message: error.message };
+        },
+      );
+      return {
+        ok: outcome.ok,
+        message: outcome.message,
+        analysis: document.querySelector("#analysis").textContent,
+        status: document.querySelector("#status").textContent,
+      };
+    });
+    assert.equal(invalidAnalysis.ok, false);
+    assert(invalidAnalysis.message.includes("classical"));
+    assert.equal(invalidAnalysis.analysis, "");
+    assert(invalidAnalysis.status.startsWith("Spike error:"));
+    // Simulated worker transport failure clears the indicator and recovers.
+    const workerFailureAnalysis = await page.evaluate(async (state) => {
+      await window.spike.restore(state);
+      const original = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function () {
+        throw new Error("simulated worker transport failure");
+      };
+      try {
+        const outcome = await window.spike
+          .analyze({ algorithm: "baseline", time_limit: 0.02, seed: 424242 })
+          .then(
+            () => "resolved",
+            (error) => {
+              window.spike.handleError(error);
+              return error.message;
+            },
+          );
+        const analysis = document.querySelector("#analysis").textContent;
+        const status = document.querySelector("#status").textContent;
+        Worker.prototype.postMessage = original;
+        const recovered = await window.spike.info();
+        return {
+          outcome,
+          analysis,
+          status,
+          recovered: Boolean(recovered && recovered.strategy),
+        };
+      } finally {
+        Worker.prototype.postMessage = original;
+      }
+    }, opening);
+    assert(workerFailureAnalysis.outcome.includes("simulated"));
+    assert.equal(workerFailureAnalysis.analysis, "");
+    assert(workerFailureAnalysis.status.startsWith("Spike error:"));
+    assert.equal(workerFailureAnalysis.recovered, true);
+    // Repeated idle cancellation must not terminate or replace the worker.
+    const idleCancel = await page.evaluate(async () => {
+      const { LocalAnalysisClient } = await import("./analysis-client.js");
+      const original = window.Worker;
+      let instances = 0;
+      class CountingWorker {
+        constructor() {
+          this.onmessage = null;
+          this.onerror = null;
+          this.terminated = false;
+          instances++;
+        }
+        postMessage() {}
+        terminate() {
+          this.terminated = true;
+        }
+      }
+      window.Worker = CountingWorker;
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+      try {
+        const client = new LocalAnalysisClient();
+        const first = client.request({ action: "info" }, { timeoutMs: 1000 });
+        client.worker.onmessage({ data: { id: 0, value: {} } });
+        await tick();
+        client.worker.onmessage({ data: { id: 1, value: "ready" } });
+        await first;
+        const afterInit = instances;
+        for (let attempt = 0; attempt < 5; attempt++) client.cancel();
+        const afterIdleCancel = instances;
+        const workerPreserved = client.worker !== null;
+        const second = client.request({ action: "info" }, { timeoutMs: 1000 });
+        await tick();
+        client.worker.onmessage({ data: { id: 2, value: "again" } });
+        const secondResult = await second;
+        // Active cancellation still terminates and recovers.
+        const active = client.request({ action: "info" }, { timeoutMs: 1000 });
+        await tick();
+        const activeWorker = client.worker;
+        const beforeActiveCancel = instances;
+        client.cancel();
+        const activeOutcome = await active.then(
+          () => "resolved",
+          (error) => error.name,
+        );
+        return {
+          after_init: afterInit,
+          after_idle_cancel: afterIdleCancel,
+          worker_preserved: workerPreserved,
+          after_reuse: instances,
+          second_result: secondResult,
+          active_terminated: activeWorker.terminated,
+          active_outcome: activeOutcome,
+          active_instances: beforeActiveCancel,
+        };
+      } finally {
+        window.Worker = original;
+      }
+    });
+    assert.equal(idleCancel.after_idle_cancel, idleCancel.after_init);
+    assert.equal(idleCancel.worker_preserved, true);
+    assert.equal(idleCancel.after_reuse, idleCancel.after_init);
+    assert.equal(idleCancel.second_result, "again");
+    assert.equal(idleCancel.active_terminated, true);
+    assert.equal(idleCancel.active_outcome, "AbortError");
+    assert.equal(idleCancel.active_instances, idleCancel.after_init);
     const pageErrors = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.click("#cancel");
@@ -974,6 +1237,12 @@ try {
       restored_controls: restoredControls,
       offline_registration: offlineRegistration,
       startup_recovery: startupRecovery,
+      priority_scheduling: priorityScheduling,
+      foreground_priority: foregroundPriority,
+      fixture_race: fixtureRace,
+      invalid_analysis: invalidAnalysis,
+      worker_failure_analysis: workerFailureAnalysis,
+      idle_cancel: idleCancel,
       lifecycle: {
         completed_cleared: completedCleared.afterChange === "",
         superseded_display_cleared: supersededDisplay.afterChange === "",
