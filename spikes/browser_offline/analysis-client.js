@@ -1,4 +1,6 @@
 /* Isolated prototype: one worker, one job, eight cached positions. No API fallback. */
+const MAX_REQUEST_BYTES = 512 * 1024;
+const encoder = new TextEncoder();
 const stable = (value) =>
   JSON.stringify(value, (_key, item) =>
     item && !Array.isArray(item) && typeof item === "object"
@@ -28,7 +30,8 @@ export class LocalAnalysisClient {
     this.worker = worker;
     this.boot = new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.cancel("Runtime initialization exceeded 30 seconds"),
+        () =>
+          this.abort(new Error("Runtime initialization exceeded 30 seconds")),
         30000,
       );
       this.startup = { reject, timer };
@@ -53,18 +56,23 @@ export class LocalAnalysisClient {
         if (data.error) pending.reject(new Error(data.error));
         else pending.resolve(data.value);
       };
-      worker.onerror = (event) => this.cancel(event.message || "Worker failed");
+      worker.onerror = (event) =>
+        this.abort(new Error(event.message || "Worker failed"));
     });
     return this.boot;
   }
+  // Hard cancellation: terminates the worker and rejects in-flight work as AbortError.
   cancel(reason = "Local analysis cancelled") {
+    this.abort(new DOMException(reason, "AbortError"));
+  }
+  // Failure path: terminates the worker and rejects in-flight work with the real error.
+  abort(error) {
     this.generation++;
     this.worker?.terminate();
     this.worker = null;
     this.boot = null;
     this.info = null;
     this.busy = false;
-    const error = new DOMException(reason, "AbortError");
     if (this.startup) {
       clearTimeout(this.startup.timer);
       this.startup.reject(error);
@@ -76,14 +84,27 @@ export class LocalAnalysisClient {
       this.pending = null;
     }
   }
-  async request(request, { timeoutMs = 5000 } = {}) {
+  async request(request, { timeoutMs = 5000, preempt = false } = {}) {
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000)
       throw new Error("Local job deadline must be between 1 and 5000 ms");
-    if (this.busy)
-      throw new Error("Only one local job can run; cancel or await it first");
-    if (JSON.stringify(request).length > 512 * 1024)
+    let serialized;
+    try {
+      serialized = JSON.stringify(request);
+    } catch (error) {
+      throw new Error(
+        `Local request could not be serialized: ${error.message}`,
+      );
+    }
+    if (typeof serialized !== "string")
+      throw new Error("Local request could not be serialized");
+    // Validate the exact UTF-8 payload handed to the worker/Python boundary.
+    if (encoder.encode(serialized).length > MAX_REQUEST_BYTES)
       throw new Error("Input exceeds 512 KiB");
-    const payload = structuredClone(request);
+    if (this.busy) {
+      if (!preempt)
+        throw new Error("Only one local job can run; cancel or await it first");
+      this.cancel("Superseded by a newer local job");
+    }
     const generation = this.generation;
     this.busy = true;
     try {
@@ -97,13 +118,19 @@ export class LocalAnalysisClient {
           timeoutMs,
         );
         this.pending = { id, resolve, reject, timer };
-        this.worker.postMessage({ id, request: payload });
+        try {
+          this.worker.postMessage({ id, request: serialized });
+        } catch (error) {
+          clearTimeout(timer);
+          if (this.pending?.id === id) this.pending = null;
+          reject(error);
+        }
       });
     } finally {
       if (this.generation === generation) this.busy = false;
     }
   }
-  async analyze(state, config = {}) {
+  async analyze(state, config = {}, { preempt = false } = {}) {
     const snapshot = structuredClone({ state, config });
     const key = stable({ protocol: 1, ...snapshot });
     const cached = this.cache.get(key);
@@ -112,7 +139,10 @@ export class LocalAnalysisClient {
       this.cache.set(key, cached);
       return { ...structuredClone(cached), cached: true };
     }
-    const result = await this.request({ action: "analysis", ...snapshot });
+    const result = await this.request(
+      { action: "analysis", ...snapshot },
+      { preempt },
+    );
     this.cache.set(key, structuredClone(result));
     while (this.cache.size > 8)
       this.cache.delete(this.cache.keys().next().value);

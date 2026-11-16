@@ -15,7 +15,9 @@ def snapshot(state):
 
 
 def dispatch(payload):
-    if len(payload.encode()) > 512 * 1024:
+    if not isinstance(payload, str):
+        raise ValueError("Spike request must be a serialized JSON string")
+    if len(payload.encode("utf-8")) > 512 * 1024:
         raise ValueError("Spike input exceeds 512 KiB")
     request = json.loads(payload)
     action = request["action"]

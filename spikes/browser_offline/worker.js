@@ -38,7 +38,9 @@ ready.then(
 onmessage = async ({ data: { id, request } }) => {
   try {
     await ready;
-    runtime.globals.set("spike_request", JSON.stringify(request));
+    if (typeof request !== "string")
+      throw new Error("Expected a serialized request payload");
+    runtime.globals.set("spike_request", request);
     const value = JSON.parse(runtime.runPython("dispatch(spike_request)"));
     value.heap_capacity_bytes =
       runtime._module?.HEAPU8?.buffer?.byteLength ??
