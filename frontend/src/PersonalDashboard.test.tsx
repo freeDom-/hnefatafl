@@ -1001,7 +1001,8 @@ it('refreshes achievements when a local game completes in another session', asyn
   expect(
     fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
   ).toBe(1);
-  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/progress')).length).toBe(1);
+  // A local milestone does not move the rated streak or standing projections.
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/progress')).length).toBe(0);
   expect(within(portraitsCard()).getByText('3 / 3')).toBeVisible();
 });
 

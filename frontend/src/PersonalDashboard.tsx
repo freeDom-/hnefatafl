@@ -258,11 +258,15 @@ function DashboardHome({
     }
     if (resultChanged) {
       // Completion or correction of the active hero invalidates the authoritative
-      // progression projections once, including local and vs-AI milestones.
-      void progress.refresh();
-      void standing.refresh();
+      // progression projections once. Local and vs-AI milestones only affect the
+      // record strip and achievements, while rated online results also move the
+      // rating/streak and standing projections.
       void recent.refresh();
       void achievements.refresh();
+      if (boardKind === 'online') {
+        void progress.refresh();
+        void standing.refresh();
+      }
     } else if (boardCompleted) {
       void recent.refresh();
     }
