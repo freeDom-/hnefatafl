@@ -201,6 +201,7 @@ function DashboardHome({
     intervalMs: 0,
   });
   const lastBoardVersion = useRef<{ id: string; version: number } | null>(null);
+  const lastBoardResult = useRef<string | null>(null);
   const boardVersion = board.data?.game.version;
   const boardKind = board.data?.kind;
   const boardMode = board.data?.kind === 'single' ? board.data.game.mode : null;
@@ -211,30 +212,74 @@ function DashboardHome({
           board.data?.game.winner ||
             (board.data?.kind === 'single' && board.data.game.recorded_winner),
         );
+  // A stable terminal key for the active hero, null while it is unfinished. A
+  // changed non-null value is a completion or an authoritative correction, so an
+  // ordinary move never invalidates progression.
+  const boardResult = (() => {
+    const current = board.data;
+    if (!current) return null;
+    if (current.kind === 'online') {
+      const game = current.game;
+      if (game.status !== 'completed' && game.status !== 'voided') return null;
+      return JSON.stringify([
+        'online',
+        game.id,
+        game.status,
+        game.position.winner ?? null,
+        game.position.reason ?? null,
+        game.result?.winner ?? null,
+      ]);
+    }
+    const game = current.game;
+    const winner = game.winner ?? game.recorded_winner ?? null;
+    if (!winner) return null;
+    return JSON.stringify([game.mode, game.id, winner]);
+  })();
   useEffect(() => {
     if (!activeId || typeof boardVersion !== 'number') {
       lastBoardVersion.current = null;
+      lastBoardResult.current = null;
       return;
     }
-    const previous = lastBoardVersion.current;
+    const previousVersion = lastBoardVersion.current;
     lastBoardVersion.current = { id: activeId, version: boardVersion };
-    if (previous?.id !== activeId || previous.version === boardVersion) return;
+    const previousResult = lastBoardResult.current;
+    lastBoardResult.current = boardResult;
+    const versionChanged =
+      previousVersion?.id === activeId && previousVersion.version !== boardVersion;
+    const resultChanged = boardResult !== null && boardResult !== previousResult;
+    if (!versionChanged && !resultChanged) return;
     // The five-second live board carries a server version. Only actual changes
     // invalidate its owning queue; unchanged clock snapshots do not reload stats.
-    if (boardKind === 'online') void online.refresh();
-    else if (boardMode === 'local') void local.refresh();
-    else void single.refresh();
-    if (boardCompleted) void recent.refresh();
+    if (versionChanged) {
+      if (boardKind === 'online') void online.refresh();
+      else if (boardMode === 'local') void local.refresh();
+      else void single.refresh();
+    }
+    if (resultChanged) {
+      // Completion or correction of the active hero invalidates the authoritative
+      // progression projections once, including local and vs-AI milestones.
+      void progress.refresh();
+      void standing.refresh();
+      void recent.refresh();
+      void achievements.refresh();
+    } else if (boardCompleted) {
+      void recent.refresh();
+    }
   }, [
     activeId,
     boardVersion,
     boardKind,
     boardMode,
     boardCompleted,
+    boardResult,
     online.refresh,
     local.refresh,
     single.refresh,
+    progress.refresh,
+    standing.refresh,
     recent.refresh,
+    achievements.refresh,
   ]);
   const resultSignature = online.data
     ? JSON.stringify(
@@ -245,6 +290,16 @@ function DashboardHome({
           group.losses,
           group.draws,
           group.rating,
+          // Side-specific wins/losses catch corrections that keep the aggregate
+          // win/loss totals but change which seat won.
+          group.by_side
+            ? (['attackers', 'defenders'] as const).map((side) => {
+                const metrics = group.by_side?.[side];
+                return metrics
+                  ? [side, metrics.played, metrics.wins, metrics.losses, metrics.draws]
+                  : [side, null];
+              })
+            : null,
         ]) ?? [],
       )
     : null;
