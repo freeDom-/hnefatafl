@@ -3,23 +3,23 @@
   "clients": 5,
   "clientIsolation": "Independent browser contexts share one disposable account/session; not a unique-player population benchmark.",
   "aggregateLatency": "Request start through body completion on loopback, including client scheduling; not production capacity.",
-  "sourceHead": "3b83d910c0dca9b1867d043344c47e06d9dbd666",
+  "sourceHead": "00e5917d21167e75b566d61a836350ce7c1aacd4",
   "source": {
-    "revision": "3b83d910c0dca9b1867d043344c47e06d9dbd666",
+    "revision": "00e5917d21167e75b566d61a836350ce7c1aacd4",
     "dirty": false,
     "git": true
   },
   "build": {
-    "revision": "3b83d910c0dca9b1867d043344c47e06d9dbd666",
+    "revision": "00e5917d21167e75b566d61a836350ce7c1aacd4",
     "dirty": false,
     "git": true,
-    "builtAt": "2026-11-16T22:29:48.937Z",
-    "fingerprint": "49735ca9e79f26d4ecb4c643d2e1002c7f63b196489b683cadb64bf801200916",
-    "recordedFingerprint": "49735ca9e79f26d4ecb4c643d2e1002c7f63b196489b683cadb64bf801200916",
+    "builtAt": "2026-11-16T22:46:53.062Z",
+    "fingerprint": "7471f5dbe43c965786358a7949cc1910e043f6022ae317bc1391fabdfdcf0e9a",
+    "recordedFingerprint": "7471f5dbe43c965786358a7949cc1910e043f6022ae317bc1391fabdfdcf0e9a",
     "fingerprintScope": "dist/index.html and every file under dist/ except arena-build.json",
     "allowDirty": false
   },
-  "measuredAt": "2026-11-16T22:33:07.037Z",
+  "measuredAt": "2026-11-16T22:50:08.957Z",
   "node": "v22.23.4",
   "chromium": "156.0.8078.4",
   "os": "7.0.14-26-pve",
@@ -58,9 +58,9 @@
       "requestsPerMinutePerClient": null,
       "latencyMs": {
         "observations": 55,
-        "p50": 250.2609950000001,
-        "p95": 416.30221200000005,
-        "maximum": 453.4613089999998
+        "p50": 407.2866180000001,
+        "p95": 729.0386170000002,
+        "maximum": 745.8182379999998
       }
     },
     "empty-visible": {
@@ -70,21 +70,21 @@
         "GET /api/auth/me": 5,
         "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 5,
         "GET /api/personal/single-player?limit=1&status=in_progress": 5,
-        "GET /api/history/games?dashboard=true": 5,
-        "GET /api/personal/local?limit=5&status=in_progress": 5
+        "GET /api/personal/local?limit=5&status=in_progress": 5,
+        "GET /api/history/games?dashboard=true": 5
       },
       "failed": 0,
       "statuses": {
         "200": 55
       },
-      "elapsedMs": 60000.66037499999,
+      "elapsedMs": 60000.02720699999,
       "requestsPerClient": 11,
-      "requestsPerMinutePerClient": 10.999878932582499,
+      "requestsPerMinutePerClient": 10.999995012052263,
       "latencyMs": {
         "observations": 55,
-        "p50": 8.4769780000006,
-        "p95": 17.194284999997762,
-        "maximum": 23.888538999999582
+        "p50": 8.060100999999122,
+        "p95": 18.56548599999951,
+        "maximum": 19.262409000002663
       }
     },
     "fixture-setup": {
@@ -126,9 +126,9 @@
       "requestsPerMinutePerClient": null,
       "latencyMs": {
         "observations": 65,
-        "p50": 182.5546980000072,
-        "p95": 408.19634600001154,
-        "maximum": 443.5970440000092
+        "p50": 168.29086500000267,
+        "p95": 325.2073110000056,
+        "maximum": 410.5449559999979
       }
     },
     "active-visible": {
@@ -146,14 +146,14 @@
       "statuses": {
         "200": 115
       },
-      "elapsedMs": 60000.44364500001,
+      "elapsedMs": 59999.629281,
       "requestsPerClient": 23,
-      "requestsPerMinutePerClient": 22.999829937340788,
+      "requestsPerMinutePerClient": 23.000142109828047,
       "latencyMs": {
         "observations": 115,
-        "p50": 15.827335000009043,
-        "p95": 34.92974900000263,
-        "maximum": 51.02138799999375
+        "p50": 15.651474999991478,
+        "p95": 25.994866000008187,
+        "maximum": 30.598214999990887
       }
     },
     "active-simulated-hidden": {
@@ -161,7 +161,7 @@
       "endpoints": {},
       "failed": 0,
       "statuses": {},
-      "elapsedMs": 60001.07582699999,
+      "elapsedMs": 59999.78921399999,
       "requestsPerClient": 0,
       "requestsPerMinutePerClient": 0,
       "latencyMs": {

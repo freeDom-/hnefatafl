@@ -134,17 +134,17 @@ node frontend/benchmarks/arena-polling.mjs --clients=5 \
 
 ## Final integrated measurement
 
-Clean source/build `3b83d910c0dca9b1867d043344c47e06d9dbd666`, matching complete
-bundle fingerprint (`49735ca9e79f26d4ecb4c643d2e1002c7f63b196489b683cadb64bf801200916`),
+Clean source/build `00e5917d21167e75b566d61a836350ce7c1aacd4`, matching complete
+bundle fingerprint (`7471f5dbe43c965786358a7949cc1910e043f6022ae317bc1391fabdfdcf0e9a`),
 no dirty override: [full record](../benchmarks/arena-polling-final-five-contexts.json).
 This revision merges the latest `main` (test-toolchain security) and the
 permission-invalidation and achievement-invalidation fixes.
 
 | Phase | Actual elapsed | Total requests | Per context/minute | Failures | p95 completion |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Empty visible | 60,000.66 ms | 55 | 11.00 | 0 | 17.19 ms |
-| Active visible | 60,000.44 ms | 115 | 23.00 | 0 | 34.93 ms |
-| Simulated hidden | 60,001.08 ms | 0 | 0 | 0 | No requests |
+| Empty visible | 60,000.03 ms | 55 | 11.00 | 0 | 18.57 ms |
+| Active visible | 59,999.63 ms | 115 | 23.00 | 0 | 25.99 ms |
+| Simulated hidden | 59,999.79 ms | 0 | 0 | 0 | No requests |
 
 The steady request counts are unchanged from the earlier measurements, which is
 expected: the new invalidations only fire on a terminal or corrected result, and
