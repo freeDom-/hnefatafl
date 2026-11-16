@@ -574,3 +574,49 @@ test('total clocks retain per-player balances and increments across moves and re
   expect(finished.remaining_seconds).toEqual({ attackers: 55, defenders: 0 });
   expect(finished.result.rating).toHaveLength(2);
 });
+
+test('online army portrait falls back inside its symbol without the gallery chunk', async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  await login(page, 'OnlineArcher');
+  // Abort portrait artwork before the game room mounts; never open Portrait Hall.
+  await page.route('**/portraits/*.webp', (route) => route.abort());
+  await create(page);
+  const symbol = page.locator('.army-symbol').first();
+  const fallback = symbol.locator('.portrait-art.portrait-fallback');
+  await expect(fallback).toBeVisible({ timeout: 30000 });
+  const metrics = await page.evaluate(() => {
+    const symbol = document.querySelector('.army-symbol')!;
+    const fallback = symbol.querySelector('.portrait-art.portrait-fallback') as HTMLElement;
+    const glyph = fallback.querySelector('span') as HTMLElement;
+    const box = fallback.getBoundingClientRect();
+    const glyphBox = glyph.getBoundingClientRect();
+    const symbolBox = symbol.getBoundingClientRect();
+    return {
+      display: getComputedStyle(fallback).display,
+      box: {
+        width: box.width,
+        height: box.height,
+        cx: box.left + box.width / 2,
+        cy: box.top + box.height / 2,
+      },
+      glyph: {
+        width: glyphBox.width,
+        height: glyphBox.height,
+        cx: glyphBox.left + glyphBox.width / 2,
+        cy: glyphBox.top + glyphBox.height / 2,
+      },
+      symbol: { width: symbolBox.width, height: symbolBox.height },
+    };
+  });
+  expect(metrics.display).toBe('grid');
+  expect(metrics.box.width).toBeGreaterThan(0);
+  expect(metrics.box.height).toBeGreaterThan(0);
+  expect(metrics.box.width).toBeLessThanOrEqual(metrics.symbol.width + 1);
+  expect(metrics.box.height).toBeLessThanOrEqual(metrics.symbol.height + 1);
+  expect(metrics.glyph.width).toBeLessThanOrEqual(metrics.box.width + 0.5);
+  expect(metrics.glyph.height).toBeLessThanOrEqual(metrics.box.height + 0.5);
+  expect(Math.abs(metrics.glyph.cx - metrics.box.cx)).toBeLessThanOrEqual(3);
+  expect(Math.abs(metrics.glyph.cy - metrics.box.cy)).toBeLessThanOrEqual(3);
+});
