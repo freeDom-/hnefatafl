@@ -18,6 +18,12 @@
 .army-symbol {
   container-type: size;
 }
+.army-symbol .portrait-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
 .army-symbol .identity-rune {
   width: 100%;
   height: 100%;

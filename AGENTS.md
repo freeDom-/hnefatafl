@@ -45,8 +45,8 @@ The user's initial implementation requirements are preserved in
 `docs/REQUIREMENTS.md`. `PROGRESS.md` and GitHub release notes distinguish verified
 features from source, hardware and deployment limitations.
 
-Use Python 3.11+ and Node 22+. `make install` installs locked Python dependencies
-and frontend packages. Run `make check` for formatting/lint, type checks, backend
+Use Python 3.11+ and Node.js 22.12+ (or Node.js 24+). `make install` installs
+locked Python dependencies and frontend packages. Run `make check` for formatting/lint, type checks, backend
 tests, frontend tests and the production build. Browser validation additionally uses
 `npm --prefix frontend run test:e2e` (install Playwright Chromium first).
 

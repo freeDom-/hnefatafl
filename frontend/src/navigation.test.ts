@@ -7,6 +7,8 @@ it.each([
   '/\\evil.test',
   '/unknown',
   '/games/online-abcd',
+  '/watch/unknown',
+  '/watch/games/bad!id',
   '/archive\n',
 ])('rejects unsafe next destinations: %s', (value) => {
   expect(safeDestination(value)).toBe('/dashboard');
@@ -20,6 +22,15 @@ it('retains filters, selected record, game deep links and fragment through safe 
   expect(safeDestination(next)).toBe(next);
   expect(safeDestination('/games/owned-id?cursor=3')).toBe('/games/owned-id?cursor=3');
   expect(safeDestination('/online/games/online-' + 'a'.repeat(32) + '?leg=2')).toContain('?leg=2');
+});
+it('keeps the signed-out Watch Hall routes through safe auth navigation', () => {
+  expect(safeDestination('/watch')).toBe('/watch');
+  expect(safeDestination('/watch/games/online-' + 'a'.repeat(32))).toBe(
+    '/watch/games/online-' + 'a'.repeat(32),
+  );
+  expect(safeDestination('/watch/games/online-' + 'a'.repeat(32) + '/replay?move=4')).toBe(
+    '/watch/games/online-' + 'a'.repeat(32) + '/replay?move=4',
+  );
 });
 it('keeps the lobby route and moves the obsolete online setup entry to Play', () => {
   history.replaceState(null, '', '/online?mine=true&selected=kept#lobby');

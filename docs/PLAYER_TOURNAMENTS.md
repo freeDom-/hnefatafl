@@ -140,6 +140,14 @@ Settlement and advancement are idempotent. Calling `settle` repeatedly commits n
 additional matches, legs or games, and concurrent completions are serialized by
 the same `BEGIN IMMEDIATE` writer transaction the online core uses.
 
+## Automatic advancement limitation
+
+At the post-PR #84 baseline, bracket advancement requires an explicit `settle`,
+start or moderation service/API call. Online completion and timeout commit official
+results, but no background tournament worker consumes them. A browser-free reliable
+settlement path is still missing; see the [completion plan](designs/arena-completion.md#tournament-reliability-contract-before-ui-completion).
+The existing timeout tests do not establish automatic bracket progression.
+
 ## Corrections, disputes and rebuilds
 
 A corrected or voided online result must not silently rewrite bracket

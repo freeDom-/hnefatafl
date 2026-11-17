@@ -228,6 +228,7 @@ def test_colliding_shared_names_keep_public_usernames_and_stable_authority(world
             assert entry["account_id"] == accounts[player]["id"]
             assert entry["name"] == (name if shared and player != "Odin" else player)
             assert entry["rating"] == 1200
+            assert entry["portrait_id"] == "shieldbearer"
             assert set(entry) == {
                 "account_id",
                 "name",
@@ -239,6 +240,7 @@ def test_colliding_shared_names_keep_public_usernames_and_stable_authority(world
                 "draws",
                 "rank",
                 "provisional",
+                "portrait_id",
             }
         assert board["me"] == next(
             entry for entry in board["entries"] if entry["username"] == "Archer"
@@ -250,6 +252,7 @@ def test_colliding_shared_names_keep_public_usernames_and_stable_authority(world
                 "account_id": accounts[player]["id"],
                 "name": name if shared else player,
                 "username": player,
+                "portrait_id": "shieldbearer",
             }
         expected = {
             side: f"{name} (@{player})" if shared else player

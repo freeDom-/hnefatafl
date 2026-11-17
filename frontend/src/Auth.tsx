@@ -209,21 +209,37 @@ export default function Auth({ children }: { children: ReactNode }) {
     if (!account) return;
     let alive = true;
     let controller: AbortController | null = null;
-    let invalidated = false;
-    const refresh = (event?: Event) => {
-      if (signingOut.current) return;
-      if (controller) {
-        if (event?.type === 'permissions-changed') invalidated = true;
-        return;
-      }
+    // Every permissions-changed event gets a sequence number. A successful read
+    // acknowledges only the events that existed when it started, so a newer
+    // event received during an active security read is never lost.
+    let permissionSeq = 0;
+    let satisfiedSeq = 0;
+    let queuedRefresh = false;
+    const securityPending = () => permissionSeq > satisfiedSeq;
+    const pump = () => {
+      if (!alive || controller || signingOut.current) return;
+      const permissions = securityPending();
+      // Ordinary reads pause while hidden; a security revalidation may run so a
+      // permission change is not lost across the hidden transition.
+      if (!permissions && document.visibilityState === 'hidden') return;
       const expected = generation.current;
       const revision = ++readSequence.current;
+      const requestSeq = permissionSeq;
       const attempt = new AbortController();
       controller = attempt;
       void api<Session>('/auth/me', undefined, undefined, attempt.signal)
         .then((session) => {
-          if (alive && expected === generation.current && !signingOut.current)
+          if (
+            alive &&
+            expected === generation.current &&
+            !signingOut.current &&
+            !attempt.signal.aborted
+          ) {
+            // Acknowledge only invalidations known when this read started; a
+            // later event keeps the pending flag set for the follow-up read.
+            if (requestSeq > satisfiedSeq) satisfiedSeq = requestSeq;
             accept(session, revision);
+          }
         })
         .catch((failure) => {
           if (
@@ -237,19 +253,59 @@ export default function Auth({ children }: { children: ReactNode }) {
         })
         .finally(() => {
           if (controller === attempt) controller = null;
-          if (alive && expected === generation.current && invalidated && !signingOut.current) {
-            invalidated = false;
-            refresh();
+          if (!alive || expected !== generation.current || signingOut.current) return;
+          // An ordinary read, a read aborted by hiding, or a newer permission
+          // event all reissue a pending security read. A failed security read
+          // with no newer event waits for the normal cadence instead of spinning.
+          if (
+            securityPending() &&
+            (!permissions || requestSeq < permissionSeq || attempt.signal.aborted)
+          ) {
+            pump();
+            return;
+          }
+          if (queuedRefresh && document.visibilityState !== 'hidden') {
+            queuedRefresh = false;
+            pump();
           }
         });
     };
-    const timer = window.setInterval(refresh, 60000);
+    const refresh = (event?: Event) => {
+      if (signingOut.current) return;
+      if (event?.type === 'permissions-changed') permissionSeq++;
+      if (controller) {
+        // An outstanding security invalidation or read already provides fresh
+        // data; ordinary refreshes otherwise coalesce into one follow-up.
+        if (!securityPending()) queuedRefresh = true;
+        return;
+      }
+      pump();
+    };
+    let timer: number | undefined;
+    const startTimer = () => {
+      window.clearInterval(timer);
+      if (document.visibilityState !== 'hidden') timer = window.setInterval(refresh, 60000);
+    };
+    const visibility = () => {
+      if (document.visibilityState === 'hidden') {
+        window.clearInterval(timer);
+        controller?.abort();
+      } else {
+        startTimer();
+        // A hidden request may still be unwinding after abort. Queue one fresh
+        // session read rather than reusing its stale completion on visibility.
+        refresh();
+      }
+    };
+    startTimer();
+    document.addEventListener('visibilitychange', visibility);
     window.addEventListener('focus', refresh);
     window.addEventListener('permissions-changed', refresh);
     return () => {
       alive = false;
       controller?.abort();
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('permissions-changed', refresh);
     };

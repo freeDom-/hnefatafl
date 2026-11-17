@@ -4,7 +4,8 @@
 
 ## Local startup
 
-Use Python 3.11+ (3.12 recommended for development), Node 22+ and uv 0.12.23.
+Use Python 3.11+ (3.12 recommended for development), Node.js 22.12+ (or 24+) and
+uv 0.12.23.
 From the checkout:
 
 ```sh

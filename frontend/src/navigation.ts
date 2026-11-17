@@ -12,13 +12,16 @@ export function safeDestination(value: string | null): string {
     '/statistics',
     '/leaderboard',
     '/profile',
+    '/portraits',
     '/training',
     '/tournaments',
     '/player-tournaments',
     '/archive',
     '/online',
+    '/watch',
   ].includes(path) ||
     /^\/player-tournaments\/ptournament-[0-9a-f]{32}$/.test(path) ||
+    /^\/watch\/games\/[A-Za-z0-9_-]{1,128}(?:\/replay)?$/.test(path) ||
     /^\/online\/games\/online-[0-9a-f]{32}(?:\/review)?$/.test(path) ||
     /^\/(?:games|dashboard\/single-player)\/(?!online-)[A-Za-z0-9_-]{1,100}$/.test(path)
     ? path + url.search + url.hash
