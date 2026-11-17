@@ -57,8 +57,11 @@ export class LocalAnalysisClient {
         if (data.error) pending.reject(new Error(data.error));
         else pending.resolve(data.value);
       };
-      worker.onerror = (event) =>
+      worker.onerror = (event) => {
+        // Ignore errors from workers that have been cancelled or replaced.
+        if (this.worker !== worker) return;
         this.abort(new Error(event.message || "Worker failed"));
+      };
     });
     return this.boot;
   }
