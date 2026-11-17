@@ -14,6 +14,42 @@ filtering/sorting, Show selected job and the selected dashboard are preserved.
 Polling does not force the current page back to the beginning. Singular job/model
 summary labels are corrected in English and German.
 
+## Review follow-up after main integration
+
+The PR now includes main `3f1836d` through a merge commit, retaining its public
+spectator, Portrait Hall, polling, localization, browser helpers and security
+toolchain changes. The diff against that main revision remains scoped to Workshop
+presentation, navigation, bounded rendering and their validation.
+
+Task links and the comparison return link use `surfaceLink`, which delegates to
+the shell's existing `navigate` function. Same-hash clicks dispatch navigation
+again, reopening collapsed Models/Workers and moving focus to the section.
+Modifier clicks, external links, download links and other browsing targets retain
+native anchor behavior. Both cross-route links use `workspaceDestinations()` to
+respect the separate training and tournament permissions; API checks are unchanged.
+
+The navigator persists its clamped page when polling removes pages, so expansion
+does not restore a stale page. Unchanged polling does not reset the browsed page;
+explicit selection and Show selected job still follow the selected job. Regression
+cases cover 0, 1, 20, 21, 57 and 1,000 jobs, shrink/expand transitions and the selected
+dashboard's history, tab and iteration range.
+
+The [interactive browser matrix](../../frontend/tests/workshop-consolidation.spec.ts)
+adds populated/completed/active comparisons, standard and fixed-role dialogs,
+advanced creation/tuning and resume/import/export availability at 390 and 1920 CSS
+pixels, in EN/DE and every theme. Behavioral and geometry assertions accompany
+the captures; the original contrast, keyboard, geometry and timeout checks remain.
+Separate desktop/mobile workflows exercise repeated task/shell links, Back/Forward,
+cross-route navigation without a document request and all three permission
+combinations. Existing real-backend tournament and training browser workflows
+remain part of the complete suite.
+
+The reproduced DOM measurement remains 20 rows, 21 options and 191 descendants
+against 1,000 rows, 1,001 options and 8,027 descendants in the original baseline.
+Exact complete-suite results and any remaining limitations are recorded on
+[PR #92](https://github.com/freeDom-/hnefatafl/pull/92). The records below describe
+the original PR validation before this follow-up, rather than current CI results.
+
 ## Measured rendering
 
 Identical 1,000 job summaries, no filter or selection, React/jsdom render:
@@ -31,7 +67,7 @@ same fixture and removes its temporary source files. The 97.62% smaller descenda
 count is **not a frame-time, memory, server or network benchmark**. Filtering and
 sorting still process all supplied summaries; server paging is not introduced.
 
-## Validation and visuals
+## Original validation and visuals
 
 Integrated focused unit suite: **134 passed, five files**. TypeScript, formatting
 and build passed. Candidate browser validation: eight new presentation cases
@@ -60,7 +96,7 @@ pages, not every tuning/resume/import/worker dialog. Physical devices/Safari,
 true 200% zoom and merged cross-route acceptance remain later work. No backend,
 model, checkpoint, schema or dependency changes; no release or merge.
 
-## Final integrated browser verification
+## Original integrated browser verification
 
 The matrix now isolates each theme, language and viewport, with one locale
 initializer and explicit document-language assertions. Four separate keyboard
