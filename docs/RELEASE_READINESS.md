@@ -40,8 +40,9 @@ research remain outstanding. Checkbox state below records the audited baseline.
   picomatch through 4.0.7) with no patched release. GitHub still reviews it as
   high while Snyk revoked its entry and NVD is awaiting analysis; it is
   build/test-only and not present in the deployed bundle. The required `security`
-  CI job stays red until upstream ships a fix or the owner approves a time-limited
-  risk acceptance. See
+  CI job enforces a time-limited, owner-approved risk acceptance that expires on
+  2026-12-17 (or the next dependency refresh); remove it when upstream ships a
+  fix. The advisory itself remains unresolved. See
   [the dependency record](validation/test-toolchain-security.md#picomatch-redos-advisory-ghsa-fc5q-39xc-vjpf-2026-11-17).
   No blind force upgrade, ignore list or downgrade; rerun tests and audit after
   lockfile changes.

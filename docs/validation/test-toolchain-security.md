@@ -187,9 +187,22 @@ not evidence of a false positive; it is unresolved disagreement between database
 - The application source never imports picomatch, and no HTTP, account, game or
   analysis input is passed to glob compilation. An attacker cannot supply the glob
   patterns the advisory requires.
-- Practical exposure is therefore a development/CI tooling denial of service if a
-  trusted developer or CI input supplies a malicious pattern. Deployed application
-  runtime exposure is absent.
+- Vite compiles `import.meta.glob` patterns from application source in the
+  development/build tool; this repository does not use `import.meta.glob`
+  anywhere. Vite's `server.fs.deny` pattern list is static configuration and uses
+  no repeated single-branch extglob. Plugin include/exclude patterns come from
+  repository configuration, and package-export patterns come from locked,
+  trusted dependencies.
+- Glob *subjects* (module IDs, request paths and file names) are matched against a
+  compiled pattern; they are never compiled as patterns. A crafted file name or
+  URL therefore cannot trigger the vulnerable parser path.
+- Production serves the static `frontend/dist` bundle through FastAPI; Vite and
+  Vitest are never started in the deployed service. Deployed runtime exposure is
+  absent.
+- Practical exposure is therefore a development/CI tooling denial of service only
+  if a trusted developer, CI input or compromised dependency supplies a malicious
+  pattern. That is the scope of the approved acceptance below, not a remote or
+  product-runtime vulnerability.
 
 ### Upstream patch status
 
@@ -204,26 +217,38 @@ not evidence of a false positive; it is unresolved disagreement between database
 - The only official guidance is Snyk's: do not use the risky pattern and do not let
   untrusted users define regular expressions. Both conditions already hold here.
 
-### Decision and risk-acceptance proposal
+### Approved risk acceptance (active until 2026-12-17)
 
-No supported technical fix exists. No fork, override, unmerged patch, ignore list,
-audit suppression or downgrade is used. The full audit remains a required, visible
-CI check and currently fails, so this branch is not fully security-validated.
+No supported technical fix exists, and no fork, override, unmerged patch, downgrade
+or blanket audit disable is used. On 2026-11-17 the repository owner approved a
+narrowly scoped, time-limited risk acceptance for exactly GHSA-fc5q-39xc-vjpf in
+the development-only Picomatch path. It is implemented as:
 
-If the owner needs to merge before an upstream release, the smallest defensible
-process is a **time-limited, owner-approved risk acceptance** for exactly
-GHSA-fc5q-39xc-vjpf, scoped to the development-only paths above, with an expiry
-(for example 30 days or the next dependency refresh, whichever is sooner), a named
-approver and a link to this record. It is **not implemented here** because that
-requires explicit approval; any implementation must be an explicit, reviewed audit
-policy rather than a blanket disable, and the full audit must stay visible. No such
-exception is currently in place.
+- `frontend/security/dependency-audit-exceptions.json` records the exact
+  advisory/package, development scope, approver, approval date, review reference,
+  rationale and expiry (2026-12-17).
+- `frontend/scripts/auditDependencies.mjs` (`npm run audit:ci`) runs the full
+  lockfile audit, requires a clean production-only audit, and accepts only the
+  exact recorded advisory/package while it is unexpired and only when every
+  affected package is marked `dev: true` in the lockfile. Any additional advisory,
+  production finding, non-development affected package, stale exception, malformed
+  record or expired date fails the check.
+- The dedicated `security` CI job runs that script. It prints the affected audit
+  entry as `ACCEPTED` and prints the active acceptance with approver, review
+  reference, scope, rationale and expiry. This is an explicit owner-approved
+  exception, not a technical fix.
+
+The acceptance expires on 2026-12-17, 30 days after approval, or earlier if the
+dependency is refreshed. After expiry the security job fails until the owner
+re-reviews the risk. The advisory itself remains unresolved: the check passes
+under the recorded acceptance, not because the finding was disproved.
 
 ### Follow-up
 
 When upstream publishes a patched picomatch release, refresh the lockfile
-(`npm --prefix frontend update picomatch`), rerun the unit/browser suites and
-re-audit. Treat a GitHub withdrawal or a formal dispute as a separate outcome:
-re-check the advisory before changing the gate, because a Snyk revocation alone does
-not clear it. Repeat the audit at release preparation because advisories are
-time-sensitive.
+(`npm --prefix frontend update picomatch`), remove the exception entry in the same
+change, rerun the unit/browser suites and re-audit; the script then passes without
+an acceptance. Treat a GitHub withdrawal or a formal dispute as a separate outcome:
+re-check the advisory before removing the exception, because a Snyk revocation alone
+does not clear it. Do not extend the expiry silently; re-approve and record a new
+date. Repeat the audit at release preparation because advisories are time-sensitive.

@@ -18,7 +18,7 @@ jobs:
           node-version: "22.12"
       # Audit the committed lockfile without installing dependencies. Keeping this
       # in its own job means a dependency advisory cannot block browser validation.
-      - run: npm audit --package-lock-only --audit-level=moderate
+      - run: npm run audit:ci
   python:
     runs-on: ubuntu-latest
     env:
@@ -63,6 +63,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:benchmarks
+      - run: npm run test:scripts
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:public
