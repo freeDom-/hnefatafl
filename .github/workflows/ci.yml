@@ -6,6 +6,20 @@ on:
 permissions:
   contents: read
 jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
   python:
     runs-on: ubuntu-latest
     env:
@@ -46,7 +60,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=moderate
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
@@ -69,6 +82,7 @@ jobs:
             frontend/test-results/arena-final/
             frontend/test-results/player-tournaments/
             frontend/test-results/player-tournaments-calendar/
+            frontend/test-results/player-tournaments-compact-calendar/
             frontend/test-results/portraits/
           retention-days: 14
       - uses: actions/upload-artifact@v4
