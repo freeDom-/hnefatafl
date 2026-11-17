@@ -242,7 +242,8 @@ test('administrator creates a real tournament; registration and withdrawal persi
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Tournament name').fill(`Browser cup ${info.project.name}`);
     await dialog.getByLabel('Maximum entrants').fill('4');
-    await dialog.getByLabel('Seconds per move').fill('3600');
+    await dialog.getByLabel('Days', { exact: true }).fill('0');
+    await dialog.getByLabel('Hours', { exact: true }).fill('1');
     await dialog.getByRole('button', { name: 'Create player tournament', exact: true }).click();
     await expect(page).toHaveURL(/\/player-tournaments\/ptournament-[0-9a-f]{32}$/);
     id = page.url().split('/').at(-1)!;
@@ -333,4 +334,122 @@ test('moderation failure retains the confirmation and announced error instead of
   );
   await expect(dialog).toBeVisible();
   await expect(page.locator('.player-tournament-champion')).toHaveCount(0);
+});
+
+for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
+  test(`tournament calendar supports keyboard input and theme ${theme}`, async ({ page }, info) => {
+    await page
+      .context()
+      .addInitScript(
+        (theme) =>
+          localStorage.setItem(
+            'hnefatafl-appearance',
+            JSON.stringify({ version: 2, uiTheme: theme }),
+          ),
+        theme,
+      );
+    const sizes =
+      info.project.name === 'mobile'
+        ? [
+            { width: 320, height: 640 },
+            { width: 390, height: 844 },
+          ]
+        : [
+            { width: 1920, height: 1080 },
+            { width: 3840, height: 2160 },
+          ];
+    for (const language of ['en', 'de']) {
+      await page.addInitScript(
+        (language) => localStorage.setItem('hnefatafl-language', language),
+        language,
+      );
+      for (const size of sizes) {
+        await page.setViewportSize(size);
+        await page.goto('/player-tournaments');
+        const createName =
+          language === 'en' ? 'Create player tournament' : 'Spielerturnier erstellen';
+        const opener = page.getByRole('button', { name: createName, exact: true });
+        await opener.click();
+        const dialog = page.getByRole('dialog');
+        const picker = dialog.getByRole('group', {
+          name:
+            language === 'en'
+              ? 'Planned start (your local time, optional)'
+              : 'Geplanter Beginn (deine Ortszeit, optional)',
+        });
+        const date = picker.getByRole('textbox', {
+          name: language === 'en' ? 'Date (YYYY-MM-DD)' : 'Datum (JJJJ-MM-TT)',
+        });
+        await date.fill('2035-02-01');
+        const toggle = picker.locator('summary');
+        await toggle.focus();
+        await page.keyboard.press('Enter');
+        const selected = picker.locator('[aria-selected=true] button');
+        await expect(selected).toHaveCount(1);
+        await selected.focus();
+        await expect(selected).toBeFocused();
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('Enter');
+        await expect(date).toHaveValue('2035-02-02');
+        const next = picker.getByRole('button', {
+          name: language === 'en' ? 'Next month' : 'Nächster Monat',
+        });
+        await next.click();
+        await expect(picker.getByRole('grid')).toBeVisible();
+        const calendar = picker.locator('.themed-calendar');
+        const colors = await calendar.evaluate((node) => ({
+          background: getComputedStyle(node).backgroundColor,
+          color: getComputedStyle(node).color,
+        }));
+        expect(contrast(colors.color, colors.background)).toBeGreaterThanOrEqual(4.5);
+        const dimensions = await dialog.evaluate((node) => ({
+          client: node.clientWidth,
+          scroll: node.scrollWidth,
+        }));
+        expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client + 1);
+        await page.keyboard.press('Tab');
+        await expect(dialog).toBeVisible();
+        expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+        if (language === 'en') {
+          mkdirSync('test-results/player-tournaments-calendar', { recursive: true });
+          await dialog.screenshot({
+            path: `test-results/player-tournaments-calendar/${theme}-${size.width}.png`,
+          });
+        }
+        await page.keyboard.press('Escape');
+        await expect(dialog).not.toBeVisible();
+        await expect(opener).toBeFocused();
+      }
+    }
+  });
+}
+
+test('Berlin DST gap is rejected and both repeated-hour instants serialize correctly', async ({
+  browser,
+  adminSession,
+}) => {
+  const context = await browser.newContext({
+    storageState: adminSession.state,
+    timezoneId: 'Europe/Berlin',
+  });
+  const page = await context.newPage();
+  await page.goto('/player-tournaments');
+  await page.getByRole('button', { name: 'Create player tournament' }).click();
+  const picker = page.getByRole('group', { name: 'Planned start (your local time, optional)' });
+  await picker.getByLabel('Date (YYYY-MM-DD)').fill('2035-03-25');
+  await picker.getByLabel('Time (HH:MM)').fill('02:30');
+  await expect(picker.getByRole('alert')).toContainText('does not exist');
+  await expect(picker.getByLabel('Date (YYYY-MM-DD)')).toHaveAttribute('aria-invalid', 'true');
+  await picker.getByLabel('Date (YYYY-MM-DD)').fill('2035-10-28');
+  await expect(picker.getByRole('alert')).toHaveCount(0);
+  const occurrence = picker.getByRole('combobox');
+  await expect(occurrence).toBeVisible();
+  await expect(picker.locator('input[name=scheduled_start_at]')).toHaveValue(
+    '2035-10-28T00:30:00.000Z',
+  );
+  await occurrence.selectOption('1');
+  await expect(picker.locator('input[name=scheduled_start_at]')).toHaveValue(
+    '2035-10-28T01:30:00.000Z',
+  );
+  await context.close();
 });

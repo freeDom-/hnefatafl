@@ -86,6 +86,63 @@ class TournamentSettlement:
                     LOGGER.warning("Tournament settlement retry could not be recorded")
         return completed
 
+    def start_due(self, limit=20):
+        """Consume indexed, durable starts, rechecking eligibility under the writer lock."""
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("Start batch must be between 1 and 100")
+        with self.core.store.connection() as c:
+            identifiers = [
+                row[0]
+                for row in c.execute(
+                    """SELECT id FROM player_tournaments INDEXED BY player_tournaments_start_due WHERE status='registration'
+                AND start_due_at IS NOT NULL AND start_due_at<=? ORDER BY start_due_at,id LIMIT ?""",
+                    (micros(self.core._now()), limit),
+                )
+            ]
+        completed = 0
+        for identifier in identifiers:
+            if self.stop.is_set():
+                break
+            try:
+                with self.core._write() as c:
+                    now = self.core._now()  # Sample after locking, like manual starts.
+                    row = self.core._load(c, identifier)
+                    if (
+                        row["status"] != "registration"
+                        or row["start_due_at"] is None
+                        or row["start_due_at"] > micros(now)
+                    ):
+                        continue
+                    count = c.execute(
+                        "SELECT COUNT(*) FROM player_tournament_entrants WHERE tournament_id=? AND status='registered'",
+                        (identifier,),
+                    ).fetchone()[0]
+                    if count < row["capacity"] or count < 2:
+                        # Later registrations re-arm this row; historical/unfilled
+                        # competitions never become periodic scanning work.
+                        c.execute(
+                            "UPDATE player_tournaments SET start_due_at=NULL WHERE id=?",
+                            (identifier,),
+                        )
+                        continue
+                    self.core._start(c, row, now)
+                    completed += 1
+            except Exception:
+                LOGGER.warning("Tournament scheduled start deferred")
+                try:
+                    with self.core._write() as c:
+                        row = self.core._load(c, identifier)
+                        if row["status"] == "registration" and row["start_due_at"] is not None:
+                            delay = min(300, 2 ** min(row["start_attempts"] + 1, 8))
+                            c.execute(
+                                """UPDATE player_tournaments SET start_attempts=start_attempts+1,
+                            start_due_at=?,start_error='start_failed' WHERE id=?""",
+                                (micros(self.core._now() + timedelta(seconds=delay)), identifier),
+                            )
+                except Exception:
+                    LOGGER.warning("Tournament scheduled start retry could not be recorded")
+        return completed
+
     def start(self):
         if self.thread and self.thread.is_alive():
             return
@@ -94,6 +151,7 @@ class TournamentSettlement:
         def run():
             while not self.stop.wait(1):
                 try:
+                    self.start_due()
                     self.drain()
                 except Exception:
                     LOGGER.warning("Tournament settlement worker deferred")

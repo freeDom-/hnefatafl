@@ -67,22 +67,22 @@ export default function App() {
       : /^\/player-tournaments(?:\/ptournament-[a-f0-9]{32})?$/.test(path.split('?')[0])
         ? 'player-tournaments'
         : path.split('?')[0] === '/portraits'
-        ? 'portraits'
-        : path.split('?')[0] === '/profile'
-          ? 'profile'
-          : path.split('?')[0] === '/statistics'
-            ? 'statistics'
-            : path.startsWith('/games/') || path.split('?')[0] === '/play'
-              ? 'play'
-              : path.split('?')[0] === '/archive'
-                ? 'archive'
-                : path.split('?')[0] === '/leaderboard'
-                  ? 'leaderboard'
-                  : path.startsWith('/training') && permissions.includes('training')
-                    ? 'training'
-                    : path.startsWith('/tournaments') && permissions.includes('tournaments')
-                      ? 'tournaments'
-                      : 'dashboard';
+          ? 'portraits'
+          : path.split('?')[0] === '/profile'
+            ? 'profile'
+            : path.split('?')[0] === '/statistics'
+              ? 'statistics'
+              : path.startsWith('/games/') || path.split('?')[0] === '/play'
+                ? 'play'
+                : path.split('?')[0] === '/archive'
+                  ? 'archive'
+                  : path.split('?')[0] === '/leaderboard'
+                    ? 'leaderboard'
+                    : path.startsWith('/training') && permissions.includes('training')
+                      ? 'training'
+                      : path.startsWith('/tournaments') && permissions.includes('tournaments')
+                        ? 'tournaments'
+                        : 'dashboard';
   const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());

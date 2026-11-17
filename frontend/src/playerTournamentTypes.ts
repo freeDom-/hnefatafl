@@ -6,6 +6,11 @@ export type TournamentPlayer = {
   username?: string;
   portrait_id?: string | null;
 };
+export type TournamentCapabilities = {
+  can_create: boolean;
+  can_start: boolean;
+  can_moderate: boolean;
+};
 export type PlayerTournament = {
   id: string;
   name: string;
@@ -16,6 +21,11 @@ export type PlayerTournament = {
   capacity: number;
   match_legs: number;
   time_per_move: number;
+  time_control?: 'per_move' | 'total';
+  increment_seconds?: number;
+  match_mode?: 'legacy' | 'single' | 'sequential' | 'simultaneous';
+  created_by?: string;
+  capabilities?: TournamentCapabilities;
   bracket_size: number | null;
   entrant_count: number;
   version: number;
@@ -52,6 +62,7 @@ export type TournamentMatch = {
   participants: { a: TournamentPlayer | null; b: TournamentPlayer | null };
   winner: TournamentPlayer | null;
   loser: TournamentPlayer | null;
+  pending_games?: number;
   legs: {
     leg: number;
     game_id: string;
@@ -76,6 +87,7 @@ export type PlayerTournamentBracket = {
   reset: TournamentMatch | null;
 };
 export type PlayerTournamentPage = {
+  capabilities?: TournamentCapabilities;
   items: PlayerTournament[];
   next_cursor: string | null;
   limit: number;

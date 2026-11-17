@@ -430,13 +430,16 @@ it('creates a tournament with explicit local-time deadlines serialized as UTC', 
   fireEvent.change(within(dialog).getByLabelText('Tournament name'), {
     target: { value: 'Winter cup' },
   });
-  fireEvent.change(
-    within(dialog).getByLabelText('Registration deadline (your local time, optional)'),
-    { target: { value: '2035-02-01T18:00' } },
-  );
-  fireEvent.change(within(dialog).getByLabelText('Planned start (your local time, optional)'), {
-    target: { value: '2035-02-01T19:00' },
-  });
+  for (const [label, time] of [
+    ['Registration deadline (your local time, optional)', '18:00'],
+    ['Planned start (your local time, optional)', '19:00'],
+  ]) {
+    const picker = within(within(dialog).getByRole('group', { name: label }));
+    fireEvent.change(picker.getByLabelText('Date (YYYY-MM-DD)'), {
+      target: { value: '2035-02-01' },
+    });
+    fireEvent.change(picker.getByLabelText('Time (HH:MM)'), { target: { value: time } });
+  }
   fireEvent.click(within(dialog).getByRole('button', { name: 'Create player tournament' }));
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith(
@@ -445,7 +448,9 @@ it('creates a tournament with explicit local-time deadlines serialized as UTC', 
         name: 'Winter cup',
         ruleset: 'tablut',
         capacity: 8,
-        match_legs: 1,
+        match_mode: 'single',
+        time_control: 'per_move',
+        increment_seconds: 0,
         time_per_move: 259200,
         registration_deadline: new Date('2035-02-01T18:00').toISOString(),
         scheduled_start_at: new Date('2035-02-01T19:00').toISOString(),
@@ -468,4 +473,63 @@ it('respects the server registration-closed projection without using the device 
       'Registration is closed. Registered entrants may withdraw until the tournament starts.',
     ),
   ).toBeVisible();
+});
+
+it('lets a creator start their own tournament using server capabilities without moderation grants', async () => {
+  tournament.status = 'registration';
+  tournament.capabilities = { can_create: false, can_start: true, can_moderate: false };
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Start tournament' }));
+  const dialog = screen.getByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Start tournament' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith(
+      '/player-tournaments/cup-1/start',
+      { version: 7, seeds: players.map((player) => player.account_id) },
+      'POST',
+      expect.any(AbortSignal),
+    ),
+  );
+  for (const name of ['Cancel tournament', 'Rebuild bracket', 'Override match result'])
+    expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+});
+
+it('offers eligible ordinary players creation when the server grants it and submits shared total clocks', async () => {
+  tournament.capabilities = { can_create: true, can_start: false, can_moderate: false };
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Create player tournament' }));
+  const dialog = screen.getByRole('dialog');
+  fireEvent.change(within(dialog).getByLabelText('Tournament name'), {
+    target: { value: 'Creator cup' },
+  });
+  fireEvent.change(within(dialog).getByLabelText('Match mode'), {
+    target: { value: 'sequential' },
+  });
+  fireEvent.change(within(dialog).getByLabelText('Time control'), { target: { value: 'total' } });
+  fireEvent.change(within(dialog).getByLabelText('Increment per move (seconds)'), {
+    target: { value: '30' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create player tournament' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith(
+      '/player-tournaments',
+      expect.objectContaining({
+        match_mode: 'sequential',
+        time_control: 'total',
+        increment_seconds: 30,
+        time_per_move: 259200,
+      }),
+      'POST',
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('shows a pending sequential return without inventing a playable link', async () => {
+  bracket.upper[0].matches[1].pending_games = 1;
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(
+    await screen.findByText('Next game available after the previous game finishes.'),
+  ).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Game 2' })).not.toBeInTheDocument();
 });

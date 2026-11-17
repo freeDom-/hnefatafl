@@ -17,7 +17,10 @@ class TournamentCreation(BaseModel):
     name: StrictStr = Field(min_length=1, max_length=120)
     ruleset: Literal["brandubh", "tablut", "copenhagen"] = "tablut"
     capacity: StrictInt = Field(ge=2, le=64)
-    match_legs: StrictInt = Field(default=1, ge=1, le=5)
+    match_legs: StrictInt | None = Field(default=None, ge=1, le=5)
+    match_mode: Literal["single", "sequential", "simultaneous"] | None = None
+    time_control: Literal["per_move", "total"] = "per_move"
+    increment_seconds: StrictInt = Field(default=0, ge=0, le=1209600)
     time_per_move: StrictInt = Field(default=259200, ge=60, le=1209600)
     registration_deadline: datetime | None = None
     scheduled_start_at: datetime | None = None
@@ -81,6 +84,9 @@ def attach_player_tournaments(app, auth, online, *, clock=None):
                 capacity=body.capacity,
                 match_legs=body.match_legs,
                 time_per_move=body.time_per_move,
+                match_mode=body.match_mode,
+                time_control=body.time_control,
+                increment_seconds=body.increment_seconds,
                 registration_deadline=body.registration_deadline,
                 scheduled_start_at=body.scheduled_start_at,
             )

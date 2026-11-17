@@ -1,0 +1,54 @@
+.local-datetime {
+  min-width: 0;
+}
+.local-datetime summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.local-datetime input[aria-invalid='true'] {
+  border-color: var(--ui-error);
+}
+.themed-calendar {
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.themed-calendar .rdp-month_caption,
+.themed-calendar .rdp-nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.themed-calendar table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.themed-calendar th,
+.themed-calendar td {
+  padding: 1px;
+  text-align: center;
+}
+.themed-calendar td .button {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px;
+}
+.themed-calendar [aria-selected='true'] .button {
+  background: var(--green);
+  color: var(--arena-accent-contrast, var(--surface));
+}
+.themed-calendar .rdp-today .button {
+  text-decoration: underline;
+}
+.themed-calendar .rdp-chevron {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}

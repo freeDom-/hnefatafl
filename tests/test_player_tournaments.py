@@ -1055,8 +1055,9 @@ def test_registration_capacity_deadline_and_withdrawal(rig):
         rig,
         name="Closed",
         capacity=4,
-        deadline=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        deadline=rig.clock.value + timedelta(seconds=1),
     )
+    rig.clock.value += timedelta(seconds=2)
     with pytest.raises(Exception, match="deadline"):
         rig.core.register(rig.credentials["P01"], closed["id"])
 
@@ -1089,7 +1090,7 @@ def test_start_ignores_null_seeds_left_by_withdrawn_entrants(rig):
     tournament = create(rig, capacity=4)
     for name in ("P01", "P02", "P03"):
         rig.core.register(rig.credentials[name], tournament["id"])
-    rig.core.withdraw(rig.credentials["P02"], tournament["id"])
+    tournament = rig.core.withdraw(rig.credentials["P02"], tournament["id"])
     started = rig.core.start(rig.admin, tournament["id"], tournament["version"])
     assert started["bracket_size"] == 2
     assert {entry["account_id"] for entry in started["entrants"]} == {
@@ -1217,7 +1218,7 @@ def test_create_validates_bounds(rig):
         rig.core.create(
             rig.admin, name="x", ruleset="chess", capacity=4, match_legs=1, time_per_move=600
         )
-    with pytest.raises(Exception, match="time limit"):
+    with pytest.raises(Exception, match="Time limit"):
         rig.core.create(
             rig.admin, name="x", ruleset="brandubh", capacity=4, match_legs=1, time_per_move=10
         )
@@ -1264,7 +1265,11 @@ def test_http_flow_and_public_read_boundaries(rig, client):
     assert player.get(f"/api/player-tournaments/{tournament['id']}/matches/nope").status_code == 404
     assert player.get(f"/api/player-tournaments/{tournament['id']}/audit").status_code == 403
 
-    started = admin.post(f"/api/player-tournaments/{tournament['id']}/start", json={"version": 0})
+    stale = admin.post(f"/api/player-tournaments/{tournament['id']}/start", json={"version": 0})
+    assert stale.status_code == 409
+    started = admin.post(
+        f"/api/player-tournaments/{tournament['id']}/start", json={"version": detail["version"]}
+    )
     assert started.status_code == 200 and started.json()["status"] == "running"
     matches = player.get(f"/api/player-tournaments/{tournament['id']}/matches").json()
     assert matches["items"]
@@ -1307,7 +1312,6 @@ def test_every_player_tournament_route_requires_authentication_and_permission(ri
 
     player = client("P01")
     for method, route, body in (
-        ("POST", "/api/player-tournaments", {"name": "x", "ruleset": "brandubh", "capacity": 4}),
         ("GET", base + "/audit", None),
         ("POST", base + "/start", {"version": started["version"]}),
         ("POST", base + "/cancel", {"version": started["version"]}),
@@ -1596,7 +1600,7 @@ def test_planned_start_filters_and_cursor_scope(rig):
             registration_deadline=rig.clock.value + timedelta(days=2),
             scheduled_start_at=rig.clock.value + timedelta(days=1),
         )
-    # A planned start is informational; a clock passing it never starts a bracket.
+    # These cups are not full: due scheduling leaves them in registration.
     rig.clock.value += timedelta(days=2)
     assert rig.core.listing(rig.admin, phase="upcoming")["items"] == []
     assert all(item["status"] == "registration" for item in rig.core.listing(rig.admin)["items"])
@@ -1668,3 +1672,521 @@ def test_automatic_progress_invalidates_reviewed_admin_version(rig):
         rig.core.cancel(rig.admin, tournament["id"], reviewed["version"])
     stable = rig.core.settle(rig.admin, tournament["id"])
     assert stable["version"] == updated["version"]
+
+
+def scheduled_cup(rig, *, capacity=2, creator="P01", **kwargs):
+    return rig.core.create(
+        rig.credentials[creator],
+        name="Scheduled cup",
+        ruleset="brandubh",
+        capacity=capacity,
+        time_per_move=600,
+        scheduled_start_at=rig.clock.value + timedelta(minutes=1),
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize("full_when", ["before", "at", "after"])
+def test_scheduled_starts_without_a_browser_and_only_when_full(rig, full_when):
+    cup = scheduled_cup(rig)
+    identifier = cup["id"]
+    rig.core.register(rig.credentials["P01"], identifier)
+    worker = rig.app.state.tournament_settlement
+    if full_when == "before":
+        rig.core.register(rig.credentials["P02"], identifier)
+    assert worker.start_due() == 0
+    assert rig.core.detail(rig.admin, identifier)["status"] == "registration"
+    rig.clock.value += timedelta(minutes=1)
+    if full_when == "after":
+        assert worker.start_due() == 0
+        with rig.store.connection() as c:
+            assert (
+                c.execute(
+                    "SELECT start_due_at FROM player_tournaments WHERE id=?", (identifier,)
+                ).fetchone()[0]
+                is None
+            )
+    if full_when != "before":
+        rig.core.register(rig.credentials["P02"], identifier)
+    assert worker.start_due() == 1
+    started = rig.core.detail(rig.admin, identifier)
+    assert started["status"] == "running" and started["entrant_count"] == 2
+    assert {e["seed"] for e in started["entrants"]} == {1, 2}
+    counts = table_counts(rig)
+    assert worker.start_due() == 0 and counts == table_counts(rig)
+    audit = rig.core.audit(rig.admin, identifier)["items"]
+    event = next(e for e in audit if e["action"] == "started")
+    assert event["actor_id"] is None and event["details"]["source"] == "automatic"
+
+
+@pytest.mark.parametrize("creator", ["P01", ADMIN])
+def test_unfilled_due_tournament_can_be_started_by_creator_or_admin(rig, creator):
+    cup = scheduled_cup(rig, capacity=4)
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.clock.value += timedelta(minutes=2)
+    assert rig.app.state.tournament_settlement.start_due() == 0
+    assert table_counts(rig)["games"] == 0
+    started = rig.core.start(rig.credentials[creator], cup["id"], cup["version"])
+    assert started["status"] == "running"
+    event = next(
+        e for e in rig.core.audit(rig.admin, cup["id"])["items"] if e["action"] == "started"
+    )
+    assert event["details"]["source"] == ("administrator" if creator == ADMIN else "creator")
+
+
+@pytest.mark.parametrize("entrants", [0, 1])
+def test_neither_manual_nor_scheduled_start_accepts_fewer_than_two(rig, entrants):
+    cup = scheduled_cup(rig)
+    for name in PLAYERS[:entrants]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.clock.value += timedelta(minutes=2)
+    assert rig.app.state.tournament_settlement.start_due() == 0
+    for credential in [rig.admin, rig.credentials["P01"]]:
+        with pytest.raises(Exception, match="two registered"):
+            rig.core.start(credential, cup["id"], cup["version"])
+    assert table_counts(rig) == {"matches": 0, "legs": 0, "games": 0}
+
+
+@pytest.mark.parametrize("restart_after_due", [True, False])
+def test_start_queue_survives_restart_and_downtime(rig, restart_after_due):
+    cup = scheduled_cup(rig)
+    for name in PLAYERS[:2]:
+        rig.core.register(rig.credentials[name], cup["id"])
+    if restart_after_due:
+        rig.clock.value += timedelta(days=2)
+    app = create_app(
+        rig.store.path.parent,
+        online_settings=POLICY,
+        online_clock=rig.clock,
+        online_background=False,
+        account_background=False,
+    )
+    worker = app.state.tournament_settlement
+    worker.recover()
+    if not restart_after_due:
+        assert worker.start_due() == 0
+        rig.clock.value += timedelta(minutes=1)
+    assert worker.start_due() == 1
+    assert rig.core.detail(rig.admin, cup["id"])["status"] == "running"
+
+
+def test_scheduled_start_failure_rolls_back_and_retries_without_duplicate_games(
+    rig, monkeypatch, caplog
+):
+    cup = scheduled_cup(rig)
+    for name in PLAYERS[:2]:
+        rig.core.register(rig.credentials[name], cup["id"])
+    rig.clock.value += timedelta(minutes=2)
+    original = rig.online.seat_game
+
+    def failed(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("private error payload")
+
+    monkeypatch.setattr(rig.online, "seat_game", failed)
+    worker = rig.app.state.tournament_settlement
+    assert worker.start_due() == 0
+    assert table_counts(rig) == {"matches": 0, "legs": 0, "games": 0}
+    with rig.store.connection() as c:
+        row = c.execute("SELECT * FROM player_tournaments WHERE id=?", (cup["id"],)).fetchone()
+        assert row["start_attempts"] == 1 and row["start_error"] == "start_failed"
+    assert "private error payload" not in caplog.text
+    monkeypatch.setattr(rig.online, "seat_game", original)
+    assert worker.start_due() == 0
+    rig.clock.value += timedelta(seconds=3)
+    assert worker.start_due() == 1
+    assert table_counts(rig) == {"matches": 2, "legs": 1, "games": 1}
+
+
+def test_concurrent_creator_admin_and_scheduled_starts_commit_exactly_once(rig):
+    from hnefatafl.online_core import OnlineError
+
+    cup = scheduled_cup(rig)
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.clock.value += timedelta(minutes=2)
+
+    def start(credential):
+        try:
+            return rig.core.start(credential, cup["id"], cup["version"])["status"]
+        except OnlineError as error:
+            assert error.status == 409
+            return "stale"
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [
+            pool.submit(start, credential) for credential in [rig.admin, rig.credentials["P01"]]
+        ]
+        futures += [pool.submit(rig.app.state.tournament_settlement.start_due) for _ in range(2)]
+        for future in futures:
+            future.result()
+    assert table_counts(rig) == {"matches": 2, "legs": 1, "games": 1}
+    assert (
+        len([e for e in rig.core.audit(rig.admin, cup["id"])["items"] if e["action"] == "started"])
+        == 1
+    )
+
+
+def test_withdrawal_at_due_time_defers_start_until_capacity_is_restored(rig):
+    cup = scheduled_cup(rig)
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.clock.value += timedelta(minutes=1)
+    rig.core.withdraw(rig.credentials["P02"], cup["id"])
+    assert rig.app.state.tournament_settlement.start_due() == 0
+    rig.core.register(rig.credentials["P03"], cup["id"])
+    assert rig.app.state.tournament_settlement.start_due() == 1
+    assert {e["account_id"] for e in rig.core.detail(rig.admin, cup["id"])["entrants"]} == {
+        rig.accounts[n]["id"] for n in ["P01", "P03"]
+    }
+
+
+def test_creator_http_capabilities_ownership_eligibility_and_admin_boundaries(rig, client):
+    creator, other = client("P01"), client("P02")
+    cup = creator.post("/api/player-tournaments", json={"name": "Owned", "capacity": 4}).json()
+    assert cup["created_by"] == rig.accounts["P01"]["id"]
+    assert cup["capabilities"] == {"can_create": True, "can_start": True, "can_moderate": False}
+    base = f"/api/player-tournaments/{cup['id']}"
+    assert other.get(base).json()["capabilities"]["can_start"] is False
+    for name in PLAYERS[:2]:
+        cup = client(name).post(base + "/register").json()
+    assert other.post(base + "/start", json={"version": cup["version"]}).status_code == 403
+    for endpoint in ["cancel", "rebuild"]:
+        assert (
+            creator.post(
+                base + "/" + endpoint,
+                json={
+                    "version": cup["version"],
+                    **({"note": "n"} if endpoint == "rebuild" else {}),
+                },
+            ).status_code
+            == 403
+        )
+    assert creator.get(base + "/audit").status_code == 403
+    assert creator.post(base + "/start", json={"version": cup["version"]}).status_code == 200
+    assert (
+        client(UNVERIFIED)
+        .post("/api/player-tournaments", json={"name": "Denied", "capacity": 4})
+        .status_code
+        == 403
+    )
+    with rig.store.connection() as c:
+        assert (
+            c.execute("SELECT role FROM accounts WHERE id=?", (cup["created_by"],)).fetchone()[0]
+            == "USER"
+        )
+
+
+def test_persisted_creation_limits_cannot_be_bypassed_by_cancellation(rig, client):
+    creator = client("P01")
+    body = {"name": "Quota", "capacity": 4}
+    cups = [creator.post("/api/player-tournaments", json=body).json() for _ in range(3)]
+    assert creator.post("/api/player-tournaments", json=body).status_code == 429
+    for cup in cups:
+        rig.core.cancel(rig.admin, cup["id"], cup["version"])
+    for _ in range(2):
+        cup = creator.post("/api/player-tournaments", json=body).json()
+        rig.core.cancel(rig.admin, cup["id"], cup["version"])
+    assert creator.post("/api/player-tournaments", json=body).status_code == 429
+    assert creator.get("/api/player-tournaments").json()["capabilities"]["can_create"] is False
+    rig.clock.value += timedelta(days=1, seconds=1)
+    assert creator.post("/api/player-tournaments", json=body).status_code == 201
+
+
+@pytest.mark.parametrize("name", ["\u202eevil", "bad\x00name", "bad\nname", "   "])
+def test_tournament_name_rejects_controls_and_empty_names(rig, client, name):
+    assert (
+        client("P01")
+        .post("/api/player-tournaments", json={"name": name, "capacity": 4})
+        .status_code
+        == 422
+    )
+
+
+def test_registration_versions_are_atomic_and_reject_stale_custom_seeds(rig, client):
+    cup = scheduled_cup(rig, capacity=4)
+    first = rig.core.register(rig.credentials["P01"], cup["id"])
+    assert first["version"] == 1
+    assert rig.core.register(rig.credentials["P01"], cup["id"])["version"] == 1
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda n: rig.core.register(rig.credentials[n], cup["id"]), ["P02", "P03"]))
+    reviewed = rig.core.detail(rig.admin, cup["id"])
+    assert reviewed["version"] == 3
+    rig.core.withdraw(rig.credentials["P03"], cup["id"])
+    response = client("P01").post(
+        f"/api/player-tournaments/{cup['id']}/start",
+        json={
+            "version": reviewed["version"],
+            "seeds": [e["account_id"] for e in reviewed["entrants"]],
+        },
+    )
+    assert response.status_code == 409
+    assert rig.core.detail(rig.admin, cup["id"])["version"] == 4
+
+
+@pytest.mark.parametrize(
+    "when", ["2027-03-28T03:30:00+02:00", "2027-10-31T02:30:00+02:00", "2027-10-31T02:30:00+01:00"]
+)
+def test_schedule_uses_utc_across_dst_boundaries(rig, client, when):
+    response = client("P01").post(
+        "/api/player-tournaments", json={"name": "DST", "capacity": 2, "scheduled_start_at": when}
+    )
+    assert response.status_code == 201
+    cup = response.json()
+    instant = datetime.fromisoformat(when).astimezone(timezone.utc)
+    assert datetime.fromisoformat(cup["scheduled_start_at"]) == instant
+    for name in PLAYERS[:2]:
+        rig.core.register(rig.credentials[name], cup["id"])
+    rig.clock.value = instant - timedelta(microseconds=1)
+    assert rig.app.state.tournament_settlement.start_due() == 0
+    rig.clock.value = instant
+    assert rig.app.state.tournament_settlement.start_due() == 1
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("scheduled_start_at", "2026-01-01T00:00:00Z"),
+        ("registration_deadline", "2026-01-01T00:00:00Z"),
+        ("scheduled_start_at", "2028-01-01T00:00:00"),
+    ],
+)
+def test_schedule_rejects_past_and_naive_dates(rig, client, field, value):
+    assert (
+        client("P01")
+        .post("/api/player-tournaments", json={"name": "Bad", "capacity": 2, field: value})
+        .status_code
+        == 422
+    )
+
+
+@pytest.mark.parametrize("mode", ["single", "sequential", "simultaneous"])
+@pytest.mark.parametrize("clock_mode,increment", [("per_move", 0), ("total", 0), ("total", 10)])
+def test_match_modes_share_online_clocks_and_sequential_recovery(rig, mode, clock_mode, increment):
+    cup = rig.core.create(
+        rig.credentials["P01"],
+        name="Modes",
+        ruleset="brandubh",
+        capacity=2,
+        match_mode=mode,
+        time_per_move=600,
+        time_control=clock_mode,
+        increment_seconds=increment,
+    )
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.core.start(rig.credentials["P01"], cup["id"], cup["version"])
+    match = ready_matches(rig, cup["id"])[0]
+    assert len(match["legs"]) == (2 if mode == "simultaneous" else 1)
+    first = rig.online.read(rig.admin, match["legs"][0]["game_id"])
+    assert first["time_control"] == clock_mode and first["increment_seconds"] == increment
+    assert first["rated"] is False
+    rig.clock.value += timedelta(seconds=5)
+    move = safe_move(first)
+    rig.online.mutate(
+        rig.by_id[first["participants"]["attackers"]["account_id"]],
+        first["id"],
+        first["version"],
+        "move",
+        source=move.source,
+        target=move.target,
+    )
+    first = rig.online.read(rig.admin, first["id"])
+    if clock_mode == "total":
+        with rig.store.connection() as c:
+            assert (
+                c.execute(
+                    "SELECT attackers_remaining_us FROM online_games WHERE id=?", (first["id"],)
+                ).fetchone()[0]
+                == (595 + increment) * 1000000
+            )
+    force_match(rig, {**match, "legs": match["legs"][:1]}, match["participants"]["a"]["account_id"])
+    from hnefatafl.player_tournament_settlement import TournamentSettlement
+
+    worker = TournamentSettlement(rig.core)  # Restart after game 1, before advancement.
+    worker.recover()
+    assert worker.drain() == 1
+    current = rig.core.match(rig.admin, cup["id"], match["id"])
+    if mode != "single":
+        assert current["status"] == "ready" and len(current["legs"]) == 2
+        second = rig.online.read(rig.admin, current["legs"][1]["game_id"])
+        assert (
+            second["status"] == "active"
+            and second["participants"]["attackers"]["account_id"]
+            == first["participants"]["defenders"]["account_id"]
+        )
+        if mode == "sequential":
+            assert datetime.fromisoformat(second["started_at"]) == rig.clock.value
+        force_match(
+            rig,
+            {**current, "legs": current["legs"][1:]},
+            current["participants"]["a"]["account_id"],
+        )
+        assert worker.drain() == 1
+    assert rig.core.match(rig.admin, cup["id"], match["id"])["status"] == "complete"
+    assert_no_duplicate_matches_or_legs(rig)
+    with rig.store.connection() as c:
+        assert c.execute("SELECT COUNT(*) FROM rating_events").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM achievement_awards").fetchone()[0] == 0
+
+
+def test_ordinary_settle_requests_do_not_acquire_write_lock_or_traverse(rig, monkeypatch):
+    cup = tournament_with_entrants(rig, PLAYERS[:2], capacity=2)
+    rig.core.start(rig.admin, cup["id"], cup["version"])
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("A public retry must remain read-only")
+
+    monkeypatch.setattr(rig.core, "_write", unexpected)
+    monkeypatch.setattr(rig.core, "_advance", unexpected)
+    for _ in range(10):
+        assert rig.core.settle(rig.credentials["P01"], cup["id"])["status"] == "running"
+
+
+@pytest.mark.parametrize("mode", ["single", "sequential", "simultaneous"])
+def test_new_modes_preserve_byes_two_losses_and_grand_final_reset(rig, mode):
+    cup = rig.core.create(
+        rig.admin,
+        name="New bracket",
+        ruleset="brandubh",
+        capacity=5,
+        match_mode=mode,
+        time_per_move=600,
+    )
+    for name in PLAYERS[:5]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.core.start(rig.admin, cup["id"], cup["version"])
+    saw_reset = False
+    for _ in range(60):
+        cup = rig.core.detail(rig.admin, cup["id"])
+        if cup["status"] == "complete":
+            break
+        for match in ready_matches(rig, cup["id"]):
+            saw_reset |= match["bracket"] == "reset"
+            winner = match["participants"]["b" if match["bracket"] == "grand_final" else "a"][
+                "account_id"
+            ]
+            active = [leg for leg in match["legs"] if leg["game_status"] == "active"]
+            assert active
+            force_match(rig, {**match, "legs": active}, winner)
+        rig.app.state.tournament_settlement.drain()
+    assert cup["status"] == "complete" and saw_reset
+    assert_double_elimination(rig, cup["id"])
+    assert_no_duplicate_matches_or_legs(rig)
+
+
+@pytest.mark.parametrize("action", ["cancel", "override", "rebuild"])
+@pytest.mark.parametrize("between_games", [False, True])
+def test_sequential_moderation_does_not_leave_orphaned_games(rig, action, between_games):
+    cup = rig.core.create(
+        rig.admin,
+        name="Moderated",
+        ruleset="brandubh",
+        capacity=2,
+        match_mode="sequential",
+        time_per_move=600,
+    )
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.core.start(rig.admin, cup["id"], cup["version"])
+    match = ready_matches(rig, cup["id"])[0]
+    if between_games:
+        force_match(rig, match, match["participants"]["a"]["account_id"])
+        rig.app.state.tournament_settlement.drain()
+    cup = rig.core.detail(rig.admin, cup["id"])
+    if action == "cancel":
+        rig.core.cancel(rig.admin, cup["id"], cup["version"])
+    elif action == "override":
+        rig.core.override(
+            rig.admin,
+            cup["id"],
+            match["id"],
+            cup["version"],
+            match["participants"]["b"]["account_id"],
+            "Reviewed",
+        )
+    else:
+        rig.core.rebuild(rig.admin, cup["id"], cup["version"], "Re-derive sequential series")
+    rig.app.state.tournament_settlement.drain()
+    assert_no_duplicate_matches_or_legs(rig)
+    with rig.store.connection() as c:
+        assert (
+            c.execute("""SELECT COUNT(*) FROM online_games g
+        WHERE g.status='active' AND NOT EXISTS (SELECT 1 FROM player_tournament_legs l
+        JOIN player_tournament_matches m ON m.id=l.match_id
+        JOIN player_tournaments t ON t.id=m.tournament_id
+        WHERE l.game_id=g.id AND m.status='ready' AND t.status='running')""").fetchone()[0]
+            == 0
+        )
+
+
+def test_disabled_entrant_defers_scheduled_start_until_reactivation(rig):
+    cup = scheduled_cup(rig)
+    for name in PLAYERS[:2]:
+        rig.core.register(rig.credentials[name], cup["id"])
+    with rig.store.connection() as c:
+        c.execute("UPDATE accounts SET active=0 WHERE id=?", (rig.accounts["P02"]["id"],))
+    rig.clock.value += timedelta(minutes=1)
+    worker = rig.app.state.tournament_settlement
+    assert worker.start_due() == 0
+    assert table_counts(rig)["games"] == 0
+    with rig.store.connection() as c:
+        c.execute("UPDATE accounts SET active=1 WHERE id=?", (rig.accounts["P02"]["id"],))
+    rig.clock.value += timedelta(seconds=3)
+    assert worker.start_due() == 1
+
+
+@pytest.mark.parametrize("mode", ["per_move", "total"])
+def test_tournament_timeout_uses_online_worker_and_settles_sequential_leg(rig, mode):
+    cup = rig.core.create(
+        rig.admin,
+        name="Timeout",
+        ruleset="brandubh",
+        capacity=2,
+        match_mode="sequential",
+        time_per_move=60,
+        time_control=mode,
+        increment_seconds=10 if mode == "total" else 0,
+    )
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.core.start(rig.admin, cup["id"], cup["version"])
+    first = ready_matches(rig, cup["id"])[0]
+    rig.clock.value += timedelta(seconds=61)
+    rig.online.sweep()
+    assert rig.app.state.tournament_settlement.drain() == 1
+    current = rig.core.match(rig.admin, cup["id"], first["id"])
+    assert current["status"] == "ready" and len(current["legs"]) == 2
+    assert current["legs"][0]["outcome"] == "b"
+    assert current["legs"][1]["game_status"] == "active"
+
+
+@pytest.mark.parametrize("legs", [1, 2, 3, 4, 5])
+def test_schema19_legacy_tournaments_keep_every_game_and_leg_after_upgrade(rig, legs):
+    from hnefatafl.storage import Store
+
+    cup = tournament_with_entrants(rig, PLAYERS[:2], capacity=2, match_legs=legs)
+    rig.core.start(rig.admin, cup["id"], cup["version"])
+    before = rig.core.matches(rig.admin, cup["id"])["items"]
+    with rig.store.connection() as c:
+        c.execute("DROP INDEX player_tournaments_start_due")
+        for column in [
+            "match_mode",
+            "time_control",
+            "increment_seconds",
+            "start_due_at",
+            "start_attempts",
+            "start_error",
+        ]:
+            c.execute(f"ALTER TABLE player_tournaments DROP COLUMN {column}")
+        c.execute("PRAGMA user_version=19")
+    Store(rig.store.path)
+    upgraded = rig.core.detail(rig.admin, cup["id"])
+    assert upgraded["match_mode"] == "legacy" and upgraded["match_legs"] == legs
+    assert upgraded["time_control"] == "per_move" and upgraded["increment_seconds"] == 0
+    assert rig.core.matches(rig.admin, cup["id"])["items"] == before
+    assert table_counts(rig)["games"] == legs
+    with rig.store.connection() as c:
+        assert not c.execute("PRAGMA foreign_key_check").fetchall()
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 20

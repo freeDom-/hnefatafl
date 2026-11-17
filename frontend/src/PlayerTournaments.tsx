@@ -16,6 +16,15 @@ import { notify } from './notifications';
 import { useOnlinePoll } from './useOnlinePoll';
 import Modal from './Modal';
 import Portrait from './Portrait';
+import LocalDateTimePicker from './LocalDateTimePicker';
+import {
+  ClockFields,
+  MatchModeField,
+  defaultClockInput,
+  clockRequest,
+  matchModeNames,
+} from './OnlineGameOptions';
+import type { MatchMode } from './onlineTypes';
 import type {
   PlayerTournamentBracket,
   PlayerTournamentDetail,
@@ -189,6 +198,7 @@ function MatchCard({
           ))}
         </ol>
       )}
+      {!!match.pending_games && <p>{t('Next game available after the previous game finishes.')}</p>}
       {canOverride && match.status === 'ready' && (
         <button className="button secondary" type="button" onClick={() => onOverride(match)}>
           {t('Override match result')}
@@ -365,6 +375,8 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [clockInput, setClockInput] = useState(defaultClockInput);
+  const [matchMode, setMatchMode] = useState<MatchMode>('single');
   const controller = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const current = useRef({ owner, selectedId, canAdmin });
@@ -465,6 +477,10 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
   const open = (kind: Action, match?: TournamentMatch) => {
     if (controller.current) return;
     setError('');
+    if (kind === 'create') {
+      setClockInput(defaultClockInput);
+      setMatchMode('single');
+    }
     setDialog({ kind, version: tournament?.version, match });
   };
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -491,12 +507,20 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
         setError('Enter a valid date and time.');
         return;
       }
+      let clock;
+      try {
+        clock = clockRequest(clockInput);
+      } catch (failure) {
+        controller.current = null;
+        setError(errorMessage(failure));
+        return;
+      }
       body = {
         name: String(form.get('name')).trim(),
         ruleset: form.get('ruleset'),
         capacity: Number(form.get('capacity')),
-        match_legs: Number(form.get('match_legs')),
-        time_per_move: Number(form.get('time_per_move')),
+        match_mode: matchMode,
+        ...clock,
         registration_deadline: deadline ? new Date(deadline).toISOString() : null,
         scheduled_start_at: plannedStart ? new Date(plannedStart).toISOString() : null,
       };
@@ -558,7 +582,9 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
             {t('Human double-elimination competitions. Every game uses the official online board.')}
           </p>
         </div>
-        {canAdmin && (
+        {(listing.data?.capabilities?.can_create ??
+          tournament?.capabilities?.can_create ??
+          canAdmin) && (
           <button type="button" className="button primary" onClick={() => open('create')}>
             {t('Create player tournament')}
           </button>
@@ -729,15 +755,31 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                 <dd>{t('Double elimination')}</dd>
               </div>
               <div>
-                <dt>{t('Games per match')}</dt>
-                <dd>{numbers.format(tournament.match_legs)}</dd>
+                <dt>{t('Match mode')}</dt>
+                <dd>
+                  {tournament.match_mode && tournament.match_mode !== 'legacy'
+                    ? t(matchModeNames[tournament.match_mode])
+                    : t('Legacy: {count} games per match', { count: tournament.match_legs })}
+                </dd>
               </div>
               <div>
                 <dt>{t('Time control')}</dt>
                 <dd>
-                  {t('{seconds} seconds per move', {
-                    seconds: numbers.format(tournament.time_per_move),
-                  })}
+                  {t(
+                    tournament.time_control === 'total'
+                      ? '{seconds} seconds per player'
+                      : '{seconds} seconds per move',
+                    { seconds: numbers.format(tournament.time_per_move) },
+                  )}
+                  {tournament.time_control === 'total' && (
+                    <>
+                      {' '}
+                      ·{' '}
+                      {t('Increment: {seconds} seconds', {
+                        seconds: tournament.increment_seconds ?? 0,
+                      })}
+                    </>
+                  )}
                 </dd>
               </div>
             </dl>
@@ -745,13 +787,26 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
               <p>
                 {t('Planned start: {date}', { date: date(tournament.scheduled_start_at) })}
                 {tournament.status === 'registration' && (
-                  <> · {t('An administrator starts the tournament after registration.')}</>
+                  <>
+                    {' '}
+                    ·{' '}
+                    {t(
+                      'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.',
+                    )}
+                  </>
                 )}
               </p>
             )}
             {tournament.registration_deadline && (
               <p>
                 {t('Registration closes: {date}', { date: date(tournament.registration_deadline) })}
+              </p>
+            )}
+            {tournament.status === 'registration' && !tournament.scheduled_start_at && (
+              <p>
+                {t(
+                  'The creator or an administrator can start with at least two registered entrants.',
+                )}
               </p>
             )}
             {tournament.started_at && (
@@ -814,19 +869,20 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   </div>
                 </div>
               )}
-            {canAdmin && (
+            {(tournament.capabilities?.can_start || canAdmin) && (
               <div className="player-tournament-admin" aria-label={t('Tournament administration')}>
-                {tournament.status === 'registration' && (
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={busy || tournament.entrant_count < 2 || detail.phase !== 'ready'}
-                    onClick={() => open('start')}
-                  >
-                    {t('Start tournament')}
-                  </button>
-                )}
-                {['registration', 'running'].includes(tournament.status) && (
+                {tournament.status === 'registration' &&
+                  (tournament.capabilities?.can_start ?? canAdmin) && (
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={busy || tournament.entrant_count < 2 || detail.phase !== 'ready'}
+                      onClick={() => open('start')}
+                    >
+                      {t('Start tournament')}
+                    </button>
+                  )}
+                {canAdmin && ['registration', 'running'].includes(tournament.status) && (
                   <button
                     type="button"
                     className="button secondary"
@@ -837,7 +893,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   </button>
                 )}
 
-                {tournament.review_state === 'disputed' && (
+                {canAdmin && tournament.review_state === 'disputed' && (
                   <button
                     type="button"
                     className="button secondary"
@@ -937,182 +993,170 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
           )}
         </>
       )}
-      {dialog && (canAdmin || dialog.kind === 'register' || dialog.kind === 'withdraw') && (
-        <Modal
-          title={t(actionLabels[dialog.kind])}
-          onClose={() => {
-            if (!busy) {
-              setDialog(null);
-              setError('');
-            }
-          }}
-          initialFocus="input,select,textarea,button[type=submit]"
-          className="player-tournament-dialog"
-        >
-          <form onSubmit={(event) => void submit(event)} aria-busy={busy}>
-            <fieldset disabled={busy}>
-              {dialog.kind === 'create' && (
-                <>
-                  <label>
-                    {t('Tournament name')}
-                    <input name="name" required maxLength={120} />
-                  </label>
-                  <label>
-                    {t('Ruleset')}
-                    <select name="ruleset" defaultValue="tablut">
-                      <option value="brandubh">Brandubh</option>
-                      <option value="tablut">Tablut</option>
-                      <option value="copenhagen">Copenhagen</option>
-                    </select>
-                  </label>
-                  <label>
-                    {t('Maximum entrants')}
-                    <input
-                      name="capacity"
-                      type="number"
-                      min={2}
-                      max={64}
-                      step={1}
-                      defaultValue={8}
-                      required
+      {dialog &&
+        (canAdmin ||
+          dialog.kind === 'create' ||
+          (dialog.kind === 'start' && tournament?.capabilities?.can_start) ||
+          dialog.kind === 'register' ||
+          dialog.kind === 'withdraw') && (
+          <Modal
+            title={t(actionLabels[dialog.kind])}
+            onClose={() => {
+              if (!busy) {
+                setDialog(null);
+                setError('');
+              }
+            }}
+            initialFocus="input,select,textarea,button[type=submit]"
+            className="player-tournament-dialog"
+          >
+            <form onSubmit={(event) => void submit(event)} aria-busy={busy}>
+              <fieldset disabled={busy}>
+                {dialog.kind === 'create' && (
+                  <>
+                    <label>
+                      {t('Tournament name')}
+                      <input name="name" required maxLength={120} />
+                    </label>
+                    <label>
+                      {t('Ruleset')}
+                      <select name="ruleset" defaultValue="tablut">
+                        <option value="brandubh">Brandubh</option>
+                        <option value="tablut">Tablut</option>
+                        <option value="copenhagen">Copenhagen</option>
+                      </select>
+                    </label>
+                    <label>
+                      {t('Maximum entrants')}
+                      <input
+                        name="capacity"
+                        type="number"
+                        min={2}
+                        max={64}
+                        step={1}
+                        defaultValue={8}
+                        required
+                      />
+                    </label>
+                    <MatchModeField value={matchMode} onChange={setMatchMode} />
+                    <ClockFields value={clockInput} onChange={setClockInput} />
+                    <LocalDateTimePicker
+                      name="registration_deadline"
+                      label="Registration deadline (your local time, optional)"
                     />
-                  </label>
-                  <label>
-                    {t('Games per match')}
-                    <input
-                      name="match_legs"
-                      type="number"
-                      min={1}
-                      max={5}
-                      step={1}
-                      defaultValue={1}
-                      required
+                    <LocalDateTimePicker
+                      name="scheduled_start_at"
+                      label="Planned start (your local time, optional)"
                     />
-                  </label>
-                  <label>
-                    {t('Seconds per move')}
-                    <input
-                      name="time_per_move"
-                      type="number"
-                      min={60}
-                      max={1209600}
-                      step={1}
-                      defaultValue={259200}
-                      required
-                    />
-                  </label>
-                  <label>
-                    {t('Registration deadline (your local time, optional)')}
-                    <input name="registration_deadline" type="datetime-local" />
-                  </label>
-                  <label>
-                    {t('Planned start (your local time, optional)')}
-                    <input name="scheduled_start_at" type="datetime-local" />
-                  </label>
-                </>
-              )}
-              {dialog.kind === 'register' && (
-                <p>
-                  {t(
-                    'Register your account for this competition? Games are played through the normal online board.',
-                  )}
-                </p>
-              )}
-              {dialog.kind === 'withdraw' && (
-                <p>
-                  {t(
-                    'Withdraw before the bracket is seeded? You may register again while registration remains open.',
-                  )}
-                </p>
-              )}
-              {dialog.kind === 'start' && (
-                <>
+                    <p>
+                      {t(
+                        'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.',
+                      )}
+                    </p>
+                  </>
+                )}
+                {dialog.kind === 'register' && (
                   <p>
                     {t(
-                      'Review the seed order. Starting closes registration and creates official online games.',
+                      'Register your account for this competition? Games are played through the normal online board.',
                     )}
                   </p>
-                  <ol className="player-seed-editor">
-                    {tournament?.entrants.map((entry, index) => (
-                      <li key={entry.account_id}>
-                        <label>
-                          {t('Seed {seed}', { seed: index + 1 })}
-                          <select name="seed" defaultValue={entry.account_id}>
-                            {tournament.entrants.map((candidate) => (
-                              <option key={candidate.account_id} value={candidate.account_id}>
-                                {playerName(candidate, t)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </li>
-                    ))}
-                  </ol>
-                </>
-              )}
-              {dialog.kind === 'cancel' && (
-                <p>
-                  {t(
-                    'Active tournament games will be stopped. Completed results remain in history. Cancel this tournament?',
-                  )}
-                </p>
-              )}
-              {dialog.kind === 'rebuild' && (
-                <p>
-                  {t(
-                    'Rebuild from official corrected results? Displaced active games will be stopped and previous overrides must be reviewed again.',
-                  )}
-                </p>
-              )}
-              {dialog.kind === 'override' && dialog.match && (
-                <>
+                )}
+                {dialog.kind === 'withdraw' && (
                   <p>
-                    {t('Choose the official winner. Active games in this match will be stopped.')}
+                    {t(
+                      'Withdraw before the bracket is seeded? You may register again while registration remains open.',
+                    )}
                   </p>
+                )}
+                {dialog.kind === 'start' && (
+                  <>
+                    <p>
+                      {t(
+                        'Review the seed order. Starting closes registration and creates official online games.',
+                      )}
+                    </p>
+                    <ol className="player-seed-editor">
+                      {tournament?.entrants.map((entry, index) => (
+                        <li key={entry.account_id}>
+                          <label>
+                            {t('Seed {seed}', { seed: index + 1 })}
+                            <select name="seed" defaultValue={entry.account_id}>
+                              {tournament.entrants.map((candidate) => (
+                                <option key={candidate.account_id} value={candidate.account_id}>
+                                  {playerName(candidate, t)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </li>
+                      ))}
+                    </ol>
+                  </>
+                )}
+                {dialog.kind === 'cancel' && (
+                  <p>
+                    {t(
+                      'Active tournament games will be stopped. Completed results remain in history. Cancel this tournament?',
+                    )}
+                  </p>
+                )}
+                {dialog.kind === 'rebuild' && (
+                  <p>
+                    {t(
+                      'Rebuild from official corrected results? Displaced active games will be stopped and previous overrides must be reviewed again.',
+                    )}
+                  </p>
+                )}
+                {dialog.kind === 'override' && dialog.match && (
+                  <>
+                    <p>
+                      {t('Choose the official winner. Active games in this match will be stopped.')}
+                    </p>
+                    <label>
+                      {t('Match winner')}
+                      <select name="winner" required>
+                        {[dialog.match.participants.a, dialog.match.participants.b]
+                          .filter((player): player is TournamentPlayer => player !== null)
+                          .map((player) => (
+                            <option key={player.account_id} value={player.account_id}>
+                              {playerName(player, t)}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  </>
+                )}
+                {needsReason && (
                   <label>
-                    {t('Match winner')}
-                    <select name="winner" required>
-                      {[dialog.match.participants.a, dialog.match.participants.b]
-                        .filter((player): player is TournamentPlayer => player !== null)
-                        .map((player) => (
-                          <option key={player.account_id} value={player.account_id}>
-                            {playerName(player, t)}
-                          </option>
-                        ))}
-                    </select>
+                    {t('Private administrator reason')}
+                    <textarea name="note" required minLength={1} maxLength={1000} />
                   </label>
-                </>
-              )}
-              {needsReason && (
-                <label>
-                  {t('Private administrator reason')}
-                  <textarea name="note" required minLength={1} maxLength={1000} />
-                </label>
-              )}
-              {error && (
-                <p className="player-tournament-error" role="alert">
-                  {t(error)}
-                </p>
-              )}
-              <div className="dialog-actions">
-                <button
-                  className="button secondary"
-                  type="button"
-                  onClick={() => {
-                    setDialog(null);
-                    setError('');
-                  }}
-                >
-                  {t('Back')}
-                </button>
-                <button className="button primary" type="submit">
-                  {t(busy ? 'Saving…' : actionLabels[dialog.kind])}
-                </button>
-              </div>
-            </fieldset>
-          </form>
-        </Modal>
-      )}
+                )}
+                {error && (
+                  <p className="player-tournament-error" role="alert">
+                    {t(error)}
+                  </p>
+                )}
+                <div className="dialog-actions">
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => {
+                      setDialog(null);
+                      setError('');
+                    }}
+                  >
+                    {t('Back')}
+                  </button>
+                  <button className="button primary" type="submit">
+                    {t(busy ? 'Saving…' : actionLabels[dialog.kind])}
+                  </button>
+                </div>
+              </fieldset>
+            </form>
+          </Modal>
+        )}
     </section>
   );
 }

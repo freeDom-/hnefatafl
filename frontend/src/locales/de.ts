@@ -1,4 +1,43 @@
 const translations: Record<string, string> = {
+  'The creator or an administrator can start with at least two registered entrants.':
+    'Der Ersteller oder ein Administrator kann mit mindestens zwei angemeldeten Teilnehmenden starten.',
+  'Next month': 'Nächster Monat',
+  'Previous month': 'Vorheriger Monat',
+  'Calendar navigation': 'Kalendernavigation',
+  'Selected date': 'Ausgewähltes Datum',
+  'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.':
+    'Startet zum geplanten Zeitpunkt automatisch, wenn das Turnier voll ist. Andernfalls kann der Ersteller mit mindestens zwei Teilnehmenden starten.',
+  'Legacy: {count} games per match': 'Bisheriger Modus: {count} Partien pro Begegnung',
+  '{seconds} seconds per player': '{seconds} Sekunden pro Spieler',
+  'Next game available after the previous game finishes.':
+    'Die nächste Partie wird nach Abschluss der vorherigen verfügbar.',
+  'Date (YYYY-MM-DD)': 'Datum (JJJJ-MM-TT)',
+  'Time (HH:MM)': 'Uhrzeit (HH:MM)',
+  'Choose date': 'Datum auswählen',
+  'Clear date': 'Datum löschen',
+  'This local date or time does not exist. Check the date and daylight saving time.':
+    'Dieses lokale Datum oder diese Uhrzeit existiert nicht. Prüfe Datum und Zeitumstellung.',
+  'This time occurs twice. Choose an occurrence.':
+    'Diese Uhrzeit kommt zweimal vor. Wähle einen Zeitpunkt.',
+  'First occurrence': 'Erster Zeitpunkt',
+  'Second occurrence': 'Zweiter Zeitpunkt',
+  'Your timezone: {zone}. Dates are saved in UTC.':
+    'Deine Zeitzone: {zone}. Zeitpunkte werden in UTC gespeichert.',
+  'Tournament creation requires an active, verified account.':
+    'Für die Turniererstellung ist ein aktives, verifiziertes Konto erforderlich.',
+  'Tournament creation limit reached. Try again later.':
+    'Das Limit für die Turniererstellung ist erreicht. Versuche es später erneut.',
+  'Only the creator or an administrator may start this tournament.':
+    'Nur der Ersteller oder ein Administrator darf dieses Turnier starten.',
+  'The planned start must be in the future.': 'Der geplante Start muss in der Zukunft liegen.',
+  'The registration deadline must be in the future.':
+    'Der Anmeldeschluss muss in der Zukunft liegen.',
+  'All entrants must have active, verified accounts before starting.':
+    'Vor dem Start müssen alle Teilnehmenden aktive, verifizierte Konten haben.',
+  'A supported match mode is required.': 'Ein unterstützter Begegnungsmodus ist erforderlich.',
+  'Game count does not match the selected match mode.':
+    'Die Anzahl der Partien stimmt nicht mit dem gewählten Modus überein.',
+
   'Registration is closed. Registered entrants may withdraw until the tournament starts.':
     'Die Anmeldung ist geschlossen. Angemeldete Teilnehmende können ihre Anmeldung bis zum Turnierstart zurückziehen.',
   'Player tournaments': 'Spielerturniere',
@@ -65,7 +104,6 @@ const translations: Record<string, string> = {
     'Die Turnierdaten konnten nicht aktualisiert werden. Angezeigte Ergebnisse sind möglicherweise veraltet.',
   Refresh: 'Aktualisieren',
   Status: 'Status',
-  'All statuses': 'Alle Status',
   'The next saga is still to come': 'Die nächste Saga wartet noch',
   'No tournaments match these filters. Check back for registration, or explore online games while the community grows.':
     'Kein Turnier entspricht diesen Filtern. Schau später nach neuen Anmeldungen oder entdecke Onlinepartien, während die Gemeinschaft wächst.',
@@ -182,7 +220,6 @@ const translations: Record<string, string> = {
   'First move': 'Erster Zug',
   'Last move': 'Letzter Zug',
   'Move {current} of {total}': 'Zug {current} von {total}',
-  'Time control': 'Zeitkontrolle',
   'Total time': 'Gesamtzeit',
   'Per move': 'Pro Zug',
   '{seconds} seconds': '{seconds} Sekunden',
