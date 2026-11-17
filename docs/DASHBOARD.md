@@ -284,3 +284,15 @@ remain private and age uses completed years on the UTC date; see
 The **Unlocked portraits** standing-card heading links to `/portraits`, where
 [Portrait Hall](PROGRESSION.md#portrait-hall-and-player-artwork) displays actual
 automatically awarded achievement progress and selects earned artwork.
+
+## Polling and hidden tabs
+
+Historical single/local/recent records and compact standings refresh once per
+minute; online totals refresh every ten seconds and the active hero every five.
+Actual online participant play retains its own five-second updates. Hidden tabs
+pause periodic reads and request fresh snapshots on return. Server versions and
+result aggregates invalidate affected projections, including the shared
+achievement progress read, and the countdown still derives seconds from the
+authoritative deadline. Routes without a completion signal use the shared
+achievement read's low-frequency visible-tab backstop. See
+[measurement and limits](validation/dashboard-polling.md).

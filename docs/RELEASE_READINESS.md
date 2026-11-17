@@ -7,9 +7,10 @@ separate release-preparation report, not a release/tag/version authorization.
 [Deployment](DEPLOYMENT.md) · [Security](SECURITY.md) · [Release procedure](RELEASING.md)
 
 Post-audit delivery: **Portrait Hall, achievement claiming and selection are
-delivered by PR #86** and its checks are not re-run here. The human tournament
+delivered by PR #86**, and the signed-out public spectator frontend is delivered
+by PR #87; their checks are not re-run here. The human tournament
 backend (schema 18) already existed at the baseline; automatic settlement, leagues,
-the signed-out spectator frontend, Workshop consolidation and local-analysis
+Workshop consolidation and local-analysis
 research remain outstanding. Checkbox state below records the audited baseline.
 
 ## Blocking product and evidence gaps

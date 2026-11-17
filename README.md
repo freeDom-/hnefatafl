@@ -34,7 +34,8 @@ from scratch with real self-play learning.
 
 ## Quick start
 
-Use **Python 3.12 recommended** (3.11+ supported), **Node 22+** (CI uses 24) and
+Use **Python 3.12 recommended** (3.11+ supported), **Node.js 22.12+** (or 24+;
+CI uses 24) and
 [uv](https://docs.astral.sh/uv/getting-started/installation/) (CI pins 0.12.23).
 From the repository root:
 
@@ -141,11 +142,12 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 
 ## Current limitations
 
-The current React player interface requires a server connection and an authenticated
-account. The authenticated Portrait Hall and portrait selection originated in
-PR #86; PR #94 adds automatic tiered achievements. Read-only public online APIs already exist, but
-signed-out spectator pages
-are not implemented yet. See the [completion audit](docs/designs/arena-completion.md)
+A server connection is required. The public Watch Hall at `/watch` offers
+read-only online discovery, live viewing and completed replay without an account;
+playing games, private history and profiles require authentication. The
+authenticated Portrait Hall and portrait selection originated in PR #86, and
+PR #94 adds automatic tiered achievements and portrait progression. See the
+[completion audit](docs/designs/arena-completion.md)
 and [public release-readiness checklist](docs/RELEASE_READINESS.md). Verified accounts
 can create/join games in the online lobby when the operator enables admission;
 registration and online admission default off. Automatic timeout losses and rating

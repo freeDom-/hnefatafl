@@ -24,16 +24,17 @@ export type ProgressionValue = {
  * One account baseline and event-driven refreshes; never recurring per-component
  * polling. The single caller is `ProgressionProvider`, which shares the result.
  */
-export function useAchievementNotifications(owner: string | undefined): ProgressionValue {
+export function useAchievementNotifications(
+  owner: string | undefined,
+  intervalMs: number = PROGRESSION_POLL_MS,
+): ProgressionValue {
   const { t, locale } = useI18n();
   const load = useCallback(
     (signal: AbortSignal) =>
       api<AchievementProgress>('/personal/achievements', undefined, undefined, signal),
     [],
   );
-  const poll = useOnlinePoll(`progression:${owner ?? 'anonymous'}`, load, {
-    intervalMs: PROGRESSION_POLL_MS,
-  });
+  const poll = useOnlinePoll(`progression:${owner ?? 'anonymous'}`, load, { intervalMs });
   // A first read establishes the baseline: historical awards are never announced.
   const previous = useRef<{ owner: string; data: AchievementProgress } | null>(null);
   useEffect(() => {
@@ -42,10 +43,15 @@ export function useAchievementNotifications(owner: string | undefined): Progress
     const prior = previous.current;
     previous.current = { owner, data: next };
     if (!prior || prior.owner !== owner) return;
-    const old = new Set(prior.data.items.filter((item) => item.unlocked).map((item) => item.id));
-    const added = next.items.filter((item) => item.unlocked && !old.has(item.id));
-    const portraits = next.unlocked_portrait_ids.filter(
-      (id) => !prior.data.unlocked_portrait_ids.includes(id),
+    // Tolerate a partial projection (for example a mocked or pre-upgrade
+    // response) without failing the whole shell; a full server payload always
+    // carries both collections.
+    const priorItems = prior.data.items ?? [];
+    const old = new Set(priorItems.filter((item) => item.unlocked).map((item) => item.id));
+    const added = (next.items ?? []).filter((item) => item.unlocked && !old.has(item.id));
+    const priorPortraits = prior.data.unlocked_portrait_ids ?? [];
+    const portraits = (next.unlocked_portrait_ids ?? []).filter(
+      (id) => !priorPortraits.includes(id),
     );
     if (!added.length && !portraits.length) return;
     const number = new Intl.NumberFormat(locale);
@@ -53,14 +59,15 @@ export function useAchievementNotifications(owner: string | undefined): Progress
       notify.success(
         t('New milestones: {count} · +{points} points', {
           count: number.format(added.length),
-          points: number.format(next.summary.earned_points - prior.data.summary.earned_points),
+          points: number.format(
+            (next.summary?.earned_points ?? 0) - (prior.data.summary?.earned_points ?? 0),
+          ),
         }),
       );
     if (portraits.length)
       notify.success(
         t('New portraits available: {count}', { count: number.format(portraits.length) }),
       );
-    window.dispatchEvent(new Event('profile-changed'));
   }, [owner, poll.data, t, locale]);
   // Explicit completion signals from the game room, analysis and dashboard polls
   // refresh the shared read instead of each owner fetching its own copy.

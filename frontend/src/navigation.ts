@@ -17,7 +17,9 @@ export function safeDestination(value: string | null): string {
     '/tournaments',
     '/archive',
     '/online',
+    '/watch',
   ].includes(path) ||
+    /^\/watch\/games\/[A-Za-z0-9_-]{1,128}(?:\/replay)?$/.test(path) ||
     /^\/online\/games\/online-[0-9a-f]{32}(?:\/review)?$/.test(path) ||
     /^\/(?:games|dashboard\/single-player)\/(?!online-)[A-Za-z0-9_-]{1,100}$/.test(path)
     ? path + url.search + url.hash

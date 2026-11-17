@@ -74,10 +74,10 @@ visibility, persistence and close-on-leave assertions remain intact.
 Achievement progress is now shared, not per-component. One `ProgressionProvider`
 owns the single account-scoped `GET /personal/achievements` read for the
 authenticated shell; the Dashboard and the Portrait Hall consume it instead of
-fetching their own copy. A 15-second visible-tab backstop reconciles a remote
-online completion on routes without a live game poll, while the Dashboard's
-existing online-history poll still signals immediately when authoritative result
-totals change. The recurring read suspends while the page is hidden, refreshes
+fetching their own copy. The Dashboard and an open game room invalidate the shared
+read from their own authoritative polls, so they add no recurring achievement
+traffic. Other Arena routes use a 15-second visible-tab backstop to reconcile a
+remote online completion. The recurring read suspends while the page is hidden, refreshes
 coalesce, a new account mounts a fresh session that aborts the previous read, and
 repeated unchanged results do not notify again. The Portrait Hall regression test
 renders the `/portraits` route component, simulates a remote completion with no
@@ -111,18 +111,25 @@ marked historical and points here.
 
 ## Final review correction validation
 
+The correction branch merged the current `main` so the polling and lazy-loading
+work (PRs #87, #89 and #91) composes with the shared progression read. The
+Dashboard and an open game room keep their own authoritative polls and drive the
+shared read from those; only routes without a completion signal use the recurring
+backstop, which keeps the established Dashboard request budget unchanged. Vitest
+was upgraded to the version `main` now locks.
+
 Local checks on the correction head:
 
-- Frontend unit suite: 95 files / 1,337 tests passed. TypeScript, Prettier, the
+- Frontend unit suite: 96 files / 1,407 tests passed. TypeScript, Prettier, the
   production build and the documentation link check passed.
-- Python: 3,404 passed, 51 skipped. Six `test_mcts_optimization` frozen-reference
+- Python: 3,411 passed, 51 skipped. Six `test_mcts_optimization` frozen-reference
   digest cases fail identically at the reviewed base commit `73d2440` in this
-  environment; they are unrelated to these changes and pass in CI. Focused
-  progression/ratings/replay-concurrency (97) and
-  security/migration/profile/analysis (199) runs passed.
-- Playwright: achievement tiers and Portrait Hall across four themes and both
-  projects (18 passed); mobile play, portrait fallback, notifications, new
-  features and shared UI (13 passed, 3 project skips).
+  environment; they are unrelated to these changes and pass in CI. A focused
+  progression/ratings/replay-concurrency/security/migration/deployment run
+  passed (161).
+- Playwright: Portrait Hall and achievement tiers across four themes and both
+  projects, plus portrait fallback, mobile play and notifications (27 passed,
+  one project skip).
 - Ruff, Ruff format and mypy (69 modules) passed. The win-streak benchmark was
   regenerated at 25 samples: 3.90 ms full fold versus 0.045 ms tail probe for a
   2,000-game ledger (see the [measurement](../benchmarks/progression-streaks.md)).

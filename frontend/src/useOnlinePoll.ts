@@ -44,22 +44,25 @@ export function useOnlinePoll<T>(
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | null = null;
     let waiters: ((data: T | null) => void)[] = [];
-    // A hidden tab stops its recurring read and defers event-driven refreshes
-    // until it is visible again; the first mount read still runs so a restored
-    // tab paints current data instead of an empty state.
-    const isHidden = () => document.visibilityState === 'hidden';
     setSnapshot({ key, data: null, phase: 'loading', error: null, refreshing: false });
     const schedule = (delay: number) => {
       clearTimeout(timer);
-      if (alive && !held && !isHidden()) timer = setTimeout(() => void run(), delay);
+      if (alive && !held && document.visibilityState !== 'hidden')
+        timer = setTimeout(() => void run(), delay);
     };
     /** `null` means no recurring read: an interval of 0 is event-driven only. */
     const nextDelay = (queuedRun: boolean): number | null => {
       if (queuedRun) return 0;
-      return intervalMs > 0 ? Math.min(intervalMs * 2 ** failures, MAX_POLL_BACKOFF_MS) : null;
+      if (intervalMs <= 0) return null;
+      // Never retry a failed read sooner than its configured cadence, and grow
+      // the delay exponentially up to a bounded ceiling. Short cadences keep the
+      // shared 30 s ceiling; a long historical cadence caps at twice its own
+      // interval so repeated failures still back off instead of staying pinned.
+      const ceiling = Math.max(intervalMs * 2, MAX_POLL_BACKOFF_MS);
+      return Math.min(intervalMs * 2 ** failures, ceiling);
     };
-    const run = async () => {
-      if (!alive || held) return;
+    const run = async (initialRead = false) => {
+      if (!alive || held || (!initialRead && document.visibilityState === 'hidden')) return;
       if (running) {
         queued = true;
         return;
@@ -111,13 +114,10 @@ export function useOnlinePoll<T>(
           return;
         }
         waiters.push(resolve);
-        if (held) return;
-        if (isHidden()) {
-          queued = true;
-          return;
+        if (!held && document.visibilityState !== 'hidden') {
+          if (running) queued = true;
+          else void run();
         }
-        if (running) queued = true;
-        else void run();
       });
     const hold = () => {
       held = true;
@@ -141,11 +141,7 @@ export function useOnlinePoll<T>(
     };
     controls.current = active;
     const wake = () => {
-      if (held) return;
-      if (isHidden()) {
-        queued = true;
-        return;
-      }
+      if (held || document.visibilityState === 'hidden') return;
       if (running) queued = true;
       else void run();
     };
@@ -158,15 +154,25 @@ export function useOnlinePoll<T>(
       controller?.abort();
     };
     const visible = () => {
-      if (document.visibilityState === 'visible') wake();
-      else clearTimeout(timer);
+      if (document.visibilityState === 'visible') {
+        wake();
+      } else {
+        // Hiding is a pause, not a failed request. Keep the last ready/stale data
+        // and invalidate even loads that ignore AbortSignal until they resolve.
+        revision++;
+        clearTimeout(timer);
+        controller?.abort();
+        setSnapshot((previous) => ({ ...previous, refreshing: false }));
+      }
     };
     document.addEventListener('visibilitychange', visible);
     window.addEventListener('focus', wake);
     window.addEventListener('profile-changed', wake);
     window.addEventListener('online', wake);
     window.addEventListener('offline', offline);
-    void run();
+    // Preserve the initial read for a background-opened route; only recurring
+    // and wake reads pause. Returning to the tab always requests a fresh snapshot.
+    void run(true);
     return () => {
       alive = false;
       revision++;

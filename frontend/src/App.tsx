@@ -1,6 +1,7 @@
 import { ArenaShell, SHELL_MAIN_ID, WorkshopShell } from './ArenaShell';
 import NewGame from './NewGame';
 import { ProgressionProvider } from './Progression';
+import { PROGRESSION_POLL_MS } from './useAchievementNotifications';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n } from './i18n';
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
@@ -502,9 +503,13 @@ export default function App() {
   const workshop = tab === 'training' || tab === 'tournaments';
   const shellCurrent = tab === 'online' ? 'play' : tab;
   const Shell = workshop ? WorkshopShell : ArenaShell;
+  // The Dashboard and an open game already invalidate the shared read from their
+  // own authoritative polls. Everything else uses the low-frequency backstop so
+  // a remote completion reaches Portrait Hall, Profile and other Arena routes.
+  const progressionPoll = tab === 'dashboard' || (tab === 'play' && game) ? 0 : PROGRESSION_POLL_MS;
 
   return (
-    <ProgressionProvider owner={account?.id}>
+    <ProgressionProvider owner={account?.id} intervalMs={progressionPoll}>
       <PlayTabsProvider key={account?.id}>
         <Shell account={account} logout={logout} current={shellCurrent}>
           <main id={SHELL_MAIN_ID} tabIndex={-1}>

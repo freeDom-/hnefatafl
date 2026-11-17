@@ -37,7 +37,9 @@ export async function openGameOptions(page: Page) {
       .getByRole('button', { name: /Game options|Spieloptionen/, exact: true })
       .isVisible())
   ) {
-    await gameTab(page, 'analytics');
+    // Desktop exposes the options in the Analytics tab, which some layouts
+    // (online games, reviews without settings) deliberately omit.
+    await gameTab(page, 'analytics', { optional: true });
     return;
   }
   const dialog = page.getByRole('dialog', { name: /Game options|Spieloptionen/, exact: true });
@@ -54,7 +56,11 @@ export async function closeGameOptions(page: Page) {
       .click();
 }
 
-export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') {
+export async function gameTab(
+  page: Page,
+  tab: 'moves' | 'analytics' | 'games',
+  { optional = false }: { optional?: boolean } = {},
+) {
   if (/^\/(games|online\/games)\//.test(new URL(page.url()).pathname))
     await expect(page.getByRole('grid')).toBeVisible();
   await closeGameOptions(page);
@@ -63,10 +69,23 @@ export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') 
     analytics: /^(Analytics|Analyse)$/,
     games: /^(My games|Meine Partien)$/,
   };
-  const button = page
-    .locator('.mobile-inspector, .desktop-inspector')
-    .getByRole('tab', { name: names[tab] });
-  if (await button.isVisible()) await button.click();
+  const inspector = page.locator('.mobile-inspector, .desktop-inspector');
+  const tabButton = inspector.getByRole('tab', { name: names[tab] });
+  if (optional) {
+    // The inspector mounts after the board and once the viewport media query has
+    // resolved. Wait for it before reading the tab list, then switch only when
+    // the layout exposes the tab; a tab the layout omits must not be waited on.
+    await expect(inspector).toBeVisible();
+    if (await tabButton.count()) {
+      await expect(tabButton).toBeVisible();
+      await tabButton.click();
+    }
+    return;
+  }
+  // Required tabs retry through the asynchronous mount and fail loudly when a
+  // layout omits them or renders duplicate controls.
+  await expect(tabButton).toBeVisible();
+  await tabButton.click();
 }
 
 export async function showMove(page: Page, ply: number) {
@@ -102,12 +121,13 @@ export async function openGameNavigation(page: Page) {
 export async function openWorkshop(page: Page, destination?: string) {
   // The desktop rail exposes an "AI Workshop" link; the compact header keeps the
   // workspace switch button. Support both so the helper is shell-agnostic.
-  const railEntry = page.getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ });
-  if (await railEntry.isVisible().catch(() => false)) {
-    await railEntry.click();
-  } else {
-    await page.getByRole('button', { name: /^(Workshop|Werkstatt)$/, exact: true }).click();
-  }
+  // Resolve the currently visible entry at action time. A lazy entry or a
+  // responsive transition may not have mounted either shell at the first read.
+  await page
+    .getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ })
+    .or(page.getByRole('button', { name: /^(Workshop|Werkstatt)$/, exact: true }))
+    .filter({ visible: true })
+    .click();
   await expect(page).toHaveURL(/\/training$/);
   if (destination) await openDestination(page, destination);
 }

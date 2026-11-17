@@ -24,6 +24,72 @@ const translations: Record<string, string> = {
   'Milestone rewards': 'Meilenstein-Belohnungen',
   '{points} points': '{points} Punkte',
 
+  'Watch public games': 'Öffentliche Partien ansehen',
+  'THE WATCH HALL': 'DIE ZUSCHAUERHALLE',
+  'Every table tells a saga.': 'Jeder Tisch erzählt eine Saga.',
+  'Watch live online games and explore completed replays. No account needed.':
+    'Verfolge laufende Onlinepartien und erkunde abgeschlossene Aufzeichnungen. Kein Konto erforderlich.',
+  'Public player': 'Öffentlicher Spielername',
+  'Public games': 'Öffentliche Partien',
+  'Public game pages': 'Seiten der öffentlichen Partien',
+  'The tables are quiet.': 'An den Tischen ist es still.',
+  'No public games match these filters. Try another ruleset or return when the next saga begins.':
+    'Keine öffentlichen Partien entsprechen diesen Filtern. Wähle andere Regeln oder kehre zurück, wenn die nächste Saga beginnt.',
+  'Create an account to play': 'Zum Spielen ein Konto erstellen',
+  'Loading public games…': 'Öffentliche Partien werden geladen…',
+  'Loading public game…': 'Öffentliche Partie wird geladen…',
+  'Public viewing is unavailable.': 'Öffentliches Zuschauen ist nicht verfügbar.',
+  'Public viewing is busy. Please retry shortly.':
+    'Das öffentliche Zuschauen ist ausgelastet. Bitte versuche es gleich erneut.',
+  'Public viewing timed out. Please retry.':
+    'Das öffentliche Zuschauen hat zu lange gedauert. Bitte versuche es erneut.',
+  'Retry is temporarily unavailable. The viewer will retry automatically.':
+    'Erneut versuchen ist vorübergehend nicht möglich. Die Ansicht versucht es automatisch erneut.',
+  'This replay could not be validated.': 'Diese Aufzeichnung konnte nicht überprüft werden.',
+  'Public games could not be loaded. Please retry.':
+    'Öffentliche Partien konnten nicht geladen werden. Bitte versuche es erneut.',
+  'Public page not found.': 'Öffentliche Seite nicht gefunden.',
+  'This public link does not exist. Return to the Watch Hall to browse live games and replays.':
+    'Dieser öffentliche Link existiert nicht. Kehre zur Zuschauerhalle zurück, um laufende Partien und Aufzeichnungen zu durchsuchen.',
+  'Back to public games': 'Zurück zu den öffentlichen Partien',
+  'Watch replay': 'Aufzeichnung ansehen',
+  'Watch game': 'Partie ansehen',
+  'Attackers win': 'Angreifer gewinnen',
+  'Defenders win': 'Verteidiger gewinnen',
+  'Replay controls': 'Wiedergabesteuerung',
+  'Skip to content': 'Zum Inhalt springen',
+  'All public games': 'Alle öffentlichen Partien',
+  'Public game viewer': 'Öffentliche Partieansicht',
+  WATCHING: 'ZUSCHAUEN',
+  REPLAY: 'WIEDERGABE',
+  'Read-only spectator': 'Zuschauen ohne Spieleingriff',
+  'Live positions refresh automatically while this page is visible.':
+    'Laufende Stellungen werden automatisch aktualisiert, solange diese Seite sichtbar ist.',
+  'Move deadline': 'Zugfrist',
+  'Use Left/Right arrows or Home/End in the replay controls. Board arrows navigate squares.':
+    'Nutze Links/Rechts oder Pos1/Ende bei der Aufzeichnungssteuerung. Auf dem Brett bewegen die Pfeiltasten den Fokus zwischen Feldern.',
+  'Watching never provides move advice or changes the game.':
+    'Beim Zuschauen gibt es keine Zugempfehlungen und keine Eingriffe in die Partie.',
+  'Public navigation': 'Öffentliche Navigation',
+  'Three battlefields. Real players. New sagas.': 'Drei Schlachtfelder. Echte Spieler. Neue Sagen.',
+  'Join the table': 'Nimm am Tisch Platz',
+  'Open seat': 'Freier Platz',
+  'No official result': 'Kein offizielles Ergebnis',
+  '{side} won': '{side} haben gewonnen',
+  'All statuses': 'Alle Status',
+  'All results': 'Alle Ergebnisse',
+  'Apply filters': 'Filter anwenden',
+  'First move': 'Erster Zug',
+  'Last move': 'Letzter Zug',
+  'Move {current} of {total}': 'Zug {current} von {total}',
+  'Time control': 'Zeitkontrolle',
+  'Total time': 'Gesamtzeit',
+  'Per move': 'Pro Zug',
+  '{seconds} seconds': '{seconds} Sekunden',
+  'Time remaining': 'Verbleibende Zeit',
+  'This page could not be loaded.': 'Diese Seite konnte nicht geladen werden.',
+  'Retry to load the latest application files.':
+    'Lade die Seite erneut, um die aktuellen Anwendungsdateien zu laden.',
   'Your saga, your portrait': 'Deine Saga, dein Porträt',
   'Portrait hall': 'Porträthalle',
   'Earn Viking portraits through your games. Achievements unlock automatically from official results.':

@@ -31,15 +31,13 @@ import DashboardCountdown from './DashboardCountdown';
 import type { Leaderboard as LeaderboardData, OnlineGame } from './onlineTypes';
 import type { Profile } from './ProfilePage';
 import type { Game, Side } from './types';
-import './personalDashboard.css';
-
 import type { PortraitCatalog } from './portraitTypes';
 import { useProgression } from './Progression';
 import Portrait from './Portrait';
+import './personalDashboard.css';
 
 /** The active game's authoritative state, discriminated by its API source. */
 type ActiveBoard = { kind: 'online'; game: OnlineGame } | { kind: 'single'; game: Game };
-
 const sideNames: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const statusNames: Record<string, string> = {
   waiting: 'Waiting',
@@ -133,19 +131,12 @@ function DashboardHome({
     (signal: AbortSignal) => api<Profile>('/profile', undefined, undefined, signal),
     [],
   );
-  const single = useOnlinePoll(`dashboard-account:${accountId}`, loadAccount);
-  const online = useOnlinePoll(`dashboard-online:${accountId}`, loadOnline);
-  const observedOnline = useRef<{ owner: string; results: string } | null>(null);
-  const onlineResults = online.data ? JSON.stringify(online.data.totals) : null;
-  useEffect(() => {
-    if (onlineResults === null) return;
-    const previous = observedOnline.current;
-    observedOnline.current = { owner: accountId, results: onlineResults };
-    if (previous?.owner === accountId && previous.results !== onlineResults)
-      window.dispatchEvent(new Event('progression-changed'));
-  }, [accountId, onlineResults]);
-  const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent);
-  const local = useOnlinePoll(`dashboard-local:${accountId}`, loadLocal);
+  const single = useOnlinePoll(`dashboard-account:${accountId}`, loadAccount, {
+    intervalMs: 60000,
+  });
+  const online = useOnlinePoll(`dashboard-online:${accountId}`, loadOnline, { intervalMs: 10000 });
+  const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent, { intervalMs: 60000 });
+  const local = useOnlinePoll(`dashboard-local:${accountId}`, loadLocal, { intervalMs: 60000 });
   const progress = useOnlinePoll(`dashboard-progress:${accountId}`, loadProgress, {
     intervalMs: 0,
   });
@@ -188,6 +179,7 @@ function DashboardHome({
   const board = useOnlinePoll(
     `dashboard-board:${accountId}:${activeId || 'none'}`,
     loadActiveBoard,
+    { intervalMs: activeId ? 5000 : 0 },
   );
   const loadStanding = useCallback(
     (signal: AbortSignal) =>
@@ -202,6 +194,82 @@ function DashboardHome({
   const standing = useOnlinePoll(`dashboard-standing:${accountId}:${focusRuleset}`, loadStanding, {
     intervalMs: 0,
   });
+  const lastBoardVersion = useRef<{ id: string; version: number } | null>(null);
+  const boardVersion = board.data?.game.version;
+  const boardKind = board.data?.kind;
+  const boardMode = board.data?.kind === 'single' ? board.data.game.mode : null;
+  useEffect(() => {
+    if (!activeId || typeof boardVersion !== 'number') {
+      lastBoardVersion.current = null;
+      return;
+    }
+    const previous = lastBoardVersion.current;
+    lastBoardVersion.current = { id: activeId, version: boardVersion };
+    if (previous?.id !== activeId || previous.version === boardVersion) return;
+    // The five-second live board carries a server version. Only actual changes
+    // invalidate its owning queue; unchanged clock snapshots do not reload stats.
+    // The refreshed queue then updates the authoritative aggregate/completion
+    // signatures below, which own the achievement invalidation.
+    if (boardKind === 'online') void online.refresh();
+    else if (boardMode === 'local') void local.refresh();
+    else void single.refresh();
+  }, [activeId, boardVersion, boardKind, boardMode, online.refresh, local.refresh, single.refresh]);
+  // Authoritative completion counts from the 60-second history polls. A change
+  // after the initial load is a new completion (or a correction that changes the
+  // count), including games that were never the active hero.
+  const singleCompleted = single.data?.totals?.completed_games ?? null;
+  const localCompleted = local.data?.totals?.completed_games ?? null;
+  const previousCompletion = useRef<{ single: number | null; local: number | null } | null>(null);
+  useEffect(() => {
+    const previous = previousCompletion.current;
+    previousCompletion.current = { single: singleCompleted, local: localCompleted };
+    if (previous === null) return;
+    // A null previous value is a first load or an account switch, not a change.
+    const singleChanged =
+      singleCompleted !== null && previous.single !== null && singleCompleted !== previous.single;
+    const localChanged =
+      localCompleted !== null && previous.local !== null && localCompleted !== previous.local;
+    if (!singleChanged && !localChanged) return;
+    void recent.refresh();
+    void progression.refresh();
+  }, [singleCompleted, localCompleted, recent.refresh, progression.refresh]);
+  const resultSignature = online.data
+    ? JSON.stringify(
+        online.data.statistics?.groups?.map((group) => [
+          group.ruleset,
+          group.played,
+          group.wins,
+          group.losses,
+          group.draws,
+          group.rating,
+          // Side-specific wins/losses catch corrections that keep the aggregate
+          // win/loss totals but change which seat won.
+          group.by_side
+            ? (['attackers', 'defenders'] as const).map((side) => {
+                const metrics = group.by_side?.[side];
+                return metrics
+                  ? [side, metrics.played, metrics.wins, metrics.losses, metrics.draws]
+                  : [side, null];
+              })
+            : null,
+        ]) ?? [],
+      )
+    : null;
+  const previousResults = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousResults.current;
+    previousResults.current = resultSignature;
+    if (previous === null || resultSignature === null || previous === resultSignature) return;
+    // Also catches results/corrections in another game/client, including when the
+    // bounded queue removes a completed hero before its next board poll arrives.
+    // Achievements reuse this event-driven poll, so the unlocked-portrait count
+    // reflects newly earned (or corrected) awards without another timer.
+    void progress.refresh();
+    void standing.refresh();
+    void recent.refresh();
+    void progression.refresh();
+    window.dispatchEvent(new Event('rated-results-changed'));
+  }, [resultSignature, progress.refresh, standing.refresh, recent.refresh, progression.refresh]);
   const onlineGroup = online.data?.statistics?.groups?.find(
     (group) => group.ruleset === focusRuleset,
   );
@@ -284,7 +352,12 @@ function DashboardHome({
             : gamesStale
               ? t('Game totals unavailable or stale.')
               : yourTurnCount > 0
-                ? t('{count} games await your move', { count: number.format(yourTurnCount) })
+                ? t(
+                    yourTurnCount === 1
+                      ? '{count} game awaits your move'
+                      : '{count} games await your move',
+                    { count: number.format(yourTurnCount) },
+                  )
                 : t('No games await your move.')}
         </span>
       </header>

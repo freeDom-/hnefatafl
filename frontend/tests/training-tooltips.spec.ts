@@ -1,5 +1,6 @@
 import { expect, test, type Page } from './auth-fixture';
 import { openCollection, openCreation } from './workshop-helpers';
+import { openWorkshop as enterWorkshop } from './play-helpers';
 
 const api = 'http://127.0.0.1:8001/api';
 
@@ -7,9 +8,7 @@ async function openWorkshop(page: Page) {
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   await page.goto('/dashboard?setup=single-player');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  const railEntry = page.getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ });
-  if (await railEntry.isVisible().catch(() => false)) await railEntry.click();
-  else await page.getByRole('button', { name: 'Workshop', exact: true }).click();
+  await enterWorkshop(page);
   await expect(page).toHaveURL(/\/training$/);
 }
 
@@ -286,7 +285,7 @@ test('a resume-dialog tooltip renders inside the modal and Escape keeps it open'
   await expect(dialog).toHaveCount(0);
 });
 
-test('a long German description becomes a scrollable panel when zoomed', async ({
+test('a long German description remains scrollable and keeps its trigger reachable when zoomed', async ({
   page,
   context,
 }) => {
@@ -297,20 +296,31 @@ test('a long German description becomes a scrollable panel when zoomed', async (
 
   const icon = page.getByRole('button', { name: 'Inferenzcache erklären', exact: true });
   await icon.click();
-  const tooltip = page.getByRole('tooltip');
-  await expect(tooltip).toBeVisible();
-  await expect(tooltip).toContainText('Verwendet neuronale Auswertungen identischer Stellungen');
-  const box = await tooltip.boundingBox();
+  // This description fits the whole viewport, but neither side of its trigger.
+  // Keeping the trigger reachable therefore already needs a scroll region at 1×.
+  const initialPanel = page.getByRole('region', { name: 'Inferenzcache' });
+  await expect(initialPanel).toBeVisible();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await expect(initialPanel).toContainText(
+    'Verwendet neuronale Auswertungen identischer Stellungen',
+  );
+  const box = await initialPanel.boundingBox();
   expect(box).not.toBeNull();
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.y).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(360);
   expect(box!.y + box!.height).toBeLessThanOrEqual(420);
 
-  // A 200% page-scale zoom is a real visual-viewport change (not a physical pinch
-  // gesture) that halves the visible area to 180 × 210. The long description no
-  // longer fits, so it must become a scrollable region instead of a tooltip. The
-  // pointer is parked in the corner so the zoom cannot open another field's help.
+  const initialTrigger = await icon.boundingBox();
+  expect(initialTrigger).not.toBeNull();
+  expect(
+    box!.y >= initialTrigger!.y + initialTrigger!.height + 5 ||
+      box!.y + box!.height <= initialTrigger!.y - 5,
+  ).toBe(true);
+
+  // A 200% page-scale zoom halves the visible area to 180 × 210. The full
+  // description must remain scrollable without covering its trigger. The pointer
+  // is parked in the corner so zoom cannot open another field's help.
   await page.mouse.move(0, 0);
   const client = await context.newCDPSession(page);
   await client.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
@@ -328,9 +338,22 @@ test('a long German description becomes a scrollable panel when zoomed', async (
     clientHeight: element.clientHeight,
     maxHeight: getComputedStyle(element).maxHeight,
   }));
-  // 210 − 2 × 8 = 194, and the full text is taller than the visible panel.
-  expect(metrics.maxHeight).toBe('194px');
+  // The visual viewport supplies a 194px absolute cap; the actual maximum is
+  // tighter whenever preserving the trigger leaves less room above or below it.
+  expect(parseFloat(metrics.maxHeight)).toBeLessThanOrEqual(194);
+  expect(metrics.clientHeight).toBeGreaterThan(0);
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  const bounds = await visibleTooltip(page);
+  expect(bounds.left).toBeGreaterThanOrEqual(bounds.viewLeft - 0.5);
+  expect(bounds.right).toBeLessThanOrEqual(bounds.viewRight + 0.5);
+  expect(bounds.top).toBeGreaterThanOrEqual(bounds.viewTop - 0.5);
+  expect(bounds.bottom).toBeLessThanOrEqual(bounds.viewBottom + 0.5);
+  const zoomedTrigger = await icon.boundingBox();
+  expect(zoomedTrigger).not.toBeNull();
+  expect(
+    bounds.top >= zoomedTrigger!.y + zoomedTrigger!.height + 5 ||
+      bounds.bottom <= zoomedTrigger!.y - 5,
+  ).toBe(true);
 
   // The end of the description is reachable by mouse wheel.
   await panel.hover();
@@ -371,6 +394,12 @@ test('hovering into an oversized help panel keeps it open', async ({ page }) => 
   await page.mouse.move(trigger!.x + trigger!.width / 2, trigger!.y + trigger!.height / 2);
   const panel = page.getByRole('region', { name: 'Inferenzcache' });
   await expect(panel).toBeVisible();
+  const triggerBox = await icon.boundingBox();
+  const panelBox = await panel.boundingBox();
+  expect(
+    panelBox!.y >= triggerBox!.y + triggerBox!.height + 5 ||
+      panelBox!.y + panelBox!.height <= triggerBox!.y - 5,
+  ).toBe(true);
   // Moving from the icon onto the panel must keep it open so it can be scrolled.
   await panel.hover();
   await expect(panel).toBeVisible();

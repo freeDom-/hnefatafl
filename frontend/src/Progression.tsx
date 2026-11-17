@@ -22,21 +22,32 @@ export function useProgression(): ProgressionValue {
  */
 export function ProgressionProvider({
   owner,
+  intervalMs,
   children,
 }: {
   owner: string | undefined;
+  /** Recurring backstop for routes without their own completion signal; 0 disables it. */
+  intervalMs?: number;
   children: ReactNode;
 }) {
   if (!owner)
     return <ProgressionContext.Provider value={empty}>{children}</ProgressionContext.Provider>;
   return (
-    <ProgressionSession key={owner} owner={owner}>
+    <ProgressionSession key={owner} owner={owner} intervalMs={intervalMs}>
       {children}
     </ProgressionSession>
   );
 }
 
-function ProgressionSession({ owner, children }: { owner: string; children: ReactNode }) {
-  const value = useAchievementNotifications(owner);
+function ProgressionSession({
+  owner,
+  intervalMs,
+  children,
+}: {
+  owner: string;
+  intervalMs: number | undefined;
+  children: ReactNode;
+}) {
+  const value = useAchievementNotifications(owner, intervalMs);
   return <ProgressionContext.Provider value={value}>{children}</ProgressionContext.Provider>;
 }

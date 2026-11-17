@@ -46,12 +46,20 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: npm audit --audit-level=moderate
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:benchmarks
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:public
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-spectator-production
+          path: frontend/test-results/public-production/
+          retention-days: 14
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: always()
@@ -62,6 +70,12 @@ jobs:
             frontend/test-results/portraits/
             frontend/test-results/achievement-tiers/
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-spectator-visual-acceptance
+          path: frontend/test-results/public-arena/
+          retention-days: 14
       - run: npm run test:registration
       - run: npm run test:online
       - run: npm run test:personal
@@ -71,3 +85,22 @@ jobs:
           name: browser-failure-evidence
           path: frontend/test-results/
           retention-days: 7
+  node22:
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

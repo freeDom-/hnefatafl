@@ -38,10 +38,12 @@ account-switch guards and stale-response handling cover the four themes.
 Game completion, successful analysis completion, window focus and reconnect trigger
 coalesced account-scoped refreshes. One shared `ProgressionProvider` owns the single
 `GET /personal/achievements` read for the authenticated shell, so the Dashboard,
-the Portrait Hall and the notification baseline never fetch it independently. A
-15-second visible-tab backstop reconciles a remote online completion on routes with
-no live game poll of their own; the recurring read is suspended while the page is
-hidden and resumes on visibility. A session baseline prevents historical
+the Portrait Hall and the notification baseline never fetch it independently.
+Routes that already own an authoritative completion poll (the Dashboard and an
+open game room) invalidate the shared read from those polls. Other Arena routes
+use a 15-second visible-tab backstop, so a remote online completion eventually
+appears without navigation or refocus; the recurring read is suspended while the
+page is hidden and resumes on visibility. A session baseline prevents historical
 notification storms; newly observed awards show points and newly available
 portraits. Notifications are not a durable notification history.
 
