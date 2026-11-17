@@ -37,7 +37,9 @@ export async function openGameOptions(page: Page) {
       .getByRole('button', { name: /Game options|Spieloptionen/, exact: true })
       .isVisible())
   ) {
-    await gameTab(page, 'analytics');
+    // Desktop exposes the options in the Analytics tab, which some layouts
+    // (online games, reviews without settings) deliberately omit.
+    await gameTab(page, 'analytics', { optional: true });
     return;
   }
   const dialog = page.getByRole('dialog', { name: /Game options|Spieloptionen/, exact: true });
@@ -54,7 +56,11 @@ export async function closeGameOptions(page: Page) {
       .click();
 }
 
-export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') {
+export async function gameTab(
+  page: Page,
+  tab: 'moves' | 'analytics' | 'games',
+  { optional = false }: { optional?: boolean } = {},
+) {
   if (/^\/(games|online\/games)\//.test(new URL(page.url()).pathname))
     await expect(page.getByRole('grid')).toBeVisible();
   await closeGameOptions(page);
@@ -63,19 +69,23 @@ export async function gameTab(page: Page, tab: 'moves' | 'analytics' | 'games') 
     analytics: /^(Analytics|Analyse)$/,
     games: /^(My games|Meine Partien)$/,
   };
-  const button = page
-    .locator('.mobile-inspector, .desktop-inspector')
-    .getByRole('tab', { name: names[tab] });
-  // The board can commit before the advisor catalog adds the Analytics tab.
-  // At tabbed breakpoints wait for that control instead of treating a transient
-  // missing tab as the plain tablet layout.
-  const tabbed = await page.evaluate(
-    () =>
-      matchMedia(
-        '(min-width: 1101px), (max-width: 760px), (max-height: 480px) and (pointer: coarse)',
-      ).matches,
-  );
-  if (tabbed) await button.click();
+  const inspector = page.locator('.mobile-inspector, .desktop-inspector');
+  const tabButton = inspector.getByRole('tab', { name: names[tab] });
+  if (optional) {
+    // The inspector mounts after the board and once the viewport media query has
+    // resolved. Wait for it before reading the tab list, then switch only when
+    // the layout exposes the tab; a tab the layout omits must not be waited on.
+    await expect(inspector).toBeVisible();
+    if (await tabButton.count()) {
+      await expect(tabButton).toBeVisible();
+      await tabButton.click();
+    }
+    return;
+  }
+  // Required tabs retry through the asynchronous mount and fail loudly when a
+  // layout omits them or renders duplicate controls.
+  await expect(tabButton).toBeVisible();
+  await tabButton.click();
 }
 
 export async function showMove(page: Page, ply: number) {

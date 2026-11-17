@@ -34,7 +34,8 @@ from scratch with real self-play learning.
 
 ## Quick start
 
-Use **Python 3.12 recommended** (3.11+ supported), **Node 22+** (CI uses 24) and
+Use **Python 3.12 recommended** (3.11+ supported), **Node.js 22.12+** (or 24+;
+CI uses 24) and
 [uv](https://docs.astral.sh/uv/getting-started/installation/) (CI pins 0.12.23).
 From the repository root:
 
