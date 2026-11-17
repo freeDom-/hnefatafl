@@ -201,90 +201,44 @@ function DashboardHome({
     intervalMs: 0,
   });
   const lastBoardVersion = useRef<{ id: string; version: number } | null>(null);
-  const lastBoardResult = useRef<string | null>(null);
   const boardVersion = board.data?.game.version;
   const boardKind = board.data?.kind;
   const boardMode = board.data?.kind === 'single' ? board.data.game.mode : null;
-  const boardCompleted =
-    board.data?.kind === 'online'
-      ? board.data.game.status === 'completed' || board.data.game.status === 'voided'
-      : Boolean(
-          board.data?.game.winner ||
-            (board.data?.kind === 'single' && board.data.game.recorded_winner),
-        );
-  // A stable terminal key for the active hero, null while it is unfinished. A
-  // changed non-null value is a completion or an authoritative correction, so an
-  // ordinary move never invalidates progression.
-  const boardResult = (() => {
-    const current = board.data;
-    if (!current) return null;
-    if (current.kind === 'online') {
-      const game = current.game;
-      if (game.status !== 'completed' && game.status !== 'voided') return null;
-      return JSON.stringify([
-        'online',
-        game.id,
-        game.status,
-        game.position.winner ?? null,
-        game.position.reason ?? null,
-        game.result?.winner ?? null,
-      ]);
-    }
-    const game = current.game;
-    const winner = game.winner ?? game.recorded_winner ?? null;
-    if (!winner) return null;
-    return JSON.stringify([game.mode, game.id, winner]);
-  })();
   useEffect(() => {
     if (!activeId || typeof boardVersion !== 'number') {
       lastBoardVersion.current = null;
-      lastBoardResult.current = null;
       return;
     }
-    const previousVersion = lastBoardVersion.current;
+    const previous = lastBoardVersion.current;
     lastBoardVersion.current = { id: activeId, version: boardVersion };
-    const previousResult = lastBoardResult.current;
-    lastBoardResult.current = boardResult;
-    const versionChanged =
-      previousVersion?.id === activeId && previousVersion.version !== boardVersion;
-    const resultChanged = boardResult !== null && boardResult !== previousResult;
-    if (!versionChanged && !resultChanged) return;
+    if (previous?.id !== activeId || previous.version === boardVersion) return;
     // The five-second live board carries a server version. Only actual changes
     // invalidate its owning queue; unchanged clock snapshots do not reload stats.
-    if (versionChanged) {
-      if (boardKind === 'online') void online.refresh();
-      else if (boardMode === 'local') void local.refresh();
-      else void single.refresh();
-    }
-    if (resultChanged) {
-      // Completion or correction of the active hero invalidates the authoritative
-      // progression projections once. Local and vs-AI milestones only affect the
-      // record strip and achievements, while rated online results also move the
-      // rating/streak and standing projections.
-      void recent.refresh();
-      void achievements.refresh();
-      if (boardKind === 'online') {
-        void progress.refresh();
-        void standing.refresh();
-      }
-    } else if (boardCompleted) {
-      void recent.refresh();
-    }
-  }, [
-    activeId,
-    boardVersion,
-    boardKind,
-    boardMode,
-    boardCompleted,
-    boardResult,
-    online.refresh,
-    local.refresh,
-    single.refresh,
-    progress.refresh,
-    standing.refresh,
-    recent.refresh,
-    achievements.refresh,
-  ]);
+    // The refreshed queue then updates the authoritative aggregate/completion
+    // signatures below, which own the achievement invalidation.
+    if (boardKind === 'online') void online.refresh();
+    else if (boardMode === 'local') void local.refresh();
+    else void single.refresh();
+  }, [activeId, boardVersion, boardKind, boardMode, online.refresh, local.refresh, single.refresh]);
+  // Authoritative completion counts from the 60-second history polls. A change
+  // after the initial load is a new completion (or a correction that changes the
+  // count), including games that were never the active hero.
+  const singleCompleted = single.data?.totals.completed_games ?? null;
+  const localCompleted = local.data?.totals.completed_games ?? null;
+  const previousCompletion = useRef<{ single: number | null; local: number | null } | null>(null);
+  useEffect(() => {
+    const previous = previousCompletion.current;
+    previousCompletion.current = { single: singleCompleted, local: localCompleted };
+    if (previous === null) return;
+    // A null previous value is a first load or an account switch, not a change.
+    const singleChanged =
+      singleCompleted !== null && previous.single !== null && singleCompleted !== previous.single;
+    const localChanged =
+      localCompleted !== null && previous.local !== null && localCompleted !== previous.local;
+    if (!singleChanged && !localChanged) return;
+    void recent.refresh();
+    void achievements.refresh();
+  }, [singleCompleted, localCompleted, recent.refresh, achievements.refresh]);
   const resultSignature = online.data
     ? JSON.stringify(
         online.data.statistics?.groups?.map((group) => [

@@ -97,6 +97,23 @@ const achievements = {
   summary: { unlocked: 1, total: 2 },
   as_of: '2035-01-01T00:00:00Z',
 };
+/** Production-aligned progression catalog. `ai-first-victory` unlocks Forge
+ * Keeper; `local-first-game` deliberately grants no portrait. */
+const portraitCatalog = {
+  ...portraits,
+  items: [
+    ...portraits.items,
+    { id: 'forge-keeper', name: 'Forge Keeper', unlock_achievement_id: 'ai-first-victory' },
+  ],
+};
+const achievementCatalog = {
+  ...achievements,
+  items: [
+    ...achievements.items,
+    { id: 'ai-first-victory', unlocked: false, portrait_id: 'forge-keeper' },
+    { id: 'local-first-game', unlocked: false, portrait_id: null },
+  ],
+};
 const profile = {
   username: 'archer',
   email: 'archer@example.test',
@@ -948,36 +965,27 @@ it('refreshes achievement progress after a rated result change without a poll lo
   ).toBe(0);
 });
 
-it('refreshes achievements when a local game completes in another session', async () => {
-  let version = 1;
-  let winner: 'attackers' | null = null;
+it('refreshes achievements when a non-hero local game completes without a portrait', async () => {
+  let completed = 0;
   let localUnlocked = false;
   const previous = serve;
-  const catalog = {
-    ...portraits,
-    items: [
-      ...portraits.items,
-      { id: 'forge-keeper', name: 'Forge Keeper', unlock_achievement_id: 'local-first-game' },
-    ],
-  };
   serve = (url) =>
-    url.includes('/games/')
-      ? respond(boardGame({ version, winner }))
-      : url.includes('/portraits/catalog')
-        ? respond(catalog)
-        : url.includes('/personal/achievements')
-          ? respond({
-              ...achievements,
-              items: [
-                ...achievements.items,
-                { id: 'local-first-game', unlocked: localUnlocked, portrait_id: 'forge-keeper' },
-              ],
-            })
-          : url.includes('/personal/local?')
+    url.includes('/personal/local?')
+      ? respond({
+          ...localRunning,
+          games: [runningLocalGame],
+          totals: { ...localRunning.totals, completed_games: completed, in_progress: 1 },
+        })
+      : url.includes('/games/')
+        ? respond(boardGame({ id: 'local-1', version: 1 }))
+        : url.includes('/portraits/catalog')
+          ? respond(portraitCatalog)
+          : url.includes('/personal/achievements')
             ? respond({
-                ...localRunning,
-                games: [runningLocalGame],
-                totals: { ...localRunning.totals, in_progress: 1 },
+                ...achievementCatalog,
+                items: achievementCatalog.items.map((item) =>
+                  item.id === 'local-first-game' ? { ...item, unlocked: localUnlocked } : item,
+                ),
               })
             : previous(url);
   vi.useFakeTimers();
@@ -991,33 +999,28 @@ it('refreshes achievements when a local game completes in another session', asyn
     screen.getByRole('heading', { name: 'Unlocked portraits' }).closest('article')!;
   expect(within(portraitsCard()).getByText('2 / 3')).toBeVisible();
   fetcher.mockClear();
-  // Another session finishes the same-device game; the server bumps the version.
-  version = 2;
-  winner = 'attackers';
+  // The active hero stays in progress; a different local game completes and the
+  // 60-second history poll reports the changed completion total.
+  completed = 1;
   localUnlocked = true;
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(60000);
   });
   expect(
     fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
   ).toBe(1);
   // A local milestone does not move the rated streak or standing projections.
   expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/progress')).length).toBe(0);
-  expect(within(portraitsCard()).getByText('3 / 3')).toBeVisible();
+  // `local-first-game` grants no portrait, so the unlocked count is unchanged.
+  expect(within(portraitsCard()).getByText('2 / 3')).toBeVisible();
 });
 
 it('refreshes achievements when a single-player game is won against the AI', async () => {
   let version = 1;
   let winner: 'attackers' | null = null;
   let aiUnlocked = false;
+  let completed = 0;
   const previous = serve;
-  const catalog = {
-    ...portraits,
-    items: [
-      ...portraits.items,
-      { id: 'forge-keeper', name: 'Forge Keeper', unlock_achievement_id: 'ai-first-victory' },
-    ],
-  };
   serve = (url) =>
     url.includes('/games/')
       ? respond(
@@ -1033,17 +1036,20 @@ it('refreshes achievements when a single-player game is won against the AI', asy
           }),
         )
       : url.includes('/portraits/catalog')
-        ? respond(catalog)
+        ? respond(portraitCatalog)
         : url.includes('/personal/achievements')
           ? respond({
-              ...achievements,
-              items: [
-                ...achievements.items,
-                { id: 'ai-first-victory', unlocked: aiUnlocked, portrait_id: 'forge-keeper' },
-              ],
+              ...achievementCatalog,
+              items: achievementCatalog.items.map((item) =>
+                item.id === 'ai-first-victory' ? { ...item, unlocked: aiUnlocked } : item,
+              ),
             })
           : url.includes('/single-player?')
-            ? respond({ ...local, games: [runningSingleGame] })
+            ? respond({
+                ...local,
+                games: [runningSingleGame],
+                totals: { ...local.totals, completed_games: completed, in_progress: 1 },
+              })
             : previous(url);
   vi.useFakeTimers();
   await act(async () => {
@@ -1056,26 +1062,39 @@ it('refreshes achievements when a single-player game is won against the AI', asy
     screen.getByRole('heading', { name: 'Unlocked portraits' }).closest('article')!;
   expect(within(portraitsCard()).getByText('2 / 3')).toBeVisible();
   fetcher.mockClear();
+  // The hero completes: the version change refreshes the single-player history,
+  // whose changed completion total then invalidates achievements once.
   version = 2;
   winner = 'attackers';
   aiUnlocked = true;
+  completed = 1;
   await act(async () => {
     await vi.advanceTimersByTimeAsync(5000);
   });
   expect(
     fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
   ).toBe(1);
+  // Forge Keeper is unlocked by the production `ai-first-victory` mapping.
   expect(within(portraitsCard()).getByText('3 / 3')).toBeVisible();
 });
 
-it('refreshes achievements when the active online hero transitions to completed', async () => {
+it('refreshes achievements when the active online hero completes and the aggregate changes', async () => {
   let version = 1;
   let status = 'active';
   let winner: 'attackers' | null = null;
+  let wins = 1;
+  let losses = 1;
   const previous = serve;
   serve = (url) =>
     url.includes('/personal/online?')
-      ? respond({ ...online, games: [activeOnlineGame] })
+      ? respond({
+          ...online,
+          games: [activeOnlineGame],
+          statistics: {
+            ...online.statistics,
+            groups: [{ ...online.statistics.groups[0], wins, losses }],
+          },
+        })
       : url.includes('/personal/online/')
         ? respond({
             ...activeOnlineGame,
@@ -1092,9 +1111,13 @@ it('refreshes achievements when the active online hero transitions to completed'
     await vi.advanceTimersByTimeAsync(0);
   });
   fetcher.mockClear();
+  // The hero version change refreshes the online aggregate, whose changed
+  // signature invalidates the rated projections and achievements.
   version = 2;
   status = 'completed';
   winner = 'attackers';
+  wins = 2;
+  losses = 0;
   await act(async () => {
     await vi.advanceTimersByTimeAsync(5000);
   });
@@ -1102,7 +1125,126 @@ it('refreshes achievements when the active online hero transitions to completed'
     fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
   ).toBe(1);
   expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/progress')).length).toBe(1);
-  expect(fetcher.mock.calls.filter(([path]) => path.includes('/leaderboard?')).length).toBe(1);
+  expect(
+    fetcher.mock.calls.filter(([path]) =>
+      path.includes('/leaderboard?ruleset=brandubh&limit=1&offset=0'),
+    ).length,
+  ).toBe(1);
+});
+
+it('refreshes achievements when a non-hero single-player game completes', async () => {
+  let singleCompleted = 0;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({ ...online, games: [activeOnlineGame] })
+      : url.includes('/personal/online/')
+        ? respond({ ...activeOnlineGame, version: 1 })
+        : url.includes('/single-player?')
+          ? respond({
+              ...local,
+              games: [],
+              totals: { ...local.totals, completed_games: singleCompleted, in_progress: 0 },
+            })
+          : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  // A different single-player game completes while the online hero stays active.
+  singleCompleted = 1;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+});
+
+it('does not invalidate achievements on initial or unchanged completion totals', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/local?')
+      ? respond({
+          ...localRunning,
+          games: [],
+          totals: { ...localRunning.totals, completed_games: 7, in_progress: 0 },
+        })
+      : url.includes('/single-player?')
+        ? respond({
+            ...local,
+            games: [],
+            totals: { ...local.totals, completed_games: 5, in_progress: 0 },
+          })
+        : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  // Two further history polls report the same nonzero totals.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(0);
+});
+
+it('resets the completion baseline when the account switches', async () => {
+  const previous = serve;
+  let completed = 0;
+  serve = (url) =>
+    url.includes('/single-player?')
+      ? respond({
+          ...local,
+          games: [],
+          totals: { ...local.totals, completed_games: completed, in_progress: 0 },
+        })
+      : url.includes('/personal/local?')
+        ? respond({
+            ...localRunning,
+            games: [],
+            totals: { ...localRunning.totals, completed_games: 0, in_progress: 0 },
+          })
+        : previous(url);
+  vi.useFakeTimers();
+  const view = render(<PersonalDashboard />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  // The replacement account starts at a different count; that is a baseline, not
+  // an invalidation of the previous account's data.
+  completed = 4;
+  identity.id = 'keeper';
+  view.rerender(<PersonalDashboard />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  // Ignore the new account's own initial event-driven load.
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(0);
+  // A later real completion on the replacement account still invalidates once.
+  completed = 5;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
 });
 
 it('refreshes achievements for a side-specific correction without changing aggregate totals', async () => {
