@@ -1,4 +1,10 @@
 const translations: Record<string, string> = {
+  'Open calendar': 'Kalender öffnen',
+  'Enter a time in HH:MM format.': 'Gib eine Uhrzeit im Format HH:MM ein.',
+  'A full tournament must wait for its planned start. An administrator may override it.':
+    'Ein volles Turnier muss auf den geplanten Start warten. Ein Administrator kann den Start vorziehen.',
+  'New tournaments require sequential or simultaneous mode and exactly two games.':
+    'Neue Turniere benötigen den sequenziellen oder gleichzeitigen Modus mit genau zwei Partien.',
   'The creator or an administrator can start with at least two registered entrants.':
     'Der Ersteller oder ein Administrator kann mit mindestens zwei angemeldeten Teilnehmenden starten.',
   'Next month': 'Nächster Monat',

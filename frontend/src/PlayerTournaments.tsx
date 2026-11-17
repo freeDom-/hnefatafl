@@ -16,6 +16,7 @@ import { notify } from './notifications';
 import { useOnlinePoll } from './useOnlinePoll';
 import Modal from './Modal';
 import Portrait from './Portrait';
+import { formatRemaining } from './remainingTime';
 import LocalDateTimePicker from './LocalDateTimePicker';
 import {
   ClockFields,
@@ -376,7 +377,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [clockInput, setClockInput] = useState(defaultClockInput);
-  const [matchMode, setMatchMode] = useState<MatchMode>('single');
+  const [matchMode, setMatchMode] = useState<MatchMode>('sequential');
   const controller = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const current = useRef({ owner, selectedId, canAdmin });
@@ -479,7 +480,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
     setError('');
     if (kind === 'create') {
       setClockInput(defaultClockInput);
-      setMatchMode('single');
+      setMatchMode('sequential');
     }
     setDialog({ kind, version: tournament?.version, match });
   };
@@ -767,9 +768,9 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                 <dd>
                   {t(
                     tournament.time_control === 'total'
-                      ? '{seconds} seconds per player'
-                      : '{seconds} seconds per move',
-                    { seconds: numbers.format(tournament.time_per_move) },
+                      ? 'Total time per player: {duration}'
+                      : 'Time per move: {duration}',
+                    { duration: formatRemaining(tournament.time_per_move) },
                   )}
                   {tournament.time_control === 'total' && (
                     <>
@@ -1038,7 +1039,11 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                         required
                       />
                     </label>
-                    <MatchModeField value={matchMode} onChange={setMatchMode} />
+                    <MatchModeField
+                      value={matchMode}
+                      onChange={setMatchMode}
+                      allowedModes={['sequential', 'simultaneous']}
+                    />
                     <ClockFields value={clockInput} onChange={setClockInput} />
                     <LocalDateTimePicker
                       name="registration_deadline"
@@ -1048,6 +1053,11 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                       name="scheduled_start_at"
                       label="Planned start (your local time, optional)"
                     />
+                    <small>
+                      {t('Your timezone: {zone}. Dates are saved in UTC.', {
+                        zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                      })}
+                    </small>
                     <p>
                       {t(
                         'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.',

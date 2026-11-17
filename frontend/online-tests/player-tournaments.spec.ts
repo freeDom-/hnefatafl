@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
-for (const mode of ['single', 'sequential', 'simultaneous']) {
+for (const mode of ['sequential', 'simultaneous']) {
   test(`verified creator and browser-free scheduled ${mode} tournament share authoritative games`, async ({
     browser,
     playwright,
@@ -34,6 +34,8 @@ for (const mode of ['single', 'sequential', 'simultaneous']) {
       await page.goto('/player-tournaments');
       await page.getByRole('button', { name: 'Create player tournament' }).click();
       const dialog = page.getByRole('dialog');
+      await expect(dialog.getByLabel('Match mode')).toHaveValue('sequential');
+      await expect(dialog.getByRole('option', { name: 'Single game', exact: true })).toHaveCount(0);
       await dialog.getByLabel('Tournament name').fill(`Scheduled ${mode}`);
       await dialog.getByLabel('Maximum entrants').fill('2');
       await dialog.getByLabel('Match mode').selectOption(mode);
@@ -60,6 +62,10 @@ for (const mode of ['single', 'sequential', 'simultaneous']) {
       expect(registered.ok()).toBe(true);
       const cup = await registered.json();
       expect(cup.status).toBe('registration');
+      expect(cup.match_mode).toBe(mode);
+      expect(cup.match_legs).toBe(2);
+      expect((await post(a, `${base}/start`, { version: cup.version })).status()).toBe(409);
+      expect((await (await creator.get(`${base}/matches`)).json()).items).toEqual([]);
       expect((await post(b, `${base}/start`, { version: cup.version })).status()).toBe(403);
       expect((await post(a, `${base}/cancel`, { version: cup.version })).status()).toBe(403);
       expect((await creator.get(`${base}/audit`)).status()).toBe(403);
@@ -112,7 +118,7 @@ for (const mode of ['single', 'sequential', 'simultaneous']) {
       const complete = await (await creator.get(base)).json();
       expect(complete.status).toBe('complete');
       expect(complete.official_winner).toBeTruthy();
-      expect(games.size).toBeGreaterThanOrEqual(mode === 'single' ? 2 : 4);
+      expect(games.size).toBeGreaterThanOrEqual(4);
     } finally {
       await context.close();
       await creator.dispose();

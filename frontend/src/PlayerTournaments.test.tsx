@@ -177,6 +177,40 @@ it('renders server-provided upper/lower/final edges and a keyboard-accessible ma
     expect.anything(),
   );
 });
+it.each([
+  ['legacy', 5, 'per_move', 90123, 0, 'Legacy: 5 games per match', 'Time per move: 1d 01h 02m 03s'],
+  ['single', 1, 'per_move', 65, 0, 'Single game', 'Time per move: 1m 05s'],
+  [
+    'sequential',
+    2,
+    'total',
+    90061,
+    30,
+    'Two-game match — sequential',
+    'Total time per player: 1d 01h 01m 01s · Increment: 30 seconds',
+  ],
+  [
+    'simultaneous',
+    2,
+    'total',
+    3600,
+    0,
+    'Two-game match — simultaneous',
+    'Total time per player: 1h 00m 00s · Increment: 0 seconds',
+  ],
+] as const)(
+  'summarizes %s configuration without losing historical duration precision',
+  async (mode, legs, control, seconds, increment, modeLabel, clockLabel) => {
+    tournament.match_mode = mode;
+    tournament.match_legs = legs;
+    tournament.time_control = control;
+    tournament.time_per_move = seconds;
+    tournament.increment_seconds = increment;
+    render(<PlayerTournaments tournamentId="cup-1" />);
+    expect(await screen.findByText(modeLabel, { exact: true })).toBeVisible();
+    expect(screen.getByText(clockLabel, { exact: true })).toBeVisible();
+  },
+);
 it('uses authoritative champion, elimination and reset state rather than deriving winners from legs', async () => {
   tournament.status = 'complete';
   tournament.official_winner = players[1];
@@ -427,6 +461,11 @@ it('creates a tournament with explicit local-time deadlines serialized as UTC', 
   render(<PlayerTournaments />);
   fireEvent.click(await screen.findByRole('button', { name: 'Create player tournament' }));
   const dialog = screen.getByRole('dialog');
+  expect(within(dialog).getByLabelText('Match mode')).toHaveValue('sequential');
+  expect(
+    within(dialog).getByRole('option', { name: 'Two-game match — simultaneous' }),
+  ).toBeInTheDocument();
+  expect(within(dialog).queryByRole('option', { name: 'Single game' })).not.toBeInTheDocument();
   fireEvent.change(within(dialog).getByLabelText('Tournament name'), {
     target: { value: 'Winter cup' },
   });
@@ -448,7 +487,7 @@ it('creates a tournament with explicit local-time deadlines serialized as UTC', 
         name: 'Winter cup',
         ruleset: 'tablut',
         capacity: 8,
-        match_mode: 'single',
+        match_mode: 'sequential',
         time_control: 'per_move',
         increment_seconds: 0,
         time_per_move: 259200,

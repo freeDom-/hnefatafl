@@ -338,6 +338,8 @@ test('moderation failure retains the confirmation and announced error instead of
 
 for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
   test(`tournament calendar supports keyboard input and theme ${theme}`, async ({ page }, info) => {
+    // Each case checks both fields, two languages and two viewport sizes with one browser worker.
+    test.setTimeout(180000);
     await page
       .context()
       .addInitScript(
@@ -370,51 +372,118 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
           language === 'en' ? 'Create player tournament' : 'Spielerturnier erstellen';
         const opener = page.getByRole('button', { name: createName, exact: true });
         await opener.click();
-        const dialog = page.getByRole('dialog');
-        const picker = dialog.getByRole('group', {
-          name:
-            language === 'en'
-              ? 'Planned start (your local time, optional)'
-              : 'Geplanter Beginn (deine Ortszeit, optional)',
-        });
-        const date = picker.getByRole('textbox', {
-          name: language === 'en' ? 'Date (YYYY-MM-DD)' : 'Datum (JJJJ-MM-TT)',
-        });
-        await date.fill('2035-02-01');
-        const toggle = picker.locator('summary');
-        await toggle.focus();
-        await page.keyboard.press('Enter');
-        const selected = picker.locator('[aria-selected=true] button');
-        await expect(selected).toHaveCount(1);
-        await selected.focus();
-        await expect(selected).toBeFocused();
-        await page.keyboard.press('ArrowRight');
-        await page.keyboard.press('Enter');
-        await expect(date).toHaveValue('2035-02-02');
-        const next = picker.getByRole('button', {
-          name: language === 'en' ? 'Next month' : 'Nächster Monat',
-        });
-        await next.click();
-        await expect(picker.getByRole('grid')).toBeVisible();
-        const calendar = picker.locator('.themed-calendar');
-        const colors = await calendar.evaluate((node) => ({
-          background: getComputedStyle(node).backgroundColor,
-          color: getComputedStyle(node).color,
-        }));
-        expect(contrast(colors.color, colors.background)).toBeGreaterThanOrEqual(4.5);
-        const dimensions = await dialog.evaluate((node) => ({
-          client: node.clientWidth,
-          scroll: node.scrollWidth,
-        }));
-        expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client + 1);
-        await page.keyboard.press('Tab');
-        await expect(dialog).toBeVisible();
-        expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
-        if (language === 'en') {
-          mkdirSync('test-results/player-tournaments-calendar', { recursive: true });
-          await dialog.screenshot({
-            path: `test-results/player-tournaments-calendar/${theme}-${size.width}.png`,
+        const dialog = page.getByRole('dialog', { name: createName, exact: true });
+        for (const kind of ['registration', 'start']) {
+          const picker = dialog.getByRole('group', {
+            name:
+              kind === 'start'
+                ? language === 'en'
+                  ? 'Planned start (your local time, optional)'
+                  : 'Geplanter Beginn (deine Ortszeit, optional)'
+                : language === 'en'
+                  ? 'Registration deadline (your local time, optional)'
+                  : 'Anmeldeschluss (deine Ortszeit, optional)',
           });
+          const date = picker.getByRole('textbox', {
+            name: language === 'en' ? 'Date (YYYY-MM-DD)' : 'Datum (JJJJ-MM-TT)',
+          });
+          const time = picker.getByRole('textbox', {
+            name: language === 'en' ? 'Time (HH:MM)' : 'Uhrzeit (HH:MM)',
+          });
+          const toggle = picker.getByRole('button', {
+            name: language === 'en' ? 'Open calendar' : 'Kalender öffnen',
+          });
+          const clear = picker.getByRole('button', {
+            name: language === 'en' ? 'Clear date' : 'Datum löschen',
+          });
+          await expect(clear).toHaveCount(0);
+          await expect(
+            picker.getByRole('button', {
+              name: language === 'en' ? 'Choose date' : 'Datum wählen',
+              exact: true,
+            }),
+          ).toHaveCount(0);
+          await date.fill('2035-02-01');
+          await time.fill('18:30');
+          await date.scrollIntoViewIfNeeded();
+          const before = await dialog.evaluate((node) => ({
+            height: node.getBoundingClientRect().height,
+            scroll: node.scrollHeight,
+          }));
+          await date.click();
+          const popup = picker.getByRole('dialog');
+          await expect(popup).toBeVisible();
+          await expect(date).toBeFocused();
+          expect(await popup.evaluate((node) => !!node.closest('dialog[open]'))).toBe(true);
+          const bounds = await popup.boundingBox();
+          expect(bounds).not.toBeNull();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0);
+          expect(bounds!.y).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(size.width + 1);
+          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(size.height + 1);
+          expect(
+            await popup.evaluate((node) => {
+              const rect = node.getBoundingClientRect();
+              return node.contains(
+                document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
+              );
+            }),
+          ).toBe(true);
+          expect(
+            await dialog.evaluate((node) => ({
+              height: node.getBoundingClientRect().height,
+              scroll: node.scrollHeight,
+            })),
+          ).toEqual(before);
+          const calendar = popup.locator('.themed-calendar');
+          const colors = await calendar.evaluate((node) => ({
+            background: getComputedStyle(node).backgroundColor,
+            color: getComputedStyle(node).color,
+          }));
+          expect(contrast(colors.color, colors.background)).toBeGreaterThanOrEqual(4.5);
+          await expect(popup.getByRole('grid')).toHaveAccessibleName(
+            language === 'en' ? 'February 2035' : 'Februar 2035',
+          );
+          await page.keyboard.press('ArrowDown');
+          await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
+          await page.keyboard.press('ArrowRight');
+          await page.keyboard.press('Enter');
+          await expect(popup).toHaveCount(0);
+          await expect(date).toHaveValue('2035-02-02');
+          await expect(date).toBeFocused();
+          await expect(time).toHaveValue('18:30');
+          await toggle.click();
+          await popup
+            .getByRole('button', { name: language === 'en' ? 'Next month' : 'Nächster Monat' })
+            .click();
+          await expect(popup.getByRole('grid')).toHaveAccessibleName(
+            language === 'en' ? 'March 2035' : 'März 2035',
+          );
+          await page.keyboard.press('Tab');
+          expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+          if (language === 'en') {
+            mkdirSync('test-results/player-tournaments-compact-calendar', { recursive: true });
+            await page.screenshot({
+              path: `test-results/player-tournaments-compact-calendar/${theme}-${kind}-${size.width}.png`,
+            });
+          }
+          await page.keyboard.press('Escape');
+          await expect(popup).toHaveCount(0);
+          await expect(dialog).toBeVisible();
+          await expect(date).toBeFocused();
+          await toggle.click();
+          await time.click();
+          await expect(popup).toHaveCount(0);
+          await expect(time).toBeFocused();
+          await expect(date).toHaveValue('2035-02-02');
+          await clear.focus();
+          await page.keyboard.press('Enter');
+          await expect(date).toHaveValue('');
+          await expect(date).toBeFocused();
+          await expect(time).toHaveValue('18:30');
+          expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(
+            true,
+          );
         }
         await page.keyboard.press('Escape');
         await expect(dialog).not.toBeVisible();
@@ -423,6 +492,26 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
     }
   });
 }
+
+test('tournament page and calendar load only after navigating away from the dashboard', async ({
+  page,
+}) => {
+  const modules: string[] = [];
+  page.on('request', (request) => modules.push(request.url()));
+  const tournamentModules = () =>
+    modules.filter((url) =>
+      /PlayerTournaments\.tsx|LocalDateTimePicker\.tsx|react-day-picker\.js/.test(url),
+    );
+  await page.goto('/dashboard');
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  expect(tournamentModules()).toEqual([]);
+  await page.goto('/player-tournaments');
+  await expect(
+    page.getByRole('heading', { name: 'Player tournaments', exact: true }),
+  ).toBeVisible();
+  expect(tournamentModules().some((url) => url.includes('PlayerTournaments.tsx'))).toBe(true);
+  expect(tournamentModules().some((url) => url.includes('react-day-picker.js'))).toBe(true);
+});
 
 test('Berlin DST gap is rejected and both repeated-hour instants serialize correctly', async ({
   browser,
@@ -439,7 +528,10 @@ test('Berlin DST gap is rejected and both repeated-hour instants serialize corre
   await picker.getByLabel('Date (YYYY-MM-DD)').fill('2035-03-25');
   await picker.getByLabel('Time (HH:MM)').fill('02:30');
   await expect(picker.getByRole('alert')).toContainText('does not exist');
-  await expect(picker.getByLabel('Date (YYYY-MM-DD)')).toHaveAttribute('aria-invalid', 'true');
+  await expect(picker.getByLabel('Time (HH:MM)')).toHaveAttribute('aria-invalid', 'true');
+  expect(
+    await page.locator('dialog form').evaluate((form) => (form as HTMLFormElement).checkValidity()),
+  ).toBe(false);
   await picker.getByLabel('Date (YYYY-MM-DD)').fill('2035-10-28');
   await expect(picker.getByRole('alert')).toHaveCount(0);
   const occurrence = picker.getByRole('combobox');
@@ -448,6 +540,13 @@ test('Berlin DST gap is rejected and both repeated-hour instants serialize corre
     '2035-10-28T00:30:00.000Z',
   );
   await occurrence.selectOption('1');
+  await expect(picker.locator('input[name=scheduled_start_at]')).toHaveValue(
+    '2035-10-28T01:30:00.000Z',
+  );
+  await picker.getByLabel('Date (YYYY-MM-DD)').click();
+  await picker.locator('[aria-selected=true] button').click();
+  await expect(picker.getByRole('dialog')).toHaveCount(0);
+  await expect(occurrence).toHaveValue('1');
   await expect(picker.locator('input[name=scheduled_start_at]')).toHaveValue(
     '2035-10-28T01:30:00.000Z',
   );

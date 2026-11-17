@@ -10,9 +10,11 @@ export const matchModeNames = {
 export function MatchModeField({
   value,
   onChange,
+  allowedModes = Object.keys(matchModeNames) as MatchMode[],
 }: {
   value: MatchMode;
   onChange: (value: MatchMode) => void;
+  allowedModes?: readonly MatchMode[];
 }) {
   const { t } = useI18n();
   return (
@@ -23,9 +25,9 @@ export function MatchModeField({
         value={value}
         onChange={(e) => onChange(e.target.value as MatchMode)}
       >
-        {Object.entries(matchModeNames).map(([key, label]) => (
+        {allowedModes.map((key) => (
           <option key={key} value={key}>
-            {t(label)}
+            {t(matchModeNames[key])}
           </option>
         ))}
       </select>

@@ -11,7 +11,6 @@ import type { AIProfile, Game, Ruleset, Side } from './types';
 import Archive from './Archive';
 import Training from './Training';
 import Tournaments from './Tournaments';
-import PlayerTournaments from './PlayerTournaments';
 import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
 import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import Rune, { participantName } from './Rune';
@@ -39,8 +38,9 @@ import { useModelCatalogue } from './useModelCatalogue';
 import PlayLanding from './PlayLanding';
 import { PlayTabsProvider } from './PlayTabs';
 
-// Route-level code split: the gallery and its styles load only on /portraits.
+// Route-level code splits keep the gallery and tournament calendar off unrelated pages.
 const PortraitHall = lazy(() => import('./PortraitHall'));
+const PlayerTournaments = lazy(() => import('./PlayerTournaments'));
 
 type Tab =
   | 'statistics'
@@ -689,7 +689,17 @@ export default function App() {
             ))}
           {tab === 'online' && <Online />}
           {tab === 'leaderboard' && <Leaderboard />}
-          {tab === 'player-tournaments' && <PlayerTournaments />}
+          {tab === 'player-tournaments' && (
+            <Suspense
+              fallback={
+                <div className="empty-state" role="status">
+                  {t('Loading player tournaments…')}
+                </div>
+              }
+            >
+              <PlayerTournaments />
+            </Suspense>
+          )}
           {tab === 'profile' && <ProfilePage />}
           {tab === 'archive' && <Archive />}
           {tab === 'tournaments' && permissions.includes('tournaments') && (
