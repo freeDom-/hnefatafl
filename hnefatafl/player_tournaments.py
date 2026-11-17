@@ -35,7 +35,6 @@ from .security_context import allowed, online_eligible
 UNRESOLVED = object()
 
 MAX_ENTRANTS = 64
-MAX_MATCH_LEGS = 5
 MAX_AUDIT_PAGE = 100
 MAX_LIST_PAGE = 50
 MAX_MATCH_PAGE = 200
@@ -240,16 +239,11 @@ class PlayerTournaments:
             raise OnlineError(422, "A supported ruleset is required.")
         if type(capacity) is not int or not 2 <= capacity <= MAX_ENTRANTS:
             raise OnlineError(422, f"Capacity must be an integer from 2 to {MAX_ENTRANTS}.")
-        mode = match_mode or ("legacy" if match_legs is not None else "single")
-        if mode not in ("legacy", "single", "sequential", "simultaneous"):
-            raise OnlineError(422, "A supported match mode is required.")
-        legs: int | None = 1 if mode == "single" else 2
-        if mode == "legacy":
-            legs = match_legs
-        if type(legs) is not int or not 1 <= legs <= MAX_MATCH_LEGS:
-            raise OnlineError(422, f"Match legs must be an integer from 1 to {MAX_MATCH_LEGS}.")
-        if match_mode is not None and match_legs is not None and match_legs != legs:
-            raise OnlineError(422, "Game count does not match the selected match mode.")
+        if match_mode not in ("sequential", "simultaneous") or match_legs is not None:
+            raise OnlineError(
+                422,
+                "New tournaments require sequential or simultaneous mode and exactly two games.",
+            )
         try:
             lifecycle.TimeControl(time_per_move, time_control, increment_seconds)
         except lifecycle.LifecycleError as error:
@@ -269,7 +263,7 @@ class PlayerTournaments:
         with self._write() as c:
             account = self._identity(c, credential)
             now = self._now()
-            if not online_eligible(account):
+            if not (allowed(account, "tournaments") or online_eligible(account)):
                 raise OnlineError(403, "Tournament creation requires an active, verified account.")
             if not self._creation_available(c, account, now):
                 raise OnlineError(429, "Tournament creation limit reached. Try again later.")
@@ -285,7 +279,7 @@ class PlayerTournaments:
                     name,
                     ruleset,
                     capacity,
-                    legs,
+                    2,
                     time_per_move,
                     deadline,
                     account["id"],
@@ -294,7 +288,7 @@ class PlayerTournaments:
             )
             c.execute(
                 "UPDATE player_tournaments SET scheduled_start_at=?,start_due_at=?,match_mode=?,time_control=?,increment_seconds=? WHERE id=?",
-                (scheduled, scheduled, mode, time_control, increment_seconds, identifier),
+                (scheduled, scheduled, match_mode, time_control, increment_seconds, identifier),
             )
             self._audit(
                 c,
@@ -302,7 +296,12 @@ class PlayerTournaments:
                 account["id"],
                 "created",
                 now,
-                details={"capacity": capacity, "ruleset": ruleset, "match_legs": legs},
+                details={
+                    "capacity": capacity,
+                    "ruleset": ruleset,
+                    "match_legs": 2,
+                    "match_mode": match_mode,
+                },
             )
             return self._detail(c, identifier, account)
 
@@ -316,15 +315,30 @@ class PlayerTournaments:
         ).fetchone()
         return active < MAX_ACTIVE_CREATED and recent < MAX_DAILY_CREATED
 
-    def _capabilities(self, c, account, row=None):
+    @staticmethod
+    def _creator_must_wait(row, count, now):
+        return (
+            row["scheduled_start_at"] is not None
+            and micros(now) < row["scheduled_start_at"]
+            and count >= row["capacity"]
+        )
+
+    def _capabilities(self, c, account, row=None, *, entrant_count=None):
         admin = allowed(account, "tournaments")
         eligible = online_eligible(account)
+        creator_can_start = False
+        now = self._now()
+        if row is not None and eligible and row["created_by"] == account["id"]:
+            if entrant_count is None:
+                entrant_count = c.execute(
+                    "SELECT COUNT(*) FROM player_tournament_entrants WHERE tournament_id=? AND status='registered'",
+                    (row["id"],),
+                ).fetchone()[0]
+            creator_can_start = not self._creator_must_wait(row, entrant_count, now)
         return {
-            "can_create": eligible and self._creation_available(c, account, self._now()),
+            "can_create": (admin or eligible) and self._creation_available(c, account, now),
             "can_start": bool(
-                row is not None
-                and row["status"] == "registration"
-                and (admin or (eligible and row["created_by"] == account["id"]))
+                row is not None and row["status"] == "registration" and (admin or creator_can_start)
             ),
             "can_moderate": admin,
         }
@@ -436,6 +450,11 @@ class PlayerTournaments:
         if any(not online_eligible(dict(entry)) for entry in entrants):
             raise OnlineError(
                 409, "All entrants must have active, verified accounts before starting."
+            )
+        if source == "creator" and self._creator_must_wait(row, len(registered), now):
+            raise OnlineError(
+                409,
+                "A full tournament must wait for its planned start. An administrator may override it.",
             )
         if seeds is not None and (
             not isinstance(seeds, list)
@@ -1144,7 +1163,9 @@ class PlayerTournaments:
         accounts = self._accounts(c, [row["official_winner"], *[e["account_id"] for e in entrants]])
         detail = self._summary(c, row, accounts)
         if account is not None:
-            detail["capabilities"] = self._capabilities(c, account, row)
+            detail["capabilities"] = self._capabilities(
+                c, account, row, entrant_count=detail["entrant_count"]
+            )
         losses = dict(
             c.execute(
                 "SELECT loser,COUNT(*) FROM player_tournament_matches WHERE tournament_id=? AND status='complete' AND loser IS NOT NULL GROUP BY loser",

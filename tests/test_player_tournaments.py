@@ -107,16 +107,22 @@ def client(rig):
 
 
 def create(rig, *, name="Cup", capacity=16, match_legs=1, ruleset="brandubh", deadline=None):
-    body = {
-        "name": name,
-        "ruleset": ruleset,
-        "capacity": capacity,
-        "match_legs": match_legs,
-        "time_per_move": 600,
-    }
-    if deadline is not None:
-        body["registration_deadline"] = deadline
-    return rig.core.create(rig.admin, **body)
+    """Provision a stored historical format; the public creation path cannot create it."""
+    tournament = rig.core.create(
+        rig.admin,
+        name=name,
+        ruleset=ruleset,
+        capacity=capacity,
+        match_mode="simultaneous",
+        time_per_move=600,
+        registration_deadline=deadline,
+    )
+    with rig.store.connection() as c:
+        c.execute(
+            "UPDATE player_tournaments SET match_mode='legacy',match_legs=? WHERE id=?",
+            (match_legs, tournament["id"]),
+        )
+    return rig.core.detail(rig.admin, tournament["id"])
 
 
 def tournament_with_entrants(rig, entrants, **kwargs):
@@ -1208,23 +1214,43 @@ def test_cancel_preserves_completed_results_and_voids_only_outstanding_legs(rig)
 def test_create_validates_bounds(rig):
     with pytest.raises(Exception, match="Capacity"):
         rig.core.create(
-            rig.admin, name="x", ruleset="brandubh", capacity=1, match_legs=1, time_per_move=600
+            rig.admin,
+            name="x",
+            ruleset="brandubh",
+            capacity=1,
+            match_mode="sequential",
+            time_per_move=600,
         )
-    with pytest.raises(Exception, match="Match legs"):
+    with pytest.raises(Exception, match="exactly two games"):
         rig.core.create(
             rig.admin, name="x", ruleset="brandubh", capacity=4, match_legs=9, time_per_move=600
         )
     with pytest.raises(Exception, match="ruleset"):
         rig.core.create(
-            rig.admin, name="x", ruleset="chess", capacity=4, match_legs=1, time_per_move=600
+            rig.admin,
+            name="x",
+            ruleset="chess",
+            capacity=4,
+            match_mode="sequential",
+            time_per_move=600,
         )
     with pytest.raises(Exception, match="Time limit"):
         rig.core.create(
-            rig.admin, name="x", ruleset="brandubh", capacity=4, match_legs=1, time_per_move=10
+            rig.admin,
+            name="x",
+            ruleset="brandubh",
+            capacity=4,
+            match_mode="sequential",
+            time_per_move=10,
         )
     with pytest.raises(Exception, match="name"):
         rig.core.create(
-            rig.admin, name="   ", ruleset="brandubh", capacity=4, match_legs=1, time_per_move=600
+            rig.admin,
+            name="   ",
+            ruleset="brandubh",
+            capacity=4,
+            match_mode="sequential",
+            time_per_move=600,
         )
 
 
@@ -1235,7 +1261,7 @@ def test_http_flow_and_public_read_boundaries(rig, client):
     admin, player = client(ADMIN), client("P01")
     response = admin.post(
         "/api/player-tournaments",
-        json={"name": "HTTP Cup", "ruleset": "brandubh", "capacity": 4},
+        json={"match_mode": "sequential", "name": "HTTP Cup", "ruleset": "brandubh", "capacity": 4},
     )
     assert response.status_code == 201, response.text
     tournament = response.json()
@@ -1289,7 +1315,11 @@ def test_every_player_tournament_route_requires_authentication_and_permission(ri
     anonymous = TestClient(rig.app)
     for method, route, body in (
         ("GET", "/api/player-tournaments", None),
-        ("POST", "/api/player-tournaments", {"name": "x", "ruleset": "brandubh", "capacity": 4}),
+        (
+            "POST",
+            "/api/player-tournaments",
+            {"match_mode": "sequential", "name": "x", "ruleset": "brandubh", "capacity": 4},
+        ),
         ("GET", base, None),
         ("GET", base + "/bracket", None),
         ("GET", base + "/matches", None),
@@ -1559,7 +1589,7 @@ def test_planned_start_filters_and_cursor_scope(rig):
             name=name,
             ruleset=ruleset,
             capacity=4,
-            match_legs=1,
+            match_mode="sequential",
             time_per_move=600,
             scheduled_start_at=rig.clock.value + timedelta(days=1),
         )
@@ -1585,7 +1615,7 @@ def test_planned_start_filters_and_cursor_scope(rig):
             name="Bad",
             ruleset="brandubh",
             capacity=4,
-            match_legs=1,
+            match_mode="sequential",
             time_per_move=600,
             scheduled_start_at=datetime(2027, 1, 2),
         )
@@ -1595,7 +1625,7 @@ def test_planned_start_filters_and_cursor_scope(rig):
             name="Bad",
             ruleset="brandubh",
             capacity=4,
-            match_legs=1,
+            match_mode="sequential",
             time_per_move=600,
             registration_deadline=rig.clock.value + timedelta(days=2),
             scheduled_start_at=rig.clock.value + timedelta(days=1),
@@ -1680,6 +1710,7 @@ def scheduled_cup(rig, *, capacity=2, creator="P01", **kwargs):
         name="Scheduled cup",
         ruleset="brandubh",
         capacity=capacity,
+        match_mode="sequential",
         time_per_move=600,
         scheduled_start_at=rig.clock.value + timedelta(minutes=1),
         **kwargs,
@@ -1844,7 +1875,9 @@ def test_withdrawal_at_due_time_defers_start_until_capacity_is_restored(rig):
 
 def test_creator_http_capabilities_ownership_eligibility_and_admin_boundaries(rig, client):
     creator, other = client("P01"), client("P02")
-    cup = creator.post("/api/player-tournaments", json={"name": "Owned", "capacity": 4}).json()
+    cup = creator.post(
+        "/api/player-tournaments", json={"match_mode": "sequential", "name": "Owned", "capacity": 4}
+    ).json()
     assert cup["created_by"] == rig.accounts["P01"]["id"]
     assert cup["capabilities"] == {"can_create": True, "can_start": True, "can_moderate": False}
     base = f"/api/player-tournaments/{cup['id']}"
@@ -1867,7 +1900,10 @@ def test_creator_http_capabilities_ownership_eligibility_and_admin_boundaries(ri
     assert creator.post(base + "/start", json={"version": cup["version"]}).status_code == 200
     assert (
         client(UNVERIFIED)
-        .post("/api/player-tournaments", json={"name": "Denied", "capacity": 4})
+        .post(
+            "/api/player-tournaments",
+            json={"match_mode": "sequential", "name": "Denied", "capacity": 4},
+        )
         .status_code
         == 403
     )
@@ -1880,7 +1916,7 @@ def test_creator_http_capabilities_ownership_eligibility_and_admin_boundaries(ri
 
 def test_persisted_creation_limits_cannot_be_bypassed_by_cancellation(rig, client):
     creator = client("P01")
-    body = {"name": "Quota", "capacity": 4}
+    body = {"match_mode": "sequential", "name": "Quota", "capacity": 4}
     cups = [creator.post("/api/player-tournaments", json=body).json() for _ in range(3)]
     assert creator.post("/api/player-tournaments", json=body).status_code == 429
     for cup in cups:
@@ -1898,7 +1934,10 @@ def test_persisted_creation_limits_cannot_be_bypassed_by_cancellation(rig, clien
 def test_tournament_name_rejects_controls_and_empty_names(rig, client, name):
     assert (
         client("P01")
-        .post("/api/player-tournaments", json={"name": name, "capacity": 4})
+        .post(
+            "/api/player-tournaments",
+            json={"match_mode": "sequential", "name": name, "capacity": 4},
+        )
         .status_code
         == 422
     )
@@ -1930,7 +1969,8 @@ def test_registration_versions_are_atomic_and_reject_stale_custom_seeds(rig, cli
 )
 def test_schedule_uses_utc_across_dst_boundaries(rig, client, when):
     response = client("P01").post(
-        "/api/player-tournaments", json={"name": "DST", "capacity": 2, "scheduled_start_at": when}
+        "/api/player-tournaments",
+        json={"match_mode": "sequential", "name": "DST", "capacity": 2, "scheduled_start_at": when},
     )
     assert response.status_code == 201
     cup = response.json()
@@ -1955,7 +1995,10 @@ def test_schedule_uses_utc_across_dst_boundaries(rig, client, when):
 def test_schedule_rejects_past_and_naive_dates(rig, client, field, value):
     assert (
         client("P01")
-        .post("/api/player-tournaments", json={"name": "Bad", "capacity": 2, field: value})
+        .post(
+            "/api/player-tournaments",
+            json={"match_mode": "sequential", "name": "Bad", "capacity": 2, field: value},
+        )
         .status_code
         == 422
     )
@@ -1963,17 +2006,26 @@ def test_schedule_rejects_past_and_naive_dates(rig, client, field, value):
 
 @pytest.mark.parametrize("mode", ["single", "sequential", "simultaneous"])
 @pytest.mark.parametrize("clock_mode,increment", [("per_move", 0), ("total", 0), ("total", 10)])
-def test_match_modes_share_online_clocks_and_sequential_recovery(rig, mode, clock_mode, increment):
+def test_supported_and_historical_modes_share_online_clocks_and_sequential_recovery(
+    rig, mode, clock_mode, increment
+):
     cup = rig.core.create(
         rig.credentials["P01"],
         name="Modes",
         ruleset="brandubh",
         capacity=2,
-        match_mode=mode,
+        match_mode="sequential" if mode == "single" else mode,
         time_per_move=600,
         time_control=clock_mode,
         increment_seconds=increment,
     )
+    if mode == "single":
+        # A pre-policy stored single tournament, not a creation API escape hatch.
+        with rig.store.connection() as c:
+            c.execute(
+                "UPDATE player_tournaments SET match_mode='single',match_legs=1 WHERE id=?",
+                (cup["id"],),
+            )
     for name in PLAYERS[:2]:
         cup = rig.core.register(rig.credentials[name], cup["id"])
     rig.core.start(rig.credentials["P01"], cup["id"], cup["version"])
@@ -2045,15 +2097,21 @@ def test_ordinary_settle_requests_do_not_acquire_write_lock_or_traverse(rig, mon
 
 
 @pytest.mark.parametrize("mode", ["single", "sequential", "simultaneous"])
-def test_new_modes_preserve_byes_two_losses_and_grand_final_reset(rig, mode):
+def test_supported_and_historical_modes_preserve_byes_two_losses_and_grand_final_reset(rig, mode):
     cup = rig.core.create(
         rig.admin,
         name="New bracket",
         ruleset="brandubh",
         capacity=5,
-        match_mode=mode,
+        match_mode="sequential" if mode == "single" else mode,
         time_per_move=600,
     )
+    if mode == "single":
+        with rig.store.connection() as c:
+            c.execute(
+                "UPDATE player_tournaments SET match_mode='single',match_legs=1 WHERE id=?",
+                (cup["id"],),
+            )
     for name in PLAYERS[:5]:
         cup = rig.core.register(rig.credentials[name], cup["id"])
     rig.core.start(rig.admin, cup["id"], cup["version"])
@@ -2223,3 +2281,189 @@ def test_worker_starts_return_clock_after_acquiring_the_write_lock(rig, monkeypa
     game = rig.online.read(rig.admin, returned["game_id"])
     assert datetime.fromisoformat(game["started_at"]) == rig.clock.value
     assert datetime.fromisoformat(game["deadline"]) == rig.clock.value + timedelta(seconds=60)
+
+
+@pytest.mark.parametrize("mode", ["sequential", "simultaneous"])
+def test_new_tournaments_explicitly_require_two_side_swapped_games(rig, client, mode):
+    response = client("P01").post(
+        "/api/player-tournaments", json={"name": "Paired cup", "capacity": 2, "match_mode": mode}
+    )
+    assert response.status_code == 201
+    cup = response.json()
+    assert cup["match_mode"] == mode and cup["match_legs"] == 2
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.core.start(rig.credentials["P01"], cup["id"], cup["version"])
+    match = ready_matches(rig, cup["id"])[0]
+    first = rig.online.read(rig.admin, match["legs"][0]["game_id"])
+    force_match(rig, {**match, "legs": match["legs"][:1]}, match["participants"]["a"]["account_id"])
+    rig.app.state.tournament_settlement.drain()
+    current = rig.core.match(rig.admin, cup["id"], match["id"])
+    assert current["status"] == "ready" and len(current["legs"]) == 2
+    second = rig.online.read(rig.admin, current["legs"][1]["game_id"])
+    assert second["status"] == "active"
+    assert (
+        second["participants"]["attackers"]["account_id"]
+        == first["participants"]["defenders"]["account_id"]
+    )
+    assert (
+        second["participants"]["defenders"]["account_id"]
+        == first["participants"]["attackers"]["account_id"]
+    )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"match_mode": None},
+        {"match_mode": "single"},
+        {"match_mode": "legacy"},
+        {"match_legs": 1},
+        {"match_legs": 2},
+        {"match_legs": 5},
+        {"match_mode": "sequential", "match_legs": 1},
+        {"match_mode": "simultaneous", "match_legs": 2},
+        {"match_mode": "sequential", "match_legs": None},
+    ],
+)
+def test_new_creation_rejects_missing_single_and_legacy_bypasses(rig, client, extra):
+    response = client("P01").post(
+        "/api/player-tournaments", json={"name": "Invalid mode", "capacity": 2, **extra}
+    )
+    assert response.status_code == 422
+    with rig.store.connection() as c:
+        assert c.execute("SELECT COUNT(*) FROM player_tournaments").fetchone()[0] == 0
+    core_fields = {
+        key: value for key, value in extra.items() if key in {"match_mode", "match_legs"}
+    }
+    # None is the core's ordinary absent legacy-argument value, never a bypass.
+    if (
+        "match_legs" in core_fields
+        and core_fields["match_legs"] is None
+        and core_fields.get("match_mode") in ("sequential", "simultaneous")
+    ):
+        cup = rig.core.create(
+            rig.admin, name="Explicit paired mode", ruleset="brandubh", capacity=2, **core_fields
+        )
+        assert cup["match_legs"] == 2 and cup["match_mode"] == "sequential"
+        return
+    with pytest.raises(Exception, match="exactly two games"):
+        rig.core.create(rig.admin, name="Invalid", ruleset="brandubh", capacity=2, **core_fields)
+
+
+@pytest.mark.parametrize("capacity", [2, 4])
+def test_creator_early_start_policy_and_server_capabilities(rig, client, capacity):
+    cup = scheduled_cup(rig, capacity=capacity)
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    creator_view = rig.core.detail(rig.credentials["P01"], cup["id"])
+    assert creator_view["capabilities"]["can_start"] is (capacity > 2)
+    assert rig.core.detail(rig.admin, cup["id"])["capabilities"]["can_start"] is True
+    base = f"/api/player-tournaments/{cup['id']}"
+    response = client("P01").post(base + "/start", json={"version": cup["version"]})
+    if capacity == 2:
+        assert response.status_code == 409 and "planned start" in response.json()["detail"]
+        assert table_counts(rig) == {"matches": 0, "legs": 0, "games": 0}
+        response = client(ADMIN).post(base + "/start", json={"version": cup["version"]})
+        assert response.status_code == 200
+        event = next(
+            e for e in rig.core.audit(rig.admin, cup["id"])["items"] if e["action"] == "started"
+        )
+        assert event["details"]["source"] == "administrator"
+    else:
+        assert response.status_code == 200
+    assert response.json()["status"] == "running"
+
+
+def test_concurrent_early_creator_and_admin_override_start_once(rig):
+    from hnefatafl.online_core import OnlineError
+
+    cup = scheduled_cup(rig)
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+
+    def start(credential):
+        try:
+            return rig.core.start(credential, cup["id"], cup["version"])["status"]
+        except OnlineError as error:
+            assert error.status == 409
+            return "conflict"
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        creator = pool.submit(start, rig.credentials["P01"])
+        admin = pool.submit(start, rig.admin)
+        automatic = pool.submit(rig.app.state.tournament_settlement.start_due)
+        assert creator.result() == "conflict"
+        assert admin.result() == "running"
+        assert automatic.result() == 0
+    assert table_counts(rig) == {"matches": 2, "legs": 1, "games": 1}
+    assert (
+        len([e for e in rig.core.audit(rig.admin, cup["id"])["items"] if e["action"] == "started"])
+        == 1
+    )
+
+
+def test_actual_bootstrap_admin_can_create_without_verified_email(tmp_path, monkeypatch):
+    import io
+    from hnefatafl.accounts import main as account_cli
+
+    password = "bootstrap-fixture-only-password"
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            json.dumps(
+                {"username": "Bootstrap", "email": "bootstrap@example.test", "password": password}
+            )
+        ),
+    )
+    assert account_cli(["init-admin", "--data-dir", str(tmp_path), "--credentials-stdin"]) == 0
+    app = create_app(
+        tmp_path, online_settings=POLICY, online_background=False, account_background=False
+    )
+    with TestClient(app) as browser:
+        login = browser.post(
+            "/api/auth/login",
+            json={"identity": "Bootstrap", "password": password},
+            headers={"Origin": "http://testserver"},
+        )
+        assert login.status_code == 200
+        session = login.json()
+        assert session["account"]["email_verified"] is False
+        browser.headers.update(
+            {"Origin": "http://testserver", "X-CSRF-Token": session["csrf_token"]}
+        )
+        response = browser.post(
+            "/api/player-tournaments",
+            json={"name": "Bootstrap cup", "capacity": 2, "match_mode": "sequential"},
+        )
+        assert response.status_code == 201
+        cup = response.json()
+        assert cup["capabilities"]["can_create"] and cup["capabilities"]["can_moderate"]
+        assert browser.get(f"/api/player-tournaments/{cup['id']}/audit").status_code == 200
+        assert (
+            browser.post(
+                f"/api/player-tournaments/{cup['id']}/cancel", json={"version": cup["version"]}
+            ).status_code
+            == 200
+        )
+        with app.state.store.connection() as c:
+            c.execute("UPDATE accounts SET role='USER' WHERE id=?", (session["account"]["id"],))
+        assert (
+            browser.post(
+                "/api/player-tournaments",
+                json={"name": "Unverified user", "capacity": 2, "match_mode": "sequential"},
+            ).status_code
+            == 403
+        )
+        with app.state.store.connection() as c:
+            c.execute(
+                "UPDATE accounts SET role='ADMIN',active=0 WHERE id=?", (session["account"]["id"],)
+            )
+        assert (
+            browser.post(
+                "/api/player-tournaments",
+                json={"name": "Disabled", "capacity": 2, "match_mode": "sequential"},
+            ).status_code
+            == 401
+        )
