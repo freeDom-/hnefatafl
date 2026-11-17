@@ -21,11 +21,12 @@ const options = {
   warmupMs: 5000,
   port: 4273,
   allowDirty: false,
+  clients: 1,
 };
 for (const arg of process.argv.slice(2)) {
   if (arg === '--help') {
     console.log(
-      'Build first: npm --prefix frontend run build\nRun: node frontend/benchmarks/arena-polling.mjs [--output=/tmp/result.json] [--window-ms=60000] [--warmup-ms=5000] [--port=4273] [--allow-dirty]\nRequires installed Playwright Chromium and repository .venv. Uses fixture ports 8001/8002.\nThe production dist must carry a matching dist/arena-build.json revision; --allow-dirty only permits a non-reproducible local run.',
+      'Build first: npm --prefix frontend run build\nRun: node frontend/benchmarks/arena-polling.mjs [--output=/tmp/result.json] [--window-ms=60000] [--warmup-ms=5000] [--port=4273] [--allow-dirty] [--clients=1]\nRequires installed Playwright Chromium and repository .venv. Uses fixture ports 8001/8002.\nThe production dist must carry a matching dist/arena-build.json revision; --allow-dirty only permits a non-reproducible local run.',
     );
     process.exit(0);
   }
@@ -35,10 +36,14 @@ for (const arg of process.argv.slice(2)) {
   else if (key === '--window-ms') options.windowMs = Number(value);
   else if (key === '--warmup-ms') options.warmupMs = Number(value);
   else if (key === '--port') options.port = Number(value);
+  else if (key === '--clients') options.clients = Number(value);
   else if (key === '--allow-dirty') options.allowDirty = true;
   else throw new Error(`Unknown option: ${arg}`);
 }
 if (
+  !Number.isInteger(options.clients) ||
+  options.clients < 1 ||
+  options.clients > 10 ||
   !Number.isInteger(options.windowMs) ||
   options.windowMs < 10000 ||
   options.windowMs > 300000 ||
@@ -173,35 +178,69 @@ try {
   });
   if (!login.ok()) throw new Error(`Fixture login failed: ${login.status()}`);
   const session = await login.json();
-  const page = await context.newPage();
+  const pages = [await context.newPage()];
+  const cookies = await context.cookies();
+  for (let index = 1; index < options.clients; index++) {
+    const next = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await next.addCookies(cookies);
+    pages.push(await next.newPage());
+  }
   let phase = 'empty-startup';
-  const phases = {};
+  const phases = Object.fromEntries(
+    [
+      'empty-startup',
+      'empty-visible',
+      'fixture-setup',
+      'active-startup',
+      'active-visible',
+      'active-simulated-hidden',
+    ].map((name) => [name, { requests: 0, endpoints: {}, failed: 0, statuses: {} }]),
+  );
+  const sampleWindow = async (name) => {
+    phase = name;
+    const started = performance.now();
+    await wait(options.windowMs);
+    phases[name].elapsedMs = performance.now() - started;
+  };
   const pending = new WeakMap();
   const normalize = (url) =>
     url.pathname.replace(/\/games\/[A-Za-z0-9_-]+$/, '/games/:id') + url.search;
-  page.on('request', (request) => {
-    const url = new URL(request.url());
-    if (!url.pathname.startsWith('/api/')) return;
-    const endpoint = `${request.method()} ${normalize(url)}`;
-    phases[phase] ??= { requests: 0, endpoints: {}, failed: 0, statuses: {} };
-    const sample = phases[phase];
-    sample.requests++;
-    sample.endpoints[endpoint] = (sample.endpoints[endpoint] || 0) + 1;
-    pending.set(request, sample);
-  });
-  page.on('requestfailed', (request) => {
-    const sample = pending.get(request);
-    if (sample) sample.failed++;
-  });
-  page.on('response', (response) => {
-    const sample = pending.get(response.request());
-    if (sample) sample.statuses[response.status()] = (sample.statuses[response.status()] || 0) + 1;
-  });
-  await page.goto(`${origin}/dashboard`);
-  await page.locator('.personal-dashboard').waitFor({ timeout: 30000 });
+  for (const page of pages) {
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (!url.pathname.startsWith('/api/')) return;
+      const endpoint = `${request.method()} ${normalize(url)}`;
+      phases[phase] ??= { requests: 0, endpoints: {}, failed: 0, statuses: {} };
+      const sample = phases[phase];
+      sample.requests++;
+      sample.endpoints[endpoint] = (sample.endpoints[endpoint] || 0) + 1;
+      pending.set(request, { sample, started: performance.now() });
+    });
+    page.on('requestfailed', (request) => {
+      const match = pending.get(request);
+      if (match) match.sample.failed++;
+    });
+    page.on('response', (response) => {
+      const sample = pending.get(response.request())?.sample;
+      if (sample)
+        sample.statuses[response.status()] = (sample.statuses[response.status()] || 0) + 1;
+    });
+    page.on('requestfinished', (request) => {
+      const match = pending.get(request);
+      if (!match) return;
+      match.sample.durations ??= [];
+      match.sample.durations.push(performance.now() - match.started);
+    });
+  }
+  await Promise.all(
+    pages.map(async (page) => {
+      await page.goto(`${origin}/dashboard`);
+      await page.locator('.personal-dashboard').waitFor({ timeout: 30000 });
+    }),
+  );
   await wait(options.warmupMs);
-  phase = 'empty-visible';
-  await wait(options.windowMs);
+  await sampleWindow('empty-visible');
+  phase = 'fixture-setup';
   const game = await context.request.post(`${origin}/api/games/local`, {
     headers: { Origin: origin, 'X-CSRF-Token': session.csrf_token },
     data: {
@@ -212,19 +251,33 @@ try {
   });
   if (!game.ok()) throw new Error(`Fixture local game creation failed: ${game.status()}`);
   phase = 'active-startup';
-  await page.reload();
-  await page.locator('.personal-dashboard .board').first().waitFor({ timeout: 30000 });
+  await Promise.all(
+    pages.map(async (page) => {
+      await page.reload();
+      await page.locator('.personal-dashboard .board').first().waitFor({ timeout: 30000 });
+    }),
+  );
   await wait(options.warmupMs);
-  phase = 'active-visible';
-  await wait(options.windowMs);
-  await page.evaluate(() => {
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
-    document.dispatchEvent(new Event('visibilitychange'));
-  });
-  phase = 'active-simulated-hidden';
-  await wait(options.windowMs);
+  await sampleWindow('active-visible');
+  await Promise.all(
+    pages.map((page) =>
+      page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          get: () => 'hidden',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+      }),
+    ),
+  );
+  await sampleWindow('active-simulated-hidden');
   const report = {
     schema: 1,
+    clients: options.clients,
+    clientIsolation:
+      'Independent browser contexts share one disposable account/session; not a unique-player population benchmark.',
+    aggregateLatency:
+      'Request start through body completion on loopback, including client scheduling; not production capacity.',
     sourceHead: sourceRecord.revision,
     source: { revision: sourceRecord.revision, dirty: sourceRecord.dirty, git: sourceRecord.git },
     build: {
@@ -252,7 +305,31 @@ try {
       'Browser page /api/ request starts only; setup APIRequestContext traffic excluded. Normalized identifiers; no payloads or credentials recorded.',
     hiddenCaveat:
       'document.visibilityState override and visibilitychange signal test app policy; this is not real OS background throttling or a physical device.',
-    phases,
+    phases: Object.fromEntries(
+      Object.entries(phases).map(([name, sample]) => {
+        const { durations = [], ...counts } = sample;
+        durations.sort((a, b) => a - b);
+        const percentile = (p) =>
+          durations[Math.max(0, Math.ceil(durations.length * p) - 1)] ?? null;
+        return [
+          name,
+          {
+            ...counts,
+            requestsPerClient: sample.requests / options.clients,
+            requestsPerMinutePerClient:
+              sample.elapsedMs > 0
+                ? ((sample.requests / options.clients) * 60000) / sample.elapsedMs
+                : null,
+            latencyMs: {
+              observations: durations.length,
+              p50: percentile(0.5),
+              p95: percentile(0.95),
+              maximum: durations.at(-1) ?? null,
+            },
+          },
+        ];
+      }),
+    ),
   };
   await mkdir(dirname(options.output), { recursive: true });
   await writeFile(options.output, JSON.stringify(report, null, 2) + '\n');

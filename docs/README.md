@@ -75,6 +75,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Watch Hall production CSS regression and browser validation](validation/public-watch-production.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
+- [Dashboard polling policy and measurement](validation/dashboard-polling.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
 - [Arena theme completion and visual checks](validation/arena-theme-completion.md)
