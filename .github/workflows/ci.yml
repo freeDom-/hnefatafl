@@ -6,6 +6,19 @@ on:
 permissions:
   contents: read
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12"
+      # Audit the committed lockfile without installing dependencies. Keeping this
+      # in its own job means a dependency advisory cannot block browser validation.
+      - run: npm audit --package-lock-only --audit-level=moderate
   python:
     runs-on: ubuntu-latest
     env:
@@ -46,7 +59,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=moderate
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test

@@ -127,3 +127,57 @@ had 354 passed, 19 skipped and one failure when a board temporarily disappeared
 during navigation. The existing geometry poll now retries that transient missing
 node instead of throwing before it can measure. Width/height assertions remain
 unchanged, matching the correction already green in Portrait Hall CI.
+
+## picomatch ReDoS advisory (GHSA-fc5q-39xc-vjpf), 2026-11-17
+
+This section supersedes the earlier zero-finding audit status above. A fresh
+`npm audit --audit-level=moderate` exits 1 with five affected development packages,
+all from one advisory: picomatch through 4.0.7 is vulnerable to a ReDoS through
+single-branch repeated extglob patterns (CVE-2026-112366, high severity).
+
+### Installed graph
+
+`npm ls picomatch --all` on the committed lockfile:
+
+| Dependency path | Role |
+| --- | --- |
+| `vite@7.3.7 -> picomatch@4.0.7` | build tool |
+| `vite@7.3.7 -> fdir@6.5.0 -> picomatch@4.0.7` | build file discovery |
+| `vite@7.3.7 -> tinyglobby@0.2.17 -> picomatch@4.0.7` | build globbing |
+| `vitest@4.1.12 -> picomatch@4.0.7` | test runner |
+
+The audit counts five affected packages (picomatch, fdir, tinyglobby, vite,
+vitest) rather than five unique advisories. `npm audit --package-lock-only
+--omit=dev` reports **0 vulnerabilities**: production dependencies are only React,
+React DOM and React Markdown, and the production `dist/` bundle contains no
+picomatch code.
+
+### Exposure
+
+The vulnerable operation is picomatch compiling a glob with repeated single-branch
+extglobs such as `+(*)`. In this repository those patterns come from developer
+configuration, Vite/Vitest file discovery and test-name filters, not from HTTP
+request data, account input or any other untrusted runtime source. There is no
+production server or browser path that passes attacker-controlled globs to
+picomatch. The practical exposure is a development/CI tooling denial of service
+on a developer machine or runner; deployed application runtime exposure is absent.
+
+### Patch status and decision
+
+The npm registry's latest release remains picomatch 4.0.7 (published
+2026-08-24) and the advisory lists no patched version. Vite 8 and Vitest 5 still
+declare `picomatch: ^4.0.7`, so a major upgrade would not resolve it. npm's
+suggested `audit fix --force` would downgrade to Vitest 3.1.4 and Vite 6.2.7
+(a breaking change that still resolves a vulnerable picomatch).
+
+No fork, override, blanket ignore or downgrade is used. The full audit remains a
+required, visible CI check and currently fails, so this branch is not represented
+as fully security-validated.
+
+### Follow-up
+
+When upstream publishes a patched picomatch release, refresh the lockfile
+(`npm --prefix frontend update picomatch`), rerun the unit/browser suites and
+re-audit. No temporary exception, `audit` suppression or approval exception is in
+place; the security job stays red until that upgrade. Repeat the audit at release
+preparation because advisories are time-sensitive.
