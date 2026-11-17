@@ -68,7 +68,8 @@ The new production suite captures discovery with zero, one, two and many records
 waiting, live Brandubh/Tablut/Copenhagen, completed validated replay, cancelled and
 voided games; and error/retry states. It covers four themes × two languages ×
 320×844, 768×1024, 1440×900 and 3840×2160 viewports. The test artifact retains native
-PNG screenshots plus per-case HTTP asset evidence. Reduced-motion, square boards,
+JPEG screenshots (quality 85, without duplicate attachment copies) plus per-case
+HTTP asset evidence. Reduced-motion, square boards,
 read-only cells, replay keyboard controls/focus, mobile action targets, public
 portraits, readable intro contrast and overflow are checked against computed
 browser styles/geometry. References retain the established Arena surfaces, borders,
@@ -76,12 +77,16 @@ shadows, typography and theme palettes; no new visual design is introduced.
 
 ## Performance and security
 
+Visual review also found full-precision fractional Elo values crowding player
+labels. `PublicArena.tsx` now rounds ratings for display, matching the existing
+online UI; stored ratings and public API payloads retain their precision.
+
 Measured on identical locked builds, reconciled branch before/after the loader fix:
 
 | Fetched public-page JS/CSS plus appearance initializer | Before | After |
 | --- | ---: | ---: |
-| Uncompressed bytes | 1,219,722 | 549,328 |
-| Gzip bytes (offline, identical settings) | 353,878 | 168,428 |
+| Uncompressed bytes | 1,219,722 | 549,340 |
+| Gzip bytes (offline, identical settings) | 353,878 | 168,431 |
 
 The main entry grows by 63 minified bytes (19 bytes under the measured gzip
 settings). Public CSS remains a separate 6,512-byte asset (1,821 gzip bytes).
@@ -108,7 +113,9 @@ Local verification before publishing the correction:
 | Command | Result |
 | --- | --- |
 | New production regression on the unfixed build, desktop and phone | 2 expected failures: header `block` instead of `flex` |
-| Focused production browser checks after correction | 10 passed |
+| Focused production browser checks after the rating/capture follow-up | 14 passed, including Classic Table/German at 4K |
+| Full local production matrix after the loader correction | 76 passed |
+| Spectator unit tests after rounding ratings | 33 passed |
 | `npm test -- --maxWorkers=2` | 1,374 passed in 95 files |
 | Frontend TypeScript, formatting and production build | Passed |
 | Benchmark harness tests | 12 passed |
@@ -125,11 +132,17 @@ pipeline. Its `public-spectator-production` artifact retains the matrix screensh
 and per-case asset evidence. This local reproduction record does not replace those
 current-head gates or imply that the PR has been merged.
 
+The first CI matrix on the loader correction passed 75 cases and reported one
+4K/German geometry assertion: grouping label tops treated a wrapped label as an
+extra row. The check now groups the grid items' aligned lower edges with a tighter
+2px tolerance; expected row counts and overlap/overflow assertions are unchanged.
+
 ## Files changed
 
 | File | Purpose |
 | --- | --- |
 | `frontend/src/EntryRouter.tsx` | Separate dynamic import expressions so each entry preloads its own CSS |
+| `frontend/src/PublicArena.tsx` | Render concise whole-number ratings without changing stored values |
 | `frontend/playwright.public.config.ts` | Production build/FastAPI matrix, independent output directory |
 | `frontend/public-tests/watch-production.spec.ts` | Computed CSS, geometry, HTTP assets, history, state, accessibility and boundary regressions |
 | `frontend/tests/start_public_backend.py` | Isolated real online records and production security settings; external loopback identifier controller |

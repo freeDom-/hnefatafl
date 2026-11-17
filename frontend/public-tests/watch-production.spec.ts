@@ -117,10 +117,13 @@ async function discoveryLayout(page: Page) {
       return { x, y, width, height };
     }),
   );
-  // Native select/input heights differ slightly; group actual grid rows with
-  // an 8px tolerance instead of treating that baseline difference as a wrap.
+  // Grid items align at their lower edge; localized labels may wrap above it.
+  // Native select/input heights and line wrapping must not create false rows.
   const rows: number[] = [];
-  for (const { y } of controls) if (!rows.some((top) => Math.abs(top - y) < 8)) rows.push(y);
+  for (const { y, height } of controls) {
+    const bottom = y + height;
+    if (!rows.some((edge) => Math.abs(edge - bottom) < 2)) rows.push(bottom);
+  }
   expect(rows.length).toBe(width > 1100 ? 1 : width < 390 ? 4 : 2);
   for (let i = 0; i < controls.length; i++) {
     for (const other of controls.slice(i + 1)) {
@@ -147,9 +150,14 @@ async function discoveryLayout(page: Page) {
 }
 
 async function capture(page: Page, info: TestInfo, name: string) {
-  const path = info.outputPath(`${name}.png`);
-  await page.screenshot({ path, fullPage: true });
-  await info.attach(name, { path, contentType: 'image/png' });
+  // Native-resolution captures are already retained by the output artifact.
+  // Attaching copies duplicates hundreds of images without adding evidence.
+  await page.screenshot({
+    path: info.outputPath(`${name}.jpg`),
+    fullPage: true,
+    type: 'jpeg',
+    quality: 85,
+  });
 }
 
 async function filter(page: Page, values: { ruleset?: string; status?: string; player?: string }) {
@@ -299,6 +307,9 @@ for (const theme of themes) {
         await expect(page.locator('.public-header-nav')).toHaveCSS('display', 'flex');
         await expect(page.locator('.public-view')).toHaveCSS('display', 'grid');
         await expect(page.locator('.public-player img').first()).toBeVisible();
+        for (const rating of await page.locator('.public-player small').all()) {
+          await expect(rating).toHaveText(/^(?:Rating|Wertung): \d+$/);
+        }
         await expect
           .poll(() =>
             page

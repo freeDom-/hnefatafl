@@ -98,7 +98,7 @@ function PublicPlayer({ player }: { player: PublicParticipant | null }) {
         <strong>{player?.display_name || t('Open seat')}</strong>
         {player?.current_rating != null && (
           <small>
-            {t('Rating')}: {player.current_rating}
+            {t('Rating')}: {Math.round(player.current_rating)}
           </small>
         )}
       </span>

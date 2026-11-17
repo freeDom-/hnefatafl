@@ -197,14 +197,9 @@
           "type": "text/javascript; charset=utf-8"
         },
         {
-          "url": "http://127.0.0.1:8011/assets/index-Ce4czjId.js",
+          "url": "http://127.0.0.1:8011/assets/index-DZvscYmf.js",
           "status": 200,
           "type": "text/javascript; charset=utf-8"
-        },
-        {
-          "url": "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css",
-          "status": 200,
-          "type": "text/css; charset=utf-8"
         },
         {
           "url": "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
@@ -212,12 +207,17 @@
           "type": "text/css; charset=utf-8"
         },
         {
-          "url": "http://127.0.0.1:8011/assets/PublicArena-C6XRTfjj.js",
+          "url": "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-DfuAyxPm.js",
           "status": 200,
           "type": "text/javascript; charset=utf-8"
         },
         {
-          "url": "http://127.0.0.1:8011/assets/arenaTopBar-DA6K8Liz.js",
+          "url": "http://127.0.0.1:8011/assets/PublicArena-BXHONOyS.js",
           "status": 200,
           "type": "text/javascript; charset=utf-8"
         }
@@ -225,8 +225,8 @@
       "errors": [],
       "stylesheets": [
         "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
-        "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
-        "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css"
+        "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css",
+        "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css"
       ],
       "computed": {
         ".public-header": {
@@ -280,7 +280,7 @@
           "type": "text/javascript; charset=utf-8"
         },
         {
-          "url": "http://127.0.0.1:8011/assets/index-Ce4czjId.js",
+          "url": "http://127.0.0.1:8011/assets/index-DZvscYmf.js",
           "status": 200,
           "type": "text/javascript; charset=utf-8"
         },
@@ -295,12 +295,12 @@
           "type": "text/css; charset=utf-8"
         },
         {
-          "url": "http://127.0.0.1:8011/assets/PublicArena-C6XRTfjj.js",
+          "url": "http://127.0.0.1:8011/assets/PublicArena-BXHONOyS.js",
           "status": 200,
           "type": "text/javascript; charset=utf-8"
         },
         {
-          "url": "http://127.0.0.1:8011/assets/arenaTopBar-DA6K8Liz.js",
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-DfuAyxPm.js",
           "status": 200,
           "type": "text/javascript; charset=utf-8"
         }
@@ -308,8 +308,8 @@
       "errors": [],
       "stylesheets": [
         "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
-        "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css",
-        "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css"
+        "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
+        "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css"
       ],
       "computed": {
         ".public-header": {
@@ -410,14 +410,9 @@
           "gzip": 700
         },
         {
-          "name": "index-Ce4czjId.js",
+          "name": "index-DZvscYmf.js",
           "raw": 442840,
           "gzip": 141643
-        },
-        {
-          "name": "PublicArena-BKatoy-B.css",
-          "raw": 6512,
-          "gzip": 1821
         },
         {
           "name": "arenaTopBar-qCqN8ppL.css",
@@ -425,18 +420,23 @@
           "gzip": 840
         },
         {
-          "name": "PublicArena-C6XRTfjj.js",
-          "raw": 15822,
-          "gzip": 5624
+          "name": "PublicArena-BKatoy-B.css",
+          "raw": 6512,
+          "gzip": 1821
         },
         {
-          "name": "arenaTopBar-DA6K8Liz.js",
+          "name": "arenaTopBar-DfuAyxPm.js",
           "raw": 5560,
-          "gzip": 2333
+          "gzip": 2334
+        },
+        {
+          "name": "PublicArena-BXHONOyS.js",
+          "raw": 15834,
+          "gzip": 5626
         }
       ],
-      "raw": 549328,
-      "gzip": 168428
+      "raw": 549340,
+      "gzip": 168431
     }
   }
 }
