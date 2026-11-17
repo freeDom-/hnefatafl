@@ -68,6 +68,12 @@
   font-weight: 600;
   vertical-align: middle;
 }
+.leaderboard-avatar .portrait-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
 .leaderboard .leaderboard-provisional {
   margin-left: 0.4rem;
   vertical-align: middle;

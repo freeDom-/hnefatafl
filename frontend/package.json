@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/write-build-revision.mjs",
     "benchmark:learning": "node benchmarks/run.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
+    "test:benchmarks": "node --test \"benchmarks/**/*.test.mjs\"",
     "test:e2e": "playwright test",
     "test:registration": "playwright test --config playwright.registration.config.ts",
     "lint": "tsc --noEmit",
@@ -38,6 +39,6 @@
     "prettier": "3.6.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.10",
-    "vitest": "^3.2.4"
+    "vitest": "4.1.12"
   }
 }

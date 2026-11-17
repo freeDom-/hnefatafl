@@ -552,3 +552,43 @@ def test_schema17_migration_seeds_catalogs_without_granting_awards(rig):
     items = items_of(progression(rig).confirm(rig.credentials["Archer"]))
     assert items["first-rated-win"]["unlocked"] is True
     assert items["first-rated-win"]["progress"] == 1
+
+
+def test_selected_portraits_propagate_to_online_and_leaderboard_without_private_progress(rig):
+    game = finish(rig, active(rig), "attackers")
+    owner = rig.accounts["Archer"]["id"]
+    service = progression(rig)
+    service.confirm(rig.credentials["Archer"])
+    with rig.core._write() as c:
+        service.select(c, owner, "shieldmaiden")
+
+    board = rig.core.read(rig.credentials["Keeper"], game["id"])
+    standings = rig.core.leaderboard(rig.credentials["Keeper"], "brandubh")
+    participant = board["participants"]["attackers"]
+    assert participant["portrait_id"] == "shieldmaiden"
+    assert set(participant) <= {"account_id", "name", "username", "portrait_id"}
+    own = next(row for row in standings["entries"] if row["account_id"] == owner)
+    assert own["portrait_id"] == "shieldmaiden"
+    assert standings["me"]["portrait_id"] == "shieldbearer"
+    queries = []
+    with rig.store.connection() as c:
+        c.set_trace_callback(queries.append)
+        rig.core.ratings.leaderboard(c, rig.accounts["Keeper"]["id"], "brandubh", 100, 0)
+    assert len([query for query in queries if "FROM account_portrait_selection" in query]) == 1
+    assert not {"achievements", "awards", "email", "date_of_birth"} & set(own)
+    # A live lobby and direct read use the same safe selection, including default
+    # fallback. Completed games are not included in the live lobby.
+    live = active(rig)
+    lobby = rig.core.listing(rig.credentials["Keeper"], section="all")
+    listed = next(item for item in lobby["games"] if item["id"] == live["id"])
+    assert listed["participants"]["attackers"]["portrait_id"] == "shieldmaiden"
+    with rig.store.connection() as c:
+        c.execute("UPDATE portrait_catalog SET retired=1 WHERE id='shieldmaiden'")
+    assert (
+        rig.core.read(rig.credentials["Keeper"], live["id"])["participants"]["attackers"][
+            "portrait_id"
+        ]
+        == "shieldbearer"
+    )
+    standings = rig.core.leaderboard(rig.credentials["Archer"], "brandubh")
+    assert standings["me"]["portrait_id"] == "shieldbearer"

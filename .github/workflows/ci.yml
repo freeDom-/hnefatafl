@@ -46,9 +46,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: npm audit --audit-level=moderate
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:benchmarks
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
@@ -56,7 +58,9 @@ jobs:
         if: always()
         with:
           name: arena-final-visual-acceptance
-          path: frontend/test-results/arena-final/
+          path: |
+            frontend/test-results/arena-final/
+            frontend/test-results/portraits/
           retention-days: 14
       - run: npm run test:registration
       - run: npm run test:online
@@ -67,3 +71,22 @@ jobs:
           name: browser-failure-evidence
           path: frontend/test-results/
           retention-days: 7
+  node22:
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
