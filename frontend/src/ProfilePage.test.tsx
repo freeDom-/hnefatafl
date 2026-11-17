@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ProfilePage, { type Profile } from './ProfilePage';
 import { api } from './api';
@@ -479,3 +479,78 @@ it.each(['en', 'de'] as const)(
     expect(apiMock.mock.calls.filter(([path]) => path === '/profile/password')).toHaveLength(0);
   },
 );
+
+function portraitSection() {
+  return screen
+    .getByRole('heading', { name: /^(Selected portrait|Ausgewähltes Porträt)$/ })
+    .closest('section')!;
+}
+
+it('shows an accessible loading state instead of an invented portrait before the profile confirms', async () => {
+  let finish!: (value: Profile) => void;
+  apiMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<ProfilePage />);
+  expect(portraitSection().querySelector('img')).toBeNull();
+  expect(within(portraitSection()).getByRole('status')).toHaveTextContent('Loading your portrait…');
+  await act(async () => finish({ ...initial, portrait_id: 'valkyrie' }));
+  expect(portraitSection().querySelector('img')).toHaveAttribute(
+    'src',
+    '/assets/arena-v2/assets/portraits/valkyrie.webp',
+  );
+});
+
+it('shows the server-confirmed selected portrait and keeps the gallery link', async () => {
+  stored = { ...stored, portrait_id: 'raven-seer' };
+  await page();
+  expect(portraitSection().querySelector('img')).toHaveAttribute(
+    'src',
+    '/assets/arena-v2/assets/portraits/raven-seer.webp',
+  );
+  expect(
+    within(portraitSection()).getByRole('link', { name: 'Open Portrait Hall' }),
+  ).toHaveAttribute('href', '/portraits');
+});
+
+it('does not present an invented portrait when the profile request fails', async () => {
+  apiMock.mockRejectedValueOnce(new Error('Network unavailable.'));
+  render(<ProfilePage />);
+  await screen.findByRole('alert');
+  expect(portraitSection().querySelector('img')).toBeNull();
+  expect(within(portraitSection()).getByText('Selected portrait unavailable.')).toBeVisible();
+});
+
+it('never shows another account portrait while an account switch is loading', async () => {
+  stored = { ...stored, portrait_id: 'valkyrie' };
+  const view = await page();
+  expect(portraitSection().querySelector('img')).toHaveAttribute(
+    'src',
+    '/assets/arena-v2/assets/portraits/valkyrie.webp',
+  );
+  identity.id = 'other';
+  let finish!: (value: Profile) => void;
+  apiMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  view.rerender(
+    <I18nProvider>
+      <AppearanceProvider>
+        <ProfilePage />
+      </AppearanceProvider>
+    </I18nProvider>,
+  );
+  expect(portraitSection().querySelector('img')).toBeNull();
+  expect(within(portraitSection()).getByRole('status')).toHaveTextContent('Loading your portrait…');
+  await act(async () => finish({ ...initial, portrait_id: 'skald' }));
+  expect(portraitSection().querySelector('img')).toHaveAttribute(
+    'src',
+    '/assets/arena-v2/assets/portraits/skald.webp',
+  );
+});

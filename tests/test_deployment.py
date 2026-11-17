@@ -339,6 +339,10 @@ def test_restore_retains_live_online_results_return_games_and_pauses_timeout_gat
             "VALUES(?,?,?)",
             (deployment.admin["id"], "shieldmaiden", 456),
         )
+    # Published portraits are current profile metadata, not a game-version
+    # snapshot. Capture the projection after the legitimate live selection.
+    finished = core.read(digest(first_token), game["id"])
+    assert finished["participants"]["attackers"]["portrait_id"] == "shieldmaiden"
     tables = (
         "online_matches",
         "online_games",

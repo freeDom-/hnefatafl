@@ -6,6 +6,20 @@ This describes current boundaries and invariants. Schema introduction dates and
 release-specific delivery details live in [Deployment](docs/DEPLOYMENT.md#data-and-configuration)
 and the [historical release index](docs/README.md#rulesets-release-history-and-historical-requirements).
 
+## Arena completion status
+
+The [post-PR #84 audit](docs/designs/arena-completion.md) is a historical snapshot.
+At that baseline, Portrait Hall, signed-out spectator UI and human tournament UI
+were missing, tournament settlement was manually invoked and leagues were not
+implemented; schema is 18. Later work ships separately: Portrait Hall, achievement
+claiming and selection are delivered by PR #86, and the signed-out public spectator
+frontend is delivered by PR #87. Automatic tournament settlement,
+leagues, Workshop consolidation and local-analysis
+research remain separate workstreams. See the [current Arena contracts](docs/designs/arena-v2-contracts.md)
+and [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
+remove obsolete formats after a tested development-data recovery path; it must not
+silently delete games, jobs, checkpoints or model files.
+
 ## Decisions
 
 Python 3.11+ owns the deterministic engine, search, persistence and training. FastAPI
@@ -654,7 +668,11 @@ batch deduplication remain separate from node reuse and completed simulations.
 
 ## Account and online play surfaces
 
-`main.tsx` mounts `Auth` around `App`. Account play lives at `/games/{id}` and online
+`main.tsx` mounts `EntryRouter` inside the shared appearance, language and notification
+providers. `/watch` loads `PublicArena`; other routes load `AuthenticatedArena`,
+which mounts `Auth` around `App`. The two dynamic imports use separate loader
+expressions so Vite preloads each entry's own CSS in production. Public navigation
+does not initialize the protected application graph. Account play lives at `/games/{id}` and online
 play at `/online/games/{id}`; both render the shared play-screen sections. Session
 reads do not modify saved account preferences; explicit logout keeps its existing
 cleanup. Protected requests have session epochs and cancellation so delayed

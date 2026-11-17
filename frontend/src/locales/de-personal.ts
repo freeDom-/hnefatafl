@@ -243,6 +243,7 @@ const personal: Record<string, string> = {
   'Your place at the table.': 'Dein Platz am Tisch.',
   'Take your turn. Outwit your rivals. Earn your saga.':
     'Mach deinen Zug. Überliste deine Rivalen. Erwirb deine Saga.',
+  '{count} game awaits your move': '{count} Partie wartet auf deinen Zug',
   '{count} games await your move': '{count} Partien warten auf deinen Zug',
   'YOUR TURN': 'DU BIST AM ZUG',
   'THE TABLE IS SET': 'DER TISCH IST GEDECKT',

@@ -2,7 +2,7 @@ import { ArenaShell, SHELL_MAIN_ID, WorkshopShell } from './ArenaShell';
 import NewGame from './NewGame';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n } from './i18n';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Board, { coordinate } from './Board';
 import { api, errorMessage } from './api';
@@ -38,6 +38,9 @@ import { useModelCatalogue } from './useModelCatalogue';
 import PlayLanding from './PlayLanding';
 import { PlayTabsProvider } from './PlayTabs';
 
+// Route-level code split: the gallery and its styles load only on /portraits.
+const PortraitHall = lazy(() => import('./PortraitHall'));
+
 type Tab =
   | 'statistics'
   | 'dashboard'
@@ -46,6 +49,7 @@ type Tab =
   | 'archive'
   | 'leaderboard'
   | 'profile'
+  | 'portraits'
   | 'training'
   | 'tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
@@ -58,21 +62,23 @@ export default function App() {
   const tab: Tab =
     path.startsWith('/online/games/') || path.split('?')[0] === '/online'
       ? 'online'
-      : path.split('?')[0] === '/profile'
-        ? 'profile'
-        : path.split('?')[0] === '/statistics'
-          ? 'statistics'
-          : path.startsWith('/games/') || path.split('?')[0] === '/play'
-            ? 'play'
-            : path.split('?')[0] === '/archive'
-              ? 'archive'
-              : path.split('?')[0] === '/leaderboard'
-                ? 'leaderboard'
-                : path.startsWith('/training') && permissions.includes('training')
-                  ? 'training'
-                  : path.startsWith('/tournaments') && permissions.includes('tournaments')
-                    ? 'tournaments'
-                    : 'dashboard';
+      : path.split('?')[0] === '/portraits'
+        ? 'portraits'
+        : path.split('?')[0] === '/profile'
+          ? 'profile'
+          : path.split('?')[0] === '/statistics'
+            ? 'statistics'
+            : path.startsWith('/games/') || path.split('?')[0] === '/play'
+              ? 'play'
+              : path.split('?')[0] === '/archive'
+                ? 'archive'
+                : path.split('?')[0] === '/leaderboard'
+                  ? 'leaderboard'
+                  : path.startsWith('/training') && permissions.includes('training')
+                    ? 'training'
+                    : path.startsWith('/tournaments') && permissions.includes('tournaments')
+                      ? 'tournaments'
+                      : 'dashboard';
   const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
@@ -498,6 +504,18 @@ export default function App() {
     <PlayTabsProvider key={account?.id}>
       <Shell account={account} logout={logout} current={shellCurrent}>
         <main id={SHELL_MAIN_ID} tabIndex={-1}>
+          {tab === 'portraits' && (
+            <Suspense
+              fallback={
+                <div className="empty-state">
+                  <div className="spinner" />
+                  <h2 role="status">{t('Loading your portraits…')}</h2>
+                </div>
+              }
+            >
+              <PortraitHall />
+            </Suspense>
+          )}
           {tab === 'statistics' && <StatisticsPage />}
           {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
           {tab === 'play' &&

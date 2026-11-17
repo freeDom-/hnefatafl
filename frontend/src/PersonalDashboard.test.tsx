@@ -97,6 +97,23 @@ const achievements = {
   summary: { unlocked: 1, total: 2 },
   as_of: '2035-01-01T00:00:00Z',
 };
+/** Production-aligned progression catalog. `ai-first-victory` unlocks Forge
+ * Keeper; `local-first-game` deliberately grants no portrait. */
+const portraitCatalog = {
+  ...portraits,
+  items: [
+    ...portraits.items,
+    { id: 'forge-keeper', name: 'Forge Keeper', unlock_achievement_id: 'ai-first-victory' },
+  ],
+};
+const achievementCatalog = {
+  ...achievements,
+  items: [
+    ...achievements.items,
+    { id: 'ai-first-victory', unlocked: false, portrait_id: 'forge-keeper' },
+    { id: 'local-first-game', unlocked: false, portrait_id: null },
+  ],
+};
 const profile = {
   username: 'archer',
   email: 'archer@example.test',
@@ -196,6 +213,49 @@ const row = {
   recorded_at: '2035-01-01T00:00:00Z',
 };
 const recent = { games: [row], matching: 1, totals: [], next_cursor: null, limit: 3 };
+/** A running account-owned game payload for the active-hero board poll. */
+const boardGame = (overrides: Record<string, unknown> = {}) => ({
+  id: 'local-1',
+  ruleset: 'brandubh',
+  size: 7,
+  board: Array(49).fill('.'),
+  turn: 'attackers',
+  ply: 0,
+  winner: null,
+  recorded_winner: null,
+  reason: null,
+  moves: [],
+  cursor: 0,
+  total_moves: 0,
+  legal_moves: [],
+  mode: 'local',
+  players: {
+    attackers: { name: 'Archer', kind: 'human', config: {} },
+    defenders: { name: 'Keeper', kind: 'human', config: {} },
+  },
+  version: 1,
+  captured: { attackers: 0, defenders: 0 },
+  created_at: '2035-01-01T00:00:00Z',
+  ...overrides,
+});
+const runningLocalGame = {
+  id: 'local-1',
+  ruleset: 'brandubh',
+  status: 'in_progress',
+  players: { attackers: { name: 'Archer' }, defenders: { name: 'Keeper' } },
+};
+const runningSingleGame = {
+  id: 'single-1',
+  ruleset: 'brandubh',
+  status: 'in_progress',
+  mode: 'human-ai',
+  winner: null,
+  plies: 0,
+  players: {
+    attackers: { name: 'Archer', kind: 'human' },
+    defenders: { name: 'Seer', kind: 'ai' },
+  },
+};
 const leaderboard = {
   ruleset: 'tablut',
   policy: { version: 1, initial_rating: 1500, k_factor: 32, provisional_games: 10 },
@@ -277,6 +337,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   setLanguage('en', false);
   localStorage.removeItem('hnefatafl-leaderboard-ruleset');
 });
@@ -718,3 +779,590 @@ it('does not describe an empty bounded preview as an empty account', async () =>
   expect(screen.getByText('0 of 43 running games shown.')).toBeVisible();
   expect(screen.getAllByText('No running games in this preview.')).toHaveLength(2);
 });
+
+it('bounds a quiet Dashboard to ten periodic HTTP reads per minute without a hero', async () => {
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(10); // Auth is tested separately: at most one/minute.
+  const paths = fetcher.mock.calls.map(([path]) => path);
+  expect(paths.filter((path) => path.includes('/personal/online?'))).toHaveLength(6);
+  for (const fragment of [
+    '/single-player?',
+    '/personal/local?',
+    '/history/games?',
+    '/leaderboard?',
+  ]) {
+    expect(paths.filter((path) => path.includes(fragment))).toHaveLength(1);
+  }
+});
+
+it('keeps the active hero at five seconds with at most twenty-two Dashboard HTTP reads per minute', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({ ...online, games: [activeOnlineGame], overview: { your_turn: 1 } })
+      : url.includes('/personal/online/')
+        ? respond({ ...activeOnlineGame, version: 1 })
+        : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(22);
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/online/'))).toHaveLength(
+    12,
+  );
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  try {
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    fetcher.mockClear();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(180000);
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  } finally {
+    visibility.mockRestore();
+  }
+});
+
+it('refreshes the authoritative queue when a hero version changes but ignores unchanged clock snapshots', async () => {
+  let version = 1;
+  let yourTurn = true;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({
+          ...online,
+          games: [{ ...activeOnlineGame, your_turn: yourTurn }],
+          overview: { your_turn: yourTurn ? 1 : 0 },
+        })
+      : url.includes('/personal/online/')
+        ? respond({ ...activeOnlineGame, version, own_side: yourTurn ? 'attackers' : 'defenders' })
+        : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  fetcher.mockClear();
+  version = 2;
+  yourTurn = false;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/online?'))).toHaveLength(1);
+  expect(screen.getByText('No games await your move.')).toBeVisible();
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/online/'))).toHaveLength(1);
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/online?'))).toHaveLength(0);
+});
+
+it('invalidates event-driven result projections after a server correction without creating a poll loop', async () => {
+  let wins = 1;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({
+          ...online,
+          statistics: {
+            ...online.statistics,
+            groups: [{ ...online.statistics.groups[0], wins, losses: 2 - wins }],
+          },
+        })
+      : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  fetcher.mockClear();
+  wins = 2;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  for (const fragment of ['/personal/progress', '/leaderboard?']) {
+    expect(fetcher.mock.calls.some(([path]) => path.includes(fragment))).toBe(true);
+  }
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(fetcher.mock.calls.map(([path]) => path)).toEqual(['/api/personal/online?limit=25']);
+});
+
+it('refreshes achievement progress after a rated result change without a poll loop', async () => {
+  let wins = 1;
+  let defenderUnlocked = false;
+  const previous = serve;
+  const catalog = {
+    ...portraits,
+    items: [
+      ...portraits.items,
+      { id: 'iron-helm', name: 'Iron Helm', unlock_achievement_id: 'defender-hold' },
+    ],
+  };
+  serve = (url) =>
+    url.includes('/portraits/catalog')
+      ? respond(catalog)
+      : url.includes('/personal/achievements')
+        ? respond({
+            ...achievements,
+            items: achievements.items.map((item) =>
+              item.id === 'defender-hold' ? { ...item, unlocked: defenderUnlocked } : item,
+            ),
+          })
+        : url.includes('/personal/online?')
+          ? respond({
+              ...online,
+              statistics: {
+                ...online.statistics,
+                groups: [{ ...online.statistics.groups[0], wins, losses: 2 - wins }],
+              },
+            })
+          : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  const portraitsCard = () =>
+    screen.getByRole('heading', { name: 'Unlocked portraits' }).closest('article')!;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(within(portraitsCard()).getByText('2 / 3')).toBeVisible();
+  fetcher.mockClear();
+  wins = 2;
+  defenderUnlocked = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  // The rated-result change invalidates the event-driven achievement read once.
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(within(portraitsCard()).getByText('3 / 3')).toBeVisible();
+  // The achievement read stays event-driven: no extra timer after the change.
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(0);
+});
+
+it('refreshes achievements when a non-hero local game completes without a portrait', async () => {
+  let completed = 0;
+  let localUnlocked = false;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/local?')
+      ? respond({
+          ...localRunning,
+          games: [runningLocalGame],
+          totals: { ...localRunning.totals, completed_games: completed, in_progress: 1 },
+        })
+      : url.includes('/games/')
+        ? respond(boardGame({ id: 'local-1', version: 1 }))
+        : url.includes('/portraits/catalog')
+          ? respond(portraitCatalog)
+          : url.includes('/personal/achievements')
+            ? respond({
+                ...achievementCatalog,
+                items: achievementCatalog.items.map((item) =>
+                  item.id === 'local-first-game' ? { ...item, unlocked: localUnlocked } : item,
+                ),
+              })
+            : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  const portraitsCard = () =>
+    screen.getByRole('heading', { name: 'Unlocked portraits' }).closest('article')!;
+  expect(within(portraitsCard()).getByText('2 / 3')).toBeVisible();
+  fetcher.mockClear();
+  // The active hero stays in progress; a different local game completes and the
+  // 60-second history poll reports the changed completion total.
+  completed = 1;
+  localUnlocked = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+  // A local milestone does not move the rated streak or standing projections.
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/progress')).length).toBe(0);
+  // `local-first-game` grants no portrait, so the unlocked count is unchanged.
+  expect(within(portraitsCard()).getByText('2 / 3')).toBeVisible();
+});
+
+it('refreshes achievements when a single-player game is won against the AI', async () => {
+  let version = 1;
+  let winner: 'attackers' | null = null;
+  let aiUnlocked = false;
+  let completed = 0;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/games/')
+      ? respond(
+          boardGame({
+            id: 'single-1',
+            mode: 'human-ai',
+            version,
+            winner,
+            players: {
+              attackers: { name: 'Archer', kind: 'human', config: {} },
+              defenders: { name: 'Seer', kind: 'ai', config: {} },
+            },
+          }),
+        )
+      : url.includes('/portraits/catalog')
+        ? respond(portraitCatalog)
+        : url.includes('/personal/achievements')
+          ? respond({
+              ...achievementCatalog,
+              items: achievementCatalog.items.map((item) =>
+                item.id === 'ai-first-victory' ? { ...item, unlocked: aiUnlocked } : item,
+              ),
+            })
+          : url.includes('/single-player?')
+            ? respond({
+                ...local,
+                games: [runningSingleGame],
+                totals: { ...local.totals, completed_games: completed, in_progress: 1 },
+              })
+            : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  const portraitsCard = () =>
+    screen.getByRole('heading', { name: 'Unlocked portraits' }).closest('article')!;
+  expect(within(portraitsCard()).getByText('2 / 3')).toBeVisible();
+  fetcher.mockClear();
+  // The hero completes: the version change refreshes the single-player history,
+  // whose changed completion total then invalidates achievements once.
+  version = 2;
+  winner = 'attackers';
+  aiUnlocked = true;
+  completed = 1;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+  // Forge Keeper is unlocked by the production `ai-first-victory` mapping.
+  expect(within(portraitsCard()).getByText('3 / 3')).toBeVisible();
+});
+
+it('refreshes achievements when the active online hero completes and the aggregate changes', async () => {
+  let version = 1;
+  let status = 'active';
+  let winner: 'attackers' | null = null;
+  let wins = 1;
+  let losses = 1;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({
+          ...online,
+          games: [activeOnlineGame],
+          statistics: {
+            ...online.statistics,
+            groups: [{ ...online.statistics.groups[0], wins, losses }],
+          },
+        })
+      : url.includes('/personal/online/')
+        ? respond({
+            ...activeOnlineGame,
+            version,
+            status,
+            position: { ...activeOnlineGame.position, winner },
+          })
+        : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  // The hero version change refreshes the online aggregate, whose changed
+  // signature invalidates the rated projections and achievements.
+  version = 2;
+  status = 'completed';
+  winner = 'attackers';
+  wins = 2;
+  losses = 0;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/progress')).length).toBe(1);
+  expect(
+    fetcher.mock.calls.filter(([path]) =>
+      path.includes('/leaderboard?ruleset=brandubh&limit=1&offset=0'),
+    ).length,
+  ).toBe(1);
+});
+
+it('refreshes achievements when a non-hero single-player game completes', async () => {
+  let singleCompleted = 0;
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({ ...online, games: [activeOnlineGame] })
+      : url.includes('/personal/online/')
+        ? respond({ ...activeOnlineGame, version: 1 })
+        : url.includes('/single-player?')
+          ? respond({
+              ...local,
+              games: [],
+              totals: { ...local.totals, completed_games: singleCompleted, in_progress: 0 },
+            })
+          : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  // A different single-player game completes while the online hero stays active.
+  singleCompleted = 1;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+});
+
+it('does not invalidate achievements on initial or unchanged completion totals', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/local?')
+      ? respond({
+          ...localRunning,
+          games: [],
+          totals: { ...localRunning.totals, completed_games: 7, in_progress: 0 },
+        })
+      : url.includes('/single-player?')
+        ? respond({
+            ...local,
+            games: [],
+            totals: { ...local.totals, completed_games: 5, in_progress: 0 },
+          })
+        : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  // Two further history polls report the same nonzero totals.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(0);
+});
+
+it('renders when a history response omits its totals', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/local?')
+      ? respond({ games: [] })
+      : url.includes('/single-player?')
+        ? respond({ games: [] })
+        : previous(url);
+  render(<PersonalDashboard />);
+  expect(await screen.findByRole('heading', { name: 'Unlocked portraits' })).toBeVisible();
+});
+
+it('resets the completion baseline when the account switches', async () => {
+  const previous = serve;
+  let completed = 0;
+  serve = (url) =>
+    url.includes('/single-player?')
+      ? respond({
+          ...local,
+          games: [],
+          totals: { ...local.totals, completed_games: completed, in_progress: 0 },
+        })
+      : url.includes('/personal/local?')
+        ? respond({
+            ...localRunning,
+            games: [],
+            totals: { ...localRunning.totals, completed_games: 0, in_progress: 0 },
+          })
+        : previous(url);
+  vi.useFakeTimers();
+  const view = render(<PersonalDashboard />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  // The replacement account starts at a different count; that is a baseline, not
+  // an invalidation of the previous account's data.
+  completed = 4;
+  identity.id = 'keeper';
+  view.rerender(<PersonalDashboard />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  // Ignore the new account's own initial event-driven load.
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(0);
+  // A later real completion on the replacement account still invalidates once.
+  completed = 5;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+});
+
+it('refreshes achievements for a side-specific correction without changing aggregate totals', async () => {
+  let attackersWins = 1;
+  let defendersWins = 0;
+  const previous = serve;
+  const group = () => ({
+    ...online.statistics.groups[0],
+    wins: 1,
+    losses: 1,
+    by_side: {
+      attackers: {
+        played: 1,
+        completed: 1,
+        wins: attackersWins,
+        losses: 1 - attackersWins,
+        draws: 0,
+        win_rate: attackersWins,
+        average_game_length: 12,
+        average_game_length_unit: 'moves',
+      },
+      defenders: {
+        played: 1,
+        completed: 1,
+        wins: defendersWins,
+        losses: 1 - defendersWins,
+        draws: 0,
+        win_rate: defendersWins,
+        average_game_length: 12,
+        average_game_length_unit: 'moves',
+      },
+    },
+  });
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({
+          ...online,
+          statistics: { ...online.statistics, groups: [group()] },
+        })
+      : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  // The same 1-1 record now credits the win to the defending seat instead.
+  attackersWins = 0;
+  defendersWins = 1;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(1);
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(0);
+});
+
+it('keeps event-driven achievement reads idle while hero and aggregate data are stable', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/online?')
+      ? respond({ ...online, games: [activeOnlineGame] })
+      : url.includes('/personal/online/')
+        ? respond({ ...activeOnlineGame, version: 1 })
+        : previous(url);
+  vi.useFakeTimers();
+  await act(async () => {
+    render(<PersonalDashboard />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  fetcher.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+  expect(
+    fetcher.mock.calls.filter(([path]) => path.includes('/personal/achievements')).length,
+  ).toBe(0);
+  expect(fetcher.mock.calls.filter(([path]) => path.includes('/personal/progress')).length).toBe(0);
+});
+
+it.each(['en', 'de'] as const)(
+  'uses the authoritative singular total in %s even when the bounded preview is empty',
+  async (language) => {
+    const previous = serve;
+    serve = (url) =>
+      url.includes('/personal/online?')
+        ? respond({ ...online, games: [], overview: { your_turn: 1 } })
+        : previous(url);
+    setLanguage(language, false);
+    render(<PersonalDashboard />);
+    expect(
+      await screen.findByText(
+        language === 'en' ? '1 game awaits your move' : '1 Partie wartet auf deinen Zug',
+      ),
+    ).toBeVisible();
+    expect(document.querySelector('.dashboard-status-badge')).not.toHaveTextContent('1 games');
+  },
+);

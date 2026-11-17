@@ -6,7 +6,9 @@
 
 Use the existing checkout; cloud tasks are already isolated. Do not create a Git
 worktree unless explicitly requested. Python 3.12 is recommended (3.11+ supported),
-Node 22+ is required (CI uses 24), and CI pins uv 0.12.23. From the root:
+Node.js 22.12+ (or Node.js 24+) is required (CI runs the frontend unit/build job
+on Node 22.12 and the browser suite on Node 24, and fails on moderate npm
+advisories), and CI pins uv 0.12.23. From the root:
 
 ```sh
 make install
@@ -119,6 +121,11 @@ Run focused tests first when appropriate, for example:
 npm --prefix frontend test -- src/Board.test.tsx
 ```
 
+Vitest already defaults to one worker per reported CPU minus one. On a loaded or
+CPU-limited host, cap it explicitly, for example
+`npm --prefix frontend test -- --maxWorkers=4`. Do not raise `testTimeout` to hide
+worker contention.
+
 Full browser validation starts actual backend/Vite services with isolated temporary
 storage, ports 8001/4173 and one worker. From the root:
 
@@ -205,6 +212,18 @@ ordinary disposable accounts and send CSRF tokens. No runtime authentication
 bypass exists. The security matrix derives from every registered API route.
 
 ## Browser validation
+
+`npm --prefix frontend run test:public` builds the frontend and runs the signed-out
+Watch Hall against FastAPI serving `frontend/dist`, with the real production
+security boundary and disposable `/tmp/hnefatafl-public-browser-*` storage.
+It covers all four themes, English/German and phone/tablet/desktop/4K viewports,
+including computed CSS, geometry, current-build asset bodies/MIME types, history,
+replay, credential-free GETs and protected-route denial. The separate loopback
+fixture controller exposes record identifiers only. Error/retry cases inject one
+503 at the browser; ordinary records and API responses are real. Screenshots and
+asset evidence are written to `frontend/test-results/public-production/` and
+uploaded by CI before other browser configurations clean their output.
+See [the production CSS regression record](validation/public-watch-production.md).
 
 Install Playwright Chromium first, or set
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium` when using a system installation.

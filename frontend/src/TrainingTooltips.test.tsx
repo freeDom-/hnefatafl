@@ -970,8 +970,9 @@ it('turns a description taller than the viewport into a scrollable region', () =
   const panel = screen.getByRole('region', { name: 'Training iterations' });
   expect(panel).toHaveClass('field-tooltip', 'field-tooltip-scroll');
   expect(panel).toHaveAttribute('tabindex', '0');
-  // 200 − 2 × 8 = 184, and the full text is still present in the panel.
-  expect(panel.style.maxHeight).toBe('184px');
+  // The roomier side leaves the trigger reachable: 200 - 97 - 6 - 8 = 89.
+  expect(panel.style.maxHeight).toBe('89px');
+  expect(parseFloat(panel.style.top)).toBeGreaterThanOrEqual(103);
   expect(panel).toHaveTextContent(trainingTooltips.iterations);
   expect(button).toHaveAttribute('aria-describedby', `${panel.id}-text`);
 });
@@ -988,7 +989,7 @@ it('keeps the tooltip role and no tab stop for a description that fits', () => {
   const tooltip = screen.getByRole('tooltip');
   expect(tooltip).not.toHaveClass('field-tooltip-scroll');
   expect(tooltip).not.toHaveAttribute('tabindex');
-  expect(tooltip.style.maxHeight).toBe('584px');
+  expect(tooltip.style.maxHeight).toBe('489px');
 });
 
 it('updates the presentation when the visual viewport grows', () => {
@@ -1001,8 +1002,11 @@ it('updates the presentation when the visual viewport grows', () => {
   render(<CreationHarness />);
   fireEvent.click(helpButton('Training iterations'), { detail: 1 });
   expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
-  // The taller viewport fits the whole description, so it is a tooltip again.
+  // At 600px the text still needs scrolling to keep the trigger uncovered.
   act(() => visual.resize(390, 600));
+  expect(screen.getByRole('region', { name: 'Training iterations' })).toBeInTheDocument();
+  // At 650px one side fits the whole description again.
+  act(() => visual.resize(390, 650));
   expect(screen.queryByRole('region')).toBeNull();
   expect(screen.getByRole('tooltip')).toBeInTheDocument();
 });
@@ -1311,4 +1315,23 @@ it('translates the help affordance and its descriptions into German', () => {
     'Anzahl der Trainingsiterationen. Jede Iteration erzeugt Selbstspielpartien',
   );
   expect(screen.getByRole('button', { name: 'Trainingsiterationen erklären' })).toBeInTheDocument();
+});
+
+it('scrolls content that fits the viewport but cannot fit beside its trigger', () => {
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+  mockVisualViewport({ width: 390, height: 600 });
+  mockOverflowingTooltip(
+    { left: 100, top: 300, width: 17, height: 17 },
+    { width: 300, height: 350 },
+  );
+  render(<CreationHarness />);
+  const button = helpButton('Training iterations');
+  fireEvent.click(button, { detail: 1 });
+  // 350px fits the 584px viewport cap, but the roomier side only has 286px.
+  const panel = screen.getByRole('region', { name: 'Training iterations' });
+  expect(panel.style.maxHeight).toBe('286px');
+  expect(panel.style.top).toBe('8px');
+  expect(panel).toHaveAttribute('tabindex', '0');
+  expect(button).toHaveAttribute('aria-describedby', `${panel.id}-text`);
+  expect(screen.queryByRole('tooltip')).toBeNull();
 });

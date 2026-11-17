@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "sourceHead": "2579a86b82ed1eca91f39e7d8064196597e873ed + polling candidate",
+  "measuredAt": "2026-11-15T14:29:47.711Z",
+  "node": "v24.22.2",
+  "chromium": "156.0.8078.4",
+  "os": "7.0.14-26-pve",
+  "logicalCpus": 4,
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "frontend": "production Vite preview of existing frontend/dist; build before running",
+  "fixture": "isolated real browser fixture backend, authenticated administrator; empty, then one active same-device Brandubh game",
+  "sampleWindowMs": 60000,
+  "warmupMs": 5000,
+  "scope": "Browser page /api/ request starts only; setup APIRequestContext traffic excluded. Normalized identifiers; no payloads or credentials recorded.",
+  "hiddenCaveat": "document.visibilityState override and visibilitychange signal test app policy; this is not real OS background throttling or a physical device.",
+  "phases": {
+    "empty-startup": {
+      "requests": 11,
+      "endpoints": {
+        "GET /api/auth/me": 1,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 1,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 1,
+        "GET /api/personal/online?limit=25": 1,
+        "GET /api/history/games?dashboard=true": 1,
+        "GET /api/personal/local?limit=5&status=in_progress": 1,
+        "GET /api/personal/progress": 1,
+        "GET /api/portraits/catalog": 1,
+        "GET /api/personal/achievements": 1,
+        "GET /api/profile": 1,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=1&offset=0": 1
+      },
+      "failed": 0,
+      "statuses": {
+        "200": 11
+      }
+    },
+    "empty-visible": {
+      "requests": 11,
+      "endpoints": {
+        "GET /api/personal/online?limit=25": 6,
+        "GET /api/auth/me": 1,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 1,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 1,
+        "GET /api/personal/local?limit=5&status=in_progress": 1,
+        "GET /api/history/games?dashboard=true": 1
+      },
+      "failed": 0,
+      "statuses": {
+        "200": 11
+      }
+    },
+    "active-startup": {
+      "requests": 14,
+      "endpoints": {
+        "GET /api/auth/me": 1,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 1,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 1,
+        "GET /api/personal/online?limit=25": 1,
+        "GET /api/history/games?dashboard=true": 1,
+        "GET /api/personal/local?limit=5&status=in_progress": 1,
+        "GET /api/personal/progress": 1,
+        "GET /api/portraits/catalog": 1,
+        "GET /api/personal/achievements": 1,
+        "GET /api/profile": 1,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=1&offset=0": 1,
+        "GET /api/games/:id": 2,
+        "GET /api/leaderboard?ruleset=brandubh&limit=1&offset=0": 1
+      },
+      "failed": 1,
+      "statuses": {
+        "200": 13
+      }
+    },
+    "active-visible": {
+      "requests": 22,
+      "endpoints": {
+        "GET /api/personal/online?limit=25": 6,
+        "GET /api/games/:id": 11,
+        "GET /api/auth/me": 1,
+        "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 1,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 1,
+        "GET /api/history/games?dashboard=true": 1,
+        "GET /api/personal/local?limit=5&status=in_progress": 1
+      },
+      "failed": 0,
+      "statuses": {
+        "200": 22
+      }
+    },
+    "active-simulated-hidden": {
+      "requests": 0,
+      "endpoints": {},
+      "failed": 0,
+      "statuses": {}
+    }
+  },
+  "normalization_note": "Explicit zero hidden phase supplied because original harness lazily created phase counters only on observed requests. The completed trace awaited the full60s hidden window."
+}

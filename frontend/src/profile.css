@@ -49,3 +49,18 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.profile-portrait {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-stack);
+  margin-block: var(--gap-stack);
+}
+.profile-portrait .portrait-art {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+}
