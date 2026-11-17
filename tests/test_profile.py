@@ -117,7 +117,7 @@ def test_owned_profile_defaults_empty_updates_and_roles(app):
         {"country_code": "UK"},
         {"country_code": "ZZ"},
         {"date_of_birth": "1899-12-31"},
-        {"date_of_birth": (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()},
+        {"date_of_birth": "tomorrow"},
         {"date_of_birth": "1900-02-29"},
         {"date_of_birth": "2001-02-29"},
         {"date_of_birth": "2000-02-30"},
@@ -151,6 +151,14 @@ def test_profile_rejects_invalid_fields_atomically(app, changes):
     with TestClient(app) as client:
         account = login(client)
         before = app.state.auth.account(account["id"])
+        # Collection and execution can fall on different UTC dates in the full suite.
+        if changes.get("date_of_birth") == "tomorrow":
+            changes = {
+                **changes,
+                "date_of_birth": (datetime.now(timezone.utc) + timedelta(days=1))
+                .date()
+                .isoformat(),
+            }
         response = client.patch("/api/profile", json={"display_name": "Allowed", **changes})
         assert response.status_code == 422
         assert "raw-password-must-not-echo" not in response.text
