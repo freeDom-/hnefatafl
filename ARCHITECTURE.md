@@ -772,6 +772,11 @@ inventory are unchanged. See [account profile](docs/PROFILE.md).
 Schema 20 adds immutable match/clock modes and due-start/retry columns without
 rewriting legacy legs or authoritative games. `PlayerTournaments._start` is the
 single transaction boundary for scheduled, creator and administrator starts.
+New creation requires an explicit sequential/simultaneous mode and exactly two
+side-swapped games; stored single and legacy 1–5-leg execution stays intact.
+The shared start operation and capability projection reject early creator starts
+of full future-scheduled tournaments, retaining administrator overrides and early
+creator starts of unfilled tournaments with at least two eligible entrants.
 Registration writes invalidate reviewed versions. The lifespan-owned settlement
 worker consumes an explicitly indexed partial due range and the transactional
 result outbox; it needs no request to start or advance a full due competition.

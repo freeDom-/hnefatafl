@@ -77,6 +77,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Player tournament Arena and settlement validation](validation/player-tournaments-arena.md)
 - [Scheduled starts, creator permissions and themed calendar validation](validation/player-tournament-scheduling.md)
+- [Tournament final review, compact popup and two-game creation validation](validation/player-tournament-refinement.md)
 - [Dashboard polling policy and measurement](validation/dashboard-polling.md)
 - [Current-engine browser analysis feasibility](validation/browser-analysis-prototype.md)
 - [Browser neural execution and CSP feasibility](validation/browser-neural-feasibility.md)

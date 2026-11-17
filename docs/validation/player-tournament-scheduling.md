@@ -2,6 +2,11 @@
 
 [Documentation index](../README.md) · [Tournament behavior and API](../PLAYER_TOURNAMENTS.md)
 
+This records the scheduling implementation through `f7be4ef`. The later
+[final review refinement](player-tournament-refinement.md) records the compact
+popup, two-game creation contract and subsequent validation. Counts and captures
+below remain evidence for the earlier implementation.
+
 PR #90 integrates `main` at `e717138` and keeps its shared Portrait component,
 central asset mapping/styles, Portrait Hall and achievements, public Watch routes
 and navigation. The older portrait implementation from the PR is discarded.

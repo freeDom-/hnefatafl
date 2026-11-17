@@ -203,6 +203,15 @@ tables participate in the same stopped-writer backup/restore boundary as their
 online games; automatic restore requires matching current schemas. Preserve and
 test a backup before upgrading. See [player tournaments](PLAYER_TOURNAMENTS.md).
 
+New player-tournament creation requires explicit `sequential` or `simultaneous`
+mode and always stores two side-swapped games. Update API clients to omit
+`match_legs`; missing/null modes, `single` and supplied legacy counts now return
+422. This contract refinement leaves schema 20 and existing single/1–5-leg data
+unchanged. Full future-scheduled tournaments reject early creator starts;
+administrators can override. An active bootstrapped administrator retains creation
+and management permissions before email verification. No new frontend dependency
+is required for the compact calendar or lazy tournament route.
+
 Schema 13 includes configurable online clocks alongside the
 [durable online core](ONLINE.md), the
 [rated-game/leaderboard pool](RATINGS.md) and immutable per-game start-rating

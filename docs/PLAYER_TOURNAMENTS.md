@@ -15,10 +15,11 @@ writes the other's storage, and neither can grant the other's entitlements.
 - **Format:** double elimination only.
 - **Elimination:** a participant is out after **two match losses**, never after
   one lost leg.
-- **Match format:** new tournaments select a single game, two sequential games,
-  or two parallel games (`single`, `sequential`, `simultaneous`). Return games
-  swap sides. Historical `match_legs` values of 1–5 retain their parallel
-  behavior and recorded outcomes through the `legacy` compatibility mode.
+- **Match format:** new tournaments require two side-swapped games, either
+  `sequential` (the form default) or `simultaneous`. Each game receives its own
+  clock allocation; advancement waits for both results. Historical `single`
+  tournaments and `legacy` configurations with 1–5 parallel legs retain their
+  execution behavior, stored modes and recorded outcomes.
 - **Grand final reset:** if the lower-bracket finalist wins the first grand
   final, a bracket-reset match is played between the same two participants and
   decides the champion.
@@ -98,21 +99,30 @@ Compete sidebar and the full leaderboard on compact screens. The Workshop's
 `/tournaments` remains AI evaluation. Discovery supports bounded cursor pages,
 status, ruleset and planned upcoming filters. Details expose real participants,
 seeding, losses, rules and clocks, champion, playable online legs and results.
+Clock summaries use the shared days/hours/minutes/seconds formatter, preserving
+historical second precision, and show the time-control type, increment and mode.
 The upper/lower bracket, grand final and reset have source-based progression paths,
 horizontal touch scrolling and an accessible list alternative. Registration and
 withdrawal use server authority. Details return account-specific capabilities;
-creators see their start control, and administrators retain moderation controls.
+creators see their start control when the server permits it, and administrators
+retain moderation controls. The route and calendar load on tournament navigation,
+using the existing lazy-route/Suspense pattern.
 
 ## Scheduling and creator permissions
 
 Active, verified accounts can create at most three active tournaments and five
 in any rolling 24-hour window. Counts come from persisted rows, including
 cancelled tournaments in the daily budget. Administrators bypass these quotas.
+An active administrator created through `init-admin` can create and manage
+tournaments before email verification; ordinary accounts still require verification.
 Names reject empty values, control characters and bidi formatting controls.
 Creation never grants global Workshop or account-management permissions.
 
 The stored creator can manually start their own registration-phase tournament
-with at least two eligible entrants; an administrator can override. Starting
+with at least two eligible entrants. A full tournament with a future planned
+start must wait; its creator cannot start it early. An unfilled tournament may
+start early with at least two entrants. Administrators can explicitly override
+the planned time. The same policy controls both capabilities and mutations. Starting
 closes registration and freezes deterministic registration-time/account-ID seeds,
 or a reviewed custom seed list. Registration and withdrawal increment the
 version; repeated successful registration is a no-op. A changed entrant set
@@ -141,12 +151,17 @@ capped at 300 seconds. Disabled/unverified entrants defer a start until they are
 eligible again or an administrator resolves the registration. Logs and public
 projections never contain private exception payloads or administrator notes.
 
-The form uses the shared online match/clock fields and an accessible inline
-React DayPicker calendar inside the existing Modal. Date and time remain local
-while editing, serialize to UTC, and restore from a retained instant. Nonexistent
-DST wall times are rejected; repeated hours offer both UTC-offset occurrences.
-Keyboard navigation, focus return, English/German labels and theme tokens apply
-on mobile and desktop.
+Both optional scheduling fields use compact adjacent date/time controls. Activating
+the date field or its integrated calendar icon opens a themed, anchored React
+DayPicker popup. It occupies the native top layer while remaining a DOM descendant
+of the existing Modal, escaping the scrolling container without expanding it.
+Positioning follows the visual viewport; the calendar stays within its bounds.
+Selection, outside clicks and Escape dismiss the popup; keyboard selection and
+Escape return focus to the date field. A labelled inline clear icon supports
+keyboard use, and one compact timezone hint serves the form. Date/time errors
+appear beside their field. Manual entry, retained UTC precision, DST-gap rejection
+and both repeated-hour occurrences are preserved. English/German labels and
+existing theme tokens apply on mobile and desktop.
 
 ## Advancing from authoritative games
 
@@ -244,7 +259,7 @@ capabilities are derived for the current authenticated viewer.
 | Method | Route | Permission | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/player-tournaments` | play | Cursor-paged list; optional `status`, `ruleset`, `phase=upcoming` filters |
-| `POST` | `/api/player-tournaments` | verified play | Create within per-account quotas |
+| `POST` | `/api/player-tournaments` | verified play / administrator | Create within per-account quotas (administrators exempt) |
 | `GET` | `/api/player-tournaments/{id}` | play | Detail with entrants and match counts |
 | `GET` | `/api/player-tournaments/{id}/bracket` | play | Upper/lower rounds, grand final and reset |
 | `GET` | `/api/player-tournaments/{id}/matches` | play | Cursor-paged match projections |
@@ -271,6 +286,12 @@ return `409` when it is stale. Creation quotas return `429`. List endpoints use 
   "registration_deadline": "2028-02-01T18:00:00Z" }
 ```
 
+Creation requires an explicit `match_mode` of `sequential` or `simultaneous`.
+Missing/null modes, `single`, `legacy`, and every supplied `match_legs` value
+(including `2` or `null`) return `422`. The server stores exactly two games.
+Ordinary online-game creation still supports `single`. Existing tournament
+records with historical modes/counts remain readable and playable.
+
 `POST /start` accepts an optional `seeds` array that must list every registered
 entrant exactly once; otherwise registration order is used. `POST /rebuild` and
 `POST /override` require a private note of 1–1000 characters. `POST /override`
@@ -281,6 +302,8 @@ requires a `winner` that is one of the match participants.
 `404` for missing records, `409` for state or version conflicts (registration
 closed, tournament full, stale version, disputed match), `422` for validation
 failures, `403` for missing permission and `401` for a missing session.
+A creator's early start of a full scheduled tournament also returns `409` without
+creating games or changing the tournament version.
 
 ## Schema
 
@@ -293,15 +316,17 @@ Schema 20 adds nullable due-start/retry fields, clock fields and a `match_mode`
 column defaulting to `legacy`, with supporting indexes. Existing game rows, leg
 counts, brackets and results are not rewritten. Existing registration-phase
 scheduled tournaments are queued once on upgrade, including overdue full cups.
-Legacy API requests with only `match_legs` remain supported; explicit modes must
-agree with any supplied leg count. Fresh installations initialize the same schema. Keep a backup before upgrading;
+The refinement of the creation contract requires no further schema change or
+data rewrite: schema 20 continues to execute stored `single` and 1–5-leg legacy
+records. Clients creating new tournaments must send a supported explicit mode
+and omit `match_legs`. Fresh installations initialize the same schema. Keep a backup before upgrading;
 restore compatibility still requires matching schemas.
 
 ## Limitations
 
-- Exact per-match clock policy, side-swap order and leg counts are tournament
-  settings, not a fixed product decision; the grand-final reset and two-loss
-  elimination invariants are fixed.
+- New tournaments always have two side-swapped games per match. Clock allocation
+  and sequential/simultaneous execution are selected at creation; historical
+  configurations retain their original counts and execution.
 - A tournament game that is never finished keeps its match ready until the
   online clock expires or an administrator overrides it.
 - Rebuilding after a dispute clears administrative overrides.
