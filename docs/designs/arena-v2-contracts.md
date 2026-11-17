@@ -84,8 +84,11 @@ desktop sidebar during gameplay/replay. Reference screenshots are in
 
 ## Schema and data ownership
 
-Current schema is **18**: 16 introduced account-game categories, 17 progression,
-and 18 human tournaments. Schema 19 is reserved for leagues, not implemented.
+The audited baseline used schema **18**: 16 introduced account-game categories,
+17 progression and 18 human tournaments. Subsequent PR #90 uses schema 19 for
+the settlement outbox and schema 20 for scheduled starts, clocks and match modes;
+see [player tournament migrations](../PLAYER_TOURNAMENTS.md#schema). No league
+migration is implemented or assigned by this change.
 One owner controls migrations and restore table inventories. Do not allocate
 competing versions on parallel branches.
 

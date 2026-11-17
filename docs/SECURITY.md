@@ -86,10 +86,13 @@ headers, query parameters and machine tokens cannot upgrade browser permissions.
 | accounts, all_data | No | Yes (account management is local CLI only) |
 
 Double-elimination player tournaments (`/api/player-tournaments/*`) use the same
-model: any authenticated account may read tournaments and register, while
-creation, starting, cancellation, rebuilding and match overrides require the
-administrator-only `tournaments` permission and the audit trail requires
-`accounts`. The backend rechecks the permission inside the write transaction, so
+model: authenticated accounts may read tournaments; active, verified accounts
+may register and create within persisted active/rolling quotas. The stored creator
+can start their own eligible tournament, and administrators retain an override.
+Cancellation, rebuilding and match overrides require the administrator-only
+`tournaments` permission; the audit trail requires `accounts`. Explicit settlement
+requests from ordinary players are read-only, while server workers consume the
+durable result outbox. Creator rights never grant global administrative permissions. The backend rechecks the permission inside the write transaction, so
 a frontend role check is advisory only.
 
 SQLite queries scope games and local players to the authenticated account. New

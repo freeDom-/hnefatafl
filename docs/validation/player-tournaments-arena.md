@@ -2,6 +2,11 @@
 
 [Documentation index](../README.md) · [Tournament policy and API](../PLAYER_TOURNAMENTS.md)
 
+This records the initial Arena implementation at `392219e`, before the scheduling
+and creator-permission hardening. Counts and screenshots below are historical.
+See [the scheduling validation](player-tournament-scheduling.md) for current
+behavior, migration, query profiling and calendar evidence.
+
 Human double-elimination competitions now have `/player-tournaments`, independent
 of Workshop AI benchmark tournaments. Discovery, real registration/withdrawal,
 planned dates, server seeding/losses/portraits, source-connected upper/lower brackets,

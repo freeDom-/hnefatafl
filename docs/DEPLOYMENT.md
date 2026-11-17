@@ -190,7 +190,13 @@ before a separately authorized upgrade. No production migration is implied by
 development validation.
 
 Schema 19 adds the player-tournament settlement outbox and optional planned start
-column. It is additive; it does not remove games, training history, checkpoints or
+column. Schema 20 adds indexed persistent due starts and sanitized retry state,
+creator quota indexes, clock/increment fields and explicit match modes. Historical
+1–5-leg tournaments default to legacy parallel behavior without rewriting games.
+Registration-phase planned tournaments are queued once during migration: overdue
+full cups may start as soon as the worker runs. Unfilled cups stay open (subject
+to their deadline) for creator/admin start. No external cron or browser is needed.
+The upgrade is additive; it does not remove games, training history, checkpoints or
 models. The lifespan worker resumes committed bracket work without a browser and
 reconciles terminal result revisions once at startup. Retained tournament and queue
 tables participate in the same stopped-writer backup/restore boundary as their
