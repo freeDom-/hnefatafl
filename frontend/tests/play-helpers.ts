@@ -121,12 +121,13 @@ export async function openGameNavigation(page: Page) {
 export async function openWorkshop(page: Page, destination?: string) {
   // The desktop rail exposes an "AI Workshop" link; the compact header keeps the
   // workspace switch button. Support both so the helper is shell-agnostic.
-  const railEntry = page.getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ });
-  if (await railEntry.isVisible().catch(() => false)) {
-    await railEntry.click();
-  } else {
-    await page.getByRole('button', { name: /^(Workshop|Werkstatt)$/, exact: true }).click();
-  }
+  // Resolve the currently visible entry at action time. A lazy entry or a
+  // responsive transition may not have mounted either shell at the first read.
+  await page
+    .getByRole('link', { name: /^(AI Workshop|KI-Werkstatt)$/ })
+    .or(page.getByRole('button', { name: /^(Workshop|Werkstatt)$/, exact: true }))
+    .filter({ visible: true })
+    .click();
   await expect(page).toHaveURL(/\/training$/);
   if (destination) await openDestination(page, destination);
 }

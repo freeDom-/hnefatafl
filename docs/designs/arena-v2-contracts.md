@@ -20,7 +20,7 @@ The original contract remains historical evidence, not the current feature list.
 | Rules, moves and repetition | Pure Python engine; persisted positions, moves and version checks | Browser execution must reuse the same rules, never decide official outcomes |
 | Account single-player and local 1v1 | Account-owned games, separate categories, shared board and replay | Preserve private history and exclude local/AI results from online Elo |
 | Online play | Online core, real clocks, side-swapped match legs and result revisions | Reuse for spectators, tournament legs and league games |
-| Public online discovery | Three GET routes in `public_api.py`, enabled by configurable switch | Dedicated signed-out frontend outside authenticated initialization |
+| Public online discovery | Three GET routes in `public_api.py`, enabled by configurable switch | Signed-out frontend delivered by PR #87; keep it outside authenticated initialization |
 | Ratings | Immutable ledger and applied revisions, three pools | League progress is a separate policy, never an Elo replacement |
 | Progression | Catalog, achievements, confirmation and portrait selection APIs | Portrait Hall, claim feedback and selection delivered by PR #86; keep eligibility, awards and selection server-owned |
 | Human tournaments | Double elimination, schema 18, real casual online legs | UI, hierarchical bracket and reliable server settlement |
@@ -34,13 +34,14 @@ Current frontend routes are `/dashboard`, `/play`, `/games/{id}`, `/online`,
 `/portraits`, `/training` and `/tournaments`. `/portraits` is delivered by PR #86.
 `/online` is the separate authenticated lobby;
 it does **not** redirect to Dashboard. `/tournaments` is administrative AI
-benchmarking, never the human tournament page. The public API exists but there
-is no signed-out spectator page. At the audited baseline, Portrait Hall, human
+benchmarking, never the human tournament page. The public API and the signed-out
+spectator page ship with PR #87. At the audited baseline, Portrait Hall, human
 tournaments and leagues were sidebar placeholders; Portrait Hall is delivered by
 PR #86.
 
-Planned canonical frontend routes are `/player-tournaments`,
-`/player-tournaments/{id}`, `/watch`, `/watch/games/{id}`, `/watch/games/{id}/replay` and
+Shipped canonical frontend routes include `/watch`, `/watch/games/{id}` and
+`/watch/games/{id}/replay` (PR #87). Planned canonical frontend routes are
+`/player-tournaments`, `/player-tournaments/{id}` and
 `/leagues`. These are reservations, not shipped routes; `/portraits` is no longer
 planned and ships in PR #86. Shared navigation,
 `safeDestination`, route focus and Browser Back handling have one integration

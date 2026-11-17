@@ -213,6 +213,18 @@ bypass exists. The security matrix derives from every registered API route.
 
 ## Browser validation
 
+`npm --prefix frontend run test:public` builds the frontend and runs the signed-out
+Watch Hall against FastAPI serving `frontend/dist`, with the real production
+security boundary and disposable `/tmp/hnefatafl-public-browser-*` storage.
+It covers all four themes, English/German and phone/tablet/desktop/4K viewports,
+including computed CSS, geometry, current-build asset bodies/MIME types, history,
+replay, credential-free GETs and protected-route denial. The separate loopback
+fixture controller exposes record identifiers only. Error/retry cases inject one
+503 at the browser; ordinary records and API responses are real. Screenshots and
+asset evidence are written to `frontend/test-results/public-production/` and
+uploaded by CI before other browser configurations clean their output.
+See [the production CSS regression record](validation/public-watch-production.md).
+
 Install Playwright Chromium first, or set
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium` when using a system installation.
 The browser projects check desktop and mobile emulation; this is not physical-device

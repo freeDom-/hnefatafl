@@ -31,14 +31,12 @@ import DashboardCountdown from './DashboardCountdown';
 import type { Leaderboard as LeaderboardData, OnlineGame } from './onlineTypes';
 import type { Profile } from './ProfilePage';
 import type { Game, Side } from './types';
-import './personalDashboard.css';
-
 import type { PortraitCatalog, AchievementProgress } from './portraitTypes';
 import Portrait from './Portrait';
+import './personalDashboard.css';
 
 /** The active game's authoritative state, discriminated by its API source. */
 type ActiveBoard = { kind: 'online'; game: OnlineGame } | { kind: 'single'; game: Game };
-
 const sideNames: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const statusNames: Record<string, string> = {
   waiting: 'Waiting',
