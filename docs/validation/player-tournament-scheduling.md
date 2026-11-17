@@ -13,6 +13,8 @@ creator starts, administrator overrides, fewer than two entrants, restarts befor
 and after due time, concurrent starts, registration/withdrawal versions, stale
 custom seeds, withdrawals at due time, disabled entrants, and rollback/retry
 without duplicate games. Explicit UTC-offset inputs test spring/fall DST boundaries.
+An explicit lock-wait regression ensures newly created return games receive their
+full allowance from the server time sampled after acquiring the write lock.
 
 All three match modes share normal online time control. Tests exercise per-move,
 total time, increment accounting, side swaps, independent parallel clocks,

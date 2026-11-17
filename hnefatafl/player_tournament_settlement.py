@@ -51,6 +51,7 @@ class TournamentSettlement:
                 # Serialize consumers and all bracket/online writes. Delete only
                 # after successful advancement, in the same transaction.
                 with self.core._write() as c:
+                    now = self.core._now()
                     queued = c.execute(
                         "SELECT 1 FROM player_tournament_settlement_queue WHERE tournament_id=? AND due_at<=?",
                         (identifier, micros(now)),

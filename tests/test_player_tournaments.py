@@ -2190,3 +2190,36 @@ def test_schema19_legacy_tournaments_keep_every_game_and_leg_after_upgrade(rig, 
     with rig.store.connection() as c:
         assert not c.execute("PRAGMA foreign_key_check").fetchall()
         assert c.execute("PRAGMA user_version").fetchone()[0] == 20
+
+
+def test_worker_starts_return_clock_after_acquiring_the_write_lock(rig, monkeypatch):
+    from contextlib import contextmanager
+
+    cup = rig.core.create(
+        rig.admin,
+        name="Fresh clock",
+        ruleset="brandubh",
+        capacity=2,
+        match_mode="sequential",
+        time_per_move=60,
+        time_control="total",
+    )
+    for name in PLAYERS[:2]:
+        cup = rig.core.register(rig.credentials[name], cup["id"])
+    rig.core.start(rig.admin, cup["id"], cup["version"])
+    match = ready_matches(rig, cup["id"])[0]
+    force_match(rig, match, match["participants"]["a"]["account_id"])
+    original_write = rig.core._write
+
+    @contextmanager
+    def delayed_write():
+        with original_write() as c:
+            rig.clock.value += timedelta(seconds=7)
+            yield c
+
+    monkeypatch.setattr(rig.core, "_write", delayed_write)
+    assert rig.app.state.tournament_settlement.drain() == 1
+    returned = rig.core.match(rig.admin, cup["id"], match["id"])["legs"][1]
+    game = rig.online.read(rig.admin, returned["game_id"])
+    assert datetime.fromisoformat(game["started_at"]) == rig.clock.value
+    assert datetime.fromisoformat(game["deadline"]) == rig.clock.value + timedelta(seconds=60)
