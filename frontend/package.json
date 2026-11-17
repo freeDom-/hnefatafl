@@ -18,6 +18,7 @@
     "format:check": "node scripts/sync-appearance-catalog.mjs --check && prettier --check .",
     "test:online": "playwright test --config playwright.online.config.ts",
     "test:personal": "playwright test --config playwright.personal.config.ts",
+    "test:public": "playwright test --config playwright.public.config.ts",
     "predev": "node scripts/sync-appearance-catalog.mjs",
     "prebuild": "node scripts/sync-appearance-catalog.mjs"
   },

@@ -11,11 +11,11 @@ deployment switch and bounded per connecting IP.
 
 ## Endpoints
 
-| Method and path | Purpose |
-| --- | --- |
-| `GET /api/public/online/games` | Bounded, filterable index of public online games |
-| `GET /api/public/online/games/{game_id}` | Read-only detail of a live or completed game |
-| `GET /api/public/online/games/{game_id}/replay` | Completed-game replay with validated states |
+| Method and path                                 | Purpose                                          |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `GET /api/public/online/games`                  | Bounded, filterable index of public online games |
+| `GET /api/public/online/games/{game_id}`        | Read-only detail of a live or completed game     |
+| `GET /api/public/online/games/{game_id}/replay` | Completed-game replay with validated states      |
 
 No `POST`, `PATCH` or `DELETE` route exists under this namespace, and there is no
 public analysis endpoint. Unknown and live-replay identifiers return a consistent
@@ -95,11 +95,11 @@ schema.
 
 ## Deployment switch
 
-| Environment setting | Default | Meaning |
-| --- | --- | --- |
-| `HNEFATAFL_PUBLIC_ONLINE_ENABLED` | `true` | Enables the whole `/api/public/online/*` namespace |
-| `HNEFATAFL_PUBLIC_RATE_LIMIT` | `60` | Public requests allowed per window per IP, integer 1–100000 |
-| `HNEFATAFL_PUBLIC_RATE_WINDOW_SECONDS` | `60` | Public rate window in seconds, integer 1–86400 |
+| Environment setting                    | Default | Meaning                                                     |
+| -------------------------------------- | ------- | ----------------------------------------------------------- |
+| `HNEFATAFL_PUBLIC_ONLINE_ENABLED`      | `true`  | Enables the whole `/api/public/online/*` namespace          |
+| `HNEFATAFL_PUBLIC_RATE_LIMIT`          | `60`    | Public requests allowed per window per IP, integer 1–100000 |
+| `HNEFATAFL_PUBLIC_RATE_WINDOW_SECONDS` | `60`    | Public rate window in seconds, integer 1–86400              |
 
 Setting `HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` withdraws the namespace on the next
 service start (no code change or migration needed): every public handler then
@@ -121,3 +121,60 @@ feature.
   reachable through this namespace.
 - Existing authenticated lobby, personal and Hall routes keep their current
   authorization and behavior; the flag gates only the additive public namespace.
+
+## Public Watch Hall frontend
+
+`/watch` is a signed-out discovery page with ruleset, status, result and published
+player filters and bounded cursor navigation. `/watch/games/{id}` watches an online
+position; `/watch/games/{id}/replay` navigates validated completed states with
+first/previous/next/last controls and Arrow/Home/End shortcuts. Read-only board
+cells expose no legal moves, hints or analysis. The frontend deliberately ignores
+cached analysis rather than mounting an advisor.
+
+The public entry loads before the protected Auth/App graph. Public requests are
+GET-only with credentials omitted and cannot trigger session/CSRF side effects.
+Session service failure does not block watching. Login/registration are ordinary
+full-page links; account forms also link to Watch Hall. Public-off, missing/private
+IDs, empty communities, rate limits and read failures have explicit states/retry.
+A failed dynamic route import offers an explicit full reload; it never loops.
+
+Discovery cards name both sides explicitly, mark the winning side and reuse the
+shared status badge to separate live, waiting, completed and terminal games;
+completed cards expose the replay action as the primary action. Card width and
+column count follow the available space while each card stays capped, from 320 px
+phones to 4K desktops. Spectator boards stay square and fully visible, and primary
+spectator actions keep at least a 44 px mobile touch target without enlarging
+desktop controls. The compact public header keeps the theme and language
+selectors and adds a session-neutral `Play` link to `/play` alongside login and
+registration, so signed-out visitors can reach either without protected state.
+
+Discovery polls at 15 seconds while visible; active viewers at 5 seconds and
+waiting viewers at 15 seconds. Completed replay stops recurring requests. Hidden
+views abort and suspend polling, then refresh on return. Countdown seconds derive
+from the server deadline without polling each second. Stale responses and previous
+filter/game generations are rejected. All four themes, language and independent
+board/token/scale preferences use the shared providers.
+
+Every anonymous read is bounded by a 10 s timeout and cancels cleanly on
+navigation, unmount or a hidden tab. Failures are classified: `404` (including
+withheld private IDs) shows the privacy-preserving unavailable state and stops
+automatic polling; a `409` replay validation failure stops retries with an
+explicit message; `429` honours `Retry-After` (delta-seconds or HTTP-date) for
+both automatic and manual retries, keeps the cooldown across tab visibility
+changes, and explains why Retry is temporarily unavailable; `5xx` and network
+failures retry with bounded backoff. Recoverable states keep a manual retry. A
+live game that completes keeps its final position with replay controls
+available, while an explicit `/watch/games/{id}/replay` link starts at move zero.
+Live games show the active side to move from the server position and format
+time controls with the shared duration formatter. Only `/watch`,
+`/watch/games/{id}` and `/watch/games/{id}/replay` are valid public routes; other
+`/watch` paths render a translated not-found state with a link back to the Watch
+Hall and issue no API requests. Discovery and live reads stay uncached; completed
+detail and replay reads defer to the server's public `Cache-Control` policy.
+Portrait assets come from one shared allowlist used by both the public spectator
+and the authenticated dashboard, so an unknown server id never becomes a URL.
+
+The public shell is intentionally independent from authenticated Arena navigation.
+Its build entry is split from the protected application; this reduces public
+startup code, not the full authenticated Dashboard bundle. Further route-level
+Workshop splitting and shared protected polling remain separate workstreams.

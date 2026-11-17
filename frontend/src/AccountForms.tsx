@@ -312,6 +312,7 @@ export default function AccountForms({
             {t('Request a new link')}
           </button>
         )}
+        <a href="/watch">{t('Watch public games')}</a>
       </section>
     </main>
   );
