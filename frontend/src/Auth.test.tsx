@@ -264,6 +264,16 @@ function PermissionView() {
   return <p>Permissions {account?.permissions.join(',')}</p>;
 }
 
+function LogoutPermissionView() {
+  const { account, logout } = useAuth();
+  return (
+    <>
+      <p>Permissions {account?.permissions.join(',')}</p>
+      <button onClick={() => void logout()}>Log out</button>
+    </>
+  );
+}
+
 it('revalidates a permission change that arrives while a hidden-tab abort is unwinding', async () => {
   vi.useFakeTimers();
   let resolveOld!: (value: Response) => void;
@@ -552,6 +562,196 @@ it('aborts a pending security revalidation and removes listeners on unmount', as
       await vi.advanceTimersByTimeAsync(120000);
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it('preserves a permission event received during an active security refresh', async () => {
+  vi.useFakeTimers();
+  let resolveFirst!: (value: Response) => void;
+  let resolveSecond!: (value: Response) => void;
+  const first = new Promise<Response>((resolve) => {
+    resolveFirst = resolve;
+  });
+  const second = new Promise<Response>((resolve) => {
+    resolveSecond = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((_path: string, _options?: RequestInit) => {
+    call++;
+    if (call === 2) return first;
+    if (call === 3) return second;
+    return response({
+      account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+      csrf_token: 'csrf',
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <PermissionView />
+        </Auth>,
+      );
+    });
+    // The first event starts a security read (call 2).
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    // A second event arrives before that read settles.
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    // The first response cannot acknowledge the second event, so a follow-up runs.
+    await act(async () => {
+      resolveFirst(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await first;
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      resolveSecond(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play', 'training'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await second;
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Permissions play,training')).toBeVisible();
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it('coalesces several permission events received during one security refresh', async () => {
+  vi.useFakeTimers();
+  let resolveFirst!: (value: Response) => void;
+  let resolveSecond!: (value: Response) => void;
+  const first = new Promise<Response>((resolve) => {
+    resolveFirst = resolve;
+  });
+  const second = new Promise<Response>((resolve) => {
+    resolveSecond = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((_path: string, _options?: RequestInit) => {
+    call++;
+    if (call === 2) return first;
+    if (call === 3) return second;
+    return response({
+      account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+      csrf_token: 'csrf',
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <PermissionView />
+        </Auth>,
+      );
+    });
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    act(() => {
+      fireEvent(window, new Event('permissions-changed'));
+      fireEvent(window, new Event('permissions-changed'));
+      fireEvent(window, new Event('permissions-changed'));
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveFirst(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await first;
+    });
+    // The three later events coalesce into exactly one follow-up read.
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      resolveSecond(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play', 'admin'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await second;
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Permissions play,admin')).toBeVisible();
+  } finally {
+    cleanup();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it('does not apply a security response that settles after logout', async () => {
+  vi.useFakeTimers();
+  let resolveSecurity!: (value: Response) => void;
+  const security = new Promise<Response>((resolve) => {
+    resolveSecurity = resolve;
+  });
+  let call = 0;
+  const fetcher = vi.fn((path: string, _options?: RequestInit) => {
+    call++;
+    if (path === '/api/auth/logout') return response({ logged_out: true });
+    if (call === 2) return security;
+    return response({
+      account: { id: 'owner', username: 'Owner', permissions: ['play'] },
+      csrf_token: 'csrf',
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  try {
+    await act(async () => {
+      render(
+        <Auth>
+          <LogoutPermissionView />
+        </Auth>,
+      );
+    });
+    act(() => fireEvent(window, new Event('permissions-changed')));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    });
+    // Logging out tears the effect down and aborts the pending security read.
+    expect((fetcher.mock.calls[1][1]?.signal as AbortSignal).aborted).toBe(true);
+    await act(async () => {
+      resolveSecurity(
+        await response({
+          account: { id: 'owner', username: 'Owner', permissions: ['play', 'admin'] },
+          csrf_token: 'csrf',
+        }),
+      );
+      await security;
+    });
+    // The stale security read must not restore the signed-out session.
+    expect(screen.queryByText('Permissions play,admin')).toBeNull();
+    expect(screen.queryByText('Permissions play')).toBeNull();
   } finally {
     cleanup();
     visibility.mockRestore();

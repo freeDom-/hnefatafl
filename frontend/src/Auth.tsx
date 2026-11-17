@@ -209,23 +209,24 @@ export default function Auth({ children }: { children: ReactNode }) {
     if (!account) return;
     let alive = true;
     let controller: AbortController | null = null;
-    let activeSecurity = false;
-    // A permissions-changed invalidation stays pending until a fresh /auth/me
-    // completes. It is never dropped by a hidden-tab abort, so the active
-    // request's own security purpose must be tracked, not only later events.
-    let securityPending = false;
+    // Every permissions-changed event gets a sequence number. A successful read
+    // acknowledges only the events that existed when it started, so a newer
+    // event received during an active security read is never lost.
+    let permissionSeq = 0;
+    let satisfiedSeq = 0;
     let queuedRefresh = false;
+    const securityPending = () => permissionSeq > satisfiedSeq;
     const pump = () => {
       if (!alive || controller || signingOut.current) return;
-      const permissions = securityPending;
+      const permissions = securityPending();
       // Ordinary reads pause while hidden; a security revalidation may run so a
       // permission change is not lost across the hidden transition.
       if (!permissions && document.visibilityState === 'hidden') return;
       const expected = generation.current;
       const revision = ++readSequence.current;
+      const requestSeq = permissionSeq;
       const attempt = new AbortController();
       controller = attempt;
-      activeSecurity = permissions;
       void api<Session>('/auth/me', undefined, undefined, attempt.signal)
         .then((session) => {
           if (
@@ -234,10 +235,9 @@ export default function Auth({ children }: { children: ReactNode }) {
             !signingOut.current &&
             !attempt.signal.aborted
           ) {
-            // Only a security-initiated read satisfies the invalidation; an
-            // ordinary response may predate the permission event that arrived
-            // while it was in flight, so it must not clear the pending flag.
-            if (permissions) securityPending = false;
+            // Acknowledge only invalidations known when this read started; a
+            // later event keeps the pending flag set for the follow-up read.
+            if (requestSeq > satisfiedSeq) satisfiedSeq = requestSeq;
             accept(session, revision);
           }
         })
@@ -253,13 +253,14 @@ export default function Auth({ children }: { children: ReactNode }) {
         })
         .finally(() => {
           if (controller === attempt) controller = null;
-          activeSecurity = false;
           if (!alive || expected !== generation.current || signingOut.current) return;
-          // A security read aborted by hiding is reissued even while hidden; a
-          // permission event that landed during an ordinary read is also honored
-          // here. A failed security read waits for the normal cadence instead of
-          // spinning.
-          if (securityPending && (!permissions || attempt.signal.aborted)) {
+          // An ordinary read, a read aborted by hiding, or a newer permission
+          // event all reissue a pending security read. A failed security read
+          // with no newer event waits for the normal cadence instead of spinning.
+          if (
+            securityPending() &&
+            (!permissions || requestSeq < permissionSeq || attempt.signal.aborted)
+          ) {
             pump();
             return;
           }
@@ -271,11 +272,11 @@ export default function Auth({ children }: { children: ReactNode }) {
     };
     const refresh = (event?: Event) => {
       if (signingOut.current) return;
-      if (event?.type === 'permissions-changed') securityPending = true;
+      if (event?.type === 'permissions-changed') permissionSeq++;
       if (controller) {
-        // A pending or active security read already satisfies an ordinary
-        // refresh; ordinary refreshes otherwise coalesce into one follow-up.
-        if (!securityPending && !activeSecurity) queuedRefresh = true;
+        // An outstanding security invalidation or read already provides fresh
+        // data; ordinary refreshes otherwise coalesce into one follow-up.
+        if (!securityPending()) queuedRefresh = true;
         return;
       }
       pump();
