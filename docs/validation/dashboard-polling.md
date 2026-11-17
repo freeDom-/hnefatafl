@@ -18,14 +18,16 @@ versions invalidate the owning queue only when changed. Server result aggregate
 changes refresh progress/standing/recent/achievement projections, including
 external results and corrections; per-side wins are part of the change signature
 so a correction that keeps total wins/losses but moves the winning seat is still
-detected. The active hero reaching or correcting a terminal result refreshes the
-same projections once, covering local completion and single-player AI victories
-without reading on ordinary moves. The unlocked-portrait count follows the
-server-authoritative award list. A permissions-changed event that lands while a
-hidden-tab abort is unwinding is revalidated instead of discarded, a
-permission-initiated read aborted by hiding is reissued even while hidden, only a
-security read clears the pending invalidation, and repeated events coalesce into
-one follow-up read. No client-derived winners/rewards/counts or shared cache are
+detected. Changes in the authoritative single/local completed-game totals refresh
+the record strip and achievements once, covering local completion, single-player
+AI victories and games that were never the active hero, without reading on
+ordinary moves or on the initial load. The unlocked-portrait count follows the
+server-authoritative award list. Permission events are sequenced so a read
+acknowledges only the invalidations known when it started: a newer event received
+during an active security read survives and coalesces into one follow-up, a
+permission-initiated read aborted by hiding is reissued even while hidden, and a
+failed security read waits for the normal cadence. No client-derived
+winners/rewards/counts or shared cache are
 introduced. English/German authoritative singular labels are corrected.
 
 ## Recorded production candidate measurement
@@ -65,18 +67,19 @@ cadence is separately covered with fake timers.
 
 ## Validation
 
-Focused polling/auth/dashboard suite on the final integrated revision: **77 passed
+Focused polling/auth/dashboard suite on the reliability revision: **83 passed
 across four files** (`useOnlinePoll`, `Auth`, `PersonalDashboard`, `Leaderboard`).
 TypeScript, formatting and the production build passed. The twelve
 recorded-build/source/fingerprint tests also passed. The full parallel frontend
-run reported **1,364 passed** with no failures. No assertion or timeout was
+run reported **1,370 passed** with no failures. No assertion or timeout was
 relaxed. Added tests cover 5s/10s/60s failure backoff and recovery, hidden-tab
-pausing and cleanup, a permission event during a hidden abort, a
-permission-initiated read aborted by hiding, repeated permission events during an
-active refresh, redundant visibility/focus suppression while a security read is
-pending, local completion, single-player AI victory, active-hero terminal
-transitions, side-specific rated corrections and stable-state idle behavior. Full
-locked-dependency repository/browser CI is required on the PR.
+pausing and cleanup, permission events during ordinary and security reads,
+sequencing and coalescing across an active security read, a permission-initiated
+read aborted by hiding, redundant visibility/focus suppression, unmount and
+logout guards, non-hero local and single-player completion totals, initial and
+unchanged totals, account-switch baselines, single-player AI victory with the
+production Forge Keeper mapping, side-specific rated corrections and stable-state
+idle behavior. Full locked-dependency repository/browser CI is required on the PR.
 
 No backend/API/schema/game-rule/dependency changes. This optimizes polling, not
 bundle size or database query complexity. Final merge/release acceptance is pending.
@@ -158,3 +161,24 @@ npm --prefix frontend run build
 node frontend/benchmarks/arena-polling.mjs --clients=5 \
   --output=docs/benchmarks/arena-polling-final-five-contexts.json
 ```
+
+## Reliability measurement
+
+Clean source/build `d8f2a3391c26f556eacc6318afbced579ad807d9`, matching complete
+bundle fingerprint (`3c2a355f7641c84f309c5414890e6449ba1e7fd8419c2b524f5802c45969aaae`),
+no dirty override: [full record](../benchmarks/arena-polling-reliability-five-contexts.json).
+This revision adds permission-invalidation sequencing and non-hero completion-total
+achievement invalidation.
+
+| Phase | Actual elapsed | Total requests | Per context/minute | Failures | p95 completion |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Empty visible | 60,000.52 ms | 55 | 11.00 | 0 | 83.61 ms |
+| Active visible | 60,000.09 ms | 113 | 22.60 | 0 | 52.13 ms |
+| Simulated hidden | 59,999.80 ms | 0 | 0 | 0 | No requests |
+
+The steady request counts are unchanged within timer-boundary variance: the new
+completion invalidation only fires when an authoritative completed-game total
+changes, and the benchmark's active game never completes. All steady HTTP statuses
+were200; five expected reload aborts during active startup remain separate. Five
+independent browser contexts still share one disposable account/session: this is
+not a distinct-player population, capacity or write/AI test.
