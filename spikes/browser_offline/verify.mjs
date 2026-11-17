@@ -629,6 +629,145 @@ try {
     });
     assert.deepEqual(lateResponses.first, { ok: true, value: "fresh" });
     assert.equal(lateResponses.second, "AbortError");
+    // An error from a replaced worker must not affect its replacement.
+    const obsoleteWorkerError = await page.evaluate(async () => {
+      const { LocalAnalysisClient } = await import("./analysis-client.js");
+      const original = window.Worker;
+      class FakeWorker {
+        constructor() {
+          this.onmessage = null;
+          this.onerror = null;
+          this.messages = [];
+          this.terminated = false;
+        }
+        postMessage(message) {
+          this.messages.push(message);
+        }
+        terminate() {
+          this.terminated = true;
+        }
+      }
+      window.Worker = FakeWorker;
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+      try {
+        const client = new LocalAnalysisClient();
+        // Worker A starts a request, then is cancelled and replaced.
+        const first = client.request({ action: "info" }, { timeoutMs: 1000 });
+        const workerA = client.worker;
+        workerA.onmessage({ data: { id: 0, value: {} } });
+        await tick();
+        client.cancel("replaced");
+        const firstOutcome = await first.then(
+          () => "resolved",
+          (error) => error.name,
+        );
+        // Worker B starts another request and boots.
+        const second = client.request({ action: "info" }, { timeoutMs: 1000 });
+        const workerB = client.worker;
+        workerB.onmessage({ data: { id: 0, value: {} } });
+        await tick();
+        // A late error from Worker A must be ignored.
+        workerA.onerror({ message: "obsolete failure" });
+        const workerBAlive = client.worker === workerB && !workerB.terminated;
+        workerB.onmessage({
+          data: { id: workerB.messages[0].id, value: "worker-b-ok" },
+        });
+        const secondResult = await second;
+        // An actual error from the active worker still fails fast and resets.
+        const third = client.request({ action: "info" }, { timeoutMs: 1000 });
+        await tick();
+        workerB.onerror({ message: "real failure" });
+        const thirdOutcome = await third.then(
+          () => "resolved",
+          (error) => error.message,
+        );
+        return {
+          first_outcome: firstOutcome,
+          worker_b_alive: workerBAlive,
+          second_result: secondResult,
+          third_outcome: thirdOutcome,
+          reset: client.worker === null,
+          busy: client.busy,
+        };
+      } finally {
+        window.Worker = original;
+      }
+    });
+    assert.equal(obsoleteWorkerError.first_outcome, "AbortError");
+    assert.equal(obsoleteWorkerError.worker_b_alive, true);
+    assert.equal(obsoleteWorkerError.second_result, "worker-b-ok");
+    assert.equal(obsoleteWorkerError.third_outcome, "real failure");
+    assert.equal(obsoleteWorkerError.reset, true);
+    assert.equal(obsoleteWorkerError.busy, false);
+    // The same guard covers a worker replaced while it is still starting up.
+    const obsoleteStartupError = await page.evaluate(async () => {
+      const { LocalAnalysisClient } = await import("./analysis-client.js");
+      const original = window.Worker;
+      class FakeWorker {
+        constructor() {
+          this.onmessage = null;
+          this.onerror = null;
+          this.messages = [];
+          this.terminated = false;
+        }
+        postMessage(message) {
+          this.messages.push(message);
+        }
+        terminate() {
+          this.terminated = true;
+        }
+      }
+      window.Worker = FakeWorker;
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+      try {
+        const client = new LocalAnalysisClient();
+        // Worker A starts loading but is replaced before it reports startup.
+        const first = client.request({ action: "info" }, { timeoutMs: 1000 });
+        const workerA = client.worker;
+        client.cancel("replaced during startup");
+        const firstOutcome = await first.then(
+          () => "resolved",
+          (error) => error.name,
+        );
+        // Worker B boots and completes.
+        const second = client.request({ action: "info" }, { timeoutMs: 1000 });
+        const workerB = client.worker;
+        workerB.onmessage({ data: { id: 0, value: {} } });
+        await tick();
+        // A late startup error from Worker A must be ignored.
+        workerA.onerror({ message: "obsolete startup failure" });
+        const workerBAlive = client.worker === workerB && !workerB.terminated;
+        workerB.onmessage({
+          data: { id: workerB.messages[0].id, value: "worker-b-booted" },
+        });
+        const secondResult = await second;
+        // An active startup error on a fresh worker still fails fast.
+        const fresh = new LocalAnalysisClient();
+        const third = fresh.request({ action: "info" }, { timeoutMs: 1000 });
+        const workerC = fresh.worker;
+        workerC.onerror({ message: "real startup failure" });
+        const thirdOutcome = await third.then(
+          () => "resolved",
+          (error) => error.message,
+        );
+        return {
+          first_outcome: firstOutcome,
+          worker_b_alive: workerBAlive,
+          second_result: secondResult,
+          third_outcome: thirdOutcome,
+          reset: fresh.worker === null,
+          busy: fresh.busy,
+        };
+      } finally {
+        window.Worker = original;
+      }
+    });
+    assert.equal(obsoleteStartupError.first_outcome, "AbortError");
+    assert.equal(obsoleteStartupError.worker_b_alive, true);
+    assert.equal(obsoleteStartupError.second_result, "worker-b-booted");
+    assert.equal(obsoleteStartupError.third_outcome, "real startup failure");
+    assert.equal(obsoleteStartupError.reset, true);
+    assert.equal(obsoleteStartupError.busy, false);
     // Lifecycle: displayed analysis is bound to the exact position and settings.
     const opening = vectors.find((v) => v.name === "brandubh-opening-0").before
       .state;
@@ -1228,6 +1367,8 @@ try {
       post_failure_cleanup: postFailure,
       startup_failure_recovery: startupFailure,
       late_responses: lateResponses,
+      obsolete_worker_error: obsoleteWorkerError,
+      obsolete_startup_error: obsoleteStartupError,
       cache_preemption: cachePreemption,
       cache_display: cacheDisplay,
       cancel_feedback: cancelFeedback,
