@@ -1198,6 +1198,18 @@ it('does not invalidate achievements on initial or unchanged completion totals',
   ).toBe(0);
 });
 
+it('renders when a history response omits its totals', async () => {
+  const previous = serve;
+  serve = (url) =>
+    url.includes('/personal/local?')
+      ? respond({ games: [] })
+      : url.includes('/single-player?')
+        ? respond({ games: [] })
+        : previous(url);
+  render(<PersonalDashboard />);
+  expect(await screen.findByRole('heading', { name: 'Unlocked portraits' })).toBeVisible();
+});
+
 it('resets the completion baseline when the account switches', async () => {
   const previous = serve;
   let completed = 0;

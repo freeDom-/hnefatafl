@@ -223,8 +223,8 @@ function DashboardHome({
   // Authoritative completion counts from the 60-second history polls. A change
   // after the initial load is a new completion (or a correction that changes the
   // count), including games that were never the active hero.
-  const singleCompleted = single.data?.totals.completed_games ?? null;
-  const localCompleted = local.data?.totals.completed_games ?? null;
+  const singleCompleted = single.data?.totals?.completed_games ?? null;
+  const localCompleted = local.data?.totals?.completed_games ?? null;
   const previousCompletion = useRef<{ single: number | null; local: number | null } | null>(null);
   useEffect(() => {
     const previous = previousCompletion.current;
