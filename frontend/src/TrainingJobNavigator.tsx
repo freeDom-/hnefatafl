@@ -29,6 +29,8 @@ export default function TrainingJobNavigator({
   );
   const pageCount = Math.max(1, Math.ceil(visible.length / 20));
   const currentPage = Math.min(page, pageCount - 1);
+  // Persist the clamp so polling cannot resurrect a removed page on expansion.
+  if (page !== currentPage) setPage(currentPage);
   const pageJobs = visible.slice(currentPage * 20, currentPage * 20 + 20);
   const selectedJob = jobs.find((job) => job.id === selected);
   const selectedOnPage = pageJobs.some((job) => job.id === selected);

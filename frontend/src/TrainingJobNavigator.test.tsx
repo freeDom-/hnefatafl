@@ -17,7 +17,7 @@ afterEach(cleanup);
 function rows() {
   return Array.from(document.querySelectorAll<HTMLButtonElement>('.job-row'));
 }
-it('bounds native selector and rows to20 while every matching job remains reachable', () => {
+it('bounds native selector and rows to 20 while every matching job remains reachable', () => {
   render(<TrainingJobNavigator jobs={jobs} models={[]} onSelect={vi.fn()} />);
   const reached = new Set<string>();
   for (let page = 1; page <= 3; page++) {
@@ -31,6 +31,75 @@ it('bounds native selector and rows to20 while every matching job remains reacha
   }
   expect(reached.size).toBe(57);
   expect(screen.getByRole('button', { name: 'Next job page' })).toBeDisabled();
+});
+
+it.each([0, 1, 20, 21, 57, 1000])(
+  'keeps all %i jobs reachable with bounded rows and options',
+  (count) => {
+    const collection = Array.from({ length: count }, (_, i) => ({
+      ...jobs[0],
+      id: `bounded-${i}`,
+    }));
+    render(<TrainingJobNavigator jobs={collection} models={[]} onSelect={vi.fn()} />);
+    const reached = new Set<string>();
+    for (let page = 0; page < Math.max(1, Math.ceil(count / 20)); page++) {
+      expect(rows().length).toBeLessThanOrEqual(20);
+      expect(
+        screen.getByLabelText('Selected job').querySelectorAll('option').length,
+      ).toBeLessThanOrEqual(21);
+      rows().forEach((row) => reached.add(row.dataset.jobId!));
+      const next = screen.queryByRole('button', { name: 'Next job page' });
+      if (next && !next.hasAttribute('disabled')) fireEvent.click(next);
+    }
+    expect(reached.size).toBe(count);
+  },
+);
+
+it.each([0, 1, 20, 21])(
+  'persists the valid page after polling shrinks to %i jobs and expands',
+  (count) => {
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <TrainingJobNavigator jobs={jobs} selected="job-000" models={[]} onSelect={onSelect} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Next job page' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next job page' }));
+    expect(screen.getByText('Page 3 of 3')).toBeVisible();
+    rerender(
+      <TrainingJobNavigator
+        jobs={jobs.slice(0, count)}
+        selected="job-000"
+        models={[]}
+        onSelect={onSelect}
+      />,
+    );
+    expect(rows()).toHaveLength(count === 21 ? 1 : count);
+    rerender(
+      <TrainingJobNavigator jobs={jobs} selected="job-000" models={[]} onSelect={onSelect} />,
+    );
+    expect(screen.getByText(`Page ${count === 21 ? 2 : 1} of 3`)).toBeVisible();
+    expect(screen.getByLabelText('Selected job')).toHaveValue('job-000');
+    expect(onSelect).not.toHaveBeenCalled();
+  },
+);
+
+it('preserves a browsed page on routine polls and follows only an explicit selection', () => {
+  const onSelect = vi.fn();
+  const { rerender } = render(
+    <TrainingJobNavigator jobs={jobs} selected="job-000" models={[]} onSelect={onSelect} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Next job page' }));
+  const polled = jobs.map((job) => ({ ...job, progress: { iteration: 100 } }));
+  rerender(
+    <TrainingJobNavigator jobs={polled} selected="job-000" models={[]} onSelect={onSelect} />,
+  );
+  expect(screen.getByText('Page 2 of 3')).toBeVisible();
+  rerender(
+    <TrainingJobNavigator jobs={polled} selected="job-056" models={[]} onSelect={onSelect} />,
+  );
+  expect(screen.getByText('Page 3 of 3')).toBeVisible();
+  expect(document.querySelector('[data-job-id="job-056"]')).toHaveAttribute('aria-current', 'true');
+  expect(onSelect).not.toHaveBeenCalled();
 });
 it('keeps the selected job accessible off-page and restores its page using the keyboard', async () => {
   const user = userEvent.setup();

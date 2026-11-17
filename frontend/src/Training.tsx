@@ -5,6 +5,8 @@ import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
 import StudyDeletionDialog from './StudyDeletionDialog';
 import { useAuth } from './Auth';
+import { surfaceLink } from './surfaceNavigation';
+import { workspaceDestinations } from './workspaceNavigation';
 import './features.css';
 import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
@@ -90,6 +92,9 @@ export default function Training({
 }) {
   const { locale } = useI18n();
   const { account } = useAuth();
+  const comparisonDestination = workspaceDestinations('workshop', account?.permissions ?? []).find(
+    (destination) => destination.id === 'tournaments',
+  );
   const [creationOpen, setCreationOpen] = useState<boolean | null>(null);
   const [modelsOpen, setModelsOpen] = useState<boolean | null>(null);
   const [workersOpen, setWorkersOpen] = useState(false);
@@ -998,15 +1003,17 @@ export default function Training({
         >
           {t('Monitor jobs')}
         </button>
-        <a className="button secondary" href="#model-collection">
+        <a className="button secondary" href="#model-collection" onClick={surfaceLink}>
           {t('Model collection')}
         </a>
-        <a className="button secondary" href="#workshop-workers">
+        <a className="button secondary" href="#workshop-workers" onClick={surfaceLink}>
           {t('Remote workers')}
         </a>
-        <a className="button secondary" href="/tournaments">
-          {t('AI comparisons')}
-        </a>
+        {comparisonDestination && (
+          <a className="button secondary" href={comparisonDestination.href} onClick={surfaceLink}>
+            {t('AI comparisons')}
+          </a>
+        )}
       </nav>
       {notice && (
         <div className="notice" role="status">

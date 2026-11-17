@@ -1,8 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Training from './Training';
+import Tournaments from './Tournaments';
 import { setLanguage } from './i18n';
+const session = vi.hoisted(() => ({ permissions: ['training', 'tournaments'] }));
+vi.mock('./Auth', () => ({ useAuth: () => ({ account: { permissions: session.permissions } }) }));
 beforeEach(() => {
+  session.permissions = ['training', 'tournaments'];
+  history.replaceState(null, '', '/training');
   setLanguage('en', false);
   vi.stubGlobal(
     'fetch',
@@ -74,4 +79,41 @@ it('task navigation opens existing creation, monitoring, model and worker surfac
     'href',
     '#workshop-workers',
   );
+});
+
+it.each([
+  ['Model collection', 'model-collection', /Model collection \(/],
+  ['Remote workers', 'workshop-workers', /^Remote workers \(/],
+])(
+  'reopens and focuses collapsed %s on repeated links with an unchanged hash',
+  async (label, id, toggleName) => {
+    show();
+    await screen.findByRole('heading', { name: 'Live strategist' });
+    const tasks = screen.getByRole('navigation', { name: 'Workshop tasks' });
+    const link = within(tasks).getByRole('link', { name: label });
+    const section = document.getElementById(id)!;
+    for (let click = 0; click < 2; click++) {
+      fireEvent.click(link);
+      expect(location.hash).toBe(`#${id}`);
+      await waitFor(() => expect(section).toHaveFocus());
+      expect(section).not.toHaveAttribute('hidden');
+      fireEvent.click(screen.getByRole('button', { name: toggleName }));
+      expect(section).toHaveAttribute('hidden');
+    }
+  },
+);
+
+it.each([
+  [['training'], false, true],
+  [['tournaments'], true, false],
+  [['training', 'tournaments'], true, true],
+])('gates task and return links for permissions %j', async (permissions, comparisons, training) => {
+  session.permissions = permissions;
+  show();
+  await screen.findByRole('heading', { name: 'Live strategist' });
+  expect(!!screen.queryByRole('link', { name: 'AI comparisons' })).toBe(comparisons);
+  cleanup();
+  render(<Tournaments rulesets={[]} profiles={[]} models={[]} onError={vi.fn()} />);
+  await screen.findByRole('button', { name: 'New tournament' });
+  expect(!!screen.queryByRole('link', { name: 'Return to the AI workshop' })).toBe(training);
 });

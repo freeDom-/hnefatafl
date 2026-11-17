@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api, apiFetch, errorMessage } from './api';
 import { notify } from './notifications';
+import { useAuth } from './Auth';
+import { surfaceLink } from './surfaceNavigation';
+import { workspaceDestinations } from './workspaceNavigation';
 import Board, { coordinate, Crown } from './Board';
 import RecordsConfirm from './RecordsConfirm';
 import RecordsParameters, { parameterSummary } from './RecordsParameters';
@@ -192,6 +195,10 @@ export default function Tournaments({
   onError: (message: string) => void;
 }) {
   const { locale, language } = useI18n();
+  const { account } = useAuth();
+  const trainingDestination = workspaceDestinations('workshop', account?.permissions ?? []).find(
+    (destination) => destination.id === 'training',
+  );
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [selected, setSelected] = useState<Tournament | null>(null);
   const sideStats = useMemo(
@@ -570,7 +577,11 @@ export default function Tournaments({
               'Compare computer opponents with repeatable matches. These benchmarks are separate from human player tournaments.',
             )}
           </p>
-          <a href="/training">{t('Return to the AI workshop')}</a>
+          {trainingDestination && (
+            <a href={trainingDestination.href} onClick={surfaceLink}>
+              {t('Return to the AI workshop')}
+            </a>
+          )}
         </div>
         <div className="tournament-create">
           <button className="button primary" onClick={openSetup} disabled={loading || running}>
