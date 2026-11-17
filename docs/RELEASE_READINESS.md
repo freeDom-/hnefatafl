@@ -37,9 +37,11 @@ research remain outstanding. Checkbox state below records the audited baseline.
 - [ ] Resolve material development-toolchain advisories with tested upgrades.
   Production-only npm audits report **zero runtime findings**, but the current
   development graph has one high-severity advisory (GHSA-fc5q-39xc-vjpf,
-  picomatch through 4.0.7) with no patched release. It is build/test-only and not
-  present in the deployed bundle; the required `security` CI job stays red until
-  upstream ships a fix. See
+  picomatch through 4.0.7) with no patched release. GitHub still reviews it as
+  high while Snyk revoked its entry and NVD is awaiting analysis; it is
+  build/test-only and not present in the deployed bundle. The required `security`
+  CI job stays red until upstream ships a fix or the owner approves a time-limited
+  risk acceptance. See
   [the dependency record](validation/test-toolchain-security.md#picomatch-redos-advisory-ghsa-fc5q-39xc-vjpf-2026-11-17).
   No blind force upgrade, ignore list or downgrade; rerun tests and audit after
   lockfile changes.

@@ -152,32 +152,78 @@ vitest) rather than five unique advisories. `npm audit --package-lock-only
 React DOM and React Markdown, and the production `dist/` bundle contains no
 picomatch code.
 
-### Exposure
+### Conflicting database status
 
-The vulnerable operation is picomatch compiling a glob with repeated single-branch
-extglobs such as `+(*)`. In this repository those patterns come from developer
-configuration, Vite/Vitest file discovery and test-name filters, not from HTTP
-request data, account input or any other untrusted runtime source. There is no
-production server or browser path that passes attacker-controlled globs to
-picomatch. The practical exposure is a development/CI tooling denial of service
-on a developer machine or runner; deployed application runtime exposure is absent.
+The sources disagree, so the current status is **disputed but not withdrawn**:
 
-### Patch status and decision
+| Source | Current status |
+| --- | --- |
+| GitHub Advisory GHSA-fc5q-39xc-vjpf | **Reviewed, high severity, not withdrawn**, no first patched version. Last reviewed 2026-11-17 after the Snyk revocation. |
+| NVD CVE-2026-112366 | **Awaiting Analysis**; the published CVSS vectors are secondary (VulnCheck) at 7.5/8.7, CISA SSVC says exploitation none, and NVD has not added a disputed tag. |
+| OSV.dev | Mirrors the GitHub advisory (affected `<= 4.0.7`, no fixed event). |
+| Snyk SNYK-JS-PICOMATCH-21248802 | **Revoked**: “doesn’t affect any version”, amendment “This was deemed not a vulnerability”, and it notes the CVE was disputed by the maintainer. |
+| npm registry | Latest release is still **4.0.7** (2026-08-24); no patched release exists. |
 
-The npm registry's latest release remains picomatch 4.0.7 (published
-2026-08-24) and the advisory lists no patched version. Vite 8 and Vitest 5 still
-declare `picomatch: ^4.0.7`, so a major upgrade would not resolve it. npm's
-suggested `audit fix --force` would downgrade to Vitest 3.1.4 and Vite 6.2.7
-(a breaking change that still resolves a vulnerable picomatch).
+Snyk revoked its entry after the maintainer disputed the report. GitHub re-reviewed
+the same report on 2026-11-17 and kept it, and NVD has not completed its analysis.
+A revoked Snyk entry therefore does not invalidate the active GitHub advisory, and
+the advisory has not been formally disputed on GitHub. `npm audit` consumes the
+GitHub Advisory Database, so the repository's gate follows the stricter, still-active
+assessment until GitHub withdraws the advisory or a patched release appears. This is
+not evidence of a false positive; it is unresolved disagreement between databases.
 
-No fork, override, blanket ignore or downgrade is used. The full audit remains a
-required, visible CI check and currently fails, so this branch is not represented
-as fully security-validated.
+### Exposure verification
+
+- The lockfile marks `picomatch` as `"dev": true`; `npm ls picomatch --omit=dev`
+  is empty, production dependencies are only React, React DOM and React Markdown,
+  and the built `dist/` contains no picomatch code. The advisory has no
+  `vulnerable_functions`, so there is no exported function list that would narrow
+  the finding further.
+- Vite's `tinyglobby`/`fdir` and Vitest import picomatch and compile globs during
+  builds and tests, so the library is exercised by trusted tooling. Repository
+  configuration uses ordinary patterns such as `src/**/*.test.{ts,tsx}` and no
+  config or script contains the vulnerable leading-bare-quantifier shape
+  (`+(*a)`, `*(*a)`, `?(*a)`).
+- The application source never imports picomatch, and no HTTP, account, game or
+  analysis input is passed to glob compilation. An attacker cannot supply the glob
+  patterns the advisory requires.
+- Practical exposure is therefore a development/CI tooling denial of service if a
+  trusted developer or CI input supplies a malicious pattern. Deployed application
+  runtime exposure is absent.
+
+### Upstream patch status
+
+- [PR #238](https://github.com/micromatch/picomatch/pull/238) (literalize unsafe
+  leading extglobs) has been open since 2026-10-22 with one commit and passing
+  author-run tests, and is not merged. Its author documents a remaining nested-group
+  limitation. [PR #246](https://github.com/micromatch/picomatch/pull/246) is also
+  open. Maintainers have not merged or released either.
+- Vite 8 and Vitest 5 still declare `picomatch: ^4.0.7`, so a major upgrade would
+  not resolve this. npm's suggested `audit fix --force` would downgrade to Vitest
+  3.1.4 and Vite 6.2.7, a breaking change that still resolves vulnerable picomatch.
+- The only official guidance is Snyk's: do not use the risky pattern and do not let
+  untrusted users define regular expressions. Both conditions already hold here.
+
+### Decision and risk-acceptance proposal
+
+No supported technical fix exists. No fork, override, unmerged patch, ignore list,
+audit suppression or downgrade is used. The full audit remains a required, visible
+CI check and currently fails, so this branch is not fully security-validated.
+
+If the owner needs to merge before an upstream release, the smallest defensible
+process is a **time-limited, owner-approved risk acceptance** for exactly
+GHSA-fc5q-39xc-vjpf, scoped to the development-only paths above, with an expiry
+(for example 30 days or the next dependency refresh, whichever is sooner), a named
+approver and a link to this record. It is **not implemented here** because that
+requires explicit approval; any implementation must be an explicit, reviewed audit
+policy rather than a blanket disable, and the full audit must stay visible. No such
+exception is currently in place.
 
 ### Follow-up
 
 When upstream publishes a patched picomatch release, refresh the lockfile
 (`npm --prefix frontend update picomatch`), rerun the unit/browser suites and
-re-audit. No temporary exception, `audit` suppression or approval exception is in
-place; the security job stays red until that upgrade. Repeat the audit at release
-preparation because advisories are time-sensitive.
+re-audit. Treat a GitHub withdrawal or a formal dispute as a separate outcome:
+re-check the advisory before changing the gate, because a Snyk revocation alone does
+not clear it. Repeat the audit at release preparation because advisories are
+time-sensitive.
