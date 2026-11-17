@@ -452,3 +452,73 @@ it('isolates account data and cancelled reads when the account changes while hid
     visibility.mockRestore();
   }
 });
+
+it('changes cadence without discarding a ready snapshot or issuing an immediate read', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockResolvedValue('ledger');
+  const hook = renderHook(({ intervalMs }) => useOnlinePoll('retune', load, { intervalMs }), {
+    initialProps: { intervalMs: 5000 },
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(hook.result.current.data).toBe('ledger');
+  expect(load).toHaveBeenCalledTimes(1);
+
+  hook.rerender({ intervalMs: 0 });
+  expect(hook.result.current.data).toBe('ledger');
+  expect(hook.result.current.phase).toBe('ready');
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20000);
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+
+  hook.rerender({ intervalMs: 5000 });
+  expect(hook.result.current.data).toBe('ledger');
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(hook.result.current.data).toBe('ledger');
+});
+
+it('keeps an in-flight refresh running when the cadence changes and applies it once', async () => {
+  vi.useFakeTimers();
+  const first = deferred<string>();
+  const second = deferred<string>();
+  const load = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const hook = renderHook(
+    ({ intervalMs }) => useOnlinePoll('retune-flight', load, { intervalMs }),
+    {
+      initialProps: { intervalMs: 5000 },
+    },
+  );
+  expect(load).toHaveBeenCalledTimes(1);
+
+  hook.rerender({ intervalMs: 0 });
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    first.resolve('ready');
+    await first.promise;
+  });
+  expect(hook.result.current.data).toBe('ready');
+  expect(hook.result.current.phase).toBe('ready');
+
+  act(() => {
+    void hook.result.current.refresh();
+  });
+  expect(hook.result.current.refreshing).toBe(true);
+  hook.rerender({ intervalMs: 5000 });
+  expect(hook.result.current.data).toBe('ready');
+  expect(load).toHaveBeenCalledTimes(2);
+
+  await act(async () => {
+    second.resolve('fresh');
+    await second.promise;
+  });
+  expect(hook.result.current.data).toBe('fresh');
+  expect(hook.result.current.phase).toBe('ready');
+  expect(load).toHaveBeenCalledTimes(2);
+});

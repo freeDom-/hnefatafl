@@ -503,10 +503,11 @@ export default function App() {
   const workshop = tab === 'training' || tab === 'tournaments';
   const shellCurrent = tab === 'online' ? 'play' : tab;
   const Shell = workshop ? WorkshopShell : ArenaShell;
-  // The Dashboard and an open game already invalidate the shared read from their
-  // own authoritative polls. Everything else uses the low-frequency backstop so
-  // a remote completion reaches Portrait Hall, Profile and other Arena routes.
-  const progressionPoll = tab === 'dashboard' || (tab === 'play' && game) ? 0 : PROGRESSION_POLL_MS;
+  // Only the Dashboard observes account-wide result totals and can refresh the
+  // shared read from its own polls. Game routes only see the current game, so a
+  // local/single-player board keeps the low-frequency backstop for completions
+  // that happen elsewhere; every other Arena route does the same.
+  const progressionPoll = tab === 'dashboard' ? 0 : PROGRESSION_POLL_MS;
 
   return (
     <ProgressionProvider owner={account?.id} intervalMs={progressionPoll}>

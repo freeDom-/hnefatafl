@@ -74,10 +74,13 @@ visibility, persistence and close-on-leave assertions remain intact.
 Achievement progress is now shared, not per-component. One `ProgressionProvider`
 owns the single account-scoped `GET /personal/achievements` read for the
 authenticated shell; the Dashboard and the Portrait Hall consume it instead of
-fetching their own copy. The Dashboard and an open game room invalidate the shared
-read from their own authoritative polls, so they add no recurring achievement
-traffic. Other Arena routes use a 15-second visible-tab backstop to reconcile a
-remote online completion. The recurring read suspends while the page is hidden, refreshes
+fetching their own copy. The Dashboard's account-wide result-totals poll
+invalidates the shared read, so the Dashboard adds no recurring achievement
+traffic. Every other route, including an open local, single-player or online game
+board, keeps a 15-second visible-tab backstop because a game route only observes
+its own game. Changing the route cadence retunes the existing poll instead of
+restarting it, so a current snapshot survives Dashboard/Portrait Hall transitions
+without another read. The recurring read suspends while the page is hidden, refreshes
 coalesce, a new account mounts a fresh session that aborts the previous read, and
 repeated unchanged results do not notify again. The Portrait Hall regression test
 renders the `/portraits` route component, simulates a remote completion with no
@@ -112,21 +115,28 @@ marked historical and points here.
 ## Final review correction validation
 
 The correction branch merged the current `main` so the polling and lazy-loading
-work (PRs #87, #89 and #91) composes with the shared progression read. The
-Dashboard and an open game room keep their own authoritative polls and drive the
-shared read from those; only routes without a completion signal use the recurring
-backstop, which keeps the established Dashboard request budget unchanged. Vitest
-was upgraded to the version `main` now locks.
+work (PRs #87, #89 and #91) composes with the shared progression read. Only the
+Dashboard owns an account-wide completion poll, so only it disables the recurring
+backstop; an open local, single-player or online game route keeps the backstop
+because it observes just its own game. Cadence changes retune the existing poll
+instead of restarting it, preserving the shared snapshot across
+Dashboard/Portrait Hall transitions. The established Dashboard request budget is
+unchanged. Vitest was upgraded to the version `main` now locks.
+
+Achievement family cards remain bordered items inside the single Achievements
+surface rather than nested `arena-surface` panels; the design-system note was
+corrected to describe that intentional treatment and its avoidance of repeated
+panel backgrounds, shadows and Saga Hall framing.
 
 Local checks on the correction head:
 
-- Frontend unit suite: 96 files / 1,407 tests passed. TypeScript, Prettier, the
+- Frontend unit suite: 98 files / 1,414 tests passed. TypeScript, Prettier, the
   production build and the documentation link check passed.
 - Python: 3,411 passed, 51 skipped. Six `test_mcts_optimization` frozen-reference
   digest cases fail identically at the reviewed base commit `73d2440` in this
   environment; they are unrelated to these changes and pass in CI. A focused
-  progression/ratings/replay-concurrency/security/migration/deployment run
-  passed (161).
+  progression/ratings/replay-concurrency/security/migration/profile run passed
+  (213).
 - Playwright: Portrait Hall and achievement tiers across four themes and both
   projects, plus portrait fallback, mobile play and notifications (27 passed,
   one project skip).

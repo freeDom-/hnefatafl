@@ -77,9 +77,9 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 // The Hall consumes the shared progression read, so every render provides it.
-function Hall() {
+function Hall({ intervalMs }: { intervalMs?: number } = {}) {
   return (
-    <ProgressionProvider owner={identity.id}>
+    <ProgressionProvider owner={identity.id} intervalMs={intervalMs}>
       <PortraitHall />
     </ProgressionProvider>
   );
@@ -137,6 +137,24 @@ it('updates points and visual tiers from an authoritative wake without collectio
   expect(within(family).getByText('Next milestone: 50 · 60 points')).toBeVisible();
   expect(screen.getByText('Achievement Score — 110 / 2,280 points')).toBeVisible();
 });
+it('keeps the shared snapshot rendered when the route cadence changes', async () => {
+  const achievementsCalls = () =>
+    vi.mocked(api).mock.calls.filter(([path]) => path === '/personal/achievements').length;
+  const view = render(<Hall intervalMs={0} />);
+  await screen.findByRole('heading', { name: 'Shieldbearer' });
+  expect(achievementsCalls()).toBe(1);
+  expect(screen.queryByText('Loading your portraits…')).not.toBeInTheDocument();
+
+  view.rerender(<Hall intervalMs={PROGRESSION_POLL_MS} />);
+  expect(screen.getByRole('heading', { name: 'Shieldbearer' })).toBeVisible();
+  expect(screen.queryByText('Loading your portraits…')).not.toBeInTheDocument();
+  expect(achievementsCalls()).toBe(1);
+
+  view.rerender(<Hall intervalMs={0} />);
+  expect(screen.getByRole('heading', { name: 'Shieldbearer' })).toBeVisible();
+  expect(achievementsCalls()).toBe(1);
+});
+
 it('refreshes score and portrait state for a remote completion without focus or navigation', async () => {
   vi.useFakeTimers();
   try {

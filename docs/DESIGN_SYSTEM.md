@@ -96,7 +96,10 @@ its CSS maximum accounts for device pixel ratio and the asset's native dimension
 Frames grow independently. Small avatar contexts retain the original 320px assets.
 See [artwork provenance](PORTRAIT_ARTWORK.md) for source and encoding details.
 
-Achievement cards reuse `arena-surface`, shared spacing and typography. Engraved,
+Achievement cards sit inside the single Achievements `arena-surface` and reuse its
+shared border, spacing and typography tokens, deliberately without a second
+`arena-surface` per card: another panel would repeat the background, shadow and,
+in Saga Hall, the carved material frame inside the section frame. Engraved,
 bronze, silver, gold and legendary levels use the existing border, metal, subtle,
 gold and focus tokens, plus dashed/double borders and rune ornamentation. Their
 appearance derives from permanent awarded tiers; runes map to stable family IDs.

@@ -39,11 +39,13 @@ Game completion, successful analysis completion, window focus and reconnect trig
 coalesced account-scoped refreshes. One shared `ProgressionProvider` owns the single
 `GET /personal/achievements` read for the authenticated shell, so the Dashboard,
 the Portrait Hall and the notification baseline never fetch it independently.
-Routes that already own an authoritative completion poll (the Dashboard and an
-open game room) invalidate the shared read from those polls. Other Arena routes
-use a 15-second visible-tab backstop, so a remote online completion eventually
-appears without navigation or refocus; the recurring read is suspended while the
-page is hidden and resumes on visibility. A session baseline prevents historical
+The Dashboard already owns the account-wide result-totals poll, so it invalidates
+the shared read from that poll without a second timer. Every other route,
+including an open local, single-player or online game board, keeps a 15-second
+visible-tab backstop: a game route only observes its own game and cannot see a
+separate rated completion. The recurring read is suspended while the page is
+hidden and resumes on visibility, so a remote completion eventually appears
+without navigation or refocus. A session baseline prevents historical
 notification storms; newly observed awards show points and newly available
 portraits. Notifications are not a durable notification history.
 
