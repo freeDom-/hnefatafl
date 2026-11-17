@@ -35,10 +35,15 @@ tokens and stable family runes. Server responses determine all awards. English a
 German labels, localized numbers, accessible progress labels, keyboard selection,
 account-switch guards and stale-response handling cover the four themes.
 
-Game completion, successful analysis completion and window focus trigger coalesced
-account-scoped refreshes, without additional polling. A session baseline prevents
-historical notification storms; newly observed awards show points and newly
-available portraits. Notifications are not a durable notification history.
+Game completion, successful analysis completion, window focus and reconnect trigger
+coalesced account-scoped refreshes. One shared `ProgressionProvider` owns the single
+`GET /personal/achievements` read for the authenticated shell, so the Dashboard,
+the Portrait Hall and the notification baseline never fetch it independently. A
+15-second visible-tab backstop reconciles a remote online completion on routes with
+no live game poll of their own; the recurring read is suspended while the page is
+hidden and resumes on visibility. A session baseline prevents historical
+notification storms; newly observed awards show points and newly available
+portraits. Notifications are not a durable notification history.
 
 ## Portrait catalog
 
@@ -129,9 +134,15 @@ shares counters across criteria/scopes rather than querying every milestone.
 - Rated completion applies the rating ledger first, then awards affected accounts
   in that same transaction only when the ledger actually changed. Wins group by
   ruleset and actual attacker/defender seat. Best streak folds the established
-  ordered applied ledger. Casual, unfinished and withdrawn results do not count.
+  ordered applied ledger. A freshly appended result takes a bounded fast path: a
+  loss or draw skips the streak criterion, and the winner reads only the trailing
+  wins up to its next unawarded milestone, falling back to the exact fold when a
+  milestone is reached. Corrections, withdrawals, pool rebuilds and migration
+  always fold exactly, because removing an earlier loss can create a longer
+  historical streak. Casual, unfinished and withdrawn results do not count.
   Two-leg matches use the existing rating policy. Later corrections retain past
-  awards and evaluate future milestones against currently valid results.
+  awards and evaluate future milestones against currently valid results. See the
+  [measured fast path](benchmarks/progression-streaks.md).
 - Local/vs-AI completion writes the persisted `recorded_result` and awards the
   owner in the same transaction. Only completed local games or human-versus-AI
   human victories qualify. Replaying, reload, undo/redo and duplicate updates

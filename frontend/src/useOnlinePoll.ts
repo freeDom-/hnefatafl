@@ -44,10 +44,14 @@ export function useOnlinePoll<T>(
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | null = null;
     let waiters: ((data: T | null) => void)[] = [];
+    // A hidden tab stops its recurring read and defers event-driven refreshes
+    // until it is visible again; the first mount read still runs so a restored
+    // tab paints current data instead of an empty state.
+    const isHidden = () => document.visibilityState === 'hidden';
     setSnapshot({ key, data: null, phase: 'loading', error: null, refreshing: false });
     const schedule = (delay: number) => {
       clearTimeout(timer);
-      if (alive && !held) timer = setTimeout(() => void run(), delay);
+      if (alive && !held && !isHidden()) timer = setTimeout(() => void run(), delay);
     };
     /** `null` means no recurring read: an interval of 0 is event-driven only. */
     const nextDelay = (queuedRun: boolean): number | null => {
@@ -107,10 +111,13 @@ export function useOnlinePoll<T>(
           return;
         }
         waiters.push(resolve);
-        if (!held) {
-          if (running) queued = true;
-          else void run();
+        if (held) return;
+        if (isHidden()) {
+          queued = true;
+          return;
         }
+        if (running) queued = true;
+        else void run();
       });
     const hold = () => {
       held = true;
@@ -135,6 +142,10 @@ export function useOnlinePoll<T>(
     controls.current = active;
     const wake = () => {
       if (held) return;
+      if (isHidden()) {
+        queued = true;
+        return;
+      }
       if (running) queued = true;
       else void run();
     };
@@ -148,6 +159,7 @@ export function useOnlinePoll<T>(
     };
     const visible = () => {
       if (document.visibilityState === 'visible') wake();
+      else clearTimeout(timer);
     };
     document.addEventListener('visibilitychange', visible);
     window.addEventListener('focus', wake);

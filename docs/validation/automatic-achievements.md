@@ -71,19 +71,35 @@ visibility, persistence and close-on-leave assertions remain intact.
 
 ## Final review corrections
 
-The Dashboard's existing own-account online-history poll now signals progression
-refresh when authoritative result totals change. No new timer is added. Repeated
-unchanged results do not signal again; notification refreshes coalesce, defer
-while hidden, resume on visibility and discard old-account responses. Game Room
-completion signals require participation, excluding passive spectators. The
-Dashboard regression test runs the real polling and notification hooks together,
-observes an opponent completion without focus/navigation, and asserts exactly one
-localized milestone notice and one portrait notice.
+Achievement progress is now shared, not per-component. One `ProgressionProvider`
+owns the single account-scoped `GET /personal/achievements` read for the
+authenticated shell; the Dashboard and the Portrait Hall consume it instead of
+fetching their own copy. A 15-second visible-tab backstop reconciles a remote
+online completion on routes without a live game poll, while the Dashboard's
+existing online-history poll still signals immediately when authoritative result
+totals change. The recurring read suspends while the page is hidden, refreshes
+coalesce, a new account mounts a fresh session that aborts the previous read, and
+repeated unchanged results do not notify again. The Portrait Hall regression test
+renders the `/portraits` route component, simulates a remote completion with no
+focus or navigation, and asserts the score, portrait state, one localized milestone
+notice and one portrait notice all update. A recovered lost-response portrait selection now also
+dispatches the normal `profile-changed` event exactly once after authoritative
+confirmation, which a dedicated test verifies through a profile-dependent listener.
 
-Administrative rating rebuilds now reconcile only ledger actors in the affected
-pool, or all ledger actors for full rebuilds, and only rated criteria. Withdrawn
-ledger entries remain in actor selection; current eligibility uses the applied
-ledger. Migration reconciliation still covers every account and criterion.
+Ordinary rated completion now uses a bounded win-streak tail probe instead of
+folding the whole applied ledger for both players. A fresh loss or draw skips the
+streak criterion, and the winner reads only the trailing wins up to its next
+unawarded milestone, falling back to the exact fold when a milestone is reached.
+Corrections, withdrawals, pool rebuilds and migration still measure exactly. The
+[measured fast path](../benchmarks/progression-streaks.md) reports 3.90 ms for a
+full 2,000-game fold versus 0.045 ms for the 3-row tail probe, with deterministic
+regressions for the skipped loser, the below-threshold tail, the cross-threshold
+award and the corrected historical streak.
+
+Administrative rating rebuilds reconcile only ledger actors in the affected pool,
+or all ledger actors for full rebuilds, and only rated criteria. Withdrawn ledger
+entries remain in actor selection; current eligibility uses the applied ledger.
+Migration reconciliation still covers every account and criterion.
 
 A deterministic query trace with three accounts and ten rated games across all
 three pools compares historical reconciliation with a pool rebuild: local/AI
@@ -92,3 +108,21 @@ wall-clock speedup. Tests cover other-pool-only actors, full rebuilds, correctio
 permanent rewards and repeated reconciliation. No mutable counters or schema
 changes are introduced. The earlier manual-claim validation page is explicitly
 marked historical and points here.
+
+## Final review correction validation
+
+Local checks on the correction head:
+
+- Frontend unit suite: 95 files / 1,337 tests passed. TypeScript, Prettier, the
+  production build and the documentation link check passed.
+- Python: 3,404 passed, 51 skipped. Six `test_mcts_optimization` frozen-reference
+  digest cases fail identically at the reviewed base commit `73d2440` in this
+  environment; they are unrelated to these changes and pass in CI. Focused
+  progression/ratings/replay-concurrency (97) and
+  security/migration/profile/analysis (199) runs passed.
+- Playwright: achievement tiers and Portrait Hall across four themes and both
+  projects (18 passed); mobile play, portrait fallback, notifications, new
+  features and shared UI (13 passed, 3 project skips).
+- Ruff, Ruff format and mypy (69 modules) passed. The win-streak benchmark was
+  regenerated at 25 samples: 3.90 ms full fold versus 0.045 ms tail probe for a
+  2,000-game ledger (see the [measurement](../benchmarks/progression-streaks.md)).

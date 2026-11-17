@@ -354,7 +354,7 @@ def test_historical_progress_is_reconciled_once_and_migration_is_idempotent(rig,
     import hnefatafl.progression as module
 
     original = module.award_achievements
-    monkeypatch.setattr(module, "award_achievements", lambda *args: None)
+    monkeypatch.setattr(module, "award_achievements", lambda *args, **kwargs: None)
     for _ in range(10):
         finish(rig, active(rig), "attackers")
     monkeypatch.setattr(module, "award_achievements", original)
@@ -642,7 +642,7 @@ def test_completion_and_awards_roll_back_together(rig, monkeypatch):
     game = active(rig)
     before = progression_rows(rig.store)
 
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise RuntimeError("Controlled award failure")
 
     monkeypatch.setattr(module, "award_achievements", fail)
@@ -720,3 +720,90 @@ def test_rebuild_query_trace_avoids_unrelated_game_history(rig, capsys):
     }
     assert counts == {"historical": 6, "rated": 0}
     print(counts)
+
+
+def test_ordinary_completion_skips_the_full_streak_fold_when_no_milestone_can_change(
+    rig, monkeypatch
+):
+    """A loss, a draw and a below-threshold tail never fold the whole ledger."""
+    import hnefatafl.progression as module
+    from hnefatafl.progression import RATED_CRITERIA, award_achievements
+
+    archer = rig.accounts["Archer"]["id"]
+    keeper = rig.accounts["Keeper"]["id"]
+    folds = []
+    original = module.rated_streaks
+
+    def tracked(c, actor):
+        folds.append(actor)
+        return original(c, actor)
+
+    monkeypatch.setattr(module, "rated_streaks", tracked)
+
+    # The first win awards streak 1: the winner folds exactly once, the loser
+    # never does, because a fresh loss cannot raise a best winning streak.
+    finish(rig, active(rig), "attackers")
+    assert folds == [archer]
+    folds.clear()
+
+    # A loss for Archer and a win for Keeper considers only the winner.
+    finish(rig, active(rig), "defenders")
+    assert folds == [keeper]
+    folds.clear()
+
+    # Archer's run is back to zero. A single new win leaves the bounded tail at
+    # one, below the next unawarded milestone of three, so nothing folds.
+    finish(rig, active(rig), "attackers")
+    assert folds == []
+    finish(rig, active(rig), "attackers")  # tail two, still below three
+    assert folds == []
+
+    # The third consecutive win reaches the milestone, so the exact fold runs
+    # and the award is granted.
+    finish(rig, active(rig), "attackers")
+    assert folds == [archer]
+    assert items_of(progression(rig).achievements(rig.credentials["Archer"]))["rated-win-streak-3"][
+        "unlocked"
+    ]
+
+    # A draw names an empty tail: neither participant folds, even with history.
+    folds.clear()
+    with rig.store.connection() as c:
+        c.execute("BEGIN IMMEDIATE")
+        award_achievements(c, (archer, keeper), 1, RATED_CRITERIA, streak_tails=frozenset())
+    assert folds == []
+
+
+def test_rebuild_measures_exactly_and_finds_a_longer_streak_after_a_correction(rig):
+    """Historical corrections never take the tail shortcut."""
+    for _ in range(2):
+        finish(rig, active(rig), "attackers")
+    loss = finish(rig, active(rig), "defenders")
+    for _ in range(2):
+        finish(rig, active(rig), "attackers")
+    payload = progression(rig).achievements(rig.credentials["Archer"])
+    assert not items_of(payload)["rated-win-streak-3"]["unlocked"]
+
+    # Turning the single loss into a win merges the runs into five consecutive
+    # wins. Only the exact rebuild measurement can see that.
+    fabricate_correction(rig, loss, "attackers")
+    rig.core.rebuild_ratings(rig.credentials["Archer"])
+    payload = progression(rig).achievements(rig.credentials["Archer"])
+    assert items_of(payload)["rated-win-streak-3"]["unlocked"]
+    assert items_of(payload)["rated-win-streak-5"]["unlocked"]
+
+
+def test_tail_streak_is_bounded_and_stops_at_the_first_non_win(rig):
+    """The tail probe never folds more than the requested cap."""
+    from hnefatafl.progression import _tail_win_streak
+
+    archer = rig.accounts["Archer"]["id"]
+    for _ in range(3):
+        finish(rig, active(rig), "attackers")
+    finish(rig, active(rig), "defenders")
+    for _ in range(5):
+        finish(rig, active(rig), "attackers")
+    with rig.store.connection() as c:
+        assert _tail_win_streak(c, archer, 3) == 3
+        assert _tail_win_streak(c, archer, 5) == 5
+        assert _tail_win_streak(c, archer, 100) == 5

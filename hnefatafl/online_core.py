@@ -557,11 +557,27 @@ class OnlineCore:
                     json.dumps(result_payload(result)),
                 ),
             )
-            if self.ratings.apply(c, row["match_id"], game.id, result, now):
+            changed, inserted = self.ratings.apply(c, row["match_id"], game.id, result, now)
+            if changed:
                 from .progression import RATED_CRITERIA, award_achievements
 
+                # A brand-new event sits at the ledger tail: only the winner can
+                # extend a winning streak, and a loss or draw cannot. Corrections
+                # and withdrawals rebuild earlier history, so they keep the exact
+                # full-ledger measurement.
+                if not inserted:
+                    streak_tails = None
+                elif result.winner in ("attackers", "defenders"):
+                    winner = result.attackers if result.winner == "attackers" else result.defenders
+                    streak_tails = frozenset({winner})
+                else:
+                    streak_tails = frozenset()
                 award_achievements(
-                    c, (result.attackers, result.defenders), micros(now), RATED_CRITERIA
+                    c,
+                    (result.attackers, result.defenders),
+                    micros(now),
+                    RATED_CRITERIA,
+                    streak_tails=streak_tails,
                 )
         self._return_game(c, row, game, now)
         if actor is not None:

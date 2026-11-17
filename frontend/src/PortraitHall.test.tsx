@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PortraitHall from './PortraitHall';
 import Portrait from './Portrait';
+import { ProgressionProvider } from './Progression';
+import { PROGRESSION_POLL_MS } from './useAchievementNotifications';
 import { api } from './api';
 import { notify } from './notifications';
 import { setLanguage } from './i18n';
@@ -74,10 +76,18 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+// The Hall consumes the shared progression read, so every render provides it.
+function Hall() {
+  return (
+    <ProgressionProvider owner={identity.id}>
+      <PortraitHall />
+    </ProgressionProvider>
+  );
+}
 const card = (name: string) => screen.getByRole('heading', { name }).closest('li')!;
 
 it('uses automatic awards and permanent portrait entitlements, preserving catalog difficulty order', async () => {
-  render(<PortraitHall />);
+  render(<Hall />);
   await screen.findByRole('heading', { name: 'Shieldbearer' });
   expect(card('Shieldbearer')).toHaveAttribute('data-portrait-state', 'selected');
   expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned');
@@ -93,7 +103,7 @@ it('uses automatic awards and permanent portrait entitlements, preserving catalo
   expect(vi.mocked(api).mock.calls.every(([, body, method]) => !body && !method)).toBe(true);
 });
 it('groups families and places the score under Achievements with the next unachieved target', async () => {
-  render(<PortraitHall />);
+  render(<Hall />);
   const family = (await screen.findByRole('heading', { name: 'Rated online victories' })).closest(
     'li',
   )!;
@@ -112,7 +122,7 @@ it('groups families and places the score under Achievements with the next unachi
   expect(screen.queryByText(/Ready to collect/)).not.toBeInTheDocument();
 });
 it('updates points and visual tiers from an authoritative wake without collection', async () => {
-  render(<PortraitHall />);
+  render(<Hall />);
   const family = (await screen.findByRole('heading', { name: 'Rated online victories' })).closest(
     'li',
   )!;
@@ -127,11 +137,49 @@ it('updates points and visual tiers from an authoritative wake without collectio
   expect(within(family).getByText('Next milestone: 50 · 60 points')).toBeVisible();
   expect(screen.getByText('Achievement Score — 110 / 2,280 points')).toBeVisible();
 });
+it('refreshes score and portrait state for a remote completion without focus or navigation', async () => {
+  vi.useFakeTimers();
+  try {
+    // Start with the Tablut milestone locked so the remote completion is the
+    // only thing that can change the score and the Skald entitlement.
+    progress.items = progress.items.map((item) =>
+      item.family_id === 'tablut-wins' ? { ...item, unlocked: false } : item,
+    );
+    progress.unlocked_portrait_ids = ['shieldmaiden'];
+    render(<Hall />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText('Achievement Score — 60 / 2,280 points')).toBeVisible();
+    expect(card('Skald')).toHaveAttribute('data-portrait-state', 'locked');
+    expect(notify.success).not.toHaveBeenCalled();
+
+    // The opponent completes elsewhere. No focus, navigation or profile event is
+    // dispatched: only the shared progression read reconciles the result.
+    progress.items = progress.items.map((item) =>
+      item.family_id === 'tablut-wins'
+        ? { ...item, progress: 1, unlocked: item.threshold === 1 }
+        : item,
+    );
+    progress.unlocked_portrait_ids = ['shieldmaiden', 'skald'];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PROGRESSION_POLL_MS);
+    });
+
+    expect(screen.getByText('Achievement Score — 70 / 2,280 points')).toBeVisible();
+    expect(card('Skald')).toHaveAttribute('data-portrait-state', 'earned');
+    expect(notify.success).toHaveBeenCalledWith('New milestones: 1 · +10 points');
+    expect(notify.success).toHaveBeenCalledWith('New portraits available: 1');
+    expect(notify.success).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it('retains the awarded tier after correction and still targets the next unearned milestone', async () => {
   progress.items = progress.items.map((item) =>
     item.family_id === 'rated-wins' ? { ...item, progress: 0 } : item,
   );
-  render(<PortraitHall />);
+  render(<Hall />);
   const family = (await screen.findByRole('heading', { name: 'Rated online victories' })).closest(
     'li',
   )!;
@@ -143,7 +191,7 @@ it('retains the awarded tier after correction and still targets the next unearne
 });
 it('renders full completion at 100% without further targets', async () => {
   progress.items = progress.items.map((item) => ({ ...item, progress: 1000, unlocked: true }));
-  render(<PortraitHall />);
+  render(<Hall />);
   await screen.findByText('100% complete · 27 / 27 milestones earned');
   for (const family of document.querySelectorAll('.achievement-card')) {
     expect(family).toHaveClass('achievement-legendary');
@@ -154,14 +202,14 @@ it('shows a localized zero score and automatic tier labels in German', async () 
   progress.items = progress.items.map((item) => ({ ...item, progress: 0, unlocked: false }));
   progress.unlocked_portrait_ids = [];
   setLanguage('de');
-  render(<PortraitHall />);
+  render(<Hall />);
   await screen.findByText('Errungenschaftspunkte — 0 / 2.280 Punkte');
   expect(screen.getByText('0% abgeschlossen · 0 / 27 Meilensteine verdient')).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Gewertete Online-Siege' })).toBeVisible();
 });
 it('associates runes with family IDs even when the server order changes', async () => {
   progress.items.reverse();
-  render(<PortraitHall />);
+  render(<Hall />);
   const family = (await screen.findByRole('heading', { name: 'Rated online victories' })).closest(
     'li',
   )!;
@@ -169,7 +217,7 @@ it('associates runes with family IDs even when the server order changes', async 
 });
 it('selects a portrait using keyboard controls and applies the server result immediately', async () => {
   const user = userEvent.setup();
-  render(<PortraitHall />);
+  render(<Hall />);
   const select = await screen.findByRole('button', { name: 'Select portrait: Skald' });
   select.focus();
   await user.keyboard('{Enter}');
@@ -193,7 +241,7 @@ it('retains a successful selection even if the followup refresh fails', async ()
     if (fail && path === '/personal/achievements') return Promise.reject(new Error('Offline'));
     return original(path, ...rest);
   });
-  render(<PortraitHall />);
+  render(<Hall />);
   fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
   await screen.findByRole('alert');
   expect(card('Skald')).toHaveAttribute('data-portrait-state', 'selected');
@@ -208,11 +256,22 @@ it('recovers a lost selection response from the authoritative refresh', async ()
     }
     return original(path, ...rest);
   });
-  render(<PortraitHall />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
-  await waitFor(() => expect(card('Skald')).toHaveAttribute('data-portrait-state', 'selected'));
-  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
-  expect(notify.success).toHaveBeenCalledTimes(1);
+  const changed = vi.fn();
+  window.addEventListener('profile-changed', changed);
+  try {
+    render(<Hall />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
+    await waitFor(() => expect(card('Skald')).toHaveAttribute('data-portrait-state', 'selected'));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(notify.success).toHaveBeenCalledTimes(1);
+    // A profile-dependent consumer receives exactly one confirmation event for
+    // the recovered operation, matching the normal successful selection path.
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(changed).toHaveBeenCalledTimes(1);
+  } finally {
+    window.removeEventListener('profile-changed', changed);
+  }
 });
 it('aborts old-account mutations and ignores late results and notices', async () => {
   const original = vi.mocked(api).getMockImplementation()!;
@@ -227,12 +286,12 @@ it('aborts old-account mutations and ignores late results and notices', async ()
     }
     return original(path, body, method, requestSignal);
   });
-  const view = render(<PortraitHall />);
+  const view = render(<Hall />);
   fireEvent.click(await screen.findByRole('button', { name: 'Select portrait: Skald' }));
   identity.id = 'keeper';
   progress = fixture();
   progress.unlocked_portrait_ids = [];
-  view.rerender(<PortraitHall />);
+  view.rerender(<Hall />);
   await waitFor(() => expect(signal?.aborted).toBe(true));
   await act(async () => finish({ portrait_id: 'skald' }));
   expect(notify.success).not.toHaveBeenCalled();
@@ -249,11 +308,11 @@ it('aborts stale reads on account switch and never restores old entitlements', a
         })
       : original(path, ...rest),
   );
-  const view = render(<PortraitHall />);
+  const view = render(<Hall />);
   old = false;
   identity.id = 'keeper';
   progress.unlocked_portrait_ids = [];
-  view.rerender(<PortraitHall />);
+  view.rerender(<Hall />);
   await screen.findByRole('heading', { name: 'Shieldbearer' });
   await act(async () => finish(fixture()));
   expect(card('Skald')).toHaveAttribute('data-portrait-state', 'locked');
@@ -266,7 +325,7 @@ it('provides loading, empty, error and retry states without reward writes', asyn
       ? Promise.reject(new Error('Unavailable'))
       : original(path, ...rest),
   );
-  render(<PortraitHall />);
+  render(<Hall />);
   expect(screen.getByRole('status')).toHaveTextContent('Loading');
   await screen.findByRole('alert');
   failed = false;

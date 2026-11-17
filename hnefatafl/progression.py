@@ -350,6 +350,34 @@ def selected_portrait_ids(c: sqlite3.Connection, account_ids: Iterable[str]) -> 
     return {account_id: selected.get(account_id, default) for account_id in identifiers}
 
 
+def _tail_win_streak(c: sqlite3.Connection, account_id: str, cap: int) -> int:
+    """Consecutive wins at the very tail of the account's applied ledger, capped.
+
+    Only meaningful immediately after appending that account's newest event: the
+    tail is then the just-recorded result. The join mirrors ``rated_streaks`` so
+    pool membership and seat attribution cannot drift. The reverse-sequence scan
+    stops at the first non-win or after ``cap`` wins, so an ordinary completion
+    never folds the whole history. A ``cap`` at or below the next unawarded
+    threshold is enough to prove no streak milestone was crossed.
+    """
+    rows = c.execute(
+        """SELECT e.winner,
+              CASE WHEN e.attackers_id=? THEN 'attackers' ELSE 'defenders' END AS side
+        FROM rating_events e
+        WHERE e.state='applied' AND EXISTS (
+            SELECT 1 FROM rating_applications a
+            WHERE a.game_id=e.game_id AND a.account_id=? AND a.pool=e.pool)
+        ORDER BY e.sequence DESC LIMIT ?""",
+        (account_id, account_id, cap),
+    )
+    streak = 0
+    for row in rows:
+        if row["winner"] != row["side"]:
+            break
+        streak += 1
+    return streak
+
+
 class Progression:
     """Portrait catalog, own achievement progress and portrait selection."""
 
@@ -558,11 +586,21 @@ def award_achievements(
     account_ids: Iterable[str],
     now: int,
     criteria: frozenset[str] | None = None,
+    *,
+    streak_tails: frozenset[str] | None = None,
 ) -> None:
     """Award proven milestones and entitlements in the caller's event transaction.
 
     Counter reads are cached by criterion/scope; events measure only affected
     counters. Award and portrait keys plus append-only guards preserve permanence.
+
+    ``streak_tails`` is the safe fast path for a freshly appended rated result:
+    it names the accounts whose newest ledger event is the just-recorded win (an
+    empty set for a draw). Every other account skips the streak criterion, since
+    a loss or draw cannot raise a best win streak. A named account still falls
+    back to the exact full-ledger fold as soon as its bounded tail reaches the
+    next unawarded milestone. ``None`` always measures exactly, as corrections,
+    withdrawals, rebuilds and migration require.
     """
     for account_id in dict.fromkeys(account_ids):
         cache: dict = {}
@@ -572,10 +610,31 @@ def award_achievements(
                 "SELECT achievement_id FROM achievement_awards WHERE account_id=?", (account_id,)
             )
         }
+        skip_streak = False
+        if streak_tails is not None:
+            if account_id not in streak_tails:
+                skip_streak = True
+            else:
+                next_threshold = min(
+                    (
+                        achievement.threshold
+                        for achievement in ACHIEVEMENTS
+                        if achievement.criterion == "rated_win_streak_best"
+                        and achievement.id not in awarded
+                    ),
+                    default=None,
+                )
+                if (
+                    next_threshold is None
+                    or _tail_win_streak(c, account_id, next_threshold) < next_threshold
+                ):
+                    skip_streak = True
         for achievement in ACHIEVEMENTS:
             if achievement.id in awarded:
                 continue
             if criteria is not None and achievement.criterion not in criteria:
+                continue
+            if skip_streak and achievement.criterion == "rated_win_streak_best":
                 continue
             if Progression._measure(c, account_id, achievement, cache) >= achievement.threshold:
                 c.execute(

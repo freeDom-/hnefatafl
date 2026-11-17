@@ -1,8 +1,8 @@
-import { useAchievementNotifications } from './useAchievementNotifications';
 import { notify } from './notifications';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PersonalDashboard from './PersonalDashboard';
+import { ProgressionProvider } from './Progression';
 import fixture from './onlineFixture.testdata.json';
 import { setLanguage } from './i18n';
 const identity = vi.hoisted(() => ({ id: 'archer', permissions: ['play'], email_verified: true }));
@@ -234,6 +234,14 @@ const respond = (body: unknown, status = 200) =>
   Promise.resolve({ ok: status === 200, status, json: async () => body } as Response);
 let serve: (url: string) => Promise<Response>;
 const fetcher = vi.fn((url: string, _opts?: RequestInit) => serve(url));
+// The Dashboard consumes the shared progression read, so every render provides it.
+function Dashboard(props: { onNewSingle?: () => void }) {
+  return (
+    <ProgressionProvider owner={identity.id}>
+      <PersonalDashboard {...props} />
+    </ProgressionProvider>
+  );
+}
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute('open', '');
@@ -297,7 +305,7 @@ it('renders the bundled Forge Keeper artwork for the server-selected earned port
       : url.includes('/profile')
         ? respond({ ...profile, portrait_id: 'forge-keeper' })
         : previous(url);
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await screen.findByText('Forge Keeper');
   expect(document.querySelector('.dashboard-portrait img')).toHaveAttribute(
     'src',
@@ -309,7 +317,7 @@ it('shows the verification warning before creation actions and disables only onl
   const previous = serve;
   serve = (url) =>
     url.includes('/availability') ? respond({ enabled: true, eligible: false }) : previous(url);
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await screen.findByRole('heading', { name: 'Start a new saga.' });
   const warning = screen.getByText(
     'Verify your email address before creating or joining online games.',
@@ -332,7 +340,7 @@ it('renders the reference layout with real standing cards, records and leaderboa
   const open = vi.fn();
   vi.stubGlobal('indexedDB', { open });
   const start = vi.fn();
-  render(<PersonalDashboard onNewSingle={start} />);
+  render(<Dashboard onNewSingle={start} />);
   const link = await screen.findByRole('link', { name: /Open review: .*Archer vs Keeper/ });
   expect(link).toHaveAttribute('href', `/archive?review=online&selected=${row.id}`);
   expect(link.closest('.record-strip-item')).toBe(link);
@@ -396,7 +404,7 @@ it('shows the real active board and your-turn cards for an owned running game', 
     url.includes('/personal/online?')
       ? respond({ ...online, games: [activeOnlineGame] })
       : previous(url);
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await screen.findByRole('grid');
   expect(screen.getByRole('heading', { name: 'One move closer to victory.' })).toBeVisible();
   expect(screen.getByText('Archer vs Keeper')).toBeVisible();
@@ -413,7 +421,7 @@ it('shows the real active board and your-turn cards for an owned running game', 
   );
 });
 it('shows the four standing cards, keeps the detailed statistics link and moves the badges off the dashboard', async () => {
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await screen.findByRole('heading', { name: 'Brandubh Elo' });
   expect(document.querySelectorAll('.dashboard-stat')).toHaveLength(4);
   expect(document.querySelectorAll('.performance-badge')).toHaveLength(0);
@@ -444,7 +452,7 @@ it('shows explicit empty states when no rated pool, streak or portrait data exis
               },
             })
           : previous(url);
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await screen.findByRole('heading', { name: 'Brandubh Elo' });
   expect(screen.getByText('No rated games in this pool yet.')).toBeVisible();
   expect(screen.getByText('No rated win streak yet.')).toBeVisible();
@@ -468,7 +476,7 @@ it('shows stale retry and recovers empty recent results', async () => {
         : url.includes('/personal/')
           ? respond({ ...local, ...online })
           : respond([]);
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   const retries = await screen.findAllByRole('button', { name: 'Retry' });
   expect(retries).toHaveLength(1);
   serve = () => respond({ ...recent, games: [] });
@@ -484,11 +492,11 @@ it('aborts old-account history/statistics and rejects late responses', async () 
           finish = resolve;
         })
       : previous(url);
-  const view = render(<PersonalDashboard />);
+  const view = render(<Dashboard />);
   const signals = fetcher.mock.calls.map(([, opts]) => opts?.signal as AbortSignal);
   identity.id = 'keeper';
   serve = (url) => (url.includes('/history/') ? respond({ ...recent, games: [] }) : previous(url));
-  view.rerender(<PersonalDashboard />);
+  view.rerender(<Dashboard />);
   await screen.findByText('No completed games yet.');
   await act(async () => finish(await respond(recent)));
   expect(signals.every((signal) => signal.aborted)).toBe(true);
@@ -522,7 +530,7 @@ it('retains canonical private account replay at its existing deep link', async (
             states: fixture.replay.states,
             moves: fixture.replay.game.moves,
           });
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await screen.findByRole('grid');
   fireEvent.click(screen.getByRole('button', { name: 'Next move' }));
   expect(screen.getByText('Move 1 of 1')).toBeVisible();
@@ -535,7 +543,7 @@ it('retains canonical private account replay at its existing deep link', async (
 });
 it('translates dashboard actions in German', async () => {
   setLanguage('de', false);
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await waitFor(() => expect(fetcher.mock.calls.length).toBeGreaterThan(3));
   expect(screen.getByRole('heading', { name: 'Übersicht' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Kriegerprofil' })).toBeVisible();
@@ -570,7 +578,7 @@ it.each(['en', 'de'] as const)(
               totals: { ...localRunning.totals, in_progress: 12 },
             })
           : previous(url);
-    render(<PersonalDashboard />);
+    render(<Dashboard />);
     await screen.findByText(
       language === 'en' ? '52 games await your move' : '52 Partien warten auf deinen Zug',
     );
@@ -606,7 +614,7 @@ it('does not claim YOUR TURN when the opponent moves in the selected online game
       : url.includes('/personal/online/')
         ? respond(game)
         : previous(url);
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await screen.findByRole('heading', { name: 'Your match is waiting.' });
   expect(document.querySelector('.arena-kicker')).not.toHaveTextContent('YOUR TURN');
   expect(screen.getByText('No games await your move.')).toBeVisible();
@@ -621,7 +629,7 @@ it.each(['waiting', 'completed'])(
         : url.includes('/personal/online/')
           ? respond({ ...activeOnlineGame, status })
           : previous(url);
-    render(<PersonalDashboard />);
+    render(<Dashboard />);
     await waitFor(() =>
       expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/online/online-1'))).toBe(
         true,
@@ -657,7 +665,7 @@ it.each(['per_move', 'total'])(
           ? respond(game)
           : previous(url);
     try {
-      render(<PersonalDashboard />);
+      render(<Dashboard />);
       expect(await screen.findByLabelText('45s remaining')).toBeVisible();
     } finally {
       cleanup();
@@ -680,10 +688,10 @@ it('discards delayed aggregate totals on account switches', async () => {
             finishLocal = resolve;
           })
         : previous(url);
-  const view = render(<PersonalDashboard />);
+  const view = render(<Dashboard />);
   identity.id = 'keeper';
   serve = previous;
-  view.rerender(<PersonalDashboard />);
+  view.rerender(<Dashboard />);
   await screen.findByText('No games await your move.');
   await act(async () => {
     finishOnline(await respond({ ...online, overview: { your_turn: 40 } }));
@@ -700,7 +708,7 @@ it('discards delayed aggregate totals on account switches', async () => {
 it('shows stale local totals as unavailable and recovers through the existing retry', async () => {
   const previous = serve;
   serve = (url) => (url.includes('/personal/local?') ? respond({}, 503) : previous(url));
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   await screen.findByText('Game totals unavailable or stale.');
   expect(screen.getByRole('alert')).toHaveTextContent('History unavailable or stale.');
   serve = (url) =>
@@ -716,7 +724,7 @@ it('does not describe an empty bounded preview as an empty account', async () =>
     url.includes('/personal/online?')
       ? respond({ ...online, games: [], overview: { your_turn: 40, other_active: 0, waiting: 0 } })
       : previous(url);
-  render(<PersonalDashboard />);
+  render(<Dashboard />);
   expect(await screen.findByText('40 games await your move')).toBeVisible();
   expect(screen.getByText('0 of 43 running games shown.')).toBeVisible();
   expect(screen.getAllByText('No running games in this preview.')).toHaveLength(2);
@@ -743,11 +751,7 @@ it('observes an opponent completion through Dashboard polling without focus or n
           })
         : original(url);
   try {
-    function DashboardSession() {
-      useAchievementNotifications(identity.id);
-      return <PersonalDashboard />;
-    }
-    render(<DashboardSession />);
+    render(<Dashboard />);
     await waitFor(() =>
       expect(fetcher.mock.calls.some(([url]) => url.includes('/personal/online?'))).toBe(true),
     );

@@ -4,12 +4,13 @@ import { useAuth } from './Auth';
 import { useI18n } from './i18n';
 import { notify } from './notifications';
 import { useOnlinePoll } from './useOnlinePoll';
+import { useProgression } from './Progression';
 import type { Profile } from './ProfilePage';
 import Portrait from './Portrait';
-import type { AchievementProgress, PortraitCatalog, PortraitState } from './portraitTypes';
+import type { PortraitCatalog, PortraitState } from './portraitTypes';
 import './portraitHall.css';
 
-type HallData = { catalog: PortraitCatalog; achievements: AchievementProgress; profile: Profile };
+type HallData = { catalog: PortraitCatalog; profile: Profile };
 const labels: Record<PortraitState, string> = {
   locked: 'Locked',
   earned: 'Unlocked',
@@ -47,13 +48,13 @@ export default function PortraitHall() {
   const currentOwner = useRef(owner);
   currentOwner.current = owner;
   const number = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const progression = useProgression();
   const load = useCallback(async (signal: AbortSignal): Promise<HallData> => {
-    const [catalog, achievements, profile] = await Promise.all([
+    const [catalog, profile] = await Promise.all([
       api<PortraitCatalog>('/portraits/catalog', undefined, undefined, signal),
-      api<AchievementProgress>('/personal/achievements', undefined, undefined, signal),
       api<Profile>('/profile', undefined, undefined, signal),
     ]);
-    return { catalog, achievements, profile };
+    return { catalog, profile };
   }, []);
   const hall = useOnlinePoll(`portrait-hall:${owner}`, load, { intervalMs: 0 });
   const [mutation, setMutation] = useState<{ owner: string; kind: string; error: string } | null>(
@@ -89,6 +90,9 @@ export default function PortraitHall() {
     failedSelection.current = null;
     setMutation(null);
     notify.success(t('Portrait selected.'));
+    // The recovered operation is confirmed by authoritative data, so dependent
+    // consumers receive the same event the normal success path dispatches.
+    window.dispatchEvent(new Event('profile-changed'));
   }, [data, hall.phase, owner, t]);
 
   async function selectPortrait(id: string) {
@@ -128,18 +132,25 @@ export default function PortraitHall() {
   }
 
   if (!account) return null;
+  const achievements = progression.achievements;
+  // The Hall renders achievement progress from the shared read, so its own
+  // loading/stale state covers the profile/catalog read and that shared read.
+  const loading = hall.phase === 'loading' || (data !== null && !achievements);
+  const stale = hall.phase === 'stale' || progression.phase === 'stale';
   const earned =
-    data?.catalog.items.filter(
-      (item) =>
-        item.unlock_achievement_id === null ||
-        data.achievements.unlocked_portrait_ids.includes(item.id),
-    ).length ?? 0;
+    data && achievements
+      ? data.catalog.items.filter(
+          (item) =>
+            item.unlock_achievement_id === null ||
+            achievements.unlocked_portrait_ids.includes(item.id),
+        ).length
+      : 0;
   return (
     <section
       className="portrait-hall"
       style={{ '--portrait-pixel-ratio': pixelRatio } as CSSProperties}
       aria-labelledby="portrait-hall-heading"
-      aria-busy={hall.phase === 'loading'}
+      aria-busy={loading}
     >
       <header className="arena-surface portrait-hall-intro">
         <div>
@@ -160,18 +171,25 @@ export default function PortraitHall() {
           </p>
         )}
       </header>
-      {hall.phase === 'loading' && <p role="status">{t('Loading your portraits…')}</p>}
-      {hall.phase === 'stale' && (
+      {loading && <p role="status">{t('Loading your portraits…')}</p>}
+      {stale && (
         <div className="form-error portrait-hall-notice" role="alert">
           <p>
             {t('Portrait progress could not be refreshed. Displayed progress may be out of date.')}
           </p>
-          <button type="button" className="button secondary" onClick={() => void hall.refresh()}>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              void hall.refresh();
+              void progression.refresh();
+            }}
+          >
             {t('Retry')}
           </button>
         </div>
       )}
-      {data && (
+      {data && achievements && (
         <>
           {error && (
             <p className="form-error portrait-hall-notice" role="alert">
@@ -180,12 +198,12 @@ export default function PortraitHall() {
           )}
           <ul className="portrait-gallery" aria-label={t('Portrait collection')}>
             {data.catalog.items.map((item) => {
-              const achievement = data.achievements.items.find(
+              const achievement = achievements.items.find(
                 (entry) => entry.id === item.unlock_achievement_id,
               );
               const unlocked =
                 item.unlock_achievement_id === null ||
-                data.achievements.unlocked_portrait_ids.includes(item.id);
+                achievements.unlocked_portrait_ids.includes(item.id);
               const state: PortraitState =
                 data.profile.portrait_id === item.id ? 'selected' : unlocked ? 'earned' : 'locked';
               return (
@@ -256,32 +274,31 @@ export default function PortraitHall() {
             <div className="achievement-score">
               <label htmlFor="achievement-score">
                 {t('Achievement Score — {earned} / {total} points', {
-                  earned: number.format(data.achievements.summary.earned_points),
-                  total: number.format(data.achievements.summary.total_points),
+                  earned: number.format(achievements.summary.earned_points),
+                  total: number.format(achievements.summary.total_points),
                 })}
               </label>
               <progress
                 id="achievement-score"
                 aria-describedby="achievement-score-detail"
-                value={data.achievements.summary.earned_points}
-                max={data.achievements.summary.total_points || 1}
+                value={achievements.summary.earned_points}
+                max={achievements.summary.total_points || 1}
               />
               <p id="achievement-score-detail">
                 {t('{percent}% complete · {count} / {total} milestones earned', {
                   percent: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(
-                    data.achievements.summary.total_points
-                      ? (data.achievements.summary.earned_points /
-                          data.achievements.summary.total_points) *
+                    achievements.summary.total_points
+                      ? (achievements.summary.earned_points / achievements.summary.total_points) *
                           100
                       : 0,
                   ),
-                  count: number.format(data.achievements.summary.unlocked),
-                  total: number.format(data.achievements.summary.total),
+                  count: number.format(achievements.summary.unlocked),
+                  total: number.format(achievements.summary.total),
                 })}
               </p>
             </div>
             <ul className="portrait-achievement-list">
-              {data.achievements.families.map((family) => {
+              {achievements.families.map((family) => {
                 const next = family.next_milestone;
                 const state = family.complete
                   ? 'complete'

@@ -1,88 +1,76 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { api } from './api';
 import { useI18n } from './i18n';
 import { notify } from './notifications';
+import { useOnlinePoll } from './useOnlinePoll';
 import type { AchievementProgress } from './portraitTypes';
 
-/** One account baseline and event-driven refreshes; never recurring polling. */
-export function useAchievementNotifications(owner: string | undefined) {
+/**
+ * How often the shared progression read reconciles remote completions while the
+ * page is visible. Completion events, focus, reconnect and profile changes still
+ * refresh immediately; the interval is only the eventual-consistency backstop
+ * for routes that have no live game poll of their own. `useOnlinePoll` suspends
+ * the recurring read while the tab is hidden and coalesces concurrent refreshes.
+ */
+export const PROGRESSION_POLL_MS = 15000;
+
+export type ProgressionValue = {
+  achievements: AchievementProgress | null;
+  phase: 'loading' | 'ready' | 'stale';
+  refresh: () => Promise<AchievementProgress | null>;
+};
+
+/**
+ * One account baseline and event-driven refreshes; never recurring per-component
+ * polling. The single caller is `ProgressionProvider`, which shares the result.
+ */
+export function useAchievementNotifications(owner: string | undefined): ProgressionValue {
   const { t, locale } = useI18n();
+  const load = useCallback(
+    (signal: AbortSignal) =>
+      api<AchievementProgress>('/personal/achievements', undefined, undefined, signal),
+    [],
+  );
+  const poll = useOnlinePoll(`progression:${owner ?? 'anonymous'}`, load, {
+    intervalMs: PROGRESSION_POLL_MS,
+  });
+  // A first read establishes the baseline: historical awards are never announced.
+  const previous = useRef<{ owner: string; data: AchievementProgress } | null>(null);
   useEffect(() => {
-    if (!owner) return;
-    let alive = true,
-      running = false,
-      queued = false;
-    let previous: AchievementProgress | null = null;
-    const controller = new AbortController();
-    const hidden = () => document.visibilityState === 'hidden';
-    const refresh = async () => {
-      if (hidden()) {
-        queued = true;
-        return;
-      }
-      if (running) {
-        queued = true;
-        return;
-      }
-      running = true;
-      do {
-        queued = false;
-        try {
-          const next = await api<AchievementProgress>(
-            '/personal/achievements',
-            undefined,
-            undefined,
-            controller.signal,
-          );
-          if (!alive) return;
-          if (previous) {
-            const old = new Set(
-              previous.items.filter((item) => item.unlocked).map((item) => item.id),
-            );
-            const added = next.items.filter((item) => item.unlocked && !old.has(item.id));
-            const portraits = next.unlocked_portrait_ids.filter(
-              (id) => !previous!.unlocked_portrait_ids.includes(id),
-            );
-            const number = new Intl.NumberFormat(locale);
-            if (added.length)
-              notify.success(
-                t('New milestones: {count} · +{points} points', {
-                  count: number.format(added.length),
-                  points: number.format(
-                    next.summary.earned_points - previous.summary.earned_points,
-                  ),
-                }),
-              );
-            if (portraits.length)
-              notify.success(
-                t('New portraits available: {count}', { count: number.format(portraits.length) }),
-              );
-            if (added.length || portraits.length)
-              window.dispatchEvent(new Event('profile-changed'));
-          }
-          previous = next;
-        } catch {
-          /* Existing views own error/retry notices; focus retries this baseline. */
-        }
-      } while (queued && alive && !hidden());
-      running = false;
-    };
-    const wake = () => {
-      void refresh();
-    };
-    const visible = () => {
-      if (document.visibilityState === 'visible') wake();
-    };
-    document.addEventListener('visibilitychange', visible);
+    const next = poll.data;
+    if (!owner || !next) return;
+    const prior = previous.current;
+    previous.current = { owner, data: next };
+    if (!prior || prior.owner !== owner) return;
+    const old = new Set(prior.data.items.filter((item) => item.unlocked).map((item) => item.id));
+    const added = next.items.filter((item) => item.unlocked && !old.has(item.id));
+    const portraits = next.unlocked_portrait_ids.filter(
+      (id) => !prior.data.unlocked_portrait_ids.includes(id),
+    );
+    if (!added.length && !portraits.length) return;
+    const number = new Intl.NumberFormat(locale);
+    if (added.length)
+      notify.success(
+        t('New milestones: {count} · +{points} points', {
+          count: number.format(added.length),
+          points: number.format(next.summary.earned_points - prior.data.summary.earned_points),
+        }),
+      );
+    if (portraits.length)
+      notify.success(
+        t('New portraits available: {count}', { count: number.format(portraits.length) }),
+      );
+    window.dispatchEvent(new Event('profile-changed'));
+  }, [owner, poll.data, t, locale]);
+  // Explicit completion signals from the game room, analysis and dashboard polls
+  // refresh the shared read instead of each owner fetching its own copy.
+  useEffect(() => {
+    const wake = () => void poll.refresh();
     window.addEventListener('progression-changed', wake);
-    window.addEventListener('focus', wake);
-    void refresh();
-    return () => {
-      alive = false;
-      controller.abort();
-      document.removeEventListener('visibilitychange', visible);
-      window.removeEventListener('progression-changed', wake);
-      window.removeEventListener('focus', wake);
-    };
-  }, [owner, t, locale]);
+    return () => window.removeEventListener('progression-changed', wake);
+  }, [poll.refresh]);
+  return useMemo(
+    () => ({ achievements: poll.data, phase: poll.phase, refresh: poll.refresh }),
+    [poll.data, poll.phase, poll.refresh],
+  );
 }

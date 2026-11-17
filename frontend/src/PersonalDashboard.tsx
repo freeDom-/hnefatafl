@@ -33,7 +33,8 @@ import type { Profile } from './ProfilePage';
 import type { Game, Side } from './types';
 import './personalDashboard.css';
 
-import type { PortraitCatalog, AchievementProgress } from './portraitTypes';
+import type { PortraitCatalog } from './portraitTypes';
+import { useProgression } from './Progression';
 import Portrait from './Portrait';
 
 /** The active game's authoritative state, discriminated by its API source. */
@@ -128,11 +129,6 @@ function DashboardHome({
       api<PortraitCatalog>('/portraits/catalog', undefined, undefined, signal),
     [],
   );
-  const loadAchievements = useCallback(
-    (signal: AbortSignal) =>
-      api<AchievementProgress>('/personal/achievements', undefined, undefined, signal),
-    [],
-  );
   const loadProfile = useCallback(
     (signal: AbortSignal) => api<Profile>('/profile', undefined, undefined, signal),
     [],
@@ -156,9 +152,9 @@ function DashboardHome({
   const portraits = useOnlinePoll(`dashboard-portraits:${accountId}`, loadPortraits, {
     intervalMs: 0,
   });
-  const achievements = useOnlinePoll(`dashboard-achievements:${accountId}`, loadAchievements, {
-    intervalMs: 0,
-  });
+  // The shared progression read is the single achievements owner; the Dashboard
+  // only consumes it, so it never issues a second account-scoped fetch.
+  const progression = useProgression();
   const profile = useOnlinePoll(`dashboard-profile:${accountId}`, loadProfile, { intervalMs: 0 });
   const running = runningGames({
     single: single.data ?? undefined,
@@ -226,7 +222,7 @@ function DashboardHome({
     ? catalogItems.filter(
         (item) =>
           item.unlock_achievement_id === null ||
-          (achievements.data?.unlocked_portrait_ids?.includes(item.id) ?? false),
+          (progression.achievements?.unlocked_portrait_ids?.includes(item.id) ?? false),
       ).length
     : null;
   const portraitId = profile.data?.portrait_id ?? null;

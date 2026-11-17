@@ -144,6 +144,33 @@ it('resynchronizes immediately when a backgrounded tab becomes visible and remov
   visibility.mockRestore();
 });
 
+it('suspends the recurring read while hidden and resumes the cadence when visible', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockResolvedValue(1);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  const { unmount } = renderHook(() => useOnlinePoll('hidden-poll', load, { intervalMs: 1000 }));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  // The first mount read still runs so a restored tab has data.
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+  visibility.mockReturnValue('visible');
+  await act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  expect(load).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(load).toHaveBeenCalledTimes(3);
+  unmount();
+  visibility.mockRestore();
+});
+
 it('loads once under an intervalMs of 0 and reloads only on an explicit signal', async () => {
   vi.useFakeTimers();
   const load = vi.fn().mockResolvedValue('ledger');
