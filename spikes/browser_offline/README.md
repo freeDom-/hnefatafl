@@ -76,6 +76,16 @@ the status, and manual Cancel invalidates it. An active analysis failure now cle
 the `Analyzing…` indicator before reporting the error, and cancellation with no
 active work is a no-op that preserves the healthy idle worker.
 
+### Final review corrections
+
+Worker error handling uses the same active-worker identity check as worker
+messages. A delayed `error` event from a cancelled, replaced or terminated worker
+is ignored, so it cannot abort the replacement worker or reject an unrelated
+request; an error from the currently active worker still rejects the pending
+promise, clears its timer and resets the transport for the next request. The
+branch is also merged with current `main` without touching the staged Python
+engine closure or the production application.
+
 ## Reproduce
 
 From the repository root, with existing Python/Node development dependencies:

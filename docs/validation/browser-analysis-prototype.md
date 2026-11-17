@@ -199,6 +199,26 @@ Foreground priority was exercised both at the client level with a delayed fake
 worker (deterministic message ordering) and at the app level with the real worker
 probe. No external or `/api/` request was observed.
 
+### Final review follow-up
+
+The branch was merged with current `main` (`7d57c29`) and re-ran both profiles.
+The staged Python engine closure is byte-identical to `main` (only unrelated
+`online_core.py`/`online_ratings.py` changed upstream), no Pyodide asset enters
+the production frontend, and the two frontend Playwright files the branch touched
+now match `main`'s settled-geometry/retry versions.
+
+| Final follow-up check | Desktop | Mobile-emulated 4× |
+| --- | --- | --- |
+| Obsolete error from a replaced worker is ignored | Passed | Passed |
+| Replacement worker stays active and completes | Passed | Passed |
+| Active worker error still rejects and resets the transport | Passed | Passed |
+| Obsolete startup error from a replaced worker is ignored | Passed | Passed |
+| Active startup error still fails fast and resets | Passed | Passed |
+
+All previous lifecycle, caching, cancellation, priority, terminal-state and
+offline-reload checks still passed on the merged branch. No external or `/api/`
+request was observed.
+
 ## Production and neural decision
 
 **Classical engine reuse is feasible experimentally; production integration is not
