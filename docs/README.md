@@ -72,6 +72,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Shared frontend notification layer, migrated surfaces and exceptions](NOTIFICATIONS.md)
 - [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)
 - [Frontend test-toolchain security update](validation/test-toolchain-security.md)
+- [Watch Hall production CSS regression and browser validation](validation/public-watch-production.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)

@@ -668,7 +668,11 @@ batch deduplication remain separate from node reuse and completed simulations.
 
 ## Account and online play surfaces
 
-`main.tsx` mounts `Auth` around `App`. Account play lives at `/games/{id}` and online
+`main.tsx` mounts `EntryRouter` inside the shared appearance, language and notification
+providers. `/watch` loads `PublicArena`; other routes load `AuthenticatedArena`,
+which mounts `Auth` around `App`. The two dynamic imports use separate loader
+expressions so Vite preloads each entry's own CSS in production. Public navigation
+does not initialize the protected application graph. Account play lives at `/games/{id}` and online
 play at `/online/games/{id}`; both render the shared play-screen sections. Session
 reads do not modify saved account preferences; explicit logout keeps its existing
 cleanup. Protected requests have session epochs and cancellation so delayed

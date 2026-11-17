@@ -1,6 +1,12 @@
 import { Component, useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import { t } from './i18n';
 
+// Keep imports in separate expressions. Vite's production preload transform
+// attaches the last branch's dependencies to a conditional import expression,
+// leaving the public entry without its CSS (the dev server does not preload).
+const loadPublicEntry = () => import('./PublicArena');
+const loadAuthenticatedEntry = () => import('./AuthenticatedArena');
+
 function LoadFailure() {
   return (
     <main className="auth-screen" role="alert">
@@ -39,7 +45,7 @@ export default function EntryRouter() {
     setFailed(null);
     // Resolve the entry without a Suspense fallback's timed reveal. Frozen
     // advisor/debounce clocks must not prevent session/App initialization.
-    const module = publicRoute ? import('./PublicArena') : import('./AuthenticatedArena');
+    const module = publicRoute ? loadPublicEntry() : loadAuthenticatedEntry();
     void module
       .then((value) => {
         if (alive) setLoaded({ publicRoute, component: value.default });
