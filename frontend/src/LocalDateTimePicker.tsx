@@ -10,14 +10,14 @@ function CalendarPopup({
   anchor,
   id,
   selected,
-  focusCalendar,
+  openRequest,
   onSelect,
   onClose,
 }: {
   anchor: RefObject<HTMLDivElement | null>;
   id: string;
   selected?: Date;
-  focusCalendar: boolean;
+  openRequest: { focus: boolean };
   onSelect: (day: Date) => void;
   onClose: (restoreFocus: boolean) => void;
 }) {
@@ -52,7 +52,7 @@ function CalendarPopup({
       element.style.top = `${Math.max(top + 8, Math.min(wantedTop, top + height - size.height - 8))}px`;
     };
     place();
-    if (focusCalendar) {
+    if (openRequest.focus) {
       const day =
         element.querySelector<HTMLElement>(
           '[aria-selected="true"] button, [role="grid"] button[tabindex="0"]',
@@ -73,7 +73,7 @@ function CalendarPopup({
       window.visualViewport?.removeEventListener('scroll', place);
       if (element.isConnected) element.hidePopover?.();
     };
-  }, [anchor, focusCalendar]);
+  }, [anchor, openRequest]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (!anchor.current?.contains(event.target as Node)) onClose(false);
@@ -272,7 +272,7 @@ export default function LocalDateTimePicker({
                 anchor={anchor}
                 id={`${id}-calendar`}
                 selected={selectedDay}
-                focusCalendar={popup.focus}
+                openRequest={popup}
                 onSelect={(day) => {
                   chooseDate(localDateTimeValue(day).slice(0, 10));
                   close(true);

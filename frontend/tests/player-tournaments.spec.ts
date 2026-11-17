@@ -446,6 +446,9 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
           );
           await page.keyboard.press('ArrowDown');
           await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
+          await date.focus();
+          await page.keyboard.press('ArrowDown');
+          await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
           await page.keyboard.press('ArrowRight');
           await page.keyboard.press('Enter');
           await expect(popup).toHaveCount(0);

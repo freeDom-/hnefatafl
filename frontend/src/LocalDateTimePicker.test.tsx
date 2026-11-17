@@ -82,6 +82,9 @@ it('opens by keyboard and dismisses with Escape or an outside click without losi
   date.focus();
   await user.keyboard('{ArrowDown}');
   expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement);
+  date.focus();
+  await user.keyboard('{ArrowDown}');
+  expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement);
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(date).toHaveFocus();
