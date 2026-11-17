@@ -319,8 +319,14 @@ test.describe('Interactive Workshop visual acceptance', () => {
             path: `${output}/resume-${theme}-${language}-${width}.png`,
             animations: 'disabled',
           });
+          // Help buttons consume Escape while their tooltip is open. Move to
+          // the dialog's close control before testing dialog dismissal itself.
+          await dialog
+            .getByRole('button', { name: text('Close resume training'), exact: true })
+            .focus();
           await page.keyboard.press('Escape');
           await expect(dialog).not.toBeVisible();
+          await expect(resume).toBeFocused();
 
           await page
             .getByRole('navigation', { name: text('Workshop tasks') })
@@ -332,7 +338,7 @@ test.describe('Interactive Workshop visual acceptance', () => {
           });
           await advanced.click();
           await expect(advanced).toHaveAttribute('aria-expanded', 'true');
-          const decay = creation.getByLabel(text('Weight decay'), { exact: true });
+          const decay = creation.getByLabel(text('Weight regularization'), { exact: true });
           await decay.fill('0.002');
           await expect(decay).toHaveValue('0.002');
           const creationImport = creation.getByLabel(text('Import config.json'), { exact: true });

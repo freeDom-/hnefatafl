@@ -39,6 +39,7 @@ adds populated/completed/active comparisons, standard and fixed-role dialogs,
 advanced creation/tuning and resume/import/export availability at 390 and 1920 CSS
 pixels, in EN/DE and every theme. Behavioral and geometry assertions accompany
 the captures; the original contrast, keyboard, geometry and timeout checks remain.
+Setup and resume dialogs restore keyboard focus using the shared modal convention.
 Separate desktop/mobile workflows exercise repeated task/shell links, Back/Forward,
 cross-route navigation without a document request and all three permission
 combinations. Existing real-backend tournament and training browser workflows

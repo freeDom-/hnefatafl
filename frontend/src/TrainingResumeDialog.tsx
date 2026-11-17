@@ -103,8 +103,12 @@ export default function TrainingResumeDialog({
   const [importNotice, setImportNotice] = useState('');
   useEffect(() => {
     const dialog = ref.current;
+    const previous = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, []);
   useEffect(() => {
     let alive = true;

@@ -1540,8 +1540,12 @@ function FixedRoleSetup({
   const [importingConfig, setImportingConfig] = useState(false);
   useEffect(() => {
     const dialog = ref.current;
+    const previous = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, []);
   const incompatibleModel = players.some(
     (player) =>
@@ -1840,8 +1844,12 @@ function TournamentSetup({
   const [importingConfig, setImportingConfig] = useState(false);
   useEffect(() => {
     const dialog = ref.current;
+    const previous = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, []);
   const battlefieldKey = config.rulesets.join(',');
   useEffect(() => {
