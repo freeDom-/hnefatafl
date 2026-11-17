@@ -3,23 +3,23 @@
   "clients": 5,
   "clientIsolation": "Independent browser contexts share one disposable account/session; not a unique-player population benchmark.",
   "aggregateLatency": "Request start through body completion on loopback, including client scheduling; not production capacity.",
-  "sourceHead": "d8f2a3391c26f556eacc6318afbced579ad807d9",
+  "sourceHead": "3bd67e525b49f1760ae70e7abc555cf5255a979d",
   "source": {
-    "revision": "d8f2a3391c26f556eacc6318afbced579ad807d9",
+    "revision": "3bd67e525b49f1760ae70e7abc555cf5255a979d",
     "dirty": false,
     "git": true
   },
   "build": {
-    "revision": "d8f2a3391c26f556eacc6318afbced579ad807d9",
+    "revision": "3bd67e525b49f1760ae70e7abc555cf5255a979d",
     "dirty": false,
     "git": true,
-    "builtAt": "2026-11-17T05:19:30.431Z",
-    "fingerprint": "3c2a355f7641c84f309c5414890e6449ba1e7fd8419c2b524f5802c45969aaae",
-    "recordedFingerprint": "3c2a355f7641c84f309c5414890e6449ba1e7fd8419c2b524f5802c45969aaae",
+    "builtAt": "2026-11-17T05:57:25.079Z",
+    "fingerprint": "6d844fc1a90c35c270c53e50034af5d43319d122f59a31f4a2a7987b36eeba79",
+    "recordedFingerprint": "6d844fc1a90c35c270c53e50034af5d43319d122f59a31f4a2a7987b36eeba79",
     "fingerprintScope": "dist/index.html and every file under dist/ except arena-build.json",
     "allowDirty": false
   },
-  "measuredAt": "2026-11-17T05:22:48.142Z",
+  "measuredAt": "2026-11-17T06:00:42.227Z",
   "node": "v22.23.4",
   "chromium": "156.0.8078.4",
   "os": "7.0.14-26-pve",
@@ -58,9 +58,9 @@
       "requestsPerMinutePerClient": null,
       "latencyMs": {
         "observations": 55,
-        "p50": 578.4342299999998,
-        "p95": 845.177232,
-        "maximum": 883.6628579999997
+        "p50": 380.99367600000005,
+        "p95": 615.9207139999999,
+        "maximum": 694.2562260000004
       }
     },
     "empty-visible": {
@@ -68,8 +68,8 @@
       "endpoints": {
         "GET /api/personal/online?limit=25": 30,
         "GET /api/auth/me": 5,
-        "GET /api/personal/single-player?limit=1&status=in_progress": 5,
         "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 5,
+        "GET /api/personal/single-player?limit=1&status=in_progress": 5,
         "GET /api/history/games?dashboard=true": 5,
         "GET /api/personal/local?limit=5&status=in_progress": 5
       },
@@ -77,14 +77,14 @@
       "statuses": {
         "200": 55
       },
-      "elapsedMs": 60000.51888899999,
+      "elapsedMs": 60000.448099,
       "requestsPerClient": 11,
-      "requestsPerMinutePerClient": 10.99990487117269,
+      "requestsPerMinutePerClient": 10.999917849130195,
       "latencyMs": {
         "observations": 55,
-        "p50": 12.148830999998609,
-        "p95": 83.610772,
-        "maximum": 112.07487499999115
+        "p50": 8.262382000000798,
+        "p95": 17.795517999998992,
+        "maximum": 19.027611000012257
       }
     },
     "fixture-setup": {
@@ -126,34 +126,34 @@
       "requestsPerMinutePerClient": null,
       "latencyMs": {
         "observations": 65,
-        "p50": 620.0828860000038,
-        "p95": 1195.6280259999912,
-        "maximum": 1239.2260800000076
+        "p50": 185.969969999991,
+        "p95": 354.4922179999994,
+        "maximum": 388.7686859999958
       }
     },
     "active-visible": {
-      "requests": 113,
+      "requests": 115,
       "endpoints": {
         "GET /api/personal/online?limit=25": 30,
-        "GET /api/games/:id": 58,
+        "GET /api/games/:id": 60,
         "GET /api/auth/me": 5,
         "GET /api/leaderboard?ruleset=copenhagen&limit=5&offset=0": 5,
         "GET /api/personal/single-player?limit=1&status=in_progress": 5,
-        "GET /api/personal/local?limit=5&status=in_progress": 5,
-        "GET /api/history/games?dashboard=true": 5
+        "GET /api/history/games?dashboard=true": 5,
+        "GET /api/personal/local?limit=5&status=in_progress": 5
       },
       "failed": 0,
       "statuses": {
-        "200": 113
+        "200": 115
       },
-      "elapsedMs": 60000.08580999999,
-      "requestsPerClient": 22.6,
-      "requestsPerMinutePerClient": 22.59996767827956,
+      "elapsedMs": 59999.799287000016,
+      "requestsPerClient": 23,
+      "requestsPerMinutePerClient": 23.00007694024071,
       "latencyMs": {
-        "observations": 113,
-        "p50": 18.740860000019893,
-        "p95": 52.130947999990894,
-        "maximum": 71.8106689999986
+        "observations": 115,
+        "p50": 15.302735999997822,
+        "p95": 22.04913500000839,
+        "maximum": 32.56799599999795
       }
     },
     "active-simulated-hidden": {
@@ -161,7 +161,7 @@
       "endpoints": {},
       "failed": 0,
       "statuses": {},
-      "elapsedMs": 59999.800663,
+      "elapsedMs": 59999.722517999995,
       "requestsPerClient": 0,
       "requestsPerMinutePerClient": 0,
       "latencyMs": {

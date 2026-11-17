@@ -67,19 +67,20 @@ cadence is separately covered with fake timers.
 
 ## Validation
 
-Focused polling/auth/dashboard suite on the reliability revision: **83 passed
+Focused polling/auth/dashboard suite on the reliability revision: **84 passed
 across four files** (`useOnlinePoll`, `Auth`, `PersonalDashboard`, `Leaderboard`).
 TypeScript, formatting and the production build passed. The twelve
 recorded-build/source/fingerprint tests also passed. The full parallel frontend
-run reported **1,370 passed** with no failures. No assertion or timeout was
+run reported **1,371 passed** with no failures. No assertion or timeout was
 relaxed. Added tests cover 5s/10s/60s failure backoff and recovery, hidden-tab
 pausing and cleanup, permission events during ordinary and security reads,
 sequencing and coalescing across an active security read, a permission-initiated
 read aborted by hiding, redundant visibility/focus suppression, unmount and
 logout guards, non-hero local and single-player completion totals, initial and
-unchanged totals, account-switch baselines, single-player AI victory with the
-production Forge Keeper mapping, side-specific rated corrections and stable-state
-idle behavior. Full locked-dependency repository/browser CI is required on the PR.
+unchanged totals, account-switch baselines, totals-less history responses,
+single-player AI victory with the production Forge Keeper mapping, side-specific
+rated corrections and stable-state idle behavior. Full locked-dependency
+repository/browser CI is required on the PR.
 
 No backend/API/schema/game-rule/dependency changes. This optimizes polling, not
 bundle size or database query complexity. Final merge/release acceptance is pending.
@@ -164,17 +165,17 @@ node frontend/benchmarks/arena-polling.mjs --clients=5 \
 
 ## Reliability measurement
 
-Clean source/build `d8f2a3391c26f556eacc6318afbced579ad807d9`, matching complete
-bundle fingerprint (`3c2a355f7641c84f309c5414890e6449ba1e7fd8419c2b524f5802c45969aaae`),
+Clean source/build `3bd67e525b49f1760ae70e7abc555cf5255a979d`, matching complete
+bundle fingerprint (`6d844fc1a90c35c270c53e50034af5d43319d122f59a31f4a2a7987b36eeba79`),
 no dirty override: [full record](../benchmarks/arena-polling-reliability-five-contexts.json).
 This revision adds permission-invalidation sequencing and non-hero completion-total
 achievement invalidation.
 
 | Phase | Actual elapsed | Total requests | Per context/minute | Failures | p95 completion |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Empty visible | 60,000.52 ms | 55 | 11.00 | 0 | 83.61 ms |
-| Active visible | 60,000.09 ms | 113 | 22.60 | 0 | 52.13 ms |
-| Simulated hidden | 59,999.80 ms | 0 | 0 | 0 | No requests |
+| Empty visible | 60,000.45 ms | 55 | 11.00 | 0 | 17.80 ms |
+| Active visible | 59,999.80 ms | 115 | 23.00 | 0 | 22.05 ms |
+| Simulated hidden | 59,999.72 ms | 0 | 0 | 0 | No requests |
 
 The steady request counts are unchanged within timer-boundary variance: the new
 completion invalidation only fires when an authoritative completed-game total
