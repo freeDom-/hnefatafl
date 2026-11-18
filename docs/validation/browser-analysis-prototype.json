@@ -1,0 +1,563 @@
+{
+  "browser": "156.0.8078.4",
+  "pyodide": "0.27.7",
+  "shell_only": false,
+  "profiles": [
+    {
+      "profile": "desktop",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "cpu_throttle_requested": 1,
+      "runtime": {
+        "python": "3.12.7 (main, Jun  4 2025, 22:38:17) [Clang 19.0.0git (https:/github.com/llvm/llvm-project 0a8cd1ed1f4f35905df318015b",
+        "strategy": "baseline",
+        "time_limit": 0.1,
+        "heap_capacity_bytes": 20971520
+      },
+      "startup_ms": 2040.7999999523163,
+      "offline_startup_ms": 1608.5,
+      "fixture_comparisons": 68,
+      "tactical": [
+        {
+          "name": "tablut-king-escape",
+          "native_match": true,
+          "immediate_win": true,
+          "elapsed_ms": 1.5999990000001851
+        },
+        {
+          "name": "brandubh-king-escape",
+          "native_match": true,
+          "immediate_win": true,
+          "elapsed_ms": 1.6000009999999065
+        },
+        {
+          "name": "copenhagen-king-escape",
+          "native_match": true,
+          "immediate_win": true,
+          "elapsed_ms": 7.599998999999968
+        }
+      ],
+      "results": [
+        {
+          "ruleset": "brandubh",
+          "algorithm": "baseline",
+          "elapsed_ms": 2.1999999999997577,
+          "analysis": {
+            "value": -0.42189900525000795,
+            "source": "heuristic",
+            "best_move": {
+              "source": 17,
+              "target": 20
+            },
+            "completed_depth": 1,
+            "searched_moves": 23
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "brandubh",
+          "algorithm": "alpha_beta",
+          "elapsed_ms": 74.39999900000016,
+          "analysis": {
+            "value": -0.05272882825841763,
+            "source": "heuristic",
+            "best_move": {
+              "source": 25,
+              "target": 32
+            },
+            "completed_depth": 2,
+            "searched_moves": 23,
+            "nodes": 23,
+            "evaluations": 190,
+            "cutoffs": 22,
+            "successors": 754,
+            "ordered_moves": 754,
+            "symmetry_moves_skipped": 0,
+            "chosen_from_completed_iteration": true,
+            "transposition_hits": 0
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "brandubh",
+          "algorithm": "mcts",
+          "elapsed_ms": 93.90000000000009,
+          "analysis": {
+            "value": -0.0447602869627914,
+            "source": "mcts_rollout",
+            "best_move": {
+              "source": 31,
+              "target": 28
+            },
+            "simulations": 32
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "tablut",
+          "algorithm": "baseline",
+          "elapsed_ms": 5.700001000000121,
+          "analysis": {
+            "value": 0,
+            "source": "heuristic",
+            "best_move": {
+              "source": 43,
+              "target": 34
+            },
+            "completed_depth": 1,
+            "searched_moves": 79
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "tablut",
+          "algorithm": "alpha_beta",
+          "elapsed_ms": 66.5,
+          "analysis": {
+            "value": 0.002777770633309659,
+            "source": "heuristic",
+            "best_move": {
+              "source": 5,
+              "target": 23
+            },
+            "completed_depth": 2,
+            "searched_moves": 79,
+            "nodes": 79,
+            "evaluations": 288,
+            "cutoffs": 77,
+            "successors": 370,
+            "ordered_moves": 370,
+            "symmetry_moves_skipped": 0,
+            "chosen_from_completed_iteration": true,
+            "transposition_hits": 0
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "tablut",
+          "algorithm": "mcts",
+          "elapsed_ms": 174.5000000000001,
+          "analysis": {
+            "value": 0.00018633107704485474,
+            "source": "mcts_rollout",
+            "best_move": {
+              "source": 35,
+              "target": 26
+            },
+            "simulations": 32
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "copenhagen",
+          "algorithm": "baseline",
+          "elapsed_ms": 11.600000000000055,
+          "analysis": {
+            "value": -0.42189900525000795,
+            "source": "heuristic",
+            "best_move": {
+              "source": 48,
+              "target": 47
+            },
+            "completed_depth": 1,
+            "searched_moves": 59
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "copenhagen",
+          "algorithm": "alpha_beta",
+          "elapsed_ms": 124.80000100000011,
+          "analysis": {
+            "value": -0.6789816508505957,
+            "source": "heuristic",
+            "best_move": {
+              "source": 48,
+              "target": 15
+            },
+            "completed_depth": 2,
+            "searched_moves": 59,
+            "nodes": 59,
+            "evaluations": 230,
+            "cutoffs": 58,
+            "successors": 286,
+            "ordered_moves": 286,
+            "symmetry_moves_skipped": 0,
+            "chosen_from_completed_iteration": true,
+            "transposition_hits": 0
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "copenhagen",
+          "algorithm": "mcts",
+          "elapsed_ms": 212.29999999999993,
+          "analysis": {
+            "value": -0.6293157579676433,
+            "source": "mcts_rollout",
+            "best_move": {
+              "source": 38,
+              "target": 34
+            },
+            "simulations": 10
+          },
+          "heap_capacity_bytes": 20971520
+        }
+      ],
+      "ui_response_ms": 32.014884000000166,
+      "busy_search_ms": 500.70000000000016,
+      "cancellation": {
+        "outcome": "AbortError",
+        "cancelled_ms": 0.39999985694885254,
+        "hard_timeout": "AbortError",
+        "restart_ms": 1566.2999999523163
+      },
+      "unsupported_worker_feedback": true,
+      "history_cache_isolated": true,
+      "cache_capacity": 8,
+      "browser_process_cpu_seconds_lower_bound": 15.969999999999999,
+      "external_requests": []
+    },
+    {
+      "profile": "mobile-emulated-4x",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "cpu_throttle_requested": 4,
+      "runtime": {
+        "python": "3.12.7 (main, Jun  4 2025, 22:38:17) [Clang 19.0.0git (https:/github.com/llvm/llvm-project 0a8cd1ed1f4f35905df318015b",
+        "strategy": "baseline",
+        "time_limit": 0.1,
+        "heap_capacity_bytes": 20971520
+      },
+      "startup_ms": 2150.4000000953674,
+      "offline_startup_ms": 1681.2999999523163,
+      "fixture_comparisons": 68,
+      "tactical": [
+        {
+          "name": "tablut-king-escape",
+          "native_match": true,
+          "immediate_win": true,
+          "elapsed_ms": 1.9999999999997797
+        },
+        {
+          "name": "brandubh-king-escape",
+          "native_match": true,
+          "immediate_win": true,
+          "elapsed_ms": 1.8000000000002458
+        },
+        {
+          "name": "copenhagen-king-escape",
+          "native_match": true,
+          "immediate_win": true,
+          "elapsed_ms": 9.700001000000125
+        }
+      ],
+      "results": [
+        {
+          "ruleset": "brandubh",
+          "algorithm": "baseline",
+          "elapsed_ms": 2.0999999999999908,
+          "analysis": {
+            "value": -0.42189900525000795,
+            "source": "heuristic",
+            "best_move": {
+              "source": 17,
+              "target": 20
+            },
+            "completed_depth": 1,
+            "searched_moves": 23
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "brandubh",
+          "algorithm": "alpha_beta",
+          "elapsed_ms": 73.80000000000031,
+          "analysis": {
+            "value": -0.05272882825841763,
+            "source": "heuristic",
+            "best_move": {
+              "source": 25,
+              "target": 32
+            },
+            "completed_depth": 2,
+            "searched_moves": 23,
+            "nodes": 23,
+            "evaluations": 190,
+            "cutoffs": 22,
+            "successors": 754,
+            "ordered_moves": 754,
+            "symmetry_moves_skipped": 0,
+            "chosen_from_completed_iteration": true,
+            "transposition_hits": 0
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "brandubh",
+          "algorithm": "mcts",
+          "elapsed_ms": 94.39999900000018,
+          "analysis": {
+            "value": -0.0447602869627914,
+            "source": "mcts_rollout",
+            "best_move": {
+              "source": 31,
+              "target": 28
+            },
+            "simulations": 32
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "tablut",
+          "algorithm": "baseline",
+          "elapsed_ms": 5.2000000000003155,
+          "analysis": {
+            "value": 0,
+            "source": "heuristic",
+            "best_move": {
+              "source": 43,
+              "target": 34
+            },
+            "completed_depth": 1,
+            "searched_moves": 79
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "tablut",
+          "algorithm": "alpha_beta",
+          "elapsed_ms": 70.30000000000003,
+          "analysis": {
+            "value": 0.002777770633309659,
+            "source": "heuristic",
+            "best_move": {
+              "source": 5,
+              "target": 23
+            },
+            "completed_depth": 2,
+            "searched_moves": 79,
+            "nodes": 79,
+            "evaluations": 288,
+            "cutoffs": 77,
+            "successors": 370,
+            "ordered_moves": 370,
+            "symmetry_moves_skipped": 0,
+            "chosen_from_completed_iteration": true,
+            "transposition_hits": 0
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "tablut",
+          "algorithm": "mcts",
+          "elapsed_ms": 187.19999999999982,
+          "analysis": {
+            "value": 0.00018633107704485474,
+            "source": "mcts_rollout",
+            "best_move": {
+              "source": 35,
+              "target": 26
+            },
+            "simulations": 32
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "copenhagen",
+          "algorithm": "baseline",
+          "elapsed_ms": 12.699999999999712,
+          "analysis": {
+            "value": -0.42189900525000795,
+            "source": "heuristic",
+            "best_move": {
+              "source": 48,
+              "target": 47
+            },
+            "completed_depth": 1,
+            "searched_moves": 59
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "copenhagen",
+          "algorithm": "alpha_beta",
+          "elapsed_ms": 132.29999999999987,
+          "analysis": {
+            "value": -0.6789816508505957,
+            "source": "heuristic",
+            "best_move": {
+              "source": 48,
+              "target": 15
+            },
+            "completed_depth": 2,
+            "searched_moves": 59,
+            "nodes": 59,
+            "evaluations": 230,
+            "cutoffs": 58,
+            "successors": 286,
+            "ordered_moves": 286,
+            "symmetry_moves_skipped": 0,
+            "chosen_from_completed_iteration": true,
+            "transposition_hits": 0
+          },
+          "heap_capacity_bytes": 20971520
+        },
+        {
+          "ruleset": "copenhagen",
+          "algorithm": "mcts",
+          "elapsed_ms": 204.6999989999998,
+          "analysis": {
+            "value": -0.6342193020047456,
+            "source": "mcts_rollout",
+            "best_move": {
+              "source": 38,
+              "target": 34
+            },
+            "simulations": 8
+          },
+          "heap_capacity_bytes": 20971520
+        }
+      ],
+      "ui_response_ms": 82.97107399999913,
+      "busy_search_ms": 500.80000000000035,
+      "cancellation": {
+        "outcome": "AbortError",
+        "cancelled_ms": 1.1000001430511475,
+        "hard_timeout": "AbortError",
+        "restart_ms": 1703.1999998092651
+      },
+      "unsupported_worker_feedback": true,
+      "history_cache_isolated": true,
+      "cache_capacity": 8,
+      "browser_process_cpu_seconds_lower_bound": 25.479999999999997,
+      "external_requests": []
+    }
+  ],
+  "inventory": [
+    {
+      "path": "index.html",
+      "bytes": 1302,
+      "gzip_bytes": 614,
+      "sha256": "cae71a7e08da9230599fd80de5d94547250b7b8d5768ef2b583d1db0ed1a8025"
+    },
+    {
+      "path": "app.js",
+      "bytes": 4007,
+      "gzip_bytes": 1405,
+      "sha256": "86e0166b46129e816c95193693ce8cb40c22ad32b7e66f70a61c00aa0dd5f62b"
+    },
+    {
+      "path": "worker.js",
+      "bytes": 1852,
+      "gzip_bytes": 795,
+      "sha256": "4f48765859b112276728768321f792e5a024e9f6b74fc880a7dd4d5767097f90"
+    },
+    {
+      "path": "analysis-client.js",
+      "bytes": 4119,
+      "gzip_bytes": 1405,
+      "sha256": "3cae2480a4411ad310c6033786ceafc7f6b2586806d084f223a96c4137cfa162"
+    },
+    {
+      "path": "bridge.py",
+      "bytes": 4277,
+      "gzip_bytes": 1519,
+      "sha256": "4e99f675b08395c2aba0b8ba79ea0bcec0da2dfab2355a55d220f24023eccdb8"
+    },
+    {
+      "path": "sw.js",
+      "bytes": 1425,
+      "gzip_bytes": 613,
+      "sha256": "9324eae56a5d232d0b7c1f79bb2e8d8263925c800c6827b3aa9f0fd2f4ff7908"
+    },
+    {
+      "path": "fixtures.json",
+      "bytes": 150856,
+      "gzip_bytes": 5266,
+      "sha256": "73d5100cab66e77a264e639cc244a212662d2417139e7b50e6ee622c48df1b17"
+    },
+    {
+      "path": "search-fixtures.json",
+      "bytes": 2494,
+      "gzip_bytes": 417,
+      "sha256": "2af9411558ab88f847259a935324c528827f2b462c8f843f623a4e6f6ec925d0"
+    },
+    {
+      "path": "python/hnefatafl/__init__.py",
+      "bytes": 80,
+      "gzip_bytes": 94,
+      "sha256": "43b28e6bb56484d3063db5014af703c3adf971c24fd26a197370900f48d7ac73"
+    },
+    {
+      "path": "python/hnefatafl/engine.py",
+      "bytes": 16854,
+      "gzip_bytes": 4717,
+      "sha256": "9098533d7afe7b7bd3c93aa047b5428777a944797ab49426ff46473495e99f1e"
+    },
+    {
+      "path": "python/hnefatafl/ai.py",
+      "bytes": 93860,
+      "gzip_bytes": 22857,
+      "sha256": "039e80ec58c9be1073ba39861ddc2f56bd067753109a663d550e78a144439b67"
+    },
+    {
+      "path": "python/hnefatafl/openings.py",
+      "bytes": 3810,
+      "gzip_bytes": 1620,
+      "sha256": "c79886f46a175a1f759f80896901ff96e6ab8a33035a2c02bb66601fb67caffe"
+    },
+    {
+      "path": "python/hnefatafl/symmetry.py",
+      "bytes": 7406,
+      "gzip_bytes": 2412,
+      "sha256": "bd1b401f143b137aa21e9463cc33fd6fa601b11224786d6413dce374721c1f28"
+    },
+    {
+      "path": "python/hnefatafl/tournament_statistics.py",
+      "bytes": 3614,
+      "gzip_bytes": 1196,
+      "sha256": "81c4f78354d141d70943a03e3df9a56e390ab42a3b87e3ff72c325b651e10cd4"
+    },
+    {
+      "path": "python/hnefatafl/shield_maiden.py",
+      "bytes": 13463,
+      "gzip_bytes": 4254,
+      "sha256": "3437267061f639312d5f542bca1023b4e84f99b5d0e9bd3106ec1f30be677cf8"
+    },
+    {
+      "path": "runtime/pyodide.js",
+      "bytes": 14913,
+      "gzip_bytes": 5981,
+      "sha256": "b4cb23a53aba19c221659b9fb40a2f18281d685691dc06647fb0afd0681baf98"
+    },
+    {
+      "path": "runtime/pyodide.asm.js",
+      "bytes": 1255688,
+      "gzip_bytes": 235580,
+      "sha256": "6b4c90de5b7172873f04f21884d0e9d2274e305fe32116558fe3e4fbe3618d51"
+    },
+    {
+      "path": "runtime/pyodide.asm.wasm",
+      "bytes": 10105545,
+      "gzip_bytes": 3137600,
+      "sha256": "a50dd1843f805a0b7c45b61037ee0d7b26dfe85efe0e18ef95a34ad24e401f5f"
+    },
+    {
+      "path": "runtime/python_stdlib.zip",
+      "bytes": 2360737,
+      "gzip_bytes": 2322662,
+      "sha256": "16611534726e5d8ac2bd8f926410b2dcb8d6f49aa24913463533b457a2115c16"
+    },
+    {
+      "path": "runtime/pyodide-lock.json",
+      "bytes": 112205,
+      "gzip_bytes": 25823,
+      "sha256": "9c45b916001a750f4102fc287494f3eab215909c7535c626a20db80fd6333e2c"
+    }
+  ]
+}

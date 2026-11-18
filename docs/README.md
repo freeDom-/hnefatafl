@@ -77,6 +77,8 @@ Commands assume the repository root unless a different directory is shown.
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Workshop presentation and bounded rendering](validation/workshop-consolidation.md)
 - [Dashboard polling policy and measurement](validation/dashboard-polling.md)
+- [Current-engine browser analysis feasibility](validation/browser-analysis-prototype.md)
+- [Browser neural execution and CSP feasibility](validation/browser-neural-feasibility.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
 - [Arena theme completion and visual checks](validation/arena-theme-completion.md)
