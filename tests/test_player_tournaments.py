@@ -1462,6 +1462,65 @@ def test_match_cursor_is_bounded_and_bound_to_its_tournament(rig):
     assert len(seen) == sum(rig.core.detail(rig.admin, first["id"])["match_counts"].values())
 
 
+def test_match_listing_batches_tournament_and_legs_for_large_pages(rig, monkeypatch):
+    from hnefatafl import storage
+
+    cup = create(rig, name="Large listing", capacity=64, match_legs=2)
+    seat_a = rig.accounts[PLAYERS[0]]["id"]
+    seat_b = rig.accounts[PLAYERS[1]]["id"]
+    with rig.store.connection() as c:
+        for index in range(200):
+            match_id = f"large-match-{index:03d}"
+            c.execute(
+                """INSERT INTO player_tournament_matches(id,tournament_id,bracket,round,slot,status,
+                participant_a,participant_b,source_a,source_b,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    match_id,
+                    cup["id"],
+                    "upper",
+                    index + 1,
+                    0,
+                    "pending",
+                    seat_a,
+                    seat_b,
+                    "seed:1",
+                    "seed:2",
+                    1,
+                ),
+            )
+            c.execute(
+                """INSERT INTO player_tournament_legs(match_id,leg,game_id,attackers_id,defenders_id,created_at)
+                VALUES(?,?,?,?,?,?)""",
+                (match_id, 1, f"large-game-{index:03d}", seat_a, seat_b, 1),
+            )
+
+    statements: list[str] = []
+    original_connect = storage.sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        connection = original_connect(*args, **kwargs)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(storage.sqlite3, "connect", traced_connect)
+
+    statements.clear()
+    first = rig.core.matches(rig.admin, cup["id"], limit=1)
+    single_count = len(statements)
+    statements.clear()
+    page = rig.core.matches(rig.admin, cup["id"], limit=200)
+    batch_count = len(statements)
+
+    # One shared tournament/leg read serves the whole page instead of two per match.
+    assert len(first["items"]) == 1
+    assert len(page["items"]) == 200 and page["next_cursor"] is None
+    assert page["items"][0]["legs"][0]["game_id"] == "large-game-000"
+    assert page["items"][-1]["legs"][0]["game_id"] == "large-game-199"
+    assert batch_count == single_count
+    assert batch_count <= 12
+
+
 def test_listing_pagination_is_stable_while_tournaments_change(rig):
     known = {create(rig, name=f"Cup {index}")["id"] for index in range(4)}
     seen, cursor, pages = [], None, 0

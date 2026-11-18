@@ -1393,7 +1393,7 @@ class PlayerTournaments:
         with self.store.connection() as c:
             c.execute("BEGIN")
             self._identity(c, credential)
-            self._load(c, identifier)
+            tournament = self._load(c, identifier)
             params: list = [identifier]
             clause = ""
             if cursor is not None:
@@ -1420,7 +1420,25 @@ class PlayerTournaments:
                 ],
             )
             games = self._games(c, identifier)
-            items = [self._match_projection(c, match, accounts, games) for match in rows]
+            saved_legs: dict[str, list] = {}
+            if rows:
+                placeholders = ",".join("?" for _ in rows)
+                for leg in c.execute(
+                    f"SELECT * FROM player_tournament_legs WHERE match_id IN ({placeholders}) ORDER BY leg",
+                    [match["id"] for match in rows],
+                ):
+                    saved_legs.setdefault(leg["match_id"], []).append(leg)
+            items = [
+                self._match_projection(
+                    c,
+                    match,
+                    accounts,
+                    games,
+                    tournament=tournament,
+                    saved_legs=saved_legs.get(match["id"], []),
+                )
+                for match in rows
+            ]
             next_cursor = (
                 encode_cursor({"k": "matches", "t": identifier, "i": rows[-1]["id"]})
                 if has_more and rows
