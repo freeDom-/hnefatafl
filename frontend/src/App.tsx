@@ -555,7 +555,7 @@ export default function App() {
                         )}
                       </p>
                       <button className="button primary" onClick={() => navigate('/dashboard')}>
-                        {t('Back to dashboard')}
+                        {t('Back to the Great Hall')}
                         <span aria-hidden="true">↗</span>
                       </button>
                       <div className="variant-pills">

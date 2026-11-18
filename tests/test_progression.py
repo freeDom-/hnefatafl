@@ -176,15 +176,15 @@ def test_catalog_schedule_requirements_and_order(web):
     assert catalog["catalog_version"] == 2
     assert [p["id"] for p in catalog["items"]] == [
         "shieldbearer",
-        "fjord-scout",
         "forge-keeper",
-        "iron-helm",
         "shieldmaiden",
-        "skald",
-        "valkyrie",
-        "wanderer",
         "raven-seer",
         "einherjar",
+        "iron-helm",
+        "valkyrie",
+        "wanderer",
+        "skald",
+        "fjord-scout",
         "berserker",
         "one-eyed-jarl",
     ]
@@ -203,6 +203,25 @@ def test_catalog_schedule_requirements_and_order(web):
         "one-eyed-jarl": "rated-win-streak-10",
     }
     assert "webp" not in json.dumps(catalog)
+
+
+def test_portrait_display_order_is_explicit_and_deterministic():
+    from hnefatafl.progression import (
+        PORTRAIT_DISPLAY_ORDER,
+        PORTRAITS,
+        Portrait,
+        _portrait_order,
+    )
+
+    assert [portrait.id for portrait in PORTRAITS] == list(PORTRAIT_DISPLAY_ORDER)
+    # A portrait without an explicit position sorts after every listed portrait,
+    # ordered by its stable id, so introducing one never renumbers the gallery.
+    unlisted = sorted(
+        [Portrait("zzz-new", "Zzz", None), Portrait("aaa-new", "Aaa", None)],
+        key=_portrait_order,
+    )
+    assert [portrait.id for portrait in unlisted] == ["aaa-new", "zzz-new"]
+    assert all(_portrait_order(portrait)[0] == len(PORTRAIT_DISPLAY_ORDER) for portrait in unlisted)
 
 
 def test_fresh_read_is_read_only_and_manual_endpoint_removed(web):

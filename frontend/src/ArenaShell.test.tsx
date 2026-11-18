@@ -77,15 +77,17 @@ it('marks the active destination with aria-current in both navigations', () => {
   );
   expect(
     within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', {
-      name: 'Play',
+      name: 'Battlefield',
     }),
   ).toHaveAttribute('aria-current', 'page');
   const bottom = screen.getByRole('navigation', { name: 'Mobile navigation' });
-  expect(within(bottom).getByRole('link', { name: 'Play' })).toHaveAttribute(
+  expect(within(bottom).getByRole('link', { name: 'Battlefield' })).toHaveAttribute(
     'aria-current',
     'page',
   );
-  expect(within(bottom).getByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current');
+  expect(within(bottom).getByRole('link', { name: 'Great Hall' })).not.toHaveAttribute(
+    'aria-current',
+  );
 });
 
 it('hides the mobile navigation and workspace switch for signed-out visitors', () => {

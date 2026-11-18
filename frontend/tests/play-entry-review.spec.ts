@@ -154,9 +154,9 @@ test('an unverified account sees a red Dashboard warning before the disabled onl
     'Verify your email address before creating or joining online games.',
   );
   await expect(warning).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toHaveCount(1);
   const warningBox = await warning.boundingBox();
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toHaveCount(1);
   // Online creation lives on the Play entry; the dashboard keeps the disabled
   // state for an unverified account. A running game replaces the online action
   // with "Continue game", so assert whichever hero action is present.

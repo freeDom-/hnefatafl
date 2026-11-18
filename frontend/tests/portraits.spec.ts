@@ -21,7 +21,7 @@ function contrast(foreground: string, background: string) {
   return (light + 0.05) / (dark + 0.05);
 }
 for (const theme of themes) {
-  test(`Portrait hall has automatic rewards and accessible controls in ${theme}`, async ({
+  test(`Hall of Renown has automatic rewards and accessible controls in ${theme}`, async ({
     page,
   }, info) => {
     // Four localized high-DPI viewport captures per theme need a larger image-encoding budget.

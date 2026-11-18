@@ -39,7 +39,9 @@ test.describe('one primary navigation per viewport', () => {
     test(`shows only the compact bottom navigation on a ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: 'The Great Hall', exact: true }),
+      ).toBeVisible();
       expect(await isCompactShell(page)).toBe(true);
       expect(await navigationState(page)).toEqual({
         header: { present: true, display: 'none', visible: false },
@@ -63,7 +65,7 @@ test.describe('one primary navigation per viewport', () => {
   test('shows only the header navigation on a tablet', async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
     expect(await isCompactShell(page)).toBe(false);
     expect(await navigationState(page)).toEqual({
       header: { present: true, display: 'flex', visible: true },
@@ -82,7 +84,9 @@ test.describe('one primary navigation per viewport', () => {
     test('shows only the compact bottom navigation', async ({ page }) => {
       await page.setViewportSize({ width: 844, height: 390 });
       await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: 'The Great Hall', exact: true }),
+      ).toBeVisible();
       expect(await isCompactShell(page)).toBe(true);
       expect(await navigationState(page)).toEqual({
         header: { present: true, display: 'none', visible: false },

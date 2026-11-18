@@ -3,7 +3,7 @@ const personal: Record<string, string> = {
   'No running games in this preview.': 'Keine laufenden Partien in dieser Vorschau.',
   '{shown} of {total} running games shown.':
     '{shown} von {total} laufenden Partien werden angezeigt.',
-  Dashboard: 'Übersicht',
+  'Call to Battle': 'Ruf zur Schlacht',
   'New online game': 'Neues Onlinespiel',
   'New single-player game': 'Neues Einzelspiel',
   'Resume single-player': 'Einzelspiel fortsetzen',
@@ -74,7 +74,7 @@ const personal: Record<string, string> = {
   'Open online game': 'Online-Spiel öffnen',
   'Account game review': 'Kontospiel-Wiedergabe',
   'Online game review': 'Online-Spiel-Wiedergabe',
-  'Back to dashboard': 'Zurück zur Übersicht',
+  'Back to the Great Hall': 'Zurück zur großen Halle',
   'Read-only review. Replay controls change only your view.':
     'Schreibgeschützte Wiedergabe. Die Steuerung ändert nur deine Ansicht.',
   'Replay navigation': 'Wiedergabesteuerung',
@@ -264,7 +264,7 @@ const personal: Record<string, string> = {
   'No rated win streak yet.': 'Noch keine gewertete Siegesserie.',
   'Unlocked portraits': 'Freigeschaltete Porträts',
   'Earned from achievements.': 'Über Erfolge freigeschaltet.',
-  'Games that need you': 'Partien, die dich brauchen',
+  'Recent Battles': 'Jüngste Schlachten',
   'Game archive': 'Spielarchiv',
   Waiting: 'Wartet',
   Active: 'Aktiv',

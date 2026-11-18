@@ -145,7 +145,7 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 A server connection is required. The public Watch Hall at `/watch` offers
 read-only online discovery, live viewing and completed replay without an account;
 playing games, private history and profiles require authentication. The
-authenticated Portrait Hall and portrait selection originated in PR #86, and
+authenticated Hall of Renown and portrait selection originated in PR #86, and
 PR #94 adds automatic tiered achievements and portrait progression. See the
 [completion audit](docs/designs/arena-completion.md)
 and [public release-readiness checklist](docs/RELEASE_READINESS.md). Verified accounts

@@ -89,7 +89,7 @@ Iron & Ash prompt:
 
 > Use case: stylized-concept. Asset type: original decorative website background artwork, very wide landscape 16:9 ideally 3840 x 2160. An atmospheric empty ancient stone and forged-steel war chamber, slate architectural pillars and arches receding into depth, cool charcoal and gunmetal surfaces with fine chisel marks, a restrained glint of warm gold and ember light at far side edges, cinematic crisp side lighting and cool blue-grey shadows. Premium realistic painted concept art for the Iron & Ash strategy game interface. Most architectural detail belongs at far left and right margins and upper edge; keep central 70% dark and quiet for application panels. Clearly distinguish from a wooden Norse great hall: stone architecture, refined forged metal, no brown wood, no ornate gold flourishes. No UI, text, letters, people, board or watermarks. This is a full architectural scene with visual depth, not a repeated slate texture. Avoid blur, muddy fog or an opacity wash.
 
-### Portrait Hall artwork and achievement tiers
+### Hall of Renown artwork and achievement tiers
 
 The gallery uses native 1024px artwork with centered `object-fit: contain` sizing;
 its CSS maximum accounts for device pixel ratio and the asset's native dimensions.

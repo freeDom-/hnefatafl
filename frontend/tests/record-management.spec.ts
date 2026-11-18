@@ -278,7 +278,7 @@ test('workshop shows training seeds and safely discards hidden unfinished model 
   expect(savedJob.status).toBe('completed');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('hnefatafl-game'))).toBeNull();
   await openArena(page);
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await expect(page.getByRole('grid')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

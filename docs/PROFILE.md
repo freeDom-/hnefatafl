@@ -238,6 +238,6 @@ SMTP delivery.
 ## Selected portrait
 
 The profile displays the effective server-selected portrait and links to
-[Portrait Hall](PROGRESSION.md#portrait-hall-and-player-artwork) at `/portraits`.
-Only earned catalog IDs can be selected there. The selection appears in Dashboard,
+[Hall of Renown](PROGRESSION.md#hall-of-renown-and-player-artwork) at `/portraits`.
+Only earned catalog IDs can be selected there. The selection appears in The Great Hall,
 online player cards and leaderboard; no private achievement progress is published.

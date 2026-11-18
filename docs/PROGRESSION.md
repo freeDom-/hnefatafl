@@ -10,7 +10,8 @@ achievements and portrait entitlements are permanent, including after correction
 
 ## API contract
 
-- `GET /api/portraits/catalog`: authenticated code-owned catalog, ordered by difficulty.
+- `GET /api/portraits/catalog`: authenticated code-owned catalog, in the explicit
+  gallery display order.
 - `GET /api/personal/achievements`: read-only own-account progress, permanent awards,
   families, score and `unlocked_portrait_ids` (including grandfathered entitlements).
 - `PATCH /api/profile/portrait`: explicit selection of an already unlocked portrait,
@@ -20,9 +21,9 @@ There is no achievement confirmation endpoint or collection action. Selecting a
 portrait never awards achievements; unlocking never changes the selected avatar.
 Unknown/retired IDs return 422, locked portraits 403, missing sessions 401.
 
-## Portrait Hall and player artwork
+## Hall of Renown and player artwork
 
-The Hall presents the introduction, ordered portrait gallery, then Achievements.
+The Hall presents the introduction, ordered portrait gallery, then Deeds of Valor.
 The achievement score, percentage and milestone count sit below that heading.
 Family cards show current recorded progress, highest currently achieved threshold,
 highest permanently awarded tier, next target and incremental reward. The next
@@ -38,7 +39,7 @@ account-switch guards and stale-response handling cover the four themes.
 Game completion, successful analysis completion, window focus and reconnect trigger
 coalesced account-scoped refreshes. One shared `ProgressionProvider` owns the single
 `GET /personal/achievements` read for the authenticated shell, so the Dashboard,
-the Portrait Hall and the notification baseline never fetch it independently.
+the Hall of Renown and the notification baseline never fetch it independently.
 The Dashboard already owns the account-wide result-totals poll, so it invalidates
 the shared read from that poll without a second timer. Every other route,
 including an open local, single-player or online game board, keeps a 15-second
@@ -51,22 +52,24 @@ portraits. Notifications are not a durable notification history.
 
 ## Portrait catalog
 
-The backend sorts the default first, victory portraits by threshold then stable
-ID, followed by rated streak portraits by streak length. Ordering is independent
-of display language.
+The backend exposes the default portrait first, followed by the approved gallery
+display order declared once in the code catalog. A portrait without an explicit
+position sorts after every listed portrait by stable ID, so introducing one is
+deterministic without renumbering existing entries. Ordering is independent of
+display language.
 
 | Portrait | Requirement | Milestone ID |
 | --- | --- | --- |
 | Shieldbearer | Default | none |
-| Fjord Scout | 10 rated Copenhagen wins | `copenhagen-wins-10` |
 | Forge Keeper | 10 human-versus-AI wins | `ai-wins-10` |
-| Iron Helm | 10 rated defender wins | `defender-wins-10` |
 | Shieldmaiden | 10 rated online wins | `rated-wins-10` |
-| Skald | 10 rated Tablut wins | `tablut-wins-10` |
-| Valkyrie | 10 rated attacker wins | `attacker-wins-10` |
-| Wanderer | 10 rated Brandubh wins | `brandubh-wins-10` |
 | Raven Seer | 25 rated online wins | `rated-wins-25` |
 | Einherjar | 50 rated online wins | `rated-wins-50` |
+| Iron Helm | 10 rated defender wins | `defender-wins-10` |
+| Valkyrie | 10 rated attacker wins | `attacker-wins-10` |
+| Wanderer | 10 rated Brandubh wins | `brandubh-wins-10` |
+| Skald | 10 rated Tablut wins | `tablut-wins-10` |
+| Fjord Scout | 10 rated Copenhagen wins | `copenhagen-wins-10` |
 | Berserker | Best rated win streak of 5 | `rated-win-streak-5` |
 | One-Eyed Jarl | Best rated win streak of 10 | `rated-win-streak-10` |
 
