@@ -142,6 +142,16 @@ layout, localization and theme styling are unchanged. Existing Chromium phone
 emulation covers the touch path; physical-device and Safari keyboard behaviour
 remain unverified.
 
+## Leaderboard entry point
+
+The full leaderboard's **Player tournaments** link uses the existing
+`.button.secondary` convention rather than the undefined `button-secondary`
+class. A focused Playwright check compares its computed foreground, background
+and border with the adjacent secondary pagination button at 390px and 1280px in
+Classic Table, King's Table, Iron and Ash and Saga Hall, verifies the existing
+keyboard focus ring, checks the `/player-tournaments` destination and asserts no
+horizontal overflow. No new button class, style or design token was introduced.
+
 ## Visual evidence and limits
 
 The calendar matrix covers both deadline/start fields, four themes, EN/DE and
@@ -184,8 +194,9 @@ The final date/time remediation re-ran these checks locally:
 | Check | Result |
 | --- | --- |
 | Focused `pytest` tournament, online core/API/migration, progression and security files | **286 passed** |
-| Vitest | **1,452 passed in 100 files** |
+| Vitest | **1,453 passed in 100 files** |
 | Player-tournament Playwright suite | **26 passed** |
+| Leaderboard and navigation Playwright suites | **34 passed**; the tournament-link matrix covers both projects, four themes, focus and desktop/mobile widths |
 | Online Playwright suite, including sequential/simultaneous tournament flows | **24 passed** |
 | Ruff, Python formatting, mypy and `make docs` | Passed |
 | TypeScript, Prettier and production build | Passed |

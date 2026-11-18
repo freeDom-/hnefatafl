@@ -211,7 +211,7 @@ export default function Leaderboard({
           </a>
         )}
         {!compact && (
-          <a className="button button-secondary" href="/player-tournaments" onClick={surfaceLink}>
+          <a className="button secondary" href="/player-tournaments" onClick={surfaceLink}>
             {t('Player tournaments')}
           </a>
         )}
