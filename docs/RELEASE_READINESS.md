@@ -42,10 +42,10 @@ research remain outstanding. Checkbox state below records the audited baseline.
   build/test-only and not present in the deployed bundle. The required `security`
   CI job enforces a time-limited, owner-approved risk acceptance that expires on
   2026-12-17 (or the next dependency refresh); the record pins the reviewed
-  versions/range and rejects severity, package-set or version changes. Remove it
-  when upstream ships a fix. The approval is recorded from the owner review on
-  2026-11-17; a separate signed/detached approval record is still outstanding.
-  The advisory itself remains unresolved. See
+  versions/range, requires a repository-hosted approval reference and rejects
+  severity, package-set or version changes. Remove it when upstream ships a fix.
+  The durable approval is the owner comment on PR #94 dated 2026-11-18. The
+  advisory itself remains unresolved. See
   [the dependency record](validation/test-toolchain-security.md#picomatch-redos-advisory-ghsa-fc5q-39xc-vjpf-2026-11-17).
   No blind force upgrade, ignore list or downgrade; rerun tests and audit after
   lockfile changes.

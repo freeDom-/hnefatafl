@@ -50,6 +50,7 @@ const EXCEPTION_KEYS = new Set([
   'expires',
   'rationale',
   'advisoryRange',
+  'approvalReference',
   'affectedPackages',
   'packageVersions',
   'paths',
@@ -302,8 +303,8 @@ function entriesFor(lockPackages, name) {
 
 function validateExceptionFile(exceptions, today) {
   const problems = [];
-  if (!isPlainObject(exceptions) || exceptions.schema !== 2) {
-    return ['security/dependency-audit-exceptions.json must be a schema-2 exception file.'];
+  if (!isPlainObject(exceptions) || exceptions.schema !== 3) {
+    return ['security/dependency-audit-exceptions.json must be a schema-3 exception file.'];
   }
   for (const key of Object.keys(exceptions)) {
     if (!TOP_LEVEL_KEYS.has(key)) problems.push(`Unknown top-level exception field ${key}.`);
@@ -376,6 +377,13 @@ function validateExceptionEntry(entry, exceptions, today) {
   }
   if (typeof entry.advisoryRange !== 'string' || !entry.advisoryRange) {
     problems.push(`Exception ${entry.advisory} needs the reviewed advisoryRange.`);
+  }
+  if (!validHttpsUrl(entry.approvalReference)) {
+    problems.push(`Exception ${entry.advisory} needs an https approvalReference.`);
+  } else if (!/^https:\/\/github\.com\/freeDom-\/hnefatafl\//i.test(entry.approvalReference)) {
+    problems.push(
+      `Exception ${entry.advisory} approvalReference must be a durable record in this repository.`,
+    );
   }
   if (
     !Array.isArray(entry.affectedPackages) ||
@@ -583,6 +591,7 @@ function main() {
         `  scope: development only\n` +
         `  approved by: ${entry.exception.approvedBy ?? exceptions.approvedBy} on ${entry.exception.approvedAt ?? exceptions.approvedAt}\n` +
         `  review: ${entry.exception.reviewReference ?? exceptions.reviewReference ?? 'n/a'}\n` +
+        `  approval: ${entry.exception.approvalReference}\n` +
         `  expires: ${entry.exception.expires}\n` +
         `  rationale: ${entry.exception.rationale}\n` +
         `  This is a temporary, owner-approved exception, not a technical fix. Remove it when upstream ships a patched release.`,

@@ -75,6 +75,7 @@ const baseException = {
   scope: 'development',
   expires: '2026-12-17',
   advisoryRange: '<=4.0.7',
+  approvalReference: 'https://github.com/freeDom-/hnefatafl/pull/94#issuecomment-6974974794',
   affectedPackages: ['fdir', 'picomatch', 'tinyglobby', 'vite', 'vitest'],
   packageVersions: {
     fdir: '6.5.0',
@@ -88,9 +89,9 @@ const baseException = {
 };
 
 const exceptions = () => ({
-  schema: 2,
+  schema: 3,
   approvedBy: 'freeDom-',
-  approvedAt: '2026-11-17',
+  approvedAt: '2026-11-18',
   reviewReference: 'https://github.com/freeDom-/hnefatafl/pull/94',
   exceptions: [structuredClone(baseException)],
 });
@@ -101,7 +102,7 @@ const assess = (overrides = {}) =>
     production: emptyAudit(),
     exceptions: exceptions(),
     lockPackages,
-    today: '2026-11-17',
+    today: '2026-11-18',
     ...overrides,
   });
 
@@ -304,7 +305,7 @@ test('fails for invalid approval metadata, future dates and overlong acceptance 
   assert.match(assess({ exceptions: badDates }).problems.join(' '), /valid ISO approvedAt/);
 
   const future = exceptions();
-  future.approvedAt = '2026-11-18';
+  future.approvedAt = '2026-11-19';
   assert.match(assess({ exceptions: future }).problems.join(' '), /cannot be in the future/);
 
   const tooLong = exceptions();
@@ -325,6 +326,26 @@ test('fails for invalid approval metadata, future dates and overlong acceptance 
   const noRationale = exceptions();
   noRationale.exceptions[0].rationale = 'short';
   assert.match(assess({ exceptions: noRationale }).problems.join(' '), /substantive rationale/);
+});
+
+test('fails when the approval reference is missing, malformed or not durable', () => {
+  const missing = exceptions();
+  delete missing.exceptions[0].approvalReference;
+  let verdict = assess({ exceptions: missing });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /needs an https approvalReference/);
+
+  const insecure = exceptions();
+  insecure.exceptions[0].approvalReference = 'http://github.com/freeDom-/hnefatafl/pull/94';
+  verdict = assess({ exceptions: insecure });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /needs an https approvalReference/);
+
+  const external = exceptions();
+  external.exceptions[0].approvalReference = 'https://example.test/approval';
+  verdict = assess({ exceptions: external });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /durable record in this repository/);
 });
 
 test('fails when production audit findings are present or the report is malformed', () => {

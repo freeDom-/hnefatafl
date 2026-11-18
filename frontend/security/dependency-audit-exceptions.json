@@ -1,9 +1,9 @@
 {
-  "schema": 2,
+  "schema": 3,
   "approvedBy": "freeDom-",
-  "approvedAt": "2026-11-17",
+  "approvedAt": "2026-11-18",
   "reviewReference": "https://github.com/freeDom-/hnefatafl/pull/94",
-  "notes": "Owner approval was recorded in the PR #94 review on 2026-11-17. No separate signed approval record exists; edited JSON is a record, not independent proof. A durable owner comment or signed decision is recommended before renewal.",
+  "notes": "The durable owner approval is the PR #94 approval comment recorded in each exception's approvalReference. The JSON is a machine-readable record of that decision, not the evidence itself.",
   "exceptions": [
     {
       "advisory": "GHSA-fc5q-39xc-vjpf",
@@ -13,6 +13,7 @@
       "scope": "development",
       "expires": "2026-12-17",
       "advisoryRange": "<=4.0.7",
+      "approvalReference": "https://github.com/freeDom-/hnefatafl/pull/94#issuecomment-6974974794",
       "affectedPackages": ["fdir", "picomatch", "tinyglobby", "vite", "vitest"],
       "packageVersions": {
         "fdir": "6.5.0",

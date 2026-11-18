@@ -220,16 +220,16 @@ not evidence of a false positive; it is unresolved disagreement between database
 ### Approved risk acceptance (active until 2026-12-17)
 
 No supported technical fix exists, and no fork, override, unmerged patch, downgrade
-or blanket audit disable is used. On 2026-11-17 the repository owner approved a
+or blanket audit disable is used. On 2026-11-18 the repository owner approved a
 narrowly scoped, time-limited risk acceptance for exactly GHSA-fc5q-39xc-vjpf in
 the development-only Picomatch path.
 
-`frontend/security/dependency-audit-exceptions.json` (schema 2) records the exact
+`frontend/security/dependency-audit-exceptions.json` (schema 3) records the exact
 advisory/package, CVE, severity, development scope, approver handle, approval date,
-review reference, rationale, expiry, affected package set, every reviewed package
-version and the reviewed advisory range. The script rejects unknown fields, invalid
-GitHub handles, invalid or future approval dates, invalid expiry dates, windows
-longer than 90 days, severities or ranges that changed, package-version changes,
+review reference, durable approval reference, rationale, expiry, affected package
+set, every reviewed package version and the reviewed advisory range. The script rejects unknown fields, invalid
+GitHub handles, invalid or future approval dates, missing/malformed or non-repository approval
+references, invalid expiry dates, windows longer than 90 days, severities or ranges that changed, package-version changes,
 affected-set changes, runtime reach, stale exceptions and expired exceptions. This
 prevents silent broadening or extension: any such change is a visible file diff and
 fails until re-reviewed.
@@ -251,16 +251,21 @@ audit and a production-only audit. It is fail-closed:
   `dev: true` in the lockfile with the reviewed resolved version.
 
 The dedicated `security` CI job runs that script and prints the actual advisory
-id, affected packages and versions, approver, review reference, rationale and
-expiry. It passes only through the recorded acceptance, not because the finding was
-disproved. The advisory remains unresolved.
+id, affected packages and versions, approver, review reference, approval reference,
+rationale and expiry. It passes only through the recorded acceptance, not because
+the finding was disproved. The advisory remains unresolved. Fourteen Node tests
+cover the positive case and every fail-closed and approval-reference case.
 
-**Approval record status:** the approval is the repository owner's explicit review
-instruction on 2026-11-17 (PR #94). No separate signed decision or owner comment
-exists in the repository at this revision; editable JSON is a record, not
-independent proof. The existing legitimate approval is retained, but a durable owner
-comment or signed security decision is outstanding and should be added before
-renewal. The acceptance must not be extended without that confirmation.
+**Approval evidence:** the durable owner decision is the approval comment at
+[PR #94, comment 6974974794](https://github.com/freeDom-/hnefatafl/pull/94#issuecomment-6974974794),
+recorded 2026-11-18 by `freeDom-`. It identifies the advisory, the development-only
+dependency paths, the residual development/CI denial-of-service risk, the absence of
+a supported upstream patch and the 2026-12-17 expiry, and states the removal and
+no-extension conditions. The JSON records that decision; it is not the evidence
+itself. The schema requires an https `approvalReference` hosted in this repository,
+so a missing, malformed or external reference fails. Approval applies only to the
+exact advisory, versions, range and package set recorded; any change requires a new
+owner decision.
 
 ### Required main-branch checks (owner action, not applied)
 
@@ -294,10 +299,31 @@ rules, not by editing this repository):
 }
 ```
 
-Verify the contexts with `gh pr checks <number>` (they must match the job names
-exactly) and with a test pull request whose failing job cannot merge. This
-document records the recommendation only; repository protection settings were not
-modified.
+Exact owner steps:
+
+1. Repository **Settings → Rules → Rulesets → Main branch rules → Edit**.
+2. Enable **Require status checks to pass**, then add `security`, `python`,
+   `node22` and `browser` from the GitHub Actions source.
+3. Optionally enable **Require branches to be up to date before merging**.
+4. Optionally set **Required approvals** to 1 under the pull-request rule.
+5. Save and confirm the ruleset still targets the default branch.
+
+The API equivalent is a `PUT /repos/freeDom-/hnefatafl/rulesets/25820905` that
+preserves the existing rules and adds the `required_status_checks` rule above;
+only an owner token should perform it.
+
+Verification after the owner applies it:
+
+- `gh pr checks 94` lists the four contexts with the GitHub Actions source.
+- A throwaway PR with one required job forced to fail cannot merge.
+- Pending checks block merging until they finish.
+- A complete green run plus any required approval permits merging.
+- Renaming a workflow job requires updating the ruleset context at the same time;
+  the current job names are stable literals in `.github/workflows/ci.yml`.
+
+This document records the recommendation only; repository protection settings were
+not modified. Until the owner applies it, a green matrix is a voluntary observation,
+not a GitHub-enforced merge gate.
 
 ### Follow-up
 
