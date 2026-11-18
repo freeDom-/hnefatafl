@@ -6,12 +6,15 @@ separate release-preparation report, not a release/tag/version authorization.
 [Completion matrix and dependencies](designs/arena-completion.md) ·
 [Deployment](DEPLOYMENT.md) · [Security](SECURITY.md) · [Release procedure](RELEASING.md)
 
-Post-audit delivery: **Portrait Hall, achievement claiming and selection are
-delivered by PR #86**, and the signed-out public spectator frontend is delivered
-by PR #87; their checks are not re-run here. The human tournament
-backend (schema 18) already existed at the baseline; automatic settlement, leagues,
-Workshop consolidation and local-analysis
-research remain outstanding. Checkbox state below records the audited baseline.
+Current merged-main source inventory (`0c5f270`, 2026-11-18): Portrait Hall and
+selection (PR #86), automatic tiered achievements (PR #94), signed-out public
+watch/replay (PR #87), human tournament UI/durable settlement/scheduling (PR #90),
+Dashboard polling (PR #91), and standalone browser analysis feasibility (PR #89)
+are delivered. Workshop (PR #92) and broad bundle splitting (PR #93) remain open.
+Leagues, production local analysis, final combined QA and deployment acceptance
+remain incomplete. See the [current matrix and dependency graph](designs/arena-current-completeness.md).
+The baseline checkbox inventory below is historical; delivered features still
+need their recorded evidence reviewed in the final combined release acceptance.
 
 ## Blocking product and evidence gaps
 

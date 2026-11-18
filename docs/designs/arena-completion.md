@@ -7,15 +7,11 @@ dependencies and acceptance gates, **not a claim that the missing features ship*
 
 ## Post-audit delivery status
 
-This report is the historical post-#84 baseline and its matrix statuses are not
-rewritten as later work lands. After the audit, **Portrait Hall, achievement
-claiming and selection are delivered by PR #86**, which adds the authenticated
-`/portraits` route on the existing authority without schema changes, and the
-signed-out public spectator frontend is delivered by PR #87. The human
-tournament backend (schema 18) already existed at the baseline; automatic
-tournament settlement and the tournament UI, leagues, Workshop consolidation and
-local-analysis research remain separate workstreams. Do not read a matrix row
-below as current status without this note.
+This report preserves the historical post-#84 baseline. Its matrix is not a current
+release inventory. See the [current completeness matrix](arena-current-completeness.md)
+for merged Portrait Hall/automatic achievements, public spectators, human tournament
+UI/settlement, polling, local-analysis feasibility, and remaining open workstreams.
+Historical counts below are not recast as fresh validation.
 
 ## Audit method and phase terminology
 
