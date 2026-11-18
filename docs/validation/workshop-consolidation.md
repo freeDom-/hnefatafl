@@ -16,10 +16,11 @@ summary labels are corrected in English and German.
 
 ## Review follow-up after main integration
 
-The PR now includes main `3f1836d` through a merge commit, retaining its public
+The PR now includes main `e717138` through merge commits, retaining its public
 spectator, Portrait Hall, polling, localization, browser helpers and security
-toolchain changes. The diff against that main revision remains scoped to Workshop
-presentation, navigation, bounded rendering and their validation.
+toolchain changes, plus the isolated browser-analysis feasibility spike. The diff
+against that main revision remains scoped to Workshop presentation, navigation,
+bounded rendering and their validation.
 
 Task links and the comparison return link use `surfaceLink`, which delegates to
 the shell's existing `navigate` function. Same-hash clicks dispatch navigation
