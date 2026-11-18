@@ -20,9 +20,7 @@
     "test:personal": "playwright test --config playwright.personal.config.ts",
     "test:public": "playwright test --config playwright.public.config.ts",
     "predev": "node scripts/sync-appearance-catalog.mjs",
-    "prebuild": "node scripts/sync-appearance-catalog.mjs",
-    "audit:ci": "node scripts/auditDependencies.mjs",
-    "test:scripts": "node --test \"scripts/*.test.mjs\""
+    "prebuild": "node scripts/sync-appearance-catalog.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
