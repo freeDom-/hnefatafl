@@ -6,6 +6,32 @@ import { localDateTimeInstants, localDateTimeValue } from './localDateTime';
 import './localDateTimePicker.css';
 
 /** The native top layer escapes modal scrolling while the DOM stays inside its focus boundary. */
+function formatNumericInput(value: string, groups: number[], separator: string): string {
+  // Mobile numeric keypads cannot type the separators, so build them from digits.
+  // Existing separators are normalized without preventing manual editing.
+  if ([...value].some((character) => !/\d/.test(character) && character !== separator))
+    return value;
+  const digits = value.replace(/\D/g, '');
+  if (!digits) return value;
+  const maximum = groups.reduce((total, size) => total + size, 0);
+  const trimmed = digits.slice(0, maximum);
+  const parts: string[] = [];
+  let offset = 0;
+  for (const size of groups) {
+    if (offset >= trimmed.length) break;
+    parts.push(trimmed.slice(offset, offset + size));
+    offset += size;
+  }
+  const formatted = parts.join(separator);
+  // Keep a trailing separator the user just typed before the next digit arrives.
+  return value.endsWith(separator) && trimmed.length < maximum
+    ? `${formatted}${separator}`
+    : formatted;
+}
+
+const formatDateInput = (value: string) => formatNumericInput(value, [4, 2, 2], '-');
+const formatTimeInput = (value: string) => formatNumericInput(value, [2, 2], ':');
+
 function CalendarPopup({
   anchor,
   id,
@@ -154,6 +180,8 @@ export default function LocalDateTimePicker({
       : '0',
   );
   const [popup, setPopup] = useState<{ focus: boolean } | null>(null);
+  const coarsePointer =
+    typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true;
   const field = useRef<HTMLInputElement>(null),
     timeField = useRef<HTMLInputElement>(null);
   const anchor = useRef<HTMLDivElement>(null);
@@ -214,10 +242,17 @@ export default function LocalDateTimePicker({
               ref={field}
               id={`${id}-date`}
               type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              spellCheck={false}
               placeholder="YYYY-MM-DD"
               value={date}
-              onChange={(event) => chooseDate(event.target.value)}
-              onClick={() => setPopup({ focus: false })}
+              onChange={(event) => chooseDate(formatDateInput(event.target.value))}
+              onClick={() => {
+                // Touch users tap the field to type; the calendar icon and keyboard
+                // shortcuts still open the popup without covering the numeric entry.
+                if (!coarsePointer) setPopup({ focus: false });
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'ArrowDown' || event.key === 'Enter') {
                   event.preventDefault();
@@ -288,10 +323,13 @@ export default function LocalDateTimePicker({
             ref={timeField}
             id={`${id}-time`}
             type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            spellCheck={false}
             placeholder="HH:MM"
             value={time}
             onChange={(event) => {
-              setTime(event.target.value);
+              setTime(formatTimeInput(event.target.value));
               setOccurrence('0');
             }}
             aria-invalid={!!timeError}

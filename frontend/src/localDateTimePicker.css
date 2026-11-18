@@ -17,6 +17,10 @@
 }
 .datetime-input input {
   padding-inline-end: 52px;
+  font-variant-numeric: tabular-nums;
+}
+.datetime-fields > label input {
+  font-variant-numeric: tabular-nums;
 }
 .datetime-input-actions {
   display: flex;

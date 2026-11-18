@@ -46,6 +46,46 @@ it('localizes the calendar navigation and validation for German readers', () => 
   expect(screen.getByRole('alert')).toHaveTextContent('existiert nicht');
 });
 
+it('accepts numeric keypad digits and inserts the date and time separators', async () => {
+  const user = userEvent.setup();
+  render(<LocalDateTimePicker name="start" label="Planned start" />);
+  const date = screen.getByLabelText('Date (YYYY-MM-DD)');
+  const time = screen.getByLabelText('Time (HH:MM)');
+  expect(date).toHaveAttribute('inputmode', 'numeric');
+  expect(time).toHaveAttribute('inputmode', 'numeric');
+  await user.type(date, '20350201');
+  await user.clear(time);
+  await user.type(time, '1830');
+  expect(date).toHaveValue('2035-02-01');
+  expect(time).toHaveValue('18:30');
+  expect(document.querySelector('input[name=start]')).toHaveValue(
+    new Date(2035, 1, 1, 18, 30).toISOString(),
+  );
+});
+
+it('lets coarse-pointer users tap the date field to type while keeping the calendar icon', () => {
+  const original = window.matchMedia;
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({ matches: query === '(pointer: coarse)' }) as MediaQueryList,
+  });
+  try {
+    render(<LocalDateTimePicker name="start" label="Planned start" />);
+    const date = screen.getByLabelText('Date (YYYY-MM-DD)');
+    fireEvent.click(date);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open calendar' }));
+    expect(screen.getByRole('dialog', { name: 'Choose date' })).toBeInTheDocument();
+  } finally {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: original,
+    });
+  }
+});
+
 it('opens from the date field, closes after selection, and retains the typed time', async () => {
   const user = userEvent.setup();
   render(

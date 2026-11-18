@@ -403,17 +403,32 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
               exact: true,
             }),
           ).toHaveCount(0);
-          await date.fill('2035-02-01');
-          await time.fill('18:30');
+          await date.fill('');
+          await date.pressSequentially('20350201');
+          await time.fill('');
+          await time.pressSequentially('1830');
+          await expect(date).toHaveValue('2035-02-01');
+          await expect(time).toHaveValue('18:30');
           await date.scrollIntoViewIfNeeded();
           const before = await dialog.evaluate((node) => ({
             height: node.getBoundingClientRect().height,
             scroll: node.scrollHeight,
           }));
-          await date.click();
+          if (info.project.name === 'mobile') {
+            // Touching the field starts manual entry instead of covering it with the popup.
+            await date.click();
+            await expect(picker.getByRole('dialog')).toHaveCount(0);
+            await date.press('ArrowDown');
+          } else {
+            await date.click();
+          }
           const popup = picker.getByRole('dialog');
           await expect(popup).toBeVisible();
-          await expect(date).toBeFocused();
+          if (info.project.name === 'mobile') {
+            await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
+          } else {
+            await expect(date).toBeFocused();
+          }
           expect(await popup.evaluate((node) => !!node.closest('dialog[open]'))).toBe(true);
           const bounds = await popup.boundingBox();
           expect(bounds).not.toBeNull();
@@ -444,8 +459,10 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
           await expect(popup.getByRole('grid')).toHaveAccessibleName(
             language === 'en' ? 'February 2035' : 'Februar 2035',
           );
-          await page.keyboard.press('ArrowDown');
-          await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
+          if (info.project.name !== 'mobile') {
+            await page.keyboard.press('ArrowDown');
+            await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
+          }
           await date.focus();
           await page.keyboard.press('ArrowDown');
           await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
@@ -546,7 +563,7 @@ test('Berlin DST gap is rejected and both repeated-hour instants serialize corre
   await expect(picker.locator('input[name=scheduled_start_at]')).toHaveValue(
     '2035-10-28T01:30:00.000Z',
   );
-  await picker.getByLabel('Date (YYYY-MM-DD)').click();
+  await picker.getByRole('button', { name: 'Open calendar' }).click();
   await picker.locator('[aria-selected=true] button').click();
   await expect(picker.getByRole('dialog')).toHaveCount(0);
   await expect(occurrence).toHaveValue('1');
