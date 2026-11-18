@@ -1,0 +1,34 @@
+{
+  "schema": 3,
+  "approvedBy": "freeDom-",
+  "approvedAt": "2026-11-18",
+  "reviewReference": "https://github.com/freeDom-/hnefatafl/pull/94",
+  "notes": "The durable owner approval is the PR #94 approval comment recorded in each exception's approvalReference. The JSON is a machine-readable record of that decision, not the evidence itself.",
+  "exceptions": [
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "cve": "CVE-2026-112366",
+      "package": "picomatch",
+      "severity": "high",
+      "scope": "development",
+      "expires": "2026-12-17",
+      "advisoryRange": "<=4.0.7",
+      "approvalReference": "https://github.com/freeDom-/hnefatafl/pull/94#issuecomment-6974974794",
+      "affectedPackages": ["fdir", "picomatch", "tinyglobby", "vite", "vitest"],
+      "packageVersions": {
+        "fdir": "6.5.0",
+        "picomatch": "4.0.7",
+        "tinyglobby": "0.2.17",
+        "vite": "7.3.7",
+        "vitest": "4.1.12"
+      },
+      "rationale": "GitHub keeps this advisory reviewed and high with no patched release. Every affected package is dev-only, the production-only audit is clean, the built bundle contains no picomatch, and repository glob inputs do not contain the vulnerable single-branch extglob shape. No untrusted runtime input reaches glob compilation. The exception covers only this advisory and expires for re-review.",
+      "paths": [
+        "vite@7.3.7 -> picomatch@4.0.7",
+        "vite@7.3.7 -> fdir@6.5.0 -> picomatch@4.0.7",
+        "vite@7.3.7 -> tinyglobby@0.2.17 -> picomatch@4.0.7",
+        "vitest@4.1.12 -> picomatch@4.0.7"
+      ]
+    }
+  ]
+}
