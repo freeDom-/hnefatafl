@@ -37,7 +37,7 @@ export function DestinationIcon({ id }: { id: string }) {
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-      ) : id === 'tournaments' ? (
+      ) : id === 'tournaments' || id === 'player-tournaments' ? (
         <path
           d="M7 4h10v3a5 5 0 0 1-10 0Zm5 8v4m-4 4h8m-6-4h4M5 5h2M17 5h2"
           stroke="currentColor"

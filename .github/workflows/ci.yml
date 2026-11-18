@@ -6,6 +6,19 @@ on:
 permissions:
   contents: read
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12"
+      # Audit the committed lockfile without installing dependencies. Keeping this
+      # in its own job means a dependency advisory cannot block browser validation.
+      - run: npm run audit:ci
   python:
     runs-on: ubuntu-latest
     env:
@@ -46,11 +59,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=moderate
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:benchmarks
+      - run: npm run test:scripts
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:public
@@ -68,7 +81,11 @@ jobs:
           path: |
             frontend/test-results/arena-final/
             frontend/test-results/workshop-consolidation/
+            frontend/test-results/player-tournaments/
+            frontend/test-results/player-tournaments-calendar/
+            frontend/test-results/player-tournaments-compact-calendar/
             frontend/test-results/portraits/
+            frontend/test-results/achievement-tiers/
           retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()

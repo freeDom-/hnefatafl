@@ -103,6 +103,7 @@ export function activeDestination(
   current: string | undefined,
   hash: string,
 ): string | undefined {
+  if (workspace === 'arena' && current === 'player-tournaments') return current;
   const destinations = workspace === 'workshop' ? WORKSHOP_DESTINATIONS : ARENA_DESTINATIONS;
   const section = hash.replace(/^#/, '');
   const anchored = destinations.find(

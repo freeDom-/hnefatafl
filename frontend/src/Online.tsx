@@ -21,6 +21,7 @@ import { useOnlinePoll } from './useOnlinePoll';
 import Modal from './Modal';
 import Tabs, { type TabItem } from './Tabs';
 import { durationParts, moveSeconds } from './moveDuration';
+import { ClockFields, MatchModeField, matchModeNames } from './OnlineGameOptions';
 import { formatRemaining, remainingSeconds, RemainingTime, useNow } from './remainingTime';
 import ActiveGameSwitcher, { type ActiveGameEntry } from './ActiveGameSwitcher';
 import PlayPage from './PlayPage';
@@ -36,11 +37,7 @@ import Battlefield, { BoardToolbar } from './Battlefield';
 import { sideGlyph } from './sideGlyph';
 import './online.css';
 
-export const modeNames: Record<MatchMode, string> = {
-  single: 'Single game',
-  simultaneous: 'Two-game match — simultaneous',
-  sequential: 'Two-game match — sequential',
-};
+export const modeNames = matchModeNames;
 const transitionLabels = {
   created: 'Game created.',
   join: 'Player joined.',
@@ -481,75 +478,19 @@ export function Lobby({
                       ))}
                     </select>
                   </label>
-                  <label>
-                    {t('Match mode')}
-                    <select value={mode} onChange={(e) => setMode(e.target.value as MatchMode)}>
-                      {Object.entries(modeNames).map(([value, label]) => (
-                        <option value={value} key={value}>
-                          {t(label)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <MatchModeField value={mode} onChange={setMode} />
                 </div>
                 <div className="form-section">
-                  <label>
-                    {t('Time control')}
-                    <select
-                      value={timeControl}
-                      onChange={(e) => {
-                        const value = e.target.value as TimeControlMode;
-                        setTimeControl(value);
-                        if (value === 'per_move') setIncrement('0');
-                      }}
-                    >
-                      <option value="per_move">{t('Per move')}</option>
-                      <option value="total">{t('Total per player')}</option>
-                    </select>
-                  </label>
-                  <fieldset className="move-duration">
-                    <legend>
-                      {t(
-                        timeControl === 'total' ? 'Total time per player' : 'Time allowed per move',
-                      )}
-                    </legend>
-                    <div className="form-grid form-grid-three">
-                      {(
-                        [
-                          ['Days', days, setDays, 14],
-                          ['Hours', hours, setHours, 23],
-                          ['Minutes', minutes, setMinutes, 59],
-                        ] as const
-                      ).map(([label, value, change, max]) => (
-                        <label key={label}>
-                          {t(label)}
-                          <input
-                            type="number"
-                            min={0}
-                            max={max}
-                            step={1}
-                            required
-                            value={value}
-                            onChange={(event) => change(event.target.value)}
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                  {timeControl === 'total' && (
-                    <label>
-                      {t('Increment per move (seconds)')}
-                      <input
-                        type="number"
-                        min={0}
-                        max={1209600}
-                        step={1}
-                        required
-                        value={increment}
-                        onChange={(e) => setIncrement(e.target.value)}
-                      />
-                    </label>
-                  )}
+                  <ClockFields
+                    value={{ mode: timeControl, days, hours, minutes, increment }}
+                    onChange={(value) => {
+                      setTimeControl(value.mode);
+                      setDays(value.days);
+                      setHours(value.hours);
+                      setMinutes(value.minutes);
+                      setIncrement(value.increment);
+                    }}
+                  />
                 </div>
               </fieldset>
               {validation && <p role="alert">{t(validation)}</p>}
@@ -731,6 +672,20 @@ function GameRoom({
   const poll = useOnlinePoll(`game:${accountId}:${id}`, load);
   const action = useOnlineAction(poll);
   const game = poll.data?.game;
+  const previousResult = useRef<{ owner: string; id: string; version: number } | null>(null);
+  useEffect(() => {
+    const previous = previousResult.current;
+    if (
+      game &&
+      previous?.owner === accountId &&
+      previous.id === game.id &&
+      previous.version !== game.version &&
+      game.status === 'completed' &&
+      Object.values(game.participants).some((player) => player?.account_id === accountId)
+    )
+      window.dispatchEvent(new Event('progression-changed'));
+    previousResult.current = game ? { owner: accountId, id: game.id, version: game.version } : null;
+  }, [game?.id, game?.version, game?.status, accountId]);
   const [selected, setSelected] = useState<{ square: number; version: number } | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [replay, setReplay] = useState<OnlineReplay | null>(null);

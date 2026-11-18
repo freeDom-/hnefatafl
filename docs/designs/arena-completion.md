@@ -61,7 +61,7 @@ implementation; **Deferred** = intentionally excluded pending policy/evidence.
 | 2 | Online creation, clocks, side swaps, version guards | UI | `online_core.py`, `online_api.py`, `Online.tsx`; reuse for all competition games |
 | 2 | Applied Elo history, corrected/voided results, rated streaks | UI | `online_ratings.py`, `progression.py`, `RatingHistory`, `PersonalStatistics` |
 | 2 | Public online list/detail/completed replay | Backend | `public_api.py` three GET routes, filters and cursor, safe profiles/portraits, no private games |
-| 2 | Achievement catalog/progress/confirmation/selection | Backend | `progression.py`, `progression_api.py`, `profile_api.py`; GET never awards; schema 17 |
+| 2 | Achievement catalog/progress/automatic awards/selection | Backend | `progression.py`, `progression_api.py`, `profile_api.py`; GET never awards; schema 17 foundations and schema 21 automatic reconciliation |
 | 2 | Double-elimination tournament domain | Backend | `player_tournaments.py`, `player_tournament_api.py`, schema 18; byes, reset, revisions and audited moderation |
 | 2 | Automatic tournament advancement | Missing | `_advance` invoked by start/settle/override/rebuild only; no result consumer in server lifespan |
 | 2 | Durable UTC-day login/activity streak | Deferred | No ledger in schema 17; rated streaks are a different implemented feature |

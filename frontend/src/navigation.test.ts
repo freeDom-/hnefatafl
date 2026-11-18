@@ -44,3 +44,12 @@ it('retains the Play page and its query', () => {
   history.replaceState(null, '', '/play?ruleset=tablut');
   expect(canonicalLocation()).toBe('/play?ruleset=tablut');
 });
+it('retains human tournament destinations independently of AI Workshop routes', () => {
+  const tournament = `/player-tournaments/ptournament-${'b'.repeat(32)}?view=list#bracket`;
+  expect(safeDestination(tournament)).toBe(tournament);
+  expect(safeDestination('/player-tournaments?status=running')).toBe(
+    '/player-tournaments?status=running',
+  );
+  expect(safeDestination('/player-tournaments/not-a-tournament')).toBe('/dashboard');
+  expect(safeDestination('/tournaments')).toBe('/tournaments');
+});

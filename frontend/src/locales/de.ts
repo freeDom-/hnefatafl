@@ -21,6 +21,200 @@ const translations: Record<string, string> = {
   'Showing {first}–{last}': 'Angezeigt: {first}–{last}',
   'active job': 'aktiver Auftrag',
   'registered model': 'registriertes Modell',
+  'Open calendar': 'Kalender öffnen',
+  'Enter a time in HH:MM format.': 'Gib eine Uhrzeit im Format HH:MM ein.',
+  'A full tournament must wait for its planned start. An administrator may override it.':
+    'Ein volles Turnier muss auf den geplanten Start warten. Ein Administrator kann den Start vorziehen.',
+  'New tournaments require sequential or simultaneous mode and exactly two games.':
+    'Neue Turniere benötigen den sequenziellen oder gleichzeitigen Modus mit genau zwei Partien.',
+  'The creator or an administrator can start with at least two registered entrants.':
+    'Der Ersteller oder ein Administrator kann mit mindestens zwei angemeldeten Teilnehmenden starten.',
+  'Next month': 'Nächster Monat',
+  'Previous month': 'Vorheriger Monat',
+  'Calendar navigation': 'Kalendernavigation',
+  'Selected date': 'Ausgewähltes Datum',
+  'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.':
+    'Startet zum geplanten Zeitpunkt automatisch, wenn das Turnier voll ist. Andernfalls kann der Ersteller mit mindestens zwei Teilnehmenden starten.',
+  'Legacy: {count} games per match': 'Bisheriger Modus: {count} Partien pro Begegnung',
+  '{seconds} seconds per player': '{seconds} Sekunden pro Spieler',
+  'Next game available after the previous game finishes.':
+    'Die nächste Partie wird nach Abschluss der vorherigen verfügbar.',
+  'Date (YYYY-MM-DD)': 'Datum (JJJJ-MM-TT)',
+  'Time (HH:MM)': 'Uhrzeit (HH:MM)',
+  'Choose date': 'Datum auswählen',
+  'Clear date': 'Datum löschen',
+  'This local date or time does not exist. Check the date and daylight saving time.':
+    'Dieses lokale Datum oder diese Uhrzeit existiert nicht. Prüfe Datum und Zeitumstellung.',
+  'This time occurs twice. Choose an occurrence.':
+    'Diese Uhrzeit kommt zweimal vor. Wähle einen Zeitpunkt.',
+  'First occurrence': 'Erster Zeitpunkt',
+  'Second occurrence': 'Zweiter Zeitpunkt',
+  'Your timezone: {zone}. Dates are saved in UTC.':
+    'Deine Zeitzone: {zone}. Zeitpunkte werden in UTC gespeichert.',
+  'Tournament creation requires an active, verified account.':
+    'Für die Turniererstellung ist ein aktives, verifiziertes Konto erforderlich.',
+  'Tournament creation limit reached. Try again later.':
+    'Das Limit für die Turniererstellung ist erreicht. Versuche es später erneut.',
+  'Only the creator or an administrator may start this tournament.':
+    'Nur der Ersteller oder ein Administrator darf dieses Turnier starten.',
+  'The planned start must be in the future.': 'Der geplante Start muss in der Zukunft liegen.',
+  'The registration deadline must be in the future.':
+    'Der Anmeldeschluss muss in der Zukunft liegen.',
+  'All entrants must have active, verified accounts before starting.':
+    'Vor dem Start müssen alle Teilnehmenden aktive, verifizierte Konten haben.',
+  'A supported match mode is required.': 'Ein unterstützter Begegnungsmodus ist erforderlich.',
+  'Game count does not match the selected match mode.':
+    'Die Anzahl der Partien stimmt nicht mit dem gewählten Modus überein.',
+
+  'Registration is closed. Registered entrants may withdraw until the tournament starts.':
+    'Die Anmeldung ist geschlossen. Angemeldete Teilnehmende können ihre Anmeldung bis zum Turnierstart zurückziehen.',
+  'Player tournaments': 'Spielerturniere',
+  'Compete in the Arena': 'Wettkampf in der Arena',
+  'Human double-elimination competitions. Every game uses the official online board.':
+    'Doppel-K.-o.-Turniere für menschliche Spieler. Jede Partie wird auf dem offiziellen Onlinebrett gespielt.',
+  'Registration open': 'Anmeldung offen',
+  Running: 'Laufend',
+  Completed: 'Abgeschlossen',
+  Cancelled: 'Abgebrochen',
+  Upcoming: 'Bevorstehend',
+  'Upper bracket': 'Gewinnerrunde',
+  'Lower bracket': 'Verliererrunde',
+  'Grand final': 'Großes Finale',
+  'Bracket reset': 'Entscheidungsfinale',
+  Finals: 'Finalspiele',
+  'To be decided': 'Noch offen',
+  'Ready to play': 'Spielbereit',
+  Bye: 'Freilos',
+  'Under review': 'Wird geprüft',
+  'Decided by play': 'Durch Spielergebnisse entschieden',
+  'Higher seed advances after tied legs': 'Bei Gleichstand kommt die besser gesetzte Person weiter',
+  'Undefeated finalist advances after tied legs':
+    'Bei Gleichstand gewinnt die ungeschlagene Finalperson',
+  'Advances with a bye': 'Kommt durch ein Freilos weiter',
+  'Administrator decision': 'Administratorentscheidung',
+  'Create player tournament': 'Spielerturnier erstellen',
+  'Register for tournament': 'Zum Turnier anmelden',
+  'Withdraw registration': 'Anmeldung zurückziehen',
+  'Start tournament': 'Turnier starten',
+  'Cancel tournament': 'Turnier abbrechen',
+  'Rebuild bracket': 'Turnierbaum neu aufbauen',
+  'Override match result': 'Begegnungsergebnis festlegen',
+  'Player unavailable': 'Spieler nicht verfügbar',
+  '{bracket} · Round {round} · Match {match}': '{bracket} · Runde {round} · Begegnung {match}',
+  'Seed {seed}': 'Setzplatz {seed}',
+  'Winner of {match}': 'Gewinner aus {match}',
+  'Loser of {match}': 'Verlierer aus {match}',
+  Winner: 'Gewinner',
+  'Match games': 'Partien der Begegnung',
+  'Game {leg}': 'Partie {leg}',
+  'Won by {player}': 'Gewonnen von {player}',
+  Voided: 'Annulliert',
+  'Awaiting settlement': 'Auswertung ausstehend',
+  'Not started': 'Noch nicht begonnen',
+  'Round {round}': 'Runde {round}',
+  'No lower-bracket rounds are needed for this bracket size.':
+    'Für diese Turniergröße ist keine Verliererrunde erforderlich.',
+  'Scroll horizontally to explore the bracket. Solid paths follow winners; dashed paths follow lower-bracket entrants.':
+    'Scrolle seitwärts, um den Turnierbaum zu erkunden. Durchgezogene Linien zeigen Gewinnerpfade, gestrichelte Linien die Wege in die Verliererrunde.',
+  'Double-elimination bracket': 'Doppel-K.-o.-Turnierbaum',
+  'A reset is played only if the lower-bracket finalist wins the grand final.':
+    'Ein Entscheidungsfinale wird nur gespielt, wenn die Finalperson aus der Verliererrunde das große Finale gewinnt.',
+  'The tournament changed while loading. Refresh to see its latest bracket.':
+    'Das Turnier wurde während des Ladens geändert. Aktualisiere die Ansicht, um den aktuellen Turnierbaum zu sehen.',
+  'Enter a valid date and time.': 'Gib ein gültiges Datum und eine gültige Uhrzeit ein.',
+  'Each entrant must have a different seed.':
+    'Jede teilnehmende Person benötigt einen eigenen Setzplatz.',
+  'Player tournament created.': 'Spielerturnier erstellt.',
+  'Tournament updated.': 'Turnier aktualisiert.',
+  'All player tournaments': 'Alle Spielerturniere',
+  'Loading player tournaments…': 'Spielerturniere werden geladen…',
+  'Tournament data could not be refreshed. Displayed results may be out of date.':
+    'Die Turnierdaten konnten nicht aktualisiert werden. Angezeigte Ergebnisse sind möglicherweise veraltet.',
+  Refresh: 'Aktualisieren',
+  Status: 'Status',
+  'The next saga is still to come': 'Die nächste Saga wartet noch',
+  'No tournaments match these filters. Check back for registration, or explore online games while the community grows.':
+    'Kein Turnier entspricht diesen Filtern. Schau später nach neuen Anmeldungen oder entdecke Onlinepartien, während die Gemeinschaft wächst.',
+  'Open online lobby': 'Onlinelobby öffnen',
+  '{ruleset} · {count} / {capacity} entrants': '{ruleset} · {count} / {capacity} Teilnehmende',
+  'Planned start: {date}': 'Geplanter Beginn: {date}',
+  'Registration closes: {date}': 'Anmeldeschluss: {date}',
+  'Bracket under review': 'Turnierbaum wird geprüft',
+  'Champion: {player}': 'Turniersieg: {player}',
+  'Tournament pages': 'Turnierseiten',
+  'Previous page': 'Vorherige Seite',
+  'Next page': 'Nächste Seite',
+  Format: 'Format',
+  'Double elimination': 'Doppel-K.-o.',
+  'Games per match': 'Partien pro Begegnung',
+  'Time control': 'Bedenkzeit',
+  '{seconds} seconds per move': '{seconds} Sekunden pro Zug',
+  'An administrator starts the tournament after registration.':
+    'Ein Administrator startet das Turnier nach der Anmeldung.',
+  'Started: {date}': 'Begonnen: {date}',
+  'Completed: {date}': 'Abgeschlossen: {date}',
+  'Two match losses eliminate a player. Individual game losses do not. Match games alternate sides.':
+    'Nach zwei verlorenen Begegnungen scheidet eine Person aus. Einzelne verlorene Partien führen nicht zum Ausscheiden. Die Seiten wechseln zwischen den Partien einer Begegnung.',
+  'Verify your email before registering.': 'Bestätige vor der Anmeldung deine E-Mail-Adresse.',
+  'This bracket is under review after a result correction. Advancement is paused until an administrator rebuilds it.':
+    'Dieser Turnierbaum wird nach einer Ergebniskorrektur geprüft. Das Weiterkommen ist ausgesetzt, bis ein Administrator ihn neu aufbaut.',
+  Champion: 'Turniersieg',
+  'Tournament administration': 'Turnierverwaltung',
+  'Entrants and seeds': 'Teilnehmende und Setzplätze',
+  'No entrants yet. Be the first to register.':
+    'Noch keine Anmeldungen. Sei die erste teilnehmende Person.',
+  'Not seeded': 'Noch nicht gesetzt',
+  'Match losses: {count}': 'Verlorene Begegnungen: {count}',
+  Eliminated: 'Ausgeschieden',
+  'Tournament bracket': 'Turnierbaum',
+  'Bracket display': 'Turnierbaumansicht',
+  Bracket: 'Turnierbaum',
+  'Accessible match list': 'Barrierearme Begegnungsliste',
+  'Tournament name': 'Turniername',
+  'Maximum entrants': 'Maximale Teilnehmerzahl',
+  'Seconds per move': 'Sekunden pro Zug',
+  'Registration deadline (your local time, optional)': 'Anmeldeschluss (deine Ortszeit, optional)',
+  'Planned start (your local time, optional)': 'Geplanter Beginn (deine Ortszeit, optional)',
+  'Register your account for this competition? Games are played through the normal online board.':
+    'Dein Konto für diesen Wettbewerb anmelden? Die Partien werden auf dem normalen Onlinebrett gespielt.',
+  'Withdraw before the bracket is seeded? You may register again while registration remains open.':
+    'Anmeldung vor der Setzung zurückziehen? Solange die Anmeldung offen ist, kannst du dich erneut anmelden.',
+  'Review the seed order. Starting closes registration and creates official online games.':
+    'Prüfe die Setzreihenfolge. Der Start schließt die Anmeldung und erstellt offizielle Onlinepartien.',
+  'Active tournament games will be stopped. Completed results remain in history. Cancel this tournament?':
+    'Laufende Turnierpartien werden beendet. Abgeschlossene Ergebnisse bleiben im Verlauf erhalten. Dieses Turnier abbrechen?',
+  'Rebuild from official corrected results? Displaced active games will be stopped and previous overrides must be reviewed again.':
+    'Den Turnierbaum aus den korrigierten offiziellen Ergebnissen neu aufbauen? Nicht mehr passende laufende Partien werden beendet und bisherige Administratorentscheidungen müssen erneut geprüft werden.',
+  'Choose the official winner. Active games in this match will be stopped.':
+    'Wähle den offiziellen Gewinner. Laufende Partien dieser Begegnung werden beendet.',
+  'Match winner': 'Gewinner der Begegnung',
+  'Private administrator reason': 'Private Begründung des Administrators',
+  Back: 'Zurück',
+  'Earned tier: {tier} / {total} · threshold {threshold}':
+    'Verdiente Stufe: {tier} / {total} · Schwelle {threshold}',
+  '{percent}% complete · {count} / {total} milestones earned':
+    '{percent}% abgeschlossen · {count} / {total} Meilensteine verdient',
+  'New milestones: {count} · +{points} points': 'Neue Meilensteine: {count} · +{points} Punkte',
+  'New portraits available: {count}': 'Neue Porträts verfügbar: {count}',
+
+  'Rated online victories': 'Gewertete Online-Siege',
+  'Rated Brandubh victories': 'Gewertete Brandubh-Siege',
+  'Rated Tablut victories': 'Gewertete Tablut-Siege',
+  'Rated Copenhagen victories': 'Gewertete Copenhagen-Siege',
+  'Rated victories as Defender': 'Gewertete Siege als Verteidiger',
+  'Rated victories as Attacker': 'Gewertete Siege als Angreifer',
+  'Single-player victories against AI': 'Einzelspieler-Siege gegen KI',
+  'Replays analyzed': 'Analysierte Wiederholungen',
+  'Best rated win streak': 'Beste gewertete Siegesserie',
+  'Achievement Score — {earned} / {total} points':
+    'Errungenschaftspunkte — {earned} / {total} Punkte',
+  'Fully completed': 'Vollständig abgeschlossen',
+  'Recorded progress: {progress} · highest achieved: {threshold}':
+    'Erfasster Fortschritt: {progress} · höchste erreichte Schwelle: {threshold}',
+  'Next milestone: {target} · {points} points': 'Nächster Meilenstein: {target} · {points} Punkte',
+  'Milestone rewards': 'Meilenstein-Belohnungen',
+  '{points} points': '{points} Punkte',
+
   'Watch public games': 'Öffentliche Partien ansehen',
   'THE WATCH HALL': 'DIE ZUSCHAUERHALLE',
   'Every table tells a saga.': 'Jeder Tisch erzählt eine Saga.',
@@ -79,7 +273,6 @@ const translations: Record<string, string> = {
   'First move': 'Erster Zug',
   'Last move': 'Letzter Zug',
   'Move {current} of {total}': 'Zug {current} von {total}',
-  'Time control': 'Zeitkontrolle',
   'Total time': 'Gesamtzeit',
   'Per move': 'Pro Zug',
   '{seconds} seconds': '{seconds} Sekunden',
@@ -89,18 +282,14 @@ const translations: Record<string, string> = {
     'Lade die Seite erneut, um die aktuellen Anwendungsdateien zu laden.',
   'Your saga, your portrait': 'Deine Saga, dein Porträt',
   'Portrait hall': 'Porträthalle',
-  'Earn Viking portraits through your games. Every achievement is confirmed from official results.':
-    'Verdiene Wikingerporträts durch deine Spiele. Jede Errungenschaft wird anhand offizieller Ergebnisse bestätigt.',
+  'Earn Viking portraits through your games. Achievements unlock automatically from official results.':
+    'Verdiene Wikingerporträts durch deine Spiele. Errungenschaften werden anhand offizieller Ergebnisse automatisch freigeschaltet.',
   'Portraits unlocked: {count} / {total}': 'Freigeschaltete Porträts: {count} / {total}',
   'Loading your portraits…': 'Deine Porträts werden geladen…',
   'Portrait progress could not be refreshed. Displayed progress may be out of date.':
     'Der Porträtfortschritt konnte nicht aktualisiert werden. Die angezeigten Werte sind möglicherweise veraltet.',
-  'Eligible achievements: {count}': 'Bereit zum Freischalten: {count}',
-  'Confirming achievements…': 'Errungenschaften werden bestätigt…',
-  'Claim eligible achievements': 'Erfüllte Errungenschaften freischalten',
   'Portrait collection': 'Porträtsammlung',
   Locked: 'Gesperrt',
-  'Ready to claim': 'Bereit zum Freischalten',
   Unlocked: 'Freigeschaltet',
   Selected: 'Ausgewählt',
   'Always available.': 'Immer verfügbar.',
@@ -108,13 +297,11 @@ const translations: Record<string, string> = {
   'Select portrait: {name}': 'Porträt auswählen: {name}',
   'Selecting…': 'Wird ausgewählt…',
   'Use portrait': 'Porträt verwenden',
-  'Claim eligible achievements to unlock this portrait.':
-    'Schalte die erfüllten Errungenschaften frei, um dieses Porträt zu erhalten.',
   'Keep playing to complete this achievement.':
     'Spiele weiter, um diese Errungenschaft zu erfüllen.',
   Achievements: 'Errungenschaften',
-  'Confirmed achievements remain earned, even if a later result correction changes current progress.':
-    'Bestätigte Errungenschaften bleiben erhalten, auch wenn eine spätere Ergebniskorrektur den aktuellen Fortschritt verändert.',
+  'Earned achievements remain unlocked, even if a later result correction changes current progress.':
+    'Verdiente Errungenschaften bleiben freigeschaltet, auch wenn eine spätere Ergebniskorrektur den aktuellen Fortschritt verändert.',
   'Achievements unlocked: {count}': 'Errungenschaften freigeschaltet: {count}',
   'Portrait selected.': 'Porträt ausgewählt.',
   Shieldbearer: 'Schildträger',
