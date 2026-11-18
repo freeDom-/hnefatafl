@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import platform
 import secrets
+import signal
 import sqlite3
 import statistics
 import threading
@@ -199,8 +200,9 @@ def main(args):
             "HNEFATAFL_DATA_DIR": str(data),
             "HNEFATAFL_ENV": "development",
             "HNEFATAFL_ALLOWED_HOSTS": "127.0.0.1,localhost",
-            "OMP_NUM_THREADS": "1",
-            "MKL_NUM_THREADS": "1",
+            "OMP_NUM_THREADS": "2",
+            "MKL_NUM_THREADS": "2",
+            "OPENBLAS_NUM_THREADS": "2",
         }
         log = open(out / "server.log", "w")
         process = subprocess.Popen(
@@ -343,6 +345,7 @@ def main(args):
                     json={
                         "name": "Read benchmark bracket",
                         "ruleset": "brandubh",
+                        "match_mode": "simultaneous",
                         "capacity": args.users,
                         "time_per_move": 259200,
                     },
@@ -365,6 +368,7 @@ def main(args):
                     json={
                         "name": "Upcoming benchmark bracket",
                         "ruleset": "tablut",
+                        "match_mode": "simultaneous",
                         "capacity": args.users,
                         "time_per_move": 259200,
                     },
@@ -609,4 +613,10 @@ if __name__ == "__main__":
     if args.serve:
         serve(Path(args.source_root), Path(args.data_dir), args.port)
     else:
+        # Run under the shared flock and a timeout. Graceful cancellation still
+        # closes HTTP clients, terminates the API child and removes owned data.
+        def cancelled(_signum, _frame):
+            raise SystemExit("Benchmark cancelled")
+
+        signal.signal(signal.SIGTERM, cancelled)
         main(args)
