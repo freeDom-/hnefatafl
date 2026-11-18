@@ -54,7 +54,10 @@ increment. Queue entry is explicit, ruleset-aware and globally unique per accoun
 An account may have at most one active league game, across all rulesets. Joining,
 cancelling and matching are idempotent and serialized with authoritative online
 writes. Queue entries expire after ten minutes; cancellation does not cancel an
-already committed game. Return its official game link when matching wins the race.
+already committed game. Cancellation targets its original queue request, so a
+delayed retry cannot cancel a later entry. Return the official game link when
+matching wins the race. New request IDs are limited to ten per minute and one
+hundred per UTC day per account; exact retries do not consume this budget.
 
 Pair the oldest mutually compatible eligible entries. Both players must accept
 the rating window implied by their wait: initially 200 Elo, widening by 100 each

@@ -298,13 +298,18 @@ class OnlineCore:
         control: lifecycle.TimeControl,
         now: datetime,
         request_id: str,
+        rated: bool = False,
     ) -> str:
-        """Insert an active, unrated online game for a server-owned match.
+        """Insert an active online game in the caller's authoritative transaction.
 
-        Called only from the player-tournament write transaction, which already
-        holds the writer lock, so the game, its match and the bracket commit
-        together. Tournament games are casual: they never write rating events.
+        Tournament callers retain the unrated default. League callers explicitly
+        opt into existing rated authority, with both seats revalidated here.
         """
+        if rated:
+            for account_id in (creator_id, opponent_id):
+                account = c.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+                if not online_eligible(dict(account) if account else None):
+                    raise OnlineError(403, "Rated games require active, verified accounts.")
         match_id = "match-" + uuid4().hex
         c.execute(
             "INSERT INTO online_matches(id,creator_id,opponent_id,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,activated_at,first_creator_side,rated,time_control,increment_seconds) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -320,7 +325,7 @@ class OnlineCore:
                 micros(now),
                 micros(now),
                 creator_side,
-                0,
+                int(rated),
                 control.mode,
                 control.increment_seconds,
             ),
@@ -335,6 +340,8 @@ class OnlineCore:
         )
         game = lifecycle.join(game, lifecycle.Actor(opponent_id), now).game
         self._insert_game(c, game, request_id, match_id, 1, now, assigned_side=creator_side)
+        if rated:
+            self._capture_start_ratings(c, game, now)
         return game.id
 
     def void_game(
@@ -586,6 +593,12 @@ class OnlineCore:
                 SELECT m.tournament_id,? FROM player_tournament_legs l
                 JOIN player_tournament_matches m ON m.id=l.match_id WHERE l.game_id=?
                 ON CONFLICT(tournament_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
+                (micros(now), game.id),
+            )
+            c.execute(
+                """INSERT INTO league_settlement_queue(game_id,due_at)
+                SELECT game_id,? FROM league_games WHERE game_id=?
+                ON CONFLICT(game_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
                 (micros(now), game.id),
             )
         self._return_game(c, row, game, now)
