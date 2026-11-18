@@ -9,10 +9,16 @@ const checker = fileURLToPath(new URL('./check-bundle-budget.mjs', import.meta.u
 async function fixture(manifest, files, run) {
   const root = await mkdtemp(join(tmpdir(), 'hnefatafl-bundle-budget-'));
   try {
+    manifest.authenticated = {
+      name: 'AuthenticatedArena',
+      file: 'assets/authenticated.js',
+      imports: ['index.html'],
+    };
     await mkdir(join(root, '.vite'));
     await mkdir(join(root, 'assets'));
     await writeFile(join(root, '.vite', 'manifest.json'), JSON.stringify(manifest));
     await writeFile(join(root, 'assets/appearance-init.js'), '/* first paint */');
+    await writeFile(join(root, 'assets/authenticated.js'), 'auth');
     for (const [name, contents] of Object.entries(files))
       await writeFile(join(root, name), contents);
     await run(root);
@@ -46,11 +52,39 @@ test('counts transitive eager chunks once, includes first paint, and excludes op
       const measured = JSON.parse(result.stdout);
       assert.deepEqual(measured.javascript.files, [
         'assets/appearance-init.js',
+        'assets/authenticated.js',
         'assets/main.js',
         'assets/shared.js',
       ]);
-      assert.equal(measured.javascript.raw, '/* first paint */'.length + 3);
+      assert.equal(measured.javascript.raw, '/* first paint */'.length + 7);
       assert.equal(measured.css.raw, 6);
+    },
+  );
+});
+test('counts the route-selected authenticated graph even when it is a dynamic import', async () => {
+  await fixture(
+    { 'index.html': { file: 'assets/main.js', dynamicImports: ['authenticated'] } },
+    { 'assets/main.js': 'small' },
+    async (root) => {
+      await writeFile(join(root, 'assets/authenticated.js'), 'x'.repeat(600000));
+      const result = check(root);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /exceeds its measured budget/);
+    },
+  );
+});
+test('rejects a missing authenticated route instead of measuring only the tiny router', async () => {
+  await fixture(
+    { 'index.html': { file: 'assets/main.js' } },
+    { 'assets/main.js': 'small' },
+    async (root) => {
+      await writeFile(
+        join(root, '.vite/manifest.json'),
+        JSON.stringify({ 'index.html': { file: 'assets/main.js' } }),
+      );
+      const result = check(root);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /authenticated application entry/);
     },
   );
 });

@@ -71,3 +71,29 @@ identity and the complete asset fingerprint matched. Full branch CI is pending. 
 do not establish physical-device performance, merged cross-feature visual
 acceptance or release readiness. Separate tournament, spectator and league work
 is outside this branch.
+
+## Reviewed main integration, 18 November
+
+Merged main `0c5f270` into the existing branch without rewriting shared history.
+Preserved the newer progression provider, tiered achievements, human tournament
+scheduling, public entry isolation, polling and analysis-admission safeguards.
+The extracted analysis hook matches main's implementation exactly.
+
+Verified clean integrated runtime `7c48153` produced this
+[actual production request inventory](measurements/frontend-feature-network-integrated.json):
+565,320 bytes JavaScript / 180,407 gzip. The complete Dashboard eager CSS graph
+is 114,187 bytes / 23,803 gzip. These totals include the immediately selected
+AuthenticatedArena graph, shared shell chunk and first-paint script. The budget
+checker now explicitly counts that route-selected dynamic entry, with tests
+rejecting missing entries and oversized authenticated graphs. Public-only entry
+size is not substituted for authenticated Dashboard size. Earlier measurements
+above remain historical results against the original PR #84 baseline.
+
+Focused integration verification: TypeScript, 69 Vitest tests in three files,
+12 build-identity tests, six bundle-budget tests and documentation passed.
+Both previously CI-failing field-error browser cases passed (desktop and phone,
+22.6 seconds total) after using the existing initial-job readiness helper before
+reading disclosure state. Error text, focus, contrast and geometry checks remain.
+The production build and clean-source/fingerprint request probe passed. Full
+integrated CI is pending; the earlier run had 363 main browser cases pass and two
+field-readiness failures, so it is not recorded as green.

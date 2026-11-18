@@ -25,6 +25,17 @@ function walk(key) {
   for (const dependency of chunk.imports || []) walk(dependency);
 }
 walk(entry);
+// EntryRouter immediately imports the authenticated application for Dashboard.
+// Count that route's complete eager graph even though Vite marks it dynamic.
+// Other optional route features remain excluded until requested.
+if (entry === 'index.html') {
+  const authenticated = Object.entries(manifest).filter(
+    ([, chunk]) => chunk.name === 'AuthenticatedArena',
+  );
+  if (authenticated.length !== 1)
+    throw new Error('Expected exactly one authenticated application entry in the manifest.');
+  walk(authenticated[0][0]);
+}
 async function sizes(paths) {
   let raw = 0;
   let gzip = 0;
