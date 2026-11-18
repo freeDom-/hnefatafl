@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from './i18n';
 import type { Job, Model } from './types';
 import { jobGameCounts } from './trainingGameCounts';
@@ -16,6 +16,10 @@ export default function TrainingJobNavigator({
   onSelect: (job: Job) => void;
 }) {
   const { t, locale } = useI18n();
+  const navigatorRef = useRef<HTMLElement>(null);
+  const selectorRef = useRef<HTMLSelectElement>(null);
+  // Incremented only by Show selected job so background polls never move focus.
+  const [focusRequest, setFocusRequest] = useState(0);
   const [expanded, setExpanded] = useState(
     () => typeof matchMedia === 'undefined' || !matchMedia('(max-width: 900px)').matches,
   );
@@ -50,16 +54,38 @@ export default function TrainingJobNavigator({
       setStatus('all');
       setPage(Math.max(0, Math.floor(all.findIndex((job) => job.id === selected) / 20)));
     }
+    // Restore focus after the restored row/selector has rendered.
+    setFocusRequest((value) => value + 1);
   };
+  useEffect(() => {
+    if (!focusRequest) return;
+    const mobile = typeof matchMedia !== 'undefined' && matchMedia('(max-width: 900px)').matches;
+    const scope = navigatorRef.current;
+    let target: HTMLElement | null = null;
+    if (mobile) target = selectorRef.current;
+    else if (scope) {
+      const rows = Array.from(scope.querySelectorAll<HTMLButtonElement>('.job-row[data-job-id]'));
+      target =
+        rows.find((row) => row.dataset.jobId === selected) ??
+        scope.querySelector<HTMLButtonElement>('.job-row[data-job-id]');
+    }
+    // A job can vanish between activation and rendering; do not steal focus then.
+    if (!target) return;
+    target.focus();
+    target.scrollIntoView?.({ block: 'nearest' });
+    // Only an explicit Show selected job request should move focus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest]);
   const formatGames = (games: number | undefined) =>
     games === undefined
       ? t('Not recorded')
       : t(games === 1 ? '{count} game' : '{count} games', { count: games.toLocaleString(locale) });
   return (
-    <nav className="training-job-navigator" aria-label={t('Training jobs')}>
+    <nav ref={navigatorRef} className="training-job-navigator" aria-label={t('Training jobs')}>
       <label className="mobile-job-selector">
         {t('Selected job')}
         <select
+          ref={selectorRef}
           aria-label={t('Selected job')}
           value={selected ?? ''}
           onChange={(event) => {

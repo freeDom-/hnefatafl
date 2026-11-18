@@ -150,6 +150,8 @@ test.describe('Workshop visual acceptance', () => {
       await show.focus();
       await page.keyboard.press('Enter');
       await expect(nav.locator('[data-job-id="page-056"]')).toHaveAttribute('aria-current', 'true');
+      // The disappearing Show button hands keyboard focus to the restored row.
+      await expect(nav.locator('[data-job-id="page-056"]')).toBeFocused();
       await page
         .getByRole('navigation', { name: 'Workshop tasks' })
         .getByRole('link', { name: 'Model collection' })
@@ -367,6 +369,30 @@ test.describe('Interactive Workshop visual acceptance', () => {
       }
     }
   }
+});
+
+test.describe('Workshop mobile focus restoration', () => {
+  test.skip(
+    ({ isMobile }) => !isMobile,
+    'The native selector only replaces the job rows on the mobile presentation.',
+  );
+  test('Show selected job transfers focus to the visible native selector', async ({ page }) => {
+    await prepare(page, 'kings-table', 'en', true);
+    await page.goto('/training');
+    const nav = page.locator('.training-job-navigator');
+    const selector = nav.locator('.mobile-job-selector select');
+    await expect(selector).toBeVisible();
+    await expect(nav.locator('.jobs-list')).toBeHidden();
+    await expect(selector).toHaveValue('page-000');
+    await nav.getByRole('button', { name: 'Next job page' }).click();
+    const show = nav.getByRole('button', { name: 'Show selected job' });
+    await expect(show).toBeVisible();
+    await show.focus();
+    await page.keyboard.press('Enter');
+    await expect(selector).toHaveValue('page-000');
+    await expect(selector).toBeFocused();
+    await expect(show).toHaveCount(0);
+  });
 });
 
 test('Workshop task and shell links reopen sections and navigate across routes without reloading', async ({

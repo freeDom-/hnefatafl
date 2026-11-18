@@ -52,6 +52,48 @@ Exact complete-suite results and any remaining limitations are recorded on
 [PR #92](https://github.com/freeDom-/hnefatafl/pull/92). The records below describe
 the original PR validation before this follow-up, rather than current CI results.
 
+## Final focus-restoration corrections
+
+Show selected job now transfers keyboard focus after the restored view renders:
+on desktop to the selected job row, on mobile to the visible native job selector.
+The responsive branch reuses the existing `(max-width: 900px)` layout query rather
+than adding a second breakpoint. Focus is requested only by the explicit button
+activation, so background polling, filtering/sorting, ordinary navigation and
+unrelated rerenders do not move it. A single bounded scan over the 20 rendered
+rows finds the row; no hidden row copies, extra requests or polling effects are
+added. If the selected job disappears between activation and rendering, focus is
+left untouched instead of throwing or landing on a removed node.
+`scrollIntoView({ block: 'nearest' })` keeps the restored row reachable in the
+scrollable list. The selected job, dashboard tab, iteration range and training
+history are unchanged; restoration does not call `onSelect` or refetch detail data.
+
+Focused validation on the corrected head:
+
+| Check | Result |
+| --- | --- |
+| `TrainingJobNavigator` unit suite | 21 passed |
+| Workshop DOM benchmark | 1 passed; 20 rows / 21 options / 191 descendants preserved |
+| Frontend TypeScript (`tsc --noEmit`) | passed |
+| Prettier check on changed files | passed |
+
+The browser regression adds a desktop assertion that the restored row is focused
+and a mobile-project assertion that the native selector is focused. Full CI results
+on the final head are recorded on PR #92.
+
+Compatibility limits: the automated matrix remains Chromium. Safari/WebKit and
+physical-device verification were not performed, and the explicit viewport widths
+are not real 200% browser zoom. These remain unverified rather than claimed.
+
+### Outstanding security integration
+
+The `security` job fails only because the registry now reports zero findings while
+the reviewed `GHSA-fc5q-39xc-vjpf` acceptance is still present; the fail-closed gate
+correctly rejects the unused exception. This is fixed by the independent security PR
+targeting main, not by changing audit governance or the exception file in this PR.
+Until that PR is reviewed and merged, the latest `origin/main` (and therefore the
+security fix) cannot be integrated here, and the security gate stays red. No
+dependency, threshold or governance change is made in this branch.
+
 ## Measured rendering
 
 Identical 1,000 job summaries, no filter or selection, React/jsdom render:

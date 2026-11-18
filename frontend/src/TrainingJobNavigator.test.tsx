@@ -13,7 +13,17 @@ const jobs: Job[] = Array.from({ length: 57 }, (_, i) => ({
   progress: { iteration: i },
 }));
 beforeEach(() => setLanguage('en', false));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+function stubMobileLayout(mobile: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('max-width: 900px') && mobile,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+}
 function rows() {
   return Array.from(document.querySelectorAll<HTMLButtonElement>('.job-row'));
 }
@@ -110,8 +120,61 @@ it('keeps the selected job accessible off-page and restores its page using the k
   const restore = screen.getByRole('button', { name: 'Show selected job' });
   restore.focus();
   await user.keyboard('{Enter}');
-  expect(document.querySelector('[data-job-id="job-056"]')).toHaveAttribute('aria-current', 'true');
+  const restored = document.querySelector('[data-job-id="job-056"]') as HTMLElement;
+  expect(restored).toHaveAttribute('aria-current', 'true');
+  expect(restored).toHaveFocus();
   expect(screen.queryByRole('button', { name: 'Show selected job' })).not.toBeInTheDocument();
+});
+it('transfers focus to the visible native selector on mobile activation', async () => {
+  stubMobileLayout(true);
+  const user = userEvent.setup();
+  render(<TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Previous job page' }));
+  const restore = screen.getByRole('button', { name: 'Show selected job' });
+  restore.focus();
+  await user.keyboard('{Enter}');
+  expect(screen.getByLabelText('Selected job')).toHaveFocus();
+});
+it('restores focus for a selected job excluded by the active filters', () => {
+  const onSelect = vi.fn();
+  render(<TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={onSelect} />);
+  fireEvent.change(screen.getByLabelText('Search jobs'), { target: { value: 'Strategist 007' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Show selected job' }));
+  expect(screen.getByLabelText('Search jobs')).toHaveValue('');
+  expect(document.querySelector('[data-job-id="job-056"]')).toHaveFocus();
+  expect(screen.getByLabelText('Selected job')).toHaveValue('job-056');
+  expect(onSelect).not.toHaveBeenCalled();
+});
+it('does not move focus during routine polling or unrelated rerenders', () => {
+  const { rerender } = render(
+    <TrainingJobNavigator jobs={jobs} selected="job-000" models={[]} onSelect={vi.fn()} />,
+  );
+  const row = document.querySelector('[data-job-id="job-000"]') as HTMLElement;
+  row.focus();
+  const polled = jobs.map((job) => ({ ...job, progress: { iteration: 200 } }));
+  rerender(
+    <TrainingJobNavigator jobs={polled} selected="job-000" models={[]} onSelect={vi.fn()} />,
+  );
+  expect(row).toHaveFocus();
+  expect(screen.getByLabelText('Selected job')).not.toHaveFocus();
+});
+it('restores focus on every repeated Show selected job activation', async () => {
+  const user = userEvent.setup();
+  render(<TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={vi.fn()} />);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    fireEvent.click(screen.getByRole('button', { name: 'Previous job page' }));
+    const restore = screen.getByRole('button', { name: 'Show selected job' });
+    restore.focus();
+    await user.keyboard('{Enter}');
+    expect(document.querySelector('[data-job-id="job-056"]')).toHaveFocus();
+  }
+});
+it('renders safely when the selected job is no longer present', () => {
+  render(
+    <TrainingJobNavigator jobs={jobs} selected="missing-job" models={[]} onSelect={vi.fn()} />,
+  );
+  expect(screen.queryByRole('button', { name: 'Show selected job' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Selected job')).toHaveValue('missing-job');
 });
 it('restores selected jobs excluded by filters without mutating selection', () => {
   const onSelect = vi.fn();
