@@ -189,6 +189,29 @@ verification/token/mail/limiter state without reassigning owners; run the
 before a separately authorized upgrade. No production migration is implied by
 development validation.
 
+Schema 19 adds the player-tournament settlement outbox and optional planned start
+column. Schema 20 adds indexed persistent due starts and sanitized retry state,
+creator quota indexes, clock/increment fields and explicit match modes. Historical
+1–5-leg tournaments default to legacy parallel behavior without rewriting games.
+Registration-phase planned tournaments are queued once during migration: overdue
+full cups may start as soon as the worker runs. Unfilled cups stay open (subject
+to their deadline) for creator/admin start. No external cron or browser is needed.
+The upgrade is additive; it does not remove games, training history, checkpoints or
+models. The lifespan worker resumes committed bracket work without a browser and
+reconciles terminal result revisions once at startup. Retained tournament and queue
+tables participate in the same stopped-writer backup/restore boundary as their
+online games; automatic restore requires matching current schemas. Preserve and
+test a backup before upgrading. See [player tournaments](PLAYER_TOURNAMENTS.md).
+
+New player-tournament creation requires explicit `sequential` or `simultaneous`
+mode and always stores two side-swapped games. Update API clients to omit
+`match_legs`; missing/null modes, `single` and supplied legacy counts now return
+422. This contract refinement leaves schema 20 and existing single/1–5-leg data
+unchanged. Full future-scheduled tournaments reject early creator starts;
+administrators can override. An active bootstrapped administrator retains creation
+and management permissions before email verification. No new frontend dependency
+is required for the compact calendar or lazy tournament route.
+
 Schema 13 includes configurable online clocks alongside the
 [durable online core](ONLINE.md), the
 [rated-game/leaderboard pool](RATINGS.md) and immutable per-game start-rating
@@ -343,7 +366,7 @@ sessions are invalidated and restored worker credentials are revoked. Re-login
 and re-enroll workers. A changed/incompatible account schema requires explicit
 manual recovery; the updater refuses to overwrite security state blindly.
 
-With matching overall schema 15, recovery retains current live authoritative online
+With matching current overall schemas, recovery retains live authoritative online
 matches, games, moves/results, audit, rating history and start-rating snapshots, then pauses the timeout
 gate with an audit entry. It does not rewind accepted online play to the snapshot. A changed
 online schema/column set refuses automatic root replacement, even when account

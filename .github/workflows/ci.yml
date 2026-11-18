@@ -80,6 +80,9 @@ jobs:
           name: arena-final-visual-acceptance
           path: |
             frontend/test-results/arena-final/
+            frontend/test-results/player-tournaments/
+            frontend/test-results/player-tournaments-calendar/
+            frontend/test-results/player-tournaments-compact-calendar/
             frontend/test-results/portraits/
             frontend/test-results/achievement-tiers/
           retention-days: 14

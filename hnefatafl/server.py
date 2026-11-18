@@ -417,6 +417,10 @@ def create_app(
     from .player_tournament_api import attach_player_tournaments
 
     attach_player_tournaments(app, auth, online)
+    from .player_tournament_settlement import TournamentSettlement
+
+    tournament_settlement = TournamentSettlement(app.state.player_tournaments)
+    app.state.tournament_settlement = tournament_settlement
     from .progression_api import attach_progression
 
     attach_progression(app, online)
@@ -448,9 +452,12 @@ def create_app(
         if online_background:
             await asyncio.to_thread(online.sweep)
             online.start()
+            await asyncio.to_thread(tournament_settlement.recover)
+            tournament_settlement.start()
         try:
             yield
         finally:
+            await asyncio.to_thread(tournament_settlement.shutdown)
             await asyncio.to_thread(online.shutdown)
             await asyncio.to_thread(registration.shutdown)
         await asyncio.to_thread(tournaments.shutdown)

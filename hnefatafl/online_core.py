@@ -579,6 +579,15 @@ class OnlineCore:
                     RATED_CRITERIA,
                     streak_tails=streak_tails,
                 )
+            # Durable outbox in the same transaction as the authoritative result.
+            # The unique leg game index avoids scanning unrelated tournaments.
+            c.execute(
+                """INSERT INTO player_tournament_settlement_queue(tournament_id,due_at)
+                SELECT m.tournament_id,? FROM player_tournament_legs l
+                JOIN player_tournament_matches m ON m.id=l.match_id WHERE l.game_id=?
+                ON CONFLICT(tournament_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
+                (micros(now), game.id),
+            )
         self._return_game(c, row, game, now)
         if actor is not None:
             c.execute(

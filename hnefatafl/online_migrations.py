@@ -37,6 +37,7 @@ ONLINE_TABLES = (
     "player_tournament_matches",
     "player_tournament_legs",
     "player_tournament_audit",
+    "player_tournament_settlement_queue",
 )
 APPEND_ONLY = (
     "replay_analysis_completions",
@@ -251,6 +252,7 @@ def migrate_online(c: sqlite3.Connection) -> None:
                OR status='cancelled')
         )""",
         "CREATE INDEX IF NOT EXISTS player_tournaments_status ON player_tournaments(status,created_at DESC,id)",
+        "CREATE INDEX IF NOT EXISTS player_tournaments_ruleset ON player_tournaments(ruleset,created_at DESC,id)",
         """CREATE TABLE IF NOT EXISTS player_tournament_entrants (
             tournament_id TEXT NOT NULL REFERENCES player_tournaments(id),
             account_id TEXT NOT NULL REFERENCES accounts(id),
@@ -313,9 +315,52 @@ def migrate_online(c: sqlite3.Connection) -> None:
             at BLOB NOT NULL CHECK(typeof(at)='integer')
         )""",
         "CREATE INDEX IF NOT EXISTS player_tournament_audit_order ON player_tournament_audit(tournament_id,id)",
+        """CREATE TABLE IF NOT EXISTS player_tournament_settlement_queue (
+            tournament_id TEXT PRIMARY KEY REFERENCES player_tournaments(id) ON DELETE CASCADE,
+            due_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+            last_error TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS player_tournament_settlement_due ON player_tournament_settlement_queue(due_at,tournament_id)",
     )
     for statement in statements:
         c.execute(statement)
+    tournament_columns = {row[1] for row in c.execute("PRAGMA table_info(player_tournaments)")}
+    if "scheduled_start_at" not in tournament_columns:
+        c.execute("ALTER TABLE player_tournaments ADD COLUMN scheduled_start_at INTEGER")
+    # Schema 20 keeps historical leg counts and parallel play unchanged. New
+    # competitions explicitly select a mode; due work is retained on restore.
+    for name, definition in (
+        (
+            "match_mode",
+            "TEXT NOT NULL DEFAULT 'legacy' CHECK(match_mode IN ('legacy','single','sequential','simultaneous'))",
+        ),
+        (
+            "time_control",
+            "TEXT NOT NULL DEFAULT 'per_move' CHECK(time_control IN ('per_move','total'))",
+        ),
+        (
+            "increment_seconds",
+            "BLOB NOT NULL DEFAULT 0 CHECK(typeof(increment_seconds)='integer' AND increment_seconds BETWEEN 0 AND 1209600)",
+        ),
+        ("start_due_at", "INTEGER"),
+        ("start_attempts", "INTEGER NOT NULL DEFAULT 0 CHECK(start_attempts>=0)"),
+        ("start_error", "TEXT"),
+    ):
+        if name not in tournament_columns:
+            c.execute(f"ALTER TABLE player_tournaments ADD COLUMN {name} {definition}")
+            if name == "start_due_at":
+                c.execute(
+                    "UPDATE player_tournaments SET start_due_at=scheduled_start_at WHERE status='registration'"
+                )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS player_tournaments_start_due ON player_tournaments(start_due_at,id) WHERE status='registration' AND start_due_at IS NOT NULL"
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS player_tournaments_creator ON player_tournaments(created_by,created_at,status)"
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS player_tournament_entrants_registered ON player_tournament_entrants(tournament_id,status,registered_at,account_id)"
+    )
     # The authoritative rated/casual flag is a match-level creation property. It
     # is added to existing schema-10 databases in place; online_games.rated_intent
     # remains a legacy always-zero placeholder so no table rebuild is required.

@@ -3,7 +3,9 @@
 [Documentation index](README.md) · [Online play](ONLINE_PLAY.md) · [Rated games](RATINGS.md)
 
 Human player competitions live under `/api/player-tournaments/*` and are stored
-in their own schema-18 tables. They are deliberately **separate** from the
+in their own tournament tables. Schema 20 adds persistent scheduled starts,
+creator admission, clock configuration and explicit match modes. They are
+deliberately **separate** from the
 workshop [AI tournaments](TOURNAMENTS.md) (`/api/tournaments/*`, the
 `tournaments` table, model strength comparisons). Neither namespace reads or
 writes the other's storage, and neither can grant the other's entitlements.
@@ -13,16 +15,18 @@ writes the other's storage, and neither can grant the other's entitlements.
 - **Format:** double elimination only.
 - **Elimination:** a participant is out after **two match losses**, never after
   one lost leg.
-- **Match format:** each match is a series of `match_legs` games (1–5,
-  side-swapped, so the first participant attacks in odd legs and defends in even
-  legs). Every leg is a real authoritative online game.
+- **Match format:** new tournaments require two side-swapped games, either
+  `sequential` (the form default) or `simultaneous`. Each game receives its own
+  clock allocation; advancement waits for both results. Historical `single`
+  tournaments and `legacy` configurations with 1–5 parallel legs retain their
+  execution behavior, stored modes and recorded outcomes.
 - **Grand final reset:** if the lower-bracket finalist wins the first grand
   final, a bracket-reset match is played between the same two participants and
   decides the champion.
 - **No random winner:** every unresolved outcome is decided by an explicit rule
   (below). A random winner is never generated.
 - **Rating isolation:** tournament games are casual (`rated = false`) and never
-  write `rating_events` or Elo applications.
+  write `rating_events`, Elo applications or rated-only achievement credit.
 
 ## Tie and draw handling
 
@@ -88,13 +92,117 @@ legs materialised) → `complete`, or `bye` (a participant is missing), or
 
 Leg outcome: `a`, `b`, `draw`, `void`, or unset while the game is unfinished.
 
+## Arena interface
+
+`/player-tournaments` is the human competition section, linked from the Arena
+Compete sidebar and the full leaderboard on compact screens. The Workshop's
+`/tournaments` remains AI evaluation. Discovery supports bounded cursor pages,
+status, ruleset and planned upcoming filters. Details expose real participants,
+seeding, losses, rules and clocks, champion, playable online legs and results.
+Clock summaries use the shared days/hours/minutes/seconds formatter, preserving
+historical second precision, and show the time-control type, increment and mode.
+The upper/lower bracket, grand final and reset have source-based progression paths,
+horizontal touch scrolling and an accessible list alternative. Registration and
+withdrawal use server authority. Details return account-specific capabilities;
+creators see their start control when the server permits it, and administrators
+retain moderation controls. The route and calendar load on tournament navigation,
+using the existing lazy-route/Suspense pattern.
+
+## Scheduling and creator permissions
+
+Active, verified accounts can create at most three active tournaments and five
+in any rolling 24-hour window. Counts come from persisted rows, including
+cancelled tournaments in the daily budget. Administrators bypass these quotas.
+An active administrator created through `init-admin` can create and manage
+tournaments before email verification; ordinary accounts still require verification.
+Names reject empty values, control characters and bidi formatting controls.
+Creation never grants global Workshop or account-management permissions.
+
+The stored creator can manually start their own registration-phase tournament
+with at least two eligible entrants. A full tournament with a future planned
+start must wait; its creator cannot start it early. An unfilled tournament may
+start early with at least two entrants. Administrators can explicitly override
+the planned time. The same policy controls both capabilities and mutations. Starting
+closes registration and freezes deterministic registration-time/account-ID seeds,
+or a reviewed custom seed list. Registration and withdrawal increment the
+version; repeated successful registration is a no-op. A changed entrant set
+makes reviewed creator/admin starts and custom seed submissions return HTTP 409.
+
+An optional future planned instant is stored as UTC microseconds. The persistent
+worker starts a full tournament at or after that instant without any browser,
+client polling or administrator session. If unfilled, it remains in registration
+for a manual creator/admin start with at least two entrants. A later registration
+that fills it re-arms the due row (if registration is still open). Fullness before
+the planned instant never starts it early. Optional registration deadlines must
+be future instants no later than the planned start; without a deadline,
+registration can fill after the planned instant.
+
+The partial due index excludes historical and consumed/unfilled starts. Each
+bounded worker pass samples server time after acquiring the deployment gate and
+`BEGIN IMMEDIATE`, then shares exactly the same internal start operation as
+manual requests. Seeds, bracket, games, start audit and due-row consumption commit
+atomically. Concurrent workers, creator starts and administrator starts cannot
+produce duplicate games. The audit records `source=automatic`, `creator` or
+`administrator`; automatic events have no account actor.
+
+Due work survives shutdown, downtime and compatible restore. Failed starts roll
+back fully, retain a sanitized failure code, and retry with exponential backoff
+capped at 300 seconds. Disabled/unverified entrants defer a start until they are
+eligible again or an administrator resolves the registration. Logs and public
+projections never contain private exception payloads or administrator notes.
+
+Both optional scheduling fields use compact adjacent date/time controls. Activating
+the date field or its integrated calendar icon opens a themed, anchored React
+DayPicker popup. It occupies the native top layer while remaining a DOM descendant
+of the existing Modal, escaping the scrolling container without expanding it.
+Positioning follows the visual viewport; the calendar stays within its bounds.
+Selection, outside clicks and Escape dismiss the popup; keyboard selection and
+Escape return focus to the date field. A labelled inline clear icon supports
+keyboard use, and one compact timezone hint serves the form. The date and time
+inputs use the numeric mobile keyboard and insert `YYYY-MM-DD`/`HH:MM` separators
+from digits, while manually typed separators remain valid. On touch screens a tap
+on the date field enters text normally; the calendar icon opens the popup.
+Date/time errors appear beside their field. Manual entry, retained UTC precision,
+DST-gap rejection and both repeated-hour occurrences are preserved. English/German
+labels and existing theme tokens apply on mobile and desktop.
+
 ## Advancing from authoritative games
 
-When a match becomes ready, the service creates its `match_legs` games through
-the online core inside the same transaction and records the returned `game_id`.
+When a match becomes ready, the service seats games through the online core
+inside the same transaction and records each returned `game_id`. Parallel modes
+seat both immediately, each with an independent clock. Sequential mode creates
+only game one initially. Its terminal result enqueues advancement, which creates
+the side-swapped return game with a fresh authoritative clock. A restart between
+games resumes through the persistent outbox and startup reconciliation. Pending
+return games have no playable game ID and are shown as pending. A match settles
+only when its complete configured set of games has terminal results.
+
+Both per-move and total-player clocks use `lifecycle.TimeControl`, the existing
+integer-second base/increment bounds (60–1209600 base; 0–1209600 increment),
+move accounting, timeout worker, persistence and replay. The UI accepts days,
+hours and minutes, with an optional seconds increment for total-player clocks.
+There is no separate tournament clock calculation.
 Participants then play those games through the normal online endpoints, so
 clocks, deadlines, timeouts, concessions, moves and privacy behave exactly as in
 ordinary online play.
+
+Each committed result or result revision enqueues its affected tournament in the
+same SQLite transaction, deduplicated by tournament ID using the indexed leg game
+lookup. A server lifespan worker drains at most 20 due tournaments each second,
+serializing each advancement and queue deletion in one write transaction. No
+browser or manual settlement request is needed. Timeout results use the same path.
+A one-time startup reconciliation finds pre-worker/restored terminal revisions.
+
+Failed transactions remain queued across restart, with bounded exponential retries
+(up to 300 seconds). Logs and retry status contain no private exception payloads.
+Successful automatic settlement records a null system actor in the audit trail.
+Disputes retain the existing bracket freeze and require administrator rebuild;
+automatic settlement never impersonates an administrator to retire displaced games.
+The settlement endpoint preserves an HTTP-compatible detail response for
+ordinary players using a read transaction only. Administrator retries advance
+only when an outbox entry exists and consume that entry atomically. No-op calls
+cannot repeatedly traverse a bracket under the write lock. The queue's due index avoids periodic full
+history scans. Shutdown stops between tournament transactions.
 
 Settlement reads the authoritative `online_games.status` and the effective
 `online_results` revision:
@@ -106,14 +214,6 @@ Settlement reads the authoritative `online_games.status` and the effective
 Settlement and advancement are idempotent. Calling `settle` repeatedly commits no
 additional matches, legs or games, and concurrent completions are serialized by
 the same `BEGIN IMMEDIATE` writer transaction the online core uses.
-
-## Automatic advancement limitation
-
-At the post-PR #84 baseline, bracket advancement requires an explicit `settle`,
-start or moderation service/API call. Online completion and timeout commit official
-results, but no background tournament worker consumes them. A browser-free reliable
-settlement path is still missing; see the [completion plan](designs/arena-completion.md#tournament-reliability-contract-before-ui-completion).
-The existing timeout tests do not establish automatic bracket progression.
 
 ## Corrections, disputes and rebuilds
 
@@ -155,13 +255,14 @@ retired the same way.
 All routes require an authenticated session. Reads are available to any account
 with `play`; moderation requires the administrator-only `tournaments` permission
 and the audit read requires `accounts`. Every response exposes published fields
-only: display name and username, never email addresses, session state, private
-notes or another account's private profile.
+only: display name, username and selected portrait ID, never email addresses, session state, private
+notes or another account's private profile. The creator account ID is public;
+capabilities are derived for the current authenticated viewer.
 
 | Method | Route | Permission | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/player-tournaments` | play | Cursor-paged list; optional `status` filter |
-| `POST` | `/api/player-tournaments` | tournaments | Create a tournament |
+| `GET` | `/api/player-tournaments` | play | Cursor-paged list; optional `status`, `ruleset`, `phase=upcoming` filters |
+| `POST` | `/api/player-tournaments` | verified play / administrator | Create within per-account quotas (administrators exempt) |
 | `GET` | `/api/player-tournaments/{id}` | play | Detail with entrants and match counts |
 | `GET` | `/api/player-tournaments/{id}/bracket` | play | Upper/lower rounds, grand final and reset |
 | `GET` | `/api/player-tournaments/{id}/matches` | play | Cursor-paged match projections |
@@ -169,22 +270,30 @@ notes or another account's private profile.
 | `GET` | `/api/player-tournaments/{id}/audit` | accounts | Role-aware audit trail (administrator) |
 | `POST` | `/api/player-tournaments/{id}/register` | play | Register the current account (idempotent) |
 | `POST` | `/api/player-tournaments/{id}/withdraw` | play | Withdraw before the start |
-| `POST` | `/api/player-tournaments/{id}/settle` | play | Settle and advance from authoritative results |
-| `POST` | `/api/player-tournaments/{id}/start` | tournaments | Seed the bracket and start |
+| `POST` | `/api/player-tournaments/{id}/settle` | play | Read detail; administrators can retry pending outbox work |
+| `POST` | `/api/player-tournaments/{id}/start` | creator / tournaments | Seed the bracket and start |
 | `POST` | `/api/player-tournaments/{id}/cancel` | tournaments | Cancel a tournament |
 | `POST` | `/api/player-tournaments/{id}/rebuild` | tournaments | Re-derive a disputed bracket |
 | `POST` | `/api/player-tournaments/{id}/matches/{match_id}/override` | tournaments | Force a ready match winner |
 
-Administrative mutations take the tournament `version` from the last read and
-return `409` when it is stale. List endpoints use opaque cursor pagination
+Creator start and administrative mutations take the tournament `version` from the last read and
+return `409` when it is stale. Creation quotas return `429`. List endpoints use opaque cursor pagination
 (`items`, `next_cursor`) and never omit list fields on an empty page.
 
 ### Request bodies
 
 ```json
-{ "name": "Spring cup", "ruleset": "brandubh", "capacity": 8, "match_legs": 1,
-  "time_per_move": 259200, "registration_deadline": "2027-02-01T18:00:00Z" }
+{ "name": "Spring cup", "ruleset": "brandubh", "capacity": 8, "match_mode": "sequential",
+  "time_per_move": 259200, "time_control": "total", "increment_seconds": 30,
+  "scheduled_start_at": "2028-02-01T19:00:00Z",
+  "registration_deadline": "2028-02-01T18:00:00Z" }
 ```
+
+Creation requires an explicit `match_mode` of `sequential` or `simultaneous`.
+Missing/null modes, `single`, `legacy`, and every supplied `match_legs` value
+(including `2` or `null`) return `422`. The server stores exactly two games.
+Ordinary online-game creation still supports `single`. Existing tournament
+records with historical modes/counts remain readable and playable.
 
 `POST /start` accepts an optional `seeds` array that must list every registered
 entrant exactly once; otherwise registration order is used. `POST /rebuild` and
@@ -196,23 +305,31 @@ requires a `winner` that is one of the match participants.
 `404` for missing records, `409` for state or version conflicts (registration
 closed, tournament full, stale version, disputed match), `422` for validation
 failures, `403` for missing permission and `401` for a missing session.
+A creator's early start of a full scheduled tournament also returns `409` without
+creating games or changing the tournament version.
 
 ## Schema
 
-Schema 18 adds `player_tournaments`, `player_tournament_entrants`,
-`player_tournament_matches`, `player_tournament_legs` and
-`player_tournament_audit`. This branch also carries schema 17 (the Arena v2
-progression tables merged from PR #78), so the schema versions are monotonic
-(16 → 17 → 18) and neither is skipped. The audit table is append-only
-and every participant-visible mutation records an actor. The tournament tables
-participate in the online restore/retain boundary, so a restore keeps bracket
-state consistent with the online games it references.
+Schema 18 introduced the tournament, entrant, match, leg and append-only audit
+tables. Schema 19 adds `player_tournament_settlement_queue` and nullable
+`scheduled_start_at`. This additive upgrade preserves games, training jobs,
+checkpoints and models. Queue entries participate in the online restore/retain
+boundary, keeping bracket work consistent with the retained authoritative games.
+Schema 20 adds nullable due-start/retry fields, clock fields and a `match_mode`
+column defaulting to `legacy`, with supporting indexes. Existing game rows, leg
+counts, brackets and results are not rewritten. Existing registration-phase
+scheduled tournaments are queued once on upgrade, including overdue full cups.
+The refinement of the creation contract requires no further schema change or
+data rewrite: schema 20 continues to execute stored `single` and 1–5-leg legacy
+records. Clients creating new tournaments must send a supported explicit mode
+and omit `match_legs`. Fresh installations initialize the same schema. Keep a backup before upgrading;
+restore compatibility still requires matching schemas.
 
 ## Limitations
 
-- Exact per-match clock policy, side-swap order and leg counts are tournament
-  settings, not a fixed product decision; the grand-final reset and two-loss
-  elimination invariants are fixed.
+- New tournaments always have two side-swapped games per match. Clock allocation
+  and sequential/simultaneous execution are selected at creation; historical
+  configurations retain their original counts and execution.
 - A tournament game that is never finished keeps its match ready until the
   online clock expires or an administrator overrides it.
 - Rebuilding after a dispute clears administrative overrides.

@@ -12,10 +12,12 @@ The [post-PR #84 audit](docs/designs/arena-completion.md) is a historical snapsh
 At that baseline, Portrait Hall, signed-out spectator UI and human tournament UI
 were missing, tournament settlement was manually invoked and leagues were not
 implemented; schema is 18. Later work ships separately: Portrait Hall and portrait
-selection originated in PR #86, automatic progression is delivered in PR #94, and
-the signed-out public spectator frontend is delivered by PR #87. Automatic
-tournament settlement, leagues, Workshop consolidation and local-analysis
-research remain separate workstreams. See the [current Arena contracts](docs/designs/arena-v2-contracts.md)
+selection originated in PR #86, automatic progression is delivered in PR #94, the
+signed-out public spectator frontend is delivered in PR #87, and PR #90 supplies
+the human tournament UI, durable settlement and indexed scheduled starts, creator
+ownership and quotas, shared online clocks, and sequential/parallel matches.
+Leagues, Workshop consolidation and local-analysis research remain separate
+workstreams. See the [current Arena contracts](docs/designs/arena-v2-contracts.md)
 and [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
 remove obsolete formats after a tested development-data recovery path; it must not
 silently delete games, jobs, checkpoints or model files.
@@ -60,6 +62,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [progression.py](hnefatafl/progression.py), [progression_api.py](hnefatafl/progression_api.py) | Code-owned tier/portrait catalogs, points derived from permanent awards, account-scoped replay-analysis receipts (schema 20), transactional automatic awards (schema 21) and CSRF-protected portrait selection |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py), [tournament_statistics.py](hnefatafl/tournament_statistics.py), [openings.py](hnefatafl/openings.py) | Separate tournament lifecycle, incremental role statistics and reproducible legal openings |
+| [player_tournament_settlement.py](hnefatafl/player_tournament_settlement.py) | Durable result outbox and indexed due-start consumer; bounded transactional starts/advancement and restart reconciliation without a browser |
 | [player_tournaments.py](hnefatafl/player_tournaments.py), [player_tournament_api.py](hnefatafl/player_tournament_api.py) | Double-elimination human tournaments over authoritative online games: bracket derivation, idempotent advancement, disputes/rebuilds and authenticated bounded projections |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded TAR.GZ job migration with legacy ZIP import, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
@@ -763,3 +766,23 @@ actions. Full dates stay private; `account_policy.py` supplies completed-years a
 on one UTC date per leaderboard response (February 29 advances March 1 in common
 years). The compact table, ranking calculations, game records and permission
 inventory are unchanged. See [account profile](docs/PROFILE.md).
+
+
+## Human tournament scheduling and compatibility
+
+Schema 20 adds immutable match/clock modes and due-start/retry columns without
+rewriting legacy legs or authoritative games. `PlayerTournaments._start` is the
+single transaction boundary for scheduled, creator and administrator starts.
+New creation requires an explicit sequential/simultaneous mode and exactly two
+side-swapped games; stored single and legacy 1–5-leg execution stays intact.
+The shared start operation and capability projection reject early creator starts
+of full future-scheduled tournaments, retaining administrator overrides and early
+creator starts of unfilled tournaments with at least two eligible entrants.
+Registration writes invalidate reviewed versions. The lifespan-owned settlement
+worker consumes an explicitly indexed partial due range and the transactional
+result outbox; it needs no request to start or advance a full due competition.
+Unfilled due rows are consumed and re-armed by later full registrations. Retries
+survive restart with bounded backoff. Sequential return games are seated only
+after game one's terminal state, using the normal online lifecycle and clocks.
+Published capabilities never grant global administrative authority. See
+[player tournaments](docs/PLAYER_TOURNAMENTS.md) for limits, migration and recovery.

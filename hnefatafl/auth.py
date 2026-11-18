@@ -423,11 +423,10 @@ grant(
     "/api/player-tournaments/{tournament_id}/withdraw",
     "/api/player-tournaments/{tournament_id}/settle",
 )
-grant("tournaments", "POST", "/api/player-tournaments")
+grant("play", "POST", "/api/player-tournaments", "/api/player-tournaments/{tournament_id}/start")
 grant(
     "tournaments",
     "POST",
-    "/api/player-tournaments/{tournament_id}/start",
     "/api/player-tournaments/{tournament_id}/cancel",
     "/api/player-tournaments/{tournament_id}/rebuild",
     "/api/player-tournaments/{tournament_id}/matches/{match_id}/override",
@@ -708,7 +707,7 @@ def attach_auth(app, store):
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
         if request.url.path.startswith(
-            ("/api/auth/", "/api/online/", "/api/profile", "/api/player-tournaments/")
+            ("/api/auth/", "/api/online/", "/api/profile", "/api/player-tournaments")
         ):
             # Pydantic's default errors include raw inputs, potentially passwords.
             return JSONResponse(
@@ -720,7 +719,7 @@ def attach_auth(app, store):
                     else "Invalid profile request. Check the fields and try again."
                     if request.url.path.startswith("/api/profile")
                     else "Invalid tournament request."
-                    if request.url.path.startswith("/api/player-tournaments/")
+                    if request.url.path.startswith("/api/player-tournaments")
                     else "Invalid account request."
                 },
                 422,

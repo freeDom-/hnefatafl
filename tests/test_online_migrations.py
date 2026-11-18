@@ -20,6 +20,7 @@ PROGRESSION_TABLES = (
     "achievement_catalog",
 )
 TOURNAMENT_TABLES = (
+    "player_tournament_settlement_queue",
     "player_tournament_audit",
     "player_tournament_legs",
     "player_tournament_matches",
@@ -119,10 +120,10 @@ def test_online_downgrade_and_unknown_future_restore_are_refused(tmp_path):
 
 
 @pytest.mark.parametrize("from_version", [16, 17])
-def test_combined_upgrade_reaches_18_with_both_table_sets(tmp_path, from_version):
+def test_combined_upgrade_reaches_21_with_all_feature_tables(tmp_path, from_version):
     # A schema-16 database predates both feature sets; a schema-17 database has
     # the progression tables but not the tournaments. Both upgrade paths must
-    # reach 18 with every progression and tournament table and append-only
+    # reach 21 with every progression, tournament and settlement table and append-only
     # trigger present, without renumbering either shipped migration.
     store = Store(tmp_path / "db.sqlite3")
     with store.connection() as c:
@@ -207,3 +208,22 @@ def test_schema12_upgrade_preserves_games_and_only_resumes_untouched_default(rig
     Store(path)  # Repeated startup neither resumes an explicit pause nor appends an audit entry.
     with upgraded.connection() as c:
         assert c.execute("SELECT COUNT(*) FROM online_gate_audit").fetchone()[0] == 2
+
+
+def test_schema18_upgrade_adds_settlement_and_planned_start_idempotently(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    with store.connection() as c:
+        c.execute("DROP TABLE player_tournament_settlement_queue")
+        c.execute("ALTER TABLE player_tournaments DROP COLUMN scheduled_start_at")
+        c.execute("PRAGMA user_version=18")
+    Store(store.path)
+    upgraded = Store(store.path)
+    with upgraded.connection() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert "scheduled_start_at" in {
+            row[1] for row in c.execute("PRAGMA table_info(player_tournaments)")
+        }
+        assert (
+            c.execute("SELECT COUNT(*) FROM player_tournament_settlement_queue").fetchone()[0] == 0
+        )
+        assert not c.execute("PRAGMA foreign_key_check").fetchall()

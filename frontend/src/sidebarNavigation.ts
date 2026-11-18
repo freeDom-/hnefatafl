@@ -17,7 +17,12 @@ export const ARENA_SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Compete',
     children: [
       { kind: 'destination', id: 'leaderboard', label: 'Leaderboard', href: '/leaderboard' },
-      { kind: 'placeholder', id: 'tournaments', label: 'Tournaments' },
+      {
+        kind: 'destination',
+        id: 'player-tournaments',
+        label: 'Player tournaments',
+        href: '/player-tournaments',
+      },
       { kind: 'placeholder', id: 'leagues', label: 'Leagues' },
     ],
   },

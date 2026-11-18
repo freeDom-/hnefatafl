@@ -1,0 +1,97 @@
+.local-datetime,
+.player-tournament-dialog .local-datetime {
+  min-width: 0;
+  gap: 6px;
+}
+.datetime-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem;
+  gap: 8px;
+  align-items: start;
+}
+.datetime-fields label {
+  min-width: 0;
+}
+.datetime-input {
+  position: relative;
+}
+.datetime-input input {
+  padding-inline-end: 52px;
+  font-variant-numeric: tabular-nums;
+}
+.datetime-fields > label input {
+  font-variant-numeric: tabular-nums;
+}
+.datetime-input-actions {
+  display: flex;
+  align-items: center;
+  position: absolute;
+  inset-inline-end: 3px;
+  top: 0;
+  height: 100%;
+}
+.datetime-input-actions .icon-button {
+  min-width: 24px;
+  width: 24px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0;
+}
+.datetime-calendar-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: auto;
+  z-index: 2;
+}
+.local-datetime input[aria-invalid='true'] {
+  border-color: var(--ui-error);
+}
+.themed-calendar {
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.themed-calendar .rdp-month_caption,
+.themed-calendar .rdp-nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.themed-calendar table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.themed-calendar th,
+.themed-calendar td {
+  padding: 1px;
+  text-align: center;
+}
+.themed-calendar td .button {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px;
+}
+.themed-calendar [aria-selected='true'] .button {
+  background: var(--green);
+  color: var(--arena-accent-contrast, var(--surface));
+}
+.themed-calendar .rdp-today .button {
+  text-decoration: underline;
+}
+.themed-calendar .rdp-chevron {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
