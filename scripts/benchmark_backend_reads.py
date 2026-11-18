@@ -7,6 +7,7 @@ single API worker share one local host; results are observations, not capacity.
 from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from collections import Counter, defaultdict
 import json
 import hashlib
@@ -72,6 +73,22 @@ def validate_parameters(users: int, rounds: int, concurrency: str, port: int) ->
             "Bounds: users 2–16, rounds 1–10, 1–5 distinct concurrency levels <= users, port 1024–65535"
         )
     return levels
+
+
+@contextmanager
+def fixture_environment(data: Path):
+    """Isolate module-level app construction before importing the server."""
+    changes = {"HNEFATAFL_DATA_DIR": str(data), "HNEFATAFL_ENV": "development"}
+    previous = {name: os.environ.get(name) for name in changes}
+    os.environ.update(changes)
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def mark_fixture_health(app, fixture_identity: str) -> None:
@@ -144,11 +161,6 @@ def main(args):
     concurrency = validate_parameters(args.users, args.rounds, args.concurrency, args.port)
     revision = verified_source(source)
     sys.path.insert(0, str(source))
-    from hnefatafl.server import create_app
-    import hnefatafl.server as server_module
-
-    if Path(server_module.__file__).resolve() != source / "hnefatafl" / "server.py":
-        raise ValueError("Imported server does not match verified source")
     from hnefatafl.engine import RULESETS
     from hnefatafl.online_settings import OnlineSettings
 
@@ -175,7 +187,15 @@ def main(args):
         },
         "parameters": {"users": args.users, "rounds": args.rounds, "concurrency": concurrency},
     }
-    with tempfile.TemporaryDirectory(prefix="hnefatafl-load-", dir="/tmp") as directory:
+    with (
+        tempfile.TemporaryDirectory(prefix="hnefatafl-load-", dir="/tmp") as directory,
+        fixture_environment(Path(directory)),
+    ):
+        from hnefatafl.server import create_app
+        import hnefatafl.server as server_module
+
+        if Path(server_module.__file__).resolve() != source / "hnefatafl" / "server.py":
+            raise ValueError("Imported server does not match verified source")
         data = Path(directory)
         fixture_identity = uuid4().hex
         (data / ".benchmark-only").write_text(fixture_identity)

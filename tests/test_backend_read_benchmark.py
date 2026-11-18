@@ -6,10 +6,25 @@ import subprocess
 import pytest
 
 from scripts.benchmark_backend_reads import (
+    fixture_environment,
     mark_fixture_health,
     validate_parameters,
     verified_source,
 )
+
+
+def test_import_environment_is_isolated_and_restored_on_failure(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setenv("HNEFATAFL_DATA_DIR", "/operator-storage-must-not-open")
+    monkeypatch.delenv("HNEFATAFL_ENV", raising=False)
+    with pytest.raises(RuntimeError):
+        with fixture_environment(tmp_path):
+            assert os.environ["HNEFATAFL_DATA_DIR"] == str(tmp_path)
+            assert os.environ["HNEFATAFL_ENV"] == "development"
+            raise RuntimeError("cancelled import")
+    assert os.environ["HNEFATAFL_DATA_DIR"] == "/operator-storage-must-not-open"
+    assert "HNEFATAFL_ENV" not in os.environ
 
 
 def test_fixture_identity_uses_existing_health_route_only():
