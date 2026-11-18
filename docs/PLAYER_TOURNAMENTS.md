@@ -158,10 +158,13 @@ of the existing Modal, escaping the scrolling container without expanding it.
 Positioning follows the visual viewport; the calendar stays within its bounds.
 Selection, outside clicks and Escape dismiss the popup; keyboard selection and
 Escape return focus to the date field. A labelled inline clear icon supports
-keyboard use, and one compact timezone hint serves the form. Date/time errors
-appear beside their field. Manual entry, retained UTC precision, DST-gap rejection
-and both repeated-hour occurrences are preserved. English/German labels and
-existing theme tokens apply on mobile and desktop.
+keyboard use, and one compact timezone hint serves the form. The date and time
+inputs use the numeric mobile keyboard and insert `YYYY-MM-DD`/`HH:MM` separators
+from digits, while manually typed separators remain valid. On touch screens a tap
+on the date field enters text normally; the calendar icon opens the popup.
+Date/time errors appear beside their field. Manual entry, retained UTC precision,
+DST-gap rejection and both repeated-hour occurrences are preserved. English/German
+labels and existing theme tokens apply on mobile and desktop.
 
 ## Advancing from authoritative games
 

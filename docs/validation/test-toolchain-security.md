@@ -50,10 +50,12 @@ repeat audits at release preparation instead of treating this record as permanen
 
 ## CI audit enforcement and Node.js 22 compatibility
 
-`.github/workflows/ci.yml` now runs `npm audit --audit-level=moderate` immediately
-after the `browser` job's `npm ci`; moderate or higher findings fail that job. No
-`--force`, audit suppression, blanket ignore list or relaxed check is used, and the
-committed lockfile reports zero findings.
+`.github/workflows/ci.yml` runs `npm run audit:ci` in a dedicated `security` job
+against the committed lockfile, without installing dependencies. It tolerates
+only the recorded, unexpired owner-approved advisory described below and fails
+for any other finding, any runtime-reachable package or a dirty production audit.
+No `--force`, blanket ignore list or relaxed threshold is used, and the browser job
+keeps its existing unit, build and Playwright steps.
 
 A dedicated `node22` job exercises the minimum supported Vite 7 line
 (`node-version: "22.12"`) with the same npm cache configuration: `npm ci`,
@@ -127,3 +129,27 @@ had 354 passed, 19 skipped and one failure when a board temporarily disappeared
 during navigation. The existing geometry poll now retries that transient missing
 node instead of throwing before it can measure. Width/height assertions remain
 unchanged, matching the correction already green in Portrait Hall CI.
+
+## picomatch ReDoS advisory (GHSA-fc5q-39xc-vjpf)
+
+This section supersedes the earlier zero-finding status above. A fresh audit
+reports five affected development packages from one advisory: picomatch through
+4.0.7 is vulnerable to a ReDoS through single-branch repeated extglob patterns
+(CVE-2026-112366, high severity). GitHub keeps the advisory active; Snyk revoked
+its entry after a maintainer dispute, and NVD remains awaiting analysis. npm still
+has no release after 4.0.7, and Vite 8/Vitest 5 still depend on the affected line.
+
+The installed dev-only graph is `vite@7.3.7 -> picomatch@4.0.7`,
+`vite -> fdir@6.5.0 -> picomatch`, `vite -> tinyglobby@0.2.17 -> picomatch`, and
+`vitest@4.1.12 -> picomatch`. Production-only audit is clean, the production bundle
+contains no picomatch, application source never imports it, repository globs use
+ordinary patterns, and no HTTP/account/game/analysis input reaches glob compilation.
+
+The repository owner approved a temporary acceptance for exactly this advisory on
+2026-11-17 in PR #94. PR #90 reuses that decision because its lockfile resolves the
+same affected package set and exact versions. The acceptance is recorded in
+`frontend/security/dependency-audit-exceptions.json`, expires 2026-12-17, and is
+enforced fail-closed by `npm run audit:ci`. The complete exposure analysis and
+comparison are recorded in the
+[tournament validation record](player-tournament-refinement.md#dependency-audit-acceptance).
+The advisory remains unresolved; remove the exception when a patched release ships.

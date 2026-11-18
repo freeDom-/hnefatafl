@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "approvedBy": "freeDom-",
+  "approvedAt": "2026-11-17",
+  "reviewReference": "https://github.com/freeDom-/hnefatafl/pull/94",
+  "notes": "Owner approval was recorded in the PR #94 review on 2026-11-17. No separate signed approval record exists; edited JSON is a record, not independent proof. A durable owner comment or signed decision is recommended before renewal. The same owner-approved exception is reused for PR #90, whose lockfile resolves the identical advisory and exact affected package versions.",
+  "exceptions": [
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "cve": "CVE-2026-112366",
+      "package": "picomatch",
+      "severity": "high",
+      "scope": "development",
+      "expires": "2026-12-17",
+      "advisoryRange": "<=4.0.7",
+      "affectedPackages": ["fdir", "picomatch", "tinyglobby", "vite", "vitest"],
+      "packageVersions": {
+        "fdir": "6.5.0",
+        "picomatch": "4.0.7",
+        "tinyglobby": "0.2.17",
+        "vite": "7.3.7",
+        "vitest": "4.1.12"
+      },
+      "rationale": "GitHub keeps this advisory reviewed and high with no patched release. Every affected package is dev-only, the production-only audit is clean, the built bundle contains no picomatch, and repository glob inputs do not contain the vulnerable single-branch extglob shape. No untrusted runtime input reaches glob compilation. The exception covers only this advisory and expires for re-review.",
+      "paths": [
+        "vite@7.3.7 -> picomatch@4.0.7",
+        "vite@7.3.7 -> fdir@6.5.0 -> picomatch@4.0.7",
+        "vite@7.3.7 -> tinyglobby@0.2.17 -> picomatch@4.0.7",
+        "vitest@4.1.12 -> picomatch@4.0.7"
+      ]
+    }
+  ]
+}
