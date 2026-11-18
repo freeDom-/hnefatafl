@@ -334,3 +334,20 @@ an acceptance. Treat a GitHub withdrawal or a formal dispute as a separate outco
 re-check the advisory before removing the exception, because a Snyk revocation alone
 does not clear it. Do not extend the expiry silently; re-approve and record a new
 date. Repeat the audit at release preparation because advisories are time-sensitive.
+
+## Zero-findings observation, 2026-11-18
+
+Current main lockfile full and production-only `npm audit --package-lock-only
+--json` reports both returned zero findings. Integrated PR #92/#93 security jobs
+reported the same result, then correctly rejected the now-unused exception. The
+active acceptance list is now empty. Historical investigation and owner approval
+above remain evidence of the earlier state; no upstream patch or database
+withdrawal is inferred from these reports. Dependency versions are unchanged.
+
+The audit report parser and production gate remain intact. Exception-file
+validation now allows an empty array and still rejects missing/malformed lists. A
+regression test accepts clean reports with no exceptions and rejects the prior
+advisory if it reappears without a newly reviewed acceptance. Exact observed
+reports are committed alongside this record; these are dated observations, not
+a guarantee about future registry results. All 15 focused audit tests and the
+live full/production audit gate passed. Full PR CI is pending.

@@ -106,6 +106,21 @@ const assess = (overrides = {}) =>
     ...overrides,
   });
 
+test('clean reports need no exception and a returning advisory fails closed', () => {
+  const none = { ...exceptions(), exceptions: [] };
+  const clean = assess({ report: emptyAudit(), exceptions: none });
+  assert.equal(clean.ok, true, clean.problems.join('; '));
+  assert.deepEqual(clean.accepted, []);
+  const returned = assess({ exceptions: none });
+  assert.equal(returned.ok, false);
+  assert.match(returned.problems.join(' '), /accepted|exception/i);
+  const missing = { ...none };
+  delete missing.exceptions;
+  const malformed = assess({ report: emptyAudit(), exceptions: missing });
+  assert.equal(malformed.ok, false);
+  assert.match(malformed.problems.join(' '), /exceptions array/);
+});
+
 test('accepts the exact unexpired development-only advisory with a clean production audit', () => {
   const verdict = assess();
   assert.equal(verdict.ok, true, verdict.problems.join('; '));

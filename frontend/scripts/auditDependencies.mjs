@@ -323,8 +323,9 @@ function validateExceptionFile(exceptions, today) {
   if (exceptions.approvalReference !== undefined && !validHttpsUrl(exceptions.approvalReference)) {
     problems.push('Exception approvalReference must be an https URL when present.');
   }
-  if (!Array.isArray(exceptions.exceptions) || exceptions.exceptions.length === 0) {
-    problems.push('Exception file needs at least one exception.');
+  // A clean audit needs no acceptance; missing/malformed lists still fail.
+  if (!Array.isArray(exceptions.exceptions)) {
+    problems.push('Exception file needs an exceptions array.');
   }
   return problems;
 }
@@ -603,7 +604,11 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  console.log('Dependency audit accepted the configured exception(s); all other checks passed.');
+  console.log(
+    verdict.accepted.length
+      ? 'Dependency audit accepted the configured exception(s); all other checks passed.'
+      : 'Dependency audit clean; no exceptions used.',
+  );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
