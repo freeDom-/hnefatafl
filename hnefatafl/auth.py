@@ -390,10 +390,8 @@ grant(
     ),
 )
 grant("play", "GET", "/api/leaderboard")
-# Schema 17 progression: catalog metadata, a read-only own-progress read and an
-# explicit CSRF-protected confirmation of the awards the records already prove.
+# Progression reads are self-scoped and never grant rewards.
 grant("play", "GET", "/api/portraits/catalog", "/api/personal/achievements")
-grant("play", "POST", "/api/personal/achievements/confirm")
 # Signed-out read-only online discovery (Q1/Q2). No session is required, so the
 # additive namespace is public; the deployment feature flag gates it at runtime.
 grant(

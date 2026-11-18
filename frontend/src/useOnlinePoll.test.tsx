@@ -144,6 +144,33 @@ it('resynchronizes immediately when a backgrounded tab becomes visible and remov
   visibility.mockRestore();
 });
 
+it('suspends the recurring read while hidden and resumes the cadence when visible', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockResolvedValue(1);
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  const { unmount } = renderHook(() => useOnlinePoll('hidden-poll', load, { intervalMs: 1000 }));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  // The first mount read still runs so a restored tab has data.
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+  visibility.mockReturnValue('visible');
+  await act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  expect(load).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(load).toHaveBeenCalledTimes(3);
+  unmount();
+  visibility.mockRestore();
+});
+
 it('loads once under an intervalMs of 0 and reloads only on an explicit signal', async () => {
   vi.useFakeTimers();
   const load = vi.fn().mockResolvedValue('ledger');
@@ -424,4 +451,74 @@ it('isolates account data and cancelled reads when the account changes while hid
   } finally {
     visibility.mockRestore();
   }
+});
+
+it('changes cadence without discarding a ready snapshot or issuing an immediate read', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockResolvedValue('ledger');
+  const hook = renderHook(({ intervalMs }) => useOnlinePoll('retune', load, { intervalMs }), {
+    initialProps: { intervalMs: 5000 },
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(hook.result.current.data).toBe('ledger');
+  expect(load).toHaveBeenCalledTimes(1);
+
+  hook.rerender({ intervalMs: 0 });
+  expect(hook.result.current.data).toBe('ledger');
+  expect(hook.result.current.phase).toBe('ready');
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20000);
+  });
+  expect(load).toHaveBeenCalledTimes(1);
+
+  hook.rerender({ intervalMs: 5000 });
+  expect(hook.result.current.data).toBe('ledger');
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(hook.result.current.data).toBe('ledger');
+});
+
+it('keeps an in-flight refresh running when the cadence changes and applies it once', async () => {
+  vi.useFakeTimers();
+  const first = deferred<string>();
+  const second = deferred<string>();
+  const load = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const hook = renderHook(
+    ({ intervalMs }) => useOnlinePoll('retune-flight', load, { intervalMs }),
+    {
+      initialProps: { intervalMs: 5000 },
+    },
+  );
+  expect(load).toHaveBeenCalledTimes(1);
+
+  hook.rerender({ intervalMs: 0 });
+  expect(load).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    first.resolve('ready');
+    await first.promise;
+  });
+  expect(hook.result.current.data).toBe('ready');
+  expect(hook.result.current.phase).toBe('ready');
+
+  act(() => {
+    void hook.result.current.refresh();
+  });
+  expect(hook.result.current.refreshing).toBe(true);
+  hook.rerender({ intervalMs: 5000 });
+  expect(hook.result.current.data).toBe('ready');
+  expect(load).toHaveBeenCalledTimes(2);
+
+  await act(async () => {
+    second.resolve('fresh');
+    await second.promise;
+  });
+  expect(hook.result.current.data).toBe('fresh');
+  expect(hook.result.current.phase).toBe('ready');
+  expect(load).toHaveBeenCalledTimes(2);
 });

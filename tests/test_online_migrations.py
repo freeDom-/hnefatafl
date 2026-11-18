@@ -71,7 +71,7 @@ def test_schema9_upgrade_preserves_account_security_sessions_and_local_data(tmp_
         )
     upgraded = Store(store.path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
         assert tuple(
             c.execute(
                 "SELECT password_hash,email_verified_at,email_version FROM accounts"
@@ -94,7 +94,7 @@ def test_representative_schema8_and_normalization_collision_upgrade(tmp_path):
     legacy(path)
     Store(path)
     with sqlite3.connect(path) as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
         assert c.execute("SELECT owner_account_id FROM games").fetchone()[0] == "one"
         assert c.execute("SELECT email_verified_at FROM accounts").fetchone()[0] is None
     colliding = tmp_path / "collision.sqlite3"
@@ -113,7 +113,7 @@ def test_online_downgrade_and_unknown_future_restore_are_refused(tmp_path):
         with pytest.raises(ValueError, match="Online schema changed"):
             retain_online_on_restore(source, target)
     with live.connection() as c:
-        c.execute("PRAGMA user_version=19")
+        c.execute("PRAGMA user_version=22")
     with pytest.raises(ValueError, match="newer unsupported"):
         Store(live.path)
 
@@ -134,7 +134,7 @@ def test_combined_upgrade_reaches_18_with_both_table_sets(tmp_path, from_version
         c.execute(f"PRAGMA user_version={from_version}")
     upgraded = Store(store.path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
         tables = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert set(PROGRESSION_TABLES) | set(TOURNAMENT_TABLES) <= tables
         triggers = {
@@ -190,7 +190,7 @@ def test_schema12_upgrade_preserves_games_and_only_resumes_untouched_default(rig
         c.execute("PRAGMA user_version=12")
     upgraded = Store(path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
         assert tuple(c.execute("SELECT enabled,version FROM online_timeout_gate").fetchone()) == (
             0 if explicit_pause else 1,
             1,

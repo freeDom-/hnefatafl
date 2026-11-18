@@ -12,6 +12,7 @@ from .storage import ConflictError, Store
 
 DEFAULT_NEURAL_MCTS_ITERATIONS = 1024
 MAX_ANALYSIS_TASKS = 16
+MAX_REPLAY_REQUESTERS = 2
 SYNCHRONOUS_WAIT_SECONDS = 20
 MAX_SYNCHRONOUS_WAITERS = 8
 
@@ -45,7 +46,9 @@ class AnalysisService:
         self.evaluate = evaluate
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="board-analysis")
         self.lock = threading.RLock()
+        self.requester_lock = threading.RLock()
         self.tasks: dict[tuple, Future] = {}
+        self.requesters: dict[tuple, set[str]] = {}
         self.closed = False
         self.latest_advisor: dict[str, tuple] = {}
         self.synchronous_waiters = threading.BoundedSemaphore(MAX_SYNCHRONOUS_WAITERS)
@@ -117,6 +120,7 @@ class AnalysisService:
     ) -> tuple[tuple, Future | None]:
         revision = settings["revision"] if role == "advisor" else None
         key = (game["id"], snapshot["position_key"], role, revision)
+        requester = self.store.replay_requester(game) if role == "advisor" else None
         with self.lock:
             previous = self.tasks.get(key)
             # Capture activity before reading storage. If this future completes
@@ -129,10 +133,34 @@ class AnalysisService:
             # A poll may have read its report just before the preceding worker
             # committed. Recheck under the scheduling lock before starting work.
             if self._completed(key):
+                if requester and revision is not None:
+                    cached = self.store.advisor_analysis(
+                        game["id"], snapshot["position_key"], revision
+                    )
+                    self.store.record_replay_analysis(game, cached, requester)
                 return key, None
             if self.closed:
                 raise AnalysisUnavailable("Analysis service is stopping. Retry later.")
             if previous_running:
+                if requester:
+                    with self.requester_lock:
+                        # Completion may have committed after the cache read.
+                        # Join its successful receipt rather than losing a late actor.
+                        if self._completed(key):
+                            cached = self.store.advisor_analysis(
+                                game["id"], snapshot["position_key"], settings["revision"]
+                            )
+                            self.store.record_replay_analysis(game, cached, requester)
+                        else:
+                            registered = self.requesters.setdefault(key, set())
+                            if (
+                                requester not in registered
+                                and len(registered) >= MAX_REPLAY_REQUESTERS
+                            ):
+                                raise AnalysisUnavailable(
+                                    "Replay requester capacity is busy. Retry later."
+                                )
+                            registered.add(requester)
                 return key, previous
             if len(self.tasks) >= MAX_ANALYSIS_TASKS:
                 raise AnalysisUnavailable("Analysis workers are busy. Retry shortly.")
@@ -141,6 +169,9 @@ class AnalysisService:
                 # Superseded queued work checks this key before evaluation. Keep
                 # its slot until drained: Future.cancel() leaves a work item in
                 # ThreadPoolExecutor's queue and could otherwise grow it forever.
+            if requester:
+                with self.requester_lock:
+                    self.requesters[key] = {requester}
             task = self.executor.submit(self._run, game, snapshot, role, agent, settings, state)
             self.tasks[key] = task
             task.add_done_callback(lambda finished: self._forget(key, finished))
@@ -150,6 +181,8 @@ class AnalysisService:
         with self.lock:
             if self.tasks.get(key) is task:
                 self.tasks.pop(key, None)
+                with self.requester_lock:
+                    self.requesters.pop(key, None)
                 if self.latest_advisor.get(key[0]) == key:
                     self.latest_advisor.pop(key[0], None)
 
@@ -188,13 +221,19 @@ class AnalysisService:
             check()
             entry = self.evaluate(game, role, agent, settings, progress, state=state)
             check()
-            self.store.save_analysis_entry(
-                game,
-                snapshot,
-                entry,
-                advisor_revision=revision,
-                online=bool(game.get("online")),
-            )
+            # Serialize requester registration with committing the shared report.
+            # Late arrivals consume the completed cache and take the receipt fast path.
+            with self.requester_lock:
+                check()
+                key = (game["id"], snapshot["position_key"], role, revision)
+                self.store.save_analysis_entry(
+                    game,
+                    snapshot,
+                    entry,
+                    advisor_revision=revision,
+                    online=bool(game.get("online")),
+                    requester_ids=tuple(self.requesters.get(key, ())),
+                )
         except (ConflictError, SupersededAnalysis):
             # Cancellation is expected: a late opinion must not revive a game,
             # replace a new advisor, or attach itself to a different branch.
