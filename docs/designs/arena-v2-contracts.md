@@ -4,7 +4,7 @@ Status: current implementation boundaries after PR #84, audited at
 `2579a86b82ed1eca91f39e7d8064196597e873ed` on 2026-11-15. This replaces the
 proposed-only contract from PR #73. It distinguishes implemented authority from
 planned UI; it does not implement the remaining features. Portrait Hall,
-achievement claiming and selection are delivered by the separate Portrait Hall PR
+portrait selection originated in the separate Portrait Hall PR
 (#86), whose authenticated `/portraits` route reuses the contracts below; the other
 remaining deliveries are unchanged.
 
@@ -22,7 +22,7 @@ The original contract remains historical evidence, not the current feature list.
 | Online play | Online core, real clocks, side-swapped match legs and result revisions | Reuse for spectators, tournament legs and league games |
 | Public online discovery | Three GET routes in `public_api.py`, enabled by configurable switch | Signed-out frontend delivered by PR #87; keep it outside authenticated initialization |
 | Ratings | Immutable ledger and applied revisions, three pools | League progress is a separate policy, never an Elo replacement |
-| Progression | Catalog, achievements, confirmation and portrait selection APIs | Portrait Hall, claim feedback and selection delivered by PR #86; keep eligibility, awards and selection server-owned |
+| Progression | Catalog, automatic achievements and portrait selection APIs | Portrait Hall and selection originated in PR #86; PR #94 automatically awards milestones; keep awards and selection server-owned |
 | Human tournaments | Double elimination, schema 18, real casual online legs | UI, hierarchical bracket and reliable server settlement |
 | Leagues | None | Explicit policy, queue, ledger, season lifecycle and UI |
 | Workshop | Existing training, tuning, models, workers and AI tournaments | Visual consolidation, progressive disclosure and lazy loading |
@@ -107,9 +107,9 @@ Tablut and Copenhagen pools. No inactivity decay; no local, single-player, AI or
 casual tournament results contribute. Current and best rated streaks derive from
 the applied result ledger; correction and void handling remain authoritative.
 
-Portrait IDs and achievement criteria are code-owned. Confirmation is a
-CSRF-protected server mutation; GET progress never awards. Duplicate confirmation
-or selection is idempotent. Existing earned awards remain permanent after later
+Portrait IDs and achievement criteria are code-owned. Authoritative event
+transactions automatically award milestones; GET progress never awards. Explicit
+portrait selection is CSRF-protected and idempotent. Existing earned awards remain permanent after later
 corrections, while current progress may fall below the unlock threshold. Retired
 portraits cannot be selected; effective display falls back to the catalog default.
 The client uses the local portrait allowlist and never accepts an account URL.

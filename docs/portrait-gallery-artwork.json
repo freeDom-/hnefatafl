@@ -1,0 +1,170 @@
+[
+  {
+    "id": "shieldbearer",
+    "source_file": "exec-bec23041-264f-4db1-858a-410da557d0c1.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 308270
+  },
+  {
+    "id": "shieldmaiden",
+    "source_file": "exec-21e458dd-5e77-4185-a763-3b736a05fcbc.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 212358
+  },
+  {
+    "id": "iron-helm",
+    "source_file": "exec-7adfb0c6-09ad-4f6a-88af-1bc9146ec76e.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 242234
+  },
+  {
+    "id": "wanderer",
+    "source_file": "exec-0a9b0651-a251-48e5-a65d-2a6c5d511c4e.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 229962
+  },
+  {
+    "id": "skald",
+    "source_file": "exec-80edd0d6-58a9-431a-9677-235b32021342.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 200744
+  },
+  {
+    "id": "fjord-scout",
+    "source_file": "exec-6b915a1b-d618-4803-999b-b2833dd8a929.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 228888
+  },
+  {
+    "id": "raven-seer",
+    "source_file": "exec-a6a1f51e-fe5b-49b3-8ab6-42a6069ac3c3.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 208608
+  },
+  {
+    "id": "berserker",
+    "source_file": "exec-95ea04ee-2657-4185-a7d2-8eb22805b19c.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 279142
+  },
+  {
+    "id": "one-eyed-jarl",
+    "source_file": "exec-5cc74ac5-59b7-44c9-b41a-7f6609b07b45.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 242718
+  },
+  {
+    "id": "valkyrie",
+    "source_file": "exec-f9105353-3ec2-4e8f-be1a-93b3b21c4212.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 209666
+  },
+  {
+    "id": "einherjar",
+    "source_file": "exec-e420b31d-6358-4138-b769-c3f3b7355051.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 230998
+  },
+  {
+    "id": "forge-keeper",
+    "source_file": "exec-2a8e1b4e-bbdf-42fa-a5fe-12eac0cc1f1a.png",
+    "source_dimensions": [
+      1254,
+      1254
+    ],
+    "gallery_dimensions": [
+      1024,
+      1024
+    ],
+    "webp_quality": 82,
+    "bytes": 263448
+  }
+]

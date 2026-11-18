@@ -386,7 +386,12 @@ test('hovering into an oversized help panel keeps it open', async ({ page }) => 
   await page.getByLabel('Language', { exact: true }).selectOption('de');
 
   const icon = page.getByRole('button', { name: 'Inferenzcache erklären', exact: true });
-  await icon.hover();
+  await icon.scrollIntoViewIfNeeded();
+  const trigger = await icon.boundingBox();
+  expect(trigger).not.toBeNull();
+  // The oversized panel can cover its trigger after opening. Move the pointer
+  // once, as a person would, instead of retrying hover through the open panel.
+  await page.mouse.move(trigger!.x + trigger!.width / 2, trigger!.y + trigger!.height / 2);
   const panel = page.getByRole('region', { name: 'Inferenzcache' });
   await expect(panel).toBeVisible();
   const triggerBox = await icon.boundingBox();

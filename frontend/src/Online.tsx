@@ -672,6 +672,20 @@ function GameRoom({
   const poll = useOnlinePoll(`game:${accountId}:${id}`, load);
   const action = useOnlineAction(poll);
   const game = poll.data?.game;
+  const previousResult = useRef<{ owner: string; id: string; version: number } | null>(null);
+  useEffect(() => {
+    const previous = previousResult.current;
+    if (
+      game &&
+      previous?.owner === accountId &&
+      previous.id === game.id &&
+      previous.version !== game.version &&
+      game.status === 'completed' &&
+      Object.values(game.participants).some((player) => player?.account_id === accountId)
+    )
+      window.dispatchEvent(new Event('progression-changed'));
+    previousResult.current = game ? { owner: accountId, id: game.id, version: game.version } : null;
+  }, [game?.id, game?.version, game?.status, accountId]);
   const [selected, setSelected] = useState<{ square: number; version: number } | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [replay, setReplay] = useState<OnlineReplay | null>(null);

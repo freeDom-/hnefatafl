@@ -12,13 +12,17 @@ type Controls<T> = {
   hold: () => void;
   accept: (value: T) => void;
   resume: () => Promise<T | null>;
+  /** Apply a cadence change without restarting the read or discarding data. */
+  retune: () => void;
 };
 
 /**
  * Optional polling policy. `intervalMs` is the recurring read cadence; `0`
  * loads once and reloads only on an explicit refresh or a wake signal, which
  * suits historical data that changes only on account or game-state events. The
- * default keeps the 5 s live-online cadence for every existing caller.
+ * default keeps the 5 s live-online cadence for every existing caller. Changing
+ * the cadence retunes the existing timer rather than restarting the read, so a
+ * current snapshot survives route or policy transitions.
  */
 export type PollOptions = { intervalMs?: number };
 
@@ -34,6 +38,8 @@ export function useOnlinePoll<T>(
   const empty: Snapshot<T> = { key, data: null, phase: 'loading', error: null, refreshing: false };
   const [snapshot, setSnapshot] = useState<Snapshot<T>>(empty);
   const controls = useRef<Controls<T> | null>(null);
+  const intervalRef = useRef(intervalMs);
+  intervalRef.current = intervalMs;
   useEffect(() => {
     let alive = true,
       running = false,
@@ -53,13 +59,14 @@ export function useOnlinePoll<T>(
     /** `null` means no recurring read: an interval of 0 is event-driven only. */
     const nextDelay = (queuedRun: boolean): number | null => {
       if (queuedRun) return 0;
-      if (intervalMs <= 0) return null;
+      const cadence = intervalRef.current;
+      if (cadence <= 0) return null;
       // Never retry a failed read sooner than its configured cadence, and grow
       // the delay exponentially up to a bounded ceiling. Short cadences keep the
       // shared 30 s ceiling; a long historical cadence caps at twice its own
       // interval so repeated failures still back off instead of staying pinned.
-      const ceiling = Math.max(intervalMs * 2, MAX_POLL_BACKOFF_MS);
-      return Math.min(intervalMs * 2 ** failures, ceiling);
+      const ceiling = Math.max(cadence * 2, MAX_POLL_BACKOFF_MS);
+      return Math.min(cadence * 2 ** failures, ceiling);
     };
     const run = async (initialRead = false) => {
       if (!alive || held || (!initialRead && document.visibilityState === 'hidden')) return;
@@ -138,6 +145,16 @@ export function useOnlinePoll<T>(
         held = false;
         return refresh();
       },
+      retune: () => {
+        if (!alive || held || running) return;
+        if (document.visibilityState === 'hidden') {
+          clearTimeout(timer);
+          return;
+        }
+        const delay = nextDelay(queued);
+        if (delay === null) clearTimeout(timer);
+        else schedule(delay);
+      },
     };
     controls.current = active;
     const wake = () => {
@@ -187,7 +204,10 @@ export function useOnlinePoll<T>(
       window.removeEventListener('offline', offline);
       if (controls.current === active) controls.current = null;
     };
-  }, [key, load, intervalMs]);
+  }, [key, load]);
+  useEffect(() => {
+    controls.current?.retune();
+  }, [intervalMs]);
   const refresh = useCallback(() => controls.current?.refresh() ?? Promise.resolve(null), []);
   const hold = useCallback(() => controls.current?.hold(), []);
   const accept = useCallback((data: T) => controls.current?.accept(data), []);
