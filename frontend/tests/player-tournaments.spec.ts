@@ -409,6 +409,17 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
           await time.pressSequentially('1830');
           await expect(date).toHaveValue('2035-02-01');
           await expect(time).toHaveValue('18:30');
+          // Real-browser check for caret-aware middle editing and separator deletion.
+          await date.fill('2035-02-01');
+          await date.evaluate((node) => (node as HTMLInputElement).setSelectionRange(5, 7));
+          await page.keyboard.type('12');
+          await expect(date).toHaveValue('2035-12-01');
+          await date.evaluate((node) => (node as HTMLInputElement).setSelectionRange(5, 5));
+          await page.keyboard.press('Backspace');
+          await expect(date).toHaveValue('203-12-01');
+          await page.keyboard.type('5');
+          await expect(date).toHaveValue('2035-12-01');
+          await date.fill('2035-02-01');
           await date.scrollIntoViewIfNeeded();
           const before = await dialog.evaluate((node) => ({
             height: node.getBoundingClientRect().height,

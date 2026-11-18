@@ -1,4 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from 'react';
 import { DayPicker } from 'react-day-picker';
 import { de, enUS } from 'react-day-picker/locale';
 import { useI18n } from './i18n';
@@ -8,29 +16,93 @@ import './localDateTimePicker.css';
 /** The native top layer escapes modal scrolling while the DOM stays inside its focus boundary. */
 function formatNumericInput(value: string, groups: number[], separator: string): string {
   // Mobile numeric keypads cannot type the separators, so build them from digits.
-  // Existing separators are normalized without preventing manual editing.
+  // Existing separators are boundaries, not stray characters: preserving them
+  // keeps a partially edited month like "2035-2-01" in the intended segment.
   if ([...value].some((character) => !/\d/.test(character) && character !== separator))
     return value;
-  const digits = value.replace(/\D/g, '');
-  if (!digits) return value;
+  if (!/\d/.test(value)) return value;
   const maximum = groups.reduce((total, size) => total + size, 0);
-  const trimmed = digits.slice(0, maximum);
+  const tokens = value.split(separator);
+  const fits = tokens.length <= groups.length;
+  const segments = tokens.every(
+    (token, index) =>
+      fits && token.length <= groups[index] && (index === tokens.length - 1 || token.length > 0),
+  );
+  if (segments) return tokens.map((token, index) => token.slice(0, groups[index])).join(separator);
+
+  // Missing or overflowing separators: regroup the digits from the mask.
+  const digits = value.replace(/\D/g, '').slice(0, maximum);
   const parts: string[] = [];
   let offset = 0;
   for (const size of groups) {
-    if (offset >= trimmed.length) break;
-    parts.push(trimmed.slice(offset, offset + size));
+    if (offset >= digits.length) break;
+    parts.push(digits.slice(offset, offset + size));
     offset += size;
   }
   const formatted = parts.join(separator);
   // Keep a trailing separator the user just typed before the next digit arrives.
-  return value.endsWith(separator) && trimmed.length < maximum
+  return value.endsWith(separator) && digits.length < maximum
     ? `${formatted}${separator}`
     : formatted;
 }
 
-const formatDateInput = (value: string) => formatNumericInput(value, [4, 2, 2], '-');
-const formatTimeInput = (value: string) => formatNumericInput(value, [2, 2], ':');
+function countDigits(value: string): number {
+  return (value.match(/\d/g) ?? []).length;
+}
+
+function cursorAfterDigits(value: string, digits: number): number {
+  if (digits <= 0) return 0;
+  let seen = 0;
+  for (const [index, character] of [...value].entries()) {
+    if (!/\d/.test(character)) continue;
+    seen += 1;
+    if (seen === digits) return index + 1;
+  }
+  return value.length;
+}
+
+function formatWithCursor(
+  value: string,
+  cursor: number,
+  groups: number[],
+  separator: string,
+): { value: string; cursor: number } {
+  const formatted = formatNumericInput(value, groups, separator);
+  if (formatted === value) return { value: formatted, cursor: Math.min(cursor, value.length) };
+  return {
+    value: formatted,
+    cursor: cursorAfterDigits(formatted, countDigits(value.slice(0, cursor))),
+  };
+}
+
+function handleSeparatorKey(
+  event: ReactKeyboardEvent<HTMLInputElement>,
+  value: string,
+  separator: string,
+  apply: (value: string, cursor: number) => void,
+): boolean {
+  const input = event.currentTarget;
+  if (input.selectionStart !== input.selectionEnd || input.selectionStart === null) return false;
+  const cursor = input.selectionStart;
+  if (event.key === 'Backspace' && cursor > 1 && value[cursor - 1] === separator) {
+    // Delete the preceding digit rather than the auto-inserted separator.
+    event.preventDefault();
+    apply(value.slice(0, cursor - 2) + value.slice(cursor - 1), cursor - 2);
+    return true;
+  }
+  if (event.key === 'Delete' && cursor + 1 < value.length && value[cursor] === separator) {
+    // Delete the following digit rather than the auto-inserted separator.
+    event.preventDefault();
+    apply(value.slice(0, cursor + 1) + value.slice(cursor + 2), cursor);
+    return true;
+  }
+  return false;
+}
+
+const formatDateInput = (value: string, cursor: number) =>
+  formatWithCursor(value, cursor, [4, 2, 2], '-');
+const formatTimeInput = (value: string, cursor: number) =>
+  formatWithCursor(value, cursor, [2, 2], ':');
 
 function CalendarPopup({
   anchor,
@@ -184,6 +256,8 @@ export default function LocalDateTimePicker({
     typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true;
   const field = useRef<HTMLInputElement>(null),
     timeField = useRef<HTMLInputElement>(null);
+  const pendingDateCursor = useRef<number | null>(null),
+    pendingTimeCursor = useRef<number | null>(null);
   const anchor = useRef<HTMLDivElement>(null);
   const id = useId();
   const selectedDay = date ? localDateTimeInstants(`${date}T12:00`)[0] : undefined;
@@ -209,6 +283,27 @@ export default function LocalDateTimePicker({
     setDate(next);
     if (next !== date) setOccurrence('0');
   };
+  const applyDateInput = (value: string, cursor: number) => {
+    const formatted = formatDateInput(value, cursor);
+    pendingDateCursor.current = formatted.cursor;
+    chooseDate(formatted.value);
+  };
+  const applyTimeInput = (value: string, cursor: number) => {
+    const formatted = formatTimeInput(value, cursor);
+    pendingTimeCursor.current = formatted.cursor;
+    setTime(formatted.value);
+    setOccurrence('0');
+  };
+  useLayoutEffect(() => {
+    if (pendingDateCursor.current !== null && field.current) {
+      field.current.setSelectionRange(pendingDateCursor.current, pendingDateCursor.current);
+      pendingDateCursor.current = null;
+    }
+    if (pendingTimeCursor.current !== null && timeField.current) {
+      timeField.current.setSelectionRange(pendingTimeCursor.current, pendingTimeCursor.current);
+      pendingTimeCursor.current = null;
+    }
+  });
   const close = (restoreFocus: boolean) => {
     setPopup(null);
     if (restoreFocus) field.current?.focus({ preventScroll: true });
@@ -247,13 +342,18 @@ export default function LocalDateTimePicker({
               spellCheck={false}
               placeholder="YYYY-MM-DD"
               value={date}
-              onChange={(event) => chooseDate(formatDateInput(event.target.value))}
+              onChange={(event) => {
+                const cursor =
+                  event.currentTarget.selectionStart ?? event.currentTarget.value.length;
+                applyDateInput(event.currentTarget.value, cursor);
+              }}
               onClick={() => {
                 // Touch users tap the field to type; the calendar icon and keyboard
                 // shortcuts still open the popup without covering the numeric entry.
                 if (!coarsePointer) setPopup({ focus: false });
               }}
               onKeyDown={(event) => {
+                if (handleSeparatorKey(event, date, '-', applyDateInput)) return;
                 if (event.key === 'ArrowDown' || event.key === 'Enter') {
                   event.preventDefault();
                   setPopup({ focus: true });
@@ -329,8 +429,11 @@ export default function LocalDateTimePicker({
             placeholder="HH:MM"
             value={time}
             onChange={(event) => {
-              setTime(formatTimeInput(event.target.value));
-              setOccurrence('0');
+              const cursor = event.currentTarget.selectionStart ?? event.currentTarget.value.length;
+              applyTimeInput(event.currentTarget.value, cursor);
+            }}
+            onKeyDown={(event) => {
+              handleSeparatorKey(event, time, ':', applyTimeInput);
             }}
             aria-invalid={!!timeError}
             aria-describedby={`${id}-help${error ? ` ${id}-error` : ''}`}

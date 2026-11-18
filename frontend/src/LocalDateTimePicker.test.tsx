@@ -49,8 +49,8 @@ it('localizes the calendar navigation and validation for German readers', () => 
 it('accepts numeric keypad digits and inserts the date and time separators', async () => {
   const user = userEvent.setup();
   render(<LocalDateTimePicker name="start" label="Planned start" />);
-  const date = screen.getByLabelText('Date (YYYY-MM-DD)');
-  const time = screen.getByLabelText('Time (HH:MM)');
+  const date = screen.getByLabelText('Date (YYYY-MM-DD)') as HTMLInputElement;
+  const time = screen.getByLabelText('Time (HH:MM)') as HTMLInputElement;
   expect(date).toHaveAttribute('inputmode', 'numeric');
   expect(time).toHaveAttribute('inputmode', 'numeric');
   await user.type(date, '20350201');
@@ -63,7 +63,7 @@ it('accepts numeric keypad digits and inserts the date and time separators', asy
   );
 });
 
-it('lets coarse-pointer users tap the date field to type while keeping the calendar icon', () => {
+it('lets coarse-pointer users tap the date field to type while keeping the calendar icon', async () => {
   const original = window.matchMedia;
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
@@ -71,10 +71,13 @@ it('lets coarse-pointer users tap the date field to type while keeping the calen
     value: (query: string) => ({ matches: query === '(pointer: coarse)' }) as MediaQueryList,
   });
   try {
+    const user = userEvent.setup();
     render(<LocalDateTimePicker name="start" label="Planned start" />);
     const date = screen.getByLabelText('Date (YYYY-MM-DD)');
-    fireEvent.click(date);
+    await user.click(date);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.type(date, '20350201');
+    expect(date).toHaveValue('2035-02-01');
     fireEvent.click(screen.getByRole('button', { name: 'Open calendar' }));
     expect(screen.getByRole('dialog', { name: 'Choose date' })).toBeInTheDocument();
   } finally {
@@ -83,6 +86,192 @@ it('lets coarse-pointer users tap the date field to type while keeping the calen
       writable: true,
       value: original,
     });
+  }
+});
+
+it('does not regroup the reported partial date and time values', () => {
+  render(<LocalDateTimePicker name="start" label="Planned start" />);
+  const date = screen.getByLabelText('Date (YYYY-MM-DD)') as HTMLInputElement;
+  const time = screen.getByLabelText('Time (HH:MM)') as HTMLInputElement;
+  fireEvent.change(date, { target: { value: '2035-2-01' } });
+  expect(date).toHaveValue('2035-2-01');
+  fireEvent.change(time, { target: { value: '1:30' } });
+  expect(time).toHaveValue('1:30');
+});
+
+it('preserves segments and cursor position when editing in the middle', async () => {
+  const user = userEvent.setup();
+  render(
+    <LocalDateTimePicker
+      name="start"
+      label="Planned start"
+      value={new Date(2035, 1, 1, 18, 30).toISOString()}
+    />,
+  );
+  const date = screen.getByLabelText('Date (YYYY-MM-DD)') as HTMLInputElement;
+  const time = screen.getByLabelText('Time (HH:MM)') as HTMLInputElement;
+  const hidden = document.querySelector('input[name=start]')!;
+
+  date.focus();
+  date.setSelectionRange(5, 7);
+  await user.keyboard('12');
+  expect(date).toHaveValue('2035-12-01');
+  expect(date.selectionStart).toBe(7);
+  expect(hidden).toHaveValue(new Date(2035, 11, 1, 18, 30).toISOString());
+
+  date.setSelectionRange(8, 10);
+  await user.keyboard('09');
+  expect(date).toHaveValue('2035-12-09');
+  expect(hidden).toHaveValue(new Date(2035, 11, 9, 18, 30).toISOString());
+
+  time.focus();
+  time.setSelectionRange(0, 2);
+  await user.keyboard('09');
+  expect(time).toHaveValue('09:30');
+  time.setSelectionRange(3, 5);
+  await user.keyboard('45');
+  expect(time).toHaveValue('09:45');
+  expect(hidden).toHaveValue(new Date(2035, 11, 9, 9, 45).toISOString());
+});
+
+it('keeps partial month and time segments instead of regrouping their digits', async () => {
+  const user = userEvent.setup();
+  render(
+    <LocalDateTimePicker
+      name="start"
+      label="Planned start"
+      value={new Date(2035, 1, 1, 18, 30).toISOString()}
+    />,
+  );
+  const date = screen.getByLabelText('Date (YYYY-MM-DD)') as HTMLInputElement;
+  const time = screen.getByLabelText('Time (HH:MM)') as HTMLInputElement;
+
+  date.focus();
+  date.setSelectionRange(6, 6);
+  await user.keyboard('{Backspace}');
+  expect(date).toHaveValue('2035-2-01');
+  expect(date.selectionStart).toBe(5);
+
+  time.focus();
+  time.setSelectionRange(0, 2);
+  await user.keyboard('1');
+  expect(time).toHaveValue('1:30');
+  expect(time.selectionStart).toBe(1);
+});
+
+it('handles Backspace and Delete at separators without corrupting segments', async () => {
+  const user = userEvent.setup();
+  render(
+    <LocalDateTimePicker
+      name="start"
+      label="Planned start"
+      value={new Date(2035, 1, 1, 18, 30).toISOString()}
+    />,
+  );
+  const date = screen.getByLabelText('Date (YYYY-MM-DD)') as HTMLInputElement;
+  const time = screen.getByLabelText('Time (HH:MM)') as HTMLInputElement;
+
+  date.focus();
+  date.setSelectionRange(5, 5);
+  await user.keyboard('{Backspace}');
+  expect(date).toHaveValue('203-02-01');
+  expect(date.selectionStart).toBe(3);
+  await user.keyboard('5');
+  expect(date).toHaveValue('2035-02-01');
+
+  date.setSelectionRange(4, 4);
+  await user.keyboard('{Delete}');
+  expect(date).toHaveValue('2035-2-01');
+
+  time.focus();
+  time.setSelectionRange(3, 3);
+  await user.keyboard('{Backspace}');
+  expect(time).toHaveValue('1:30');
+  expect(time.selectionStart).toBe(1);
+});
+
+it('supports selection replacement and pasting complete or partial values', async () => {
+  const user = userEvent.setup();
+  render(
+    <LocalDateTimePicker
+      name="start"
+      label="Planned start"
+      value={new Date(2035, 1, 1, 18, 30).toISOString()}
+    />,
+  );
+  const date = screen.getByLabelText('Date (YYYY-MM-DD)') as HTMLInputElement;
+  const time = screen.getByLabelText('Time (HH:MM)') as HTMLInputElement;
+
+  date.focus();
+  date.setSelectionRange(0, 10);
+  await user.keyboard('20400506');
+  expect(date).toHaveValue('2040-05-06');
+
+  date.setSelectionRange(0, 10);
+  await user.paste('2035-2-1');
+  expect(date).toHaveValue('2035-2-1');
+
+  date.setSelectionRange(0, date.value.length);
+  await user.paste('20350201');
+  expect(date).toHaveValue('2035-02-01');
+
+  time.focus();
+  time.setSelectionRange(0, 5);
+  await user.paste('1830');
+  expect(time).toHaveValue('18:30');
+  time.setSelectionRange(0, 5);
+  await user.paste('9:5');
+  expect(time).toHaveValue('9:5');
+});
+
+it('keeps form validity in sync while editing dates and times', async () => {
+  const user = userEvent.setup();
+  render(
+    <form>
+      <LocalDateTimePicker name="start" label="Planned start" />
+    </form>,
+  );
+  const date = screen.getByLabelText('Date (YYYY-MM-DD)') as HTMLInputElement;
+  await user.type(date, '20350230');
+  expect(date).toHaveValue('2035-02-30');
+  expect(date).toBeInvalid();
+  expect(screen.getByRole('alert')).toHaveTextContent('does not exist');
+
+  date.setSelectionRange(8, 10);
+  await user.keyboard('28');
+  expect(date).toHaveValue('2035-02-28');
+  expect(date).toBeValid();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(document.querySelector('input[name=start]')).toHaveValue(
+    new Date(2035, 1, 28, 12, 0).toISOString(),
+  );
+  expect(document.querySelector('form')!.checkValidity()).toBe(true);
+});
+
+it('preserves DST gaps and repeated-hour selection when editing', async () => {
+  const original = process.env.TZ;
+  process.env.TZ = 'Europe/Berlin';
+  try {
+    const user = userEvent.setup();
+    render(
+      <LocalDateTimePicker name="start" label="Planned start" value="2035-10-28T00:30:00.000Z" />,
+    );
+    const date = screen.getByLabelText('Date (YYYY-MM-DD)');
+    const time = screen.getByLabelText('Time (HH:MM)');
+    const occurrence = screen.getByRole('combobox');
+    expect(date).toHaveValue('2035-10-28');
+    expect(time).toHaveValue('02:30');
+    expect(occurrence).toHaveValue('0');
+    await user.selectOptions(occurrence, '1');
+    expect(document.querySelector('input[name=start]')).toHaveValue('2035-10-28T01:30:00.000Z');
+    await user.clear(date);
+    await user.type(date, '20350325');
+    await user.clear(time);
+    await user.type(time, '0230');
+    expect(screen.getByRole('alert')).toHaveTextContent('does not exist');
+    expect(document.querySelector('input[name=start]')).toHaveValue('');
+  } finally {
+    process.env.TZ = original;
   }
 });
 

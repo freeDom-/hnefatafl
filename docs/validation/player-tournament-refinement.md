@@ -95,18 +95,20 @@ the tournament page is visited. Vite's existing 500 kB chunk warning remains;
 this is a loading-boundary improvement, not a reduction in every route's combined
 asset total.
 
-## Dependency audit limitation
+## Dependency audit status
 
-The full dependency audit now reports five high-severity findings through the
-existing development-tool dependency on picomatch. Advisory
-[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), updated
-17 November 2026, covers all published versions through 4.0.7; GitHub lists no
-patched version. The referenced upstream PR is open and explicitly states that
-`+(*a)` remains exponential. A forced Vitest downgrade does not supply a patched
-picomatch, so it is not applied. The production-only audit reports zero findings.
-The required audit keeps its moderate threshold in a separate CI job, allowing
-functional/browser checks to run while preserving the failing dependency gate.
-No advisory suppression or dependency exception is introduced.
+PR #95 merged into `main` and is now part of this branch. Its dedicated
+`security` CI job runs `npm run audit:ci` against the committed lockfile. The
+repository owner approved a temporary exception for
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), a
+development-tool-only ReDoS in `picomatch` through 4.0.7. No patched upstream
+release exists, so the underlying vulnerability is **not technically resolved**.
+
+The exception is limited to the reviewed advisory, package set, versions and
+range, is development-only, expires **2026-12-17**, and requires a clean
+production-only audit. Any new, unapproved or runtime-reachable finding still
+fails the audit. No advisory was suppressed, no security check was relaxed, and
+no dependency or lockfile downgrade was introduced by this PR.
 
 ## Match-listing query regression
 
@@ -126,12 +128,19 @@ the wall-clock figures, are asserted because timing varies with the host.
 
 The numeric inputs keep `type="text"` so separators remain valid, but declare
 `inputMode="numeric"` for mobile numeric keypads. Digits are formatted into
-`YYYY-MM-DD` and `HH:MM` as they are typed; a separator typed manually is
-preserved. On coarse-pointer devices tapping the date field starts manual entry
-instead of opening the popup, while the integrated calendar icon, keyboard
-`ArrowDown`/`Enter`, clear action, focus return, compact layout, localization and
-DST occurrence handling are unchanged. Existing Chromium phone emulation covers
-the touch path; physical-device and Safari keyboard behaviour remain unverified.
+`YYYY-MM-DD` and `HH:MM` as they are typed. Existing separators are preserved as
+segment boundaries, so editing a partial month (`2035-2-01`) or hour (`1:30`)
+does not regroup digits into the wrong component. Formatting maps the caret by
+digit count, while separator-adjacent Backspace/Delete remove the adjacent digit
+instead of getting stuck on an auto-inserted separator. Component selection,
+whole-field replacement, paste of complete or partial values and numeric-keypad
+entry retain predictable caret positions. Validation, DST gaps/folds, repeated
+hours and UTC serialization are unchanged. On coarse-pointer devices tapping the
+date field starts manual entry instead of opening the popup, while the integrated
+calendar icon, keyboard `ArrowDown`/`Enter`, clear action, focus return, compact
+layout, localization and theme styling are unchanged. Existing Chromium phone
+emulation covers the touch path; physical-device and Safari keyboard behaviour
+remain unverified.
 
 ## Visual evidence and limits
 
@@ -164,17 +173,23 @@ true browser-zoom coverage.
 
 ## Follow-up head verification
 
-The working tree based on `50b1b46` was rechecked after the match-listing and
-mobile-entry follow-up:
+The merged reviewed head `5c06e20` passed
+[Verify run #44311165003](https://github.com/freeDom-/hnefatafl/actions/runs/44311165003)
+with successful `security`, `python`, `browser` and `node22` jobs. `main` at
+`a8ecb64` includes PR #95's approved audit exception and PR #94's achievement and
+portrait work.
+
+The final date/time remediation re-ran these checks locally:
 
 | Check | Result |
 | --- | --- |
-| `pytest` tournament, online, migration, rating, security and progression files | **397 passed** |
-| Vitest | **1,439 passed in 97 files** |
-| Player-tournament Playwright matrix | **25 passed**; the updated Berlin DST case passed again in both projects after the calendar-icon change |
-| TypeScript, Prettier and `make docs` | Passed |
-| Production build and 12 benchmark harness tests | Passed |
+| Focused `pytest` tournament, online core/API/migration, progression and security files | **286 passed** |
+| Vitest | **1,452 passed in 100 files** |
+| Player-tournament Playwright suite | **26 passed** |
+| Online Playwright suite, including sequential/simultaneous tournament flows | **24 passed** |
+| Ruff, Python formatting, mypy and `make docs` | Passed |
+| TypeScript, Prettier and production build | Passed |
+| `npm run audit:ci` | Passed with the unexpired PR #95 exception; production audit clean |
 
-The full repository pytest suite was not used as a local acceptance run because
-another workspace held the shared heavyweight-test lock; the canonical complete
-suite remains the CI `python` job.
+The complete repository validation remains the CI `python`, `browser` and
+`node22` jobs.
