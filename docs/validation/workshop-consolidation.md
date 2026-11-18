@@ -77,8 +77,16 @@ Focused validation on the corrected head:
 | Prettier check on changed files | passed |
 
 The browser regression adds a desktop assertion that the restored row is focused
-and a mobile-project assertion that the native selector is focused. Full CI results
-on the final head are recorded on PR #92.
+and a mobile-project assertion that the native selector is focused.
+
+Full CI on head `3816f88` ([run 44412918517](https://github.com/freeDom-/hnefatafl/actions/runs/44412918517)):
+the `python` job passed with **3,531 backend tests passed and 16 skipped** plus ruff,
+mypy and `make docs`; the `browser` job passed with **1,491 unit tests**, **76**
+public-production, **568 main e2e passed / 148 skipped**, **14** registration,
+**24** online and **34** personal-area browser tests, plus format, typecheck and
+build; the `node22` job passed typecheck, **1,491 unit tests** and build. The
+`security` job is red only for the outstanding dependency correction described
+below.
 
 Compatibility limits: the automated matrix remains Chromium. Safari/WebKit and
 physical-device verification were not performed, and the explicit viewport widths
