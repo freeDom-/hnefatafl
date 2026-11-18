@@ -257,7 +257,7 @@ the finding was disproved. The advisory remains unresolved. Fourteen Node tests
 cover the positive case and every fail-closed and approval-reference case.
 
 **Approval evidence:** the durable owner decision is the approval comment at
-[PR #94, comment 6974974794](https://github.com/freeDom-/hnefatafl/pull/94#issuecomment-6974974794),
+[PR #95, comment 6976788744](https://github.com/freeDom-/hnefatafl/pull/95#issuecomment-6976788744),
 recorded 2026-11-18 by `freeDom-`. It identifies the advisory, the development-only
 dependency paths, the residual development/CI denial-of-service risk, the absence of
 a supported upstream patch and the 2026-12-17 expiry, and states the removal and

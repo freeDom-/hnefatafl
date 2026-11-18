@@ -44,7 +44,7 @@ research remain outstanding. Checkbox state below records the audited baseline.
   2026-12-17 (or the next dependency refresh); the record pins the reviewed
   versions/range, requires a repository-hosted approval reference and rejects
   severity, package-set or version changes. Remove it when upstream ships a fix.
-  The durable approval is the owner comment on PR #94 dated 2026-11-18. The
+  The durable approval is the owner comment on PR #95 dated 2026-11-18. The
   advisory itself remains unresolved. See
   [the dependency record](validation/test-toolchain-security.md#picomatch-redos-advisory-ghsa-fc5q-39xc-vjpf-2026-11-17).
   No blind force upgrade, ignore list or downgrade; rerun tests and audit after

@@ -75,7 +75,7 @@ const baseException = {
   scope: 'development',
   expires: '2026-12-17',
   advisoryRange: '<=4.0.7',
-  approvalReference: 'https://github.com/freeDom-/hnefatafl/pull/94#issuecomment-6974974794',
+  approvalReference: 'https://github.com/freeDom-/hnefatafl/pull/95#issuecomment-6976788744',
   affectedPackages: ['fdir', 'picomatch', 'tinyglobby', 'vite', 'vitest'],
   packageVersions: {
     fdir: '6.5.0',
@@ -92,7 +92,7 @@ const exceptions = () => ({
   schema: 3,
   approvedBy: 'freeDom-',
   approvedAt: '2026-11-18',
-  reviewReference: 'https://github.com/freeDom-/hnefatafl/pull/94',
+  reviewReference: 'https://github.com/freeDom-/hnefatafl/pull/95',
   exceptions: [structuredClone(baseException)],
 });
 
@@ -336,7 +336,7 @@ test('fails when the approval reference is missing, malformed or not durable', (
   assert.match(verdict.problems.join(' '), /needs an https approvalReference/);
 
   const insecure = exceptions();
-  insecure.exceptions[0].approvalReference = 'http://github.com/freeDom-/hnefatafl/pull/94';
+  insecure.exceptions[0].approvalReference = 'http://github.com/freeDom-/hnefatafl/pull/95';
   verdict = assess({ exceptions: insecure });
   assert.equal(verdict.ok, false);
   assert.match(verdict.problems.join(' '), /needs an https approvalReference/);
