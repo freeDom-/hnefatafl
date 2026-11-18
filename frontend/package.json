@@ -9,6 +9,7 @@
     "benchmark:learning": "node benchmarks/run.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
+    "test:benchmarks": "node --test \"benchmarks/**/*.test.mjs\"",
     "test:e2e": "playwright test",
     "test:registration": "playwright test --config playwright.registration.config.ts",
     "lint": "tsc --noEmit",
@@ -17,14 +18,17 @@
     "format:check": "node scripts/sync-appearance-catalog.mjs --check && prettier --check .",
     "test:online": "playwright test --config playwright.online.config.ts",
     "test:personal": "playwright test --config playwright.personal.config.ts",
+    "test:public": "playwright test --config playwright.public.config.ts",
     "predev": "node scripts/sync-appearance-catalog.mjs",
     "prebuild": "node scripts/sync-appearance-catalog.mjs",
     "test:bundle": "node --test scripts/check-bundle-budget.test.mjs",
     "bundle:check": "node scripts/check-bundle-budget.mjs",
-    "test:benchmarks": "node --test \"benchmarks/**/*.test.mjs\""
+    "audit:ci": "node scripts/auditDependencies.mjs",
+    "test:scripts": "node --test \"scripts/*.test.mjs\""
   },
   "dependencies": {
     "react": "^19.2.0",
+    "react-day-picker": "^9.14.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0"
   },
@@ -41,6 +45,6 @@
     "prettier": "3.6.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.10",
-    "vitest": "^3.2.4"
+    "vitest": "4.1.12"
   }
 }

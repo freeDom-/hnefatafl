@@ -84,3 +84,8 @@ it('keeps every destination inside the same-origin route allowlist', () => {
     '/online/games/online-' + 'a'.repeat(32),
   );
 });
+it('highlights human competition without adding Workshop permissions or crowding mobile navigation', () => {
+  expect(activeDestination('arena', 'player-tournaments', '#bracket')).toBe('player-tournaments');
+  expect(activeDestination('workshop', 'player-tournaments', '')).toBeUndefined();
+  expect(workspaceDestinations('arena', ['play'])).toHaveLength(5);
+});

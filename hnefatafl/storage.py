@@ -262,6 +262,10 @@ class Store:
     def update_game(self, game: dict, expected_version: int, analysis: dict | None = None) -> None:
         game["version"] = expected_version + 1
         with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = connection.execute(
+                "SELECT data,owner_account_id FROM games WHERE id=?", (game["id"],)
+            ).fetchone()
             cursor = connection.execute(
                 "UPDATE games SET data=?,version=? WHERE id=? AND version=?",
                 (json.dumps(game), game["version"], game["id"], expected_version),
@@ -284,6 +288,22 @@ class Store:
                     "INSERT INTO game_analysis(game_id,position_key,data) VALUES(?,?,?) "
                     "ON CONFLICT(game_id,position_key) DO UPDATE SET data=excluded.data",
                     (game["id"], analysis["position_key"], json.dumps(retained, allow_nan=False)),
+                )
+
+            if (
+                (game.get("recorded_result") or {}).get("winner")
+                and previous
+                and not (json.loads(previous["data"]).get("recorded_result") or {}).get("winner")
+                and previous["owner_account_id"]
+            ):
+                from .progression import LOCAL_CRITERIA, award_achievements
+                import time
+
+                award_achievements(
+                    connection,
+                    (previous["owner_account_id"],),
+                    int(time.time() * 1_000_000),
+                    LOCAL_CRITERIA,
                 )
 
     def game_analysis(self, game_id: str, position_key: str) -> dict | None:
@@ -360,6 +380,93 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
+    @staticmethod
+    def _replay_category(c: sqlite3.Connection, game: dict, account_id: str) -> str | None:
+        if not (game.get("recorded_result") or {}).get("winner"):
+            return None
+        if game.get("online"):
+            row = c.execute(
+                "SELECT status FROM online_games WHERE id=? AND (attackers_id=? OR defenders_id=?)",
+                (game["id"], account_id, account_id),
+            ).fetchone()
+            return "online" if row and row["status"] == "completed" else None
+        row = c.execute(
+            "SELECT category,data FROM games WHERE id=? AND owner_account_id=?",
+            (game["id"], account_id),
+        ).fetchone()
+        return (
+            row["category"]
+            if row and (json.loads(row["data"]).get("recorded_result") or {}).get("winner")
+            else None
+        )
+
+    def replay_requester(self, game: dict) -> str | None:
+        """Validate the trusted request actor before registering shared work."""
+        account_id = game.get("_analysis_account_id")
+        if not account_id or not (game.get("recorded_result") or {}).get("winner"):
+            return None
+        with self.connection() as c:
+            return account_id if self._replay_category(c, game, account_id) else None
+
+    @staticmethod
+    def _successful_replay_report(game: dict, report: dict | None) -> bool:
+        return bool(
+            (game.get("recorded_result") or {}).get("winner")
+            and report
+            and not report.get("partial")
+            and any(
+                entry.get("agent_id") == "advisor"
+                and entry.get("source") not in (None, "unavailable")
+                and not entry.get("unavailable_reason")
+                for entry in report.get("evaluations", [])
+            )
+        )
+
+    def _record_replay_analysis(
+        self, c: sqlite3.Connection, game: dict, report: dict | None, account_ids: Iterable[str]
+    ) -> None:
+        if not self._successful_replay_report(game, report):
+            return
+        added = []
+        for account_id in dict.fromkeys(account_ids):
+            category = self._replay_category(c, game, account_id)
+            if category:
+                inserted = c.execute(
+                    "INSERT OR IGNORE INTO replay_analysis_completions(account_id,category,game_id) VALUES(?,?,?)",
+                    (account_id, category, game["id"]),
+                ).rowcount
+                if inserted:
+                    added.append(account_id)
+        if added:
+            import time
+            from .progression import award_achievements
+
+            award_achievements(
+                c, added, int(time.time() * 1_000_000), frozenset({"analyzed_replays"})
+            )
+
+    def record_replay_analysis(
+        self, game: dict, report: dict | None, account_id: str | None
+    ) -> None:
+        """Cached reports: existing receipts are a read-only fast path.
+
+        New receipts recheck authorization/completion under the writer lock and
+        commit their automatic rewards atomically. Duplicate insertions are safe.
+        """
+        if not account_id or not self._successful_replay_report(game, report):
+            return
+        with self.connection() as c:
+            category = self._replay_category(c, game, account_id)
+            if not category:
+                return
+            if c.execute(
+                "SELECT 1 FROM replay_analysis_completions WHERE account_id=? AND category=? AND game_id=?",
+                (account_id, category, game["id"]),
+            ).fetchone():
+                return
+            c.execute("BEGIN IMMEDIATE")
+            self._record_replay_analysis(c, game, report, (account_id,))
+
     def save_analysis_entry(
         self,
         original: dict,
@@ -369,6 +476,7 @@ class Store:
         advisor_revision: int | None = None,
         partial: bool = False,
         online: bool = False,
+        requester_ids: Iterable[str] = (),
     ) -> dict:
         """Save late work only while the exact searched line remains retained.
 
@@ -418,6 +526,7 @@ class Store:
                     if not completed.get("partial"):
                         # Completion is immutable, even if a late observer or
                         # another writer publishes progress for this same key.
+                        self._record_replay_analysis(connection, original, completed, requester_ids)
                         return completed
                 report = {**snapshot, "evaluations": [entry], "partial": partial}
                 report["hint"] = (
@@ -430,6 +539,7 @@ class Store:
                     "ON CONFLICT(game_id,position_key,revision) DO UPDATE SET data=excluded.data",
                     (game_id, key, advisor_revision, json.dumps(report, allow_nan=False)),
                 )
+                self._record_replay_analysis(connection, original, report, requester_ids)
                 return report
             row = connection.execute(
                 "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?", (game_id, key)

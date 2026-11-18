@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+const SHA256 = /^[0-9a-f]{64}$/;
+
 /**
  * Read the current git revision and whether the working tree has uncommitted
  * changes. `run` is injectable so the verification can be tested without git.
@@ -38,16 +40,27 @@ async function walk(directory, prefix = '') {
   return files;
 }
 
-/** Deterministic SHA-256 over every file path and byte in a directory tree. */
-export async function fingerprintDirectory(directory) {
+/**
+ * Deterministic SHA-256 over every file path and byte in a directory tree.
+ * `exclude` lists relative paths to skip, so a build can fingerprint its own
+ * output without hashing the metadata file that stores the result.
+ */
+export async function fingerprintDirectory(directory, { exclude = [] } = {}) {
+  const excluded = new Set(exclude);
   const hash = createHash('sha256');
   for (const { relative, full } of await walk(directory)) {
+    if (excluded.has(relative)) continue;
     hash.update(relative);
     hash.update('\0');
     hash.update(await readFile(full));
     hash.update('\0');
   }
   return hash.digest('hex');
+}
+
+/** Fingerprint the complete production bundle, including `dist/index.html`. */
+export async function fingerprintProductionBundle(distDirectory) {
+  return fingerprintDirectory(distDirectory, { exclude: ['arena-build.json'] });
 }
 
 /**
@@ -81,6 +94,35 @@ export function verifyBuildRevision(build, current, { allowDirty = false } = {})
       ok: false,
       reason: 'dirty',
       message: `Build revision ${build.revision} has uncommitted changes (build dirty: ${build.dirty}, source dirty: ${current.dirty}). Commit or stash them, or pass --allow-dirty to record a non-reproducible local measurement.`,
+    };
+  return { ok: true, reason: 'match', message: '' };
+}
+
+/**
+ * Require a complete, well-formed SHA-256 fingerprint and compare it with the
+ * bundle bytes on disk. A missing, malformed or mismatched fingerprint means the
+ * tested code cannot be identified, so the benchmark must stop.
+ */
+export function verifyBuildFingerprint(build, actualFingerprint) {
+  if (!build || typeof build.fingerprint !== 'string' || !SHA256.test(build.fingerprint))
+    return {
+      ok: false,
+      reason: 'missing-fingerprint',
+      message:
+        'No valid SHA-256 build fingerprint recorded in dist/arena-build.json. Rebuild with `npm --prefix frontend run build`.',
+    };
+  if (typeof actualFingerprint !== 'string' || !SHA256.test(actualFingerprint))
+    return {
+      ok: false,
+      reason: 'missing-fingerprint',
+      message:
+        'Could not fingerprint the production bundle. Rebuild with `npm --prefix frontend run build` and rerun.',
+    };
+  if (build.fingerprint !== actualFingerprint)
+    return {
+      ok: false,
+      reason: 'mismatch',
+      message: `Stale production build: dist changed since the recorded build (${build.fingerprint} -> ${actualFingerprint}). Rebuild with \`npm --prefix frontend run build\`.`,
     };
   return { ok: true, reason: 'match', message: '' };
 }

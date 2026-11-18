@@ -16,6 +16,9 @@ export default defineConfig({
     // Allow shared CI runners and loaded hosts enough time without weakening
     // request assertions.
     testTimeout: 20000,
+    // Keep Vitest 4's default maxWorkers (availableParallelism() - 1). A static
+    // cap low enough to help a host that over-reports CPUs would slow genuine
+    // high-core hosts; override per run with `--maxWorkers=<n>` when needed.
     setupFiles: './src/test-setup.ts',
     include: ['src/**/*.test.{ts,tsx}'],
   },

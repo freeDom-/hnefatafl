@@ -1,3 +1,4 @@
+import Portrait from './Portrait';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
@@ -39,7 +40,7 @@ export function persistRuleset(value: string) {
 }
 
 /** One decorative initial, never a fabricated portrait: the leaderboard DTO
- * carries no portrait id yet, so the layout slot stays clearly non-pictorial. */
+ * may omit portrait artwork in a partial fixture, so keep a readable fallback. */
 export function avatarInitial(name: string | undefined): string {
   const trimmed = (name ?? '').trim();
   if (!trimmed) return '?';
@@ -86,7 +87,7 @@ function Entries({
                 <td>{number.format(entry.rank)}</td>
                 <td>
                   <span className="leaderboard-avatar" aria-hidden="true">
-                    {avatarInitial(name)}
+                    {entry.portrait_id ? <Portrait id={entry.portrait_id} /> : avatarInitial(name)}
                   </span>
                   {name}
                   {entry.account_id === ownId ? ` · ${t('You')}` : ''}
@@ -170,7 +171,15 @@ export default function Leaderboard({
   const poll = useOnlinePoll(
     `leaderboard:${account?.id ?? 'anonymous'}:${ruleset}:${offset}`,
     load,
+    { intervalMs: compact ? 60000 : 5000 },
   );
+  useEffect(() => {
+    const changed = () => {
+      void poll.refresh();
+    };
+    window.addEventListener('rated-results-changed', changed);
+    return () => window.removeEventListener('rated-results-changed', changed);
+  }, [poll.refresh]);
   const data = poll.data;
   const entries = data?.entries ?? [];
   const total = data?.total ?? 0;
@@ -199,6 +208,11 @@ export default function Leaderboard({
         {compact && fullStandings && (
           <a href="/leaderboard" onClick={surfaceLink}>
             {t('Full standings')} →
+          </a>
+        )}
+        {!compact && (
+          <a className="button secondary" href="/player-tournaments" onClick={surfaceLink}>
+            {t('Player tournaments')}
           </a>
         )}
         <div className="leaderboard-filter">

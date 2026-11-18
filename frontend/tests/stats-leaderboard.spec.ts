@@ -100,6 +100,75 @@ test('statistics and leaderboard show real empty states without inventing a curv
   );
 });
 
+for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
+  test(`player tournaments link uses the shared secondary style in ${theme}`, async ({ page }) => {
+    await page.route(/\/api\/leaderboard\?/, (route) => {
+      const offset = Number(new URL(route.request().url()).searchParams.get('offset') ?? '0');
+      return route.fulfill({ json: standings(offset) });
+    });
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 1280, height: 900 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.addInitScript(
+        (theme) =>
+          localStorage.setItem(
+            'hnefatafl-appearance',
+            JSON.stringify({ version: 2, uiTheme: theme }),
+          ),
+        theme,
+      );
+      await page.goto('/leaderboard');
+      const link = page.locator('#main-content').getByRole('link', { name: 'Player tournaments' });
+      await expect(link).toBeVisible();
+      await expect(link).toHaveAttribute('href', '/player-tournaments');
+      expect(await link.getAttribute('class')).toBe('button secondary');
+
+      const compare = page.getByRole('button', { name: 'Next page' });
+      await expect(compare).toBeVisible();
+      const style = await link.evaluate((node) => {
+        const computed = getComputedStyle(node);
+        return {
+          background: computed.backgroundColor,
+          color: computed.color,
+          border: computed.borderColor,
+        };
+      });
+      const secondaryStyle = await compare.evaluate((node) => {
+        const computed = getComputedStyle(node);
+        return {
+          background: computed.backgroundColor,
+          color: computed.color,
+          border: computed.borderColor,
+        };
+      });
+      expect(style).toEqual(secondaryStyle);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+      ).toBe(true);
+
+      if (viewport.width > 800) {
+        // Keyboard focus reaches the link and uses the existing focus-visible ring.
+        for (let tabs = 0; tabs < 20; tabs++) {
+          if (await link.evaluate((node) => node === document.activeElement)) break;
+          await page.keyboard.press('Tab');
+        }
+        await expect(link).toBeFocused();
+        const outline = await link.evaluate((node) => {
+          const computed = getComputedStyle(node);
+          return { style: computed.outlineStyle, width: computed.outlineWidth };
+        });
+        expect(outline.style).not.toBe('none');
+        expect(parseFloat(outline.width)).toBeGreaterThanOrEqual(2);
+
+        await link.click();
+        await expect(page).toHaveURL(/\/player-tournaments$/);
+      }
+    }
+  });
+}
+
 test('the full leaderboard keeps the signed-in rank visible outside the page', async ({ page }) => {
   await page.route(/\/api\/leaderboard\?/, (route) => {
     const offset = Number(new URL(route.request().url()).searchParams.get('offset') ?? '0');

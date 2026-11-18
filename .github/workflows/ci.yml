@@ -6,6 +6,19 @@ on:
 permissions:
   contents: read
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12"
+      # Audit the committed lockfile without installing dependencies. Keeping this
+      # in its own job means a dependency advisory cannot block browser validation.
+      - run: npm run audit:ci
   python:
     runs-on: ubuntu-latest
     env:
@@ -50,14 +63,34 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:benchmarks
+      - run: npm run test:scripts
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:public
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-spectator-production
+          path: frontend/test-results/public-production/
+          retention-days: 14
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: arena-final-visual-acceptance
-          path: frontend/test-results/arena-final/
+          path: |
+            frontend/test-results/arena-final/
+            frontend/test-results/player-tournaments/
+            frontend/test-results/player-tournaments-calendar/
+            frontend/test-results/player-tournaments-compact-calendar/
+            frontend/test-results/portraits/
+            frontend/test-results/achievement-tiers/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-spectator-visual-acceptance
+          path: frontend/test-results/public-arena/
           retention-days: 14
       - run: npm run test:registration
       - run: npm run test:online
@@ -68,3 +101,22 @@ jobs:
           name: browser-failure-evidence
           path: frontend/test-results/
           retention-days: 7
+  node22:
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

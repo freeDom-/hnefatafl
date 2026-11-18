@@ -40,7 +40,11 @@ export default function ArenaSidebar({
   const hash = useLocationHash();
   if (!account) return null;
   const active =
-    activeDestination('arena', current, hash) ?? activeDestination('workshop', current, hash);
+    activeDestination('arena', current, hash) ??
+    activeDestination('workshop', current, hash) ??
+    (ARENA_SIDEBAR_ITEMS.some((item) => item.kind === 'destination' && item.id === current)
+      ? current
+      : undefined);
   const entry = workshopEntry(account.permissions);
   const entryId = workshopDestinationId(entry);
   const workshopItems = workspaceDestinations('workshop', account.permissions);

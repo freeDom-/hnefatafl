@@ -1,7 +1,12 @@
 import { chromium } from 'playwright';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fingerprintDirectory, readGitRevision, verifyBuildRevision } from './buildRevision.mjs';
+import {
+  fingerprintProductionBundle,
+  readGitRevision,
+  verifyBuildRevision,
+  verifyBuildFingerprint,
+} from './buildRevision.mjs';
 import { createServer } from 'node:http';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
@@ -14,8 +19,8 @@ const source = readGitRevision(repository);
 const build = JSON.parse(await readFile(join(root, 'arena-build.json'), 'utf8'));
 const checked = verifyBuildRevision(build, source);
 if (!checked.ok) throw new Error(checked.message);
-if (build.fingerprint !== (await fingerprintDirectory(join(root, 'assets'))))
-  throw new Error('Production assets changed after build; rebuild before measuring.');
+const fingerprint = verifyBuildFingerprint(build, await fingerprintProductionBundle(root));
+if (!fingerprint.ok) throw new Error(fingerprint.message);
 const types = {
   '.js': 'text/javascript',
   '.css': 'text/css',

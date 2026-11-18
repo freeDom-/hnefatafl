@@ -1,0 +1,442 @@
+{
+  "baseline": {
+    "reviewed_commit": "1511708416a3d5a366115c06d60f7d8e2447a62b",
+    "reconciled_commit": "f8589a8a3fd93ac2da2b03d274ab77ae3727fe2d",
+    "vite": "7.3.7"
+  },
+  "before": [
+    {
+      "width": 1440,
+      "responses": [
+        {
+          "url": "http://127.0.0.1:8011/assets/appearance-init.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/index-B2pufZD7.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/AuthenticatedArena-B8AUCf2j.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-BYBpG8vq.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/AuthenticatedArena-Bbrb4nJE.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/PublicArena-oh43z6Xp.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        }
+      ],
+      "errors": [],
+      "stylesheets": [
+        "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
+        "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
+        "http://127.0.0.1:8011/assets/AuthenticatedArena-B8AUCf2j.css"
+      ],
+      "computed": {
+        ".public-header": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-header-nav": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-filters": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-intro": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-empty": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        }
+      }
+    },
+    {
+      "width": 320,
+      "responses": [
+        {
+          "url": "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/appearance-init.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/index-B2pufZD7.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/AuthenticatedArena-B8AUCf2j.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-BYBpG8vq.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/PublicArena-oh43z6Xp.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/AuthenticatedArena-Bbrb4nJE.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        }
+      ],
+      "errors": [],
+      "stylesheets": [
+        "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
+        "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
+        "http://127.0.0.1:8011/assets/AuthenticatedArena-B8AUCf2j.css"
+      ],
+      "computed": {
+        ".public-header": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-header-nav": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-filters": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-intro": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-empty": {
+          "display": "block",
+          "padding": "0px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        }
+      }
+    }
+  ],
+  "after": [
+    {
+      "width": 1440,
+      "responses": [
+        {
+          "url": "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/appearance-init.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/index-DZvscYmf.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-DfuAyxPm.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/PublicArena-BXHONOyS.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        }
+      ],
+      "errors": [],
+      "stylesheets": [
+        "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
+        "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css",
+        "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css"
+      ],
+      "computed": {
+        ".public-header": {
+          "display": "flex",
+          "padding": "10.4px 40px",
+          "gap": "8px 16px",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-header-nav": {
+          "display": "flex",
+          "padding": "0px",
+          "gap": "8px 14.4px",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-filters": {
+          "display": "grid",
+          "padding": "20px",
+          "gap": "16px",
+          "textAlign": "start",
+          "columns": "235.859px 235.875px 235.859px 353.812px 111.594px"
+        },
+        ".public-intro": {
+          "display": "block",
+          "padding": "43.2px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-empty": {
+          "display": "grid",
+          "padding": "48px 24px",
+          "gap": "12px",
+          "textAlign": "center",
+          "columns": "1229px"
+        }
+      }
+    },
+    {
+      "width": 320,
+      "responses": [
+        {
+          "url": "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/appearance-init.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/index-DZvscYmf.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css",
+          "status": 200,
+          "type": "text/css; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/PublicArena-BXHONOyS.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        },
+        {
+          "url": "http://127.0.0.1:8011/assets/arenaTopBar-DfuAyxPm.js",
+          "status": 200,
+          "type": "text/javascript; charset=utf-8"
+        }
+      ],
+      "errors": [],
+      "stylesheets": [
+        "http://127.0.0.1:8011/assets/index-DmWrC0Xt.css",
+        "http://127.0.0.1:8011/assets/arenaTopBar-qCqN8ppL.css",
+        "http://127.0.0.1:8011/assets/PublicArena-BKatoy-B.css"
+      ],
+      "computed": {
+        ".public-header": {
+          "display": "flex",
+          "padding": "8.8px 11.2px",
+          "gap": "8px 16px",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-header-nav": {
+          "display": "flex",
+          "padding": "0px",
+          "gap": "6.4px 8px",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-filters": {
+          "display": "grid",
+          "padding": "20px",
+          "gap": "16px",
+          "textAlign": "start",
+          "columns": "238.969px"
+        },
+        ".public-intro": {
+          "display": "block",
+          "padding": "20px",
+          "gap": "normal",
+          "textAlign": "start",
+          "columns": "none"
+        },
+        ".public-empty": {
+          "display": "grid",
+          "padding": "48px 24px",
+          "gap": "12px",
+          "textAlign": "center",
+          "columns": "230.969px"
+        }
+      }
+    }
+  ],
+  "bundle_sizes": {
+    "before": {
+      "assets": [
+        {
+          "name": "appearance-init.js",
+          "raw": 1862,
+          "gzip": 700
+        },
+        {
+          "name": "index-DmWrC0Xt.css",
+          "raw": 74297,
+          "gzip": 15467
+        },
+        {
+          "name": "index-B2pufZD7.js",
+          "raw": 442777,
+          "gzip": 141624
+        },
+        {
+          "name": "arenaTopBar-qCqN8ppL.css",
+          "raw": 2435,
+          "gzip": 840
+        },
+        {
+          "name": "AuthenticatedArena-B8AUCf2j.css",
+          "raw": 100744,
+          "gzip": 17809
+        },
+        {
+          "name": "arenaTopBar-BYBpG8vq.js",
+          "raw": 5560,
+          "gzip": 2335
+        },
+        {
+          "name": "AuthenticatedArena-Bbrb4nJE.js",
+          "raw": 576225,
+          "gzip": 169480
+        },
+        {
+          "name": "PublicArena-oh43z6Xp.js",
+          "raw": 15822,
+          "gzip": 5623
+        }
+      ],
+      "raw": 1219722,
+      "gzip": 353878
+    },
+    "after": {
+      "assets": [
+        {
+          "name": "index-DmWrC0Xt.css",
+          "raw": 74297,
+          "gzip": 15467
+        },
+        {
+          "name": "appearance-init.js",
+          "raw": 1862,
+          "gzip": 700
+        },
+        {
+          "name": "index-DZvscYmf.js",
+          "raw": 442840,
+          "gzip": 141643
+        },
+        {
+          "name": "arenaTopBar-qCqN8ppL.css",
+          "raw": 2435,
+          "gzip": 840
+        },
+        {
+          "name": "PublicArena-BKatoy-B.css",
+          "raw": 6512,
+          "gzip": 1821
+        },
+        {
+          "name": "arenaTopBar-DfuAyxPm.js",
+          "raw": 5560,
+          "gzip": 2334
+        },
+        {
+          "name": "PublicArena-BXHONOyS.js",
+          "raw": 15834,
+          "gzip": 5626
+        }
+      ],
+      "raw": 549340,
+      "gzip": 168431
+    }
+  }
+}

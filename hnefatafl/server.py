@@ -417,6 +417,10 @@ def create_app(
     from .player_tournament_api import attach_player_tournaments
 
     attach_player_tournaments(app, auth, online)
+    from .player_tournament_settlement import TournamentSettlement
+
+    tournament_settlement = TournamentSettlement(app.state.player_tournaments)
+    app.state.tournament_settlement = tournament_settlement
     from .progression_api import attach_progression
 
     attach_progression(app, online)
@@ -448,9 +452,12 @@ def create_app(
         if online_background:
             await asyncio.to_thread(online.sweep)
             online.start()
+            await asyncio.to_thread(tournament_settlement.recover)
+            tournament_settlement.start()
         try:
             yield
         finally:
+            await asyncio.to_thread(tournament_settlement.shutdown)
             await asyncio.to_thread(online.shutdown)
             await asyncio.to_thread(registration.shutdown)
         await asyncio.to_thread(tournaments.shutdown)
@@ -1050,6 +1057,19 @@ def create_app(
         result.pop("partial", None)
         return result
 
+    def record_completed_replay(game: dict, settings: dict, recorded: dict | None) -> None:
+        # Presentation merges intentionally omit the advisor's partial flag.
+        # Eligibility must use raw retained evidence, never that merged display.
+        if not recorded or not (game.get("recorded_result") or {}).get("winner"):
+            return
+        raw = store.advisor_analysis(game["id"], recorded["position_key"], settings["revision"])
+        if raw is None and store.analytics(game["id"]) is None:
+            raw = store.game_analysis(game["id"], recorded["position_key"])
+        from .security_context import principal
+
+        identity = principal.get()
+        store.record_replay_analysis(game, raw, identity["id"] if identity else None)
+
     def evaluation_entry(
         game: dict,
         role: str,
@@ -1185,6 +1205,10 @@ def create_app(
     def background_analysis(
         game: dict, *, state: State | None = None, cursor: int | None = None
     ) -> dict:
+        from .security_context import principal
+
+        identity = principal.get()
+        game = {**game, "_analysis_account_id": identity["id"] if identity else None}
         state = state or state_of(game)
         settings = analytics_settings(game)
         snapshot = position_snapshot(game, state=state, cursor=cursor)
@@ -1237,13 +1261,20 @@ def create_app(
             }
         )
         assert rendered is not None
+        record_completed_replay(game, settings, result)
         return rendered
 
     @app.post("/api/games/{game_id}/analysis")
     def analyze_game(game_id: str, request: AnalysisRequest):
         from .ai import analyze_position
 
-        game = game_or_404(game_id, request.version)
+        from .security_context import principal
+
+        identity = principal.get()
+        game = {
+            **game_or_404(game_id, request.version),
+            "_analysis_account_id": identity["id"] if identity else None,
+        }
         if request.historical:
             if not 0 <= request.cursor <= len(game["moves"]):
                 fail("The requested position is outside this recorded game.", 422)
@@ -1254,6 +1285,7 @@ def create_app(
             recorded = current_analysis(game, settings, state=state) or missing_analysis(
                 game, state=state, cursor=request.cursor
             )
+            record_completed_replay(game, settings, recorded)
             return analysis_response(
                 {
                     **recorded,
@@ -1279,6 +1311,7 @@ def create_app(
                 fail("The move advisor changed. Retry analysis.", 409)
             if saved_settings:
                 result = {**result, "advisor_revision": settings["revision"]}
+            record_completed_replay(game, settings, result)
             return analysis_response(result)
 
         # A recorded opinion belongs to the original point in play. Never
@@ -1424,6 +1457,7 @@ def create_app(
         return {
             "id": game_id,
             "online": True,
+            "_analysis_account_id": account["id"],
             "ruleset": row["ruleset"],
             "mode": "human-human",
             "players": players,
@@ -1483,9 +1517,10 @@ def create_app(
         if request.background:
             return background_analysis(game, state=state, cursor=request.cursor)
         settings = analytics_settings(game)
+        recorded = current_analysis(game, settings, state=state)
+        record_completed_replay(game, settings, recorded)
         return analysis_response(
-            current_analysis(game, settings, state=state)
-            or missing_analysis(game, state=state, cursor=request.cursor)
+            recorded or missing_analysis(game, state=state, cursor=request.cursor)
         )
 
     @app.delete("/api/games/{game_id}")

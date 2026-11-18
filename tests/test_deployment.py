@@ -274,7 +274,7 @@ def test_schema14_profile_backup_requires_manual_upgrade_after_schema15_transiti
     with pytest.raises(ValueError, match="Account schema changed"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
         assert tuple(
             c.execute("SELECT city,profile_private_fields,date_of_birth FROM accounts").fetchone()
         ) == ("Legacy private", '["city"]', None)
@@ -339,6 +339,10 @@ def test_restore_retains_live_online_results_return_games_and_pauses_timeout_gat
             "VALUES(?,?,?)",
             (deployment.admin["id"], "shieldmaiden", 456),
         )
+    # Published portraits are current profile metadata, not a game-version
+    # snapshot. Capture the projection after the legitimate live selection.
+    finished = core.read(digest(first_token), game["id"])
+    assert finished["participants"]["attackers"]["portrait_id"] == "shieldmaiden"
     tables = (
         "online_matches",
         "online_games",
@@ -403,7 +407,7 @@ def test_online_schema_downgrade_restore_refuses_live_root_replacement(deploymen
     with pytest.raises(ValueError, match="Online schema changed"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1
 
 
@@ -437,7 +441,7 @@ def test_snapshot_without_database_cannot_replace_live_authority(deployment):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["active"] == 1
     with deployment.store.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
 
 
 @pytest.mark.parametrize("status", ["running", "queued", "cancelling"])

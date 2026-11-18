@@ -671,3 +671,59 @@ def test_neural_analytics_reuses_loaded_checkpoint_across_positions(
         assert len(loads) == 1
     finally:
         ai._loaded_model.cache_clear()
+
+
+def test_completed_replay_analysis_records_once_without_followup_poll(client):
+    """The worker credits completion; GET/view requests never credit anything."""
+    game = create(client, mode="human-human")
+    for source, target in [(3, 2), (17, 16), (2, 3), (16, 17)] * 2:
+        game = move(client, game, {"source": source, "target": target})
+    assert game["winner"] == "draw"
+    settings(client, game, {"profile_id": "baseline"})
+    assert client.get("/api/personal/achievements").json()["summary"]["earned_points"] == 0
+
+    def receipts():
+        with client.app.state.store.connection() as c:
+            return c.execute("SELECT count(*) FROM replay_analysis_completions").fetchone()[0]
+
+    client.get(f"/api/games/{game['id']}/replay")
+    assert receipts() == 0
+    analyze(client, game)  # Exactly one POST; no poll is needed to persist credit.
+    wait_for(lambda: receipts() == 1)
+    for _ in range(3):
+        analyze(client, game)
+    assert receipts() == 1
+    payload = client.get("/api/personal/achievements").json()
+    assert payload["summary"]["earned_points"] == 10
+    assert (
+        next(f for f in payload["families"] if f["id"] == "analyzed-replays")["awarded_tier"] == 1
+    )
+
+
+def test_partial_replay_display_does_not_record_completion(client, monkeypatch):
+    entered, release = threading.Event(), threading.Event()
+    game = create(client, mode="human-human")
+    for source, target in [(3, 2), (17, 16), (2, 3), (16, 17)] * 2:
+        game = move(client, game, {"source": source, "target": target})
+    settings(client, game, {"profile_id": "baseline"})
+
+    def slow(state, configuration, *, progress=None):
+        progress(report(state))
+        entered.set()
+        assert release.wait(5)
+        return report(state)
+
+    monkeypatch.setattr(ai, "analyze_position", slow)
+    path = f"/api/games/{game['id']}/analysis"
+    body = {"version": game["version"], "cursor": 0, "historical": True, "background": True}
+    try:
+        assert client.post(path, json=body).status_code == 200
+        assert entered.wait(5)
+        assert client.post(path, json=body).json()["evaluations"]
+        with client.app.state.store.connection() as c:
+            assert c.execute("SELECT count(*) FROM replay_analysis_completions").fetchone()[0] == 0
+    finally:
+        release.set()
+    wait_for(lambda: client.post(path, json=body).json()["status"] == "complete")
+    with client.app.state.store.connection() as c:
+        assert c.execute("SELECT count(*) FROM replay_analysis_completions").fetchone()[0] == 1

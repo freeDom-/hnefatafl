@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import Auth from './Auth';
-import App from './App';
+import EntryRouter from './EntryRouter';
 import { AppearanceProvider } from './Appearance';
 import { I18nProvider } from './i18n';
 import { NotificationProvider } from './notifications';
@@ -17,9 +16,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <I18nProvider>
       <NotificationProvider>
         <AppearanceProvider>
-          <Auth>
-            <App />
-          </Auth>
+          <EntryRouter />
         </AppearanceProvider>
       </NotificationProvider>
     </I18nProvider>

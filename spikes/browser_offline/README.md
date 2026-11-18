@@ -11,6 +11,81 @@ there is no evidence requiring a separately maintained JavaScript rules engine.
 Such a rewrite would duplicate all three rulesets, repetition history and variant
 outcomes, and require permanent differential tests on every engine change.
 
+## Current-engine analysis extension
+
+The current worker also exposes the existing classical analysis API, exact-position
+cache, bounded scheduling and termination-based cancellation. See the
+[current-engine feasibility report](../../docs/validation/browser-analysis-prototype.md)
+for fresh measurements, native/browser differential tests and production gates.
+The Phase 0 measurements and limitations below describe the original baseline-only
+experiment; they are retained as historical evidence, not new validation.
+
+### Lifecycle and scheduling corrections
+
+Displayed analysis is bound to the exact position and settings that produced it.
+Starting a new game, restoring a position, making a human move or completing an AI
+move clears the analysis pane and invalidates any in-flight analysis render, so a
+superseded result can never publish. Cache reuse still applies when the identical
+position, repetition history and settings are analyzed again.
+
+Foreground gameplay preempts background analysis: a human move, AI move, new game
+or restore cancels the active analysis through the existing generation guard and
+terminates/recreates the worker. Ordinary analysis cache hits never restart the
+worker, and a synchronous `postMessage` failure clears the pending timer, request
+state and busy flag. Expected `AbortError` cancellation is reported as a cancelled
+state rather than a generic spike error, and position-dependent controls stay
+disabled until the first position is rendered.
+
+The 512 KiB request limit is enforced on the exact serialized payload in UTF-8
+bytes on both sides of the worker boundary; the Python `dispatch` check remains an
+independent safety boundary. Multibyte payloads whose UTF-16 length is within the
+limit but whose UTF-8 encoding exceeds it are rejected.
+
+### Second review corrections
+
+Offline service-worker registration is independent of the cancellable initial
+game. Cancelling or replacing that game cannot prevent registration, a failed or
+cancelled attempt can be retried, duplicate registrations are avoided by a cached
+startup promise, installation failure or a stalled activation is surfaced
+explicitly, and the scope stays the isolated spike directory. The startup promise
+always settles.
+
+A cache hit is treated as the newest request: it cancels any slower in-flight
+search instead of leaving it running, while an idle worker is never restarted for
+an ordinary cache hit. Manual Cancel clears the analyzing indicator immediately and
+is idempotent. Cancellation (`AbortError`), hard timeout (`TimeoutError`), worker
+failure and supersession now produce distinct feedback, and obsolete handlers
+cannot overwrite newer status. A synchronous `postMessage` failure resets the
+transport so the next request creates a fresh worker. Terminal positions disable
+Move and AI selection (analysis remains available), invalid or empty moves are
+rejected, and playable positions restore the controls.
+
+### Third review corrections
+
+Foreground gameplay has explicit priority over background analysis. The client
+tracks whether the active worker job is foreground; a background request or cached
+result never terminates a foreground New Game, Restore, Move or AI operation.
+Foreground work still preempts background analysis, multiple background analyses
+retain newest-request-wins behavior, and a background request that cannot preempt
+the foreground is discarded with `ForegroundPriorityError` instead of disturbing
+the current position or status.
+
+Fixture loading is wrapped in the same foreground ownership: a delayed fetch that
+is superseded by a newer game returns without starting worker work or overwriting
+the status, and manual Cancel invalidates it. An active analysis failure now clears
+the `Analyzing…` indicator before reporting the error, and cancellation with no
+active work is a no-op that preserves the healthy idle worker.
+
+### Final review corrections
+
+Worker error handling uses the same active-worker identity check as worker
+messages. A delayed `error` event from a cancelled, replaced or terminated worker
+is ignored, so it cannot abort the replacement worker or reject an unrelated
+request; an error from the currently active worker still rejects the pending
+promise, clears its timer and resets the transport for the next request. The
+branch is also merged with current `main` without touching the staged Python
+engine closure or the production application.
+
 ## Reproduce
 
 From the repository root, with existing Python/Node development dependencies:

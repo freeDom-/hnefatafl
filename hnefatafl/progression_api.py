@@ -1,17 +1,13 @@
-"""Authenticated portrait catalog, own-achievement progress and confirmation.
+"""Authenticated read-only portrait catalog and own-achievement projection.
 
-The reads are self-scoped: they take the session credential from the trusted
-request context and never accept an account, entitlement or award from the
-client. Confirming awards is an explicit non-SAFE mutation (origin, CSRF, body
-size and the deployment freeze apply at the security boundary); selecting a
-portrait is a profile mutation and lives with the other profile routes.
+Selection lives with the CSRF-protected profile routes. Authoritative game and
+analysis transactions award milestones; these reads never grant rewards.
 """
 
 import logging
 import sqlite3
 
 from fastapi import HTTPException
-
 from .online_core import OnlineError
 from .progression import Progression
 from .security_context import session_identity
@@ -49,7 +45,3 @@ def attach_progression(app, online):
     @app.get("/api/personal/achievements")
     def achievements():
         return execute("achievements", progression.achievements)
-
-    @app.post("/api/personal/achievements/confirm")
-    def confirm_achievements():
-        return execute("confirm_achievements", progression.confirm)

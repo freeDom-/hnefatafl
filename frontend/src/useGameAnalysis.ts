@@ -141,6 +141,7 @@ export function useGameAnalysis(
     report?: PositionAnalysis;
   } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const creditedReplay = useRef('');
   useEffect(() => {
     if (
       !game ||
@@ -196,6 +197,21 @@ export function useGameAnalysis(
         }
         failures = 0;
         const pending = report.status === 'pending';
+        const replayKey = `${basePath}/${game.id}`;
+        if (
+          !pending &&
+          (game.recorded_winner || game.winner) &&
+          creditedReplay.current !== replayKey &&
+          report.evaluations.some(
+            (entry) =>
+              entry.agent_id === 'advisor' &&
+              entry.source !== 'unavailable' &&
+              !entry.unavailable_reason,
+          )
+        ) {
+          creditedReplay.current = replayKey;
+          window.dispatchEvent(new Event('progression-changed'));
+        }
         setRequest({ key, status: pending ? 'pending' : 'done', report });
         if (pending) timer = setTimeout(() => void poll(), 300);
       } catch (error) {

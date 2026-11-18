@@ -1,244 +1,204 @@
 # Earnable portraits and achievement progress
 
 [Documentation index](README.md) · [Rated games](RATINGS.md) · [Profile](PROFILE.md) ·
-[Online core](ONLINE.md) · [Accounts and API security](SECURITY.md)
+[Accounts and API security](SECURITY.md)
 
-Schema **17** adds the Arena v2 progression foundations: a server-owned portrait
-catalog, per-account portrait entitlements and a permanent achievement ledger.
-Awards are derived only from authoritative server records, and a client can never
-grant itself a reward, supply a portrait image or read another account's progress.
-
-## Scope and non-goals
-
-Delivered:
-
-- `GET /api/portraits/catalog` — stable catalog IDs and metadata
-- `GET /api/personal/achievements` — read-only own progress and confirmed awards
-- `POST /api/personal/achievements/confirm` — CSRF-protected confirmation of the
-  awards the authoritative records already prove
-- `PATCH /api/profile/portrait` — CSRF-protected selection of an earned portrait
-
-Deliberately out of scope: paid currency, any XP or soft-currency economy, client
-awarded unlocks, login/activity streaks, leagues and player tournaments. Those
-reserved systems keep their own future schema numbers (18/19) and namespaces.
-
-## Portrait catalog
-
-IDs are the contract; display names and artwork are not. The frontend bundles the
-artwork mapping and may localize labels, exactly like the ruleset catalog.
-
-| ID | Name | Unlocked by |
-| --- | --- | --- |
-| `shieldbearer` | Shieldbearer | always available default |
-| `shieldmaiden` | Shieldmaiden | `first-rated-win` |
-| `iron-helm` | Iron Helm | `defender-hold` |
-| `wanderer` | Wanderer | `brandubh-initiate` |
-| `skald` | Skald | `tablut-initiate` |
-| `fjord-scout` | Fjord Scout | `copenhagen-initiate` |
-| `raven-seer` | Raven Seer | `rated-wins-10` |
-| `berserker` | Berserker | `rated-win-streak-5` |
-| `one-eyed-jarl` | One-Eyed Jarl | `rated-win-streak-10` |
-| `valkyrie` | Valkyrie | `defender-wins-10` |
-| `einherjar` | Einherjar | `rated-wins-25` |
-| `forge-keeper` | Forge Keeper | `ai-first-victory` |
-
-Policy:
-
-- exactly one non-retired default portrait is declared in code, so the catalog can
-  never lose its always-available default (see
-  [catalog integrity guarantees](#catalog-integrity-guarantees))
-- a client sends a catalog ID only; there is no image, URL, path or MIME field
-- unknown and retired IDs are rejected (`422`); an ID that is not earned yet is
-  rejected (`403`)
-- re-selecting the current portrait is idempotent and returns the same projection
-- a stored selection that the current catalog retires is no longer published; the
-  default is published instead, and the portrait disappears from the catalog
-- an ID is never renumbered or reused; a retired portrait keeps its entitlement
-  history, so a later catalog change cannot silently reinterpret an old grant
-- the catalog response excludes retired portraits, so it is never a list of
-  unselectable IDs
-
-## Catalog integrity guarantees
-
-Uniqueness and existence are enforced by different layers, and neither can silently
-invalidate a stored selection:
-
-- **uniqueness is enforced by the database**: catalog IDs are `PRIMARY KEY`s, the
-  award and entitlement tables key on `(account_id, achievement_id)` and
-  `(account_id, portrait_id)`, and the partial unique index `portrait_catalog_default`
-  allows **at most one** non-retired always-available portrait. It can reject a
-  second default, but it cannot by itself guarantee that one exists.
-- **existence and validity are enforced by the validated code catalogs plus startup
-  seeding**: `_validate_catalogs()` runs at import and fails loudly if IDs are not
-  unique, if a criterion/category/scope is unknown, if a threshold is not positive,
-  if a portrait unlocks an unknown achievement, or if there is not **exactly one**
-  non-retired default. `seed_catalog()` then mirrors both catalogs into the database
-  on every startup with `INSERT ... ON CONFLICT DO UPDATE` and **never deletes a row**,
-  so a catalog row for a stored reference always exists and IDs are never removed.
-
-What that means for a stored selection (`account_portrait_selection`):
-
-- **evolution** (a renamed portrait, a changed unlock) updates the catalog row in
-  place without touching any ID, so the stored selection still resolves and its
-  entitlement history is unchanged
-- **retirement** only sets `retired=1`; the row and the selection are retained, so
-  the stored selection is unpublished while retired (the default is published
-  instead) and would resolve again if the portrait were ever un-retired. `select()`
-  rejects a retired ID, so it can never be re-selected in the meantime.
-- **default replacement** must keep the previous default as a retired entry: if a new
-  default were seeded while the old default row is still non-retired, the partial
-  unique index aborts the startup loudly instead of leaving the catalog without a
-  usable default. `seed_catalog()` writes the default last so the retiring and
-  replacement rows never both count as non-retired within one transaction.
-- a stored selection whose portrait is somehow absent from the catalog still falls
-  back to the default, because `selected_portrait_id` joins `portrait_catalog` rather
-  than trusting the raw id.
-
-No schema migration is added for this: the existing constraints and the code
-catalog already cover the invariants, so there is no actual failure to repair.
-
-## Achievement catalog
-
-| ID | Category | Requirement | Threshold | Portrait |
-| --- | --- | --- | --- | --- |
-| `first-rated-win` | rated | rated online wins | 1 | `shieldmaiden` |
-| `rated-wins-10` | rated | rated online wins | 10 | `raven-seer` |
-| `rated-wins-25` | rated | rated online wins | 25 | `einherjar` |
-| `defender-hold` | rated | rated online wins as defender | 1 | `iron-helm` |
-| `defender-wins-10` | rated | rated online wins as defender | 10 | `valkyrie` |
-| `rated-win-streak-5` | streak | best rated win streak | 5 | `berserker` |
-| `rated-win-streak-10` | streak | best rated win streak | 10 | `one-eyed-jarl` |
-| `brandubh-initiate` | ruleset | rated Brandubh wins | 1 | `wanderer` |
-| `tablut-initiate` | ruleset | rated Tablut wins | 1 | `skald` |
-| `copenhagen-initiate` | ruleset | rated Copenhagen wins | 1 | `fjord-scout` |
-| `local-first-game` | local | finished same-device local games | 1 | none |
-| `ai-first-victory` | ai | finished single-player games won against a computer | 1 | `forge-keeper` |
-
-An achievement does not have to unlock a portrait: `local-first-game` is a
-milestone without one.
-
-## Award rules
-
-Awards are derived from authoritative records only:
-
-- rated wins, defender wins and ruleset milestones come from the **applied rating
-  ledger** (`rating_events` joined to `rating_applications`), so a withdrawn result
-  contributes nothing and a rebuilt or corrected pool is recomputed, never patched
-- best rated win streaks are folded from the same ordered ledger, exactly like
-  [personal progress](RATINGS.md#personal-rating-history-and-progress); a
-  correction therefore changes the streak that a later read derives
-- the local milestone counts completed local games in the account's own
-  `category='local'` records
-- the vs-AI milestone counts completed `human-ai` account games the account's own
-  human seat won
-
-Unrated/casual games, unfinished games, AI-vs-AI self-play, another account's games
-and client-supplied claims never contribute.
-
-Confirmation is explicit, idempotent and permanent:
-
-- the read never writes: `GET /api/personal/achievements` only projects the
-  catalog, the account's already-confirmed awards and the progress it derives, so
-  it is safe as a repeatable `GET`
-- an explicit `POST /api/personal/achievements/confirm` evaluates the same records
-  and confirms every milestone they already prove inside one `BEGIN IMMEDIATE`
-  transaction, then returns the same projection; the award key is
-  `(account_id, achievement_id)` with `INSERT OR IGNORE`, so a repeated
-  confirmation, a duplicated result update, a replay or a pool rebuild can never
-  duplicate a reward
-- confirmed awards and granted portraits are append-only: no update or delete path
-  exists, so a later void or correction never revokes an unlock
-- a result withdrawn **before** the first confirmation never awards anything, so a
-  leaked or voided result cannot hand out a reward
-- `awarded_at` is the server time of first confirmation, not the source event time;
-  the source evidence remains the ledger or the completed game record
-- `progress` is the current derived count and may later fall below the threshold
-  while the confirmed unlock stays (for example after a void)
-
-## Migration and existing accounts
-
-Schema 17 is additive and idempotent. `migrate_online` creates the catalog, award,
-entitlement and selection tables and mirrors the code-owned catalogs on every
-startup; schema 16 and the local 1v1 `category` column are untouched.
-
-- the migration itself inserts **no** award, entitlement or selection, so upgrading
-  an existing account grants nothing
-- a changed name, unlock or retirement is applied to the stored catalog row on the
-  next startup without renumbering any ID, and the published catalog version is
-  bumped in code when the catalog changes
-- an existing account's first confirmation confirms only milestones its
-  authoritative records already prove (for example historical rated wins in the
-  retained rating ledger or completed owned account games); nothing is invented
-  from missing evidence, and no milestone is granted from a claim, a seed or an
-  absent record
-- the progression tables belong to the retained live online authority, so a
-  compatible stopped-writer restore keeps current awards, entitlements and the
-  selected portrait rather than rewinding them to the snapshot; a differing online
-  schema still refuses automatic root replacement
+Achievement catalog **3**, portrait catalog **2**, schema **21** automatically
+award milestones from authoritative events. There are **77 milestones worth
+6,290 points**. No client supplies progress, points or reward amounts. Earned
+achievements and portrait entitlements are permanent, including after corrections.
 
 ## API contract
 
-| Method/path | Permission | Behavior |
+- `GET /api/portraits/catalog`: authenticated code-owned catalog, ordered by difficulty.
+- `GET /api/personal/achievements`: read-only own-account progress, permanent awards,
+  families, score and `unlocked_portrait_ids` (including grandfathered entitlements).
+- `PATCH /api/profile/portrait`: explicit selection of an already unlocked portrait,
+  protected by the existing session, origin, CSRF, deployment freeze and body checks.
+
+There is no achievement confirmation endpoint or collection action. Selecting a
+portrait never awards achievements; unlocking never changes the selected avatar.
+Unknown/retired IDs return 422, locked portraits 403, missing sessions 401.
+
+## Portrait Hall and player artwork
+
+The Hall presents the introduction, ordered portrait gallery, then Achievements.
+The achievement score, percentage and milestone count sit below that heading.
+Family cards show current recorded progress, highest currently achieved threshold,
+highest permanently awarded tier, next target and incremental reward. The next
+target is the first threshold above current progress that has not already been
+awarded. A correction can reduce current progress without reducing an earned tier.
+A completed family has no further target or progress bar.
+
+Engraved, bronze, silver, gold and legendary treatments use shared Arena theme
+tokens and stable family runes. Server responses determine all awards. English and
+German labels, localized numbers, accessible progress labels, keyboard selection,
+account-switch guards and stale-response handling cover the four themes.
+
+Game completion, successful analysis completion, window focus and reconnect trigger
+coalesced account-scoped refreshes. One shared `ProgressionProvider` owns the single
+`GET /personal/achievements` read for the authenticated shell, so the Dashboard,
+the Portrait Hall and the notification baseline never fetch it independently.
+The Dashboard already owns the account-wide result-totals poll, so it invalidates
+the shared read from that poll without a second timer. Every other route,
+including an open local, single-player or online game board, keeps a 15-second
+visible-tab backstop: a game route only observes its own game and cannot see a
+separate rated completion. The recurring read is suspended while the page is
+hidden and resumes on visibility, so a remote completion eventually appears
+without navigation or refocus. A session baseline prevents historical
+notification storms; newly observed awards show points and newly available
+portraits. Notifications are not a durable notification history.
+
+## Portrait catalog
+
+The backend sorts the default first, victory portraits by threshold then stable
+ID, followed by rated streak portraits by streak length. Ordering is independent
+of display language.
+
+| Portrait | Requirement | Milestone ID |
 | --- | --- | --- |
-| `GET /api/portraits/catalog` | `play` | `catalog_version`, `default_portrait_id`, `items[{id,name,unlock_achievement_id}]` |
-| `GET /api/personal/achievements` | `play` | read-only own `items` with `progress`, `unlocked`, `awarded_at`, `portrait_id`, plus `summary` and `as_of` |
-| `POST /api/personal/achievements/confirm` | `play` | confirms the awards the records already prove; returns the same projection as the read |
-| `PATCH /api/profile/portrait` | `profile` | `{"portrait_id": "<catalog id>"}`; returns the profile projection |
+| Shieldbearer | Default | none |
+| Fjord Scout | 10 rated Copenhagen wins | `copenhagen-wins-10` |
+| Forge Keeper | 10 human-versus-AI wins | `ai-wins-10` |
+| Iron Helm | 10 rated defender wins | `defender-wins-10` |
+| Shieldmaiden | 10 rated online wins | `rated-wins-10` |
+| Skald | 10 rated Tablut wins | `tablut-wins-10` |
+| Valkyrie | 10 rated attacker wins | `attacker-wins-10` |
+| Wanderer | 10 rated Brandubh wins | `brandubh-wins-10` |
+| Raven Seer | 25 rated online wins | `rated-wins-25` |
+| Einherjar | 50 rated online wins | `rated-wins-50` |
+| Berserker | Best rated win streak of 5 | `rated-win-streak-5` |
+| One-Eyed Jarl | Best rated win streak of 10 | `rated-win-streak-10` |
 
-- all four routes require a current authenticated session and take the account from
-  that session; none accepts an account parameter, so a client can never confirm or
-  read another account's awards
-- `GET /api/personal/achievements` is a pure projection: it opens a read transaction
-  and never inserts, updates or deletes, so a top-level cross-site `GET` cannot
-  confirm an award
-- `POST /api/personal/achievements/confirm` is a non-SAFE mutation, so the security
-  boundary requires the matching origin and `X-CSRF-Token`, bounds the request body
-  and refuses it (`503`) during a deployment freeze before it reaches the service
-- the selection mutation keeps the same origin, CSRF, body-size and deployment
-  freeze checks, and strict request allowlists reject unknown fields (`422`)
-- unknown, retired and URL-shaped IDs return `422`; a not-yet-earned ID returns
-  `403`; a missing session returns `401`
-- the profile projection publishes the effective `portrait_id` only — the stored
-  selection while the catalog still offers it, otherwise the default. Detailed
-  achievement progress stays private to `GET /api/personal/achievements`
-- `POST /api/personal/achievements/confirm` is the only route that confirms awards,
-  so it is the one listed as persistent state in the
-  [endpoint inventory](API_PERMISSIONS.json); the read is not
+Existing portrait entitlements and selections survive increased requirements.
+New grants use the new requirements. The client uses durable portrait entitlements,
+not a join against today's unlock association, so grandfathered rewards remain usable.
 
-### Empty states
+## Catalog integrity guarantees
 
-- a fresh account receives the complete achievement list with `progress: 0`,
-  `unlocked: false`, `awarded_at: null`, `summary: {"unlocked": 0, "total": 12}` and
-  no award, entitlement or selection row
-- a fresh account receives the complete catalog and the default portrait as its
-  effective `portrait_id`, because the default is always available
-- an account with no rated games receives zero-valued rated and streak progress, not
-  an omitted section
+IDs are stable and never reused. Catalog rows are seeded by upsert and never deleted.
+Code validates unique IDs, known criteria/scopes, positive thresholds and exactly
+one non-retired default. Database keys enforce unique account/achievement awards
+and account/portrait entitlements; a partial unique index permits at most one
+active default. Append-only triggers prevent reward updates/deletions.
 
-## Frontend integration
+Retired portrait rows and entitlements remain stored, but selection rejects them
+and published identities fall back to the default. Replacing a default must retire
+the old default first. Published leaderboard and online projections batch effective
+portrait IDs without exposing private achievement progress.
 
-- `GET /api/portraits/catalog` is the gallery: stable IDs, names and the unlocking
-  achievement ID
-- `GET /api/personal/achievements` is the lock explanation and the entitlement
-  source: a portrait is selectable when it is the default or when its unlocking
-  achievement reports `unlocked: true`
-- F4 must persist a new unlock with `POST /api/personal/achievements/confirm`; the
-  read alone never confirms anything, so the UI confirms first (for example when the
-  achievements view opens) and renders the projection that comes back
-- `PATCH /api/profile/portrait` returns the same projection as `GET /api/profile`, so
-  the client can update its profile state from one response
-- never derive an unlock from client state or a local "best streak"; the backend
-  rechecks entitlement inside the selection transaction
+## Achievement catalog
 
-## Known limitations
+The declarative backend catalog generates nine-tier schedules for eight families:
+rated online wins; rated Brandubh, Tablut and Copenhagen wins; rated defender and
+attacker wins; human-versus-AI wins; distinct completed replays successfully analyzed.
 
-- awards are confirmed by an explicit `POST /api/personal/achievements/confirm` (or
-  when a portrait is first selected), not by a background job, so `awarded_at` is
-  the confirmation time and the read never confirms anything
-- no unlock notification, history entry or audit trail beyond the confirmed award row
-- only the aggregate best rated win streak has achievements; per-ruleset streaks stay
-  a progress projection
-- `local-first-game` grants no portrait, and neither the catalog nor the profile
-  reports an entitlement flag; the client joins the catalog with the achievement list
-- the leaderboard and online lobby participant projections are unchanged and do not
-  expose `portrait_id` in this change
+| Threshold | Incremental points |
+| --- | --- |
+| 1 | 10 |
+| 3 | 20 |
+| 10 | 30 |
+| 25 | 40 |
+| 50 | 60 |
+| 100 | 80 |
+| 250 | 120 |
+| 500 | 160 |
+| 1000 | 240 |
+
+Each ordinary family offers 760 points. Best rated win streak has four milestones:
+
+| Streak | Incremental points |
+| --- | --- |
+| 1 | 10 |
+| 3 | 30 |
+| 5 | 60 |
+| 10 | 100 |
+
+These nine families contain 76 milestones worth 6,280 points. `local-first-game`
+(Fireside Game) adds one milestone worth 10 points, for **77 / 6,290** overall.
+The schedule and legacy achievement IDs are unchanged. Scores sum unique permanent
+award IDs against the code-owned point catalog; no independently mutable balance
+exists. Changing point values would change historical score projections.
+
+The response includes milestone `family_id`, `tier`, `points`, `progress`,
+`unlocked` and `awarded_at`. Families include `milestones`, `progress`,
+`awarded_tier`, `awarded_threshold`, `achieved_threshold`, `awarded_count`,
+`total_tiers`, `next_milestone` and `complete`. Summary includes `unlocked`,
+`total`, `earned_points`, `total_points`. New accounts receive zero score and
+progress, all definitions and the always-available default; GET creates no rows.
+
+## Award rules
+
+One centralized `award_achievements` function runs inside the authoritative
+caller's existing transaction. Unique keys and `INSERT OR IGNORE` prevent duplicate
+awards/entitlements under retries, concurrent completions and ledger rebuilds.
+All newly reached thresholds are inserted together. It skips existing awards and
+shares counters across criteria/scopes rather than querying every milestone.
+
+- Rated completion applies the rating ledger first, then awards affected accounts
+  in that same transaction only when the ledger actually changed. Wins group by
+  ruleset and actual attacker/defender seat. Best streak folds the established
+  ordered applied ledger. A freshly appended result takes a bounded fast path: a
+  loss or draw skips the streak criterion, and the winner reads only the trailing
+  wins up to its next unawarded milestone, falling back to the exact fold when a
+  milestone is reached. Corrections, withdrawals, pool rebuilds and migration
+  always fold exactly, because removing an earlier loss can create a longer
+  historical streak. Casual, unfinished and withdrawn results do not count.
+  Two-leg matches use the existing rating policy. Later corrections retain past
+  awards and evaluate future milestones against currently valid results. See the
+  [measured fast path](benchmarks/progression-streaks.md).
+- Local/vs-AI completion writes the persisted `recorded_result` and awards the
+  owner in the same transaction. Only completed local games or human-versus-AI
+  human victories qualify. Replaying, reload, undo/redo and duplicate updates
+  cannot create a new game identity or duplicate an award.
+- Successful complete server advisor reports and unique account/category/game
+  receipts are saved with awards in the same report transaction. Authorized
+  concurrent requesters share computation and each receives credit. Cached
+  successful analysis may be consumed by an explicit authorized analysis request.
+  Passive viewing, spectators, active games, partial/failed/canceled searches and
+  AI self-play do not count. Browser-local analysis is not eligible. This records
+  successful position analysis within a completed replay, not a whole-replay batch.
+
+Replay receipts have an account-leading composite key. Repeated successful
+requests validate scope/completion and use a read-only existing-receipt fast path;
+first insertions revalidate inside the writer transaction. Reads fetch awards and
+portrait entitlements in batches. No per-card requests or frontend reward logic exist.
+
+`awarded_at` is the time of first durable award, not the original game timestamp.
+Result correction and void handling never delete earned rewards. Replay identity
+includes category, preventing local/online game-ID collisions.
+
+## Migration and existing accounts
+
+Schema 20 introduced durable replay-analysis receipts. Schema 21 seeds the updated
+catalogs, then performs a controlled, idempotent reconciliation of historical
+account records inside the migration transaction before advancing `user_version`.
+It grants all currently proven milestones and portrait entitlements without visits
+to the Hall. Already earned awards/portraits remain untouched. Reopening an upgraded
+installation does not repeat the reconciliation. Back up before upgrading; a large
+history may increase the one-time upgrade duration.
+
+Administrator rating-ledger rebuilds reconcile only actors present in the affected
+pool (including withdrawn events), or all ledger actors for a full rebuild, and
+only rated achievement criteria, inside the existing transaction. Migration
+reconciliation remains all-account and all-criteria. Dashboard account-result
+polling signals the existing notification hook when authoritative totals change;
+refreshes defer while hidden and resume on visibility. Ordinary GET endpoints and portrait selection never reconcile.
+Old analysis without a durable successful receipt is not retroactively inferred
+from viewing history; a qualifying explicit analysis request can establish it.
+
+## Artwork and known limitations
+
+The Hall uses optimized **1024 × 1024** gallery redraws guided by the original
+320px portraits. Original high-resolution sources were unavailable. The original
+320px assets remain in profile, leaderboard, dashboard and player-card contexts.
+Gallery images preserve composition, use `object-fit: contain`, and cap rendered
+size against each asset's native pixels divided by current device pixel ratio.
+Cards/frames can grow independently; unknown IDs and image failures retain the rune
+fallback. Assets are lazy loaded, roughly 2.7 MiB combined; no sharpening is applied.
+See [artwork provenance](PORTRAIT_ARTWORK.md) and
+[automatic progression validation](validation/automatic-achievements.md).
+
+Only aggregate rated streaks earn achievements; per-ruleset streaks remain progress
+projections. Progress reflects authoritative server records, not arbitrary client
+reports. Notifications require an active session or a subsequent focus refresh.
