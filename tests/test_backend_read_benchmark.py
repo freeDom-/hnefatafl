@@ -5,7 +5,32 @@ import subprocess
 
 import pytest
 
-from scripts.benchmark_backend_reads import validate_parameters, verified_source
+from scripts.benchmark_backend_reads import (
+    mark_fixture_health,
+    validate_parameters,
+    verified_source,
+)
+
+
+def test_fixture_identity_uses_existing_health_route_only():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+
+    @app.get("/api/health")
+    def health():
+        return {"status": "ok"}
+
+    mark_fixture_health(app, "fixture-only")
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+        assert response.status_code == 200
+        assert response.headers["X-Hnefatafl-Benchmark-Fixture"] == "fixture-only"
+        assert response.json() == {"status": "ok"}
+        unknown = client.get("/__benchmark_identity")
+        assert unknown.status_code == 404
+        assert "X-Hnefatafl-Benchmark-Fixture" not in unknown.headers
 
 
 @pytest.mark.parametrize(

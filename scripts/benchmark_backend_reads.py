@@ -74,6 +74,17 @@ def validate_parameters(users: int, rounds: int, concurrency: str, port: int) ->
     return levels
 
 
+def mark_fixture_health(app, fixture_identity: str) -> None:
+    """Identify this disposable server through its existing public health path."""
+
+    @app.middleware("http")
+    async def fixture_header(request, call_next):
+        response = await call_next(request)
+        if request.method == "GET" and request.url.path == "/api/health":
+            response.headers["X-Hnefatafl-Benchmark-Fixture"] = fixture_identity
+        return response
+
+
 def serve(source: Path, data: Path, port: int) -> None:
     if not data.name.startswith("hnefatafl-load-") or not (data / ".benchmark-only").exists():
         raise SystemExit("Refusing non-benchmark data directory")
@@ -89,11 +100,7 @@ def serve(source: Path, data: Path, port: int) -> None:
         online_background=False,
     )
 
-    async def benchmark_identity():
-        return {"fixture": (data / ".benchmark-only").read_text().strip()}
-
-    app.add_api_route("/__benchmark_identity", benchmark_identity, methods=["GET"])
-    app.router.routes.insert(0, app.router.routes.pop())
+    mark_fixture_health(app, (data / ".benchmark-only").read_text().strip())
     uvicorn.run(app, host="127.0.0.1", port=port, access_log=False, log_level="warning", workers=1)
 
 
@@ -226,13 +233,9 @@ def main(args):
             while True:
                 try:
                     health = httpx.get(origin + "/api/health", timeout=1, trust_env=False)
-                    identity = httpx.get(
-                        origin + "/__benchmark_identity", timeout=1, trust_env=False
-                    )
                     if (
                         health.status_code == 200
-                        and identity.status_code == 200
-                        and identity.json().get("fixture") == fixture_identity
+                        and health.headers.get("X-Hnefatafl-Benchmark-Fixture") == fixture_identity
                     ):
                         break
                 except httpx.HTTPError:
