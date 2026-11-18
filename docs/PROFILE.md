@@ -167,7 +167,7 @@ budget. Invalid current passwords return a form error without ending the session
 | --- | --- |
 | `GET /api/profile` | Own optional fields, read-only legacy transition metadata, username, email, verification status, country catalog and the effective `portrait_id` |
 | `PATCH /api/profile` | Atomic update of explicitly supplied `display_name`, `country_code`, `city`, `date_of_birth`; omitted fields stay unchanged |
-| `PATCH /api/profile/portrait` | Select an earned portrait by stable catalog ID; unknown, retired, unearned or URL-shaped IDs are rejected |
+| `PATCH /api/profile/portrait` | Select an earned portrait by stable catalog ID; the selection write also materializes eligible achievements; unknown, retired, unearned or URL-shaped IDs are rejected |
 | `POST /api/profile/password` | `current_password`, `new_password`, `confirm_password`; safe acknowledgment only |
 
 These routes use the existing `profile` permission for both ordinary users and
@@ -234,3 +234,10 @@ leaderboard sharing test. Existing authentication, appearance, tournament and
 localization browser tests exercise their new entry points. Browser evidence uses
 Chromium desktop/phone emulation and a fake mailbox, not physical devices or live
 SMTP delivery.
+
+## Selected portrait
+
+The profile displays the effective server-selected portrait and links to
+[Portrait Hall](PROGRESSION.md#portrait-hall-and-player-artwork) at `/portraits`.
+Only earned catalog IDs can be selected there. The selection appears in Dashboard,
+online player cards and leaderboard; no private achievement progress is published.

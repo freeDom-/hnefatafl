@@ -557,7 +557,37 @@ class OnlineCore:
                     json.dumps(result_payload(result)),
                 ),
             )
-            self.ratings.apply(c, row["match_id"], game.id, result, now)
+            changed, inserted = self.ratings.apply(c, row["match_id"], game.id, result, now)
+            if changed:
+                from .progression import RATED_CRITERIA, award_achievements
+
+                # A brand-new event sits at the ledger tail: only the winner can
+                # extend a winning streak, and a loss or draw cannot. Corrections
+                # and withdrawals rebuild earlier history, so they keep the exact
+                # full-ledger measurement.
+                if not inserted:
+                    streak_tails = None
+                elif result.winner in ("attackers", "defenders"):
+                    winner = result.attackers if result.winner == "attackers" else result.defenders
+                    streak_tails = frozenset({winner})
+                else:
+                    streak_tails = frozenset()
+                award_achievements(
+                    c,
+                    (result.attackers, result.defenders),
+                    micros(now),
+                    RATED_CRITERIA,
+                    streak_tails=streak_tails,
+                )
+            # Durable outbox in the same transaction as the authoritative result.
+            # The unique leg game index avoids scanning unrelated tournaments.
+            c.execute(
+                """INSERT INTO player_tournament_settlement_queue(tournament_id,due_at)
+                SELECT m.tournament_id,? FROM player_tournament_legs l
+                JOIN player_tournament_matches m ON m.id=l.match_id WHERE l.game_id=?
+                ON CONFLICT(tournament_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
+                (micros(now), game.id),
+            )
         self._return_game(c, row, game, now)
         if actor is not None:
             c.execute(
@@ -673,11 +703,17 @@ class OnlineCore:
             "action_accepted": transition_name == action,
         }
 
-    def _projection(self, c, row, game, accounts=None) -> dict:
+    def _projection(self, c, row, game, accounts=None, portraits=None) -> dict:
         match = c.execute("SELECT * FROM online_matches WHERE id=?", (row["match_id"],)).fetchone()
         if accounts is None:
             accounts = resolve_accounts(
                 c, (row[side + "_id"] for side in ("attackers", "defenders"))
+            )
+        if portraits is None:
+            from .progression import selected_portrait_ids
+
+            portraits = selected_portrait_ids(
+                c, (row[side + "_id"] for side in ("attackers", "defenders") if row[side + "_id"])
             )
         participants = {}
         for side in ("attackers", "defenders"):
@@ -686,6 +722,9 @@ class OnlineCore:
                 {
                     "account_id": identifier,
                     **accounts.get(identifier, public_identity(None)),
+                    # An unavailable account keeps its authoritative seat but
+                    # must not disclose saved profile/portrait metadata.
+                    **({"portrait_id": portraits[identifier]} if identifier in accounts else {}),
                 }
                 if identifier
                 else None
@@ -870,6 +909,17 @@ class OnlineCore:
                 self.ratings.rebuild_all(c, now)
             else:
                 self.ratings.rebuild_pool(c, pool, now)
+            from .progression import RATED_CRITERIA, award_achievements
+
+            # Include withdrawn events: their actors may retain earned rewards,
+            # while current eligibility is always measured from the applied ledger.
+            scope = " WHERE pool=?" if pool is not None else ""
+            actors = c.execute(
+                f"SELECT attackers_id FROM rating_events{scope} "
+                f"UNION SELECT defenders_id FROM rating_events{scope}",
+                (pool, pool) if pool is not None else (),
+            ).fetchall()
+            award_achievements(c, (row[0] for row in actors), micros(now), RATED_CRITERIA)
         return {
             "rebuilt": sorted(RULESETS) if pool is None else [pool],
             "policy_version": rating.RATING_POLICY_VERSION,
@@ -942,8 +992,21 @@ class OnlineCore:
             accounts = resolve_accounts(
                 c, (row[side + "_id"] for row, _ in loaded for side in ("attackers", "defenders"))
             )
+            from .progression import selected_portrait_ids
+
+            portraits = selected_portrait_ids(
+                c,
+                (
+                    row[side + "_id"]
+                    for row, _ in loaded
+                    for side in ("attackers", "defenders")
+                    if row[side + "_id"]
+                ),
+            )
             return {
-                "games": [self._projection(c, row, game, accounts) for row, game in loaded],
+                "games": [
+                    self._projection(c, row, game, accounts, portraits) for row, game in loaded
+                ],
                 "limit": limit,
                 "offset": offset,
                 "section": section or ("mine" if mine else "all"),

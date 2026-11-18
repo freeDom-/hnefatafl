@@ -86,10 +86,13 @@ headers, query parameters and machine tokens cannot upgrade browser permissions.
 | accounts, all_data | No | Yes (account management is local CLI only) |
 
 Double-elimination player tournaments (`/api/player-tournaments/*`) use the same
-model: any authenticated account may read tournaments and register, while
-creation, starting, cancellation, rebuilding and match overrides require the
-administrator-only `tournaments` permission and the audit trail requires
-`accounts`. The backend rechecks the permission inside the write transaction, so
+model: authenticated accounts may read tournaments; active, verified accounts
+may register and create within persisted active/rolling quotas. The stored creator
+can start their own eligible tournament, and administrators retain an override.
+Cancellation, rebuilding and match overrides require the administrator-only
+`tournaments` permission; the audit trail requires `accounts`. Explicit settlement
+requests from ordinary players are read-only, while server workers consume the
+durable result outbox. Creator rights never grant global administrative permissions. The backend rechecks the permission inside the write transaction, so
 a frontend role check is advisory only.
 
 SQLite queries scope games and local players to the authenticated account. New
@@ -178,18 +181,16 @@ abort cleanup and session epochs prevent stale account responses entering the ne
 account. See the
 [personal API contract](designs/personal-dashboard-phase5.md#api-contract).
 
-Schema-17 progression adds an authenticated `play` catalog read
-(`GET /api/portraits/catalog`), a read-only authenticated `play` own-progress read
-(`GET /api/personal/achievements`), an explicit CSRF-protected confirmation
-(`POST /api/personal/achievements/confirm`) and a `profile` CSRF-protected selection
-(`PATCH /api/profile/portrait`). All take the account from the session; none accepts
-an account parameter, and a client can only send a stable catalog ID. The progress
-read never writes, so a top-level cross-site `GET` cannot confirm an award; the
-confirmation POST is a non-SAFE mutation and inherits the origin, CSRF, bounded-body
-and deployment-freeze checks before it reaches the service, which is why the
-inventory marks the POST (not the GET) as persistent state. Confirmation is
-idempotent, and awards and entitlements are append-only. See
-[portraits and achievements](PROGRESSION.md).
+Progression provides authenticated `play` catalog and own-progress reads
+(`GET /api/portraits/catalog`, `GET /api/personal/achievements`) and a `profile`
+CSRF-protected selection (`PATCH /api/profile/portrait`). All take the account from
+the session; none accepts another account or arbitrary progress/points. Reads
+never grant rewards. Authoritative game/rating/analysis transactions automatically
+award milestones; schema 21 reconciles historical evidence once. Portrait
+selection checks existing entitlement and never awards achievements. Awards and
+entitlements are append-only and unique. Existing origin, CSRF, bounded-body and
+deployment-freeze protection applies to the underlying game/analysis/selection
+mutations. See [portraits and achievements](PROGRESSION.md).
 
 ## Coverage and explicit exceptions
 

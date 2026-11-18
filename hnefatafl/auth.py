@@ -51,6 +51,12 @@ ACCOUNT_ACTIONS = {
     "/api/auth/password-reset/confirm": "confirm",
 }
 ACCOUNT_PAGES = {"/register", "/verify-email", "/forgot-password", "/reset-password"}
+# Signed-out shells load without a session: the login/account pages and the
+# public Watch Hall (`/watch` plus its game and replay children). The frontend
+# entry router owns the remaining `/watch` path shape; the boundary only needs
+# to serve the shell so an anonymous visitor is never redirected to login.
+PUBLIC_SHELL_PAGES = {"/", "/login", "/index.html", "/favicon.svg", "/watch", *ACCOUNT_PAGES}
+PUBLIC_SHELL_PREFIXES = ("/watch/",)
 
 
 def digest(value: str) -> str:
@@ -384,10 +390,8 @@ grant(
     ),
 )
 grant("play", "GET", "/api/leaderboard")
-# Schema 17 progression: catalog metadata, a read-only own-progress read and an
-# explicit CSRF-protected confirmation of the awards the records already prove.
+# Progression reads are self-scoped and never grant rewards.
 grant("play", "GET", "/api/portraits/catalog", "/api/personal/achievements")
-grant("play", "POST", "/api/personal/achievements/confirm")
 # Signed-out read-only online discovery (Q1/Q2). No session is required, so the
 # additive namespace is public; the deployment feature flag gates it at runtime.
 grant(
@@ -419,11 +423,10 @@ grant(
     "/api/player-tournaments/{tournament_id}/withdraw",
     "/api/player-tournaments/{tournament_id}/settle",
 )
-grant("tournaments", "POST", "/api/player-tournaments")
+grant("play", "POST", "/api/player-tournaments", "/api/player-tournaments/{tournament_id}/start")
 grant(
     "tournaments",
     "POST",
-    "/api/player-tournaments/{tournament_id}/start",
     "/api/player-tournaments/{tournament_id}/cancel",
     "/api/player-tournaments/{tournament_id}/rebuild",
     "/api/player-tournaments/{tournament_id}/matches/{match_id}/override",
@@ -583,18 +586,12 @@ class SecurityBoundary:
                 return message
 
             receive = bounded_login_receive
-        # Only immutable frontend build assets and the login shell are public.
+        # Only immutable frontend build assets and the public shells (login/
+        # account pages and the signed-out Watch Hall) are reachable anonymously.
         shell = method == "GET" and (
             (
                 route_path == "/{path:path}"
-                and path
-                in {
-                    "/",
-                    "/login",
-                    "/index.html",
-                    "/favicon.svg",
-                    *ACCOUNT_PAGES,
-                }
+                and (path in PUBLIC_SHELL_PAGES or path.startswith(PUBLIC_SHELL_PREFIXES))
             )
             or (route_path == "/assets" and path.startswith("/assets/"))
         )
@@ -710,7 +707,7 @@ def attach_auth(app, store):
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
         if request.url.path.startswith(
-            ("/api/auth/", "/api/online/", "/api/profile", "/api/player-tournaments/")
+            ("/api/auth/", "/api/online/", "/api/profile", "/api/player-tournaments")
         ):
             # Pydantic's default errors include raw inputs, potentially passwords.
             return JSONResponse(
@@ -722,7 +719,7 @@ def attach_auth(app, store):
                     else "Invalid profile request. Check the fields and try again."
                     if request.url.path.startswith("/api/profile")
                     else "Invalid tournament request."
-                    if request.url.path.startswith("/api/player-tournaments/")
+                    if request.url.path.startswith("/api/player-tournaments")
                     else "Invalid account request."
                 },
                 422,

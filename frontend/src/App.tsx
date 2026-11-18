@@ -1,8 +1,10 @@
 import { ArenaShell, SHELL_MAIN_ID, WorkshopShell } from './ArenaShell';
 import NewGame from './NewGame';
+import { ProgressionProvider } from './Progression';
+import { PROGRESSION_POLL_MS } from './useAchievementNotifications';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n } from './i18n';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Board, { coordinate } from './Board';
 import { api, errorMessage } from './api';
@@ -38,6 +40,10 @@ import { useModelCatalogue } from './useModelCatalogue';
 import PlayLanding from './PlayLanding';
 import { PlayTabsProvider } from './PlayTabs';
 
+// Route-level code splits keep the gallery and tournament calendar off unrelated pages.
+const PortraitHall = lazy(() => import('./PortraitHall'));
+const PlayerTournaments = lazy(() => import('./PlayerTournaments'));
+
 type Tab =
   | 'statistics'
   | 'dashboard'
@@ -46,8 +52,10 @@ type Tab =
   | 'archive'
   | 'leaderboard'
   | 'profile'
+  | 'portraits'
   | 'training'
-  | 'tournaments';
+  | 'tournaments'
+  | 'player-tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 
 export default function App() {
@@ -58,21 +66,25 @@ export default function App() {
   const tab: Tab =
     path.startsWith('/online/games/') || path.split('?')[0] === '/online'
       ? 'online'
-      : path.split('?')[0] === '/profile'
-        ? 'profile'
-        : path.split('?')[0] === '/statistics'
-          ? 'statistics'
-          : path.startsWith('/games/') || path.split('?')[0] === '/play'
-            ? 'play'
-            : path.split('?')[0] === '/archive'
-              ? 'archive'
-              : path.split('?')[0] === '/leaderboard'
-                ? 'leaderboard'
-                : path.startsWith('/training') && permissions.includes('training')
-                  ? 'training'
-                  : path.startsWith('/tournaments') && permissions.includes('tournaments')
-                    ? 'tournaments'
-                    : 'dashboard';
+      : /^\/player-tournaments(?:\/ptournament-[a-f0-9]{32})?$/.test(path.split('?')[0])
+        ? 'player-tournaments'
+        : path.split('?')[0] === '/portraits'
+          ? 'portraits'
+          : path.split('?')[0] === '/profile'
+            ? 'profile'
+            : path.split('?')[0] === '/statistics'
+              ? 'statistics'
+              : path.startsWith('/games/') || path.split('?')[0] === '/play'
+                ? 'play'
+                : path.split('?')[0] === '/archive'
+                  ? 'archive'
+                  : path.split('?')[0] === '/leaderboard'
+                    ? 'leaderboard'
+                    : path.startsWith('/training') && permissions.includes('training')
+                      ? 'training'
+                      : path.startsWith('/tournaments') && permissions.includes('tournaments')
+                        ? 'tournaments'
+                        : 'dashboard';
   const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
@@ -283,6 +295,8 @@ export default function App() {
       });
       if (currentGame.current?.id === active.id) {
         setGame(next);
+        if (!active.recorded_winner && next.recorded_winner)
+          window.dispatchEvent(new Event('progression-changed'));
         setAiRetryDelay(900);
         if (next.id !== active.id) {
           loadedRoute.current = next.id;
@@ -493,238 +507,268 @@ export default function App() {
   const workshop = tab === 'training' || tab === 'tournaments';
   const shellCurrent = tab === 'online' ? 'play' : tab;
   const Shell = workshop ? WorkshopShell : ArenaShell;
+  // Only the Dashboard observes account-wide result totals and can refresh the
+  // shared read from its own polls. Game routes only see the current game, so a
+  // local/single-player board keeps the low-frequency backstop for completions
+  // that happen elsewhere; every other Arena route does the same.
+  const progressionPoll = tab === 'dashboard' ? 0 : PROGRESSION_POLL_MS;
 
   return (
-    <PlayTabsProvider key={account?.id}>
-      <Shell account={account} logout={logout} current={shellCurrent}>
-        <main id={SHELL_MAIN_ID} tabIndex={-1}>
-          {tab === 'statistics' && <StatisticsPage />}
-          {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
-          {tab === 'play' &&
-            (playEntry ? (
-              <PlayLanding onNewSingle={startSinglePlayer} creatingSingle={newOpen} />
-            ) : (
-              <PlayPage
-                className="play-page"
-                heading={t(game?.mode === 'local' ? 'Local 1v1 game' : 'Single player game')}
-              >
-                {initializing ? (
+    <ProgressionProvider owner={account?.id} intervalMs={progressionPoll}>
+      <PlayTabsProvider key={account?.id}>
+        <Shell account={account} logout={logout} current={shellCurrent}>
+          <main id={SHELL_MAIN_ID} tabIndex={-1}>
+            {tab === 'portraits' && (
+              <Suspense
+                fallback={
                   <div className="empty-state">
                     <div className="spinner" />
-                    <h2>{t('Setting the table…')}</h2>
+                    <h2 role="status">{t('Loading your portraits…')}</h2>
                   </div>
-                ) : !game ? (
-                  <section className="welcome-panel">
-                    <div className="welcome-rune">ᛟ</div>
-                    <h2>{t('The king awaits.')}</h2>
-                    <p>
-                      {t(
-                        'Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a historic ruleset and begin your first saga.',
-                      )}
-                    </p>
-                    <button className="button primary" onClick={() => navigate('/dashboard')}>
-                      {t('Back to dashboard')}
-                      <span aria-hidden="true">↗</span>
-                    </button>
-                    <div className="variant-pills">
-                      {rulesets.map((r) => (
-                        <span key={r.id}>
-                          {t(r.name)}{' '}
-                          <small>
-                            {r.size} × {r.size}
-                          </small>
-                        </span>
-                      ))}
+                }
+              >
+                <PortraitHall />
+              </Suspense>
+            )}
+            {tab === 'statistics' && <StatisticsPage />}
+            {tab === 'dashboard' && <PersonalDashboard onNewSingle={startSinglePlayer} />}
+            {tab === 'play' &&
+              (playEntry ? (
+                <PlayLanding onNewSingle={startSinglePlayer} creatingSingle={newOpen} />
+              ) : (
+                <PlayPage
+                  className="play-page"
+                  heading={t(game?.mode === 'local' ? 'Local 1v1 game' : 'Single player game')}
+                >
+                  {initializing ? (
+                    <div className="empty-state">
+                      <div className="spinner" />
+                      <h2>{t('Setting the table…')}</h2>
                     </div>
-                  </section>
-                ) : (
-                  <GameLayout
-                    key={game.id}
-                    switcher={switcher}
-                    desktop={{
-                      sidebar: (
+                  ) : !game ? (
+                    <section className="welcome-panel">
+                      <div className="welcome-rune">ᛟ</div>
+                      <h2>{t('The king awaits.')}</h2>
+                      <p>
+                        {t(
+                          'Lead the encircling attackers, or guide the outnumbered king to freedom. Choose a historic ruleset and begin your first saga.',
+                        )}
+                      </p>
+                      <button className="button primary" onClick={() => navigate('/dashboard')}>
+                        {t('Back to dashboard')}
+                        <span aria-hidden="true">↗</span>
+                      </button>
+                      <div className="variant-pills">
+                        {rulesets.map((r) => (
+                          <span key={r.id}>
+                            {t(r.name)}{' '}
+                            <small>
+                              {r.size} × {r.size}
+                            </small>
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+                  ) : (
+                    <GameLayout
+                      key={game.id}
+                      switcher={switcher}
+                      desktop={{
+                        sidebar: (
+                          <>
+                            {gameDetails}
+                            {armies}
+                          </>
+                        ),
+                        analytics: (
+                          <>
+                            {agentAnalysis}
+                            {analyticsSettings}
+                          </>
+                        ),
+                        moveCount: game.total_moves,
+                      }}
+                      mobile={{
+                        title:
+                          game.ruleset === 'tablut'
+                            ? t('Tablut')
+                            : game.ruleset === 'copenhagen'
+                              ? t('Copenhagen')
+                              : t(activeRules?.name ?? game.ruleset),
+                        subtitle: (
+                          <>
+                            {game.size} × {game.size} ·{' '}
+                            {outcome
+                              ? outcome === 'draw'
+                                ? t('Draw')
+                                : t('{side} win', { side: t(titles[outcome]) })
+                              : t('{side} to move', { side: t(titles[game.turn]) })}{' '}
+                            · {t('Move')} {game.cursor}
+                          </>
+                        ),
+                        players: armies,
+                        analytics: agentAnalysis,
+                        settings: analyticsSettings,
+                        moveCount: game.total_moves,
+                      }}
+                      sidebar={
                         <>
                           {gameDetails}
                           {armies}
-                        </>
-                      ),
-                      analytics: (
-                        <>
                           {agentAnalysis}
-                          {analyticsSettings}
-                        </>
-                      ),
-                      moveCount: game.total_moves,
-                    }}
-                    mobile={{
-                      title:
-                        game.ruleset === 'tablut'
-                          ? t('Tablut')
-                          : game.ruleset === 'copenhagen'
-                            ? t('Copenhagen')
-                            : t(activeRules?.name ?? game.ruleset),
-                      subtitle: (
-                        <>
-                          {game.size} × {game.size} ·{' '}
-                          {outcome
-                            ? outcome === 'draw'
-                              ? t('Draw')
-                              : t('{side} win', { side: t(titles[outcome]) })
-                            : t('{side} to move', { side: t(titles[game.turn]) })}{' '}
-                          · {t('Move')} {game.cursor}
-                        </>
-                      ),
-                      players: armies,
-                      analytics: agentAnalysis,
-                      settings: analyticsSettings,
-                      moveCount: game.total_moves,
-                    }}
-                    sidebar={
-                      <>
-                        {gameDetails}
-                        {armies}
-                        {agentAnalysis}
-                        <div className="strategy-note">
-                          <span aria-hidden="true">ᛉ</span>
-                          <p>
-                            {game.turn === 'attackers'
-                              ? t('Close the circle. Cut off the king’s path to freedom.')
-                              : t('Protect the king. Find the opening in the siege.')}
-                          </p>
-                        </div>
-                      </>
-                    }
-                    battlefield={
-                      <Battlefield
-                        label={t('Game')}
-                        board={
-                          <Board
-                            game={game}
-                            selected={selected}
-                            onSelect={selectSquare}
-                            disabled={busy || !mayPlay || !!game.winner || !!game.recorded_winner}
-                            readOnly={playHistory.reviewing || !mayPlay}
-                            hint={analysis.report?.hint?.move ?? null}
-                          />
-                        }
-                      />
-                    }
-                    history={
-                      <HistoryPanel
-                        status={
-                          playHistory.reviewing && (
-                            <div className="history-review-status">
-                              <span>{t('Read-only history')}</span>
-                              <button
-                                className="button secondary small"
-                                onClick={() => void returnToLive()}
-                                disabled={busy}
-                              >
-                                {t('Return to live board')}
-                              </button>
-                              {playHistory.loading && (
-                                <span role="status">{t('Loading history…')}</span>
-                              )}
-                              {playHistory.error && (
-                                <>
-                                  <span role="alert">{t('Replay unavailable.')}</span>
-                                  <button className="text-button" onClick={playHistory.retry}>
-                                    {t('Retry')}
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          )
-                        }
-                        count={game.total_moves}
-                        entries={game.moves.map((move, i) => ({
-                          ply: i + 1,
-                          notation:
-                            move.notation ??
-                            `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`,
-                          side: move.side ?? (i % 2 ? 'defenders' : 'attackers'),
-                          current: i === game.cursor - 1,
-                          future: i >= game.cursor,
-                          onSeek: () => showHistory(i + 1),
-                          disabled: busy,
-                        }))}
-                        startAction={{
-                          onClick: () => showHistory(0),
-                          disabled: busy || game.cursor === 0,
-                        }}
-                        footer={
-                          <div className="history-footer">
-                            <span className="status-dot" /> {t('Game saved automatically')}
+                          <div className="strategy-note">
+                            <span aria-hidden="true">ᛉ</span>
+                            <p>
+                              {game.turn === 'attackers'
+                                ? t('Close the circle. Cut off the king’s path to freedom.')
+                                : t('Protect the king. Find the opening in the siege.')}
+                            </p>
                           </div>
-                        }
-                      >
-                        {analyticsSettings}
-                      </HistoryPanel>
-                    }
-                  />
-                )}
-              </PlayPage>
-            ))}
-          {tab === 'online' && <Online />}
-          {tab === 'leaderboard' && <Leaderboard />}
-          {tab === 'profile' && <ProfilePage />}
-          {tab === 'archive' && <Archive />}
-          {tab === 'tournaments' && permissions.includes('tournaments') && (
-            <Tournaments
+                        </>
+                      }
+                      battlefield={
+                        <Battlefield
+                          label={t('Game')}
+                          board={
+                            <Board
+                              game={game}
+                              selected={selected}
+                              onSelect={selectSquare}
+                              disabled={busy || !mayPlay || !!game.winner || !!game.recorded_winner}
+                              readOnly={playHistory.reviewing || !mayPlay}
+                              hint={analysis.report?.hint?.move ?? null}
+                            />
+                          }
+                        />
+                      }
+                      history={
+                        <HistoryPanel
+                          status={
+                            playHistory.reviewing && (
+                              <div className="history-review-status">
+                                <span>{t('Read-only history')}</span>
+                                <button
+                                  className="button secondary small"
+                                  onClick={() => void returnToLive()}
+                                  disabled={busy}
+                                >
+                                  {t('Return to live board')}
+                                </button>
+                                {playHistory.loading && (
+                                  <span role="status">{t('Loading history…')}</span>
+                                )}
+                                {playHistory.error && (
+                                  <>
+                                    <span role="alert">{t('Replay unavailable.')}</span>
+                                    <button className="text-button" onClick={playHistory.retry}>
+                                      {t('Retry')}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )
+                          }
+                          count={game.total_moves}
+                          entries={game.moves.map((move, i) => ({
+                            ply: i + 1,
+                            notation:
+                              move.notation ??
+                              `${coordinate(move.source, game.size)} → ${coordinate(move.target, game.size)}`,
+                            side: move.side ?? (i % 2 ? 'defenders' : 'attackers'),
+                            current: i === game.cursor - 1,
+                            future: i >= game.cursor,
+                            onSeek: () => showHistory(i + 1),
+                            disabled: busy,
+                          }))}
+                          startAction={{
+                            onClick: () => showHistory(0),
+                            disabled: busy || game.cursor === 0,
+                          }}
+                          footer={
+                            <div className="history-footer">
+                              <span className="status-dot" /> {t('Game saved automatically')}
+                            </div>
+                          }
+                        >
+                          {analyticsSettings}
+                        </HistoryPanel>
+                      }
+                    />
+                  )}
+                </PlayPage>
+              ))}
+            {tab === 'online' && <Online />}
+            {tab === 'leaderboard' && <Leaderboard />}
+            {tab === 'player-tournaments' && (
+              <Suspense
+                fallback={
+                  <div className="empty-state" role="status">
+                    {t('Loading player tournaments…')}
+                  </div>
+                }
+              >
+                <PlayerTournaments />
+              </Suspense>
+            )}
+            {tab === 'profile' && <ProfilePage />}
+            {tab === 'archive' && <Archive />}
+            {tab === 'tournaments' && permissions.includes('tournaments') && (
+              <Tournaments
+                rulesets={rulesets}
+                profiles={profiles}
+                models={models}
+                onError={reportError}
+              />
+            )}
+            {tab === 'training' && permissions.includes('training') && (
+              <Training
+                rulesets={rulesets}
+                models={models}
+                onModelsChanged={() => void refreshOptions().catch((e) => reportError(e))}
+                onGamesDeleted={removeGames}
+                onError={reportError}
+              />
+            )}
+          </main>
+          {tab !== 'online' && newOpen && (
+            <NewGame
               rulesets={rulesets}
               profiles={profiles}
               models={models}
-              onError={reportError}
+              onRefreshModels={refreshModels}
+              initialRuleset={
+                rulesets.find(
+                  (rule) => rule.id === new URLSearchParams(location.search).get('ruleset'),
+                )?.id ?? game?.ruleset
+              }
+              onClose={() => setNewOpen(false)}
+              onCreated={(next) => {
+                currentGame.current = next;
+                loadedRoute.current = next.id;
+                setGame(next);
+                setSelected(null);
+                setAiRetryDelay(900);
+                setNewOpen(false);
+                setInitializing(false);
+                navigate(`/games/${next.id}`);
+              }}
             />
           )}
-          {tab === 'training' && permissions.includes('training') && (
-            <Training
-              rulesets={rulesets}
-              models={models}
-              onModelsChanged={() => void refreshOptions().catch((e) => reportError(e))}
-              onGamesDeleted={removeGames}
-              onError={reportError}
-            />
+          {tab !== 'online' && rulesOpen && activeRules && (
+            <Modal
+              title={t('{name} rules', { name: t(activeRules.name) })}
+              onClose={() => setRulesOpen(false)}
+            >
+              <article className="rules-document">
+                <ReactMarkdown>
+                  {localizedRules(activeRules.id, activeRules.rules_markdown)}
+                </ReactMarkdown>
+              </article>
+            </Modal>
           )}
-        </main>
-        {tab !== 'online' && newOpen && (
-          <NewGame
-            rulesets={rulesets}
-            profiles={profiles}
-            models={models}
-            onRefreshModels={refreshModels}
-            initialRuleset={
-              rulesets.find(
-                (rule) => rule.id === new URLSearchParams(location.search).get('ruleset'),
-              )?.id ?? game?.ruleset
-            }
-            onClose={() => setNewOpen(false)}
-            onCreated={(next) => {
-              currentGame.current = next;
-              loadedRoute.current = next.id;
-              setGame(next);
-              setSelected(null);
-              setAiRetryDelay(900);
-              setNewOpen(false);
-              setInitializing(false);
-              navigate(`/games/${next.id}`);
-            }}
-          />
-        )}
-        {tab !== 'online' && rulesOpen && activeRules && (
-          <Modal
-            title={t('{name} rules', { name: t(activeRules.name) })}
-            onClose={() => setRulesOpen(false)}
-          >
-            <article className="rules-document">
-              <ReactMarkdown>
-                {localizedRules(activeRules.id, activeRules.rules_markdown)}
-              </ReactMarkdown>
-            </article>
-          </Modal>
-        )}
-      </Shell>
-    </PlayTabsProvider>
+        </Shell>
+      </PlayTabsProvider>
+    </ProgressionProvider>
   );
 }
 

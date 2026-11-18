@@ -27,14 +27,15 @@ from scratch with real self-play learning.
   concurrent self-play with batched neural inference and inspect actual throughput.
 - Enroll outbound remote workers with simultaneous independent training slots.
   Rename/import/export models and delete training data separately from playable models.
-- Use English/German, persistent identity runes and independent color, board and
-  token themes. See the [mobile interface](docs/screenshots/mobile.png).
+- Use English/German, persistent identity runes and four UI themes with independent board, token
+  and interface-scale settings. See the [mobile interface](docs/screenshots/mobile.png).
 
 <a id="install-and-start"></a>
 
 ## Quick start
 
-Use **Python 3.12 recommended** (3.11+ supported), **Node 22+** (CI uses 24) and
+Use **Python 3.12 recommended** (3.11+ supported), **Node.js 22.12+** (or 24+;
+CI uses 24) and
 [uv](https://docs.astral.sh/uv/getting-started/installation/) (CI pins 0.12.23).
 From the repository root:
 
@@ -141,7 +142,13 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 
 ## Current limitations
 
-A server connection and an authenticated account are required. Verified accounts
+A server connection is required. The public Watch Hall at `/watch` offers
+read-only online discovery, live viewing and completed replay without an account;
+playing games, private history and profiles require authentication. The
+authenticated Portrait Hall and portrait selection originated in PR #86, and
+PR #94 adds automatic tiered achievements and portrait progression. See the
+[completion audit](docs/designs/arena-completion.md)
+and [public release-readiness checklist](docs/RELEASE_READINESS.md). Verified accounts
 can create/join games in the online lobby when the operator enables admission;
 registration and online admission default off. Automatic timeout losses and rating
 updates are enabled by default; operators can explicitly pause finalization during maintenance or recovery. See

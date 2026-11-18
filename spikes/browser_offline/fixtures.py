@@ -76,3 +76,20 @@ def vectors() -> list[dict]:
     )
     add("copenhagen-shieldwall", state, Move(35, 2))
     return cases
+
+
+def search_vectors() -> list[dict]:
+    """Completed one-ply tactical references, never time-limited strength claims."""
+    from hnefatafl.ai import analyze_position
+
+    config = {"algorithm": "alpha_beta", "depth": 1, "time_limit": 0.5, "seed": 7}
+    return [
+        {
+            "name": case["name"],
+            "state": case["before"]["state"],
+            "config": config,
+            "analysis": analyze_position(State.from_dict(case["before"]["state"]), config),
+        }
+        for case in vectors()
+        if case["name"].endswith("-king-escape")
+    ]

@@ -1,0 +1,66 @@
+{
+  "source_kind": "ephemeral browser training smoke output; not a strength-qualified production model",
+  "source": "/tmp/hnefatafl-browser-YRIfan/jobs/07591f180c174b048769851f8f82107f/last.pt",
+  "source_sha256": "b2951ff366b36375fbdcbae38e7a1eac503ef264980e87496c58148d35917c7f",
+  "source_bytes": 82859,
+  "architecture": "tafl-policy-value-v1",
+  "model_config": {
+    "ruleset": "brandubh",
+    "channels": 4,
+    "blocks": 0
+  },
+  "parameter_count": 355,
+  "parameter_bytes": 1420,
+  "training": {
+    "iteration": 2,
+    "games_generated": 2,
+    "optimizer_step_min": 2.0,
+    "optimizer_step_max": 2.0,
+    "last_history": {
+      "iteration": 2,
+      "policy_loss": 3.296009063720703,
+      "value_loss": 0.00029389094561338425,
+      "updates": 1
+    }
+  },
+  "environment": {
+    "torch": "2.14.1+cpu",
+    "cpu_threads": 1,
+    "openvino": "2026.4.1"
+  },
+  "native": {
+    "input_shape": [
+      1,
+      6,
+      7,
+      7
+    ],
+    "policy_shape": [
+      1,
+      2401
+    ],
+    "value_shape": [
+      1
+    ],
+    "finite_logits": true,
+    "value": 0.3232969045639038,
+    "exact_repeat_logits": true,
+    "exact_repeat_value": true,
+    "legal_count": 40,
+    "legal_policy_sum": 0.9999998807907104,
+    "illegal_probability_sum": 0.0
+  },
+  "dependencies": {
+    "onnx": false,
+    "onnxscript": false,
+    "onnxruntime": false,
+    "openvino": true
+  },
+  "onnx_export": {
+    "ok": false,
+    "exception_type": "ModuleNotFoundError",
+    "message": "No module named 'onnxscript'",
+    "elapsed_seconds": 0.33220897288993,
+    "artifact_exists": false
+  }
+}

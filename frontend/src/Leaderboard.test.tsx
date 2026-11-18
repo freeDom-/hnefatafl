@@ -62,6 +62,15 @@ it('shows one unified list with provisional players and the signed-in row', asyn
   expect(screen.getByText(/Archer/).closest('tr')).toHaveClass('you');
 });
 
+it('links to player tournaments with the shared secondary button style', async () => {
+  render(<Leaderboard />);
+  const link = screen.getByRole('link', { name: 'Player tournaments' });
+  expect(link).toHaveAttribute('href', '/player-tournaments');
+  expect(link).toHaveClass('button', 'secondary');
+  expect(link).not.toHaveClass('button-secondary');
+  await screen.findByText(/Archer/);
+});
+
 it('refetches when the ruleset changes', async () => {
   render(<Leaderboard />);
   await screen.findByText(/Archer/);

@@ -15,6 +15,7 @@ foundation:
 test:
 	$(PYTHON) -m pytest
 	npm --prefix frontend test
+	npm --prefix frontend run test:benchmarks
 
 lint:
 	.venv/bin/ruff check hnefatafl tests

@@ -347,7 +347,7 @@ def test_legacy_migration_preserves_data_and_has_no_invented_ownership(tmp_path)
     assert migrated.players()[0]["id"] == "historical"
     assert migrated.players()[0]["owner_account_id"] is None
     with migrated.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
 
 
@@ -478,3 +478,25 @@ def test_a_private_handler_cannot_override_the_boundary_cache_policy(application
         response = client.get("/api/private-cache-probe")
         assert response.status_code == 200 and response.json() == {"ok": True}
         assert response.headers.get_list("cache-control") == ["no-store"]
+
+
+def test_public_watch_shell_loads_without_a_session(tmp_path, monkeypatch):
+    """The signed-out Watch Hall shell reaches the SPA instead of the login redirect."""
+    project = tmp_path / "project"
+    build = project / "frontend" / "dist"
+    build.mkdir(parents=True)
+    (build / "index.html").write_text("<!doctype html><title>Watch Hall</title>")
+    monkeypatch.setattr("hnefatafl.server.PROJECT_ROOT", project)
+    with TestClient(create_app(tmp_path / "data")) as client:
+        for path in (
+            "/watch",
+            "/watch/",
+            "/watch/games/public-game",
+            "/watch/games/public-game/replay",
+        ):
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code == 200, (path, response.headers.get("location"))
+            assert "Watch Hall" in response.text
+            assert response.headers.get_list("cache-control") == ["no-store"]
+        # The public prefix must not widen to lookalike routes.
+        assert client.get("/watchful", follow_redirects=False).status_code == 307

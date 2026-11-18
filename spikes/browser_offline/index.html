@@ -14,7 +14,7 @@
     </select></label
   >
   <button id="new">Replace game</button>
-  <button id="ai">Local AI move</button>
+  <button id="ai" disabled>Local AI move</button>
   <button id="fixtures">Compare CPython fixtures</button>
   <button id="pulse">Check UI response</button
   ><output id="pulses">0</output>
@@ -23,7 +23,18 @@
   <label
     >Legal move
     <select id="moves"></select></label
-  ><button id="move">Play move</button>
+  ><button id="move" disabled>Play move</button>
+  <label
+    >Classical analysis
+    <select id="algorithm">
+      <option>baseline</option>
+      <option>alpha_beta</option>
+      <option>mcts</option>
+    </select>
+  </label>
+  <button id="analyze" disabled>Analyze current position</button>
+  <button id="cancel">Cancel local work</button>
+  <pre id="analysis" aria-live="polite"></pre>
   <pre id="metrics"></pre>
   <script src="./app.js" type="module"></script>
 </html>

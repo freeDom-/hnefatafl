@@ -1,0 +1,238 @@
+.portrait-hall {
+  /* Gallery art is a native 1024px counterpart; small avatars keep 320px assets. */
+  width: min(100%, 1600px);
+  margin: var(--gap-stack) auto;
+  display: grid;
+  gap: var(--gap-stack);
+}
+.portrait-hall-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-stack);
+  padding: clamp(16px, 2vw, 32px);
+}
+.portrait-hall-intro > div {
+  flex: 1 1 28rem;
+}
+.portrait-hall-intro h1 {
+  margin-block: 8px 12px;
+}
+.portrait-hall-intro p,
+.portrait-card p,
+.portrait-achievements p {
+  color: var(--ui-copy, var(--text));
+  line-height: 1.6;
+}
+.portrait-hall-count {
+  font-weight: 700;
+}
+.portrait-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: var(--gap-stack);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.portrait-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--ui-border);
+  padding: 10px;
+}
+.portrait-card-art {
+  width: 100%;
+  max-width: 440px;
+  align-self: center;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ui-border);
+  border-radius: inherit;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+.portrait-card-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 6px 6px;
+  overflow-wrap: anywhere;
+}
+.portrait-card h2 {
+  font-size: 1.3rem;
+}
+.portrait-state {
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--ui-copy, var(--text));
+}
+.portrait-locked {
+  border-style: dashed;
+}
+.portrait-locked .portrait-art {
+  filter: grayscale(1);
+}
+.portrait-earned .portrait-card-art {
+  border-width: 3px;
+  border-color: var(--green);
+}
+.portrait-selected {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.portrait-selected .portrait-state {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.portrait-progress,
+.portrait-achievement-list > li {
+  display: grid;
+  gap: 8px;
+}
+.portrait-progress {
+  margin-top: auto;
+}
+.portrait-hall progress {
+  width: 100%;
+  height: 12px;
+  accent-color: var(--green);
+}
+.portrait-progress label,
+.portrait-achievement-list label,
+.portrait-lock-note {
+  font-size: 0.875rem;
+}
+.portrait-achievements {
+  padding: clamp(16px, 2vw, 32px);
+  display: grid;
+  gap: 16px;
+}
+.portrait-achievement-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--gap-stack);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.portrait-achievement-list > li {
+  align-content: start;
+  padding: 16px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius, 8px);
+}
+.portrait-achievement-list h3 {
+  font-size: 1.1rem;
+  margin-bottom: 6px;
+}
+.portrait-hall-notice {
+  padding: 12px 16px;
+  color: var(--ui-error);
+  background: var(--ui-error-surface);
+  border: 1px solid var(--ui-error);
+}
+:root[data-ui-theme='saga-hall'] .portrait-card-art {
+  border-image: var(--arena-frame-art) 24 / 7px / 0 stretch;
+}
+@media (min-width: 3000px) {
+  .portrait-hall {
+    width: min(100%, 2400px);
+  }
+  .portrait-gallery {
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  }
+}
+
+/* The artwork size is independent of the card/frame and all other portrait contexts. */
+.portrait-card-art .portrait-art {
+  width: 100%;
+  max-width: calc(var(--portrait-native-width, 1024px) / var(--portrait-pixel-ratio, 1));
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+}
+.achievement-score {
+  display: grid;
+  gap: 10px;
+  padding-block: var(--gap-stack);
+  border-block: 1px solid var(--ui-border);
+}
+.achievement-score > label {
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  font-weight: 700;
+}
+.achievement-score p {
+  margin: 0;
+}
+.achievement-rune {
+  font-size: 2.5rem;
+  line-height: 1.2;
+  justify-self: center;
+}
+.portrait-achievement-list > .achievement-card {
+  position: relative;
+  border-top-width: 4px;
+}
+.portrait-achievement-list > .achievement-engraved {
+  border-style: dashed;
+}
+.portrait-achievement-list > .achievement-bronze {
+  border-top-color: var(--arena-metal, var(--gold));
+}
+.portrait-achievement-list > .achievement-silver {
+  border-top-color: var(--ui-subtle);
+  border-style: double;
+}
+.portrait-achievement-list > .achievement-gold {
+  background: var(--ui-gold-tint);
+  border-color: var(--gold);
+  border-style: double;
+}
+.portrait-achievement-list > .achievement-legendary {
+  border: 4px double var(--focus-ring);
+  background-image: radial-gradient(
+    ellipse at top,
+    color-mix(in srgb, var(--focus-ring) 15%, transparent),
+    transparent 65%
+  );
+}
+.achievement-silver .achievement-rune,
+.achievement-gold .achievement-rune,
+.achievement-legendary .achievement-rune {
+  border: 3px double currentColor;
+  border-radius: 50%;
+  padding: 12px 20px;
+}
+.portrait-achievement-list details ul {
+  padding-left: 20px;
+}
+.portrait-achievement-list details li {
+  padding: 4px 0;
+  border: 0;
+}
+
+.achievement-legendary .achievement-rune {
+  background: var(--ui-gold-tint);
+  box-shadow:
+    0 0 0 4px var(--surface-raised),
+    0 0 0 5px var(--gold);
+}
+.achievement-legendary::before,
+.achievement-legendary::after {
+  content: '✧';
+  position: absolute;
+  top: 10px;
+  color: var(--gold);
+  font-size: 1.5rem;
+}
+.achievement-legendary::before {
+  left: 12px;
+}
+.achievement-legendary::after {
+  right: 12px;
+}

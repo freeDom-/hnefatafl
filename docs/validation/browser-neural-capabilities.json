@@ -1,0 +1,29 @@
+{
+  "cspProbe": {
+    "source": "literal current auth.py policy on intercepted HTTPS fixture, not a deployed response",
+    "policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    "wasmWithoutCSP": {
+      "ok": true
+    },
+    "restricted": {
+      "wasm": {
+        "ok": false,
+        "error": "CompileError: WebAssembly.compile(): Compiling or instantiating WebAssembly module violates the following Content Security policy directive because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"default-src 'self'\"."
+      },
+      "sameOriginWorker": true
+    }
+  },
+  "browser": "156.0.8078.4",
+  "context": "headless cloud Chromium; intercepted secure origin with no app headers/model/runtime",
+  "secureContext": true,
+  "workerAPI": "function",
+  "webAssemblyAPI": "object",
+  "crossOriginIsolated": false,
+  "sharedArrayBuffer": "undefined",
+  "webGPUAPI": true,
+  "webGPUAdapterObtained": false,
+  "webGPUAdapterError": null,
+  "hardwareConcurrency": 4,
+  "deviceMemoryGiBHint": 32,
+  "caveat": "API/adapter capability probe only; not ORT initialization, operator coverage, physical-device support or neural execution."
+}

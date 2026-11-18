@@ -1,5 +1,5 @@
 import PageHeading from './PageHeading';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -31,40 +31,13 @@ import DashboardCountdown from './DashboardCountdown';
 import type { Leaderboard as LeaderboardData, OnlineGame } from './onlineTypes';
 import type { Profile } from './ProfilePage';
 import type { Game, Side } from './types';
+import type { PortraitCatalog } from './portraitTypes';
+import { useProgression } from './Progression';
+import Portrait from './Portrait';
 import './personalDashboard.css';
 
-/** Authenticated portrait catalog metadata; the asset mapping stays bundled here. */
-type PortraitCatalog = {
-  default_portrait_id: string;
-  items: { id: string; name: string; unlock_achievement_id: string | null }[];
-};
-/** Own achievement progress, used to count genuinely unlocked portraits. */
-type AchievementProgress = {
-  items: { id: string; unlocked: boolean }[];
-  summary: { unlocked: number; total: number };
-};
 /** The active game's authoritative state, discriminated by its API source. */
 type ActiveBoard = { kind: 'online'; game: OnlineGame } | { kind: 'single'; game: Game };
-
-/**
- * Only catalog ids with a bundled portrait render a picture; the frozen contract
- * keeps asset mapping frontend-controlled, so an unknown id falls back to the
- * account initial rather than a broken image.
- */
-const PORTRAIT_ASSETS = new Set([
-  'shieldbearer',
-  'shieldmaiden',
-  'iron-helm',
-  'wanderer',
-  'skald',
-  'fjord-scout',
-  'raven-seer',
-  'berserker',
-  'one-eyed-jarl',
-  'valkyrie',
-  'einherjar',
-  'forge-keeper',
-]);
 const sideNames: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 const statusNames: Record<string, string> = {
   waiting: 'Waiting',
@@ -75,9 +48,6 @@ const statusNames: Record<string, string> = {
   voided: 'Voided',
 };
 
-function portraitSrc(id: string) {
-  return `/assets/arena-v2/assets/portraits/${id}.webp`;
-}
 function onlineBoardView(game: OnlineGame): BoardView {
   return {
     ruleset: game.ruleset,
@@ -157,28 +127,25 @@ function DashboardHome({
       api<PortraitCatalog>('/portraits/catalog', undefined, undefined, signal),
     [],
   );
-  const loadAchievements = useCallback(
-    (signal: AbortSignal) =>
-      api<AchievementProgress>('/personal/achievements', undefined, undefined, signal),
-    [],
-  );
   const loadProfile = useCallback(
     (signal: AbortSignal) => api<Profile>('/profile', undefined, undefined, signal),
     [],
   );
-  const single = useOnlinePoll(`dashboard-account:${accountId}`, loadAccount);
-  const online = useOnlinePoll(`dashboard-online:${accountId}`, loadOnline);
-  const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent);
-  const local = useOnlinePoll(`dashboard-local:${accountId}`, loadLocal);
+  const single = useOnlinePoll(`dashboard-account:${accountId}`, loadAccount, {
+    intervalMs: 60000,
+  });
+  const online = useOnlinePoll(`dashboard-online:${accountId}`, loadOnline, { intervalMs: 10000 });
+  const recent = useOnlinePoll(`dashboard-recent:${accountId}`, loadRecent, { intervalMs: 60000 });
+  const local = useOnlinePoll(`dashboard-local:${accountId}`, loadLocal, { intervalMs: 60000 });
   const progress = useOnlinePoll(`dashboard-progress:${accountId}`, loadProgress, {
     intervalMs: 0,
   });
   const portraits = useOnlinePoll(`dashboard-portraits:${accountId}`, loadPortraits, {
     intervalMs: 0,
   });
-  const achievements = useOnlinePoll(`dashboard-achievements:${accountId}`, loadAchievements, {
-    intervalMs: 0,
-  });
+  // The shared progression read is the single achievements owner; the Dashboard
+  // only consumes it, so it never issues a second account-scoped fetch.
+  const progression = useProgression();
   const profile = useOnlinePoll(`dashboard-profile:${accountId}`, loadProfile, { intervalMs: 0 });
   const running = runningGames({
     single: single.data ?? undefined,
@@ -212,6 +179,7 @@ function DashboardHome({
   const board = useOnlinePoll(
     `dashboard-board:${accountId}:${activeId || 'none'}`,
     loadActiveBoard,
+    { intervalMs: activeId ? 5000 : 0 },
   );
   const loadStanding = useCallback(
     (signal: AbortSignal) =>
@@ -226,6 +194,82 @@ function DashboardHome({
   const standing = useOnlinePoll(`dashboard-standing:${accountId}:${focusRuleset}`, loadStanding, {
     intervalMs: 0,
   });
+  const lastBoardVersion = useRef<{ id: string; version: number } | null>(null);
+  const boardVersion = board.data?.game.version;
+  const boardKind = board.data?.kind;
+  const boardMode = board.data?.kind === 'single' ? board.data.game.mode : null;
+  useEffect(() => {
+    if (!activeId || typeof boardVersion !== 'number') {
+      lastBoardVersion.current = null;
+      return;
+    }
+    const previous = lastBoardVersion.current;
+    lastBoardVersion.current = { id: activeId, version: boardVersion };
+    if (previous?.id !== activeId || previous.version === boardVersion) return;
+    // The five-second live board carries a server version. Only actual changes
+    // invalidate its owning queue; unchanged clock snapshots do not reload stats.
+    // The refreshed queue then updates the authoritative aggregate/completion
+    // signatures below, which own the achievement invalidation.
+    if (boardKind === 'online') void online.refresh();
+    else if (boardMode === 'local') void local.refresh();
+    else void single.refresh();
+  }, [activeId, boardVersion, boardKind, boardMode, online.refresh, local.refresh, single.refresh]);
+  // Authoritative completion counts from the 60-second history polls. A change
+  // after the initial load is a new completion (or a correction that changes the
+  // count), including games that were never the active hero.
+  const singleCompleted = single.data?.totals?.completed_games ?? null;
+  const localCompleted = local.data?.totals?.completed_games ?? null;
+  const previousCompletion = useRef<{ single: number | null; local: number | null } | null>(null);
+  useEffect(() => {
+    const previous = previousCompletion.current;
+    previousCompletion.current = { single: singleCompleted, local: localCompleted };
+    if (previous === null) return;
+    // A null previous value is a first load or an account switch, not a change.
+    const singleChanged =
+      singleCompleted !== null && previous.single !== null && singleCompleted !== previous.single;
+    const localChanged =
+      localCompleted !== null && previous.local !== null && localCompleted !== previous.local;
+    if (!singleChanged && !localChanged) return;
+    void recent.refresh();
+    void progression.refresh();
+  }, [singleCompleted, localCompleted, recent.refresh, progression.refresh]);
+  const resultSignature = online.data
+    ? JSON.stringify(
+        online.data.statistics?.groups?.map((group) => [
+          group.ruleset,
+          group.played,
+          group.wins,
+          group.losses,
+          group.draws,
+          group.rating,
+          // Side-specific wins/losses catch corrections that keep the aggregate
+          // win/loss totals but change which seat won.
+          group.by_side
+            ? (['attackers', 'defenders'] as const).map((side) => {
+                const metrics = group.by_side?.[side];
+                return metrics
+                  ? [side, metrics.played, metrics.wins, metrics.losses, metrics.draws]
+                  : [side, null];
+              })
+            : null,
+        ]) ?? [],
+      )
+    : null;
+  const previousResults = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousResults.current;
+    previousResults.current = resultSignature;
+    if (previous === null || resultSignature === null || previous === resultSignature) return;
+    // Also catches results/corrections in another game/client, including when the
+    // bounded queue removes a completed hero before its next board poll arrives.
+    // Achievements reuse this event-driven poll, so the unlocked-portrait count
+    // reflects newly earned (or corrected) awards without another timer.
+    void progress.refresh();
+    void standing.refresh();
+    void recent.refresh();
+    void progression.refresh();
+    window.dispatchEvent(new Event('rated-results-changed'));
+  }, [resultSignature, progress.refresh, standing.refresh, recent.refresh, progression.refresh]);
   const onlineGroup = online.data?.statistics?.groups?.find(
     (group) => group.ruleset === focusRuleset,
   );
@@ -246,10 +290,7 @@ function DashboardHome({
     ? catalogItems.filter(
         (item) =>
           item.unlock_achievement_id === null ||
-          (achievements.data?.items?.some(
-            (achievement) => achievement.id === item.unlock_achievement_id && achievement.unlocked,
-          ) ??
-            false),
+          (progression.achievements?.unlocked_portrait_ids?.includes(item.id) ?? false),
       ).length
     : null;
   const portraitId = profile.data?.portrait_id ?? null;
@@ -311,7 +352,12 @@ function DashboardHome({
             : gamesStale
               ? t('Game totals unavailable or stale.')
               : yourTurnCount > 0
-                ? t('{count} games await your move', { count: number.format(yourTurnCount) })
+                ? t(
+                    yourTurnCount === 1
+                      ? '{count} game awaits your move'
+                      : '{count} games await your move',
+                    { count: number.format(yourTurnCount) },
+                  )
                 : t('No games await your move.')}
         </span>
       </header>
@@ -515,8 +561,8 @@ function DashboardHome({
             </div>
             <div className="dashboard-profile-identity">
               <span className="dashboard-portrait" aria-hidden="true">
-                {portraitId && PORTRAIT_ASSETS.has(portraitId) ? (
-                  <img src={portraitSrc(portraitId)} alt="" />
+                {portraitId ? (
+                  <Portrait id={portraitId} />
                 ) : (
                   (Array.from(displayName)[0]?.toUpperCase() ?? '?')
                 )}
@@ -602,7 +648,11 @@ function DashboardHome({
                 className="arena-surface dashboard-stat"
                 aria-labelledby="stat-portraits-heading"
               >
-                <h3 id="stat-portraits-heading">{t('Unlocked portraits')}</h3>
+                <h3 id="stat-portraits-heading">
+                  <a href="/portraits" onClick={surfaceLink}>
+                    {t('Unlocked portraits')}
+                  </a>
+                </h3>
                 <strong>
                   {unlockedPortraitCount === null || !catalogItems
                     ? '—'
