@@ -467,3 +467,59 @@ test('rejects malformed approval metadata even when no exception is active', () 
   assert.equal(verdict.ok, false);
   assert.match(verdict.problems.join(' '), /reviewReference must be an https URL/);
 });
+
+test('rejects non-string approvedBy values for active and empty exception lists', () => {
+  const values = [
+    ['array', ['freeDom-']],
+    ['number', 123],
+    ['boolean', true],
+    ['null', null],
+    ['object', { handle: 'freeDom-' }],
+  ];
+  for (const [label, value] of values) {
+    const active = exceptions();
+    active.approvedBy = value;
+    const activeVerdict = assess({ exceptions: active });
+    assert.equal(activeVerdict.ok, false, `active approvedBy ${label} must fail`);
+    assert.match(activeVerdict.problems.join(' '), /approvedBy/);
+
+    const empty = { schema: 3, approvedBy: value, exceptions: [] };
+    const emptyVerdict = assess({ report: emptyAudit(), exceptions: empty });
+    assert.equal(emptyVerdict.ok, false, `empty approvedBy ${label} must fail`);
+    assert.match(emptyVerdict.problems.join(' '), /approvedBy/);
+  }
+});
+
+test('rejects non-string advisory identifiers without implicit coercion', () => {
+  const values = [
+    ['array', ['GHSA-fc5q-39xc-vjpf']],
+    ['number', 123],
+    ['boolean', true],
+    ['null', null],
+    ['coercible object', { toUpperCase: () => 'GHSA-FC5Q-39XC-VJPF' }],
+  ];
+  for (const [label, value] of values) {
+    const config = exceptions();
+    config.exceptions[0].advisory = value;
+    const verdict = assess({ exceptions: config });
+    assert.equal(verdict.ok, false, `advisory ${label} must fail`);
+    assert.match(verdict.problems.join(' '), /advisory|Unaccepted/i);
+  }
+});
+
+test('rejects non-string cve identifiers without implicit coercion', () => {
+  const values = [
+    ['array', ['CVE-2026-112366']],
+    ['number', 2026112366],
+    ['boolean', true],
+    ['null', null],
+    ['object', { id: 'CVE-2026-112366' }],
+  ];
+  for (const [label, value] of values) {
+    const config = exceptions();
+    config.exceptions[0].cve = value;
+    const verdict = assess({ exceptions: config });
+    assert.equal(verdict.ok, false, `cve ${label} must fail`);
+    assert.match(verdict.problems.join(' '), /invalid CVE id/);
+  }
+});

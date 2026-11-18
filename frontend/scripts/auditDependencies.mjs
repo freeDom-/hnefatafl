@@ -81,6 +81,21 @@ function validHttpsUrl(value) {
   }
 }
 
+// These identifiers must be strings before their patterns are applied. Relying
+// on RegExp.test() alone would coerce arrays, numbers and booleans into matching
+// strings (for example ['freeDom-'] -> 'freeDom-').
+function validGitHubHandle(value) {
+  return typeof value === 'string' && GITHUB_HANDLE.test(value);
+}
+
+function validGhsaId(value) {
+  return typeof value === 'string' && GHSA.test(value);
+}
+
+function validCveId(value) {
+  return typeof value === 'string' && CVE.test(value);
+}
+
 function ghsaFromUrl(url) {
   if (typeof url !== 'string') return null;
   const match = /GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}/i.exec(url);
@@ -323,7 +338,7 @@ function validateExceptionFile(exceptions, today) {
   const accepting = exceptions.exceptions.length > 0;
   if (accepting) {
     // Owner approval is mandatory while any risk is being accepted.
-    if (!GITHUB_HANDLE.test(exceptions.approvedBy ?? '')) {
+    if (!validGitHubHandle(exceptions.approvedBy)) {
       problems.push('Exception file needs a GitHub-handle approvedBy value.');
     }
     if (!validDate(exceptions.approvedAt ?? '')) {
@@ -337,7 +352,7 @@ function validateExceptionFile(exceptions, today) {
   } else {
     // No risk is accepted, so approval metadata is not required. If it is still
     // present it must remain well formed rather than silently ignored.
-    if (exceptions.approvedBy !== undefined && !GITHUB_HANDLE.test(exceptions.approvedBy ?? '')) {
+    if (exceptions.approvedBy !== undefined && !validGitHubHandle(exceptions.approvedBy)) {
       problems.push('Exception approvedBy must be a GitHub handle when present.');
     }
     if (exceptions.approvedAt !== undefined) {
@@ -363,8 +378,8 @@ function validateExceptionEntry(entry, exceptions, today) {
   for (const key of Object.keys(entry)) {
     if (!EXCEPTION_KEYS.has(key)) problems.push(`Unknown exception field ${key}.`);
   }
-  if (!GHSA.test(entry.advisory ?? '')) problems.push('Exception advisory must be a GHSA id.');
-  if (entry.cve !== undefined && !CVE.test(entry.cve)) {
+  if (!validGhsaId(entry.advisory)) problems.push('Exception advisory must be a GHSA id.');
+  if (entry.cve !== undefined && !validCveId(entry.cve)) {
     problems.push(`Exception ${entry.advisory} has an invalid CVE id.`);
   }
   if (typeof entry.package !== 'string' || !entry.package) {
@@ -474,7 +489,8 @@ export function assessAudit({
     const exception = configured.find(
       (entry) =>
         isPlainObject(entry) &&
-        entry.advisory?.toUpperCase() === advisory.id.toUpperCase() &&
+        validGhsaId(entry.advisory) &&
+        entry.advisory.toUpperCase() === advisory.id.toUpperCase() &&
         entry.package === advisory.package,
     );
     if (!exception) {
