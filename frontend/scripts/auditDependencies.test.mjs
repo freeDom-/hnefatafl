@@ -361,3 +361,109 @@ test('fails when production audit findings are present or the report is malforme
   assert.equal(verdict.ok, false);
   assert.match(verdict.problems.join(' '), /no vulnerability map/);
 });
+
+const emptyExceptions = () => ({ schema: 3, exceptions: [] });
+
+test('passes clean full and production audits with an empty exception list', () => {
+  const verdict = assess({
+    report: emptyAudit(),
+    production: emptyAudit(),
+    exceptions: emptyExceptions(),
+  });
+  assert.equal(verdict.ok, true, verdict.problems.join('; '));
+  assert.deepEqual(verdict.accepted, []);
+  assert.deepEqual(verdict.advisories, []);
+  assert.equal(verdict.productionClean, true);
+});
+
+test('passes a clean audit with no active approval metadata', () => {
+  const verdict = assess({
+    report: emptyAudit(),
+    production: emptyAudit(),
+    exceptions: { schema: 3, notes: 'no active exceptions', exceptions: [] },
+  });
+  assert.equal(verdict.ok, true, verdict.problems.join('; '));
+  assert.deepEqual(verdict.accepted, []);
+});
+
+test('fails a new vulnerability when the exception list is empty', () => {
+  const verdict = assess({
+    report: audit(),
+    production: emptyAudit(),
+    exceptions: emptyExceptions(),
+  });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /Unaccepted advisory GHSA-FC5Q-39XC-VJPF/);
+  assert.match(verdict.problems.join(' '), /picomatch is not attributed/);
+});
+
+test('fails a production vulnerability when the exception list is empty', () => {
+  const verdict = assess({
+    report: emptyAudit(),
+    production: audit(),
+    exceptions: emptyExceptions(),
+  });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /Production-only audit reports 5/);
+});
+
+test('fails a missing, non-array or unsupported exception configuration', () => {
+  let verdict = assess({ report: emptyAudit(), exceptions: { schema: 3 } });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /needs an exceptions array/);
+
+  verdict = assess({ report: emptyAudit(), exceptions: { schema: 3, exceptions: {} } });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /needs an exceptions array/);
+
+  verdict = assess({ report: emptyAudit(), exceptions: { schema: 2, exceptions: [] } });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /schema-3 exception file/);
+
+  verdict = assess({ report: emptyAudit(), exceptions: { schema: 3, exceptions: [], extra: 1 } });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /Unknown top-level exception field extra/);
+});
+
+test('fails a stale exception when the audit is clean', () => {
+  const verdict = assess({ report: emptyAudit(), production: emptyAudit() });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /is unused/);
+});
+
+test('requires file-level approval metadata while an exception is active', () => {
+  const noApprover = exceptions();
+  delete noApprover.approvedBy;
+  let verdict = assess({ exceptions: noApprover });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /GitHub-handle approvedBy/);
+
+  const noDate = exceptions();
+  delete noDate.approvedAt;
+  verdict = assess({ exceptions: noDate });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /valid ISO approvedAt/);
+
+  const noReview = exceptions();
+  delete noReview.reviewReference;
+  verdict = assess({ exceptions: noReview });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /https reviewReference/);
+});
+
+test('rejects malformed approval metadata even when no exception is active', () => {
+  const badHandle = { schema: 3, approvedBy: 'not a handle', exceptions: [] };
+  let verdict = assess({ report: emptyAudit(), exceptions: badHandle });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /approvedBy must be a GitHub handle/);
+
+  const badDate = { schema: 3, approvedAt: 'not-a-date', exceptions: [] };
+  verdict = assess({ report: emptyAudit(), exceptions: badDate });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /approvedAt must be a valid ISO date/);
+
+  const badReview = { schema: 3, reviewReference: 'http://insecure.test', exceptions: [] };
+  verdict = assess({ report: emptyAudit(), exceptions: badReview });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.problems.join(' '), /reviewReference must be an https URL/);
+});
