@@ -35,17 +35,10 @@ research remain outstanding. Checkbox state below records the audited baseline.
   include notices; preserve original generated-art provenance. If Pyodide/ONNX
   runtimes ship, review the exact pinned package/distribution licenses too.
 - [ ] Resolve material development-toolchain advisories with tested upgrades.
-  Production-only npm audits report **zero runtime findings**, but the current
-  development graph has one high-severity advisory (GHSA-fc5q-39xc-vjpf,
-  picomatch through 4.0.7) with no patched release. It is build/test-only, absent
-  from the deployed bundle and not reachable from untrusted runtime input. The
-  required `security` CI job enforces the repository owner's time-limited, shared
-  PR #94 risk acceptance documented in the
-  [dependency audit acceptance](validation/player-tournament-refinement.md#dependency-audit-acceptance);
-  it expires on 2026-12-17 and pins the reviewed versions, range, package set and
-  clean production audit. Remove it when upstream ships a fix. The advisory itself
-  remains unresolved. No blind force upgrade, ignore list or downgrade; rerun tests
-  and audit after lockfile changes.
+  Fresh baseline npm audits report **zero runtime findings** and three affected
+  development packages: direct Vitest (critical), tinypool (critical),
+  @vitest/mocker (moderate). These are affected-package counts, not unique advisory
+  counts. No blind force upgrade; rerun tests and audit after lockfile changes.
 - [ ] Python dependency/license inventory and fresh security review recorded.
 
 ## Data, installation and recovery

@@ -95,52 +95,18 @@ the tournament page is visited. Vite's existing 500 kB chunk warning remains;
 this is a loading-boundary improvement, not a reduction in every route's combined
 asset total.
 
-## Dependency audit acceptance
+## Dependency audit limitation
 
-The full dependency audit reports five high-severity affected packages through the
+The full dependency audit now reports five high-severity findings through the
 existing development-tool dependency on picomatch. Advisory
 [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), updated
-17 November 2026, covers every published version through **4.0.7**. The npm
-registry still lists `4.0.7` as `latest`; there is no patched release to install.
-The affected chains in the reviewed lockfile are:
-
-| Chain | Installed |
-| --- | --- |
-| `vite@7.3.7 -> picomatch@4.0.7` | dev |
-| `vite@7.3.7 -> fdir@6.5.0 -> picomatch@4.0.7` | dev |
-| `vite@7.3.7 -> tinyglobby@0.2.17 -> picomatch@4.0.7` | dev |
-| `vitest@4.1.12 -> picomatch@4.0.7` | dev |
-| `vitest@4.1.12 -> tinyglobby@0.2.17 -> fdir@6.5.0 -> picomatch@4.0.7` | dev |
-
-Every path is marked `dev` in `frontend/package-lock.json`, so the advisory is
-limited to development and build/test tooling. `npm audit --omit=dev` reports
-zero findings for the runtime dependencies and their transitive tree. The built
-`dist/` contains no picomatch code, application source never imports picomatch,
-and repository configuration uses ordinary globs such as
-`src/**/*.test.{ts,tsx}` rather than the vulnerable repeated single-branch extglob
-shape. No HTTP, account, game or analysis input reaches glob compilation, and
-Vite/Vitest are not started by the deployed service. The practical residual path
-is a trusted developer or CI input supplying a malicious pattern, not a product
-runtime vulnerability.
-
-The referenced upstream PRs remain unmerged, and the audit's suggested "fix" is a
-breaking downgrade to older Vite and Vitest majors that still depend on the same
-unpatched picomatch. This PR reuses the repository owner's explicit risk
-acceptance recorded for PR #94 on 2026-11-17, because the reviewed lockfile has
-the identical advisory, affected package set and exact versions. The exception is
-in `frontend/security/dependency-audit-exceptions.json`, expires **2026-12-17**,
-and is enforced by `frontend/scripts/auditDependencies.mjs` (`npm run audit:ci`).
-That script still runs the full audit and a production-only audit; it accepts only
-the exact advisory/package for the reviewed versions, only when every affected
-package is `dev: true`, and only with a clean production audit. Any extra
-advisory, runtime finding, version/range change, stale exception, malformed record
-or expired date fails.
-
-The dedicated `security` CI job uses that script, so the previous five-finding
-failure is replaced by a visible, expiring, owner-approved acceptance rather than
-a suppression switch. No dependency, lockfile, ignore list or downgrade was added.
-The advisory itself remains unresolved; remove the exception when a patched
-upstream release is available.
+17 November 2026, covers all published versions through 4.0.7; GitHub lists no
+patched version. The referenced upstream PR is open and explicitly states that
+`+(*a)` remains exponential. A forced Vitest downgrade does not supply a patched
+picomatch, so it is not applied. The production-only audit reports zero findings.
+The required audit keeps its moderate threshold in a separate CI job, allowing
+functional/browser checks to run while preserving the failing dependency gate.
+No advisory suppression or dependency exception is introduced.
 
 ## Match-listing query regression
 
@@ -208,9 +174,6 @@ mobile-entry follow-up:
 | Player-tournament Playwright matrix | **25 passed**; the updated Berlin DST case passed again in both projects after the calendar-icon change |
 | TypeScript, Prettier and `make docs` | Passed |
 | Production build and 12 benchmark harness tests | Passed |
-| `npm audit --omit=dev` | Zero findings |
-| `npm run audit:ci` | Passed under the expiring PR #94 owner acceptance; full audit still reports the one dev-only advisory |
-| `npm run test:scripts` | 13 passed |
 
 The full repository pytest suite was not used as a local acceptance run because
 another workspace held the shared heavyweight-test lock; the canonical complete
