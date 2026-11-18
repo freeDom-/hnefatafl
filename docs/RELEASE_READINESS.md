@@ -41,11 +41,19 @@ research remain outstanding. Checkbox state below records the audited baseline.
   high while Snyk revoked its entry and NVD is awaiting analysis; it is
   build/test-only and not present in the deployed bundle. The required `security`
   CI job enforces a time-limited, owner-approved risk acceptance that expires on
-  2026-12-17 (or the next dependency refresh); remove it when upstream ships a
-  fix. The advisory itself remains unresolved. See
+  2026-12-17 (or the next dependency refresh); the record pins the reviewed
+  versions/range and rejects severity, package-set or version changes. Remove it
+  when upstream ships a fix. The approval is recorded from the owner review on
+  2026-11-17; a separate signed/detached approval record is still outstanding.
+  The advisory itself remains unresolved. See
   [the dependency record](validation/test-toolchain-security.md#picomatch-redos-advisory-ghsa-fc5q-39xc-vjpf-2026-11-17).
   No blind force upgrade, ignore list or downgrade; rerun tests and audit after
   lockfile changes.
+- [ ] Enable enforced main-branch merge gates: add required status checks
+  `security`, `python`, `node22` and `browser` to the active ruleset (currently no
+  required checks and zero required approvals). Until then, green CI is a
+  voluntary observation rather than a GitHub-enforced merge gate. Owner action;
+  see the [required-checks recommendation](validation/test-toolchain-security.md#required-main-branch-checks-owner-action-not-applied).
 - [ ] Python dependency/license inventory and fresh security review recorded.
 
 ## Data, installation and recovery

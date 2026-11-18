@@ -222,26 +222,82 @@ not evidence of a false positive; it is unresolved disagreement between database
 No supported technical fix exists, and no fork, override, unmerged patch, downgrade
 or blanket audit disable is used. On 2026-11-17 the repository owner approved a
 narrowly scoped, time-limited risk acceptance for exactly GHSA-fc5q-39xc-vjpf in
-the development-only Picomatch path. It is implemented as:
+the development-only Picomatch path.
 
-- `frontend/security/dependency-audit-exceptions.json` records the exact
-  advisory/package, development scope, approver, approval date, review reference,
-  rationale and expiry (2026-12-17).
-- `frontend/scripts/auditDependencies.mjs` (`npm run audit:ci`) runs the full
-  lockfile audit, requires a clean production-only audit, and accepts only the
-  exact recorded advisory/package while it is unexpired and only when every
-  affected package is marked `dev: true` in the lockfile. Any additional advisory,
-  production finding, non-development affected package, stale exception, malformed
-  record or expired date fails the check.
-- The dedicated `security` CI job runs that script. It prints the affected audit
-  entry as `ACCEPTED` and prints the active acceptance with approver, review
-  reference, scope, rationale and expiry. This is an explicit owner-approved
-  exception, not a technical fix.
+`frontend/security/dependency-audit-exceptions.json` (schema 2) records the exact
+advisory/package, CVE, severity, development scope, approver handle, approval date,
+review reference, rationale, expiry, affected package set, every reviewed package
+version and the reviewed advisory range. The script rejects unknown fields, invalid
+GitHub handles, invalid or future approval dates, invalid expiry dates, windows
+longer than 90 days, severities or ranges that changed, package-version changes,
+affected-set changes, runtime reach, stale exceptions and expired exceptions. This
+prevents silent broadening or extension: any such change is a visible file diff and
+fails until re-reviewed.
 
-The acceptance expires on 2026-12-17, 30 days after approval, or earlier if the
-dependency is refreshed. After expiry the security job fails until the owner
-re-reviews the risk. The advisory itself remains unresolved: the check passes
-under the recorded acceptance, not because the finding was disproved.
+`frontend/scripts/auditDependencies.mjs` (`npm run audit:ci`) runs the full lockfile
+audit and a production-only audit. It is fail-closed:
+
+- Every reported vulnerable package must be attributed to an accepted advisory.
+  Advisory identities use GHSA when present; otherwise the npm source or URL is
+  retained. A non-GitHub advisory URL is never discarded and therefore fails as
+  unaccepted.
+- String-only `via` entries must reference reported packages inside the accepted
+  component. Dangling references or extra vulnerable packages fail.
+- Malformed vulnerability/advisory entries, missing titles, ranges or severities,
+  error responses, missing JSON, unexpected exit statuses, unsupported audit report
+  versions, missing vulnerability/metadata maps and metadata/severity count
+  mismatches fail.
+- The production-only audit must be clean, and every affected package must be
+  `dev: true` in the lockfile with the reviewed resolved version.
+
+The dedicated `security` CI job runs that script and prints the actual advisory
+id, affected packages and versions, approver, review reference, rationale and
+expiry. It passes only through the recorded acceptance, not because the finding was
+disproved. The advisory remains unresolved.
+
+**Approval record status:** the approval is the repository owner's explicit review
+instruction on 2026-11-17 (PR #94). No separate signed decision or owner comment
+exists in the repository at this revision; editable JSON is a record, not
+independent proof. The existing legitimate approval is retained, but a durable owner
+comment or signed security decision is outstanding and should be added before
+renewal. The acceptance must not be extended without that confirmation.
+
+### Required main-branch checks (owner action, not applied)
+
+The active **Main branch rules** ruleset (id `25820905`, targeting the default
+branch) currently has `deletion`, `non_fast_forward` and `pull_request` rules but
+**no required status checks** and **zero required approving reviews**. The four CI
+jobs being green is therefore voluntary: GitHub does not block a merge when a check
+is red.
+
+Recommended owner settings:
+
+- Add a `required_status_checks` rule with the exact GitHub Actions contexts
+  `security`, `python`, `node22` and `browser`.
+- Enable `strict_required_status_checks_policy` (require the branch to be up to
+  date) if the owner wants merge-order guarantees.
+- Set `required_approving_review_count` to at least 1 as a separate owner decision.
+- Keep the existing deletion, non-fast-forward and pull-request rules.
+
+Repository ruleset shape (conceptual; apply in Settings → Rules → Main branch
+rules, not by editing this repository):
+
+```json
+"required_status_checks": {
+  "strict_required_status_checks_policy": true,
+  "required_status_checks": [
+    { "context": "security" },
+    { "context": "python" },
+    { "context": "node22" },
+    { "context": "browser" }
+  ]
+}
+```
+
+Verify the contexts with `gh pr checks <number>` (they must match the job names
+exactly) and with a test pull request whose failing job cannot merge. This
+document records the recommendation only; repository protection settings were not
+modified.
 
 ### Follow-up
 
