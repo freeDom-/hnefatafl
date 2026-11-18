@@ -35,10 +35,25 @@ research remain outstanding. Checkbox state below records the audited baseline.
   include notices; preserve original generated-art provenance. If Pyodide/ONNX
   runtimes ship, review the exact pinned package/distribution licenses too.
 - [ ] Resolve material development-toolchain advisories with tested upgrades.
-  Fresh baseline npm audits report **zero runtime findings** and three affected
-  development packages: direct Vitest (critical), tinypool (critical),
-  @vitest/mocker (moderate). These are affected-package counts, not unique advisory
-  counts. No blind force upgrade; rerun tests and audit after lockfile changes.
+  Production-only npm audits report **zero runtime findings**, but the current
+  development graph has one high-severity advisory (GHSA-fc5q-39xc-vjpf,
+  picomatch through 4.0.7) with no patched release. GitHub still reviews it as
+  high while Snyk revoked its entry and NVD is awaiting analysis; it is
+  build/test-only and not present in the deployed bundle. The required `security`
+  CI job enforces a time-limited, owner-approved risk acceptance that expires on
+  2026-12-17 (or the next dependency refresh); the record pins the reviewed
+  versions/range, requires a repository-hosted approval reference and rejects
+  severity, package-set or version changes. Remove it when upstream ships a fix.
+  The durable approval is the owner comment on PR #95 dated 2026-11-18. The
+  advisory itself remains unresolved. See
+  [the dependency record](validation/test-toolchain-security.md#picomatch-redos-advisory-ghsa-fc5q-39xc-vjpf-2026-11-17).
+  No blind force upgrade, ignore list or downgrade; rerun tests and audit after
+  lockfile changes.
+- [ ] Enable enforced main-branch merge gates: add required status checks
+  `security`, `python`, `node22` and `browser` to the active ruleset (currently no
+  required checks and zero required approvals). Until then, green CI is a
+  voluntary observation rather than a GitHub-enforced merge gate. Owner action;
+  see the [required-checks recommendation](validation/test-toolchain-security.md#required-main-branch-checks-owner-action-not-applied).
 - [ ] Python dependency/license inventory and fresh security review recorded.
 
 ## Data, installation and recovery
