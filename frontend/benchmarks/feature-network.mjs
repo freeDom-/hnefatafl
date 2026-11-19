@@ -157,16 +157,68 @@ const recordedReview = {
   ],
   moves: [{ source: 0, target: 1 }],
 };
+// A live single-player game whose analytics advisor makes the game page render
+// both AgentAnalysis and AdvisorSelect concurrently.
+const gameBoard = Array(81).fill('.');
+gameBoard[40] = 'K';
+for (const square of [
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 18, 26, 27, 35, 36, 44, 45, 53, 54, 62, 63, 71, 72, 73, 74, 75,
+  76, 77, 78, 79, 80,
+])
+  gameBoard[square] = 'A';
+for (const square of [30, 31, 32, 38, 39, 41, 42, 48, 49, 50]) gameBoard[square] = 'D';
+const gameFixture = {
+  id: 'g1',
+  ruleset: 'tablut',
+  size: 9,
+  board: gameBoard,
+  turn: 'attackers',
+  ply: 0,
+  winner: null,
+  reason: null,
+  moves: [],
+  cursor: 0,
+  total_moves: 0,
+  legal_moves: [{ source: 0, target: 1 }],
+  mode: 'human-ai',
+  players: {
+    attackers: { name: 'BundleFixture', kind: 'human', config: {} },
+    defenders: {
+      name: 'Jarl',
+      kind: 'ai',
+      config: { algorithm: 'alpha_beta', depth: 5, time_limit: 2 },
+    },
+  },
+  version: 0,
+  captured: { attackers: 0, defenders: 0 },
+  created_at: '',
+};
+const gameAnalytics = {
+  advisor: {
+    name: 'Jarl',
+    profile_id: 'alpha_beta',
+    config: { algorithm: 'alpha_beta', depth: 5, time_limit: 2 },
+  },
+  time_limit: 5,
+  show_win_chances: true,
+  revision: 0,
+};
 
 /** Read-only synthetic API fixtures shared by every page in the probe. */
 async function mockApi(page) {
   const unexpectedMutations = [];
   await page.route('**/api/**', (route) => {
-    if (route.request().method() !== 'GET') {
-      unexpectedMutations.push(route.request().method() + ' ' + route.request().url());
+    const method = route.request().method();
+    const p = new URL(route.request().url()).pathname;
+    // The game page POSTs to kick off analysis; it is a read-only probe fixture.
+    if (method === 'POST' && /^\/api\/games\/[^/]+\/analysis$/.test(p))
+      return route.fulfill({
+        json: { cursor: 0, evaluations: [], hint: null, status: 'complete' },
+      });
+    if (method !== 'GET') {
+      unexpectedMutations.push(method + ' ' + route.request().url());
       return route.abort();
     }
-    const p = new URL(route.request().url()).pathname;
     const json =
       p === '/api/auth/me'
         ? { account, csrf_token: 'fixture-only' }
@@ -181,33 +233,37 @@ async function mockApi(page) {
               ? { items: [], summary: { unlocked: 0, total: 0 } }
               : p === '/api/personal/single-player/review-1/replay'
                 ? recordedReview
-                : p === '/api/personal/progress'
-                  ? { streaks: { by_ruleset: [] } }
-                  : /^\/api\/games\/[^/]+\/analytics$/.test(p)
-                    ? { advisor: null, time_limit: 5, show_win_chances: true, revision: 0 }
-                    : /^\/api\/games\/[^/]+\/analysis$/.test(p)
-                      ? { cursor: 0, evaluations: [], hint: null, status: 'complete' }
-                      : p === '/api/leaderboard'
-                        ? leaderboard
-                        : p === '/api/history/games'
-                          ? { games: [], totals: [], matching: 0, limit: 3, next_cursor: null }
-                          : p.startsWith('/api/personal/')
-                            ? {
-                                games: [],
-                                totals: { total_games: 0, in_progress: 0 },
-                                overview: { your_turn: 0, other_active: 0, waiting: 0 },
-                                statistics: { groups: [] },
-                              }
-                            : p === '/api/training/device'
-                              ? {
-                                  device: 'cpu',
-                                  cuda_devices: [],
-                                  cuda_available: false,
-                                  training_devices: [],
-                                }
-                              : p === '/api/online/availability'
-                                ? { enabled: false, eligible: false }
-                                : [];
+                : p === '/api/games/g1'
+                  ? gameFixture
+                  : p === '/api/games/g1/analytics'
+                    ? gameAnalytics
+                    : p === '/api/personal/progress'
+                      ? { streaks: { by_ruleset: [] } }
+                      : /^\/api\/games\/[^/]+\/analytics$/.test(p)
+                        ? { advisor: null, time_limit: 5, show_win_chances: true, revision: 0 }
+                        : /^\/api\/games\/[^/]+\/analysis$/.test(p)
+                          ? { cursor: 0, evaluations: [], hint: null, status: 'complete' }
+                          : p === '/api/leaderboard'
+                            ? leaderboard
+                            : p === '/api/history/games'
+                              ? { games: [], totals: [], matching: 0, limit: 3, next_cursor: null }
+                              : p.startsWith('/api/personal/')
+                                ? {
+                                    games: [],
+                                    totals: { total_games: 0, in_progress: 0 },
+                                    overview: { your_turn: 0, other_active: 0, waiting: 0 },
+                                    statistics: { groups: [] },
+                                  }
+                                : p === '/api/training/device'
+                                  ? {
+                                      device: 'cpu',
+                                      cuda_devices: [],
+                                      cuda_available: false,
+                                      training_devices: [],
+                                    }
+                                  : p === '/api/online/availability'
+                                    ? { enabled: false, eligible: false }
+                                    : [];
     return route.fulfill({ json });
   });
   return unexpectedMutations;
@@ -296,6 +352,16 @@ async function waitForExpectedGraph(expected, tracker, timeoutMs = 15000) {
     await new Promise((done) => setTimeout(done, 50));
   }
   throw new Error('Timed out waiting for the initial manifest graph: ' + missing.join(', '));
+}
+
+/** Wait until a specific production asset has produced a response. */
+async function waitForAssetResponse(tracker, file, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (tracker.responses.has(file)) return;
+    await new Promise((done) => setTimeout(done, 50));
+  }
+  throw new Error(`Timed out waiting for asset response: ${file}`);
 }
 
 /** A page with the read-only fixtures and asset observation already installed.
@@ -450,8 +516,11 @@ try {
   }
 
   // 2. A failed transitive preload dependency recovers through Retry.
-  const dependency = Object.values(manifest).find((chunk) => chunk.name === 'ConfigImportButton');
-  if (!dependency) throw new Error('ConfigImportButton chunk missing from the production manifest');
+  const dependency = Object.values(manifest).find(
+    (chunk) => chunk.name === 'workshopConsolidation',
+  );
+  if (!dependency)
+    throw new Error('workshopConsolidation chunk missing from the production manifest');
   {
     const {
       page: recoveryPage,
@@ -676,6 +745,91 @@ try {
       recoveredResponse: sharedResponse,
       recoveredComputedPadding: padding,
     };
+  }
+
+  // 7. Concurrent deferred imports sharing analysis-*.css: hold the shared
+  //    stylesheet pending while the dependent JavaScript imports resolve, then
+  //    verify neither feature mounts prematurely and both outcomes are handled.
+  {
+    const sharedCss = manifest['src/Archive.tsx']?.css?.find((file) => file.includes('/analysis-'));
+    const agentChunk = manifest['src/AgentAnalysis.tsx']?.file;
+    const advisorChunk = manifest['src/AdvisorSelect.tsx']?.file;
+    if (!sharedCss || !agentChunk || !advisorChunk)
+      throw new Error('Concurrent analysis assets missing from the manifest');
+    const sharedName = sharedCss.split('/').pop();
+
+    // Success: the held stylesheet is released and both features mount styled.
+    {
+      const { page: recoveryPage, mutations, tracker, close } = await fixturePage(browser);
+      let release;
+      const gate = new Promise((resolve) => {
+        release = resolve;
+      });
+      await recoveryPage.route(
+        (url) => url.pathname.endsWith(`/${sharedName}`),
+        async (route) => {
+          await gate;
+          await route.continue();
+        },
+      );
+      await recoveryPage.goto(origin + '/games/g1');
+      await recoveryPage.getByRole('grid').waitFor();
+      // Both JavaScript chunks resolve while the shared stylesheet is pending.
+      await waitForAssetResponse(tracker, agentChunk);
+      await waitForAssetResponse(tracker, advisorChunk);
+      if (await recoveryPage.locator('.agent-analysis, .analytics-settings').count())
+        throw new Error('A concurrent feature mounted while the shared stylesheet was pending');
+      release();
+      const settings = recoveryPage.locator('.analytics-settings');
+      await settings.waitFor({ state: 'attached' });
+      const padding = await settings.evaluate((element) => getComputedStyle(element).paddingTop);
+      if (!padding || padding === '0px')
+        throw new Error(`Concurrent recovered content is not styled (padding-top: ${padding})`);
+      if (mutations.length)
+        throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+      await close();
+      recovery.concurrentSharedStylesheetSuccess = {
+        feature: sharedCss,
+        pendingWhileJsResolved: true,
+        mountedWhilePending: false,
+        recoveredComputedPadding: padding,
+      };
+    }
+
+    // Failure: the held stylesheet fails and neither feature may mount.
+    {
+      const { page: recoveryPage, mutations, tracker, close } = await fixturePage(browser);
+      let fail;
+      const gate = new Promise((resolve) => {
+        fail = resolve;
+      });
+      await recoveryPage.route(
+        (url) => url.pathname.endsWith(`/${sharedName}`),
+        async (route) => {
+          await gate;
+          await route.abort();
+        },
+      );
+      await recoveryPage.goto(origin + '/games/g1');
+      await recoveryPage.getByRole('grid').waitFor();
+      await waitForAssetResponse(tracker, agentChunk);
+      await waitForAssetResponse(tracker, advisorChunk);
+      if (await recoveryPage.locator('.agent-analysis, .analytics-settings').count())
+        throw new Error('A concurrent feature mounted while the shared stylesheet was pending');
+      fail();
+      await recoveryPage.locator('[role="alert"]').first().waitFor({ state: 'attached' });
+      if (await recoveryPage.locator('.agent-analysis, .analytics-settings').count())
+        throw new Error('A concurrent feature mounted after the shared stylesheet failed');
+      if (mutations.length)
+        throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+      await close();
+      recovery.concurrentSharedStylesheetFailure = {
+        feature: sharedCss,
+        mountedWhilePending: false,
+        mountedAfterFailure: false,
+        retainedErrorPanel: true,
+      };
+    }
   }
 
   if (unexpectedMutations.length)

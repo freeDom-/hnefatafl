@@ -383,20 +383,36 @@ it('does not let a prematurely cached module bypass an unresolved shared stylesh
 it('keeps a genuinely cached component available after a shared stylesheet failure', async () => {
   const shared = 'https://example.test/cached.css';
   let cachedLink!: HTMLLinkElement;
-  const Cached = deferredFeature(() => {
+  const cachedLoad = vi.fn(() => {
     cachedLink = addStylesheet(shared);
     queueMicrotask(() => resolveStylesheetLink(cachedLink));
     return Promise.resolve({ default: () => <p>Cached feature</p> });
   });
+  const Cached = deferredFeature(cachedLoad);
+  const Broken = deferredFeature(async () => {
+    failStylesheet('https://example.test/later.css');
+    throw new Error('Unable to preload CSS');
+  });
+  const Uncached = deferredFeature(async () => ({ default: () => <p>Uncached feature</p> }));
+
+  // Feature A loads and caches successfully.
   const view = render(<Cached />);
   expect(await screen.findByText('Cached feature')).toBeVisible();
-  // A different feature records a shared stylesheet failure afterwards.
-  const failed = addStylesheet('https://example.test/later.css');
-  failStylesheetLink(failed);
-  // The genuinely cached component is not made unavailable.
-  view.unmount();
-  render(<Cached />);
+  expect(cachedLoad).toHaveBeenCalledTimes(1);
+
+  // Deferred Feature B records a tracked shared stylesheet failure.
+  view.rerender(<Broken />);
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Reload the application to try again.');
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+
+  // A new uncached Feature C is blocked while the failure is unresolved.
+  view.rerender(<Uncached />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.queryByText('Uncached feature')).toBeNull();
+
+  // The genuinely cached Feature A stays usable and is not imported again.
+  view.rerender(<Cached />);
   expect(await screen.findByText('Cached feature')).toBeVisible();
-  failed.remove();
-  cachedLink.remove();
+  expect(cachedLoad).toHaveBeenCalledTimes(1);
 });
