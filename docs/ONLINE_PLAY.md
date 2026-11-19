@@ -62,7 +62,7 @@ participant whose move is required. Completed, cancelled and voided games never
 appear in any tab. A **Filter by ruleset** select narrows the tab server-side
 (`GET /api/online/games?ruleset=…`), so no unbounded page is filtered in the
 browser. Previous/next page buttons use bounded server pagination. The lobby
-lists live games only and links to **Replays & Analysis** for completed records;
+lists live games only and links to the **Hall of records** for completed records;
 a live card opens the board, where no analysis is offered. Open
 a waiting game to join it; creators can cancel their own waiting game. Players
 cannot edit its settings in place. Active cards show the remaining time from the

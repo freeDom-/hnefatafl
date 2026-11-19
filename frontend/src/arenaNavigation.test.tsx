@@ -253,7 +253,7 @@ it('uses the approved Norse labels in the desktop Arena rail', () => {
     'href',
     '/statistics',
   );
-  expect(within(nav).getByRole('link', { name: 'Replays & analysis' })).toHaveAttribute(
+  expect(within(nav).getByRole('link', { name: 'Hall of records' })).toHaveAttribute(
     'href',
     '/archive',
   );

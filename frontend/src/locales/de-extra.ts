@@ -20,7 +20,6 @@ const translations: Record<string, string> = {
   'The Great Hall': 'Die große Halle',
   'Trials of Valor': 'Prüfungen des Mutes',
   'Hall of Renown': 'Halle des Ruhms',
-  'Replays & analysis': 'Wiederholungen & Analyse',
   Tournaments: 'Turniere',
   Leagues: 'Ligen',
   Soon: 'Bald',

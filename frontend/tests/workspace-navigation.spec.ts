@@ -257,7 +257,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       statistics: 'Statistics',
       leaderboard: 'Leaderboard',
       'player-tournaments': 'Player tournaments',
-      archive: 'Replays & analysis',
+      archive: 'Hall of records',
       portraits: 'Hall of Renown',
     },
     de: {
@@ -266,7 +266,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       statistics: 'Statistik',
       leaderboard: 'Rangliste',
       'player-tournaments': 'Spielerturniere',
-      archive: 'Wiederholungen & Analyse',
+      archive: 'Halle der Aufzeichnungen',
       portraits: 'Halle des Ruhms',
     },
   },
