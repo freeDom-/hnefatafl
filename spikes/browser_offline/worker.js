@@ -17,6 +17,17 @@ const ready = (async () => {
       await response.text(),
     );
   }
+  // Root-level modules importable by bridge.py (for example the shared
+  // benchmark definitions) are staged beside it and validated by name.
+  for (const name of manifest.root_modules || []) {
+    if (name === "bridge.py") continue;
+    if (!/^[a-z_]+[.]py$/.test(name))
+      throw new Error("Invalid staged root module name");
+    const module = await fetch(`./${name}`);
+    if (!module.ok)
+      throw new Error(`Cannot load ${name}: ${module.status}`);
+    runtime.FS.writeFile(`/home/pyodide/${name}`, await module.text());
+  }
   const response = await fetch("./bridge.py");
   if (!response.ok) throw new Error(`Cannot load bridge: ${response.status}`);
   runtime.runPython(await response.text());

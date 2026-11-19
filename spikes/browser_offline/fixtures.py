@@ -78,6 +78,91 @@ def vectors() -> list[dict]:
     return cases
 
 
+def _sparse(rule: str, pieces: dict, turn: str) -> State:
+    n = RULESETS[rule].size
+    board = ["."] * (n * n)
+    for (row, col), piece in pieces.items():
+        board[row * n + col] = piece
+    return State(rule, tuple(board), turn)
+
+
+def jarl_positions() -> list[dict]:
+    """Deterministic analysis positions for the native/browser Jarl benchmark.
+
+    Covers opening, midgame, endgame, tactical, king-escape, repetition-sensitive
+    and terminal states for all three rulesets. These are serialized positions,
+    never time-limited strength claims; the runner records whether each search
+    completed. The same list is staged for the browser worker and read by the
+    native benchmark so both compare identical workloads.
+    """
+    cases: list[dict] = []
+
+    def add(rule: str, kind: str, state: State) -> None:
+        cases.append(
+            {
+                "name": f"{rule}-{kind}",
+                "ruleset": rule,
+                "kind": kind,
+                "state": state.to_dict(),
+            }
+        )
+
+    for rule, rules in RULESETS.items():
+        n = rules.size
+        center = n // 2
+        add(rule, "opening", new_game(rule))
+        state = new_game(rule)
+        for step in range(6):
+            moves = legal_moves(state)
+            if not moves or state.winner:
+                break
+            state = apply_move(state, moves[step % len(moves)])
+        if not state.winner:
+            add(rule, "midgame", state)
+        add(
+            rule,
+            "endgame",
+            _sparse(
+                rule,
+                {
+                    (center, center): "K",
+                    (center, center - 1): "D",
+                    (center - 1, center): "D",
+                    (0, center): "A",
+                    (n - 1, center): "A",
+                    (center, 0): "A",
+                },
+                "attackers",
+            ),
+        )
+        add(
+            rule,
+            "tactical",
+            _sparse(
+                rule,
+                {
+                    (5, 2): "A",
+                    (2, 1): "D",
+                    (2, 3): "D",
+                    (1, 2): "D",
+                    (2, 0): "A",
+                    (2, 4): "A",
+                    (0, 2): "A",
+                    (4, 4): "K",
+                },
+                "attackers",
+            ),
+        )
+        escape = _sparse(rule, {(0, 2): "K", (4, 4): "A"}, "defenders")
+        add(rule, "king-escape", escape)
+        add(rule, "terminal", apply_move(escape, Move(2, 0)))
+        fresh = new_game(rule)
+        move = legal_moves(fresh)[0]
+        key = apply_move(fresh, move).history[-1]
+        add(rule, "repetition", replace(fresh, history=(key, key)))
+    return cases
+
+
 def search_vectors() -> list[dict]:
     """Completed one-ply tactical references, never time-limited strength claims."""
     from hnefatafl.ai import analyze_position

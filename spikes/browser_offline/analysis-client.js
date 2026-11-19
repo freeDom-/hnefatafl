@@ -1,5 +1,10 @@
 /* Isolated prototype: one worker, one job, eight cached positions. No API fallback. */
 const MAX_REQUEST_BYTES = 512 * 1024;
+// Ordinary interactive jobs keep the original 5 s hard watchdog. Long-running
+// benchmark jobs opt in explicitly and are still bounded by a finite ceiling so
+// a stuck worker can never run forever.
+const MAX_JOB_TIMEOUT_MS = 5000;
+const MAX_EXTENDED_TIMEOUT_MS = 180000;
 const encoder = new TextEncoder();
 const stable = (value) =>
   JSON.stringify(value, (_key, item) =>
@@ -93,10 +98,11 @@ export class LocalAnalysisClient {
   }
   async request(
     request,
-    { timeoutMs = 5000, preempt = false, foreground = false } = {},
+    { timeoutMs = 5000, preempt = false, foreground = false, extended = false } = {},
   ) {
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000)
-      throw new Error("Local job deadline must be between 1 and 5000 ms");
+    const limit = extended ? MAX_EXTENDED_TIMEOUT_MS : MAX_JOB_TIMEOUT_MS;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > limit)
+      throw new Error(`Local job deadline must be between 1 and ${limit} ms`);
     let serialized;
     try {
       serialized = JSON.stringify(request);
@@ -175,5 +181,20 @@ export class LocalAnalysisClient {
     while (this.cache.size > 8)
       this.cache.delete(this.cache.keys().next().value);
     return { ...result, cached: false };
+  }
+  // Experimental Jarl benchmark: the same serialized positions a native CPython
+  // run reads, executed by the shared staged benchmark module inside the worker.
+  jarlPlan() {
+    return this.request({ action: "jarl_plan" }, { timeoutMs: 5000 });
+  }
+  jarlBenchmark(
+    positions,
+    configs,
+    { mode = "fixed_time", seed = 7, timeoutMs = 65000 } = {},
+  ) {
+    return this.request(
+      { action: "jarl_benchmark", positions, configs, mode, seed },
+      { timeoutMs, preempt: true, extended: true },
+    );
   }
 }
