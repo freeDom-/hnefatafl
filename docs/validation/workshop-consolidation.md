@@ -52,34 +52,52 @@ Exact complete-suite results and any remaining limitations are recorded on
 [PR #92](https://github.com/freeDom-/hnefatafl/pull/92). The records below describe
 the original PR validation before this follow-up, rather than current CI results.
 
-## Final focus-restoration corrections
+## Focus-restoration corrections
 
-Show selected job now transfers keyboard focus after the restored view renders:
-on desktop to the selected job row, on mobile to the visible native job selector.
-The responsive branch reuses the existing `(max-width: 900px)` layout query rather
-than adding a second breakpoint. Focus is requested only by the explicit button
-activation, so background polling, filtering/sorting, ordinary navigation and
-unrelated rerenders do not move it. A single bounded scan over the 20 rendered
-rows finds the row; no hidden row copies, extra requests or polling effects are
-added. If the selected job disappears between activation and rendering, focus is
-left untouched instead of throwing or landing on a removed node.
-`scrollIntoView({ block: 'nearest' })` keeps the restored row reachable in the
-scrollable list. The selected job, dashboard tab, iteration range and training
-history are unchanged; restoration does not call `onSelect` or refetch detail data.
+Show selected job opens the collapsed desktop disclosure before restoring focus
+and never falls back to an unrelated row. Each activation creates one bounded
+request tied to the intended job id. Before applying focus the request confirms
+that the job still exists, that the current selection still matches that id, and
+that the intended target is connected, rendered and visible. A job that vanishes
+or a selection that moves on discards the request safely, and a handled-token
+guard prevents a completed or cancelled request from running again when later
+polling delivers fresh summaries. The disclosure is uncontrolled: it opens on
+desktop at mount and only Show selected job reopens it, so filtering, sorting,
+page navigation and polling never expand it. A single bounded scan over the 20
+rendered rows finds the row; no hidden row copies, extra requests or polling
+effects are added.
 
-Focused validation on the corrected head:
+The desktop branch reuses the existing `(max-width: 900px)` layout query rather
+than adding a second breakpoint. On mobile it focuses the visible native selector
+instead, including after a mobile-to-desktop resize that left the disclosure
+collapsed. `scrollIntoView({ block: 'nearest' })` keeps the restored row
+reachable in the scrollable list. The selected job, dashboard tab, iteration
+range and training history are unchanged; restoration does not call `onSelect`
+or refetch detail data.
+
+Regression coverage adds the collapsed desktop disclosure, keyboard activation,
+mobile-to-desktop resizing, a filtered-out selection, a job removed or a
+selection changed during a pending request, no unrelated fallback focus, no
+delayed focus stealing during later polling and no redundant selection events or
+detail requests. The browser suite adds Playwright visibility and focus
+assertions for the closed native details element, which jsdom cannot model.
+
+Focused validation on this head:
 
 | Check | Result |
 | --- | --- |
-| `TrainingJobNavigator` unit suite | 21 passed |
+| `TrainingJobNavigator` unit suite | 27 passed |
 | Workshop DOM benchmark | 1 passed; 20 rows / 21 options / 191 descendants preserved |
+| Focused Chromium browser regressions | 4 passed; mobile native-selector focus 1 passed |
+| Security script tests | 25 passed |
 | Frontend TypeScript (`tsc --noEmit`) | passed |
 | Prettier check on changed files | passed |
 
-The browser regression adds a desktop assertion that the restored row is focused
-and a mobile-project assertion that the native selector is focused.
+The navigator suite's 1,000-job case exceeds the 20-second default timeout on this
+shared host even for the reviewed component; it passes locally with unchanged
+assertions under an extended run timeout and in CI.
 
-Full CI on final head `0b40aea` ([run 44429024174](https://github.com/freeDom-/hnefatafl/actions/runs/44429024174)):
+Historical CI on head `0b40aea` ([run 44429024174](https://github.com/freeDom-/hnefatafl/actions/runs/44429024174)):
 the `python` job passed with **3,531 backend tests passed and 16 skipped** plus ruff,
 mypy and `make docs`; the `browser` job passed with **1,491 unit tests**, **76**
 public-production, **568 main e2e passed / 148 skipped**, **14** registration,
@@ -92,13 +110,16 @@ Compatibility limits: the automated matrix remains Chromium. Safari/WebKit and
 physical-device verification were not performed, and the explicit viewport widths
 are not real 200% browser zoom. These remain unverified rather than claimed.
 
-### Integrated security correction
+### Integrated security corrections
 
 The registry now reports zero findings, so the earlier `GHSA-fc5q-39xc-vjpf`
 acceptance became unused and the fail-closed gate correctly rejected it. That
-correction was reviewed and merged to main (PR #100), and `origin/main` `2ffa951`
-is merged into this branch, so the `security` job passes here. This PR does not
-modify audit governance, the exception file or dependency versions.
+correction was reviewed and merged to main (PR #100). A follow-up hardening
+(PR #102) requires string approval identifiers before the GitHub-handle, GHSA and
+CVE patterns are applied, so `RegExp.test()` can no longer coerce arrays, numbers
+or booleans into matching values. `origin/main` `711978e` is merged into this
+branch, so all 25 security script tests and the `security` job pass here. This PR
+does not modify audit governance, the exception file or dependency versions.
 
 ## Measured rendering
 
