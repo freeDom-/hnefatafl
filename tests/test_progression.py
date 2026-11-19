@@ -287,6 +287,23 @@ def test_existing_installation_reseeds_portrait_order_without_touching_progressi
                 )
             }
 
+    def ordered_catalog(target):
+        """The complete stored portrait catalog in order, including ordinals."""
+        with target.connection() as c:
+            return [
+                (
+                    row["id"],
+                    row["ordinal"],
+                    row["name"],
+                    row["unlock_achievement_id"],
+                    row["retired"],
+                )
+                for row in c.execute(
+                    "SELECT id,ordinal,name,unlock_achievement_id,retired "
+                    "FROM portrait_catalog ORDER BY ordinal,id"
+                )
+            ]
+
     def catalog_versions(target):
         with target.connection() as c:
             return (
@@ -303,9 +320,15 @@ def test_existing_installation_reseeds_portrait_order_without_touching_progressi
         PORTRAIT_CATALOG_VERSION,
         ACHIEVEMENT_CATALOG_VERSION,
     )
+    # The previous persisted ordering, including its ordinal values, exists
+    # before startup seeding runs.
+    assert [row[0] for row in ordered_catalog(store)] == list(previous_order)
 
     # Reopen through the normal Store initialization path. Only the ordinals move.
     reopened = Store(store.path)
+    reopened_catalog = ordered_catalog(reopened)
+    assert [row[0] for row in reopened_catalog] == list(PORTRAIT_DISPLAY_ORDER)
+    assert [row[1] for row in reopened_catalog] == list(range(len(PORTRAIT_DISPLAY_ORDER)))
     catalog = client.get("/api/portraits/catalog").json()
     assert [item["id"] for item in catalog["items"]] == list(PORTRAIT_DISPLAY_ORDER)
     assert catalog["default_portrait_id"] == "shieldbearer"
@@ -325,8 +348,13 @@ def test_existing_installation_reseeds_portrait_order_without_touching_progressi
         PORTRAIT_DISPLAY_ORDER
     )
 
-    # Repeated initialization stays idempotent.
+    # Repeated initialization stays idempotent: the complete ordered catalog
+    # and every ordinal value are unchanged, and the API still exposes it.
     Store(reopened.path)
+    assert ordered_catalog(reopened) == reopened_catalog
+    assert [item["id"] for item in client.get("/api/portraits/catalog").json()["items"]] == list(
+        PORTRAIT_DISPLAY_ORDER
+    )
     assert progression_rows(reopened) == before_rows
     assert catalog_rows(reopened) == before_catalog
     assert catalog_versions(reopened) == before_versions
