@@ -16,11 +16,12 @@ summary labels are corrected in English and German.
 
 ## Review follow-up after main integration
 
-The PR now includes main `e717138` through merge commits, retaining its public
-spectator, Portrait Hall, polling, localization, browser helpers and security
-toolchain changes, plus the isolated browser-analysis feasibility spike. The diff
-against that main revision remains scoped to Workshop presentation, navigation,
-bounded rendering and their validation.
+The PR now includes main `b630273` through merge commits, retaining its public
+spectator, Portrait Hall, polling, localization, Norse terminology, workspace
+navigation, browser helpers and security toolchain changes, plus the isolated
+browser-analysis feasibility spike. The diff against that main revision remains
+scoped to Workshop presentation, navigation, bounded rendering and their
+validation.
 
 Task links and the comparison return link use `surfaceLink`, which delegates to
 the shell's existing `navigate` function. Same-hash clicks dispatch navigation
@@ -97,7 +98,17 @@ The navigator suite's 1,000-job case exceeds the 20-second default timeout on th
 shared host even for the reviewed component; it passes locally with unchanged
 assertions under an extended run timeout and in CI.
 
-Fresh CI on head `25c9cfc` ([run 44448100804](https://github.com/freeDom-/hnefatafl/actions/runs/44448100804)):
+Fresh CI on the corrected head `2c9a0ce` ([run 44486474020](https://github.com/freeDom-/hnefatafl/actions/runs/44486474020)):
+the `python` job passed with **3,533 backend tests passed and 16 skipped** plus
+ruff, mypy and `make docs` (152 files, 1,163 links); the `browser` job passed with
+**1,499 unit tests** (103 files), **12** benchmarks, **76** public-production,
+**620 main e2e passed / 200 skipped**, **14** registration, **24** online and
+**34** personal browser tests, plus `test:scripts` **25 passed**, format,
+typecheck and build; the `node22` job passed typecheck, **1,499 unit tests** and
+build; and the `security` job passed with clean full and production-only lockfile
+audits using no exceptions. All four jobs are green on the merged head.
+
+Previous CI on head `25c9cfc` ([run 44448100804](https://github.com/freeDom-/hnefatafl/actions/runs/44448100804)):
 the `python` job passed with **3,531 backend tests passed and 16 skipped** plus
 ruff, mypy and `make docs` (152 files, 1,163 links); the `browser` job passed with
 **1,497 unit tests** (103 files), **76** public-production, **572 main e2e passed /
@@ -105,7 +116,7 @@ ruff, mypy and `make docs` (152 files, 1,163 links); the `browser` job passed wi
 **24** online and **34** personal browser tests, plus `test:scripts` **25 passed**,
 format, typecheck and build; the `node22` job passed typecheck, **1,497 unit
 tests** and build; and the `security` job passed with clean full and
-production-only lockfile audits using no exceptions. All four jobs are green.
+production-only lockfile audits using no exceptions. All four jobs were green.
 
 Historical CI on head `0b40aea` ([run 44429024174](https://github.com/freeDom-/hnefatafl/actions/runs/44429024174)):
 the `python` job passed with **3,531 backend tests passed and 16 skipped** plus ruff,
