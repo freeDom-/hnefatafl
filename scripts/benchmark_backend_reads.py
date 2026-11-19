@@ -1277,7 +1277,9 @@ def login_actors(
 
 def write_evidence(out: Path, report: dict, raw: list[dict]) -> None:
     (out / "summary.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    (out / "requests.json").write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    # One compact sample per line keeps large raw evidence reviewable.
+    rows = ",\n".join(json.dumps(row, separators=(",", ":")) for row in raw)
+    (out / "requests.json").write_text("[\n" + rows + "\n]\n", encoding="utf-8")
 
 
 def safe_error(error: BaseException) -> str:
@@ -1410,7 +1412,12 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
                     ),
                     "count_problems": problems,
                     "cancelled": cancelled,
-                    "complete": not cancelled and not problems and run_metrics["failures"] == 0,
+                    "complete": (
+                        not cancelled
+                        and not problems
+                        and run_metrics["failures"] == 0
+                        and concurrency_achieved
+                    ),
                     "elapsed_seconds": elapsed,
                     "observed_requests_per_second": len(rows) / elapsed if elapsed else None,
                     "api_process_cpu_seconds": cpu_seconds,

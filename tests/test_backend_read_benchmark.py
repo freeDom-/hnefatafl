@@ -334,6 +334,131 @@ def test_handle_signal_sets_cooperative_cancellation():
     assert resources.signal_name == "SIGTERM"
 
 
+def test_seed_accounts_stops_during_fixture_creation():
+    cancel = bench.threading.Event()
+
+    class FakeAuth:
+        def __init__(self):
+            self.created = 0
+
+        def create_account(self, *args, **kwargs):
+            self.created += 1
+            cancel.set()
+            return {"id": f"account-{self.created}"}
+
+    class FakeSetup:
+        def __init__(self):
+            self.state = type("State", (), {"auth": FakeAuth()})()
+
+    with pytest.raises(bench.BenchmarkCancelled):
+        bench.seed_accounts(FakeSetup(), 4, cancel)
+
+
+def test_measure_level_records_network_errors():
+    class FailingActor:
+        def get(self, path):
+            raise httpx.ConnectError("refused")
+
+    resources = BenchmarkResources()
+    rows, maximum, cancelled = bench.measure_level(
+        1, [0], [[("endpoint", "/api/endpoint")]], 1, resources, [FailingActor()]
+    )
+    assert cancelled is False
+    assert maximum == 1
+    assert rows[0]["status"] == 0
+    assert rows[0]["error_type"] == "ConnectError"
+    assert metrics(rows)["failures"] == 1
+
+
+def test_warmup_rejects_ownership_mismatch():
+    class FakeClient:
+        def get(self, path):
+            return httpx.Response(200, json={"games": [{"id": "unexpected"}]})
+
+    state = bench.FixtureState(
+        users=1,
+        account_ids=["account"],
+        admin_id="admin",
+        local_ids=[["expected"]],
+        single_ids=[[]],
+        active_ids=["active"],
+        replay_ids=["replay"],
+        waiting_ids=["waiting"],
+        started_tournament_id="started",
+        upcoming_tournament_id="upcoming",
+    )
+    with pytest.raises(RuntimeError, match="ownership mismatch"):
+        bench.warmup_fixture([FakeClient()], [[]], state, bench.threading.Event())
+
+
+def test_login_actors_rejects_identity_mismatch(monkeypatch):
+    class FakeClient:
+        def __init__(self, origin):
+            self.headers = {}
+
+        def post(self, path, json=None):
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", "http://127.0.0.1:8501/api/auth/login"),
+                json={
+                    "account": {"id": "wrong", "role": "USER", "email_verified": True},
+                    "csrf_token": "token",
+                },
+            )
+
+    monkeypatch.setattr(bench, "new_client", FakeClient)
+    probe = type("Probe", (), {"base_url": "http://127.0.0.1:8501"})()
+    resources = BenchmarkResources()
+    with pytest.raises(RuntimeError, match="does not match"):
+        bench.login_actors(
+            probe,
+            [("LoadPlayer00", "secret", "expected-id", "USER")],
+            resources,
+            bench.threading.Event(),
+        )
+
+
+def test_start_server_reports_failed_subprocess_startup(monkeypatch, tmp_path):
+    class ExitedProcess:
+        pid = 43210
+
+        def poll(self):
+            return 1
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 1
+
+    class FailingProbe:
+        def get(self, path):
+            raise httpx.ConnectError("refused")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **k: ExitedProcess())
+    monkeypatch.setattr(bench, "new_client", lambda origin: FailingProbe())
+    fixture = create_fixture_directory(tmp_path)
+    resources = BenchmarkResources()
+    try:
+        with pytest.raises(RuntimeError, match="failed to start"):
+            bench.start_server(bench.SOURCE_ROOT, fixture, 8501, tmp_path, resources)
+    finally:
+        resources.close()
+
+
+def test_serve_rejects_a_non_fixture_directory(tmp_path):
+    plain = tmp_path / "plain-directory"
+    plain.mkdir()
+    with pytest.raises(ValueError, match="non-benchmark"):
+        bench.serve(bench.SOURCE_ROOT, plain, 8501)
+
+
 # ---------------------------------------------------------------------------
 # Error hygiene
 # ---------------------------------------------------------------------------
