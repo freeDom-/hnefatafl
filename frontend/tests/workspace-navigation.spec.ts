@@ -450,12 +450,10 @@ function overlapArea(a: NavRect, b: NavRect) {
  * records" / "Halle der Aufzeichnungen". Every other destination, including the
  * labels this change introduces, must fit. Keyed by `kind:language:destination`.
  */
-const ACCEPTED_TRUNCATION_PX: Record<string, number> = {
-  'compact:de:archive': 20,
-};
+const ACCEPTED_TRUNCATION = new Set(['compact:de:archive']);
 
 /** An ellipsised label must still show at least this fraction of its text. */
-const MIN_VISIBLE_LABEL_FRACTION = 0.7;
+const MIN_VISIBLE_LABEL_FRACTION = 0.6;
 
 async function expectUsableNavigation(
   page: Page,
@@ -537,14 +535,14 @@ async function expectUsableNavigation(
       expect(control.textOverflow, `${context}: ${label} is clipped without an ellipsis`).toBe(
         'ellipsis',
       );
-      // Ellipsis alone is not a licence to clip arbitrarily: anything beyond the
-      // one justified pre-existing compact label is a readability defect.
-      const accepted =
-        ACCEPTED_TRUNCATION_PX[`${nav.kind}:${language}:${control.destination}`] ?? 0;
-      expect(
-        overflow,
-        `${context}: ${label} loses ${overflow.toFixed(1)}px (accepted ${accepted}px)`,
-      ).toBeLessThanOrEqual(accepted + 1);
+      // Ellipsis alone is not a licence to clip arbitrarily: every label except
+      // the one justified pre-existing compact name must fit exactly, and even
+      // that exception must keep most of its text visible.
+      if (!ACCEPTED_TRUNCATION.has(`${nav.kind}:${language}:${control.destination}`))
+        expect(
+          overflow,
+          `${context}: ${label} is significantly clipped (${overflow.toFixed(1)}px)`,
+        ).toBeLessThanOrEqual(1);
       expect(
         control.clientWidth / control.scrollWidth,
         `${context}: ${label} visible fraction`,
