@@ -36,6 +36,11 @@ def main() -> int:
     parser.add_argument("expected", help="Native/reference report path, or - for stdin")
     parser.add_argument("actual", help="Browser/candidate report path, or - for stdin")
     parser.add_argument("--output", type=Path, help="Write the full comparison as JSON")
+    parser.add_argument(
+        "--require-complete",
+        action="store_true",
+        help="Exit non-zero when acceptance targets remain unresolved",
+    )
     args = parser.parse_args()
     if args.expected == "-" and args.actual == "-":
         parser.error("only one input may be read from standard input")
@@ -52,12 +57,15 @@ def main() -> int:
             {
                 "mode": result["mode"],
                 "fixed_work": result["fixed_work"],
-                "comparable_cases": result["comparable_cases"],
-                "limited_cases": result["limited_cases"],
-                "move_agreement": result["move_agreement"],
-                "value_agreement": result["value_agreement"],
-                "depth_agreement": result["depth_agreement"],
+                "expected_cases": result["expected_cases"],
+                "compared_cases": result["compared_cases"],
+                "execution_valid_cases": result["execution_valid_cases"],
+                "parity_cases": result["parity_cases"],
+                "parity_established": result["parity_established"],
+                "acceptance_complete": result["acceptance_complete"],
+                "unresolved": len(result["unresolved"]),
                 "equal_work_latency_ratio_median": result["equal_work_latency_ratio_median"],
+                "equal_work_latency_ratio_samples": result["equal_work_latency_ratio_samples"],
                 "failures": len(result["failures"]),
                 "warnings": len(result["warnings"]),
                 "ok": result["ok"],
@@ -69,7 +77,18 @@ def main() -> int:
         print(f"MANDATORY FAILURE: {message}", file=sys.stderr)
     for message in result["warnings"][:20]:
         print(f"note: {message}", file=sys.stderr)
-    return 0 if result["ok"] else 1
+    for item in result["unresolved"][:20]:
+        print(
+            "unresolved: "
+            f"{item.get('position')}/{item.get('config')}/rep{item.get('repetition')}: "
+            f"{item.get('reason')}",
+            file=sys.stderr,
+        )
+    if not result["ok"]:
+        return 1
+    if args.require_complete and not result["acceptance_complete"]:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

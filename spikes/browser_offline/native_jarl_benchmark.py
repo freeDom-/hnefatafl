@@ -121,6 +121,8 @@ def main() -> int:
         configs=configs,
         mode=args.mode,
         seed=args.seed,
+        repetitions=repetitions,
+        warmup=warmup,
         records=records,
         extra={
             "generated": datetime.now(timezone.utc).isoformat(),

@@ -16,7 +16,7 @@
 // in board or repetition history are honoured.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, extname, resolve, sep } from "node:path";
 import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
@@ -178,6 +178,11 @@ try {
       }),
     { positions, configs, mode, seed },
   );
+  // The declared repetition and warm-up counts are part of the comparison
+  // contract so expected coverage can be derived independently of the records
+  // that were actually produced.
+  report.identity.repetitions = reps;
+  report.identity.warmup = warmup;
 
   const perCase = async (entry, config, phase, repetition) => {
     try {
@@ -332,8 +337,9 @@ try {
   if (nativePath) {
     const comparisonOut = resolve(
       dirname(output ? resolve(output) : resolve(root, "jarl-unused.json")),
-      "jarl-comparison.json",
+      `jarl-comparison-${process.pid}-${Date.now()}.json`,
     );
+    await unlink(comparisonOut).catch(() => {});
     const comparison = await runWithStdin(
       python,
       [
@@ -382,13 +388,17 @@ console.log(
       comparison: report.comparison
         ? {
             ok: report.comparison.ok,
-            comparable_cases: report.comparison.comparable_cases,
-            limited_cases: report.comparison.limited_cases ?? null,
-            move_agreement: report.comparison.move_agreement,
-            value_agreement: report.comparison.value_agreement,
-            depth_agreement: report.comparison.depth_agreement,
+            expected_cases: report.comparison.expected_cases,
+            compared_cases: report.comparison.compared_cases,
+            execution_valid_cases: report.comparison.execution_valid_cases,
+            parity_cases: report.comparison.parity_cases,
+            parity_established: report.comparison.parity_established,
+            acceptance_complete: report.comparison.acceptance_complete,
+            unresolved: (report.comparison.unresolved ?? []).length,
             equal_work_latency_ratio_median:
               report.comparison.equal_work_latency_ratio_median,
+            equal_work_latency_ratio_samples:
+              report.comparison.equal_work_latency_ratio_samples,
             warnings: (report.comparison.warnings ?? []).length,
           }
         : null,

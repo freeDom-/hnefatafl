@@ -306,7 +306,7 @@ def test_jarl_identity_is_stable_and_covers_effective_configuration():
             )
         )
     )
-    assert first["protocol"] == 2
+    assert first["protocol"] == 3
     assert len(first["workload_digest"]) == 64
     assert first["effective_configs"]["quick"]["depth"] == 3
     assert first["engine_identity"]["sha256"]

@@ -119,6 +119,8 @@ def build_report(
     configs: list[str],
     mode: str,
     seed: int,
+    repetitions: int,
+    warmup: int,
     records: list[dict[str, Any]],
     search: dict | None = None,
     extra: dict[str, Any] | None = None,
@@ -127,9 +129,11 @@ def build_report(
 
     Both the native and the browser runners call this so their reports carry the
     same ``identity`` shape. The workload digest covers the ordered serialized
-    positions (including repetition history) and the complete effective
-    configuration for every row, so two different workloads can never be
-    compared as if they were the same.
+    positions (including repetition history), their legal moves and terminal
+    outcome, and the complete effective configuration for every row, so two
+    different workloads can never be compared as if they were the same. The
+    declared ``repetitions`` and ``warmup`` counts let the comparator derive the
+    complete expected coverage independently of the records actually produced.
     """
     workload = workload_identity(positions, configs, mode=mode, seed=seed, search=search)
     identity = {
@@ -138,15 +142,13 @@ def build_report(
         "workload_digest": workload["digest"],
         "mode": mode,
         "seed": seed,
+        "repetitions": repetitions,
+        "warmup": warmup,
         "engine_identity": engine_identity(),
         "effective_configs": workload["effective_configs"],
-        "required_cases": [
-            {"position": c.get("position"), "config": c.get("config"), "kind": c.get("kind")}
-            for c in records
-        ],
     }
     report = {
-        "schema": 2,
+        "schema": 3,
         "kind": kind,
         "runtime": runtime,
         "environment": environment,
@@ -192,10 +194,59 @@ def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _normalise_numbers(value: Any) -> Any:
+    """Coerce numeric values to floats so digests survive a JS JSON round-trip.
+
+    JavaScript has no integer/float distinction, so a Python ``60.0`` becomes
+    ``60`` after crossing the worker boundary. Normalising both sides keeps the
+    effective-settings digest stable without weakening any comparison.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict):
+        return {key: _normalise_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalise_numbers(item) for item in value]
+    return value
+
+
+def canonical_config_digest(config: dict[str, Any]) -> str:
+    """Stable digest of an effective configuration across native/JS boundaries."""
+    return hashlib.sha256(_canonical(_normalise_numbers(config)).encode()).hexdigest()
+
+
 def position_digest(case: dict[str, Any]) -> str:
     """Digest one serialized position including its full repetition history."""
     state = case.get("state")
     return hashlib.sha256(_canonical(state).encode()).hexdigest()
+
+
+def _case_contract(case: dict[str, Any]) -> dict[str, Any]:
+    """Self-contained per-position contract used to validate results.
+
+    The comparator must be able to prove that a returned move is legal and that a
+    terminal value is the correct defender-relative outcome without loading the
+    engine, so the workload identity carries the legal moves and winner.
+    """
+    state = State.from_dict(case["state"])
+    moves = legal_moves(state)
+    winner = state.winner
+    terminal = bool(winner) or not moves
+    terminal_value = (
+        {"defenders": 1.0, "attackers": -1.0, "draw": 0.0}.get(winner) if terminal else None
+    )
+    return {
+        "name": case.get("name"),
+        "kind": case.get("kind"),
+        "ruleset": state.ruleset,
+        "position_digest": position_digest(case),
+        "terminal": terminal,
+        "winner": winner,
+        "terminal_value": terminal_value,
+        "legal_moves": [move.to_dict() for move in moves],
+    }
 
 
 def workload_identity(
@@ -209,42 +260,31 @@ def workload_identity(
     """Deterministic identity of the exact workload both runtimes must share.
 
     The digest covers the ordered serialized states (including repetition
-    history), names, kinds, the effective engine configuration for each row and
-    the mode/seed. Two reports with different digests must never be compared.
+    history), their legal moves and terminal outcome, the names/kinds, the
+    effective engine configuration for each row and the mode/seed. Two reports
+    with different digests must never be compared.
     """
-    effective = effective_configs(configs, mode=mode, search=search)
+    effective = {
+        name: {**config, "seed": seed}
+        for name, config in effective_configs(configs, mode=mode, search=search).items()
+    }
+    cases = [_case_contract(case) for case in positions]
     payload = {
-        "protocol": 2,
+        "protocol": 3,
         "mode": mode,
         "seed": seed,
         "configs": configs,
         "effective_configs": effective,
-        "positions": [
-            {
-                "name": case.get("name"),
-                "kind": case.get("kind"),
-                "ruleset": case.get("state", {}).get("ruleset"),
-                "position_digest": position_digest(case),
-            }
-            for case in positions
-        ],
+        "cases": cases,
     }
     return {
-        "protocol": 2,
+        "protocol": 3,
         "digest": hashlib.sha256(_canonical(payload).encode()).hexdigest(),
         "mode": mode,
         "seed": seed,
         "configs": configs,
         "effective_configs": effective,
-        "cases": [
-            {
-                "name": case.get("name"),
-                "kind": case.get("kind"),
-                "ruleset": case.get("state", {}).get("ruleset"),
-                "position_digest": position_digest(case),
-            }
-            for case in positions
-        ],
+        "cases": cases,
     }
 
 
@@ -297,6 +337,7 @@ def run_case(
     """
     config = resolve_config(name, mode=mode, search=search)
     config["seed"] = seed
+    effective_config_digest = canonical_config_digest(config)
     budget_ms = float(config["time_limit"]) * 1000
     expected_depth = BENCHMARK_CONFIGS[name]["depth"]
     terminal = bool(state.winner) or not legal_moves(state)
@@ -323,6 +364,7 @@ def run_case(
         "position": position,
         "kind": kind,
         "position_hash": position_hash,
+        "effective_config_digest": effective_config_digest,
         "expected_depth": expected_depth,
         "terminal": terminal,
         "unsupported": unsupported,
