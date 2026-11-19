@@ -1,14 +1,14 @@
 {
-  "sourceHead": "4fc54a725c936829f9276697f8217e9b24964357",
+  "sourceHead": "17a2b88295c456d2ef6846404bd2c9ff7d8199ee",
   "build": {
     "schema": 1,
-    "revision": "4fc54a725c936829f9276697f8217e9b24964357",
+    "revision": "17a2b88295c456d2ef6846404bd2c9ff7d8199ee",
     "dirty": false,
     "git": true,
-    "fingerprint": "0b80fd29df68e1e09897de608b8dfb83f5046e7845ad6bdbac01da0183b9b9ef",
-    "builtAt": "2026-11-19T12:25:31.632Z"
+    "fingerprint": "9cf07db7c20e0d32e8ce8874c665d3f1a4434ac539d41a7a63b50785ce4a7695",
+    "builtAt": "2026-11-19T15:16:12.607Z"
   },
-  "measuredAt": "2026-11-19T12:25:40.733Z",
+  "measuredAt": "2026-11-19T15:16:22.780Z",
   "browser": "156.0.8078.4",
   "node": "v22.23.4",
   "fixture": "Production static assets; read-only mocked account/dashboard/workshop API responses. Network graph proof, not backend capacity evidence.",
@@ -18,13 +18,13 @@
     "limitation": "A bounded observation window cannot prove that an arbitrarily future scheduled import never occurs."
   },
   "manifest": {
-    "authenticatedEntry": "assets/AuthenticatedArena-C-LumqjD.js",
-    "publicEntry": "assets/PublicArena-D3WaETQW.js",
+    "authenticatedEntry": "assets/AuthenticatedArena-Dz385qpr.js",
+    "publicEntry": "assets/PublicArena-BO8UYKu5.js",
     "expectedInitialScripts": [
-      "assets/AuthenticatedArena-C-LumqjD.js",
+      "assets/AuthenticatedArena-Dz385qpr.js",
       "assets/appearance-init.js",
-      "assets/arenaTopBar-DEyB7lqJ.js",
-      "assets/index-B5ESjO7q.js"
+      "assets/arenaTopBar-Bc5mEXx9.js",
+      "assets/index-D39nItuF.js"
     ],
     "expectedInitialStyles": [
       "assets/AuthenticatedArena-DqAtxU54.css",
@@ -33,10 +33,10 @@
     ]
   },
   "initialFiles": [
-    "assets/AuthenticatedArena-C-LumqjD.js",
+    "assets/AuthenticatedArena-Dz385qpr.js",
     "assets/appearance-init.js",
-    "assets/arenaTopBar-DEyB7lqJ.js",
-    "assets/index-B5ESjO7q.js"
+    "assets/arenaTopBar-Bc5mEXx9.js",
+    "assets/index-D39nItuF.js"
   ],
   "initialCssFiles": [
     "assets/AuthenticatedArena-DqAtxU54.css",
@@ -44,20 +44,20 @@
     "assets/index-DmWrC0Xt.css"
   ],
   "initialRequests": [
-    "assets/AuthenticatedArena-C-LumqjD.js",
     "assets/AuthenticatedArena-DqAtxU54.css",
+    "assets/AuthenticatedArena-Dz385qpr.js",
     "assets/appearance-init.js",
-    "assets/arenaTopBar-DEyB7lqJ.js",
+    "assets/arenaTopBar-Bc5mEXx9.js",
     "assets/arenaTopBar-qCqN8ppL.css",
-    "assets/index-B5ESjO7q.js",
+    "assets/index-D39nItuF.js",
     "assets/index-DmWrC0Xt.css"
   ],
   "initialFailed": [],
   "initialInventory": [
     {
-      "file": "assets/AuthenticatedArena-C-LumqjD.js",
-      "raw": 105413,
-      "gzip_level9": 32670
+      "file": "assets/AuthenticatedArena-Dz385qpr.js",
+      "raw": 105468,
+      "gzip_level9": 32719
     },
     {
       "file": "assets/appearance-init.js",
@@ -65,14 +65,14 @@
       "gzip_level9": 698
     },
     {
-      "file": "assets/arenaTopBar-DEyB7lqJ.js",
+      "file": "assets/arenaTopBar-Bc5mEXx9.js",
       "raw": 5560,
-      "gzip_level9": 2325
+      "gzip_level9": 2323
     },
     {
-      "file": "assets/index-B5ESjO7q.js",
-      "raw": 454913,
-      "gzip_level9": 145560
+      "file": "assets/index-D39nItuF.js",
+      "raw": 456265,
+      "gzip_level9": 146088
     }
   ],
   "initialCssInventory": [
@@ -92,28 +92,20 @@
       "gzip_level9": 15470
     }
   ],
-  "initialRaw": 567748,
-  "initialGzipLevel9": 181253,
+  "initialRaw": 569155,
+  "initialGzipLevel9": 181828,
   "initialCssRaw": 114187,
   "initialCssGzipLevel9": 23803,
   "observedResponses": {
-    "assets/AuthenticatedArena-C-LumqjD.js": {
-      "status": 200,
-      "contentType": "text/javascript"
-    },
     "assets/AuthenticatedArena-DqAtxU54.css": {
       "status": 200,
       "contentType": "text/css"
     },
-    "assets/ConfigImportButton-BLdkVJL-.js": {
+    "assets/AuthenticatedArena-Dz385qpr.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
-    "assets/ConfigImportButton-DBtqSgMh.css": {
-      "status": 200,
-      "contentType": "text/css"
-    },
-    "assets/FieldTooltip-C84a5FnY.js": {
+    "assets/FieldTooltip-C9kLejxK.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -121,7 +113,7 @@
       "status": 200,
       "contentType": "text/css"
     },
-    "assets/Training-DJYOq2Zk.js": {
+    "assets/Training-D9Kg61qj.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -129,7 +121,7 @@
       "status": 200,
       "contentType": "text/javascript"
     },
-    "assets/arenaTopBar-DEyB7lqJ.js": {
+    "assets/arenaTopBar-Bc5mEXx9.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -137,7 +129,7 @@
       "status": 200,
       "contentType": "text/css"
     },
-    "assets/index-B5ESjO7q.js": {
+    "assets/index-D39nItuF.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -145,17 +137,25 @@
       "status": 200,
       "contentType": "text/css"
     },
-    "assets/modelLabel-9jS8EGW0.js": {
+    "assets/modelLabel-Bk66__qw.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
-    "assets/sortRulesets-B7Nmpk_B.js": {
+    "assets/sortRulesets-B3wontTU.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
     "assets/sortRulesets-BMELa7Sl.css": {
       "status": 200,
       "contentType": "text/css"
+    },
+    "assets/workshopConsolidation-CHTcSIYR.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/workshopConsolidation-D1HA2N_Q.js": {
+      "status": 200,
+      "contentType": "text/javascript"
     }
   },
   "forbiddenModules": [],
@@ -175,24 +175,24 @@
     "node_modules/react-markdown/"
   ],
   "afterTrainingFiles": [
-    "assets/AuthenticatedArena-C-LumqjD.js",
-    "assets/ConfigImportButton-BLdkVJL-.js",
-    "assets/FieldTooltip-C84a5FnY.js",
-    "assets/Training-DJYOq2Zk.js",
+    "assets/AuthenticatedArena-Dz385qpr.js",
+    "assets/FieldTooltip-C9kLejxK.js",
+    "assets/Training-D9Kg61qj.js",
     "assets/appearance-init.js",
-    "assets/arenaTopBar-DEyB7lqJ.js",
-    "assets/index-B5ESjO7q.js",
-    "assets/modelLabel-9jS8EGW0.js",
-    "assets/sortRulesets-B7Nmpk_B.js"
+    "assets/arenaTopBar-Bc5mEXx9.js",
+    "assets/index-D39nItuF.js",
+    "assets/modelLabel-Bk66__qw.js",
+    "assets/sortRulesets-B3wontTU.js",
+    "assets/workshopConsolidation-D1HA2N_Q.js"
   ],
   "recovery": {
     "newGameForm": {
-      "feature": "assets/NewGameForm-Dg5ErVwv.js",
+      "feature": "assets/NewGameForm-C9eqNs9n.js",
       "firstAttempt": "aborted",
       "recoveredThrough": "Retry"
     },
     "transitiveDependency": {
-      "feature": "assets/ConfigImportButton-BLdkVJL-.js",
+      "feature": "assets/workshopConsolidation-D1HA2N_Q.js",
       "firstAttempt": "aborted",
       "recoveredThrough": "Retry"
     },
@@ -215,7 +215,7 @@
       "retainedErrorPanel": true
     },
     "missingHashedAsset": {
-      "feature": "assets/NewGameForm-Dg5ErVwv.js",
+      "feature": "assets/NewGameForm-C9eqNs9n.js",
       "retriedWhileMissing": true,
       "recoveredThrough": "Reload application"
     },
@@ -232,11 +232,23 @@
         "contentType": "text/css"
       },
       "recoveredComputedPadding": "22.4px"
+    },
+    "concurrentSharedStylesheetSuccess": {
+      "feature": "assets/analysis-Csx_b9uQ.css",
+      "pendingWhileJsResolved": true,
+      "mountedWhilePending": false,
+      "recoveredComputedPadding": "22.4px"
+    },
+    "concurrentSharedStylesheetFailure": {
+      "feature": "assets/analysis-Csx_b9uQ.css",
+      "mountedWhilePending": false,
+      "mountedAfterFailure": false,
+      "retainedErrorPanel": true
     }
   },
   "publicEntryIsolation": {
-    "authenticatedEntry": "assets/AuthenticatedArena-C-LumqjD.js",
-    "publicEntry": "assets/PublicArena-D3WaETQW.js",
+    "authenticatedEntry": "assets/AuthenticatedArena-Dz385qpr.js",
+    "publicEntry": "assets/PublicArena-BO8UYKu5.js",
     "authenticatedGraphIncludesPublicEntry": false,
     "publicGraphIncludesAuthenticatedEntry": false
   }
