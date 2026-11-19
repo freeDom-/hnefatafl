@@ -305,11 +305,14 @@ nine recovery scenarios passed.
 
 ### CI
 
-Reviewed head `d2a756c` (Workshop consolidation integrated, corrected
-cached-component test, concurrent production probe): GitHub Actions run
-`44562091318` passed all four jobs (python, security, node22 and browser,
+Final integrated head `ed7854f` (backend-read-baseline integrated): GitHub Actions
+run `44603611807` passed all four jobs (python, security, node22 and browser,
 including `npm test`, the benchmark and script suites, the production build and
-every browser suite). This is historical evidence for the state before the
+every browser suite).
+
+Reviewed head `d2a756c` (Workshop consolidation integrated, corrected
+cached-component test, concurrent production probe): run `44562091318` passed all
+four jobs. This is historical evidence for the state before the
 backend-read-baseline integration.
 
 Earlier: integrated head `19b52ac` passed in run `44553136308`; `1750799` passed
