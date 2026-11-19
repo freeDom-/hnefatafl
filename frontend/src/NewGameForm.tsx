@@ -100,6 +100,10 @@ export default function NewGameForm({
   );
   const [catalogueError, setCatalogueError] = useState<string | null>(null);
   const catalogueRequest = useRef<AbortController | null>(null);
+  // A dismissed dialog must not apply a game-creation completion that arrives
+  // after unmount: it could reopen the dialog, navigate away or overwrite a
+  // newer setup operation's state.
+  const alive = useRef(true);
   const catalogueAttempted = useRef(false);
   const seeded = useRef<Record<Side, boolean>>({ attackers: false, defenders: false });
   const mode = admin ? setup.mode : 'human-ai';
@@ -159,6 +163,7 @@ export default function NewGameForm({
   // Closing the dialog must not leave a request running for nobody.
   useEffect(
     () => () => {
+      alive.current = false;
       catalogueRequest.current?.abort();
       catalogueRequest.current = null;
     },
@@ -231,6 +236,11 @@ export default function NewGameForm({
         human_side: setup.humanSide,
         players,
       });
+      // The dialog may have been dismissed or navigated away while the POST was
+      // pending. The server operation still stands and the game remains in the
+      // account's history; the client must not reopen, navigate or overwrite a
+      // newer setup from this obsolete completion.
+      if (!alive.current) return;
       try {
         // Preferences never retain a custom identity or configuration.
         localStorage.setItem(
@@ -253,9 +263,10 @@ export default function NewGameForm({
       }
       onCreated(game);
     } catch (failure) {
+      if (!alive.current) return;
       notify.error(errorMessage(failure));
     } finally {
-      setBusy(false);
+      if (alive.current) setBusy(false);
     }
   };
   return (

@@ -30,6 +30,7 @@ import Battlefield from './Battlefield';
 import { sideGlyph } from './sideGlyph';
 import { usePlayHistory } from './usePlayHistory';
 import { useModelCatalogue } from './useModelCatalogue';
+import { useNewGameSetup } from './useNewGameSetup';
 import { PlayTabsProvider } from './PlayTabs';
 
 const ReactMarkdown = deferredFeature(() => import('react-markdown'));
@@ -117,10 +118,12 @@ export default function App() {
   const reviewingRef = playHistory.cursorRef;
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [newOpen, setNewOpen] = useState(false);
-  // The route that owns an open setup dialog. A pending New Game import must
-  // never surface its dialog on a route the user has since navigated to.
-  const setupRoute = useRef<string | null>(null);
+  const {
+    open: newOpen,
+    start: startSetup,
+    cancel: cancelSetup,
+    owns: setupOwns,
+  } = useNewGameSetup();
   const [rulesOpen, setRulesOpen] = useState(false);
   const [aiRetryDelay, setAiRetryDelay] = useState(900);
   const [initializing, setInitializing] = useState(true);
@@ -153,23 +156,25 @@ export default function App() {
   }, [refreshModels]);
   const startSinglePlayer = useCallback(() => {
     const route = canonicalLocation();
-    void Promise.all([api<Ruleset[]>('/rulesets'), api<AIProfile[]>('/ai/profiles')])
-      .then(([rules, ais]) => {
-        setRulesets(rules);
-        setProfiles(ais);
-        // Do not open a stale setup dialog if the user moved elsewhere while
-        // the options were loading.
-        if (route !== canonicalLocation()) return;
-        setupRoute.current = route;
-        setNewOpen(true);
-      })
-      .catch((e) => reportError(e));
-  }, [reportError]);
-  // Close an open setup dialog on navigation, including Browser Back/Forward,
-  // so a delayed import cannot reveal it on an unrelated route.
+    startSetup(async (signal) => {
+      const [rules, ais] = await Promise.all([
+        api<Ruleset[]>('/rulesets', undefined, undefined, signal),
+        api<AIProfile[]>('/ai/profiles', undefined, undefined, signal),
+      ]);
+      // Do not open a stale setup dialog if the user moved elsewhere while
+      // the options were loading.
+      if (route !== canonicalLocation()) return false;
+      setRulesets(rules);
+      setProfiles(ais);
+      return true;
+    }, reportError);
+  }, [startSetup, reportError]);
+  // Any route or account change invalidates a pending setup operation and closes
+  // the dialog it owned, including Browser Back/Forward. This is what stops an
+  // obsolete response from reopening a dialog after navigating away and back.
   useEffect(() => {
-    if (newOpen && setupRoute.current !== null && setupRoute.current !== path) setNewOpen(false);
-  }, [path, newOpen]);
+    cancelSetup();
+  }, [path, account?.id, cancelSetup]);
   useEffect(() => {
     if (
       tab === 'dashboard' &&
@@ -758,18 +763,17 @@ export default function App() {
                   (rule) => rule.id === new URLSearchParams(location.search).get('ruleset'),
                 )?.id ?? game?.ruleset
               }
-              onClose={() => {
-                setupRoute.current = null;
-                setNewOpen(false);
-              }}
+              onClose={cancelSetup}
               onCreated={(next) => {
-                setupRoute.current = null;
+                // Ignore a completion that arrives after dismissal, navigation,
+                // logout or a newer setup operation took ownership.
+                if (!setupOwns()) return;
+                cancelSetup();
                 currentGame.current = next;
                 loadedRoute.current = next.id;
                 setGame(next);
                 setSelected(null);
                 setAiRetryDelay(900);
-                setNewOpen(false);
                 setInitializing(false);
                 navigate(`/games/${next.id}`);
               }}

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from './auth-fixture';
+import type { Route } from '@playwright/test';
 import { openNewSinglePlayer } from './play-helpers';
 
 const FORM_MODULE = '/src/NewGameForm.tsx';
@@ -119,6 +120,64 @@ test('navigation during a pending import does not reveal the dialog on another r
 test('query-driven setup preserves the selected ruleset', async ({ page }) => {
   const setup = await openSetup(page, '?setup=single-player&ruleset=brandubh');
   await expect(setup.getByRole('radio', { name: /Brandubh/ })).toBeChecked();
+});
+
+test('repeated Play vs AI clicks while options are pending open one dialog', async ({ page }) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = 0;
+  const hold = async (route: Route) => {
+    held += 1;
+    try {
+      await gate;
+      await route.continue();
+    } catch {
+      /* A superseded request may be aborted before the gate releases. */
+    }
+  };
+  await page.route('**/api/rulesets', hold);
+  await page.route('**/api/ai/profiles', hold);
+  await page.goto('/dashboard');
+  const play = page.getByRole('button', { name: 'Play vs AI', exact: true });
+  await play.click();
+  await play.click();
+  await expect.poll(() => held).toBeGreaterThanOrEqual(2);
+  release();
+  await expect(dialog(page)).toHaveCount(1);
+  await expect(dialog(page).getByRole('button', { name: 'To the table' })).toBeVisible();
+});
+
+test('navigation while game creation is pending does not navigate to the obsolete game', async ({
+  page,
+}) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = false;
+  await page.route('**/api/games', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    held = true;
+    await gate;
+    await route.continue();
+  });
+  await page.goto('/dashboard?setup=single-player');
+  const setup = dialog(page);
+  await expect(setup.getByRole('button', { name: 'To the table' })).toBeVisible();
+  await setup.getByRole('button', { name: 'To the table' }).click();
+  await expect.poll(() => held).toBe(true);
+  // Leave the dashboard while POST /games is still in flight. The server still
+  // commits the game; the obsolete completion must not navigate or reopen.
+  await page.evaluate(() => {
+    history.pushState(null, '', '/statistics');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.locator('.statistics-page')).toBeVisible();
+  release();
+  await expect(page).toHaveURL(/\/statistics$/);
+  await expect(dialog(page)).toHaveCount(0);
 });
 
 test('restores focus to the opener after the dialog closes', async ({ page }) => {
