@@ -403,17 +403,65 @@ def validate_phase_counts(
 # ---------------------------------------------------------------------------
 
 
+def _mount_points() -> list[Path] | None:
+    """Mount points from /proc/self/mountinfo, or None when unavailable."""
+    try:
+        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    points: list[Path] = []
+    for line in text.splitlines():
+        before, separator, _after = line.partition(" - ")
+        if not separator:
+            continue
+        fields = before.split()
+        if len(fields) >= 5:
+            points.append(Path(fields[4]))
+    return points
+
+
+def fixture_mount_boundaries(root: Path) -> list[Path]:
+    """Mount points at or beneath the fixture root, including same-device binds.
+
+    Mountinfo lists every mount, so a bind mount of operator storage onto a path
+    inside the fixture is detected even though it shares the root's device.
+    Returns an empty list when mount information is unavailable.
+    """
+    points = _mount_points()
+    if points is None:
+        return []
+    try:
+        resolved_root = root.resolve()
+    except OSError:
+        return []
+    boundaries: list[Path] = []
+    for point in points:
+        try:
+            resolved = point.resolve()
+        except OSError:
+            continue
+        if resolved == resolved_root or resolved.is_relative_to(resolved_root):
+            boundaries.append(resolved)
+    return boundaries
+
+
 def validate_fixture_storage(fixture: Fixture) -> None:
     """Reject indirect storage paths before the backend can open them.
 
     A directory name and marker do not prove that arbitrary preexisting content
     is disposable. Every entry must be a real path on the fixture's own
     filesystem, inside the fixture, and the application-owned files must not be
-    hard-linked to external storage. Symlinks are rejected anywhere in the tree.
-    This is a proportionate guard for an optional local benchmark, not a
-    defence against an arbitrary hostile same-user process.
+    hard-linked to external storage. Symlinks and nested mounts (including
+    same-filesystem bind mounts) are rejected anywhere in the tree. This is a
+    proportionate guard for an optional local benchmark, not a defence against
+    an arbitrary hostile concurrent same-user process.
     """
     root = fixture.path
+    boundaries = fixture_mount_boundaries(root)
+    if boundaries:
+        raise ValueError(
+            "Fixture contains a mount boundary: " + ", ".join(str(path) for path in boundaries)
+        )
     try:
         root_device = root.stat().st_dev
     except OSError as error:
@@ -509,6 +557,9 @@ def cleanup_fixture_directory(fixture: Fixture) -> bool:
 
     ``shutil.rmtree`` removes symlinks without following them, so a foreign link
     inside our own fixture is safe to delete and cannot reach operator storage.
+    A nested mount is refused rather than traversed, because recursive removal
+    would delete the mounted contents. The fixture is retained in that case and
+    the caller records a cleanup failure.
     """
     try:
         current = validate_fixture_directory(
@@ -517,6 +568,8 @@ def cleanup_fixture_directory(fixture: Fixture) -> bool:
     except ValueError:
         return False
     if current.identity != fixture.identity:
+        return False
+    if fixture_mount_boundaries(current.path):
         return False
     shutil.rmtree(current.path, ignore_errors=True)
     return not current.path.exists()
@@ -1397,6 +1450,7 @@ def validate_leaderboard_page(page: dict, account_ids: list[str], limit: int) ->
         "provisional_games",
     } <= set(policy):
         raise RuntimeError("Leaderboard policy metadata is missing")
+    ranks: list[int] = []
     for entry in entries:
         if not {
             "account_id",
@@ -1408,6 +1462,24 @@ def validate_leaderboard_page(page: dict, account_ids: list[str], limit: int) ->
             "rank",
         } <= set(entry):
             raise RuntimeError("Leaderboard entry is missing rating metadata")
+        rating = entry["rating"]
+        if isinstance(rating, bool) or not isinstance(rating, (int, float)):
+            raise RuntimeError("Leaderboard entry has an invalid rating")
+        counts = (entry["rated_games"], entry["wins"], entry["losses"], entry["draws"])
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in counts):
+            raise RuntimeError("Leaderboard entry has invalid rating counts")
+        rated, wins, losses, draws = counts
+        if rated != wins + losses + draws:
+            raise RuntimeError("Leaderboard rating counts are inconsistent")
+        # Every seeded player has exactly two completed rated draws.
+        if rated != 2 or wins != 0 or losses != 0 or draws != 2:
+            raise RuntimeError("Leaderboard entry does not match the two rated draws")
+        rank = entry["rank"]
+        if isinstance(rank, bool) or not isinstance(rank, int) or rank < 1:
+            raise RuntimeError("Leaderboard entry has an invalid rank")
+        ranks.append(rank)
+    if len(set(ranks)) != len(ranks):
+        raise RuntimeError("Leaderboard page has duplicate ranks")
 
 
 def validate_lobby_page(games: list[dict], expected_ordered: list[str], limit: int) -> None:
@@ -1417,8 +1489,9 @@ def validate_lobby_page(games: list[dict], expected_ordered: list[str], limit: i
     require_page_size(identifiers, expected_count, "lobby")
     if any(identifier not in expected_ordered for identifier in identifiers):
         raise RuntimeError("Lobby returned an unexpected online game")
-    if any(game.get("status") == "completed" for game in games):
-        raise RuntimeError("Lobby exposed a completed game")
+    for game in games:
+        if game.get("status") not in {"waiting", "active"}:
+            raise RuntimeError(f"Lobby exposed a game with status {game.get('status')!r}")
     if identifiers != expected_ordered[:expected_count]:
         raise RuntimeError("Lobby page does not match the production ordering")
 

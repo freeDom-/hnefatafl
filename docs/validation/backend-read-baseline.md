@@ -74,11 +74,17 @@ cannot initialize arbitrary operator storage. Only the current process's owned
 fixture directory is removed; a changed marker or identity makes cleanup refuse.
 Application-owned files must also have a single link (no hard link sharing an
 inode with external storage) and every entry must stay on the fixture's own
-filesystem, so a bind mount or a hard-linked database cannot redirect storage.
-This is a proportionate guard for an optional local benchmark, not a defence
-against arbitrary hostile same-user process manipulation. The benchmark never
-opens or modifies existing operator databases, models, checkpoints or training
-jobs.
+filesystem. Mount points at or beneath the fixture root are detected from
+`/proc/self/mountinfo`, so a same-filesystem bind mount of operator storage is
+rejected before any application import, not only a different-device mount. The
+same check runs again before recursive cleanup: if a nested mount is present the
+fixture is retained and a cleanup failure is reported rather than deleting the
+mounted contents. Nothing is ever unmounted automatically, and ordinary symbolic
+links inside the fixture are still removed without following their targets. This
+is a proportionate guard for an optional local Linux benchmark, not a defence
+against arbitrary hostile concurrent same-user filesystem manipulation. The
+benchmark never opens or modifies existing operator databases, models,
+checkpoints or training jobs.
 
 ## Server identity
 

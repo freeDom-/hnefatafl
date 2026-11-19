@@ -1090,19 +1090,50 @@ def test_fixture_storage_rejects_hard_link_to_external_sentinel(tmp_path):
     assert sentinel.read_text(encoding="utf-8") == "operator-data"
 
 
+def test_fixture_storage_rejects_same_device_bind_mount(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    mounted = fixture.path / "models"
+    mounted.mkdir()
+    monkeypatch.setattr(bench, "_mount_points", lambda: [mounted, Path("/"), Path("/tmp")])
+    with pytest.raises(ValueError, match="mount boundary"):
+        validate_fixture_directory(fixture.path, require_config=False)
+
+
+def test_fixture_mount_boundaries_ignores_mounts_above_root(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    monkeypatch.setattr(bench, "_mount_points", lambda: [Path("/"), Path("/tmp"), Path("/proc")])
+    assert bench.fixture_mount_boundaries(fixture.path) == []
+
+
+def test_cleanup_refuses_to_traverse_a_nested_mount(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    (fixture.path / "models").mkdir()
+    monkeypatch.setattr(bench, "_mount_points", lambda: [fixture.path / "models"])
+    assert cleanup_fixture_directory(fixture) is False
+    assert fixture.path.exists()
+
+
+def test_cleanup_refuses_when_the_fixture_root_is_a_mount(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    monkeypatch.setattr(bench, "_mount_points", lambda: [fixture.path])
+    assert cleanup_fixture_directory(fixture) is False
+    assert fixture.path.exists()
+
+
 # ---------------------------------------------------------------------------
 # Timed endpoint semantics
 # ---------------------------------------------------------------------------
 
 
 def _leaderboard_entry(account_id, rank):
+    # Every seeded player has exactly two completed rated draws.
     return {
         "account_id": account_id,
         "rating": 1500.0,
-        "rated_games": 1,
+        "rated_games": 2,
         "wins": 0,
         "losses": 0,
-        "draws": 1,
+        "draws": 2,
         "rank": rank,
     }
 
@@ -1137,6 +1168,24 @@ def test_validate_leaderboard_page_rejects_empty_incomplete_and_foreign():
         bench.validate_leaderboard_page(foreign, accounts, 10)
     with pytest.raises(RuntimeError, match="total"):
         bench.validate_leaderboard_page({**_leaderboard_page(accounts), "total": 2}, accounts, 10)
+    with pytest.raises(RuntimeError, match="two rated draws"):
+        wrong = _leaderboard_page(accounts)
+        wrong["entries"][0]["rated_games"] = 3
+        wrong["entries"][0]["draws"] = 3
+        bench.validate_leaderboard_page(wrong, accounts, 10)
+    with pytest.raises(RuntimeError, match="two rated draws"):
+        wrong = _leaderboard_page(accounts)
+        wrong["entries"][0]["wins"] = 1
+        wrong["entries"][0]["draws"] = 1
+        bench.validate_leaderboard_page(wrong, accounts, 10)
+    with pytest.raises(RuntimeError, match="inconsistent"):
+        wrong = _leaderboard_page(accounts)
+        wrong["entries"][0]["rated_games"] = 3
+        bench.validate_leaderboard_page(wrong, accounts, 10)
+    with pytest.raises(RuntimeError, match="duplicate ranks"):
+        wrong = _leaderboard_page(accounts)
+        wrong["entries"][1]["rank"] = wrong["entries"][0]["rank"]
+        bench.validate_leaderboard_page(wrong, accounts, 10)
 
 
 def test_validate_lobby_page_rejects_empty_short_and_foreign():
@@ -1152,6 +1201,12 @@ def test_validate_lobby_page_rejects_empty_short_and_foreign():
     with pytest.raises(RuntimeError, match="completed"):
         bench.validate_lobby_page(
             [{"id": game_id, "status": "completed"} for game_id in expected], expected, 25
+        )
+    with pytest.raises(RuntimeError, match="status"):
+        bench.validate_lobby_page([{"id": game_id} for game_id in expected], expected, 25)
+    with pytest.raises(RuntimeError, match="status"):
+        bench.validate_lobby_page(
+            [{"id": game_id, "status": "cancelled"} for game_id in expected], expected, 25
         )
 
 
