@@ -1,208 +1,238 @@
-# Browser analysis Phase 1 validation (1A Jarl, 1B neural inference)
+# Browser analysis Phase 1 validation (revised)
 
-Fresh measurements produced by the implementation agent on 2026-11-19 for the
-Phase 1A and Phase 1B scope. They are **not** the project owner's earlier Phase 0
-run and do not overwrite it. The owner's externally supplied Phase 0 numbers are
-recorded separately in
-[browser-analysis-prototype.md](browser-analysis-prototype.md) and the
-[roadmap](../designs/browser-analysis-roadmap.md).
+Validation record for Phase 1A (full-strength Jarl) and Phase 1B (trained-model
+ONNX export and browser inference) after the review corrections to PR #104.
 
-Machine-readable evidence:
-[native Jarl depth 3](browser-analysis-jarl-native-2026-11-19.json) ·
-[browser Jarl depth 3](browser-analysis-jarl-browser-2026-11-19.json) ·
-[native Jarl depth 5 Brandubh](browser-analysis-jarl-native-depth5-2026-11-19.json) ·
-[browser Jarl depth 5 Brandubh](browser-analysis-jarl-browser-depth5-2026-11-19.json) ·
-[ONNX export/parity](browser-neural-onnx-export-2026-11-19.json) ·
-[browser neural WASM](browser-neural-wasm-2026-11-19.json) ·
-[browser neural WebGPU capability](browser-neural-webgpu-2026-11-19.json).
+This record supersedes the **measurements** in the earlier revision-specific
+files while preserving them as history:
+
+- Revision 1 (`07f63bb`) evidence remains committed unchanged:
+  `browser-analysis-jarl-*-2026-11-19.json`, `browser-neural-*-2026-11-19.json`.
+  That revision compared only the benchmark *plan*, did not fail on fixed-work
+  divergence, selected positions by name from the staged bundle, duplicated one
+  input for batched inference and recorded the requested provider as the actual
+  provider. Its numbers must not be read as evidence for the corrected contract.
+- Revision 2 (this record) evidence is the `*-r2.json` files below.
+
+The project owner's earlier Phase 0 WSL run is separate historical evidence in
+[browser-analysis-prototype.md](browser-analysis-prototype.md) and is not recast.
+
+Machine-readable evidence (revision 2):
+
+- [native fixed-work quick](jarl-native-fixed-work-quick-r2.json) ·
+  [browser fixed-work quick](jarl-browser-fixed-work-quick-r2.json)
+- [native depth-5 Brandubh](jarl-native-depth5-brandubh-r2.json) ·
+  [browser depth-5 Brandubh](jarl-browser-depth5-brandubh-r2.json)
+- [native depth-5 Tablut+Copenhagen](jarl-native-depth5-tablut-copenhagen-r2.json) ·
+  [browser depth-5 Tablut+Copenhagen](jarl-browser-depth5-tablut-copenhagen-r2.json)
+- [ONNX export manifest](neural-export-manifest-wasm-parity.json) ·
+  [native ONNX parity](neural-native-onnx-parity.json)
+- [browser WASM numerical parity](neural-browser-parity-wasm-r2.json) ·
+  [deliberate corruption rejected](neural-browser-parity-corruption-r2.json) ·
+  [WebGPU blocked](neural-browser-parity-webgpu-blocked-r2.json)
+- [native fixed-time standard](jarl-native-fixed-time-standard-r2.json) ·
+  [browser fixed-time standard](jarl-browser-fixed-time-standard-r2.json)
+- [browser WASM benchmark](neural-browser-wasm-benchmark-r2.json)
 
 ## Environment
 
 | Item | Value |
 | --- | --- |
-| Host | Linux 7.0.14-26-pve x86_64, glibc 2.41, 4 exposed logical CPUs |
+| Host | Linux x86_64 container (Proxmox LXC), glibc 2.41, 4 exposed logical CPUs |
 | CPython | 3.11.18 (project venv) |
-| PyTorch | 2.14.1+cpu (one thread for parity) |
+| PyTorch | 2.14.1+cpu (single thread for parity) |
 | ONNX / onnxscript / onnxruntime | 1.23.2 / 0.7.2 / 1.32.0 |
 | Node.js | 22.23.4 |
 | Browser | Chromium 156.0.8078.4 (Playwright, headless) |
 | Pyodide / CPython | 0.27.7 / 3.12.7 |
-| ORT Web | 1.22.0 |
-| WASM heap capacity | 20 MiB |
+| ORT Web | 1.22.0 (digest-verified staging) |
 
-This is a shared, resource-constrained container. No physical phone, no WebGPU
-adapter and no representative trained checkpoint were available. All single-run
-numbers are observations, not calibrated percentiles, unless a median/p90 is
-stated.
+No physical phone, no WebGPU adapter and no representative competitive trained
+checkpoint were available. Numbers are single observations unless a median/p90 is
+stated. Mobile emulation is never presented as physical-mobile evidence.
 
-## Phase 1A — production Jarl configuration
+## Phase 1A — Jarl benchmark contract
 
-The spike exposes the production `alpha_beta` ("Jarl") preset: depth 5, 2 s
-cooperative deadline, Shield maiden evaluation and the optimized search defaults
-(transposition table, move ordering, PV/table/killer/history ordering). The
-shared `jarl_benchmark.py` runner is imported unchanged by native CPython and by
-the Pyodide worker, so both compare identical serialized positions.
+One shared `jarl_benchmark.py` defines the positions, effective configuration and
+workload identity for both runtimes. `jarl_compare.py` is the single comparison
+implementation; `compare_jarl_benchmarks.py` is its CLI and `verify_jarl.mjs`
+invokes it, so there is no duplicated comparison logic.
 
-Benchmark workloads (benchmark targets, not production defaults):
+Corrected contract:
 
-| Configuration | Depth | Time budget |
-| --- | ---: | ---: |
-| quick | 3 | 250 ms |
-| interactive | 5 | 1 s |
-| standard (production Jarl) | 5 | 2 s |
-| deep | 8 | 5 s |
-| extended | 10 | 10 s |
+- The verifier analyses the **exact serialized state objects** supplied by
+  `--positions`; it never re-selects by name. Custom positions, and positions
+  that reuse a fixture name with a different board or repetition history, are
+  honoured.
+- Each report records a workload digest over the ordered serialized states
+  (including repetition history), the names/kinds, the effective configuration
+  for every row, the mode and the seed, plus a hash of the staged engine sources.
+  Different digests are refused rather than compared.
+- Each case runs as its own bounded request, so a slow or failing case cannot
+  discard earlier records.
+- `fixed_work` has a mandatory correctness gate: status, completed depth, best
+  move and defender value must agree in addition to identity and case coverage.
+- Terminal positions are a distinct status (null move is expected, not a failed
+  search). Unsupported configurations (depth 10) are reported explicitly.
+- Cases that cannot finish inside the fixed-work safety limit are reported as
+  `deadline_limited` and are excluded from completed-work agreement instead of
+  being silently passed or failed.
+- `fixed_time` differences are informational warnings; they never fail a run.
+- Latency ratios are only computed for equal completed work.
 
-The engine's internal alpha-beta depth cap is 8 and the public configuration
-validator caps depth at 5. `extended` is therefore rejected by the engine with
-`ValueError: Search depth must be between 1 and 8` and is reported per case
-rather than silently reduced. The client hard watchdog is separate from the
-cooperative deadline: 5 s for ordinary interactive jobs, up to 180 s for explicit
-benchmark jobs.
+### Deterministic fixed-work agreement
 
-### Deterministic fixed-work agreement (correctness)
+| Comparison | Comparable cases | Limited | Best move | Value | Depth | Equal-work browser ÷ native median |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| quick (depth 3), all three rulesets, seven kinds | 21 | 0 | 21/21 | 21/21 | 21/21 | 2.21× |
+| standard (depth 5), Brandubh | 7 | 0 | 7/7 | 7/7 | 7/7 | 2.12× |
+| standard (depth 5), Tablut + Copenhagen | 11 | 3 | 11/11 | 11/11 | 11/11 | 2.14× |
 
-Native CPython and browser Pyodide were run with the same positions, seed,
-configuration and engine revision. Completed fixed-work searches must agree
-exactly because they perform identical work.
+The three limited Copenhagen cases are `opening`, `midgame` and `repetition` at
+depth 5: they reach depth 4 inside the 60 s fixed-work safety limit on **native
+CPython** as well, so the workload is reported as limited on both sides rather
+than being presented as a completed match. Tablut completes depth 5 on all
+tested positions.
 
-| Comparison | Comparable cases | Best-move agreement | Value agreement |
-| --- | ---: | ---: | ---: |
-| quick (depth 3), all three rulesets, seven position kinds | 21 | 21/21 | 21/21 |
-| standard (depth 5), Brandubh, seven position kinds | 7 (×2 runs) | 14/14 | 14/14 |
+### Fixed-time workload comparison (informational)
 
-### Fixed-work latency at equal completed work (depth 3)
+`standard` (depth 5, 2 s) fixed-time runs across all three rulesets, two measured
+repetitions per position. Fixed-time searches complete different work on different
+runtimes, so these are reported as informational and are excluded from the
+correctness gate; latency is never presented as an equal-work speedup.
 
-Browser is consistently ≈2.1–2.4× native CPython at identical completed depth.
-Because both sides complete the same depth, this ratio is a fair computational
-overhead measurement, not a speedup claim.
+| Ruleset | Native median | Native completed depths | Browser median | Browser completed depths | Limited cases |
+| --- | ---: | --- | ---: | --- | ---: |
+| Brandubh | 414 ms | 4–5 | 992 ms | 4–5 | 6/14 each |
+| Tablut | 325 ms | 4–5 | 667 ms | 3–5 | 6/14 native, 6/14 browser |
+| Copenhagen | 2000 ms | 3–5 | 2000 ms | 2–4 | 8/14 native, 12/14 browser |
 
-| Position | Native ms | Browser ms | Ratio |
-| --- | ---: | ---: | ---: |
-| brandubh-endgame | 30.8 | 67.5 | 2.2× |
-| brandubh-king-escape | 7.6 | 17.6 | 2.3× |
-| brandubh-midgame | 119.9 | 260.7 | 2.2× |
-| brandubh-opening | 94.5 | 213.1 | 2.3× |
-| brandubh-repetition | 93.6 | 221.4 | 2.4× |
-| brandubh-tactical | 61.3 | 137.4 | 2.2× |
-| copenhagen-endgame | 342.6 | 722.9 | 2.1× |
-| copenhagen-king-escape | 55.2 | 121.6 | 2.2× |
-| copenhagen-midgame | 1711.9 | 3540.7 | 2.1× |
-| copenhagen-opening | 1823.3 | 3815.5 | 2.1× |
-| copenhagen-repetition | 1360.1 | 2786.5 | 2.0× |
-| copenhagen-tactical | 676.8 | 1403.4 | 2.1× |
-| tablut-endgame | 15.1 | 34.9 | 2.3× |
-| tablut-king-escape | 6.6 | 14.0 | 2.1× |
-| tablut-midgame | 184.7 | 386.5 | 2.1× |
-| tablut-opening | 326.2 | 735.6 | 2.3× |
-| tablut-repetition | 402.3 | 880.1 | 2.2× |
-| tablut-tactical | 22.7 | 52.4 | 2.3× |
-
-Terminal positions complete in ≈0 ms on both sides and return
-`source: terminal`, `best_move: null`, confirming terminal handling bypasses
-search.
-
-### Fixed-time search observations
-
-`quick` fixed-time (250 ms) with all 21 positions:
-
-| Ruleset | Browser median ms | Browser p90 ms | Median completed depth |
-| --- | ---: | ---: | ---: |
-| Brandubh | 141.2 | 238.7 | 3 |
-| Tablut | 54.8 | 250.3 | 2.5 |
-| Copenhagen | 250.3 | 250.5 | 2 |
-
-Fixed-time searches complete different depths than native, so their best-move and
-value agreement (81% and 76% on the 21 cases) is timing-dependent and is **not**
-reported as a correctness failure. Deterministic fixed-work agreement is the
-correctness signal.
+The Copenhagen budget cap (2 s) dominates both sides, and the browser completes
+shallower depths inside the same budget. Evidence:
+[jarl-native-fixed-time-standard-r2.json](jarl-native-fixed-time-standard-r2.json),
+[jarl-browser-fixed-time-standard-r2.json](jarl-browser-fixed-time-standard-r2.json).
 
 ### Lifecycle and responsiveness
 
-| Metric | Browser quick run | Browser depth-5 run |
-| --- | ---: | ---: |
-| Startup to first response | 3185.7 ms | 2082.2 ms |
-| Cancellation acknowledgement | 0.2 ms | 0.3 ms |
-| Worker restart after termination | 2115.7 ms | 1845.5 ms |
-| UI click during active worker search | 0.2 ms | 0.2 ms |
-| WASM heap capacity | 20 MiB | 20 MiB |
+| Metric | Quick run | Depth-5 Brandubh | Depth-5 Tablut+Copenhagen |
+| --- | ---: | ---: | ---: |
+| Startup to first response | 2688.6 ms | 2290.0 ms | 2097.0 ms |
+| Cancellation acknowledgement | 0.2 ms | 0.2 ms | 0.2 ms |
+| Worker restart after termination | 2086.8 ms | 2262.4 ms | 2169.8 ms |
+| Batch wall clock (measured cases) | 16.0 s (21) | 31.9 s (7) | 272.5 s (14) |
+| Click-to-handle during active search | 77.7 ms | 76.9 ms | 65.2 ms |
+| Max event-loop lag during search | 25.0 ms | 20.4 ms | 18.9 ms |
+| Median event-loop lag during search | 16.7 ms | 16.7 ms | 16.7 ms |
 
-The main thread stays responsive because all search runs in the worker. Startup
-includes service-worker activation and is not a WAN model.
+Responsiveness is measured by driving an actual Playwright click while the worker
+is computing, plus a `requestAnimationFrame` event-loop lag probe — not a
+synchronous DOM call. `batch_wall_clock_ms` is reported once per run and is never
+attached to an individual case's latency.
 
-## Phase 1B — ONNX export and browser inference
+### Resource metric terminology
 
-### Export and native parity
+The Pyodide worker reports `heap_capacity_bytes` (20 MiB) from the Emscripten
+`HEAPU8` buffer. That is the observed WASM heap capacity, **not** process RSS and
+not a hard ceiling. The neural worker separately reports JavaScript heap hints
+when the browser exposes them and explicitly reports
+`wasm_heap_capacity_bytes: null` with a note, because the pinned ORT Web build
+does not expose its WASM heap size. Headless Chromium did not expose
+`performance.memory`, so those fields are `null` rather than fabricated.
 
-An actual trained Brandubh smoke checkpoint (channels 4, blocks 0, two
-self-play games — a real but non-competitive training artifact) was exported from
-the validated tensor-only loader. This validates the pipeline; it is **not**
-strength evidence.
+## Phase 1B — ONNX export and browser neural parity
+
+### Artifact integrity and transactional export
+
+`onnx_export.py` now exports into a temporary staging directory and publishes
+only after the graph validates and (unless `--no-parity`) native parity passes.
+A passing export writes `VALIDATED.json`; a failed or `--no-parity` export leaves
+no validated marker, and `prepare_neural.py` refuses to stage it unless
+`--allow-unvalidated` is passed for structural work.
 
 | Metric | Value |
 | --- | --- |
-| ONNX graph size | 46,924 bytes |
-| Graph validation | `onnx.checker` and shape inference passed |
-| Input / outputs | `[batch,6,7,7]` / `[batch,2401]`, `[batch]` |
-| Dynamic batch | yes (verified at batch 1, 2, 8) |
-| Parity positions | 6 non-terminal Brandubh positions |
-| Worst logit max-abs error | 1.43e-6 |
-| Worst value abs error | 5.96e-8 |
-| Worst legal-policy relative error | 2.76e-7 |
-| Top-5 move ranking | identical on all cases |
+| Artifact | trained Brandubh **smoke** checkpoint (channels 4, blocks 0) |
+| Model SHA-256 | `4054099991db2d9732c43d49ea562b8bed86d68a2a806307fca63100b6eae040` |
+| ONNX graph size / gzip | 46,924 B raw / 6,915 B gzip estimate |
+| Graph validation | `onnx.checker` + shape inference passed |
+| Dynamic batch | verified at batch 1, 2, 8, 16, 32 |
+| Reference cases | 39 (38 non-terminal incl. 32 distinct generated positions, 1 terminal) |
+| Reference kinds | opening, midgame, endgame, tactical, king-escape, repetition, generated, terminal |
 
-The metadata sidecar records ruleset, architecture, shapes, `source*size**2+target`
-action indexing, defender-relative value, legal-only masking, SHA-256 digests and
-exporter/runtime versions. It contains no optimizer state, state dict or source
-filesystem path.
+Parity is fail-closed: every output and every error metric must be finite, legal
+probabilities use a numerically stable legal-only softmax, output tensors are
+requested by name, and an empty reference set is rejected. Logit parity is judged
+absolutely (a relative error on a logit near zero is meaningless); relative error
+is judged on normalised legal probabilities above a floor.
 
-### Browser ORT Web WASM
+| Parity stage | Cases | Worst logit abs error | Worst value abs error | Worst legal-probability relative error | Material ranking changes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Native PyTorch → ORT CPU | 39 | 1.43e-6 | 5.96e-8 | — | 0 |
+| Native PyTorch → browser ORT WASM | 39 | 2.15e-6 | 5.96e-8 | 9.9e-7 | 0 |
 
-The exported model ran in Chromium through ORT Web 1.22.0 WASM
-(`ort.min.js`, single-threaded, no cross-origin isolation). First inference
-measured 19.5 ms; legal-only probabilities summed to 1.
+Browser WASM numerical parity is therefore established for this smoke model, not
+merely "execution succeeded". `neural_parity.mjs --simulate-corruption` perturbs
+one observed logit by 0.05 and the gate fails with
+`logit abs error 0.05 > 0.001`, proving the gate detects regressions.
 
-| Batch | Median ms | p90 ms | Positions/s |
-| ---: | ---: | ---: | ---: |
-| 1 | 0.6 | 0.78 | 1,667 |
-| 2 | 0.4 | 0.46 | 5,000 |
-| 4 | 0.5 | 0.56 | 8,000 |
-| 8 | 0.7 | 1.48 | 11,429 |
-| 16 | 1.2 | 1.20 | 13,333 |
-| 32 | 2.1 | 2.16 | 15,238 |
+### Browser inference performance (smoke model, WASM)
 
-These are tiny-model numbers and must not be extrapolated to representative
-32×2 or larger networks. They establish that the browser WASM path executes the
-actual exported graph with correct shapes and legal masking.
+| Metric | Value |
+| --- | ---: |
+| Runtime initialization (ORT + session) | 474.0 ms |
+| First inference (cold, incl. tensor prep) | 19.0 ms |
+| Warm single-position run median | 0.6 ms |
+| Model download size (gzip estimate) | 6,915 B |
 
-### Browser ORT Web WebGPU
+Distinct-position batched inference (batch sizes 1–32) matches independent
+single-position inference exactly (worst logit/value/probability error 0):
 
-`navigator.gpu` is present but `requestAdapter()` returned no adapter in this
-headless container. A WebGPU session request therefore failed **explicitly**
-("WebGPU requested but no adapter is available") and reported
-`provider_is_gpu: false`. No CPU fallback was presented as GPU success. WebGPU
-execution remains unvalidated until run on physical hardware with a real adapter
-(see the roadmap's Phase 1B blockers).
+| Batch | Distinct positions | Median | p90 | Positions/s |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 1 | 0.60 ms | 0.70 ms | 1,667 |
+| 2 | 2 | 0.80 ms | 0.90 ms | 2,500 |
+| 4 | 4 | 0.90 ms | 1.10 ms | 4,444 |
+| 8 | 8 | 1.30 ms | 1.36 ms | 6,154 |
+| 16 | 16 | 3.20 ms | 3.62 ms | 5,000 |
+| 32 | 32 | 4.50 ms | 4.60 ms | 7,111 |
+
+These are tiny-model numbers and are **not** extrapolatable to a representative
+32×2 or larger competitive network, nor to MCTS simulation throughput.
+
+### Provider reporting
+
+The report separates the provider that was *requested*, the session placement that
+was *observed*, and whether GPU execution was *verified*. Only a session whose
+observed provider evidence lists WebGPU providers is reported as
+`webgpu-session-verified`; a session created for WebGPU without observable
+placement is `webgpu-session-unverified` (never labelled GPU-accelerated); an
+observed WASM provider is `cpu-fallback`.
+
+On this host `navigator.gpu` exists but `requestAdapter()` returns no adapter, so
+a WebGPU request fails explicitly with
+`WebGPU requested but no adapter is available` and `--require-webgpu` exits
+non-zero. **WebGPU execution is unvalidated and blocked on physical hardware.**
 
 ## Repository checks
 
-- `tests/test_offline_spike.py`: 14 passed (extended Jarl bounds, engine depth
-  constraint, shared-position benchmark, production-config equivalence, plus the
-  original staging/parity/refusal cases).
-- `tests/test_browser_neural_export.py`: 5 passed with the optional ONNX
-  dependencies installed; they skip without them.
-- `ruff check` and `ruff format --check` pass on the spike and tests.
-- The full Pyodide browser gate `verify.mjs` was re-run against the modified
-  bridge/worker/client and completed all original assertions.
+- `tests/test_offline_spike.py`: 14 passed (Phase 0/staging/bridge behaviour).
+- `tests/test_browser_jarl_benchmark.py`: 24 passed (comparator, identity,
+  custom positions, classification, per-case latency, duplicate names).
+- `tests/test_browser_neural_parity.py`: 18 passed (fail-closed parity).
+- `tests/test_browser_neural_export.py`: 18 passed with the optional ONNX
+  dependencies installed (skip without them).
+- `tests/test_browser_client_lifecycle.py`: 2 passed (16 Node lifecycle checks +
+  provider-placement semantics).
+- Real-browser gates run manually: `verify.mjs`, `verify_jarl.mjs`,
+  `neural_parity.mjs`, `neural_benchmark.mjs` (WASM), all green; WebGPU blocked.
 
 ## Remaining validation and blockers
 
-- Tablut/Copenhagen fixed-work depth 5+ agreement.
-- Physical desktop and mobile device performance and memory.
-- Representative trained weights for all three rulesets.
-- WebGPU on physical hardware with an adapter.
-- Long-run memory growth and model-switch behavior.
-- Deadline-overshoot percentiles over repeated measured runs.
+- Representative competitive trained weights for all three rulesets.
+- Physical WebGPU execution on Windows/Linux/Android/Safari hardware.
+- Physical desktop/mobile performance and real process memory.
+- Long-run memory growth with a representative network.
+- Playing strength (Phase 3).
 
 No production browser analysis is enabled, no production limit or API changed and
 no runtime dependency entered the application bundle.

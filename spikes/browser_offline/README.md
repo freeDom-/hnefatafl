@@ -30,31 +30,63 @@ experiment; they are retained as historical evidence, not new validation.
 The worker exposes the production-equivalent Jarl preset (depth 5, 2 s, Shield
 maiden, optimized search) and named benchmark workloads
 (quick/interactive/standard/deep/extended) through a shared `jarl_benchmark.py`
-runner used identically by native CPython and Pyodide. The isolated neural spike
-adds digest-verified ORT Web 1.22.0 WASM/WebGPU inference for an explicitly
-supplied exported ONNX model. See the
-[roadmap](../../docs/designs/browser-analysis-roadmap.md) and
-[Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
+runner used identically by native CPython and Pyodide. `jarl_compare.py` is the
+single comparison implementation behind both the browser verifier and the
+standalone comparator.
+
+Corrected behaviour:
+
+- `verify_jarl.mjs` analyses the **exact** `--positions` state objects; custom
+  positions and same-name/different-board/position-history cases are honoured.
+- Fixed-work searches have a mandatory correctness gate (identity, case coverage,
+  status, completed depth, best move, value). Terminal and unsupported cases are
+  distinct statuses. Cases that cannot finish inside the 60 s safety limit are
+  reported as `deadline_limited`, not silently passed or failed.
+- Fixed-time differences are informational only, and latency ratios are computed
+  only for equal completed work.
+- Each benchmark case is an independently bounded request (75 s per-case
+  watchdog); earlier records survive a later failure. The ordinary analysis
+  watchdog stays 5 s, while a legitimate cooperative deadline up to 10 s gets a
+  derived watchdog up to 20 s.
 
 ```sh
-# Native vs browser Jarl
+# Native vs browser Jarl (mandatory fixed-work gate)
 .venv/bin/python spikes/browser_offline/native_jarl_benchmark.py \
-  --suite quick --mode fixed_work --output /tmp/jarl-native.json
+  --mode fixed_work --suite quick --output /tmp/jarl-native.json
 .venv/bin/python spikes/browser_offline/prepare.py --output /tmp/hnefatafl-analysis
 node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
-  --suite quick --mode fixed_work --native /tmp/jarl-native.json \
+  --mode fixed_work --suite quick --native /tmp/jarl-native.json \
   --output /tmp/jarl-browser.json
+.venv/bin/python spikes/browser_offline/compare_jarl_benchmarks.py \
+  /tmp/jarl-native.json /tmp/jarl-browser.json --output /tmp/jarl-comparison.json
+```
 
-# ONNX export + browser neural inference
+The neural side adds digest-verified ORT Web 1.22.0 staging, a transactional
+fail-closed ONNX export with native reference vectors, a browser numerical-parity
+gate, and a benchmark that reports requested vs observed provider placement:
+
+```sh
 uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
 .venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/model-export
 .venv/bin/python spikes/browser_offline/prepare_neural.py \
   --model-dir /tmp/model-export --output /tmp/neural-spike
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --output /tmp/neural-parity-wasm.json
 node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
   --provider wasm --output /tmp/neural-wasm.json
-node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider webgpu --require-webgpu
+node spikes/browser_offline/test_browser_lifecycle.mjs
 ```
+
+`neural_parity.mjs` compares 39 native reference cases (38 non-terminal including
+32 distinct generated positions) and exits non-zero on any mandatory numerical
+failure; `--simulate-corruption` demonstrates that the gate detects a regression.
+Batched inference submits 1–32 **distinct** positions and validates each output
+against its own single-position inference.
+
+See the [roadmap](../../docs/designs/browser-analysis-roadmap.md) and
+[Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
 
 ### Lifecycle and scheduling corrections
 
@@ -204,6 +236,42 @@ It displays a runtime-loading error while the UI response control still works.
   moves for each ruleset, a UI click while a synthetic 500 ms Python loop is still
   busy in the worker, and the full fixture/gameplay sequence after offline reload.
   It blocks nonlocal requests and asserts no application API requests occur.
+
+### Physical-device validation (owner hardware)
+
+The automated gates above run headless Chromium. To validate a real GPU, stage the
+experiment and either serve it to a native browser or point Playwright at that
+browser. Competitive trained checkpoints are never committed; pass them
+explicitly.
+
+```sh
+# 1. Export and validate a competitive trained model (private checkpoint).
+.venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/brandubh-model
+# 2. Stage it with the pinned ORT Web assets.
+.venv/bin/python spikes/browser_offline/prepare_neural.py \
+  --model-dir /tmp/brandubh-model --output /tmp/neural-spike
+# 3. From WSL, serve the staged experiment on the LAN for a Windows browser.
+.venv/bin/python -m http.server 8765 --bind 0.0.0.0 --directory /tmp/neural-spike
+#    Open http://<wsl-host-ip>:8765/neural.html, choose webgpu, and use
+#    Capabilities / Load model / Infer distinct batch / Benchmark batches.
+```
+
+On Windows (PowerShell), run the same gates against native Chrome or Edge. The
+report records the adapter, the session placement and whether GPU execution was
+verified; `--require-webgpu` fails unless that verification succeeds.
+
+```powershell
+$env:SPIKE_CHROMIUM = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+node spikes\browser_offline\neural_parity.mjs C:\work\neural-spike `
+  --provider webgpu --require-webgpu --output C:\work\webgpu-parity.json
+node spikes\browser_offline\neural_benchmark.mjs C:\work\neural-spike `
+  --provider webgpu --require-webgpu --output C:\work\webgpu-bench.json
+# Firefox/Safari without WebGPU: use --provider wasm for numerical parity.
+```
+
+Report the adapter and placement fields verbatim. A `webgpu-session-unverified`
+placement (or an explicit "no adapter" error) is a correct, honest outcome; do not
+relabel it as GPU acceleration.
 
 ## Actual environment and measurements
 

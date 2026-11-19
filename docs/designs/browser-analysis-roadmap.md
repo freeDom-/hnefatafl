@@ -5,9 +5,9 @@ every phase, its scope, dependencies, acceptance criteria, current status and
 validation evidence. Update this document in every PR that touches browser-local
 analysis and include the phase table in the pull request description.
 
-Related documents: [browser prototype feasibility](../validation/browser-analysis-prototype.md) ·
+Related: [Phase 1 validation](../validation/browser-analysis-phase1.md) ·
+[Phase 0 feasibility](../validation/browser-analysis-prototype.md) ·
 [browser neural feasibility](../validation/browser-neural-feasibility.md) ·
-[Phase 1 validation](../validation/browser-analysis-phase1.md) ·
 [isolated spike](../../spikes/browser_offline/README.md) ·
 [documentation index](../README.md).
 
@@ -31,10 +31,10 @@ production readiness.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 0 | Browser engine feasibility | Completed (historical, externally reproduced) |
-| 1A | Full-strength Jarl and native/browser performance comparison | Partially validated |
-| 1B | Trained-model ONNX export and browser inference | Partially validated (trained representative weights and physical WebGPU blocked) |
-| 2 | Browser-side neural MCTS | Not started (design only) |
+| 0 | Browser engine feasibility | Completed (historical, independently reproduced) |
+| 1A | Full-strength Jarl and native/browser comparison | Partially validated |
+| 1B | Trained-model ONNX export and browser inference | Partially validated (competitive weights and physical WebGPU blocked) |
+| 2 | Browser-side neural MCTS | Not started (inference boundary prepared) |
 | 3 | Search optimization, strength evaluation, physical devices | Not started |
 | 4 | Production security, model distribution, runtime integration | Not started |
 | 5 | Frontend analysis UI integration | Not started |
@@ -45,115 +45,144 @@ production readiness.
 - **Objective:** establish that the existing Python engine can run in a browser
   worker without a divergent JavaScript rules engine.
 - **Status:** Completed and independently reproduced by the project owner on WSL
-  (desktop and mobile-emulated profiles). Historical evidence lives in
-  [browser-analysis-prototype.md](../validation/browser-analysis-prototype.md) and
-  [browser-offline-phase0.json](../validation/browser-offline-phase0.json); it is not
-  recast as new validation.
-- **Baseline measurements (externally supplied, project owner):** Brandubh
-  baseline 1.0 ms / alpha-beta depth 2 34.1 ms / MCTS 40.3 ms; Tablut 2.3 / 31.4 /
-  79.7 ms; Copenhagen 7.1 / 69.7 / 206.6 ms. Runtime startup 1,019.2 ms
-  (1,308.2 ms offline); cancellation ack 0.8 ms; worker restart 1,039.6 ms;
-  20 MiB WASM heap; 136 fixture comparisons; no external network requests.
-  Mobile-emulated results are **not** physical mobile evidence.
+  (desktop and mobile-emulated profiles). Evidence:
+  [browser-analysis-prototype.md](../validation/browser-analysis-prototype.md),
+  [browser-offline-phase0.json](../validation/browser-offline-phase0.json). It is
+  not recast as new validation.
+- **Baseline (externally supplied):** Brandubh 1.0 / 34.1 / 40.3 ms; Tablut
+  2.3 / 31.4 / 79.7 ms; Copenhagen 7.1 / 69.7 / 206.6 ms (baseline / depth-2
+  alpha-beta / MCTS). Startup 1,019.2 ms (1,308.2 ms offline); cancellation ack
+  0.8 ms; restart 1,039.6 ms; 20 MiB WASM heap capacity; 136 fixture comparisons;
+  no external requests. Mobile emulation is not physical-mobile evidence.
 
 ## Phase 1A — Full-strength Jarl and native/browser comparison
 
 - **Objective:** execute the production-equivalent Jarl agent in the isolated
   browser worker, compare it with native CPython on identical workloads, and
-  report performance and correctness.
-- **Dependencies:** Phase 0 runtime staging; the production `alpha_beta`
-  catalog preset in `hnefatafl/ai.py`.
+  report performance and correctness honestly.
+- **Dependencies:** Phase 0 runtime staging; the `alpha_beta` catalog preset in
+  `hnefatafl/ai.py`.
 - **Status:** Partially validated.
 - **Delivered:**
-  - Production-equivalent Jarl preset exposed in the spike: depth 5, 2 s
-    cooperative deadline, Shield maiden evaluation and the optimized search
-    defaults (transposition, move ordering, PV/tt/killer/history ordering).
-  - Named benchmark workloads: quick (depth 3/250 ms), interactive (5/1 s),
-    standard (5/2 s), deep (8/5 s), extended (10/10 s).
-  - Shared `jarl_benchmark.py` runner used identically by native CPython and the
-    Pyodide worker, plus `native_jarl_benchmark.py` and `verify_jarl.mjs`.
-  - Extended experimental bounds: depth 1–8, 4096 simulations, 50 rollout plies,
-    10 s cooperative deadline. The hard client watchdog stays separate from the
-    cooperative deadline (5 s ordinary, up to 180 s opt-in for benchmark jobs).
-- **Engine constraint:** the production alpha-beta engine caps depth at 8
-  (`hnefatafl/ai.py`); the public configuration validator caps it at 5. The
-  `extended` (depth 10) workload is therefore **not** silently reduced: it is
-  reported per case as `ValueError: Search depth must be between 1 and 8`.
-- **Validation evidence (reproduced by the implementation agent, 2026-11-19):**
-  - Deterministic **fixed-work depth-3** searches across all three rulesets and
-    seven position kinds (opening, midgame, endgame, tactical, king-escape,
-    repetition, terminal): **21/21 best-move agreement, 21/21 value agreement**
-    between native CPython and browser Pyodide.
-  - Deterministic **fixed-work depth-5** (production depth) Brandubh:
-    **7/7 best-move agreement, 7/7 value agreement**; browser ≈2.1–2.4× native
-    wall-clock at equal completed work.
-  - Browser startup ≈2.07 s; cancellation ack ≈0.2–0.3 ms; worker restart
-    ≈1.7–1.8 s; UI click during an active search ≈0.2–0.3 ms; 20 MiB WASM heap.
-  - [Native quick report](../validation/browser-analysis-jarl-native-2026-11-19.json) ·
-    [browser quick report](../validation/browser-analysis-jarl-browser-2026-11-19.json) ·
-    [native depth-5 report](../validation/browser-analysis-jarl-native-depth5-2026-11-19.json) ·
-    [browser depth-5 report](../validation/browser-analysis-jarl-browser-depth5-2026-11-19.json).
-- **Open criteria:** Tablut/Copenhagen fixed-work at depth 5+; fixed-time
-  workload comparisons with completed-depth accounting; physical mobile and
+  - Production-equivalent Jarl preset: depth 5, 2 s cooperative deadline, Shield
+    maiden evaluation, and the optimized search defaults (transposition, move
+    ordering, PV/table/killer/history ordering).
+  - Named workloads: quick (3 / 250 ms), interactive (5 / 1 s), standard (5 / 2 s),
+    deep (8 / 5 s), extended (10 / 10 s).
+  - One shared `jarl_benchmark.py` (positions, effective configs, workload
+    identity, per-case records) used unchanged by native CPython and Pyodide.
+  - One canonical comparison module `jarl_compare.py`; the native CLI, the
+    browser verifier and the standalone comparator all use it.
+  - `verify_jarl.mjs` analyses the exact `--positions` state objects (custom
+    positions and same-name/different-board/position-history cases included),
+    records the workload digest, runs one bounded request per case, preserves
+    earlier records on failure, and exits non-zero on mandatory failures.
+  - Per-request watchdog selection: 30 s initialization; 5 s ordinary job;
+    analysis deadline + margin up to 20 s; 75 s per independently bounded
+    benchmark case. No request can run indefinitely.
+  - Explicit statuses: `completed`, `terminal`, `deadline_limited`,
+    `unsupported`, `error`, `incomplete`.
+- **Engine constraint:** the alpha-beta engine caps depth at 8 and the public
+  validator at 5. `extended` (depth 10) is rejected by the engine and reported
+  per case; it is never silently reduced.
+- **Validation evidence (revision 2):**
+  - Deterministic **fixed-work depth 3**, all three rulesets, seven position
+    kinds: **21/21 comparable cases** agree on best move, value and depth.
+  - Deterministic **fixed-work depth 5**, Brandubh: **7/7** agree.
+  - Deterministic **fixed-work depth 5**, Tablut + Copenhagen: **11/11**
+    comparable cases agree; **3** Copenhagen cases (opening, midgame, repetition)
+    reach only depth 4 inside the 60 s safety limit **on native CPython too**, and
+    are reported as `deadline_limited` rather than passed or failed.
+  - Equal-work browser ÷ native median: 2.21× (quick), 2.12× (Brandubh depth 5),
+    2.14× (Tablut+Copenhagen depth 5).
+  - Startup 2.1–2.7 s; cancellation ack 0.2 ms; worker restart 2.1–2.3 s;
+    click-to-handle 65–78 ms with 19–25 ms max event-loop lag during active
+    search.
+  - Evidence: [jarl-native-fixed-work-quick-r2.json](../validation/jarl-native-fixed-work-quick-r2.json),
+    [jarl-browser-fixed-work-quick-r2.json](../validation/jarl-browser-fixed-work-quick-r2.json),
+    [jarl-native-depth5-brandubh-r2.json](../validation/jarl-native-depth5-brandubh-r2.json),
+    [jarl-browser-depth5-brandubh-r2.json](../validation/jarl-browser-depth5-brandubh-r2.json),
+    [jarl-native-depth5-tablut-copenhagen-r2.json](../validation/jarl-native-depth5-tablut-copenhagen-r2.json),
+    [jarl-browser-depth5-tablut-copenhagen-r2.json](../validation/jarl-browser-depth5-tablut-copenhagen-r2.json).
+- **Superseded revision-1 evidence:** `*-2026-11-19.json` compared only the
+  benchmark plan, selected positions by name and did not fail on fixed-work
+  divergence. Those files are preserved as history and are not evidence for the
+  corrected contract.
+- **Open criteria:** Tablut fixed-time workload comparison; physical mobile and
   low-end device latency; deadline-overshoot percentiles over repeated runs.
-- **Blockers:** none. Physical device validation belongs to Phase 3.
+- **Blockers:** none for depth 3/5 fixed-work; physical devices belong to Phase 3.
 
 ## Phase 1B — Trained-model ONNX export and browser inference
 
 - **Objective:** export an actual trained policy/value checkpoint to
-  inference-only ONNX, establish native parity, and execute it in a browser via
-  ORT Web WASM and WebGPU with explicit capability reporting.
-- **Dependencies:** Phase 1A worker boundary; an exported model; optional pinned
-  exporter/runtime environment (`spikes/browser_offline/requirements-onnx.txt`).
-- **Status:** Partially validated. Trained representative (32×2) weights were not
-  available, and WebGPU has no adapter in the development environment.
+  inference-only ONNX, establish native and browser numerical parity, and execute
+  it in a browser via ORT Web WASM/WebGPU with explicit capability reporting.
+- **Dependencies:** Phase 1A worker boundary; a validated export; the optional
+  pinned exporter environment (`requirements-onnx.txt`).
+- **Status:** Partially validated. Smoke-model export, native parity and browser
+  WASM numerical parity are validated; competitive trained weights and physical
+  WebGPU are blocked.
 - **Delivered:**
-  - `onnx_export.py`: reproducible export from the validated tensor-only
-    checkpoint loader to inference-only ONNX (opset 18, dynamic batch), with an
-    architecture metadata sidecar (ruleset, shapes, action indexing, value
-    perspective, legal masking, SHA-256, exporter/runtime versions).
-  - `parity()` native PyTorch ↔ ONNX Runtime CPU comparison of logits, value,
-    legal-only normalized policy, top-5 ranking and illegal-action mass.
-  - `prepare_neural.py`: digest-verified ORT Web 1.22.0 staging (WASM only or
-    WASM+WebGPU), model copy and serialized input staging.
-  - `neural-worker.js` / `neural-client.js` / `neural.html`: ORT Web inference
-    with single-threaded WASM fallback (no COOP/COEP) and a WebGPU path that
-    fails explicitly when no adapter is present.
-  - `neural_benchmark.mjs`: browser benchmark across batch sizes 1–32 that
-    reports the provider actually requested and never labels a WASM session GPU.
-- **Validation evidence (implementation agent, 2026-11-19):**
-  - Actual trained **Brandubh** smoke checkpoint (channels 4, blocks 0) exported
-    to a 46,924-byte ONNX graph with `onnx.checker` and shape inference passing.
-  - Native PyTorch ↔ ONNX Runtime CPU parity over six non-terminal positions:
-    worst logit max-abs error 1.43e-6, value 5.96e-8, legal-policy relative error
-    2.76e-7, top-5 ranking identical.
-  - Browser ORT Web **WASM** inference of the actual exported model succeeded
-    (legal-only probabilities normalise to 1); batch 1–32 medians measured.
-  - Browser **WebGPU** request failed explicitly with "no adapter is available"
-    and reported `provider_is_gpu: false`; no silent CPU fallback.
-  - [ONNX export/parity](../validation/browser-neural-onnx-export-2026-11-19.json) ·
-    [browser WASM](../validation/browser-neural-wasm-2026-11-19.json) ·
-    [browser WebGPU capability](../validation/browser-neural-webgpu-2026-11-19.json).
+  - Transactional, fail-closed `onnx_export.py`: stages artifacts, validates the
+    graph, computes native reference vectors, runs native parity, and publishes a
+    `VALIDATED.json` marker only on success. `--no-parity` yields an unvalidated
+    artifact that staging refuses by default. Unsafe output paths are refused and
+    unrelated files are never deleted.
+  - Metadata sidecar (ruleset, shapes, action indexing, value perspective, legal
+    masking, SHA-256, exporter/runtime versions) and `reference.json` with full
+    position identity, six-plane inputs, policy logits, defender values, legal
+    indices, legal-only probabilities, shapes/dtypes and tolerances.
+  - Canonical fail-closed comparator `neural_parity.py` (finite outputs, stable
+    legal softmax, named outputs, per-case shapes, illegal masking, top-k
+    agreement, material vs near-tied ranking changes, empty-reference rejection).
+  - `prepare_neural.py` validates schema, artifact type, digest, size, ruleset,
+    board size, input/output contract, dynamic batch and graph outputs before
+    staging; it refuses unvalidated artifacts unless explicitly allowed.
+  - Neural worker/client/page: digest-verified model bytes, explicit session and
+    tensor ownership with release, genuine distinct-position batched inference
+    (1–32), bounded/cancellable download, worker-generation lifecycle guards, and
+    provider reporting that never labels WASM as GPU.
+- **Validation evidence (revision 2, trained **smoke** model — not competitive):**
+  - Native PyTorch → ORT CPU parity over 39 reference cases: worst logit abs
+    1.43e-6, value 5.96e-8, zero material ranking changes.
+  - Native PyTorch → browser ORT WASM parity over the same 39 cases: worst logit
+    abs 2.15e-6, value 5.96e-8, legal-probability relative 9.9e-7, zero material
+    ranking changes.
+  - Deliberate corruption (one logit +0.05) fails the gate.
+  - Distinct-position batched inference 1–32 matches independent single inference
+    exactly.
+  - Browser WASM: ORT+session init 474.0 ms, first inference 19.0 ms, warm run
+    median 0.6 ms, model 46,924 B raw / 6,915 B gzip estimate.
+  - Evidence: [neural-export-manifest-wasm-parity.json](../validation/neural-export-manifest-wasm-parity.json),
+    [neural-native-onnx-parity.json](../validation/neural-native-onnx-parity.json),
+    [neural-browser-parity-wasm-r2.json](../validation/neural-browser-parity-wasm-r2.json),
+    [neural-browser-parity-corruption-r2.json](../validation/neural-browser-parity-corruption-r2.json),
+    [neural-browser-wasm-benchmark-r2.json](../validation/neural-browser-wasm-benchmark-r2.json).
+- **Provider reporting:** requested provider, adapter availability, session
+  creation, inference success, observed placement (`wasm`,
+  `webgpu-session-verified`, `webgpu-session-unverified`, `cpu-fallback`,
+  `webgpu-mixed`) and `gpu_execution_verified` are reported separately.
+  `--require-webgpu` requires verified GPU placement, not merely a requested
+  provider string.
 - **Open criteria / blockers:**
-  - Representative competitive (32×2) trained weights for all three rulesets are
-    **not available** in this environment. Export/parity/browser tooling is
-    validated only with a tiny trained smoke checkpoint. Actual trained-model
-    acceptance remains **blocked** pending the owner's checkpoints.
-  - WebGPU execution is **unvalidated** because the development host has no
-    adapter. Independent physical-device validation (Windows Chrome/Edge, Intel,
-    NVIDIA RTX 3060, Linux, Firefox WASM, Android Chrome, Safari) is required
-    before any GPU claim.
-  - Model/runtime download budgets, transfer sizes and long-run memory growth are
-    not yet measured.
+  - **Competitive trained weights (32×2+) for all three rulesets are unavailable.**
+    Only a tiny trained smoke checkpoint was validated. Competitive-model parity,
+    performance and strength remain **blocked**.
+  - **WebGPU execution is blocked:** no adapter on this host. A WebGPU request
+    fails explicitly. Independent physical-device validation (Windows Chrome/Edge,
+    Intel, NVIDIA RTX 3060, Linux, Firefox WASM, Android Chrome, Safari) is
+    required before any GPU claim.
+  - Representative-network memory growth and download budgets are unmeasured.
+  - ORT Web exposes no stable per-node placement API; even on hardware, strict
+    GPU-only execution may remain unverified and would be reported as such.
 
 ## Phase 2 — Browser-side neural MCTS (subsequent PR)
 
-- **Status:** Not started. Phase 1B deliberately exposes a single-shot batched
-  inference interface (batch sizes 1–32) so a future MCTS can request batched
-  leaf inference. No independent MCTS engine is implemented.
+- **Status:** Not started. Phase 1B deliberately provides a distinct-position
+  batched inference interface (1–32) and a bounded asynchronous client for the
+  future search boundary. No MCTS engine is implemented or claimed.
 - **Design constraints:** reuse existing tree traversal/expansion/selection/
-  backpropagation; evaluate an asynchronous Python-search/browser-inference
-  boundary; avoid per-node serialization and blocking synchronization.
+  backpropagation; avoid per-node serialization and blocking synchronization.
 - **Acceptance:** completed simulations (128–4096) measured against 0.5–10 s
   budgets; 1,024 simulations in ≈2 s is an aspirational target, not a claim.
 
@@ -166,7 +195,7 @@ production readiness.
 - **Strength tournaments:** browser Jarl vs native Jarl; browser neural MCTS vs
   native neural MCTS; browser neural MCTS vs native Jarl; 256/512 vs 1024; WebGPU
   vs WASM; batched vs sequential. Balanced roles, paired openings, seeds and
-  statistical uncertainty. Fixed-time and fixed-iteration reported separately.
+  statistical uncertainty; fixed-time and fixed-iteration reported separately.
 
 ## Phase 4 — Production security and runtime integration (subsequent PRs)
 
@@ -201,81 +230,98 @@ production readiness.
 
 | Area | Status |
 | --- | --- |
-| Brandubh | Validated (depth 3 and 5 native/browser Jarl agreement; ONNX + browser WASM smoke model) |
-| Tablut | Partially validated (depth 3 Jarl agreement; no trained model) |
-| Copenhagen | Partially validated (depth 3 Jarl agreement; no trained model) |
-| Native CPython | Validated for benchmark and ONNX parity |
-| Browser Pyodide | Validated for Jarl depth 3/5 deterministic agreement |
-| Native ONNX inference | Validated (CPU parity on a trained smoke checkpoint) |
-| Browser WASM inference | Validated (actual exported smoke model, batch 1–32) |
-| Browser WebGPU inference | Blocked (no adapter on the development host) |
-| Physical desktop hardware | Blocked (development host is a headless Linux container) |
-| Physical mobile hardware | Blocked |
-| Playing strength | Not started |
-| Production security | Not started |
-| Frontend integration | Not started |
+| Production-equivalent Jarl execution | Validated (browser worker) |
+| Fixed-work correctness gate | Implemented and validated (r2) |
+| Fixed-time search performance | Partially validated (informational only) |
+| Brandubh validation | Validated (depth 3 and 5 fixed-work) |
+| Tablut validation | Validated (depth 3 and 5 fixed-work) |
+| Copenhagen validation | Partially validated (depth 3 full; depth 5 limited on 3 cases) |
+| Native ONNX parity | Validated (smoke model) |
+| Actual browser WASM execution | Validated |
+| Browser WASM numerical parity | Validated (smoke model) |
+| WebGPU capability | Reported; adapter unavailable |
+| Verified GPU execution | Blocked (no physical adapter) |
+| Distinct-position batched inference | Completed (1–32, equals single inference) |
+| Competitive trained-model validation | Blocked (weights unavailable) |
+| Physical-device validation | Blocked |
+| Worker lifecycle validation | Validated (deterministic fake-worker tests + browser cancel/restart) |
+| Artifact integrity validation | Validated (structural negative tests) |
+| Playing-strength validation | Not started |
+| Production integration | Not started |
 
 ## Open findings and technical debt
 
-- Browser Pyodide is consistently ≈2.1–2.4× slower than native CPython at equal
-  completed work; this is expected overhead, not a regression.
-- Fixed-time searches complete different depths on the two runtimes, so
-  latency-only comparisons must not be reported as speedups.
-- `verify_jarl.mjs` default suite is bounded to the quick workload; standard and
-  extended suites are opt-in because they run for minutes.
-- The neural `provider_is_gpu` flag reflects a session created with the WebGPU
-  execution provider after an adapter was confirmed. It does not prove that GPU
-  kernels executed; that requires physical-device validation.
-- The browser neural worker loads a single ORT bundle; switching from WASM to
-  WebGPU in one worker is rejected and requires recreating the worker.
-- No trained representative weights are committed; the spike never downloads a
-  model from the network.
+- Browser Pyodide is consistently ≈2.1–2.2× slower than native CPython at equal
+  completed work; expected overhead, not a regression.
+- Three Copenhagen depth-5 fixed-work cases cannot finish inside the 60 s safety
+  limit on native CPython either; they are reported as limited, and a longer
+  budget or a shallower workload is a Phase 3 decision.
+- The neural runtime exposes no per-node placement API; strict GPU-only execution
+  may remain unverifiable and must be reported as `webgpu-session-unverified`.
+- The smoke model's absolute latencies are not representative of competitive
+  networks or of MCTS simulation throughput.
+- Headless Chromium does not expose `performance.memory`, so JS heap hints are
+  `null`; the ORT Web WASM heap size is not exposed at all.
+- `verify_jarl.mjs`/`neural_*.mjs` remain opt-in browser gates (they need a
+  Pyodide/ORT download and Chromium), while their correctness comparison logic is
+  covered by ordinary native pytest.
 
 ## Recommended next tasks
 
 1. Provide representative trained checkpoints (32×2 and larger) for all three
    rulesets and run the documented export/parity/browser commands.
-2. Run the WebGPU benchmark on physical Windows/Linux/Android/Safari hardware and
-   record explicit capability and provider reports.
-3. Extend the Jarl benchmark to Tablut/Copenhagen fixed-work depth 5+ and to
-   fixed-time completed-depth comparison with percentiles.
+2. Run `neural_parity.mjs`/`neural_benchmark.mjs --provider webgpu --require-webgpu`
+   on physical Windows/Linux/Android/Safari hardware and record capability and
+   placement reports.
+3. Extend fixed-time Jarl comparisons with completed-depth accounting and
+   deadline-overshoot percentiles.
 4. Design the asynchronous Python-search/browser-inference boundary for Phase 2
    neural MCTS.
 5. Investigate a narrow, reviewed CSP allowance for WASM as part of Phase 4.
 
-## Reproducibility
+## Reproducibility (corrected commands)
 
 ```sh
 # Environment
 uv sync --frozen --extra train --extra dev
 uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
 
-# Native Jarl benchmark
+# Native vs browser Jarl (mandatory fixed-work correctness gate)
 .venv/bin/python spikes/browser_offline/native_jarl_benchmark.py \
-  --suite quick --mode fixed_work --output /tmp/jarl-native.json
-
-# Stage the Pyodide spike and run the browser Jarl benchmark
+  --mode fixed_work --suite quick --output /tmp/jarl-native.json
 .venv/bin/python spikes/browser_offline/prepare.py --output /tmp/hnefatafl-analysis
 node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
-  --suite quick --mode fixed_work --native /tmp/jarl-native.json \
+  --mode fixed_work --suite quick --native /tmp/jarl-native.json \
   --output /tmp/jarl-browser.json
+# standalone comparison (exits non-zero on mandatory failure)
 .venv/bin/python spikes/browser_offline/compare_jarl_benchmarks.py \
-  /tmp/jarl-native.json /tmp/jarl-browser.json
+  /tmp/jarl-native.json /tmp/jarl-browser.json --output /tmp/jarl-comparison.json
 
-# Export an owner-supplied checkpoint and check native parity
+# Custom positions (exact supplied states, not name-selected fixtures)
+node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
+  --positions /path/to/custom-positions.json --mode fixed_work \
+  --native /tmp/jarl-native-custom.json --output /tmp/jarl-browser-custom.json
+
+# Owner-supplied trained checkpoint: export + native parity
 .venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/model-export
 
-# Stage and run browser neural inference (WASM, then WebGPU on capable hardware)
+# Stage and run browser numerical parity + benchmark
 .venv/bin/python spikes/browser_offline/prepare_neural.py \
   --model-dir /tmp/model-export --output /tmp/neural-spike
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --output /tmp/neural-parity-wasm.json
 node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
   --provider wasm --output /tmp/neural-wasm.json
-node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
-  --provider webgpu --require-webgpu --output /tmp/neural-webgpu.json
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider webgpu --require-webgpu --output /tmp/neural-parity-webgpu.json
+
+# Deterministic client lifecycle checks (no browser)
+node spikes/browser_offline/test_browser_lifecycle.mjs
 ```
 
 ## Status history
 
 | Date | Change |
 | --- | --- |
-| 2026-11-19 | Roadmap created; Phase 1A and Phase 1B implemented and partially validated. |
+| 2026-11-19 | Roadmap created; Phase 1A/1B implemented and partially validated (revision 1). |
+| 2026-11-19 | Revision 2: corrected correctness gate, custom positions, bounded per-case watchdogs, browser numerical parity, provider reporting, lifecycle, artifact integrity and distinct-position batching. Revision-1 evidence preserved as history. |
