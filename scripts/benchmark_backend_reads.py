@@ -1418,7 +1418,7 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
                 }
                 runs.append(run)
                 raw.extend({"concurrency": level, **row} for row in rows)
-                print(json.dumps({k: v for k, v in run.items() if k != "endpoints"}, flush=True))
+                print(json.dumps({k: v for k, v in run.items() if k != "endpoints"}), flush=True)
                 if cancelled or resources.cancel.is_set():
                     break
             if verified_source(source) != revision:
