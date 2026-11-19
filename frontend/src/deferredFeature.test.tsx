@@ -117,3 +117,22 @@ it('never mounts an obsolete account after an import finishes and remounts priva
   expect(screen.getByText('Private state for C')).toBeVisible();
   expect(screen.queryByText('Private state for B')).toBeNull();
 });
+
+it('does not commit a resolved import after the feature unmounts', async () => {
+  const mounted = vi.fn();
+  function LateFeature() {
+    useEffect(() => mounted(), []);
+    return <p>Mounted late</p>;
+  }
+  const pending = deferred<{ default: typeof LateFeature }>();
+  const Feature = deferredFeature(() => pending.promise);
+  const view = render(<Feature />);
+  expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+  view.unmount();
+  await act(async () => {
+    pending.resolve({ default: LateFeature });
+    await pending.promise;
+  });
+  expect(mounted).not.toHaveBeenCalled();
+  expect(screen.queryByText('Mounted late')).toBeNull();
+});
