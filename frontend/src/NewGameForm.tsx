@@ -160,15 +160,17 @@ export default function NewGameForm({
     setCatalogueState((state) => (state === 'loading' ? 'idle' : state));
   }, [customVisible]);
 
-  // Closing the dialog must not leave a request running for nobody.
-  useEffect(
-    () => () => {
+  // Closing the dialog must not leave a request running for nobody. StrictMode
+  // runs the setup/cleanup/setup sequence in development, so the guard must be
+  // reset on every mount rather than only in the initial ref value.
+  useEffect(() => {
+    alive.current = true;
+    return () => {
       alive.current = false;
       catalogueRequest.current?.abort();
       catalogueRequest.current = null;
-    },
-    [],
-  );
+    };
+  }, []);
   const catalogueStatus = onRefreshModels
     ? {
         pending: catalogueState === 'loading',

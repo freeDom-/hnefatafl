@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import NewGameForm, { GAME_SETUP_KEY } from './NewGameForm';
 import { NotificationProvider, clearNotifications, getNotifications } from './notifications';
@@ -54,6 +55,19 @@ const show = (onCreated = vi.fn(), onClose = vi.fn()) =>
         onClose={onClose}
       />
     </NotificationProvider>,
+  );
+const showStrict = (onCreated = vi.fn(), onClose = vi.fn()) =>
+  render(
+    <StrictMode>
+      <NotificationProvider>
+        <NewGameForm
+          rulesets={rulesets}
+          profiles={profiles}
+          onCreated={onCreated}
+          onClose={onClose}
+        />
+      </NotificationProvider>
+    </StrictMode>,
   );
 beforeEach(() => {
   identity.admin = false;
@@ -230,4 +244,18 @@ it('does not surface a stale creation error after dismissal', async () => {
   });
   expect(created).not.toHaveBeenCalled();
   expect(getNotifications()).toEqual([]);
+});
+
+it('still applies creation when StrictMode re-runs the mount effect', async () => {
+  const created = vi.fn();
+  showStrict(created);
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(created).toHaveBeenCalledOnce());
+});
+
+it('still reports a failed creation when StrictMode re-runs the mount effect', async () => {
+  fetcher.mockImplementation(() => json({ detail: 'The table is full.' }, false));
+  showStrict();
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('The table is full.');
 });
