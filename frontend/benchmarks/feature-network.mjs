@@ -265,8 +265,9 @@ try {
       'Training navigation must not eagerly load Tournaments: ' + JSON.stringify(afterTraining),
     );
 
-  // Production recovery: abort the real hashed New Game form chunk once, prove
-  // the modal reports the failure, then recover through Retry on the same page.
+  // Production recovery: hold the real hashed New Game form chunk (including
+  // Vite's preload attempt) until the modal reports the failure, then recover
+  // through Retry on the same page.
   const formChunk = Object.values(manifest).find((chunk) => chunk.name === 'NewGameForm')?.file;
   if (!formChunk) throw new Error('NewGameForm chunk missing from the production manifest');
   const recoveryPage = await context.newPage();
