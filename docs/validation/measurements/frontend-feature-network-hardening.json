@@ -1,14 +1,14 @@
 {
-  "sourceHead": "2c849b60effef4aad8e57e442839adca07950b59",
+  "sourceHead": "4fc54a725c936829f9276697f8217e9b24964357",
   "build": {
     "schema": 1,
-    "revision": "2c849b60effef4aad8e57e442839adca07950b59",
+    "revision": "4fc54a725c936829f9276697f8217e9b24964357",
     "dirty": false,
     "git": true,
-    "fingerprint": "f33164c2621c4cffb408f88573ebc72b34ae46028d392259069d6d3f7bc06b4e",
-    "builtAt": "2026-11-19T10:00:58.371Z"
+    "fingerprint": "0b80fd29df68e1e09897de608b8dfb83f5046e7845ad6bdbac01da0183b9b9ef",
+    "builtAt": "2026-11-19T12:25:31.632Z"
   },
-  "measuredAt": "2026-11-19T10:01:10.703Z",
+  "measuredAt": "2026-11-19T12:25:40.733Z",
   "browser": "156.0.8078.4",
   "node": "v22.23.4",
   "fixture": "Production static assets; read-only mocked account/dashboard/workshop API responses. Network graph proof, not backend capacity evidence.",
@@ -18,13 +18,13 @@
     "limitation": "A bounded observation window cannot prove that an arbitrarily future scheduled import never occurs."
   },
   "manifest": {
-    "authenticatedEntry": "assets/AuthenticatedArena-CG4fSc9o.js",
-    "publicEntry": "assets/PublicArena-BcX-LNtr.js",
+    "authenticatedEntry": "assets/AuthenticatedArena-C-LumqjD.js",
+    "publicEntry": "assets/PublicArena-D3WaETQW.js",
     "expectedInitialScripts": [
-      "assets/AuthenticatedArena-CG4fSc9o.js",
+      "assets/AuthenticatedArena-C-LumqjD.js",
       "assets/appearance-init.js",
-      "assets/arenaTopBar-71BPAKSY.js",
-      "assets/index-CW6hLxw_.js"
+      "assets/arenaTopBar-DEyB7lqJ.js",
+      "assets/index-B5ESjO7q.js"
     ],
     "expectedInitialStyles": [
       "assets/AuthenticatedArena-DqAtxU54.css",
@@ -33,10 +33,10 @@
     ]
   },
   "initialFiles": [
-    "assets/AuthenticatedArena-CG4fSc9o.js",
+    "assets/AuthenticatedArena-C-LumqjD.js",
     "assets/appearance-init.js",
-    "assets/arenaTopBar-71BPAKSY.js",
-    "assets/index-CW6hLxw_.js"
+    "assets/arenaTopBar-DEyB7lqJ.js",
+    "assets/index-B5ESjO7q.js"
   ],
   "initialCssFiles": [
     "assets/AuthenticatedArena-DqAtxU54.css",
@@ -44,20 +44,20 @@
     "assets/index-DmWrC0Xt.css"
   ],
   "initialRequests": [
-    "assets/AuthenticatedArena-CG4fSc9o.js",
+    "assets/AuthenticatedArena-C-LumqjD.js",
     "assets/AuthenticatedArena-DqAtxU54.css",
     "assets/appearance-init.js",
-    "assets/arenaTopBar-71BPAKSY.js",
+    "assets/arenaTopBar-DEyB7lqJ.js",
     "assets/arenaTopBar-qCqN8ppL.css",
-    "assets/index-CW6hLxw_.js",
+    "assets/index-B5ESjO7q.js",
     "assets/index-DmWrC0Xt.css"
   ],
   "initialFailed": [],
   "initialInventory": [
     {
-      "file": "assets/AuthenticatedArena-CG4fSc9o.js",
-      "raw": 104993,
-      "gzip_level9": 32547
+      "file": "assets/AuthenticatedArena-C-LumqjD.js",
+      "raw": 105413,
+      "gzip_level9": 32670
     },
     {
       "file": "assets/appearance-init.js",
@@ -65,14 +65,14 @@
       "gzip_level9": 698
     },
     {
-      "file": "assets/arenaTopBar-71BPAKSY.js",
+      "file": "assets/arenaTopBar-DEyB7lqJ.js",
       "raw": 5560,
-      "gzip_level9": 2324
+      "gzip_level9": 2325
     },
     {
-      "file": "assets/index-CW6hLxw_.js",
-      "raw": 454735,
-      "gzip_level9": 145509
+      "file": "assets/index-B5ESjO7q.js",
+      "raw": 454913,
+      "gzip_level9": 145560
     }
   ],
   "initialCssInventory": [
@@ -92,12 +92,12 @@
       "gzip_level9": 15470
     }
   ],
-  "initialRaw": 567150,
-  "initialGzipLevel9": 181078,
+  "initialRaw": 567748,
+  "initialGzipLevel9": 181253,
   "initialCssRaw": 114187,
   "initialCssGzipLevel9": 23803,
   "observedResponses": {
-    "assets/AuthenticatedArena-CG4fSc9o.js": {
+    "assets/AuthenticatedArena-C-LumqjD.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -105,15 +105,15 @@
       "status": 200,
       "contentType": "text/css"
     },
+    "assets/ConfigImportButton-BLdkVJL-.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
     "assets/ConfigImportButton-DBtqSgMh.css": {
       "status": 200,
       "contentType": "text/css"
     },
-    "assets/ConfigImportButton-_mBAb_sm.js": {
-      "status": 200,
-      "contentType": "text/javascript"
-    },
-    "assets/FieldTooltip-Dq-9bNvp.js": {
+    "assets/FieldTooltip-C84a5FnY.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -121,7 +121,7 @@
       "status": 200,
       "contentType": "text/css"
     },
-    "assets/Training-Cbh7c1NT.js": {
+    "assets/Training-DJYOq2Zk.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -129,7 +129,7 @@
       "status": 200,
       "contentType": "text/javascript"
     },
-    "assets/arenaTopBar-71BPAKSY.js": {
+    "assets/arenaTopBar-DEyB7lqJ.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -137,7 +137,7 @@
       "status": 200,
       "contentType": "text/css"
     },
-    "assets/index-CW6hLxw_.js": {
+    "assets/index-B5ESjO7q.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
@@ -145,17 +145,17 @@
       "status": 200,
       "contentType": "text/css"
     },
-    "assets/modelLabel-DOrkX0hS.js": {
+    "assets/modelLabel-9jS8EGW0.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/sortRulesets-B7Nmpk_B.js": {
       "status": 200,
       "contentType": "text/javascript"
     },
     "assets/sortRulesets-BMELa7Sl.css": {
       "status": 200,
       "contentType": "text/css"
-    },
-    "assets/sortRulesets-CtqrK1x_.js": {
-      "status": 200,
-      "contentType": "text/javascript"
     }
   },
   "forbiddenModules": [],
@@ -175,24 +175,24 @@
     "node_modules/react-markdown/"
   ],
   "afterTrainingFiles": [
-    "assets/AuthenticatedArena-CG4fSc9o.js",
-    "assets/ConfigImportButton-_mBAb_sm.js",
-    "assets/FieldTooltip-Dq-9bNvp.js",
-    "assets/Training-Cbh7c1NT.js",
+    "assets/AuthenticatedArena-C-LumqjD.js",
+    "assets/ConfigImportButton-BLdkVJL-.js",
+    "assets/FieldTooltip-C84a5FnY.js",
+    "assets/Training-DJYOq2Zk.js",
     "assets/appearance-init.js",
-    "assets/arenaTopBar-71BPAKSY.js",
-    "assets/index-CW6hLxw_.js",
-    "assets/modelLabel-DOrkX0hS.js",
-    "assets/sortRulesets-CtqrK1x_.js"
+    "assets/arenaTopBar-DEyB7lqJ.js",
+    "assets/index-B5ESjO7q.js",
+    "assets/modelLabel-9jS8EGW0.js",
+    "assets/sortRulesets-B7Nmpk_B.js"
   ],
   "recovery": {
     "newGameForm": {
-      "feature": "assets/NewGameForm-jmRxZpar.js",
+      "feature": "assets/NewGameForm-Dg5ErVwv.js",
       "firstAttempt": "aborted",
       "recoveredThrough": "Retry"
     },
     "transitiveDependency": {
-      "feature": "assets/ConfigImportButton-_mBAb_sm.js",
+      "feature": "assets/ConfigImportButton-BLdkVJL-.js",
       "firstAttempt": "aborted",
       "recoveredThrough": "Retry"
     },
@@ -202,9 +202,9 @@
       "recoveredThrough": "Reload application",
       "recoveredComputedDisplay": "flex"
     },
-    "stylesheetRetryBlocked": {
+    "stylesheetReloadRequired": {
       "feature": "assets/Training-CBmYcF5U.css",
-      "retried": true,
+      "retryOffered": false,
       "featureMounted": false,
       "retainedErrorPanel": true,
       "recoveredThrough": "Reload application"
@@ -215,7 +215,7 @@
       "retainedErrorPanel": true
     },
     "missingHashedAsset": {
-      "feature": "assets/NewGameForm-jmRxZpar.js",
+      "feature": "assets/NewGameForm-Dg5ErVwv.js",
       "retriedWhileMissing": true,
       "recoveredThrough": "Reload application"
     },
@@ -227,12 +227,16 @@
       ],
       "unrelatedFeatureBlocked": true,
       "recoveredThrough": "Reload application",
-      "recoveredComputedDisplay": "flex"
+      "recoveredResponse": {
+        "status": 200,
+        "contentType": "text/css"
+      },
+      "recoveredComputedPadding": "22.4px"
     }
   },
   "publicEntryIsolation": {
-    "authenticatedEntry": "assets/AuthenticatedArena-CG4fSc9o.js",
-    "publicEntry": "assets/PublicArena-BcX-LNtr.js",
+    "authenticatedEntry": "assets/AuthenticatedArena-C-LumqjD.js",
+    "publicEntry": "assets/PublicArena-D3WaETQW.js",
     "authenticatedGraphIncludesPublicEntry": false,
     "publicGraphIncludesAuthenticatedEntry": false
   }

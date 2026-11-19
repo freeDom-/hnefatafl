@@ -189,38 +189,49 @@ real hashed assets and their manifest relationships:
 | New Game form JavaScript chunk | aborted | Retry |
 | Transitive preload dependency (`ConfigImportButton`) | aborted | Retry |
 | Training deferred stylesheet | aborted | Reload application |
-| Training stylesheet retried while failed | aborted | error panel retained, no mount |
+| Training stylesheet failure | aborted | Reload-required panel, no Retry, no mount |
 | Navigate away and back after stylesheet failure | aborted | error panel retained, no mount |
 | Shared `analysis-*.css` (`Archive` then `RecordedReview`) | aborted | error panel retained for both; unrelated feature blocked |
+| Shared `analysis-*.css` recovery | aborted | Reload: 200 `text/css`, `.analytics-settings` padding 22.4px |
 | Permanently missing hashed form chunk | aborted | Reload application |
 
-When a deferred stylesheet fails, Vite dispatches `vite:preloadError` and keeps
-the failed link in the document; a later module import can still succeed because
-the helper skips the already-attempted link. The production manifest shows that
-`analysis-*.css` is a genuinely shared deferred asset imported by `Archive`,
-`RecordedReview`, `AgentAnalysis` and `AdvisorSelect` (while `features.css` is
-duplicated into the `Training` and `Tournaments` chunks rather than shared).
+The production manifest shows that `analysis-*.css` is a genuinely shared
+deferred asset imported by `Archive`, `RecordedReview`, `AgentAnalysis` and
+`AdvisorSelect` (while `features.css` is duplicated into the `Training` and
+`Tournaments` chunks rather than shared).
 
-A pre-fix reproduction against the feature-local loader was recorded: the
-shared-stylesheet probe timed out waiting for `RecordedReview`'s error panel
-because `RecordedReview` mounted unstyled after `Archive`'s shared stylesheet
-failure. The fix tracks failed stylesheet URLs document-wide, because Vite's
-preload state is document-wide and dependency ownership cannot be reliably
-recovered at runtime. Once a link fails, every deferred feature is conservatively
-blocked until the failed link is gone, which only a full Reload provides. Retry
-keeps the accessible error panel with the explicit Reload action instead of
-rendering an unstyled feature. The Reload case verifies computed layout after
-recovery (`.workshop-global` computes `display: flex`). Only the existing
-promise-based loader is used: no automatic reload loops, cache-busting imports,
-remote scripts or weaker CSP.
+Two defects were reproduced and corrected:
+
+1. **Sequential shared failure.** A pre-fix reproduction timed out waiting for
+   `RecordedReview`'s error panel because `RecordedReview` mounted unstyled after
+   `Archive`'s shared stylesheet failure.
+2. **Concurrent pending shared stylesheet.** Vite's preload helper records an
+   attempted stylesheet URL (`Ah`) before it settles, so a second concurrent
+   import skips a stylesheet the first import requested but has not finished
+   loading. If the second import's JavaScript resolved first, it mounted and
+   cached before the shared stylesheet failure was known. A deterministic unit
+   test reproduced this: Feature B's module resolved, then the shared stylesheet
+   failed, and B mounted (the pre-fix loader failed with `Second feature`
+   visible).
+
+The loader now tracks every stylesheet link added by a deferred import until it
+settles and only lets a module enter the cache once no stylesheet is pending. A
+failed link is recorded document-wide; because dependency ownership is not
+reliably available at runtime, every deferred feature is conservatively blocked
+until a full Reload re-requests the asset. Same-document Retry is not offered for
+a known stylesheet failure; the panel clearly states that Reload is required
+(English and German), while JavaScript and component-render failures keep Retry.
+Only the existing promise-based loader is used: no automatic reload loops,
+cache-busting imports, remote scripts or weaker CSP. Code-only caching,
+frozen-clock compatibility, unmount behavior and successful concurrent imports
+are preserved.
 
 Remaining browser limitation: a failed stylesheet is only retried by a full
-document reload; same-document Retry deliberately keeps the error state. The
-conservative document-level policy also blocks deferred features that do not
-share the failed asset, because that dependency relationship is not available to
-the client. A permanently missing asset is recovered by unblocking it and
-reloading the document, which models a fixed or updated deployment; a missing
-asset with no new deployment cannot recover.
+document reload. The conservative document-level policy also blocks deferred
+features that do not share the failed asset, because that dependency relationship
+is not available to the client. A permanently missing asset is recovered by
+unblocking it and reloading the document, which models a fixed or updated
+deployment; a missing asset with no new deployment cannot recover.
 
 ### Asset observation and forbidden-module detection
 
@@ -249,34 +260,32 @@ merged into the branch without rewriting shared history; the merge commit is
 order, workspace navigation, translations, tests, CI configuration and
 documentation are preserved alongside the feature-splitting work.
 
-Clean production revision `2c849b60effef4aad8e57e442839adca07950b59`
-(fingerprint `f33164c2621c4cffb408f88573ebc72b34ae46028d392259069d6d3f7bc06b4e`),
+Clean production revision `4fc54a725c936829f9276697f8217e9b24964357`
+(fingerprint `0b80fd29df68e1e09897de608b8dfb83f5046e7845ad6bdbac01da0183b9b9ef`),
 [measurement](measurements/frontend-feature-network-hardening.json):
 
-| Initial graph | Integrated reference | Review (`59dddff`) | Pre-merge (`30353c8`) | Final (`2c849b6`) | Budget |
+| Initial graph | Integrated reference | Review (`59dddff`) | Pre-merge (`30353c8`) | Final (`4fc54a7`) | Budget |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| JavaScript raw | 565,320 | 565,637 | 567,076 | 567,150 | 600,000 |
-| JavaScript gzip | 180,407 | 180,533 | 181,047 | 181,078 | 200,000 |
+| JavaScript raw | 565,320 | 565,637 | 567,076 | 567,748 | 600,000 |
+| JavaScript gzip | 180,407 | 180,533 | 181,047 | 181,253 | 200,000 |
 | CSS raw | 114,187 | 114,187 | 114,187 | 114,187 | 150,000 |
 | CSS gzip | 23,803 | 23,803 | 23,803 | 23,803 | 35,000 |
 
-The integrated build adds +74 raw / +31 gzip bytes over the pre-merge hardening
-head, from the main terminology changes and the document-wide stylesheet guard;
-no budget changed. The heavy NewGameForm, Training, Tournaments, recorded review
-and analysis chunks remain deferred.
+The integrated build adds +672 raw / +206 gzip bytes over the pre-merge hardening
+head, from the main terminology changes, the document-wide stylesheet guard and
+the pending-stylesheet coordination; no budget changed. The heavy NewGameForm,
+Training, Tournaments, recorded review and analysis chunks remain deferred.
 
 ### CI
 
-Integrated head `79f84b6` (main merge plus the shared-stylesheet fix): GitHub
-Actions run `44506279478` passed all four jobs (python, security, node22 and
-browser, including `npm test`, the benchmark and script suites, the production
-build and every browser suite).
+Reviewed head `825391d` (the main integration and document-wide stylesheet fix):
+GitHub Actions run `44512862330` passed all four jobs (python, security, node22
+and browser, including `npm test`, the benchmark and script suites, the
+production build and every browser suite). This is historical evidence for the
+state before the concurrent pending-stylesheet correction.
 
-Reviewed head `e0c2c87` (the earlier stylesheet and setup-ownership fix): run
-`44491439214` passed all four jobs. This is historical evidence for the state
-before the main integration and shared-stylesheet fix.
-
-Earlier in the branch: `946e448` passed in run `44466537774`; `2627ee1` passed in
+Earlier: integrated head `79f84b6` passed in run `44506279478`; `e0c2c87` passed
+in run `44491439214`; `946e448` passed in run `44466537774`; `2627ee1` passed in
 run `44483899080`; source head `29ee2a0` passed in run `44457030473`; the
 docs-only follow-up `4efda34` passed in run `44461520565`. An intermediate run
 `44450317436` on `5fed3f3` failed `test:e2e` because React StrictMode's

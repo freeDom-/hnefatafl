@@ -776,13 +776,16 @@ recorded review, Markdown rules and rich analysis load on first use.
 state remain owned by each mounted component. Failed imports offer retry and
 reload, and unmounted loaders cannot commit late state. Vite's preload state is
 document-wide and a shared deferred stylesheet such as `analysis-*.css` is
-imported by several features, so a failed stylesheet is tracked document-wide:
-Retry keeps the error panel rather than mounting an unstyled feature, and only an
-explicit Reload re-requests the failed link. The conservative policy blocks every
-deferred feature until reload because dependency ownership is not reliably
-available to the client. This avoids coupling feature readiness to paused
-gameplay clocks. The canonical `useGameAnalysis` hook remains independent of the
-deferred analysis presentation.
+imported by several features, so the loader tracks every stylesheet link added by
+a deferred import until it settles and only lets a module enter the cache once no
+stylesheet is pending; a concurrent import can therefore not mount while a shared
+stylesheet is still loading. A failed stylesheet is recorded document-wide, the
+panel states that a reload is required, and only an explicit Reload re-requests
+the failed link. The conservative policy blocks every deferred feature until
+reload because dependency ownership is not reliably available to the client.
+JavaScript and component-render failures keep Retry. This avoids coupling feature
+readiness to paused gameplay clocks. The canonical `useGameAnalysis` hook remains
+independent of the deferred analysis presentation.
 
 The New Game dialog keeps its shared modal shell eager and defers only the form,
 so close, Escape, focus management and cancellation work while the form loads or
