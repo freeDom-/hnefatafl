@@ -1,0 +1,1698 @@
+{
+  "schema": 3,
+  "kind": "native-jarl-benchmark",
+  "runtime": "cpython",
+  "environment": {
+    "platform": "Linux-7.0.14-26-pve-x86_64-with-glibc2.41",
+    "python": "3.11.18",
+    "implementation": "CPython",
+    "processor": null,
+    "cpu_count": 4
+  },
+  "plan": {
+    "configs": {
+      "quick": {
+        "depth": 3,
+        "time_limit": 0.25
+      },
+      "interactive": {
+        "depth": 5,
+        "time_limit": 1.0
+      },
+      "standard": {
+        "depth": 5,
+        "time_limit": 2.0
+      },
+      "deep": {
+        "depth": 8,
+        "time_limit": 5.0
+      },
+      "extended": {
+        "depth": 10,
+        "time_limit": 10.0
+      }
+    },
+    "production_jarl": {
+      "depth": 5,
+      "time_limit": 2.0
+    },
+    "engine_max_depth": 8,
+    "fixed_work_deadline_seconds": 60.0,
+    "fixed_work_watchdog_ms": 75000,
+    "unsupported": {
+      "extended": "engine alpha-beta depth cap is 8"
+    },
+    "modes": [
+      "fixed_work",
+      "fixed_time"
+    ],
+    "search": {
+      "legacy": false,
+      "transposition": true,
+      "move_ordering": true,
+      "symmetry_transposition": false,
+      "symmetry_pruning": false,
+      "table_capacity": 100000
+    }
+  },
+  "identity": {
+    "protocol": 3,
+    "workload": {
+      "protocol": 3,
+      "digest": "35c0559b0950fa8bc123ee1610c6fd011fc046564c7fb7a068dcd9e3c4d50786",
+      "mode": "fixed_work",
+      "seed": 7,
+      "configs": [
+        "standard"
+      ],
+      "effective_configs": {
+        "standard": {
+          "algorithm": "alpha_beta",
+          "depth": 5,
+          "time_limit": 60.0,
+          "heuristic": "shield_maiden",
+          "search": {
+            "legacy": false,
+            "transposition": true,
+            "move_ordering": true,
+            "symmetry_transposition": false,
+            "symmetry_pruning": false,
+            "table_capacity": 100000
+          },
+          "seed": 7
+        }
+      },
+      "cases": [
+        {
+          "name": "brandubh-opening",
+          "kind": "opening",
+          "ruleset": "brandubh",
+          "position_digest": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 3,
+              "target": 5
+            },
+            {
+              "source": 10,
+              "target": 9
+            },
+            {
+              "source": 10,
+              "target": 8
+            },
+            {
+              "source": 10,
+              "target": 7
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 10,
+              "target": 12
+            },
+            {
+              "source": 10,
+              "target": 13
+            },
+            {
+              "source": 21,
+              "target": 14
+            },
+            {
+              "source": 21,
+              "target": 7
+            },
+            {
+              "source": 21,
+              "target": 28
+            },
+            {
+              "source": 21,
+              "target": 35
+            },
+            {
+              "source": 22,
+              "target": 15
+            },
+            {
+              "source": 22,
+              "target": 8
+            },
+            {
+              "source": 22,
+              "target": 1
+            },
+            {
+              "source": 22,
+              "target": 29
+            },
+            {
+              "source": 22,
+              "target": 36
+            },
+            {
+              "source": 22,
+              "target": 43
+            },
+            {
+              "source": 26,
+              "target": 19
+            },
+            {
+              "source": 26,
+              "target": 12
+            },
+            {
+              "source": 26,
+              "target": 5
+            },
+            {
+              "source": 26,
+              "target": 33
+            },
+            {
+              "source": 26,
+              "target": 40
+            },
+            {
+              "source": 26,
+              "target": 47
+            },
+            {
+              "source": 27,
+              "target": 20
+            },
+            {
+              "source": 27,
+              "target": 13
+            },
+            {
+              "source": 27,
+              "target": 34
+            },
+            {
+              "source": 27,
+              "target": 41
+            },
+            {
+              "source": 38,
+              "target": 37
+            },
+            {
+              "source": 38,
+              "target": 36
+            },
+            {
+              "source": 38,
+              "target": 35
+            },
+            {
+              "source": 38,
+              "target": 39
+            },
+            {
+              "source": 38,
+              "target": 40
+            },
+            {
+              "source": 38,
+              "target": 41
+            },
+            {
+              "source": 45,
+              "target": 44
+            },
+            {
+              "source": 45,
+              "target": 43
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 45,
+              "target": 47
+            }
+          ]
+        },
+        {
+          "name": "brandubh-midgame",
+          "kind": "midgame",
+          "ruleset": "brandubh",
+          "position_digest": "86bbd0736f7d33154bcb77fd581f19cc8c94d70cb979c25db4e370c3eac5ab83",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 4,
+              "target": 11
+            },
+            {
+              "source": 4,
+              "target": 18
+            },
+            {
+              "source": 4,
+              "target": 3
+            },
+            {
+              "source": 4,
+              "target": 2
+            },
+            {
+              "source": 4,
+              "target": 1
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 10,
+              "target": 3
+            },
+            {
+              "source": 10,
+              "target": 17
+            },
+            {
+              "source": 10,
+              "target": 9
+            },
+            {
+              "source": 10,
+              "target": 8
+            },
+            {
+              "source": 10,
+              "target": 7
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 10,
+              "target": 12
+            },
+            {
+              "source": 10,
+              "target": 13
+            },
+            {
+              "source": 21,
+              "target": 14
+            },
+            {
+              "source": 21,
+              "target": 7
+            },
+            {
+              "source": 21,
+              "target": 28
+            },
+            {
+              "source": 21,
+              "target": 35
+            },
+            {
+              "source": 22,
+              "target": 15
+            },
+            {
+              "source": 22,
+              "target": 8
+            },
+            {
+              "source": 22,
+              "target": 1
+            },
+            {
+              "source": 22,
+              "target": 29
+            },
+            {
+              "source": 22,
+              "target": 36
+            },
+            {
+              "source": 22,
+              "target": 43
+            },
+            {
+              "source": 26,
+              "target": 19
+            },
+            {
+              "source": 26,
+              "target": 12
+            },
+            {
+              "source": 26,
+              "target": 5
+            },
+            {
+              "source": 26,
+              "target": 33
+            },
+            {
+              "source": 26,
+              "target": 40
+            },
+            {
+              "source": 26,
+              "target": 47
+            },
+            {
+              "source": 27,
+              "target": 34
+            },
+            {
+              "source": 27,
+              "target": 41
+            },
+            {
+              "source": 38,
+              "target": 37
+            },
+            {
+              "source": 38,
+              "target": 36
+            },
+            {
+              "source": 38,
+              "target": 35
+            },
+            {
+              "source": 38,
+              "target": 39
+            },
+            {
+              "source": 38,
+              "target": 40
+            },
+            {
+              "source": 38,
+              "target": 41
+            },
+            {
+              "source": 45,
+              "target": 44
+            },
+            {
+              "source": 45,
+              "target": 43
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 45,
+              "target": 47
+            }
+          ]
+        },
+        {
+          "name": "brandubh-endgame",
+          "kind": "endgame",
+          "ruleset": "brandubh",
+          "position_digest": "ef23adad480cd4db9fe2b60b0f474fc558e2f701361e7999ce0ed9d0fe89f72f",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 10
+            },
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 3,
+              "target": 5
+            },
+            {
+              "source": 21,
+              "target": 14
+            },
+            {
+              "source": 21,
+              "target": 7
+            },
+            {
+              "source": 21,
+              "target": 28
+            },
+            {
+              "source": 21,
+              "target": 35
+            },
+            {
+              "source": 21,
+              "target": 22
+            },
+            {
+              "source": 45,
+              "target": 38
+            },
+            {
+              "source": 45,
+              "target": 31
+            },
+            {
+              "source": 45,
+              "target": 44
+            },
+            {
+              "source": 45,
+              "target": 43
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 45,
+              "target": 47
+            }
+          ]
+        },
+        {
+          "name": "brandubh-tactical",
+          "kind": "tactical",
+          "ruleset": "brandubh",
+          "position_digest": "5cc0a351e06674cf3e6dc28945637f939e36ba4a6cc517bebe9cbf0e504f1a2d",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 2,
+              "target": 1
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 2,
+              "target": 4
+            },
+            {
+              "source": 2,
+              "target": 5
+            },
+            {
+              "source": 14,
+              "target": 7
+            },
+            {
+              "source": 14,
+              "target": 21
+            },
+            {
+              "source": 14,
+              "target": 28
+            },
+            {
+              "source": 14,
+              "target": 35
+            },
+            {
+              "source": 18,
+              "target": 11
+            },
+            {
+              "source": 18,
+              "target": 4
+            },
+            {
+              "source": 18,
+              "target": 25
+            },
+            {
+              "source": 18,
+              "target": 19
+            },
+            {
+              "source": 18,
+              "target": 20
+            },
+            {
+              "source": 37,
+              "target": 30
+            },
+            {
+              "source": 37,
+              "target": 23
+            },
+            {
+              "source": 37,
+              "target": 16
+            },
+            {
+              "source": 37,
+              "target": 44
+            },
+            {
+              "source": 37,
+              "target": 36
+            },
+            {
+              "source": 37,
+              "target": 35
+            },
+            {
+              "source": 37,
+              "target": 38
+            },
+            {
+              "source": 37,
+              "target": 39
+            },
+            {
+              "source": 37,
+              "target": 40
+            },
+            {
+              "source": 37,
+              "target": 41
+            }
+          ]
+        },
+        {
+          "name": "brandubh-king-escape",
+          "kind": "king-escape",
+          "ruleset": "brandubh",
+          "position_digest": "bb0a75f0ac2be5de7272889e6409dd772ba70a30d2833a8f5fcd3cb893e65914",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 2,
+              "target": 9
+            },
+            {
+              "source": 2,
+              "target": 16
+            },
+            {
+              "source": 2,
+              "target": 23
+            },
+            {
+              "source": 2,
+              "target": 30
+            },
+            {
+              "source": 2,
+              "target": 37
+            },
+            {
+              "source": 2,
+              "target": 44
+            },
+            {
+              "source": 2,
+              "target": 1
+            },
+            {
+              "source": 2,
+              "target": 0
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 2,
+              "target": 4
+            },
+            {
+              "source": 2,
+              "target": 5
+            },
+            {
+              "source": 2,
+              "target": 6
+            }
+          ]
+        },
+        {
+          "name": "brandubh-terminal",
+          "kind": "terminal",
+          "ruleset": "brandubh",
+          "position_digest": "deeff376b48c2daa5ab342ecc6d1f1389d655766b387a060f2aaa044b9624e3c",
+          "terminal": true,
+          "winner": "defenders",
+          "terminal_value": 1.0,
+          "legal_moves": []
+        },
+        {
+          "name": "brandubh-repetition",
+          "kind": "repetition",
+          "ruleset": "brandubh",
+          "position_digest": "2c691f26054f5481cd52d602ae05dd4b0cd6e1ec74f35e90c62b78632182df49",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 3,
+              "target": 5
+            },
+            {
+              "source": 10,
+              "target": 9
+            },
+            {
+              "source": 10,
+              "target": 8
+            },
+            {
+              "source": 10,
+              "target": 7
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 10,
+              "target": 12
+            },
+            {
+              "source": 10,
+              "target": 13
+            },
+            {
+              "source": 21,
+              "target": 14
+            },
+            {
+              "source": 21,
+              "target": 7
+            },
+            {
+              "source": 21,
+              "target": 28
+            },
+            {
+              "source": 21,
+              "target": 35
+            },
+            {
+              "source": 22,
+              "target": 15
+            },
+            {
+              "source": 22,
+              "target": 8
+            },
+            {
+              "source": 22,
+              "target": 1
+            },
+            {
+              "source": 22,
+              "target": 29
+            },
+            {
+              "source": 22,
+              "target": 36
+            },
+            {
+              "source": 22,
+              "target": 43
+            },
+            {
+              "source": 26,
+              "target": 19
+            },
+            {
+              "source": 26,
+              "target": 12
+            },
+            {
+              "source": 26,
+              "target": 5
+            },
+            {
+              "source": 26,
+              "target": 33
+            },
+            {
+              "source": 26,
+              "target": 40
+            },
+            {
+              "source": 26,
+              "target": 47
+            },
+            {
+              "source": 27,
+              "target": 20
+            },
+            {
+              "source": 27,
+              "target": 13
+            },
+            {
+              "source": 27,
+              "target": 34
+            },
+            {
+              "source": 27,
+              "target": 41
+            },
+            {
+              "source": 38,
+              "target": 37
+            },
+            {
+              "source": 38,
+              "target": 36
+            },
+            {
+              "source": 38,
+              "target": 35
+            },
+            {
+              "source": 38,
+              "target": 39
+            },
+            {
+              "source": 38,
+              "target": 40
+            },
+            {
+              "source": 38,
+              "target": 41
+            },
+            {
+              "source": 45,
+              "target": 44
+            },
+            {
+              "source": 45,
+              "target": 43
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 45,
+              "target": 47
+            }
+          ]
+        }
+      ]
+    },
+    "workload_digest": "35c0559b0950fa8bc123ee1610c6fd011fc046564c7fb7a068dcd9e3c4d50786",
+    "mode": "fixed_work",
+    "seed": 7,
+    "repetitions": 2,
+    "warmup": 1,
+    "engine_identity": {
+      "modules": [
+        "hnefatafl.engine",
+        "hnefatafl.ai",
+        "hnefatafl.shield_maiden",
+        "hnefatafl.symmetry"
+      ],
+      "sha256": "0dbd66f1201b48b99fe34c55f77aa835c96e694202c30faeda4ab2c5f75017ac"
+    },
+    "effective_configs": {
+      "standard": {
+        "algorithm": "alpha_beta",
+        "depth": 5,
+        "time_limit": 60.0,
+        "heuristic": "shield_maiden",
+        "search": {
+          "legacy": false,
+          "transposition": true,
+          "move_ordering": true,
+          "symmetry_transposition": false,
+          "symmetry_pruning": false,
+          "table_capacity": 100000
+        },
+        "seed": 7
+      }
+    }
+  },
+  "records": [
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-opening",
+      "kind": "opening",
+      "position_hash": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 4566.549367038533,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 9065,
+      "evaluations": 116923,
+      "cutoffs": 6326,
+      "successors": 127858,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 25604.234313977446,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-opening",
+      "kind": "opening",
+      "position_hash": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 4526.381736155599,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 9065,
+      "evaluations": 116923,
+      "cutoffs": 6326,
+      "successors": 127858,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 25831.449227105277,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-opening",
+      "kind": "opening",
+      "position_hash": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 4421.21316306293,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 9065,
+      "evaluations": 116923,
+      "cutoffs": 6326,
+      "successors": 127858,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 26445.908778349432,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-midgame",
+      "kind": "midgame",
+      "position_hash": "86bbd0736f7d33154bcb77fd581f19cc8c94d70cb979c25db4e370c3eac5ab83",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 5273.663678904995,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 26,
+        "target": 33
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 11157,
+      "evaluations": 120328,
+      "cutoffs": 8211,
+      "successors": 133973,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 22816.775457509735,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-midgame",
+      "kind": "midgame",
+      "position_hash": "86bbd0736f7d33154bcb77fd581f19cc8c94d70cb979c25db4e370c3eac5ab83",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 5363.668446894735,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 26,
+        "target": 33
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 11157,
+      "evaluations": 120328,
+      "cutoffs": 8211,
+      "successors": 133973,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 22433.899707142264,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-midgame",
+      "kind": "midgame",
+      "position_hash": "86bbd0736f7d33154bcb77fd581f19cc8c94d70cb979c25db4e370c3eac5ab83",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 5613.442355999723,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 26,
+        "target": 33
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 11157,
+      "evaluations": 120328,
+      "cutoffs": 8211,
+      "successors": 133973,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 21435.688187194406,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-endgame",
+      "kind": "endgame",
+      "position_hash": "ef23adad480cd4db9fe2b60b0f474fc558e2f701361e7999ce0ed9d0fe89f72f",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 199.96520318090916,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 5
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1339,
+      "evaluations": 2320,
+      "cutoffs": 1230,
+      "successors": 3764,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11602.018566705772,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-endgame",
+      "kind": "endgame",
+      "position_hash": "ef23adad480cd4db9fe2b60b0f474fc558e2f701361e7999ce0ed9d0fe89f72f",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 199.73271898925304,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 5
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1339,
+      "evaluations": 2320,
+      "cutoffs": 1230,
+      "successors": 3764,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11615.52304369737,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-endgame",
+      "kind": "endgame",
+      "position_hash": "ef23adad480cd4db9fe2b60b0f474fc558e2f701361e7999ce0ed9d0fe89f72f",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 195.11121278628707,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 5
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1339,
+      "evaluations": 2320,
+      "cutoffs": 1230,
+      "successors": 3764,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11890.654395865944,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-tactical",
+      "kind": "tactical",
+      "position_hash": "5cc0a351e06674cf3e6dc28945637f939e36ba4a6cc517bebe9cbf0e504f1a2d",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 408.7453850079328,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 37,
+        "target": 41
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 2551,
+      "evaluations": 4545,
+      "cutoffs": 2390,
+      "successors": 7408,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11119.391598541944,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-tactical",
+      "kind": "tactical",
+      "position_hash": "5cc0a351e06674cf3e6dc28945637f939e36ba4a6cc517bebe9cbf0e504f1a2d",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 396.19367895647883,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 37,
+        "target": 41
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 2551,
+      "evaluations": 4545,
+      "cutoffs": 2390,
+      "successors": 7408,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11471.662071870815,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-tactical",
+      "kind": "tactical",
+      "position_hash": "5cc0a351e06674cf3e6dc28945637f939e36ba4a6cc517bebe9cbf0e504f1a2d",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 389.0462520066649,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 37,
+        "target": 41
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 2551,
+      "evaluations": 4545,
+      "cutoffs": 2390,
+      "successors": 7408,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11682.41559083864,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-king-escape",
+      "kind": "king-escape",
+      "position_hash": "bb0a75f0ac2be5de7272889e6409dd772ba70a30d2833a8f5fcd3cb893e65914",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 95.11234308592975,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 337,
+      "evaluations": 1197,
+      "cutoffs": 218,
+      "successors": 1521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 12585.11735872771,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-king-escape",
+      "kind": "king-escape",
+      "position_hash": "bb0a75f0ac2be5de7272889e6409dd772ba70a30d2833a8f5fcd3cb893e65914",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 69.851228967309,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 337,
+      "evaluations": 1197,
+      "cutoffs": 218,
+      "successors": 1521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 17136.42004151719,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-king-escape",
+      "kind": "king-escape",
+      "position_hash": "bb0a75f0ac2be5de7272889e6409dd772ba70a30d2833a8f5fcd3cb893e65914",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 70.3144259750843,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 337,
+      "evaluations": 1197,
+      "cutoffs": 218,
+      "successors": 1521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 17023.53369739736,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-terminal",
+      "kind": "terminal",
+      "position_hash": "deeff376b48c2daa5ab342ecc6d1f1389d655766b387a060f2aaa044b9624e3c",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.002632150426506996,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-terminal",
+      "kind": "terminal",
+      "position_hash": "deeff376b48c2daa5ab342ecc6d1f1389d655766b387a060f2aaa044b9624e3c",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0012258533388376236,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-terminal",
+      "kind": "terminal",
+      "position_hash": "deeff376b48c2daa5ab342ecc6d1f1389d655766b387a060f2aaa044b9624e3c",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0011189840734004974,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-repetition",
+      "kind": "repetition",
+      "position_hash": "2c691f26054f5481cd52d602ae05dd4b0cd6e1ec74f35e90c62b78632182df49",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 4498.035518918186,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 45,
+        "target": 46
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 8836,
+      "evaluations": 114742,
+      "cutoffs": 6153,
+      "successors": 125557,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 25509.358367093635,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-repetition",
+      "kind": "repetition",
+      "position_hash": "2c691f26054f5481cd52d602ae05dd4b0cd6e1ec74f35e90c62b78632182df49",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 4494.064297992736,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 45,
+        "target": 46
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 8836,
+      "evaluations": 114742,
+      "cutoffs": 6153,
+      "successors": 125557,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 25531.899944388704,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-repetition",
+      "kind": "repetition",
+      "position_hash": "2c691f26054f5481cd52d602ae05dd4b0cd6e1ec74f35e90c62b78632182df49",
+      "effective_config_digest": "1301405a9aa22722f00b7efe768152aa9119e2a927ce3baac19614d045ffeaec",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 4961.895006010309,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 45,
+        "target": 46
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 8836,
+      "evaluations": 114742,
+      "cutoffs": 6153,
+      "successors": 125557,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 23124.63279876213,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    }
+  ],
+  "generated": "2026-11-19T20:01:15.030271+00:00",
+  "suite": "quick",
+  "repetitions": 2,
+  "warmup": 1,
+  "batch_wall_clock_seconds": 45.74517341610044
+}

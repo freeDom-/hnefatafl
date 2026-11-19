@@ -34,36 +34,44 @@ runner used identically by native CPython and Pyodide. `jarl_compare.py` is the
 single comparison implementation behind both the browser verifier and the
 standalone comparator.
 
-Corrected behaviour:
+Corrected contract (revision 3):
 
-- `verify_jarl.mjs` analyses the **exact** `--positions` state objects; custom
-  positions and same-name/different-board/position-history cases are honoured.
-- Fixed-work searches have a mandatory correctness gate (identity, case coverage,
-  status, completed depth, best move, value). Terminal and unsupported cases are
-  distinct statuses. Cases that cannot finish inside the 60 s safety limit are
-  reported as `deadline_limited`, not silently passed or failed.
-- Fixed-time differences are informational only, and latency ratios are computed
-  only for equal completed work.
-- Each benchmark case is an independently bounded request (75 s per-case
-  watchdog); earlier records survive a later failure. The ordinary analysis
-  watchdog stays 5 s, while a legitimate cooperative deadline up to 10 s gets a
-  derived watchdog up to 20 s.
+- Every measured **repetition** is validated: record keys include the repetition
+  index, duplicates are rejected, and expected coverage is derived independently
+  from the workload cases × configurations × declared repetitions. Both reports
+  omitting the same position, empty reports and mismatched repetition counts fail.
+- Record-level position hash, ruleset, mode, seed and effective-settings digest
+  must match the workload. The settings digest is numeric-normalised so it
+  survives the Python/JavaScript JSON boundary.
+- **Execution validity**, **parity at equal completed work** and **acceptance
+  completion** are reported separately. A finite value, a legal workload move and
+  the correct defender-relative terminal value are mandatory; parity is compared
+  only when completed depth, interruption state and available node/evaluation
+  counters agree. Asymmetric or limited cases are listed as unresolved acceptance
+  targets, not regressions.
+- Fixed-time differences remain informational; terminal, unsupported, failed and
+  non-equivalent cases are excluded from equal-work latency ratios.
+- Each benchmark case is an independently bounded request (75 s), so a later
+  failure cannot discard earlier records. Ordinary analysis keeps a 5 s watchdog;
+  a legitimate cooperative deadline up to 10 s derives a watchdog up to 20 s.
 
 ```sh
-# Native vs browser Jarl (mandatory fixed-work gate)
 .venv/bin/python spikes/browser_offline/native_jarl_benchmark.py \
-  --mode fixed_work --suite quick --output /tmp/jarl-native.json
+  --mode fixed_work --suite quick --warmup 1 --repetitions 2 --output /tmp/jarl-native.json
 .venv/bin/python spikes/browser_offline/prepare.py --output /tmp/hnefatafl-analysis
 node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
-  --mode fixed_work --suite quick --native /tmp/jarl-native.json \
-  --output /tmp/jarl-browser.json
+  --mode fixed_work --suite quick --warmup 1 --reps 2 \
+  --native /tmp/jarl-native.json --output /tmp/jarl-browser.json
 .venv/bin/python spikes/browser_offline/compare_jarl_benchmarks.py \
   /tmp/jarl-native.json /tmp/jarl-browser.json --output /tmp/jarl-comparison.json
 ```
 
-The neural side adds digest-verified ORT Web 1.22.0 staging, a transactional
-fail-closed ONNX export with native reference vectors, a browser numerical-parity
-gate, and a benchmark that reports requested vs observed provider placement:
+The neural side stages a *validated* export only: the ONNX graph, metadata and
+**reference-vector digest** are verified, and a forced replacement invalidates the
+old marker before publishing. Browser parity validates the policy the runtime
+actually returned (legal indices and order, probabilities, shapes, dtypes, model
+identity), not a reconstruction from logits, and every deliberate corruption kind
+must fail.
 
 ```sh
 uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
@@ -72,18 +80,20 @@ uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-
   --model-dir /tmp/model-export --output /tmp/neural-spike
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider wasm --output /tmp/neural-parity-wasm.json
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --corrupt legal --output /tmp/neural-corrupt.json   # must fail
 node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
-  --provider wasm --output /tmp/neural-wasm.json
+  --provider wasm --sustained 200 --output /tmp/neural-wasm.json
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider webgpu --require-webgpu
 node spikes/browser_offline/test_browser_lifecycle.mjs
 ```
 
-`neural_parity.mjs` compares 39 native reference cases (38 non-terminal including
-32 distinct generated positions) and exits non-zero on any mandatory numerical
-failure; `--simulate-corruption` demonstrates that the gate detects a regression.
-Batched inference submits 1–32 **distinct** positions and validates each output
-against its own single-position inference.
+`--require-webgpu` requires an obtained adapter, a created session, a successful
+inference and an observed placement of `webgpu-session-verified` (WebGPU providers
+only). A session created for WebGPU without observable per-node placement is
+reported as `webgpu-session-unverified`; a mixed list is `webgpu-mixed`; WASM-only
+is `cpu-fallback`. No WASM fallback is ever labelled GPU.
 
 See the [roadmap](../../docs/designs/browser-analysis-roadmap.md) and
 [Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
