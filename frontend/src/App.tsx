@@ -14,6 +14,7 @@ import Rune, { participantName } from './Rune';
 import { accountAttribution } from './accountIdentity';
 
 import Modal from './Modal';
+import NewGame from './NewGame';
 import PersonalDashboard from './PersonalDashboard';
 import Leaderboard from './Leaderboard';
 import ActiveGameSwitcher from './ActiveGameSwitcher';
@@ -31,7 +32,6 @@ import { usePlayHistory } from './usePlayHistory';
 import { useModelCatalogue } from './useModelCatalogue';
 import { PlayTabsProvider } from './PlayTabs';
 
-const NewGame = deferredFeature(() => import('./NewGame'));
 const ReactMarkdown = deferredFeature(() => import('react-markdown'));
 const Archive = deferredFeature(() => import('./Archive'));
 const Training = deferredFeature(() => import('./Training'));

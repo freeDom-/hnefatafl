@@ -24,8 +24,9 @@ const repository = resolve(frontend, '..');
 const root = resolve(frontend, 'dist');
 const output = resolve(process.argv[2] || '/tmp/hnefatafl-feature-network.json');
 const source = readGitRevision(repository);
+const allowDirty = process.argv.includes('--allow-dirty');
 const build = JSON.parse(await readFile(join(root, 'arena-build.json'), 'utf8'));
-const checked = verifyBuildRevision(build, source);
+const checked = verifyBuildRevision(build, source, { allowDirty });
 if (!checked.ok) throw new Error(checked.message);
 const fingerprint = verifyBuildFingerprint(build, await fingerprintProductionBundle(root));
 if (!fingerprint.ok) throw new Error(fingerprint.message);
@@ -272,15 +273,10 @@ try {
   await recoveryPage.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   const recoveryMutations = await mockApi(recoveryPage);
   const recoveryResponses = observeAssets(recoveryPage);
-  const formPattern = `**/${formChunk.split('/').pop()}`;
+  const formName = formChunk.split('/').pop();
+  const formPattern = (url) => url.pathname.endsWith(`/${formName}`);
   let blockForm = true;
-  await recoveryPage.route(formPattern, (route) => {
-    if (blockForm) {
-      blockForm = false;
-      return route.abort();
-    }
-    return route.continue();
-  });
+  await recoveryPage.route(formPattern, (route) => (blockForm ? route.abort() : route.continue()));
   await recoveryPage.goto(origin + '/dashboard');
   await recoveryPage.locator('.personal-dashboard').waitFor();
   await recoveryPage.getByRole('button', { name: 'Play vs AI', exact: true }).click();
@@ -291,6 +287,10 @@ try {
   await recoveryDialog.getByRole('alert').waitFor();
   const retry = recoveryDialog.getByRole('button', { name: 'Retry', exact: true });
   await retry.waitFor();
+  // Vite preloads the module and its dependencies before importing it, so a
+  // single aborted request can fall back to the import. Hold the failure until
+  // the modal reports it, then prove the explicit Retry recovers the module.
+  blockForm = false;
   await retry.click();
   await recoveryDialog.getByRole('button', { name: 'To the table' }).waitFor();
   if (!assets(recoveryResponses, '.js').includes(formChunk))
