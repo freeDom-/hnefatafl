@@ -155,7 +155,7 @@ export default function PortraitHall() {
       <header className="arena-surface portrait-hall-intro">
         <div>
           <p className="arena-kicker">{t('Your saga, your portrait')}</p>
-          <h1 id="portrait-hall-heading">{t('Portrait hall')}</h1>
+          <h1 id="portrait-hall-heading">{t('Hall of Renown')}</h1>
           <p>
             {t(
               'Earn Viking portraits through your games. Achievements unlock automatically from official results.',
@@ -265,7 +265,7 @@ export default function PortraitHall() {
             className="arena-surface portrait-achievements"
             aria-labelledby="portrait-achievements-heading"
           >
-            <h2 id="portrait-achievements-heading">{t('Achievements')}</h2>
+            <h2 id="portrait-achievements-heading">{t('Deeds of Valor')}</h2>
             <p>
               {t(
                 'Earned achievements remain unlocked, even if a later result correction changes current progress.',

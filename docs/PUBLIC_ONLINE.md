@@ -176,5 +176,5 @@ and the authenticated dashboard, so an unknown server id never becomes a URL.
 
 The public shell is intentionally independent from authenticated Arena navigation.
 Its build entry is split from the protected application; this reduces public
-startup code, not the full authenticated Dashboard bundle. Further route-level
+startup code, not the full authenticated Great Hall bundle. Further route-level
 Workshop splitting and shared protected polling remain separate workstreams.

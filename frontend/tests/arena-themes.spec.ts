@@ -150,7 +150,9 @@ for (const theme of themes) {
     for (const viewport of viewports) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: 'The Great Hall', exact: true }),
+      ).toBeVisible();
       await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme.id);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
@@ -260,7 +262,7 @@ for (const appearance of liveBadgeAppearances) {
 test("applies King's Table when no UI theme is stored", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/dashboard');
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'kings-table');
   await page.screenshot({ path: `${output}/default-kings-table-desktop.png`, fullPage: true });
 });
@@ -271,7 +273,7 @@ test('migrates the old Classic look to the supported default', async ({ page }) 
   });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/dashboard');
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-ui-theme', 'kings-table');
   await page.screenshot({ path: `${output}/legacy-default-desktop.png`, fullPage: true });
 });

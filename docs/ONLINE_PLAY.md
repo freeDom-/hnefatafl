@@ -3,9 +3,9 @@
 [Documentation index](README.md) · [Rules and board controls](GAMEPLAY.md) ·
 [Online operations](ONLINE.md) · [Phase 3 evidence](validation/online-phase3.md)
 
-Online play requires a signed-in account. Open **New online game** on Play, or the
+Online play requires a signed-in account. Open **New online game** on Battlefield, or the
 authenticated lobby listing at `/online`. The old `/dashboard?setup=online` entry
-redirects to Play with the online creation dialog open. Admission is disabled by
+redirects to Battlefield with the online creation dialog open. Admission is disabled by
 default; the lobby explains when the
 operator has disabled new games or your account is not eligible. Creating/joining
 requires the backend's current active/verified/play eligibility. An existing seat
@@ -62,7 +62,7 @@ participant whose move is required. Completed, cancelled and voided games never
 appear in any tab. A **Filter by ruleset** select narrows the tab server-side
 (`GET /api/online/games?ruleset=…`), so no unbounded page is filtered in the
 browser. Previous/next page buttons use bounded server pagination. The lobby
-lists live games only and links to **Replays & Analysis** for completed records;
+lists live games only and links to the **Hall of records** for completed records;
 a live card opens the board, where no analysis is offered. Open
 a waiting game to join it; creators can cancel their own waiting game. Players
 cannot edit its settings in place. Active cards show the remaining time from the

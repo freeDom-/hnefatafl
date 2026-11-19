@@ -1,7 +1,7 @@
 # Rated online games and leaderboards
 
 [Documentation index](README.md) · [Online core](ONLINE.md) ·
-[Playing online](ONLINE_PLAY.md) · [Dashboard](DASHBOARD.md) ·
+[Playing online](ONLINE_PLAY.md) · [The Great Hall](DASHBOARD.md) ·
 [Architecture](../ARCHITECTURE.md)
 
 Phase 6 adds an Elo rating pool and an authenticated leaderboard on top of the
@@ -120,7 +120,7 @@ exposed.
   integer, so the displayed value and the order can never disagree. Equal
   displayed Elo is broken by the rated-game count, then the account id.
 - The list is paginated (limit `1–100`, offset `0–100000`) with a `total` count.
-- The Dashboard embeds a compact leaderboard (top five) and links to the full
+- The Great Hall embeds a compact leaderboard (top five) and links to the full
   `/leaderboard` view, which adds ruleset selection and pagination. The separate
   "your standing" paragraph was removed; the signed-in player's row is marked in
   place when it is on the page.
