@@ -86,9 +86,9 @@ Focused validation on this head:
 
 | Check | Result |
 | --- | --- |
-| `TrainingJobNavigator` unit suite | 27 passed |
+| `TrainingJobNavigator` unit suite | 28 passed |
 | Workshop DOM benchmark | 1 passed; 20 rows / 21 options / 191 descendants preserved |
-| Focused Chromium browser regressions | 4 passed; mobile native-selector focus 1 passed |
+| Comparison and focus Chromium regressions | 52 passed; mobile native-selector focus 1 passed |
 | Security script tests | 25 passed |
 | Frontend TypeScript (`tsc --noEmit`) | passed |
 | Prettier check on changed files | passed |
@@ -119,6 +119,32 @@ exceptions. All four jobs are green.
 Compatibility limits: the automated matrix remains Chromium. Safari/WebKit and
 physical-device verification were not performed, and the explicit viewport widths
 are not real 200% browser zoom. These remain unverified rather than claimed.
+
+## AI comparison spacing corrections
+
+The AI comparison intro panel is the first child of `main`, which carries no top
+padding, so it sat directly against the application header. The same missing
+rhythm left the intro touching the tournament workspace below it and stacked the
+two empty-state action buttons with no gap. The training page shared the
+header-spacing cause.
+
+The shared workshop intro now reuses `--gap-card` for its top spacing, and the
+tournament workspace uses the same token for its top margin; a transient notice
+uses `--gap-card` above and below so the rhythm holds when it appears. The
+empty-state actions are grouped in `.tournament-welcome-actions` with the shared
+`--gap-inline` between them. No hardcoded margins, theme-specific overrides or
+new layout system were introduced; the existing containers and tokens are reused.
+
+The visual acceptance matrix now asserts, in every theme and language at 320,
+768, 1920 and 3840 CSS pixels, that the header-to-intro and intro-to-workspace
+gaps are present, that the intro and workspace share the same left/right edges,
+and that the page does not overflow horizontally. A populated-state matrix adds
+completed and running tournaments at 1920 and checks the same rhythm plus aligned
+history/detail panels. The eight committed training captures at 1920 and 3840
+were regenerated after the training intro spacing changed. Local focused runs on
+this head: the eight training captures passed, the 32 empty-state comparison
+cases passed, the 16 populated/running cases passed and the focus regressions
+passed.
 
 ### Integrated security corrections
 

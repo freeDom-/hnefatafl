@@ -56,6 +56,38 @@ async function appearance(page: Page, theme: string, language: string, width: nu
   );
 }
 
+/** Assert the AI comparison page keeps its vertical rhythm: independent panels
+ * and empty-state actions must never sit directly against each other. */
+async function comparisonSpacing(page: Page, expectButtons = true) {
+  const gaps = await page.evaluate(() => {
+    const rect = (selector: string) => {
+      const el = document.querySelector(selector);
+      if (!el) throw new Error(`missing ${selector}`);
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    };
+    const topbar = rect('.arena-topbar, .site-header');
+    const intro = rect('.workshop-comparison-intro');
+    const layout = rect('.tournament-layout');
+    const buttons = Array.from(
+      document.querySelectorAll<HTMLElement>('.tournament-welcome-actions .button'),
+    ).map((el) => el.getBoundingClientRect());
+    return {
+      headerIntro: intro.top - topbar.bottom,
+      introLayout: layout.top - intro.bottom,
+      buttonGap: buttons.length > 1 ? buttons[1].top - buttons[0].bottom : null,
+      alignedLeft: Math.abs(intro.left - layout.left),
+      alignedRight: Math.abs(intro.right - layout.right),
+    };
+  });
+  // Tokens scale with density and viewport, so a small floor still proves separation.
+  expect(gaps.headerIntro).toBeGreaterThanOrEqual(6);
+  expect(gaps.introLayout).toBeGreaterThanOrEqual(6);
+  if (expectButtons) expect(gaps.buttonGap).toBeGreaterThanOrEqual(6);
+  expect(gaps.alignedLeft).toBeLessThanOrEqual(1);
+  expect(gaps.alignedRight).toBeLessThanOrEqual(1);
+}
+
 async function dialogGeometry(page: Page, dialog: Locator) {
   await expect(dialog).toBeVisible();
   const box = await dialog.boundingBox();
@@ -115,6 +147,7 @@ test.describe('Workshop visual acceptance', () => {
           await expect(page.locator('.workshop-comparison-intro h2')).toBeVisible();
           await expect(page.locator('.tournament-history-empty')).toBeVisible();
           await appearance(page, theme, language, width);
+          await comparisonSpacing(page);
           const colors = await page
             .locator('.workshop-heading > p:not(.arena-kicker)')
             .evaluate((node) => ({
@@ -163,6 +196,43 @@ test.describe('Workshop visual acceptance', () => {
         .click();
       await expect(page.locator('#workshop-workers')).toBeVisible();
     });
+  }
+});
+
+test.describe('AI comparison populated spacing', () => {
+  test.skip(
+    ({ isMobile }) => isMobile,
+    'Explicit desktop geometry for the populated and running states.',
+  );
+  for (const theme of themes) {
+    for (const language of ['en', 'de']) {
+      for (const status of ['completed', 'running'] as const) {
+        test(`populated comparison spacing ${theme} ${language} ${status}`, async ({ page }) => {
+          await prepare(page, theme, language, false);
+          const tournament = workshopComparisonFixture(`visual-${status}`, status);
+          await page.route(/\/api\/tournaments(?:\?.*)?$/, (route) =>
+            route.fulfill({ json: [tournament] }),
+          );
+          await page.route(/\/api\/tournaments\/visual-(?:completed|running)$/, (route) =>
+            route.fulfill({ json: tournament }),
+          );
+          await page.setViewportSize({ width: 1920, height: 1080 });
+          await page.goto('/tournaments');
+          await expect(page.locator('.tournament-detail')).toBeVisible();
+          await appearance(page, theme, language, 1920);
+          await comparisonSpacing(page, false);
+          const panels = await page.evaluate(() => {
+            const rect = (selector: string) =>
+              document.querySelector(selector)!.getBoundingClientRect();
+            return {
+              historyTop: rect('.tournament-history').top,
+              detailTop: rect('.tournament-detail').top,
+            };
+          });
+          expect(Math.abs(panels.historyTop - panels.detailTop)).toBeLessThanOrEqual(1);
+        });
+      }
+    }
   }
 });
 
@@ -474,7 +544,7 @@ test.describe('Workshop focus restoration edge cases', () => {
     await expect(nav.locator('[data-job-id="page-056"]')).toBeFocused();
   });
 
-  test('restoration does not refetch details or move focus during later polling', async ({
+  test('restoration does not replay focus or refetch details during later polling', async ({
     page,
   }) => {
     await page.clock.install();
@@ -494,9 +564,14 @@ test.describe('Workshop focus restoration edge cases', () => {
     await show.focus();
     await page.keyboard.press('Enter');
     await expect(nav.locator('[data-job-id="page-056"]')).toBeFocused();
+    // Move focus elsewhere; a replayed request would steal it back after polling.
+    const other = nav.locator('[data-job-id="page-040"]');
+    await other.focus();
+    await expect(other).toBeFocused();
     const before = detailRequests;
     await page.clock.runFor(6000);
-    await expect(nav.locator('[data-job-id="page-056"]')).toBeFocused();
+    await expect(other).toBeFocused();
+    await expect(nav.locator('[data-job-id="page-056"]')).not.toBeFocused();
     expect(detailRequests).toBe(before);
   });
 });

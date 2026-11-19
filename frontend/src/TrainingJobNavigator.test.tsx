@@ -309,18 +309,53 @@ it('discards a restoration request when the selection changes before it applies'
   expect(document.querySelector('.job-row:focus')).toBeNull();
 });
 
-it('does not steal focus on later polling after a restoration request', () => {
+it('does not replay a completed restoration request during later polling', () => {
+  const onSelect = vi.fn();
   const { rerender } = render(
-    <TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={vi.fn()} />,
+    <TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={onSelect} />,
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Previous job page' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show selected job' }));
+  // The explicit request lands on the intended row.
+  expect(document.querySelector('[data-job-id="job-056"]')).toHaveFocus();
+  // Move focus elsewhere before the next poll so a replay would be visible.
   const other = document.querySelector('[data-job-id="job-040"]') as HTMLElement;
   other.focus();
   const polled = jobs.map((job) => ({ ...job, progress: { iteration: 500 } }));
   rerender(
-    <TrainingJobNavigator jobs={polled} selected="job-056" models={[]} onSelect={vi.fn()} />,
+    <TrainingJobNavigator jobs={polled} selected="job-056" models={[]} onSelect={onSelect} />,
   );
   expect(other).toHaveFocus();
   expect(document.querySelector('[data-job-id="job-056"]')).not.toHaveFocus();
+  expect(onSelect).not.toHaveBeenCalled();
+});
+
+it('does not replay a cancelled request when the removed job reappears', () => {
+  const onSelect = vi.fn();
+  const { rerender } = render(
+    <TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={onSelect} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Previous job page' }));
+  const search = screen.getByLabelText('Search jobs');
+  search.focus();
+  act(() => {
+    fireEvent.click(screen.getByRole('button', { name: 'Show selected job' }));
+    rerender(
+      <TrainingJobNavigator
+        jobs={jobs.slice(0, 56)}
+        selected="job-056"
+        models={[]}
+        onSelect={onSelect}
+      />,
+    );
+  });
+  // The job vanished before the request applied, so it was discarded.
+  expect(search).toHaveFocus();
+  // Polling restores the job; the cancelled request must not replay.
+  rerender(<TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={onSelect} />);
+  expect(search).toHaveFocus();
+  expect(document.querySelector('[data-job-id="job-056"]')).not.toHaveFocus();
+  expect(onSelect).not.toHaveBeenCalled();
 });
 
 it('native selector and keyboard activation select the intended job without losing ids', async () => {
