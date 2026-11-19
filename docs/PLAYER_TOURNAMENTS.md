@@ -95,7 +95,7 @@ Leg outcome: `a`, `b`, `draw`, `void`, or unset while the game is unfinished.
 ## Arena interface
 
 `/player-tournaments` is the human competition section, linked from the Arena
-Compete sidebar and the full leaderboard on compact screens. The Workshop's
+Trials of Valor sidebar and the full leaderboard on compact screens. The Workshop's
 `/tournaments` remains AI evaluation. Discovery supports bounded cursor pages,
 status, ruleset and planned upcoming filters. Details expose real participants,
 seeding, losses, rules and clocks, champion, playable online legs and results.

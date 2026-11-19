@@ -8,7 +8,7 @@ async function loginOrdinary(page: Page) {
   await page.getByLabel('Username or email').fill('BrowserUser');
   await page.getByLabel('Password', { exact: true }).fill('browser-fixture-only-password');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
 }
 
 /**

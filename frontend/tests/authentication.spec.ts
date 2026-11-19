@@ -11,7 +11,7 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   await page.getByLabel('Username or email').fill('BrowserUser');
   await page.getByLabel('Password', { exact: true }).fill('browser-fixture-only-password');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await expect(primaryNavigation(page)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Workshop', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'AI testing', exact: true })).toHaveCount(0);
@@ -45,14 +45,14 @@ test('login, registration placeholder, regular-user navigation, reload and logou
   await openGameNavigation(page);
   await openDestination(page, 'dashboard');
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account menu for BrowserUser' })).toBeVisible();
   const status = await page.evaluate(async () => (await fetch('/api/training/jobs')).status);
   expect(status).toBe(403);
   await page.goto('/training');
   await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Account menu for BrowserUser' }).click();
   await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'HNEFATAFL' })).toBeVisible();

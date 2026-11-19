@@ -105,7 +105,7 @@ for administration, prerequisites and retained-container recovery.
 
 ## Play or train
 
-On **Dashboard**, choose **New single-player game**, then a battlefield, mode, sides and opponents. Select a piece,
+On **The Great Hall**, choose **New single-player game**, then a battlefield, mode, sides and opponents. Select a piece,
 then a highlighted legal destination. Arrow keys navigate, Enter/Space selects,
 and Escape clears selection. **Hall of records** opens read-only history; **Resume single-player** reconnects account play. **Analytics**
 below move history configures an advisor. See [Gameplay](docs/GAMEPLAY.md).
@@ -145,7 +145,7 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 A server connection is required. The public Watch Hall at `/watch` offers
 read-only online discovery, live viewing and completed replay without an account;
 playing games, private history and profiles require authentication. The
-authenticated Portrait Hall and portrait selection originated in PR #86, and
+authenticated Hall of Renown and portrait selection originated in PR #86, and
 PR #94 adds automatic tiered achievements and portrait progression. See the
 [completion audit](docs/designs/arena-completion.md)
 and [public release-readiness checklist](docs/RELEASE_READINESS.md). Verified accounts

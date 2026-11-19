@@ -189,6 +189,6 @@ it('training cleanup clears the current game and ignores its late in-flight move
   await waitFor(() => expect(localStorage.getItem('hnefatafl-game')).toBeNull());
   await act(async () => finish(await json({ ...initial, version: 1 })));
   fireEvent.click(screen.getByRole('button', { name: 'Arena' }));
-  expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'The Great Hall' })).toBeInTheDocument();
   expect(screen.queryByRole('grid')).not.toBeInTheDocument();
 });

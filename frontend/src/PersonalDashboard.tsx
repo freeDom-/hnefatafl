@@ -339,7 +339,7 @@ function DashboardHome({
   const percent = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 });
   return (
     <section className="personal-dashboard arena-dashboard">
-      <PageHeading title={t('Dashboard')} />
+      <PageHeading title={t('The Great Hall')} />
       <header className="dashboard-intro">
         <div className="dashboard-intro-copy">
           <p className="dashboard-kicker">{t('THE ARENA')}</p>
@@ -481,7 +481,7 @@ function DashboardHome({
           >
             <div className="section-heading">
               <h2 id="needs-you-heading" className="section-title">
-                {t('Games that need you')}
+                {t('Call to Battle')}
               </h2>
               <a href="/archive" onClick={surfaceLink}>
                 {t('Game archive')} →
@@ -670,9 +670,9 @@ function DashboardHome({
       <section className="panel dashboard-recent" aria-labelledby="recent-heading">
         <div className="record-strip-row">
           <div className="record-strip-heading">
-            <h2 id="recent-heading">{t('Recorded games')}</h2>
+            <h2 id="recent-heading">{t('Recent Battles')}</h2>
             <a href="/archive" onClick={surfaceLink}>
-              {t('Game archive')} →<span className="sr-only">: {t('Recorded games')}</span>
+              {t('Game archive')} →<span className="sr-only">: {t('Recent Battles')}</span>
             </a>
           </div>
           <DashboardHealth phase={recent.phase} refresh={recent.refresh} />

@@ -45,7 +45,7 @@ export default function MobileGameLayout({
             className="icon-button"
             href={presentation.back?.href ?? '/dashboard'}
             onClick={surfaceLink}
-            aria-label={t(presentation.back?.label ?? 'Back to dashboard')}
+            aria-label={t(presentation.back?.label ?? 'Back to the Great Hall')}
           >
             ‹
           </a>

@@ -8,13 +8,13 @@ export type SidebarItem =
   | { kind: 'group'; id: string; label: string; children: SidebarItem[] };
 
 export const ARENA_SIDEBAR_ITEMS: SidebarItem[] = [
-  { kind: 'destination', id: 'dashboard', label: 'Home', href: '/dashboard' },
-  { kind: 'destination', id: 'play', label: 'Play & board', href: '/play' },
+  { kind: 'destination', id: 'dashboard', label: 'The Great Hall', href: '/dashboard' },
+  { kind: 'destination', id: 'play', label: 'Battlefield', href: '/play' },
   { kind: 'destination', id: 'statistics', label: 'Statistics', href: '/statistics' },
   {
     kind: 'group',
     id: 'compete',
-    label: 'Compete',
+    label: 'Trials of Valor',
     children: [
       { kind: 'destination', id: 'leaderboard', label: 'Leaderboard', href: '/leaderboard' },
       {
@@ -26,8 +26,8 @@ export const ARENA_SIDEBAR_ITEMS: SidebarItem[] = [
       { kind: 'placeholder', id: 'leagues', label: 'Leagues' },
     ],
   },
-  { kind: 'destination', id: 'archive', label: 'Replays & analysis', href: '/archive' },
-  { kind: 'destination', id: 'portraits', label: 'Portrait hall', href: '/portraits' },
+  { kind: 'destination', id: 'archive', label: 'Hall of records', href: '/archive' },
+  { kind: 'destination', id: 'portraits', label: 'Hall of Renown', href: '/portraits' },
 ];
 
 /** The stable destination id the workshop entry links to, for `aria-current`. */

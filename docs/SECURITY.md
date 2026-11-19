@@ -251,11 +251,11 @@ The Phase 5 history refinement adds read-only `/api/history/games` and
 `/api/history/{category}/{game_id}/replay`. Current trusted `all_data` permits
 administrator-wide server history filters/review. Normal users remain scoped to
 online participation; account categories/name filters are denied and unauthorized
-object lookups return 404. Dashboard always adds own-account and completed eligible
+object lookups return 404. The Great Hall always adds own-account and completed eligible
 scope before its three-row limit, including administrators. List/count/category
 statistics and direct canonical review recheck current sessions in read transactions.
 No history route adds mutation, exports, assistance or public access. See
-[Dashboard](DASHBOARD.md) and the [API inventory](API_PERMISSIONS.json).
+[The Great Hall](DASHBOARD.md) and the [API inventory](API_PERMISSIONS.json).
 
 Signed-out visitors may read online games and completed replays through the
 additive `/api/public/online/*` namespace described in

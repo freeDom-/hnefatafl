@@ -13,7 +13,7 @@ server-owned HTML and React, with no text, controls or game state baked into art
 ## Navigation and layout
 
 At desktop widths (1024 CSS px and above), every Arena route retains the persistent
-sidebar and slim top bar, including Play, account games, local 1v1, online games and
+sidebar and slim top bar, including Battlefield, account games, local 1v1, online games and
 replay. Workshop shares the shell while retaining its permission boundary. Phones
 use the compact header and bottom navigation; tablets retain their existing header
 navigation. Short coarse-pointer landscape devices retain the compact treatment.
@@ -23,7 +23,7 @@ The theme label sits immediately left of its select, vertically centred in both
 English and German. Language stays beside the account menu. Skip links, route focus,
 keyboard controls, replay controls and visible focus indicators remain functional.
 
-Dashboard prioritizes introduction/status, hero and real board, selected profile,
+The Great Hall prioritizes introduction/status, hero and real board, selected profile,
 four standing cards, bounded game previews, compact leaderboard and recent records.
 The primary fixture composition fits at 1920×1080/Default and 3840×2160/Large.
 Genuinely longer queues and records retain normal vertical scrolling. Grid tracks,
@@ -63,7 +63,7 @@ active, disabled and focus-visible states. Reduced motion removes transitions.
 ## Acceptance evidence
 
 The browser matrix in `frontend/tests/arena-final.spec.ts` captures empty/populated
-Dashboard, Play, single-player, local, online, replay, Statistics, authorized Workshop
+The Great Hall, Battlefield, single-player, local, online, replay, Statistics, authorized Workshop
 and appearance settings for all themes at both target sizes. It asserts real label
 geometry, square boards, persistent navigation, no horizontal overflow, primary
 composition fit, automatic scale, explicit overrides and genuine 200% Chromium zoom.
@@ -89,20 +89,20 @@ Iron & Ash prompt:
 
 > Use case: stylized-concept. Asset type: original decorative website background artwork, very wide landscape 16:9 ideally 3840 x 2160. An atmospheric empty ancient stone and forged-steel war chamber, slate architectural pillars and arches receding into depth, cool charcoal and gunmetal surfaces with fine chisel marks, a restrained glint of warm gold and ember light at far side edges, cinematic crisp side lighting and cool blue-grey shadows. Premium realistic painted concept art for the Iron & Ash strategy game interface. Most architectural detail belongs at far left and right margins and upper edge; keep central 70% dark and quiet for application panels. Clearly distinguish from a wooden Norse great hall: stone architecture, refined forged metal, no brown wood, no ornate gold flourishes. No UI, text, letters, people, board or watermarks. This is a full architectural scene with visual depth, not a repeated slate texture. Avoid blur, muddy fog or an opacity wash.
 
-### Portrait Hall artwork and achievement tiers
+### Hall of Renown artwork and achievement tiers
 
 The gallery uses native 1024px artwork with centered `object-fit: contain` sizing;
 its CSS maximum accounts for device pixel ratio and the asset's native dimensions.
 Frames grow independently. Small avatar contexts retain the original 320px assets.
 See [artwork provenance](PORTRAIT_ARTWORK.md) for source and encoding details.
 
-Achievement cards sit inside the single Achievements `arena-surface` and reuse its
+Achievement cards sit inside the single Deeds of Valor `arena-surface` and reuse its
 shared border, spacing and typography tokens, deliberately without a second
 `arena-surface` per card: another panel would repeat the background, shadow and,
 in Saga Hall, the carved material frame inside the section frame. Engraved,
 bronze, silver, gold and legendary levels use the existing border, metal, subtle,
 gold and focus tokens, plus dashed/double borders and rune ornamentation. Their
 appearance derives from permanent awarded tiers; runes map to stable family IDs.
-The overall score sits within Achievements, separated by shared borders rather
+The overall score sits within Deeds of Valor, separated by shared borders rather
 than another nested surface. These treatments introduce no animation or separate
 component palette.
