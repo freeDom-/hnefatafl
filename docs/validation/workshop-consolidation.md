@@ -79,28 +79,26 @@ Focused validation on the corrected head:
 The browser regression adds a desktop assertion that the restored row is focused
 and a mobile-project assertion that the native selector is focused.
 
-Full CI on head `3816f88` ([run 44412918517](https://github.com/freeDom-/hnefatafl/actions/runs/44412918517)):
+Full CI on final head `0b40aea` ([run 44429024174](https://github.com/freeDom-/hnefatafl/actions/runs/44429024174)):
 the `python` job passed with **3,531 backend tests passed and 16 skipped** plus ruff,
 mypy and `make docs`; the `browser` job passed with **1,491 unit tests**, **76**
 public-production, **568 main e2e passed / 148 skipped**, **14** registration,
 **24** online and **34** personal-area browser tests, plus format, typecheck and
-build; the `node22` job passed typecheck, **1,491 unit tests** and build. The
-`security` job is red only for the outstanding dependency correction described
-below.
+build; the `node22` job passed typecheck, **1,491 unit tests** and build; and the
+`security` job passed with clean full and production-only lockfile audits using no
+exceptions. All four jobs are green.
 
 Compatibility limits: the automated matrix remains Chromium. Safari/WebKit and
 physical-device verification were not performed, and the explicit viewport widths
 are not real 200% browser zoom. These remain unverified rather than claimed.
 
-### Outstanding security integration
+### Integrated security correction
 
-The `security` job fails only because the registry now reports zero findings while
-the reviewed `GHSA-fc5q-39xc-vjpf` acceptance is still present; the fail-closed gate
-correctly rejects the unused exception. This is fixed by the independent security PR
-targeting main, not by changing audit governance or the exception file in this PR.
-Until that PR is reviewed and merged, the latest `origin/main` (and therefore the
-security fix) cannot be integrated here, and the security gate stays red. No
-dependency, threshold or governance change is made in this branch.
+The registry now reports zero findings, so the earlier `GHSA-fc5q-39xc-vjpf`
+acceptance became unused and the fail-closed gate correctly rejected it. That
+correction was reviewed and merged to main (PR #100), and `origin/main` `2ffa951`
+is merged into this branch, so the `security` job passes here. This PR does not
+modify audit governance, the exception file or dependency versions.
 
 ## Measured rendering
 
