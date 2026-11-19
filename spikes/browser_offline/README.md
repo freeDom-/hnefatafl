@@ -4,6 +4,11 @@
 [Validation](../../docs/validation/online-phase0.md) ·
 [Measured browser evidence](../../docs/validation/browser-offline-phase0.json)
 
+> Phase 1 (full-strength Jarl and trained-model browser inference) builds on this
+> prototype. See the
+> [browser-side analysis roadmap](../../docs/designs/browser-analysis-roadmap.md) and
+> [Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
+
 Isolated static experiment: unchanged Python engine and baseline AI in a Pyodide
 worker. No production routes, account bypass, application build changes, database,
 new production dependency or downloaded models. Reusing Python proved feasible;
@@ -19,6 +24,37 @@ cache, bounded scheduling and termination-based cancellation. See the
 for fresh measurements, native/browser differential tests and production gates.
 The Phase 0 measurements and limitations below describe the original baseline-only
 experiment; they are retained as historical evidence, not new validation.
+
+### Phase 1: full-strength Jarl and neural inference
+
+The worker exposes the production-equivalent Jarl preset (depth 5, 2 s, Shield
+maiden, optimized search) and named benchmark workloads
+(quick/interactive/standard/deep/extended) through a shared `jarl_benchmark.py`
+runner used identically by native CPython and Pyodide. The isolated neural spike
+adds digest-verified ORT Web 1.22.0 WASM/WebGPU inference for an explicitly
+supplied exported ONNX model. See the
+[roadmap](../../docs/designs/browser-analysis-roadmap.md) and
+[Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
+
+```sh
+# Native vs browser Jarl
+.venv/bin/python spikes/browser_offline/native_jarl_benchmark.py \
+  --suite quick --mode fixed_work --output /tmp/jarl-native.json
+.venv/bin/python spikes/browser_offline/prepare.py --output /tmp/hnefatafl-analysis
+node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
+  --suite quick --mode fixed_work --native /tmp/jarl-native.json \
+  --output /tmp/jarl-browser.json
+
+# ONNX export + browser neural inference
+uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
+.venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/model-export
+.venv/bin/python spikes/browser_offline/prepare_neural.py \
+  --model-dir /tmp/model-export --output /tmp/neural-spike
+node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
+  --provider wasm --output /tmp/neural-wasm.json
+node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
+  --provider webgpu --require-webgpu
+```
 
 ### Lifecycle and scheduling corrections
 

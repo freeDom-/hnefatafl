@@ -1,0 +1,31 @@
+{
+  "kind": "browser-neural-benchmark",
+  "generated": "2026-11-19T13:12:51.031Z",
+  "profile": "desktop",
+  "browser": "156.0.8078.4",
+  "ort_version": "1.22.0",
+  "model": {
+    "file": "model/model.onnx",
+    "ruleset": "brandubh",
+    "size": 7,
+    "sha256": "4054099991db2d9732c43d49ea562b8bed86d68a2a806307fca63100b6eae040",
+    "bytes": 46924
+  },
+  "requested_provider": "webgpu",
+  "capabilities": {
+    "crossOriginIsolated": false,
+    "sharedArrayBuffer": false,
+    "webAssembly": true,
+    "webGPUAPI": true,
+    "webGPUAdapter": false,
+    "webGPUAdapterError": null,
+    "adapterInfo": null,
+    "hardwareConcurrency": 4,
+    "deviceMemoryGiBHint": 32,
+    "heap_capacity_bytes": null
+  },
+  "page_errors": [],
+  "load_error": "page.evaluate: Error: Error: WebGPU requested but no adapter is available: null adapter\n    at worker.onmessage (http://127.0.0.1:37923/neural-client.js:21:38)",
+  "execution_provider": null,
+  "provider_is_gpu": false
+}

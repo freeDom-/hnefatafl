@@ -1,0 +1,153 @@
+{
+  "sidecar": {
+    "schema": 1,
+    "artifact": "hnefatafl-policy-value-onnx",
+    "ruleset": "brandubh",
+    "architecture": "tafl-policy-value-v1",
+    "model_config": {
+      "ruleset": "brandubh",
+      "channels": 4,
+      "blocks": 0
+    },
+    "input": {
+      "name": "planes",
+      "shape": [
+        "batch",
+        6,
+        7,
+        7
+      ],
+      "dtype": "float32",
+      "encoding": "six-plane-v1",
+      "dynamic_batch": true
+    },
+    "outputs": {
+      "policy_logits": {
+        "name": "policy_logits",
+        "shape": [
+          "batch",
+          2401
+        ]
+      },
+      "defender_value": {
+        "name": "defender_value",
+        "shape": [
+          "batch"
+        ]
+      }
+    },
+    "action_index": "source*size**2+target",
+    "value_perspective": "defenders",
+    "legal_policy_masking": "softmax over legal action indices only",
+    "graph_input_output_dims": {
+      "planes": [
+        "batch",
+        6,
+        7,
+        7
+      ],
+      "policy_logits": [
+        "batch",
+        2401
+      ],
+      "defender_value": [
+        "batch"
+      ]
+    },
+    "source": {
+      "name": "last.pt",
+      "sha256": "7d0b8577b70f6b61c5acd51418cea2cb803667a8910ef803689a6623a190c395",
+      "bytes": 62415
+    },
+    "onnx": {
+      "sha256": "4054099991db2d9732c43d49ea562b8bed86d68a2a806307fca63100b6eae040",
+      "bytes": 46924,
+      "opset": 18,
+      "checker": "passed",
+      "shape_inference": "passed"
+    },
+    "exporter": {
+      "torch": "2.14.1+cpu",
+      "onnx": "1.23.2",
+      "onnxscript": "0.7.2",
+      "onnxruntime": "1.32.0",
+      "export_seconds": 3.9386123109143227
+    },
+    "generated": "2026-11-19T13:11:36.056113+00:00"
+  },
+  "parity": {
+    "tolerances": {
+      "logit_atol": 0.001,
+      "value_atol": 0.0001,
+      "relative_atol": 0.0001
+    },
+    "cases": 6,
+    "worst_logit_max_abs_error": 1.430511474609375e-06,
+    "worst_value_abs_error": 5.960464477539063e-08,
+    "worst_legal_policy_relative_error": 2.755674870513758e-07,
+    "top5_all_agree": true,
+    "passes": true,
+    "rows": [
+      {
+        "position": "brandubh-opening",
+        "kind": "opening",
+        "logit_max_abs_error": 4.76837158203125e-07,
+        "value_abs_error": 5.960464477539063e-08,
+        "legal_policy_relative_error": 2.085644865701397e-07,
+        "top5_move_agreement": true,
+        "illegal_probability_raw_softmax": 0.9816973566181892,
+        "legal_count": 40
+      },
+      {
+        "position": "brandubh-midgame",
+        "kind": "midgame",
+        "logit_max_abs_error": 4.76837158203125e-07,
+        "value_abs_error": 0.0,
+        "legal_policy_relative_error": 2.755674870513758e-07,
+        "top5_move_agreement": true,
+        "illegal_probability_raw_softmax": 0.9828046572125798,
+        "legal_count": 42
+      },
+      {
+        "position": "brandubh-endgame",
+        "kind": "endgame",
+        "logit_max_abs_error": 1.430511474609375e-06,
+        "value_abs_error": 0.0,
+        "legal_policy_relative_error": 2.2302643287730461e-07,
+        "top5_move_agreement": true,
+        "illegal_probability_raw_softmax": 0.9939232892352742,
+        "legal_count": 16
+      },
+      {
+        "position": "brandubh-tactical",
+        "kind": "tactical",
+        "logit_max_abs_error": 9.5367431640625e-07,
+        "value_abs_error": 0.0,
+        "legal_policy_relative_error": 1.86964967952008e-07,
+        "top5_move_agreement": true,
+        "illegal_probability_raw_softmax": 0.9903896148770696,
+        "legal_count": 23
+      },
+      {
+        "position": "brandubh-king-escape",
+        "kind": "king-escape",
+        "logit_max_abs_error": 7.152557373046875e-07,
+        "value_abs_error": 0.0,
+        "legal_policy_relative_error": 1.1436866031999671e-07,
+        "top5_move_agreement": true,
+        "illegal_probability_raw_softmax": 0.9933625544493392,
+        "legal_count": 12
+      },
+      {
+        "position": "brandubh-repetition",
+        "kind": "repetition",
+        "logit_max_abs_error": 4.76837158203125e-07,
+        "value_abs_error": 5.960464477539063e-08,
+        "legal_policy_relative_error": 2.085644865701397e-07,
+        "top5_move_agreement": true,
+        "illegal_probability_raw_softmax": 0.9816973566181892,
+        "legal_count": 40
+      }
+    ]
+  }
+}

@@ -1,6 +1,12 @@
 # Current-engine browser analysis feasibility
 
 Standalone spike only, based on main `2579a86b82ed1eca91f39e7d8064196597e873ed`.
+
+> Phase 1 extends this prototype with the production-equivalent Jarl preset,
+> wider bounded workloads and a native/browser benchmark. See the
+> [browser-side analysis roadmap](../designs/browser-analysis-roadmap.md) and
+> [Phase 1 validation](browser-analysis-phase1.md). The Phase 0 measurements
+> below remain historical evidence and are not recast.
 No production entry, API, engine, model, schema or dependency is changed. The existing
 Python engine/search runs in a dedicated Pyodide 0.27.7 worker; there is no JavaScript
 rules implementation. [Machine-readable run](browser-analysis-prototype.json).
