@@ -470,8 +470,13 @@ def mark_fixture_health(app, fixture_identity: str) -> None:
 
 
 def bind_exclusive_socket(host: str, port: int) -> socket.socket:
-    """Bind without SO_REUSEADDR so an unrelated listener is never reused."""
+    """Bind without SO_REUSEPORT so an unrelated live listener is never reused.
+
+    SO_REUSEADDR only reclaims TIME_WAIT addresses; on Linux a second bind over
+    an active listener still fails with EADDRINUSE, which the caller reports.
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind((host, port))
         sock.listen(128)
