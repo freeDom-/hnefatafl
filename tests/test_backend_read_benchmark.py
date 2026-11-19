@@ -4,6 +4,7 @@ import os
 import signal
 import socket
 import subprocess
+import threading
 from pathlib import Path
 
 import httpx
@@ -164,6 +165,29 @@ def test_fixture_identity_uses_existing_health_route_only():
         unknown = client.get("/__benchmark_identity")
         assert unknown.status_code == 404
         assert "X-Hnefatafl-Benchmark-Fixture" not in unknown.headers
+
+
+def test_bind_exclusive_socket_sets_tcp_nodelay_for_measurement_fidelity():
+    listener = bench.bind_exclusive_socket(bench.LOOPBACK, 0)
+    port = listener.getsockname()[1]
+    accepted = []
+
+    def accept():
+        connection, _ = listener.accept()
+        accepted.append(connection)
+
+    thread = threading.Thread(target=accept)
+    thread.start()
+    client = socket.create_connection((bench.LOOPBACK, port))
+    thread.join(timeout=5)
+    try:
+        assert accepted
+        assert accepted[0].getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 1
+    finally:
+        client.close()
+        for connection in accepted:
+            connection.close()
+        listener.close()
 
 
 def test_bind_exclusive_socket_rejects_occupied_port_without_killing_occupant():

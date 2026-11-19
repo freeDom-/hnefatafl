@@ -474,9 +474,12 @@ def bind_exclusive_socket(host: str, port: int) -> socket.socket:
 
     SO_REUSEADDR only reclaims TIME_WAIT addresses; on Linux a second bind over
     an active listener still fails with EADDRINUSE, which the caller reports.
+    TCP_NODELAY is inherited by accepted sockets and keeps the measured latency
+    free of the Nagle/delayed-ACK artifact a pre-bound socket would introduce.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     try:
         sock.bind((host, port))
         sock.listen(128)
