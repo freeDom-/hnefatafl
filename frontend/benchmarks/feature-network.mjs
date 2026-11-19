@@ -262,13 +262,23 @@ async function waitForExpectedGraph(expected, tracker, timeoutMs = 15000) {
   throw new Error('Timed out waiting for the initial manifest graph: ' + missing.join(', '));
 }
 
-/** A page with the read-only fixtures and asset observation already installed. */
-async function fixturePage(context) {
+/** A page with the read-only fixtures and asset observation already installed.
+ * Each recovery scenario gets its own browser context so a cached stylesheet or
+ * asset from an earlier scenario cannot mask a real failure. */
+async function fixturePage(browser) {
+  const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
   const page = await context.newPage();
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   const mutations = await mockApi(page);
   const tracker = observeAssets(page);
-  return { page, mutations, tracker };
+  return {
+    page,
+    mutations,
+    tracker,
+    close: async () => {
+      await context.close();
+    },
+  };
 }
 
 let browser;
@@ -368,7 +378,12 @@ try {
   const formChunk = Object.values(manifest).find((chunk) => chunk.name === 'NewGameForm')?.file;
   if (!formChunk) throw new Error('NewGameForm chunk missing from the production manifest');
   {
-    const { page: recoveryPage, mutations, tracker: recoveryTracker } = await fixturePage(context);
+    const {
+      page: recoveryPage,
+      mutations,
+      tracker: recoveryTracker,
+      close,
+    } = await fixturePage(browser);
     const formName = formChunk.split('/').pop();
     let blockForm = true;
     await recoveryPage.route(
@@ -390,7 +405,7 @@ try {
       throw new Error('New Game form chunk did not recover through Retry');
     if (mutations.length)
       throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
-    await recoveryPage.close();
+    await close();
     recovery.newGameForm = {
       feature: formChunk,
       firstAttempt: 'aborted',
@@ -402,7 +417,12 @@ try {
   const dependency = Object.values(manifest).find((chunk) => chunk.name === 'ConfigImportButton');
   if (!dependency) throw new Error('ConfigImportButton chunk missing from the production manifest');
   {
-    const { page: recoveryPage, mutations, tracker: recoveryTracker } = await fixturePage(context);
+    const {
+      page: recoveryPage,
+      mutations,
+      tracker: recoveryTracker,
+      close,
+    } = await fixturePage(browser);
     const dependencyName = dependency.file.split('/').pop();
     let blockDependency = true;
     await recoveryPage.route(
@@ -418,7 +438,7 @@ try {
       throw new Error('Transitive dependency did not recover through Retry');
     if (mutations.length)
       throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
-    await recoveryPage.close();
+    await close();
     recovery.transitiveDependency = {
       feature: dependency.file,
       firstAttempt: 'aborted',
@@ -431,7 +451,7 @@ try {
   const trainingCss = manifest['src/Training.tsx']?.css?.[0];
   if (!trainingCss) throw new Error('Training deferred stylesheet missing from the manifest');
   {
-    const { page: recoveryPage, mutations } = await fixturePage(context);
+    const { page: recoveryPage, mutations, close } = await fixturePage(browser);
     const cssName = trainingCss.split('/').pop();
     let blockCss = true;
     await recoveryPage.route(
@@ -450,7 +470,7 @@ try {
       throw new Error(`Recovered Training content is not styled (display: ${display})`);
     if (mutations.length)
       throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
-    await recoveryPage.close();
+    await close();
     recovery.deferredStylesheet = {
       feature: trainingCss,
       firstAttempt: 'aborted',
@@ -459,10 +479,10 @@ try {
     };
   }
 
-  // 4. Retry alone cannot restore a deferred stylesheet: the failed CSS link is
-  //    not re-requested, so the feature mounts without its styles.
+  // 4. A continuously failing stylesheet must not mount an unstyled feature:
+  //    Retry keeps the error panel and the explicit Reload action instead.
   {
-    const { page: recoveryPage, mutations } = await fixturePage(context);
+    const { page: recoveryPage, mutations, close } = await fixturePage(browser);
     const cssName = trainingCss.split('/').pop();
     await recoveryPage.route(
       (url) => url.pathname.endsWith(`/${cssName}`),
@@ -471,26 +491,60 @@ try {
     await recoveryPage.goto(origin + '/training');
     await recoveryPage.getByRole('alert').waitFor();
     await recoveryPage.getByRole('button', { name: 'Retry', exact: true }).click();
-    await recoveryPage.locator('.training-workshop').waitFor();
-    const display = await recoveryPage
-      .locator('.workshop-global')
-      .evaluate((element) => getComputedStyle(element).display);
-    if (display === 'flex') throw new Error('Retry unexpectedly restored the deferred stylesheet');
+    await recoveryPage.getByRole('alert').waitFor();
+    if (await recoveryPage.locator('.training-workshop').count())
+      throw new Error('Training mounted after Retry without its stylesheet');
+    if (!(await recoveryPage.getByRole('button', { name: 'Reload application' }).isVisible()))
+      throw new Error('Reload action missing while the stylesheet is unresolved');
     if (mutations.length)
       throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
-    await recoveryPage.close();
-    recovery.stylesheetRetryLimitation = {
+    await close();
+    recovery.stylesheetRetryBlocked = {
       feature: trainingCss,
       retried: true,
-      computedDisplay: display,
-      note: 'Retry restores the JavaScript but not the failed stylesheet; Reload is required.',
+      featureMounted: false,
+      retainedErrorPanel: true,
+      recoveredThrough: 'Reload application',
+    };
+  }
+
+  // 4b. Navigating away and back within the same document must not bypass the
+  //     unresolved stylesheet failure.
+  {
+    const { page: recoveryPage, mutations, close } = await fixturePage(browser);
+    const cssName = trainingCss.split('/').pop();
+    await recoveryPage.route(
+      (url) => url.pathname.endsWith(`/${cssName}`),
+      (route) => route.abort(),
+    );
+    await recoveryPage.goto(origin + '/training');
+    await recoveryPage.getByRole('alert').waitFor();
+    await recoveryPage.evaluate(() => {
+      history.pushState(null, '', '/dashboard');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await recoveryPage.locator('.personal-dashboard').waitFor();
+    await recoveryPage.evaluate(() => {
+      history.pushState(null, '', '/training');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await recoveryPage.getByRole('alert').waitFor();
+    if (await recoveryPage.locator('.training-workshop').count())
+      throw new Error('Training mounted after navigating back despite the unresolved stylesheet');
+    if (mutations.length)
+      throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+    await close();
+    recovery.stylesheetNavigation = {
+      feature: trainingCss,
+      mountedAfterReturn: false,
+      retainedErrorPanel: true,
     };
   }
 
   // 5. A permanently missing hashed JavaScript asset keeps failing through
   //    Retry and recovers only through a fresh document (explicit Reload).
   {
-    const { page: recoveryPage, mutations } = await fixturePage(context);
+    const { page: recoveryPage, mutations, close } = await fixturePage(browser);
     const formName = formChunk.split('/').pop();
     let blockAsset = true;
     await recoveryPage.route(
@@ -514,7 +568,7 @@ try {
       .waitFor();
     if (mutations.length)
       throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
-    await recoveryPage.close();
+    await close();
     recovery.missingHashedAsset = {
       feature: formChunk,
       retriedWhileMissing: true,

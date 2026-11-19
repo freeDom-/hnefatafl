@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * Owns the asynchronous New Game setup dialog lifecycle.
@@ -6,11 +6,14 @@ import { useCallback, useRef, useState } from 'react';
  * Route equality alone cannot tell overlapping option requests apart, so every
  * start takes a generation. Only the newest generation may publish options,
  * open the dialog or report a failure. Cancelling, navigating away, switching
- * account or logging out advances the generation, so a late response can never
- * reopen a dismissed dialog, replace a newer operation's options or surface a
- * stale error on an unrelated route. `owns()` reports whether the open dialog
- * still belongs to the current generation; game creation uses it to discard a
- * completion that arrives after the dialog was dismissed.
+ * account, logging out or unmounting advances the generation and aborts the
+ * pending option request, so a late response can never reopen a dismissed
+ * dialog, replace a newer operation's options or surface a stale error.
+ *
+ * `session()` reports the generation that owns the currently open dialog and
+ * `owns(session)` verifies a specific completion against it. Game creation binds
+ * to the session that opened the dialog rather than to whichever dialog happens
+ * to be open when the POST settles.
  */
 export function useNewGameSetup() {
   const generation = useRef(0);
@@ -26,23 +29,42 @@ export function useNewGameSetup() {
     setOpen(false);
   }, []);
 
+  // Unmounting the owner invalidates every generation and aborts its pending
+  // option request. This must not set state, and it must not wait for a later
+  // account or route effect: Auth can unmount the whole application on an
+  // account switch or logout without an App re-render.
+  useEffect(
+    () => () => {
+      generation.current += 1;
+      request.current?.abort();
+      request.current = null;
+    },
+    [],
+  );
+
   /**
-   * Start a setup operation. `load` returns whether the options still apply to
-   * the current destination; a superseded or stale load is discarded silently.
-   * A rejection reports through `onError` only while the operation is current.
+   * Start a setup operation. `load` returns the fetched options (or `null` when
+   * the destination changed), `commit` publishes them, and `onError` reports a
+   * failure. The hook verifies generation and cancellation before either
+   * callback, so a stale promise can never publish state or notify.
    */
   const start = useCallback(
-    (load: (signal: AbortSignal) => Promise<boolean>, onError: (error: unknown) => void) => {
+    <T>(
+      load: (signal: AbortSignal) => Promise<T | null>,
+      commit: (value: T) => void,
+      onError: (error: unknown) => void,
+    ) => {
       // A newer setup supersedes any pending request and any dialog it owns.
       cancel();
       const controller = new AbortController();
       request.current = controller;
       const current = generation.current;
       void load(controller.signal).then(
-        (commit) => {
-          if (!commit || generation.current !== current || controller.signal.aborted) return;
+        (value) => {
+          if (value === null || generation.current !== current || controller.signal.aborted) return;
           request.current = null;
           owner.current = current;
+          commit(value);
           setOpen(true);
         },
         (error: unknown) => {
@@ -55,8 +77,10 @@ export function useNewGameSetup() {
     [cancel],
   );
 
-  /** Whether the currently open dialog still owns the latest generation. */
-  const owns = useCallback(() => owner.current !== 0 && generation.current === owner.current, []);
+  /** The generation owning the currently open dialog, or `0` when none is open. */
+  const session = useCallback(() => owner.current, []);
+  /** Whether a specific completion still belongs to the current generation. */
+  const owns = useCallback((value: number) => value !== 0 && generation.current === value, []);
 
-  return { open, start, cancel, owns };
+  return { open, start, cancel, owns, session };
 }

@@ -136,3 +136,78 @@ it('does not commit a resolved import after the feature unmounts', async () => {
   expect(mounted).not.toHaveBeenCalled();
   expect(screen.queryByText('Mounted late')).toBeNull();
 });
+
+/**
+ * Simulate Vite's production preload failure: the stylesheet link is appended
+ * and `vite:preloadError` carries the CSS payload before the import settles.
+ */
+function failStylesheet(href: string): HTMLLinkElement {
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = href;
+  document.head.append(link);
+  const event = new CustomEvent('vite:preloadError');
+  Object.assign(event, { payload: new Error(`Unable to preload CSS for ${href}`) });
+  window.dispatchEvent(event);
+  return link;
+}
+
+it('keeps the error panel after Retry while a required stylesheet is unresolved', async () => {
+  let link!: HTMLLinkElement;
+  const load = vi.fn(async () => {
+    link = failStylesheet('https://example.test/deferred.css');
+    throw new Error('Unable to preload CSS');
+  });
+  const Feature = deferredFeature(load);
+  render(<Feature />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('This page could not be loaded.');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  // Same-document recovery is unsafe, so the feature must not mount and the
+  // loader must not re-import as if it had recovered.
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Reload application' })).toBeVisible();
+  expect(load).toHaveBeenCalledTimes(1);
+  link.remove();
+});
+
+it('does not cache or mount a module that resolves while its stylesheet is unresolved', async () => {
+  let link!: HTMLLinkElement;
+  const Feature = deferredFeature(async () => {
+    link = failStylesheet('https://example.test/partial.css');
+    return { default: () => <p>Unstyled feature</p> };
+  });
+  render(<Feature />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.queryByText('Unstyled feature')).toBeNull();
+  link.remove();
+});
+
+it('keeps a stylesheet failure across unmount and remount', async () => {
+  let link!: HTMLLinkElement;
+  const load = vi.fn(async () => {
+    link = failStylesheet('https://example.test/navigation.css');
+    throw new Error('Unable to preload CSS');
+  });
+  const Feature = deferredFeature(load);
+  const view = render(<Feature />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  view.unmount();
+  render(<Feature />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(load).toHaveBeenCalledTimes(1);
+  link.remove();
+});
+
+it('does not let one feature stylesheet failure affect an unrelated feature', async () => {
+  let link!: HTMLLinkElement;
+  const Broken = deferredFeature(async () => {
+    link = failStylesheet('https://example.test/broken.css');
+    throw new Error('Unable to preload CSS');
+  });
+  const Healthy = deferredFeature(async () => ({ default: () => <p>Healthy feature</p> }));
+  render(<Broken />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  render(<Healthy />);
+  expect(await screen.findByText('Healthy feature')).toBeVisible();
+  link.remove();
+});

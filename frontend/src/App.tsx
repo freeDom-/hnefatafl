@@ -123,7 +123,11 @@ export default function App() {
     start: startSetup,
     cancel: cancelSetup,
     owns: setupOwns,
+    session: setupSession,
   } = useNewGameSetup();
+  // The generation that opened the current dialog. A creation completion is
+  // bound to it rather than to whichever dialog owns the latest generation.
+  const activeSetupSession = newOpen ? setupSession() : 0;
   const [rulesOpen, setRulesOpen] = useState(false);
   const [aiRetryDelay, setAiRetryDelay] = useState(900);
   const [initializing, setInitializing] = useState(true);
@@ -156,18 +160,24 @@ export default function App() {
   }, [refreshModels]);
   const startSinglePlayer = useCallback(() => {
     const route = canonicalLocation();
-    startSetup(async (signal) => {
-      const [rules, ais] = await Promise.all([
-        api<Ruleset[]>('/rulesets', undefined, undefined, signal),
-        api<AIProfile[]>('/ai/profiles', undefined, undefined, signal),
-      ]);
-      // Do not open a stale setup dialog if the user moved elsewhere while
-      // the options were loading.
-      if (route !== canonicalLocation()) return false;
-      setRulesets(rules);
-      setProfiles(ais);
-      return true;
-    }, reportError);
+    startSetup(
+      async (signal) => {
+        const [rules, ais] = await Promise.all([
+          api<Ruleset[]>('/rulesets', undefined, undefined, signal),
+          api<AIProfile[]>('/ai/profiles', undefined, undefined, signal),
+        ]);
+        // Do not publish options or open a stale setup dialog if the user moved
+        // elsewhere while the options were loading. The hook publishes them
+        // only after it verifies this operation still owns the generation.
+        if (route !== canonicalLocation()) return null;
+        return { rulesets: rules, profiles: ais };
+      },
+      ({ rulesets: rules, profiles: ais }) => {
+        setRulesets(rules);
+        setProfiles(ais);
+      },
+      reportError,
+    );
   }, [startSetup, reportError]);
   // Any route or account change invalidates a pending setup operation and closes
   // the dialog it owned, including Browser Back/Forward. This is what stops an
@@ -763,11 +773,14 @@ export default function App() {
                   (rule) => rule.id === new URLSearchParams(location.search).get('ruleset'),
                 )?.id ?? game?.ruleset
               }
+              // Guard the form's own side effects (preferences, notifications)
+              // by the operation that opened this dialog.
+              isCurrentOperation={() => setupOwns(activeSetupSession)}
               onClose={cancelSetup}
               onCreated={(next) => {
-                // Ignore a completion that arrives after dismissal, navigation,
-                // logout or a newer setup operation took ownership.
-                if (!setupOwns()) return;
+                // Bind the completion to the setup operation that opened this
+                // dialog, not to whichever dialog owns the latest generation.
+                if (!setupOwns(activeSetupSession)) return;
                 cancelSetup();
                 currentGame.current = next;
                 loadedRoute.current = next.id;

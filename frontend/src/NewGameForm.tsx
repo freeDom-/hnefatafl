@@ -76,6 +76,8 @@ export type NewGameProps = {
   /** Reload that catalogue. Rejects on failure and aborts on the signal. */
   onRefreshModels?: (signal?: AbortSignal) => Promise<void>;
   initialRuleset?: string;
+  /** Whether the setup operation that opened this dialog still owns it. */
+  isCurrentOperation?: () => boolean;
   onClose: () => void;
   onCreated: (game: Game) => void;
 };
@@ -87,6 +89,7 @@ export default function NewGameForm({
   models = [],
   onRefreshModels,
   initialRuleset,
+  isCurrentOperation,
   onClose,
   onCreated,
 }: NewGameProps) {
@@ -238,11 +241,11 @@ export default function NewGameForm({
         human_side: setup.humanSide,
         players,
       });
-      // The dialog may have been dismissed or navigated away while the POST was
-      // pending. The server operation still stands and the game remains in the
-      // account's history; the client must not reopen, navigate or overwrite a
-      // newer setup from this obsolete completion.
-      if (!alive.current) return;
+      // The dialog may have been dismissed, navigated away or superseded while
+      // the POST was pending. The server operation still stands and the game
+      // remains in the account's history; the client must not persist stale
+      // preferences, notify, reopen, navigate or overwrite a newer setup.
+      if (!alive.current || !(isCurrentOperation?.() ?? true)) return;
       try {
         // Preferences never retain a custom identity or configuration.
         localStorage.setItem(
@@ -265,7 +268,7 @@ export default function NewGameForm({
       }
       onCreated(game);
     } catch (failure) {
-      if (!alive.current) return;
+      if (!alive.current || !(isCurrentOperation?.() ?? true)) return;
       notify.error(errorMessage(failure));
     } finally {
       if (alive.current) setBusy(false);

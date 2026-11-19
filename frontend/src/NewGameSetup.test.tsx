@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Game } from './types';
+import { GAME_SETUP_KEY } from './NewGameForm';
 
 /**
  * The setup lifecycle is an application-level concern (route invalidation,
@@ -70,6 +72,24 @@ const profiles = [
     algorithm: 'baseline',
     parameters: { time_limit: 1 },
     supported_rulesets: ['tablut'],
+  },
+];
+const rulesAlt = [
+  {
+    id: 'brandubh',
+    name: 'Brandubh',
+    size: 7,
+    description: 'A smaller board.',
+    rules_markdown: '# Brandubh',
+  },
+];
+const profilesAlt = [
+  {
+    id: 'baseline',
+    name: 'Shield bearer',
+    algorithm: 'baseline',
+    parameters: { time_limit: 1 },
+    supported_rulesets: ['brandubh'],
   },
 ];
 const json = (value: unknown) => Promise.resolve({ ok: true, json: async () => value } as Response);
@@ -334,6 +354,115 @@ it('invalidates a pending setup when the account changes', async () => {
 it('creates a game through query-driven setup and navigates to the board', async () => {
   installFetcher();
   await renderAtDashboard('?setup=single-player');
+  const setup = await screen.findByRole('dialog', { name: 'Begin a new saga' });
+  fireEvent.click(setup.querySelector('button.primary')!);
+  await waitFor(() => expect(new URL(location.href).pathname).toBe('/games/g2'));
+  expect(await screen.findByRole('grid')).toBeVisible();
+});
+
+it('does not let a stale option response overwrite a newer committed operation', async () => {
+  control.deferRules = true;
+  control.deferProfiles = true;
+  installFetcher();
+  await renderAtDashboard();
+  const play = screen.getByRole('button', { name: 'Play vs AI' });
+  fireEvent.click(play);
+  fireEvent.click(play);
+  // The newest operation commits tablut first.
+  await act(async () => {
+    control.rulesGates[1].resolve(json(rules));
+    control.profileGates[1].resolve(json(profiles));
+  });
+  await screen.findByRole('dialog', { name: 'Begin a new saga' });
+  // The superseded operation resolves later with different options; its commit
+  // must be discarded rather than overwriting application state.
+  await act(async () => {
+    control.rulesGates[0].resolve(json(rulesAlt));
+    control.profileGates[0].resolve(json(profilesAlt));
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+  await waitFor(() => expect(dialog()).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Play vs AI' }));
+  await resolveLatestOptions();
+  expect(screen.getByRole('radio', { name: /Tablut/ })).toBeChecked();
+  expect(screen.queryByRole('radio', { name: /Brandubh/ })).toBeNull();
+});
+
+it('aborts a pending setup when the application remounts for a new account', async () => {
+  control.deferRules = true;
+  control.deferProfiles = true;
+  installFetcher();
+  history.replaceState(null, '', '/dashboard');
+  const view = render(<App key="odin" />);
+  await screen.findByRole('button', { name: 'Play vs AI' });
+  fireEvent.click(screen.getByRole('button', { name: 'Play vs AI' }));
+  expect(control.rulesGates).toHaveLength(1);
+  auth.account = { ...auth.account, id: 'account-freyja' };
+  // A keyed remount models Auth unmounting and recreating the application.
+  await act(async () => {
+    view.rerender(<App key="freyja" />);
+  });
+  await act(async () => {
+    control.rulesGates[0].resolve(json(rules));
+    control.profileGates[0].resolve(json(profiles));
+  });
+  await waitFor(() => expect(dialog()).toBeNull());
+});
+
+it('ignores a creation completion bound to an older setup generation', async () => {
+  installFetcher();
+  await renderAtDashboard();
+  fireEvent.click(screen.getByRole('button', { name: 'Play vs AI' }));
+  await screen.findByRole('button', { name: 'To the table' });
+  control.deferCreate = true;
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(control.createGates).toHaveLength(1));
+  // Supersede the dialog with a newer setup operation before the POST settles.
+  fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+  await waitFor(() => expect(dialog()).toBeNull());
+  control.deferRules = true;
+  control.deferProfiles = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Play vs AI' }));
+  await resolveLatestOptions();
+  await act(async () => {
+    control.createGates[0].resolve(json(createdGame));
+  });
+  expect(dialog()).toBeVisible();
+  expect(new URL(location.href).pathname).toBe('/dashboard');
+});
+
+it('does not overwrite preferences when an obsolete creation completes', async () => {
+  installFetcher();
+  await renderAtDashboard();
+  const saved = JSON.stringify({
+    version: 2,
+    ruleset: 'tablut',
+    humanSide: 'defenders',
+    profiles: { attackers: 'baseline', defenders: 'baseline' },
+    mode: 'human-ai',
+  });
+  localStorage.setItem(GAME_SETUP_KEY, saved);
+  fireEvent.click(screen.getByRole('button', { name: 'Play vs AI' }));
+  await screen.findByRole('button', { name: 'To the table' });
+  control.deferCreate = true;
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(control.createGates).toHaveLength(1));
+  fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+  await waitFor(() => expect(dialog()).toBeNull());
+  await act(async () => {
+    control.createGates[0].resolve(json(createdGame));
+  });
+  expect(localStorage.getItem(GAME_SETUP_KEY)).toBe(saved);
+});
+
+it('creates a game through query-driven setup under StrictMode', async () => {
+  installFetcher();
+  history.replaceState(null, '', '/dashboard?setup=single-player');
+  render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
   const setup = await screen.findByRole('dialog', { name: 'Begin a new saga' });
   fireEvent.click(setup.querySelector('button.primary')!);
   await waitFor(() => expect(new URL(location.href).pathname).toBe('/games/g2'));

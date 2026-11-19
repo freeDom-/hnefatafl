@@ -45,12 +45,13 @@ const profiles: AIProfile[] = [
 const json = (value: unknown, ok = true) =>
   Promise.resolve({ ok, json: async () => value } as Response);
 const fetcher = vi.fn((_path: string, _init?: RequestInit) => json({ id: 'created' }));
-const show = (onCreated = vi.fn(), onClose = vi.fn()) =>
+const show = (onCreated = vi.fn(), onClose = vi.fn(), isCurrentOperation?: () => boolean) =>
   render(
     <NotificationProvider>
       <NewGameForm
         rulesets={rulesets}
         profiles={profiles}
+        isCurrentOperation={isCurrentOperation}
         onCreated={onCreated}
         onClose={onClose}
       />
@@ -244,6 +245,34 @@ it('does not surface a stale creation error after dismissal', async () => {
   });
   expect(created).not.toHaveBeenCalled();
   expect(getNotifications()).toEqual([]);
+});
+
+it('does not persist preferences or complete when the operation is no longer current', async () => {
+  let finish!: (response: Response) => void;
+  fetcher.mockImplementation(
+    () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const created = vi.fn();
+  show(created, vi.fn(), () => false);
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  await act(async () => {
+    finish(await json({ id: 'created' }));
+  });
+  expect(created).not.toHaveBeenCalled();
+  expect(localStorage.getItem(GAME_SETUP_KEY)).toBeNull();
+  expect(getNotifications()).toEqual([]);
+});
+
+it('does not surface a stale creation error when the operation is no longer current', async () => {
+  fetcher.mockImplementation(() => json({ detail: 'Creation unavailable' }, false));
+  show(vi.fn(), vi.fn(), () => false);
+  fireEvent.click(screen.getByRole('button', { name: 'To the table' }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  await waitFor(() => expect(getNotifications()).toEqual([]));
 });
 
 it('still applies creation when StrictMode re-runs the mount effect', async () => {
