@@ -1151,6 +1151,82 @@ def test_parse_mountinfo_decodes_escaped_mount_points():
     assert bench.parse_mountinfo(text) == [Path("/tmp/a b"), Path("/tmp/c\\d")]
 
 
+def test_parse_mountinfo_keeps_non_breaking_space_in_one_field():
+    # U+00A0 is Unicode whitespace, so str.split() would break the path apart.
+    point = "/tmp/nbsp\u00a0path"
+    points = bench.parse_mountinfo(_mountinfo_line(point))
+    assert points == [Path(point)]
+    assert len(points[0].parts) == 3
+
+
+def test_parse_mountinfo_keeps_unicode_line_separator_in_one_record():
+    # U+2028 is a Unicode line separator, so str.splitlines() would split here.
+    separator_path = "/tmp/line\u2028sep"
+    text = "\n".join(_mountinfo_line(point) for point in (separator_path, "/tmp/other", "/"))
+    assert bench.parse_mountinfo(text) == [
+        Path(separator_path),
+        Path("/tmp/other"),
+        Path("/"),
+    ]
+
+
+def test_fixture_mount_boundaries_detects_unicode_space_mount(tmp_path):
+    fixture = create_fixture_directory(tmp_path)
+    mounted = fixture.path / "models\u00a0dir"
+    mounted.mkdir()
+    text = "\n".join(_mountinfo_line(point) for point in (Path("/"), Path("/tmp"), mounted))
+    assert bench.fixture_mount_boundaries(fixture.path, points=bench.parse_mountinfo(text)) == [
+        mounted.resolve()
+    ]
+
+
+def test_parse_mountinfo_rejects_empty_or_unusable_contents():
+    with pytest.raises(bench.MountInfoUnavailable, match="empty or unusable"):
+        bench.parse_mountinfo("")
+    with pytest.raises(bench.MountInfoUnavailable, match="empty or unusable"):
+        bench.parse_mountinfo("\n\n")
+    # Records without the mandatory " - " separator and trailing fields.
+    with pytest.raises(bench.MountInfoUnavailable, match="empty or unusable"):
+        bench.parse_mountinfo("36 35 98:0 / /tmp rw")
+    # Too few pre-separator fields.
+    with pytest.raises(bench.MountInfoUnavailable, match="empty or unusable"):
+        bench.parse_mountinfo("36 35 /tmp rw - ext4 /dev/sda1 rw")
+
+
+def test_mount_points_fails_closed_on_unusable_contents(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    monkeypatch.setattr(bench, "_mountinfo_text", lambda: "")
+    with pytest.raises(bench.MountInfoUnavailable):
+        bench._mount_points()
+    with pytest.raises(bench.MountInfoUnavailable):
+        validate_fixture_directory(fixture.path, require_config=False)
+    assert cleanup_fixture_directory(fixture) is False
+    assert (fixture.path / bench.MARKER_NAME).is_file()
+
+
+def test_mount_points_returns_none_when_unreadable(monkeypatch):
+    monkeypatch.setattr(bench, "_mountinfo_text", lambda: None)
+    assert bench._mount_points() is None
+
+
+def test_validate_fixture_storage_refuses_unusable_mount_table(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    monkeypatch.setattr(bench, "_mount_points", lambda: bench.parse_mountinfo(""))
+    with pytest.raises(bench.MountInfoUnavailable):
+        validate_fixture_directory(fixture.path, require_config=False)
+
+
+def test_cleanup_refuses_unusable_mount_table_and_retains_contents(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+
+    def unusable():
+        return bench.parse_mountinfo("")
+
+    monkeypatch.setattr(bench, "_mount_points", unusable)
+    assert cleanup_fixture_directory(fixture) is False
+    assert (fixture.path / bench.MARKER_NAME).is_file()
+
+
 def test_fixture_mount_boundaries_detects_mount_beneath_path_with_spaces(tmp_path):
     base = tmp_path / "with space"
     base.mkdir()
@@ -1218,6 +1294,18 @@ def test_parse_cgroup_mount_decodes_escaped_paths():
 
 def test_parse_cgroup_mount_ignores_other_filesystems():
     assert bench.parse_cgroup_mount("36 35 98:0 / /proc rw - proc proc rw") is None
+
+
+def test_parse_cgroup_mount_keeps_unicode_space_in_one_field():
+    text = "36 35 98:0 / /sys/fs/cgroup\u00a0x rw - cgroup2 cgroup rw"
+    mount = bench.parse_cgroup_mount(text)
+    assert mount is not None
+    assert mount.point == Path("/sys/fs/cgroup\u00a0x")
+
+
+def test_parse_cgroup_mount_returns_none_for_unusable_contents():
+    assert bench.parse_cgroup_mount("") is None
+    assert bench.parse_cgroup_mount("not a mountinfo record") is None
 
 
 # ---------------------------------------------------------------------------

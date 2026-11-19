@@ -404,8 +404,15 @@ def validate_phase_counts(
 
 
 class MountInfoUnavailable(RuntimeError):
-    """Mount information could not be read or resolved reliably."""
+    """Mount information could not be read, resolved or parsed reliably."""
 
+
+# mountinfo separates records with a single ASCII newline and fields with a
+# single ASCII space. Python's Unicode-aware splitlines()/split() would also
+# split a legal path containing a non-breaking space or a Unicode line
+# separator, so the kernel's explicit ASCII delimiters are used instead.
+MOUNTINFO_RECORD_SEPARATOR = "\n"
+MOUNTINFO_FIELD_SEPARATOR = " "
 
 # The kernel escapes these four characters in mountinfo paths. Decoding them in
 # a single left-to-right pass keeps a literal backslash (\134) from being
@@ -437,24 +444,56 @@ def decode_mountinfo_path(value: str) -> str:
     return "".join(result)
 
 
-def parse_mountinfo(text: str) -> list[Path]:
-    """Decoded mount points from /proc/self/mountinfo contents."""
-    points: list[Path] = []
-    for line in text.splitlines():
-        before, separator, _after = line.partition(" - ")
+def mountinfo_records(text: str) -> list[tuple[list[str], list[str]]]:
+    """Raw before/after fields for each usable mountinfo record.
+
+    Records are split only on the ASCII newline and fields only on the ASCII
+    space, so a path containing NBSP or U+2028 stays one field. A record needs
+    the `` - `` separator, at least five pre-separator fields and a non-empty
+    mount point.
+    """
+    records: list[tuple[list[str], list[str]]] = []
+    for line in text.split(MOUNTINFO_RECORD_SEPARATOR):
+        if not line:
+            continue
+        before, separator, after = line.partition(" - ")
         if not separator:
             continue
-        fields = before.split()
-        if len(fields) >= 5:
-            points.append(Path(decode_mountinfo_path(fields[4])))
-    return points
+        fields = before.split(MOUNTINFO_FIELD_SEPARATOR)
+        if len(fields) >= 5 and fields[4]:
+            records.append((fields, after.split(MOUNTINFO_FIELD_SEPARATOR)))
+    return records
+
+
+def parse_mountinfo(text: str) -> list[Path]:
+    """Decoded mount points from /proc/self/mountinfo contents.
+
+    Raises ``MountInfoUnavailable`` when no usable record can be parsed, so an
+    empty or malformed mount table is never mistaken for a verified table with
+    no mount boundaries.
+    """
+    records = mountinfo_records(text)
+    if not records:
+        raise MountInfoUnavailable("mount table is empty or unusable")
+    return [Path(decode_mountinfo_path(fields[4])) for fields, _after in records]
+
+
+def _mountinfo_text() -> str | None:
+    """Raw /proc/self/mountinfo contents, or None when unreadable."""
+    try:
+        return Path("/proc/self/mountinfo").read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def _mount_points() -> list[Path] | None:
-    """Mount points from /proc/self/mountinfo, or None when unavailable."""
-    try:
-        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
-    except OSError:
+    """Mount points from /proc/self/mountinfo, or None when unreadable.
+
+    Unusable contents raise ``MountInfoUnavailable`` from the parser rather than
+    being treated as an empty mount table.
+    """
+    text = _mountinfo_text()
+    if text is None:
         return None
     return parse_mountinfo(text)
 
@@ -853,12 +892,8 @@ class CgroupMount:
 
 def parse_cgroup_mount(text: str) -> CgroupMount | None:
     """Resolve the cgroup2 mount root and point from mountinfo contents."""
-    for line in text.splitlines():
-        before, separator, after = line.partition(" - ")
-        if not separator:
-            continue
-        fields = before.split()
-        if len(fields) >= 5 and after.split() and after.split()[0] == "cgroup2":
+    for fields, after in mountinfo_records(text):
+        if after and after[0] == "cgroup2":
             return CgroupMount(
                 root=decode_mountinfo_path(fields[3]),
                 point=Path(decode_mountinfo_path(fields[4])),
