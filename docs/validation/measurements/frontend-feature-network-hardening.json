@@ -1,14 +1,14 @@
 {
-  "sourceHead": "17a2b88295c456d2ef6846404bd2c9ff7d8199ee",
+  "sourceHead": "ab3ac68f16c5ff0640e12b7b42ee9720d6833beb",
   "build": {
     "schema": 1,
-    "revision": "17a2b88295c456d2ef6846404bd2c9ff7d8199ee",
+    "revision": "ab3ac68f16c5ff0640e12b7b42ee9720d6833beb",
     "dirty": false,
     "git": true,
     "fingerprint": "9cf07db7c20e0d32e8ce8874c665d3f1a4434ac539d41a7a63b50785ce4a7695",
-    "builtAt": "2026-11-19T15:16:12.607Z"
+    "builtAt": "2026-11-19T18:39:40.420Z"
   },
-  "measuredAt": "2026-11-19T15:16:22.780Z",
+  "measuredAt": "2026-11-19T18:40:07.176Z",
   "browser": "156.0.8078.4",
   "node": "v22.23.4",
   "fixture": "Production static assets; read-only mocked account/dashboard/workshop API responses. Network graph proof, not backend capacity evidence.",
