@@ -444,44 +444,66 @@ def decode_mountinfo_path(value: str) -> str:
     return "".join(result)
 
 
-def mountinfo_records(text: str) -> list[tuple[list[str], list[str]]]:
-    """Raw before/after fields for each usable mountinfo record.
+def mountinfo_records(text: str) -> tuple[list[tuple[list[str], list[str]]], list[int]]:
+    """Usable records plus the numbers of non-empty lines that could not be parsed.
 
     Records are split only on the ASCII newline and fields only on the ASCII
     space, so a path containing NBSP or U+2028 stays one field. A record needs
     the `` - `` separator, at least five pre-separator fields and a non-empty
-    mount point.
+    mount point. Callers decide whether an unparsed line is fatal: storage
+    safety fails closed, optional telemetry skips it.
     """
     records: list[tuple[list[str], list[str]]] = []
-    for line in text.split(MOUNTINFO_RECORD_SEPARATOR):
+    malformed: list[int] = []
+    for number, line in enumerate(text.split(MOUNTINFO_RECORD_SEPARATOR), start=1):
         if not line:
             continue
         before, separator, after = line.partition(" - ")
         if not separator:
+            malformed.append(number)
             continue
         fields = before.split(MOUNTINFO_FIELD_SEPARATOR)
         if len(fields) >= 5 and fields[4]:
             records.append((fields, after.split(MOUNTINFO_FIELD_SEPARATOR)))
-    return records
+        else:
+            malformed.append(number)
+    return records, malformed
 
 
 def parse_mountinfo(text: str) -> list[Path]:
     """Decoded mount points from /proc/self/mountinfo contents.
 
-    Raises ``MountInfoUnavailable`` when no usable record can be parsed, so an
-    empty or malformed mount table is never mistaken for a verified table with
-    no mount boundaries.
+    Raises ``MountInfoUnavailable`` when no usable record can be parsed, or when
+    any non-empty line is malformed. A partially malformed table is not fully
+    reliable: the unparsed line could be the mount inside the fixture, so it
+    must not silently pass the boundary check.
     """
-    records = mountinfo_records(text)
+    records, malformed = mountinfo_records(text)
     if not records:
+        if malformed:
+            raise MountInfoUnavailable(
+                f"mount table has no usable record ({len(malformed)} malformed)"
+            )
         raise MountInfoUnavailable("mount table is empty or unusable")
+    if malformed:
+        raise MountInfoUnavailable(
+            f"mount table has {len(malformed)} malformed record(s) at line(s) "
+            + ", ".join(str(line) for line in malformed[:5])
+        )
     return [Path(decode_mountinfo_path(fields[4])) for fields, _after in records]
 
 
-def _mountinfo_text() -> str | None:
-    """Raw /proc/self/mountinfo contents, or None when unreadable."""
+def _mountinfo_text(path: Path | None = None) -> str | None:
+    """Raw mountinfo contents, or None when unreadable.
+
+    ``newline=""`` disables universal-newline translation, so a literal carriage
+    return inside a mount path is preserved instead of becoming a record
+    separator.
+    """
+    target = path if path is not None else Path("/proc/self/mountinfo")
     try:
-        return Path("/proc/self/mountinfo").read_text(encoding="utf-8")
+        with open(target, encoding="utf-8", newline="") as handle:
+            return handle.read()
     except OSError:
         return None
 
@@ -891,8 +913,13 @@ class CgroupMount:
 
 
 def parse_cgroup_mount(text: str) -> CgroupMount | None:
-    """Resolve the cgroup2 mount root and point from mountinfo contents."""
-    for fields, after in mountinfo_records(text):
+    """Resolve the cgroup2 mount root and point from mountinfo contents.
+
+    Optional telemetry: malformed records are skipped rather than fatal. The
+    caller treats a missing result as unavailable metadata.
+    """
+    records, _malformed = mountinfo_records(text)
+    for fields, after in records:
         if after and after[0] == "cgroup2":
             return CgroupMount(
                 root=decode_mountinfo_path(fields[3]),

@@ -78,14 +78,18 @@ filesystem. Mount points at or beneath the fixture root are detected from
 `/proc/self/mountinfo` (records split only on the ASCII newline and fields only
 on the ASCII space, so a path containing a non-breaking space or a Unicode line
 separator stays one field, and the kernel's octal path escapes for space, tab,
-newline and backslash are decoded in a single pass), so a same-filesystem bind
-mount of operator storage is rejected before any application import, not only a
-different-device mount. The same check runs again before recursive cleanup: if a
-nested mount is present, or if mount information cannot be read, resolved or
-parsed reliably (an empty or malformed mount table is never treated as an empty
-boundary set), the fixture is retained and a cleanup failure is reported rather
-than deleting the mounted contents. Nothing is ever unmounted automatically, and
-ordinary symbolic
+newline and backslash are decoded in a single pass; the file is read with
+universal-newline translation disabled, so a literal carriage return inside a
+path is preserved), so a same-filesystem bind mount of operator storage is
+rejected before any application import, not only a different-device mount. The
+same check runs again before recursive cleanup: if a nested mount is present, or
+if mount information cannot be read, resolved or parsed reliably, the fixture is
+retained and a cleanup failure is reported rather than deleting the mounted
+contents. A table with no usable record, or with even one non-empty unparsed
+record, is not fully reliable — the unparsed line could be the mount inside the
+fixture — so it is never treated as an empty boundary set. Optional cgroup
+telemetry instead skips malformed records and reports unavailable metadata.
+Nothing is ever unmounted automatically, and ordinary symbolic
 links inside the fixture are still removed without following their targets. This
 is a proportionate guard for an optional local Linux benchmark, not a defence
 against arbitrary hostile concurrent same-user filesystem manipulation. The
