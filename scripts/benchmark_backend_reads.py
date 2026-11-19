@@ -403,12 +403,42 @@ def validate_phase_counts(
 # ---------------------------------------------------------------------------
 
 
-def _mount_points() -> list[Path] | None:
-    """Mount points from /proc/self/mountinfo, or None when unavailable."""
-    try:
-        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
-    except OSError:
-        return None
+class MountInfoUnavailable(RuntimeError):
+    """Mount information could not be read or resolved reliably."""
+
+
+# The kernel escapes these four characters in mountinfo paths. Decoding them in
+# a single left-to-right pass keeps a literal backslash (\134) from being
+# decoded twice.
+MOUNTINFO_ESCAPES = {
+    "040": " ",
+    "011": "\t",
+    "012": "\n",
+    "134": "\\",
+}
+
+
+def decode_mountinfo_path(value: str) -> str:
+    """Decode mountinfo octal escapes (\\040, \\011, \\012, \\134) in one pass."""
+    if "\\" not in value:
+        return value
+    result: list[str] = []
+    index = 0
+    length = len(value)
+    while index < length:
+        if value[index] == "\\" and index + 4 <= length:
+            replacement = MOUNTINFO_ESCAPES.get(value[index + 1 : index + 4])
+            if replacement is not None:
+                result.append(replacement)
+                index += 4
+                continue
+        result.append(value[index])
+        index += 1
+    return "".join(result)
+
+
+def parse_mountinfo(text: str) -> list[Path]:
+    """Decoded mount points from /proc/self/mountinfo contents."""
     points: list[Path] = []
     for line in text.splitlines():
         before, separator, _after = line.partition(" - ")
@@ -416,30 +446,42 @@ def _mount_points() -> list[Path] | None:
             continue
         fields = before.split()
         if len(fields) >= 5:
-            points.append(Path(fields[4]))
+            points.append(Path(decode_mountinfo_path(fields[4])))
     return points
 
 
-def fixture_mount_boundaries(root: Path) -> list[Path]:
+def _mount_points() -> list[Path] | None:
+    """Mount points from /proc/self/mountinfo, or None when unavailable."""
+    try:
+        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return parse_mountinfo(text)
+
+
+def fixture_mount_boundaries(root: Path, *, points: list[Path] | None = None) -> list[Path]:
     """Mount points at or beneath the fixture root, including same-device binds.
 
     Mountinfo lists every mount, so a bind mount of operator storage onto a path
-    inside the fixture is detected even though it shares the root's device.
-    Returns an empty list when mount information is unavailable.
+    inside the fixture is detected even though it shares the root's device. An
+    empty list means the check ran and found no boundary; an unavailable or
+    unresolvable mount table raises ``MountInfoUnavailable`` so an unsuccessful
+    safety check is never mistaken for a clean one.
     """
-    points = _mount_points()
     if points is None:
-        return []
+        points = _mount_points()
+    if points is None:
+        raise MountInfoUnavailable("mount information is unavailable")
     try:
         resolved_root = root.resolve()
-    except OSError:
-        return []
+    except OSError as error:
+        raise MountInfoUnavailable("fixture root cannot be resolved") from error
     boundaries: list[Path] = []
     for point in points:
         try:
             resolved = point.resolve()
-        except OSError:
-            continue
+        except OSError as error:
+            raise MountInfoUnavailable("mount point cannot be resolved") from error
         if resolved == resolved_root or resolved.is_relative_to(resolved_root):
             boundaries.append(resolved)
     return boundaries
@@ -569,7 +611,13 @@ def cleanup_fixture_directory(fixture: Fixture) -> bool:
         return False
     if current.identity != fixture.identity:
         return False
-    if fixture_mount_boundaries(current.path):
+    try:
+        boundaries = fixture_mount_boundaries(current.path)
+    except MountInfoUnavailable:
+        # Without reliable mount information, recursive removal cannot be
+        # proven safe; retain the fixture and report a cleanup failure.
+        return False
+    if boundaries:
         return False
     shutil.rmtree(current.path, ignore_errors=True)
     return not current.path.exists()
@@ -803,19 +851,28 @@ class CgroupMount:
     point: Path
 
 
+def parse_cgroup_mount(text: str) -> CgroupMount | None:
+    """Resolve the cgroup2 mount root and point from mountinfo contents."""
+    for line in text.splitlines():
+        before, separator, after = line.partition(" - ")
+        if not separator:
+            continue
+        fields = before.split()
+        if len(fields) >= 5 and after.split() and after.split()[0] == "cgroup2":
+            return CgroupMount(
+                root=decode_mountinfo_path(fields[3]),
+                point=Path(decode_mountinfo_path(fields[4])),
+            )
+    return None
+
+
 def cgroup_v2_mount() -> CgroupMount | None:
     """Resolve the cgroup2 mount root and point from /proc/self/mountinfo."""
     try:
-        for line in Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines():
-            before, separator, after = line.partition(" - ")
-            if not separator:
-                continue
-            fields = before.split()
-            if len(fields) >= 5 and after.split() and after.split()[0] == "cgroup2":
-                return CgroupMount(root=fields[3], point=Path(fields[4]))
+        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
     except OSError:
         return None
-    return None
+    return parse_cgroup_mount(text)
 
 
 def _process_cgroup_path() -> str | None:

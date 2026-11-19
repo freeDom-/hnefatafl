@@ -1121,6 +1121,106 @@ def test_cleanup_refuses_when_the_fixture_root_is_a_mount(tmp_path, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
+# Mountinfo parsing
+# ---------------------------------------------------------------------------
+
+
+def _escape_mountinfo_path(path):
+    return str(path).replace("\\", "\\134").replace(" ", "\\040")
+
+
+def _mountinfo_line(point):
+    return f"36 35 98:0 / {_escape_mountinfo_path(point)} rw,noatime - ext4 /dev/sda1 rw"
+
+
+def test_decode_mountinfo_path_handles_escapes():
+    assert bench.decode_mountinfo_path("/a\\040b") == "/a b"
+    assert bench.decode_mountinfo_path("/a\\011b") == "/a\tb"
+    assert bench.decode_mountinfo_path("/a\\012b") == "/a\nb"
+    assert bench.decode_mountinfo_path("/a\\134b") == "/a\\b"
+    assert bench.decode_mountinfo_path("plain/path") == "plain/path"
+
+
+def test_decode_mountinfo_path_does_not_double_decode_backslash():
+    # \134 is a literal backslash; the following "040" is literal text.
+    assert bench.decode_mountinfo_path("\\134040") == "\\040"
+
+
+def test_parse_mountinfo_decodes_escaped_mount_points():
+    text = _mountinfo_line("/tmp/a b") + "\n" + _mountinfo_line("/tmp/c\\d")
+    assert bench.parse_mountinfo(text) == [Path("/tmp/a b"), Path("/tmp/c\\d")]
+
+
+def test_fixture_mount_boundaries_detects_mount_beneath_path_with_spaces(tmp_path):
+    base = tmp_path / "with space"
+    base.mkdir()
+    fixture = create_fixture_directory(base)
+    mounted = fixture.path / "models"
+    mounted.mkdir()
+    points = bench.parse_mountinfo(_mountinfo_line(mounted))
+    assert bench.fixture_mount_boundaries(fixture.path, points=points) == [mounted.resolve()]
+
+
+def test_fixture_mount_boundaries_detects_mounted_fixture_root(tmp_path):
+    fixture = create_fixture_directory(tmp_path)
+    points = bench.parse_mountinfo(_mountinfo_line(fixture.path))
+    assert bench.fixture_mount_boundaries(fixture.path, points=points) == [fixture.path.resolve()]
+
+
+def test_fixture_mount_boundaries_ignores_unrelated_parsed_mounts(tmp_path):
+    fixture = create_fixture_directory(tmp_path)
+    text = "\n".join(
+        _mountinfo_line(point) for point in (Path("/"), Path("/proc"), Path("/tmp"), tmp_path)
+    )
+    points = bench.parse_mountinfo(text)
+    assert bench.fixture_mount_boundaries(fixture.path, points=points) == []
+
+
+def test_fixture_mount_boundaries_raises_when_mount_info_unavailable(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    monkeypatch.setattr(bench, "_mount_points", lambda: None)
+    with pytest.raises(bench.MountInfoUnavailable):
+        bench.fixture_mount_boundaries(fixture.path)
+
+
+def test_validate_fixture_storage_refuses_when_mount_info_unavailable(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    monkeypatch.setattr(bench, "_mount_points", lambda: None)
+    with pytest.raises(bench.MountInfoUnavailable):
+        validate_fixture_directory(fixture.path, require_config=False)
+
+
+def test_cleanup_refuses_when_mount_info_unavailable(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    monkeypatch.setattr(bench, "_mount_points", lambda: None)
+    assert cleanup_fixture_directory(fixture) is False
+    assert fixture.path.exists()
+
+
+def test_cleanup_refusal_retains_fixture_contents(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    jobs = fixture.path / "jobs"
+    jobs.mkdir()
+    payload = jobs / "keep.txt"
+    payload.write_text("keep", encoding="utf-8")
+    monkeypatch.setattr(bench, "_mount_points", lambda: None)
+    assert cleanup_fixture_directory(fixture) is False
+    assert payload.read_text(encoding="utf-8") == "keep"
+
+
+def test_parse_cgroup_mount_decodes_escaped_paths():
+    text = "36 35 98:0 /delegated\\040root /sys/fs/cgroup\\040x rw,noatime - cgroup2 cgroup rw"
+    mount = bench.parse_cgroup_mount(text)
+    assert mount is not None
+    assert mount.root == "/delegated root"
+    assert mount.point == Path("/sys/fs/cgroup x")
+
+
+def test_parse_cgroup_mount_ignores_other_filesystems():
+    assert bench.parse_cgroup_mount("36 35 98:0 / /proc rw - proc proc rw") is None
+
+
+# ---------------------------------------------------------------------------
 # Timed endpoint semantics
 # ---------------------------------------------------------------------------
 
