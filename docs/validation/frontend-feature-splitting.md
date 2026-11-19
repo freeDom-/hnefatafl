@@ -232,13 +232,15 @@ Training, Tournaments, recorded review and analysis chunks remain deferred.
 
 ### CI
 
-Final head `29ee2a0`: GitHub Actions run `44457030473` passed all four jobs
+Source head `29ee2a0`: GitHub Actions run `44457030473` passed all four jobs
 (python, security, node22 and browser, including `npm test`, the benchmark and
-script suites, the production build and every browser suite). An intermediate run
-`44450317436` on `5fed3f3` failed `test:e2e` because React StrictMode's
-development remount left the completion guard disabled; the guard now resets on
-every mount, and the focused `new-game-modal`, `notifications`, `game`,
-`play-entry-review` and `record-management` browser cases pass locally as well.
+script suites, the production build and every browser suite). The docs-only
+follow-up `4efda34` also passed all four jobs in run `44461520565`. An
+intermediate run `44450317436` on `5fed3f3` failed `test:e2e` because React
+StrictMode's development remount left the completion guard disabled; the guard
+now resets on every mount, and the focused `new-game-modal`, `notifications`,
+`game`, `play-entry-review` and `record-management` browser cases pass locally as
+well.
 
 Historical: run `44438662412` passed all four jobs on the reviewed head
 `7558e7d`.
