@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import NewGame, { GAME_SETUP_KEY } from './NewGame';
+import NewGameForm, { GAME_SETUP_KEY } from './NewGameForm';
 import { NotificationProvider, clearNotifications } from './notifications';
 import type { AIProfile, Ruleset } from './types';
 const identity = vi.hoisted(() => ({ admin: false }));
@@ -47,7 +47,12 @@ const fetcher = vi.fn((_path: string, _init?: RequestInit) => json({ id: 'create
 const show = (onCreated = vi.fn(), onClose = vi.fn()) =>
   render(
     <NotificationProvider>
-      <NewGame rulesets={rulesets} profiles={profiles} onCreated={onCreated} onClose={onClose} />
+      <NewGameForm
+        rulesets={rulesets}
+        profiles={profiles}
+        onCreated={onCreated}
+        onClose={onClose}
+      />
     </NotificationProvider>,
   );
 beforeEach(() => {

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import { collectInitialGraph } from './bundleGraph.mjs';
 const frontend = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 let dist = join(frontend, 'dist');
 let entry = 'index.html';
@@ -11,31 +12,7 @@ for (const argument of process.argv.slice(2)) {
   else throw new Error(`Unknown argument: ${argument}`);
 }
 const manifest = JSON.parse(await readFile(join(dist, '.vite', 'manifest.json'), 'utf8'));
-const visited = new Set();
-const scripts = new Set(['assets/appearance-init.js']);
-const styles = new Set();
-function walk(key) {
-  if (visited.has(key)) return;
-  visited.add(key);
-  const chunk = manifest[key];
-  if (!chunk) throw new Error(`Missing manifest entry: ${key}`);
-  scripts.add(chunk.file);
-  for (const css of chunk.css || []) styles.add(css);
-  // Include transitive eager imports; optional dynamic features are independent.
-  for (const dependency of chunk.imports || []) walk(dependency);
-}
-walk(entry);
-// EntryRouter immediately imports the authenticated application for Dashboard.
-// Count that route's complete eager graph even though Vite marks it dynamic.
-// Other optional route features remain excluded until requested.
-if (entry === 'index.html') {
-  const authenticated = Object.entries(manifest).filter(
-    ([, chunk]) => chunk.name === 'AuthenticatedArena',
-  );
-  if (authenticated.length !== 1)
-    throw new Error('Expected exactly one authenticated application entry in the manifest.');
-  walk(authenticated[0][0]);
-}
+const { scripts, styles } = collectInitialGraph(manifest, entry);
 async function sizes(paths) {
   let raw = 0;
   let gzip = 0;

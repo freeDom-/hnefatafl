@@ -19,7 +19,7 @@ test('Dashboard loads no Workshop, replay, analysis or profile feature graph bef
     'RecordedReview',
     'AgentAnalysis',
     'AdvisorSelect',
-    'NewGame',
+    'NewGameForm',
     'StatisticsPage',
     'ProfilePage',
     'Online',

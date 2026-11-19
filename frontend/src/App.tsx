@@ -118,6 +118,9 @@ export default function App() {
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  // The route that owns an open setup dialog. A pending New Game import must
+  // never surface its dialog on a route the user has since navigated to.
+  const setupRoute = useRef<string | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [aiRetryDelay, setAiRetryDelay] = useState(900);
   const [initializing, setInitializing] = useState(true);
@@ -149,14 +152,24 @@ export default function App() {
     return rules;
   }, [refreshModels]);
   const startSinglePlayer = useCallback(() => {
+    const route = canonicalLocation();
     void Promise.all([api<Ruleset[]>('/rulesets'), api<AIProfile[]>('/ai/profiles')])
       .then(([rules, ais]) => {
         setRulesets(rules);
         setProfiles(ais);
+        // Do not open a stale setup dialog if the user moved elsewhere while
+        // the options were loading.
+        if (route !== canonicalLocation()) return;
+        setupRoute.current = route;
         setNewOpen(true);
       })
       .catch((e) => reportError(e));
   }, [reportError]);
+  // Close an open setup dialog on navigation, including Browser Back/Forward,
+  // so a delayed import cannot reveal it on an unrelated route.
+  useEffect(() => {
+    if (newOpen && setupRoute.current !== null && setupRoute.current !== path) setNewOpen(false);
+  }, [path, newOpen]);
   useEffect(() => {
     if (
       tab === 'dashboard' &&
@@ -745,8 +758,12 @@ export default function App() {
                   (rule) => rule.id === new URLSearchParams(location.search).get('ruleset'),
                 )?.id ?? game?.ruleset
               }
-              onClose={() => setNewOpen(false)}
+              onClose={() => {
+                setupRoute.current = null;
+                setNewOpen(false);
+              }}
               onCreated={(next) => {
+                setupRoute.current = null;
                 currentGame.current = next;
                 loadedRoute.current = next.id;
                 setGame(next);

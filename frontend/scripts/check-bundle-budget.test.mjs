@@ -5,6 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  APPEARANCE_INIT,
+  collectInitialGraph,
+  compareInitialGraph,
+  normalizeAssetPath,
+} from './bundleGraph.mjs';
 const checker = fileURLToPath(new URL('./check-bundle-budget.mjs', import.meta.url));
 async function fixture(manifest, files, run) {
   const root = await mkdtemp(join(tmpdir(), 'hnefatafl-bundle-budget-'));
@@ -84,7 +90,7 @@ test('rejects a missing authenticated route instead of measuring only the tiny r
       );
       const result = check(root);
       assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /authenticated application entry/);
+      assert.match(result.stderr, /AuthenticatedArena entry/);
     },
   );
 });
@@ -124,4 +130,52 @@ test('refuses missing first-paint assets instead of passing an incomplete produc
       assert.match(result.stderr, /appearance-init/);
     },
   );
+});
+
+test('collectInitialGraph deduplicates shared eager dependencies and requires the authenticated entry', () => {
+  const manifest = {
+    'index.html': { file: 'assets/main.js', imports: ['shared'], css: ['assets/main.css'] },
+    shared: { file: 'assets/shared.js', imports: ['shared', 'leaf'] },
+    leaf: { file: 'assets/leaf.js' },
+    AuthenticatedArena: { name: 'AuthenticatedArena', file: 'assets/authenticated.js' },
+  };
+  const graph = collectInitialGraph(manifest);
+  assert.deepEqual([...graph.scripts].sort(), [
+    APPEARANCE_INIT,
+    'assets/authenticated.js',
+    'assets/leaf.js',
+    'assets/main.js',
+    'assets/shared.js',
+  ]);
+  assert.deepEqual([...graph.styles], ['assets/main.css']);
+  assert.throws(
+    () => collectInitialGraph({ 'index.html': { file: 'assets/main.js' } }),
+    /AuthenticatedArena entry/,
+  );
+  assert.throws(
+    () => collectInitialGraph({ 'index.html': { file: 'assets/main.js', imports: ['gone'] } }),
+    /Missing manifest entry: gone/,
+  );
+});
+
+test('compareInitialGraph reports unexpected delayed loads and missing initial assets', () => {
+  const expected = ['assets/appearance-init.js', 'assets/main.js', 'assets/shared.js'];
+  const observed = ['/assets/main.js', '/assets/shared.js', '/assets/Training-abc123.js'];
+  assert.deepEqual(compareInitialGraph(expected, observed), {
+    unexpected: ['assets/Training-abc123.js'],
+    missing: ['assets/appearance-init.js'],
+  });
+  assert.deepEqual(
+    compareInitialGraph(expected, [
+      'assets/main.js',
+      'assets/shared.js',
+      'assets/appearance-init.js',
+    ]),
+    {
+      unexpected: [],
+      missing: [],
+    },
+  );
+  assert.equal(normalizeAssetPath('http://127.0.0.1:1/assets/main.js?t=1'), 'assets/main.js');
+  assert.equal(normalizeAssetPath('/assets/main.css'), 'assets/main.css');
 });
