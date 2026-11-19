@@ -37,27 +37,39 @@ distinct accounts, at concurrency 1, 4 and 8 (936 measured requests). Each
 account keeps at most one in-flight request. Fixture writes, semantic
 verification and warm-up reads are excluded from measured phases.
 
+The documented `--kill-after=15s` is the external grace after a SIGTERM. The
+internal shutdown budget (stop wait, worker drain, graceful and forced
+termination) totals less than that, so a cooperative cancellation is never
+escalated to SIGKILL before cleanup can finish.
+
 ## Environment and storage isolation
 
 Both the driver and the internal worker independently establish a deterministic
 benchmark environment before importing any application module, and both verify
-the imported backend location. Every `HNEFATAFL_*`, proxy and numeric-thread
-variable is snapshotted, removed, replaced with benchmark-local values and
-restored afterwards, even when the body raises. This covers the data directory,
-development environment, loopback public URL and allowed hosts, trusted
-proxies, session lifetime, account request budgets, online feature settings,
-registration/SMTP (disabled, so no real mail or external network), and
+and record the imported backend location. Every `HNEFATAFL_*`, proxy and
+numeric-thread variable is snapshotted, removed, replaced with benchmark-local
+values and restored afterwards, even when the body raises. This covers the data
+directory, development environment, loopback public URL and allowed hosts,
+trusted proxies, session lifetime, account request budgets, online feature
+settings, registration/SMTP (disabled, so no real mail or external network), and
 two-thread numeric limits. Operator settings such as a production
 `HNEFATAFL_PUBLIC_URL` cannot redirect or invalidate the local workload.
 
 The fixture directory is created with mode `0700`, must be an absolute,
 non-symlink, user-owned directory whose name starts with `hnefatafl-load-`, and
 must contain a regular `.benchmark-only` marker with a 32-character hex
-identity. The worker rejects a `--data-dir` that does not match
-`HNEFATAFL_DATA_DIR`, so the internal server mode cannot initialize arbitrary
-operator storage. Only the current process's owned fixture directory is removed;
-a changed marker or identity makes cleanup refuse. The benchmark never opens or
-modifies existing operator databases, models, checkpoints or training jobs.
+identity. Before any application import, the whole fixture tree is checked:
+symlinks are rejected anywhere, every entry must resolve inside the fixture, and
+the application-owned paths (`hnefatafl.sqlite3`, `jobs`, `models`,
+`tournaments`, `.deployment-gate`, the marker and their journal/WAL siblings)
+must have the expected file or directory type. A valid-looking directory whose
+database or subdirectory links to external storage is therefore rejected before
+the backend can open it. The worker also requires an explicit
+`HNEFATAFL_DATA_DIR` that matches `--data-dir`, so the internal server mode
+cannot initialize arbitrary operator storage. Only the current process's owned
+fixture directory is removed; a changed marker or identity makes cleanup refuse.
+The benchmark never opens or modifies existing operator databases, models,
+checkpoints or training jobs.
 
 ## Server identity
 
@@ -72,19 +84,27 @@ signals a process it did not start.
 
 ## Cancellation and cleanup
 
-A cooperative cancellation event is checked before every request and during
-startup, authentication, fixture creation and warm-up. Measurement runs in
-synchronized waves of at most the configured concurrency; on cancellation the
-current barrier is aborted, queued futures are cancelled, running workers stop
-before their next request, and the driver waits a bounded time for outstanding
-requests. HTTP clients are registered for cleanup immediately after creation,
-before login. In a `finally` path the driver terminates the API child (escalating
-from `SIGTERM` to `SIGKILL` after a bounded grace), reaps it, closes every HTTP
-client and the log handle, closes SQLite connections explicitly, and removes only
-the owned fixture. Subprocess termination is attempted even if client cleanup
-fails. Partial evidence is still written, and an incomplete run is never reported
-as a successful baseline. Cleanup after an uncatchable `SIGKILL` or abnormal host
-termination cannot be guaranteed.
+A cooperative cancellation event is checked before every fixture mutation,
+verification request, warm-up request and measured request, and after each
+synchronization barrier. Measurement runs in synchronized waves of at most the
+configured concurrency; the wait tracks only still-pending futures, so a
+completed actor never makes the driver spin until the slowest one finishes. On
+cancellation the current barrier is aborted, queued futures are cancelled, the
+server is stopped if that is needed to unblock an in-flight request, and the
+driver waits a bounded time for the workers. Returned samples are a consistent
+snapshot taken after the workers settle, and a phase that could not stop its
+workers is marked incomplete.
+
+HTTP clients are registered for cleanup immediately after creation, before
+login. Clients are only closed when every measurement phase confirmed its
+workers stopped, so a client is never closed underneath a running worker. In a
+`finally` path the driver stops and reaps the API child (escalating from
+`SIGTERM` to `SIGKILL` after a bounded grace), then closes clients and the log
+handle, and removes the fixture only after the child is confirmed stopped. A
+child that cannot be reaped keeps its fixture so a database still in use is not
+deleted; the retained path is recorded. Partial evidence is still written, and
+an incomplete run is never reported as a successful baseline. Cleanup after an
+uncatchable `SIGKILL` or abnormal host termination cannot be guaranteed.
 
 ## Source and dependency provenance
 
@@ -103,21 +123,30 @@ player account owns three local pass-and-play games (one completed by a genuine
 eight-ply repetition draw) and two in-progress single-player games. Each player
 also has one active, one completed (eight-ply repetition draw) and one waiting
 online game, so every player has two completed rated draws. Two human
-tournaments are seeded: a started eight-entrant bracket and an empty upcoming
-registration.
+tournaments are seeded: a started bracket and an empty upcoming registration.
 
-Before measurement, untimed verification checks that logins correspond to the
+For the bounded fixture, verification uses exact identifier sets rather than
+subset checks, so a missing record, an extra foreign record or an unexpectedly
+empty listing fails the benchmark. It checks that logins correspond to the
 expected seeded accounts, that player accounts are distinct and
-non-administrator, that local and single-player records belong to the expected
-owner, that current online games have the expected status and participants, that
-completed games and replays carry the expected authoritative result, moves and
-states, that online statistics, leaderboard entries and rating events reflect the
-completed results, that tournament discovery, entrants, matches and legs are
-present, and that recorded history contains the completed games. Authoritative
-table counts must match expectations for the configured number of users, or the
-benchmark fails instead of reporting a baseline. Single-player statistics remain
-an unfinished-game workload because no AI search is run; the report says so
-explicitly and does not imply completed single-player outcome coverage.
+non-administrator, that local and single-player history contain exactly the
+expected owned records, that the in-progress listings contain exactly the
+expected unfinished games, that the completed local game is the seeded
+repetition draw with the expected validated replay, that current online games
+contain exactly the expected active, waiting and tournament games and exclude
+completed games, that online history and rating history contain exactly the two
+completed draws per player, that replays carry the expected authoritative result,
+moves, states and participants, that statistics and leaderboard entries reflect
+the completed results, that tournament discovery, entrants, matches and legs
+match expectations derived independently from the entrant count, that tournament
+responses agree across accounts, and that the timed endpoint paths and
+parameters return semantically appropriate results. Authoritative table counts
+must match expectations for the configured number of users.
+
+The essential semantics are verified again after measurement and before the run
+is declared successful. Single-player statistics remain an unfinished-game
+workload because no AI search is run; the report says so explicitly and does not
+imply completed single-player outcome coverage.
 
 ## Concurrency and success reporting
 
@@ -128,33 +157,80 @@ Actor indexes are only equated with identities because each login was verified
 against the seeded account. Synchronized waves make the configured concurrency
 observable, but client-side overlap is not presented as proof of simultaneous
 backend handler execution. Every actor, endpoint and concurrency level is
-validated against its expected request count. Underachieved concurrency, missing
-requests or any non-200 response marks the run incomplete and fails the
-benchmark after evidence is written.
+validated against its expected request count, every requested level must appear,
+and worker failures are recorded explicitly. Underachieved concurrency, missing
+requests or any non-200 response marks the run incomplete.
+
+Measurement completion and overall success are separate. `measurement_complete`
+requires every requested level to be present and complete; `complete` also
+requires cleanup to succeed and the evidence to be written. A cleanup failure,
+an un-reaped subprocess or a retained fixture therefore cannot produce a
+successful exit status.
+
+## Partial evidence and telemetry
+
+Collected samples are appended to the evidence before optional process telemetry
+is read. A server that exits during measurement, or a missing `/proc` entry for
+CPU or RSS, leaves the completed samples intact and records the telemetry as
+`null`; `api_process_telemetry_available` distinguishes a missing reading from a
+measured zero. Raw samples are written before the summary, so a summary-writing
+failure still preserves the measurements. Diagnostic messages record an
+exception type and a short message, and redact anything that may carry a
+credential, token or response payload.
 
 ## Environment metadata
 
-The report records the CPU model, logical and affinity CPU counts, effective CPU
-quota when available, effective memory limit with its source, Python and SQLite
-versions, FastAPI/Uvicorn/HTTPX/Pydantic versions, numeric thread settings, the
-lock fingerprint, benchmark parameters and fixture configuration. Unavailable
-Linux resource values are `null`, distinct from a measured zero. No credentials,
-cookies, tokens, private configuration, full environment dump or response body
-is recorded.
+The report records the CPU model, logical and affinity CPU counts, the effective
+cgroup CPU quota and memory limit resolved from the process cgroup slice (walking
+nested systemd slices through `/proc/self/mountinfo` and `/proc/self/cgroup`),
+system memory capacity, Python and SQLite versions, FastAPI/Uvicorn/HTTPX/Pydantic
+versions, the caller's numeric-thread settings, the benchmark-configured
+numeric-thread settings (read after entering the deterministic environment), the
+imported backend location, the lock fingerprint, benchmark parameters and fixture
+configuration. System memory capacity is reported separately from an enforced
+cgroup memory limit. Unavailable Linux resource values are `null`, distinct from
+a measured zero. No credentials, cookies, tokens, private configuration, full
+environment dump or response body is recorded.
 
-## Hardened measured baseline
+## Corrected measured baseline
 
-Revision `4504605dbfd7d02072dd17a4ee9497af781f706c` on
-`perf/backend-read-baseline`, observed `2026-11-19T09:39:36Z`, passed all 936
+Revision `c5e706683439ec7fa9e9ad7b75a4ffae322e96e1` on
+`perf/backend-read-baseline`, observed `2026-11-19T11:48:35Z`, passed all 936
 measured requests (HTTP 200); the observed simultaneous account counts matched
-1/4/8 and every expected request count was validated. Fixture: nine accounts, 40
-local/single-player games, 32 online games, 64 accepted moves, eight results and
-rating events, two tournaments, eight entrants, fourteen matches and eight legs.
-A thin fixture-identity HTTP middleware is included in these observations.
+1/4/8, every expected request count was validated, and every phase reported its
+workers stopped. Fixture: nine accounts, 40 local/single-player games, 32 online
+games, 64 accepted moves, eight results and rating events, two tournaments,
+eight entrants, fourteen matches and eight legs. A thin fixture-identity HTTP
+middleware is included in these observations.
 
-See the [hardened summary](../benchmarks/backend-read-baseline-hardened.json),
-[all raw samples](../benchmarks/backend-read-requests-hardened.json) and
-[non-default parameter checks](../benchmarks/backend-read-parameter-checks.json).
+See the [corrected summary](../benchmarks/backend-read-baseline-corrected.json),
+[all raw samples](../benchmarks/backend-read-requests-corrected.json) and
+[non-default parameter checks](../benchmarks/backend-read-parameter-checks-corrected.json).
+
+| Distinct-account concurrency | Requests | Elapsed seconds | Median ms | p95 ms | p99 ms | API CPU seconds | API RSS KiB after phase |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 312 | 1.884 | 5.79 | 9.74 | 10.76 | 1.68 | 67,412 |
+| 4 | 312 | 1.703 | 21.25 | 31.69 | 41.38 | 3.24 | 71,156 |
+| 8 | 312 | 1.748 | 45.64 | 59.36 | 80.25 | 3.81 | 75,400 |
+
+The summary was independently recalculated from its raw samples: aggregate and
+per-endpoint request counts, nearest-rank p95/p99, medians, response-byte totals
+and status counts all match. The two-account (26 requests per level), four-account
+(104 requests per level at concurrency 1/2/4) and three-account non-divisible wave
+(78 requests per level at concurrency 1/2) checks also completed with every
+request accounted for.
+
+## Historical evidence
+
+Both earlier baselines are retained unchanged and must not be read as results
+from the corrected implementation.
+
+### Hardened baseline (before the corrected scheduling and semantics)
+
+Revision `4504605dbfd7d02072dd17a4ee9497af781f706c`, observed
+`2026-11-19T09:39:36Z`: 936 measured requests (HTTP 200), observed overlap 1/4/8.
+This run used the earlier measurement scheduling and subset-based fixture
+verification.
 
 | Distinct-account concurrency | Requests | Elapsed seconds | Median ms | p95 ms | p99 ms | API CPU seconds | API RSS KiB after phase |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -162,16 +238,15 @@ See the [hardened summary](../benchmarks/backend-read-baseline-hardened.json),
 | 4 | 312 | 1.768 | 21.86 | 32.64 | 41.13 | 3.19 | 69,872 |
 | 8 | 312 | 1.750 | 45.36 | 60.01 | 65.34 | 3.75 | 73,704 |
 
-The summary was independently recalculated from its raw samples: request counts,
-nearest-rank p95/p99, medians, response-byte totals and status counts all match.
-The two-account (26 requests per level) and four-account (104 requests per level
-at concurrency 1/2/4) checks also completed with all requests accounted for.
+Its [summary](../benchmarks/backend-read-baseline-hardened.json),
+[all samples](../benchmarks/backend-read-requests-hardened.json) and
+[parameter checks](../benchmarks/backend-read-parameter-checks.json) are
+unchanged.
 
-## Historical evidence (pre-hardening)
+### Pre-hardening baseline
 
-The original PR #97 baseline was collected before these isolation, lifecycle,
-provenance and verification changes, so it is retained only as historical
-evidence and must not be read as a hardened-benchmark result. It used revision
+The original PR #97 baseline was collected before the isolation, lifecycle,
+provenance and verification changes. It used revision
 `b755fdb4251804817b310e2885ff029399e64e2b` and the same nominal workload:
 936 measured requests (HTTP 200), observed overlap 1/4/8.
 
