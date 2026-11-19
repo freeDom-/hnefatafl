@@ -97,6 +97,16 @@ The navigator suite's 1,000-job case exceeds the 20-second default timeout on th
 shared host even for the reviewed component; it passes locally with unchanged
 assertions under an extended run timeout and in CI.
 
+Fresh CI on head `25c9cfc` ([run 44448100804](https://github.com/freeDom-/hnefatafl/actions/runs/44448100804)):
+the `python` job passed with **3,531 backend tests passed and 16 skipped** plus
+ruff, mypy and `make docs` (152 files, 1,163 links); the `browser` job passed with
+**1,497 unit tests** (103 files), **76** public-production, **572 main e2e passed /
+152 skipped** including the four new focus regressions, **14** registration,
+**24** online and **34** personal browser tests, plus `test:scripts` **25 passed**,
+format, typecheck and build; the `node22` job passed typecheck, **1,497 unit
+tests** and build; and the `security` job passed with clean full and
+production-only lockfile audits using no exceptions. All four jobs are green.
+
 Historical CI on head `0b40aea` ([run 44429024174](https://github.com/freeDom-/hnefatafl/actions/runs/44429024174)):
 the `python` job passed with **3,531 backend tests passed and 16 skipped** plus ruff,
 mypy and `make docs`; the `browser` job passed with **1,491 unit tests**, **76**
