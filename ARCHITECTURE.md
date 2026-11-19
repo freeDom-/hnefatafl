@@ -774,17 +774,22 @@ AI tournaments, model-bearing setup, online management, profile/statistics,
 recorded review, Markdown rules and rich analysis load on first use.
 `deferredFeature` shares code-loading promises only; account data and component
 state remain owned by each mounted component. Failed imports offer retry and
-reload, and unmounted loaders cannot commit late state. This avoids coupling
-feature readiness to paused gameplay clocks. The canonical `useGameAnalysis`
-hook remains independent of the deferred analysis presentation.
+reload, and unmounted loaders cannot commit late state. A failed deferred
+stylesheet is remembered per feature: Retry keeps the error panel rather than
+mounting an unstyled feature, and only an explicit Reload re-requests the failed
+link. This avoids coupling feature readiness to paused gameplay clocks. The
+canonical `useGameAnalysis` hook remains independent of the deferred analysis
+presentation.
 
 The New Game dialog keeps its shared modal shell eager and defers only the form,
 so close, Escape, focus management and cancellation work while the form loads or
 fails. `useNewGameSetup` owns the asynchronous setup with a generation counter
-and abort controller: only the newest operation may publish options or open the
-dialog, and cancelling, navigating, switching account or logging out invalidates
-it. A game-creation completion after dismissal or navigation is ignored, while
-the committed server game stays in the account's history.
+and abort controller: fetched options publish only through an owned commit, only
+the newest operation may open the dialog, and cancelling, navigating, switching
+account, logging out or unmounting invalidates it and aborts the pending request.
+A game-creation completion is bound to the session that opened its dialog, so a
+late completion cannot affect a newer dialog, while the committed server game
+stays in the account's history.
 
 Production builds enforce budgets across the complete transitive eager manifest
 graph, including the first-paint appearance script. The production probe compares

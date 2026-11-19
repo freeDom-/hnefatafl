@@ -150,26 +150,34 @@ the state before the final hardening below.
 
 `useNewGameSetup` owns the setup operation with a generation counter, an
 `AbortController` and an ownership check. `App` starts it from the Dashboard's
-"Play vs AI" action or the `?setup=single-player` deep link. Only the newest
-generation may publish options, open the dialog or report a failure; cancelling,
-navigating (including Browser Back/Forward), switching account or logging out
-advances the generation and aborts the pending option request. Route equality is
-kept only as a secondary guard. `owns()` gates the game-creation completion, and
-`NewGameForm` additionally ignores a POST completion after unmount.
+"Play vs AI" action or the `?setup=single-player` deep link. The load callback
+returns the fetched options, and the hook publishes them through an owned commit
+only after it verifies the generation and cancellation, so a stale promise
+cannot overwrite rulesets or profiles even if it resolves despite an abort. Only
+the newest generation may publish, open the dialog or report a failure.
+Cancelling, navigating (including Browser Back/Forward), switching account,
+logging out or unmounting advances the generation and aborts the pending option
+request; the hook's unmount cleanup does not depend on a later route or account
+effect and does not set state. Route equality remains a secondary guard.
 
-A dismissed or navigated-away creation therefore cannot reopen the dialog, close
-a newer setup dialog, navigate away from the current destination or persist stale
-preferences. The committed server game is preserved in the account's history;
-the client never retries or duplicates the POST. Repeated clicks while options
-load supersede rather than race, and a response that arrives after navigating
-away and back cannot reactivate the obsolete operation.
+The dialog records the generation that opened it (`session()`), and
+`owns(session)` binds a game-creation completion to that specific operation
+rather than to whichever dialog is open when the POST settles. `NewGameForm`
+checks the same guard before persisting preferences, notifying, publishing game
+state, closing the dialog or navigating, in addition to its existing
+mounted-state and StrictMode protections. A dismissed or superseded creation
+cannot affect a newer dialog; the committed server game is preserved in the
+account's history and the client never retries or duplicates the POST.
 
-Tests: `useNewGameSetup.test.tsx` (overlapping, reverse-order, cancellation,
-supersede, ownership), `NewGameSetup.test.tsx` (repeated clicks, navigation away,
-navigate away/back, explicit reopen, navigation during creation, late completion,
-account change, query-driven creation) and two `new-game-modal` browser cases
-(repeated pending clicks, navigation while POST `/games` is pending). The
-existing modal, Escape, focus and deferred-feature tests are retained.
+Tests: `useNewGameSetup.test.tsx` (overlapping, reverse-order, stale commits,
+session-bound ownership, cancellation, unmount abort and late rejection,
+StrictMode), `NewGameSetup.test.tsx` (repeated clicks, navigation away, navigate
+away/back, stale options not overwriting newer state, keyed account remount,
+explicit reopen, navigation during creation, late completion from an older
+generation, preference preservation, query-driven creation, StrictMode) and two
+`new-game-modal` browser cases (repeated pending clicks, navigation while POST
+`/games` is pending). The existing modal, Escape, focus and deferred-feature
+tests are retained.
 
 ### Production asset failure and recovery
 
@@ -181,18 +189,25 @@ real hashed assets and their manifest relationships:
 | New Game form JavaScript chunk | aborted | Retry |
 | Transitive preload dependency (`ConfigImportButton`) | aborted | Retry |
 | Training deferred stylesheet | aborted | Reload application |
-| Training stylesheet retried while failed | aborted | none (mounts unstyled) |
+| Training stylesheet retried while failed | aborted | error panel retained, no mount |
+| Navigate away and back after stylesheet failure | aborted | error panel retained, no mount |
 | Permanently missing hashed form chunk | aborted | Reload application |
 
-The stylesheet case verifies computed layout after recovery
-(`.workshop-global` computes `display: flex`) and records that Retry alone leaves
-it `block`, because the failed `<link>` is not re-requested; the explicit Reload
-is required. Only the existing promise-based loader is used: no automatic reload
-loops, cache-busting imports, remote scripts or weaker CSP.
+When a deferred stylesheet fails, Vite dispatches `vite:preloadError` and keeps
+the failed link in the document; a later module import can still succeed because
+the helper skips the already-attempted link. `deferredFeature` records the
+failed stylesheet per feature and refuses to mount or cache the module while the
+link is unresolved, so Retry keeps the accessible error panel with the explicit
+Reload action instead of rendering an unstyled feature. The Reload case verifies
+computed layout after recovery (`.workshop-global` computes `display: flex`).
+Only the existing promise-based loader is used: no automatic reload loops,
+cache-busting imports, remote scripts or weaker CSP.
 
-Remaining browser limitation: a permanently missing asset is recovered by
-unblocking it and reloading the document, which models a fixed or updated
-deployment. A permanently missing asset with no new deployment cannot recover.
+Remaining browser limitation: a failed stylesheet is only retried by a full
+document reload; same-document Retry deliberately keeps the error state. A
+permanently missing asset is recovered by unblocking it and reloading the
+document, which models a fixed or updated deployment; a missing asset with no
+new deployment cannot recover.
 
 ### Asset observation and forbidden-module detection
 
@@ -215,32 +230,31 @@ import never occurs, and the ownership map must be regenerated by the build.
 
 ### Final bundle evidence
 
-Clean production revision `40b55c207ae325a0a474fe2cb50918889253548e`
-(fingerprint `fc66429e3dd6312fdc068df150de80fb0955a07be934eae4952222b0dee48584`),
+Clean production revision `30353c8fce37230f82f6cf9044f72167de857e0e`
+(fingerprint `5cf02c0d73aefc4ef1352637e9803246bb0fe5983a36295234cab052c70849af`),
 [measurement](measurements/frontend-feature-network-hardening.json):
 
-| Initial graph | Integrated reference | Review (`59dddff`) | Final (`40b55c2`) | Budget |
+| Initial graph | Integrated reference | Review (`59dddff`) | Final (`30353c8`) | Budget |
 | --- | ---: | ---: | ---: | ---: |
-| JavaScript raw | 565,320 | 565,637 | 566,115 | 600,000 |
-| JavaScript gzip | 180,407 | 180,533 | 180,681 | 200,000 |
+| JavaScript raw | 565,320 | 565,637 | 567,076 | 600,000 |
+| JavaScript gzip | 180,407 | 180,533 | 181,047 | 200,000 |
 | CSS raw | 114,187 | 114,187 | 114,187 | 150,000 |
 | CSS gzip | 23,803 | 23,803 | 23,803 | 35,000 |
 
-The +478 raw / +148 gzip bytes over the reviewed head are the setup-lifecycle
-hook and the eager shell it drives; no budget changed. The heavy NewGameForm,
-Training, Tournaments, recorded review and analysis chunks remain deferred.
+The +1,439 raw / +514 gzip bytes over the reviewed head are the setup-lifecycle
+hook, its eager shell and the stylesheet-failure guard; no budget changed. The
+heavy NewGameForm, Training, Tournaments, recorded review and analysis chunks
+remain deferred.
 
 ### CI
 
-Source head `29ee2a0`: GitHub Actions run `44457030473` passed all four jobs
+Reviewed head `946e448`: GitHub Actions run `44466537774` passed all four jobs
 (python, security, node22 and browser, including `npm test`, the benchmark and
-script suites, the production build and every browser suite). The docs-only
-follow-up `4efda34` also passed all four jobs in run `44461520565`. An
-intermediate run `44450317436` on `5fed3f3` failed `test:e2e` because React
-StrictMode's development remount left the completion guard disabled; the guard
-now resets on every mount, and the focused `new-game-modal`, `notifications`,
-`game`, `play-entry-review` and `record-management` browser cases pass locally as
-well.
+script suites, the production build and every browser suite). This is historical
+evidence for the state before the stylesheet and setup-ownership hardening.
 
-Historical: run `44438662412` passed all four jobs on the reviewed head
-`7558e7d`.
+Earlier in the branch: source head `29ee2a0` passed in run `44457030473`; the
+docs-only follow-up `4efda34` passed in run `44461520565`. An intermediate run
+`44450317436` on `5fed3f3` failed `test:e2e` because React StrictMode's
+development remount left the completion guard disabled; the guard now resets on
+every mount. Historical: run `44438662412` passed all four jobs on `7558e7d`.
