@@ -305,10 +305,17 @@ nine recovery scenarios passed.
 
 ### CI
 
-Final integrated head `ed7854f` (backend-read-baseline integrated): GitHub Actions
-run `44603611807` passed all four jobs (python, security, node22 and browser,
-including `npm test`, the benchmark and script suites, the production build and
-every browser suite).
+Final integrated head `8177d04` (backend-read-baseline integrated, measurements and
+documentation refreshed): GitHub Actions run `44613213055` passed all four jobs
+(python, security, node22 and browser, including `npm test`, the benchmark and
+script suites, the production build and every browser suite). The browser job's
+first attempt hit one transient failure in the pre-existing main test
+`public-spectator.spec.ts` "unsupported public routes…", where the static
+discovery heading becomes visible before the public fetch is recorded; it passed
+on re-run and had also passed in run `44603611807`, so it is a latent main-suite
+race rather than a regression from this branch. No assertion was weakened.
+
+Integrated head `ed7854f`: run `44603611807` passed all four jobs.
 
 Reviewed head `d2a756c` (Workshop consolidation integrated, corrected
 cached-component test, concurrent production probe): run `44562091318` passed all
