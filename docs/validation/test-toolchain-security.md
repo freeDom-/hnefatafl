@@ -130,6 +130,15 @@ unchanged, matching the correction already green in Portrait Hall CI.
 
 ## picomatch ReDoS advisory (GHSA-fc5q-39xc-vjpf), 2026-11-17
 
+> **Status update, 2026-11-18:** GitHub withdrew GHSA-fc5q-39xc-vjpf
+> (`withdrawn_at` 2026-11-18T15:38:56Z), and both the full and production-only
+> lockfile audits returned zero findings. The active risk exception was therefore
+> removed. The approval and exposure analysis below are retained as the historical
+> record of the decision that applied until that date; they are not a current
+> finding. See
+> [Withdrawal and empty exception state](#withdrawal-and-empty-exception-state-2026-11-18)
+> for the current configuration and audit results.
+
 This section supersedes the earlier zero-finding audit status above. A fresh
 `npm audit --audit-level=moderate` exits 1 with five affected development packages,
 all from one advisory: picomatch through 4.0.7 is vulnerable to a ReDoS through
@@ -217,17 +226,22 @@ not evidence of a false positive; it is unresolved disagreement between database
 - The only official guidance is Snyk's: do not use the risky pattern and do not let
   untrusted users define regular expressions. Both conditions already hold here.
 
-### Approved risk acceptance (active until 2026-12-17)
+### Historical approved risk acceptance (no longer active)
 
-No supported technical fix exists, and no fork, override, unmerged patch, downgrade
-or blanket audit disable is used. On 2026-11-18 the repository owner approved a
-narrowly scoped, time-limited risk acceptance for exactly GHSA-fc5q-39xc-vjpf in
-the development-only Picomatch path.
+> This subsection records the acceptance that was active from 2026-11-18 until
+> the advisory was withdrawn later that day. It is historical evidence, not the
+> current exception configuration; the active entry has been removed.
 
-`frontend/security/dependency-audit-exceptions.json` (schema 3) records the exact
-advisory/package, CVE, severity, development scope, approver handle, approval date,
-review reference, durable approval reference, rationale, expiry, affected package
-set, every reviewed package version and the reviewed advisory range. The script rejects unknown fields, invalid
+No supported technical fix existed at the time, and no fork, override, unmerged
+patch, downgrade or blanket audit disable was used. On 2026-11-18 the repository
+owner approved a narrowly scoped, time-limited risk acceptance for exactly
+GHSA-fc5q-39xc-vjpf in the development-only Picomatch path.
+
+While it was active, `frontend/security/dependency-audit-exceptions.json`
+(schema 3) recorded the exact advisory/package, CVE, severity, development scope,
+approver handle, approval date, review reference, durable approval reference,
+rationale, expiry, affected package set, every reviewed package version and the
+reviewed advisory range. The script rejects unknown fields, invalid
 GitHub handles, invalid or future approval dates, missing/malformed or non-repository approval
 references, invalid expiry dates, windows longer than 90 days, severities or ranges that changed, package-version changes,
 affected-set changes, runtime reach, stale exceptions and expired exceptions. This
@@ -252,18 +266,20 @@ audit and a production-only audit. It is fail-closed:
 
 The dedicated `security` CI job runs that script and prints the actual advisory
 id, affected packages and versions, approver, review reference, approval reference,
-rationale and expiry. It passes only through the recorded acceptance, not because
-the finding was disproved. The advisory remains unresolved. Fourteen Node tests
-cover the positive case and every fail-closed and approval-reference case.
+rationale and expiry. While the acceptance was active it passed only through the
+recorded acceptance, not because the finding was disproved; the advisory was not
+resolved, it was later withdrawn. Fourteen Node tests covered the positive case and
+every fail-closed and approval-reference case at that time; the suite has since
+been extended for the empty exception state.
 
 **Approval evidence:** the durable owner decision is the approval comment at
 [PR #95, comment 6976788744](https://github.com/freeDom-/hnefatafl/pull/95#issuecomment-6976788744),
 recorded 2026-11-18 by `freeDom-`. It identifies the advisory, the development-only
 dependency paths, the residual development/CI denial-of-service risk, the absence of
 a supported upstream patch and the 2026-12-17 expiry, and states the removal and
-no-extension conditions. The JSON records that decision; it is not the evidence
+no-extension conditions. The JSON recorded that decision; it was not the evidence
 itself. The schema requires an https `approvalReference` hosted in this repository,
-so a missing, malformed or external reference fails. Approval applies only to the
+so a missing, malformed or external reference fails. Approval applied only to the
 exact advisory, versions, range and package set recorded; any change requires a new
 owner decision.
 
@@ -327,10 +343,72 @@ not a GitHub-enforced merge gate.
 
 ### Follow-up
 
-When upstream publishes a patched picomatch release, refresh the lockfile
-(`npm --prefix frontend update picomatch`), remove the exception entry in the same
-change, rerun the unit/browser suites and re-audit; the script then passes without
-an acceptance. Treat a GitHub withdrawal or a formal dispute as a separate outcome:
-re-check the advisory before removing the exception, because a Snyk revocation alone
-does not clear it. Do not extend the expiry silently; re-approve and record a new
-date. Repeat the audit at release preparation because advisories are time-sensitive.
+The GitHub withdrawal on 2026-11-18 made this acceptance obsolete, so the exception
+was removed and no patched picomatch release was required. Treat a GitHub withdrawal
+or a formal dispute as a separate outcome: re-check the advisory before removing an
+exception, because a Snyk revocation alone does not clear it. If an advisory later
+returns, re-approve and record a new date rather than extending the old expiry
+silently. Repeat the audit at release preparation because advisories are
+time-sensitive.
+
+## Withdrawal and empty exception state (2026-11-18)
+
+GitHub withdrew GHSA-fc5q-39xc-vjpf on 2026-11-18 (`withdrawn_at`
+2026-11-18T15:38:56Z). The advisory is no longer active, no patched picomatch
+release was required, and no dependency version, override, fork or lockfile entry
+changed. The previously approved development-only acceptance is no longer active:
+its entry was removed from `frontend/security/dependency-audit-exceptions.json`,
+which now has an empty `exceptions` array. The owner approval recorded on PR #95,
+the reviewed dependency paths, the severity/range assessment and the 2026-12-17
+expiry above remain as the historical record of the decision; they are not a current
+finding or an active exception.
+
+### Current audit results
+
+On 2026-11-18 the committed lockfile reported:
+
+| Command | Result |
+| --- | --- |
+| `npm --prefix frontend run audit:ci` | Passed: full audit 0 affected packages (critical 0, high 0, moderate 0, low 0), production-only audit clean |
+| `npm --prefix frontend audit --json` | 0 vulnerabilities, all dependencies |
+| `npm --prefix frontend audit --omit=dev --json` | 0 vulnerabilities, runtime dependencies |
+
+These are dated registry observations, not a guarantee about future `npm audit`
+results and not evidence of an upstream code fix.
+
+### Supported empty exception state
+
+An empty `exceptions` array is a valid schema-3 configuration and needs no owner
+approval metadata, because no risk is being accepted. A clean full audit, a clean
+production-only audit and an empty array therefore pass the security job. The
+`approvedBy`, `approvedAt` and `reviewReference` fields are required and strictly
+validated again as soon as at least one exception is active; when the array is
+empty they may be omitted, and any metadata that is still supplied must be well
+formed. Missing, non-array or unsupported exception configurations, unknown fields
+and malformed metadata continue to fail.
+
+### Remaining fail-closed behavior
+
+The withdrawal does not weaken the gate. The audit still rejects: unrecognized
+advisories (including non-GitHub URLs); every production dependency finding;
+expired, unused and unauthorized exceptions; changed severity, advisory range,
+affected package set or reviewed package versions; a changed dependency graph;
+malformed, incomplete or inconsistent audit reports; and failed audit commands or
+registry errors. There is no `continue-on-error`, blanket exclusion, ignore list or
+severity threshold reduction, and the independent `security` CI job is preserved so
+security failures stay visible without blocking the functional jobs.
+
+### Adding a future exception
+
+A new risk must be approved on its own merits and never by reusing the withdrawn
+record. Add a schema-3 entry to
+`frontend/security/dependency-audit-exceptions.json` with the exact
+advisory/package, CVE, severity, `scope: "development"`, an expiry no more than 90
+days after the approval date, the reviewed `advisoryRange`, a repository-hosted
+https `approvalReference`, a substantive rationale, the affected package set and
+every reviewed package version. Restore the file-level `approvedBy`, `approvedAt`
+and `reviewReference` at the same time. The audit validates the new entry against
+the live report and the lockfile, and fails until the metadata and reviewed values
+match. The focused Node regression suite covers the empty state, a returning
+advisory, missing/malformed configuration, stale/expired/modified exceptions,
+missing approval metadata, production findings and failed audit executions.
