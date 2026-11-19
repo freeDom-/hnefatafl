@@ -3,6 +3,8 @@
   grid-template-columns: minmax(230px, 0.8fr) minmax(0, 2.4fr);
   align-items: start;
   gap: var(--gap-card);
+  /* Separate the workspace from the intro (or a transient notice) above it. */
+  margin-top: var(--gap-card);
 }
 .tournament-history {
   padding: var(--pad-panel);
@@ -141,6 +143,12 @@
   margin-top: 15px;
   font-size: 0.625rem;
   color: var(--muted);
+}
+.tournament-welcome-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-inline);
 }
 .tournament-promise {
   display: flex;
@@ -552,7 +560,7 @@
   min-height: 34px;
 }
 .tournament-notice {
-  margin: 0 0 22px;
+  margin: var(--gap-card) 0;
 }
 .tournament-setup {
   max-width: 760px;
