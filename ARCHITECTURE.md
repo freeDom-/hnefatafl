@@ -780,13 +780,19 @@ hook remains independent of the deferred analysis presentation.
 
 The New Game dialog keeps its shared modal shell eager and defers only the form,
 so close, Escape, focus management and cancellation work while the form loads or
-fails. Navigating away closes the dialog before a late import can resolve.
+fails. `useNewGameSetup` owns the asynchronous setup with a generation counter
+and abort controller: only the newest operation may publish options or open the
+dialog, and cancelling, navigating, switching account or logging out invalidates
+it. A game-creation completion after dismissal or navigation is ignored, while
+the committed server game stays in the account's history.
 
 Production builds enforce budgets across the complete transitive eager manifest
 graph, including the first-paint appearance script. The production probe compares
 actual first-load JavaScript and CSS with that manifest graph, checks
-public/authenticated entry isolation and verifies Retry recovery against real
-hashed chunks. See the
+public/authenticated entry isolation and verifies Retry and Reload recovery
+against real hashed chunks. A build-only module ownership map lets the probe
+reject a prohibited feature folded into an eager shared chunk even without its
+filename prefix. See the
 [measurement scope and validation](docs/validation/frontend-feature-splitting.md).
 
 ## Human tournament scheduling and compatibility

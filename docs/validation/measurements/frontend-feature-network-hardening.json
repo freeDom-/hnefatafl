@@ -1,0 +1,223 @@
+{
+  "sourceHead": "4fbe87993c0ffaaf41a293d6592be7860bb2748f",
+  "build": {
+    "schema": 1,
+    "revision": "4fbe87993c0ffaaf41a293d6592be7860bb2748f",
+    "dirty": false,
+    "git": true,
+    "fingerprint": "810bcd9f1d02e5557f590ff80c7d20fef8a5f04e569e80b631320227a57c39b3",
+    "builtAt": "2026-11-19T03:15:24.421Z"
+  },
+  "measuredAt": "2026-11-19T03:15:44.094Z",
+  "browser": "156.0.8078.4",
+  "node": "v22.23.4",
+  "fixture": "Production static assets; read-only mocked account/dashboard/workshop API responses. Network graph proof, not backend capacity evidence.",
+  "initialWindow": {
+    "readiness": "Dashboard left its loading state and the manifest graph responded",
+    "settleMs": 750,
+    "limitation": "A bounded observation window cannot prove that an arbitrarily future scheduled import never occurs."
+  },
+  "manifest": {
+    "authenticatedEntry": "assets/AuthenticatedArena-tbdf6sic.js",
+    "publicEntry": "assets/PublicArena-ENbWWVyE.js",
+    "expectedInitialScripts": [
+      "assets/AuthenticatedArena-tbdf6sic.js",
+      "assets/appearance-init.js",
+      "assets/arenaTopBar-B7mdBPWO.js",
+      "assets/index-ZM6rvbBV.js"
+    ],
+    "expectedInitialStyles": [
+      "assets/AuthenticatedArena-DqAtxU54.css",
+      "assets/arenaTopBar-qCqN8ppL.css",
+      "assets/index-DmWrC0Xt.css"
+    ]
+  },
+  "initialFiles": [
+    "assets/AuthenticatedArena-tbdf6sic.js",
+    "assets/appearance-init.js",
+    "assets/arenaTopBar-B7mdBPWO.js",
+    "assets/index-ZM6rvbBV.js"
+  ],
+  "initialCssFiles": [
+    "assets/AuthenticatedArena-DqAtxU54.css",
+    "assets/arenaTopBar-qCqN8ppL.css",
+    "assets/index-DmWrC0Xt.css"
+  ],
+  "initialRequests": [
+    "assets/AuthenticatedArena-DqAtxU54.css",
+    "assets/AuthenticatedArena-tbdf6sic.js",
+    "assets/appearance-init.js",
+    "assets/arenaTopBar-B7mdBPWO.js",
+    "assets/arenaTopBar-qCqN8ppL.css",
+    "assets/index-DmWrC0Xt.css",
+    "assets/index-ZM6rvbBV.js"
+  ],
+  "initialFailed": [],
+  "initialInventory": [
+    {
+      "file": "assets/AuthenticatedArena-tbdf6sic.js",
+      "raw": 103982,
+      "gzip_level9": 32188
+    },
+    {
+      "file": "assets/appearance-init.js",
+      "raw": 1862,
+      "gzip_level9": 698
+    },
+    {
+      "file": "assets/arenaTopBar-B7mdBPWO.js",
+      "raw": 5560,
+      "gzip_level9": 2324
+    },
+    {
+      "file": "assets/index-ZM6rvbBV.js",
+      "raw": 454711,
+      "gzip_level9": 145480
+    }
+  ],
+  "initialCssInventory": [
+    {
+      "file": "assets/AuthenticatedArena-DqAtxU54.css",
+      "raw": 37455,
+      "gzip_level9": 7494
+    },
+    {
+      "file": "assets/arenaTopBar-qCqN8ppL.css",
+      "raw": 2435,
+      "gzip_level9": 839
+    },
+    {
+      "file": "assets/index-DmWrC0Xt.css",
+      "raw": 74297,
+      "gzip_level9": 15470
+    }
+  ],
+  "initialRaw": 566115,
+  "initialGzipLevel9": 180690,
+  "initialCssRaw": 114187,
+  "initialCssGzipLevel9": 23803,
+  "observedResponses": {
+    "assets/AuthenticatedArena-DqAtxU54.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/AuthenticatedArena-tbdf6sic.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/ConfigImportButton-DBtqSgMh.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/ConfigImportButton-DJ2xKjw1.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/FieldTooltip-Cda77eaS.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/Training-CBmYcF5U.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/Training-CnKsnDRP.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/appearance-init.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/arenaTopBar-B7mdBPWO.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/arenaTopBar-qCqN8ppL.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/index-DmWrC0Xt.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/index-ZM6rvbBV.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/modelLabel-tBS9T_g7.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/sortRulesets-BMELa7Sl.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/sortRulesets-LWLBvLdW.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    }
+  },
+  "forbiddenModules": [],
+  "deferredFeaturesAbsentInitially": [
+    "src/Training.tsx",
+    "src/Tournaments.tsx",
+    "src/RecordedReview.tsx",
+    "src/AgentAnalysis.tsx",
+    "src/AdvisorSelect.tsx",
+    "src/NewGameForm.tsx",
+    "src/AgentConfigFields.tsx",
+    "src/StatisticsPage.tsx",
+    "src/ProfilePage.tsx",
+    "src/Online.tsx",
+    "src/PortraitHall.tsx",
+    "src/PlayerTournaments.tsx",
+    "node_modules/react-markdown/"
+  ],
+  "afterTrainingFiles": [
+    "assets/AuthenticatedArena-tbdf6sic.js",
+    "assets/ConfigImportButton-DJ2xKjw1.js",
+    "assets/FieldTooltip-Cda77eaS.js",
+    "assets/Training-CnKsnDRP.js",
+    "assets/appearance-init.js",
+    "assets/arenaTopBar-B7mdBPWO.js",
+    "assets/index-ZM6rvbBV.js",
+    "assets/modelLabel-tBS9T_g7.js",
+    "assets/sortRulesets-LWLBvLdW.js"
+  ],
+  "recovery": {
+    "newGameForm": {
+      "feature": "assets/NewGameForm-DJ9nY6z4.js",
+      "firstAttempt": "aborted",
+      "recoveredThrough": "Retry"
+    },
+    "transitiveDependency": {
+      "feature": "assets/ConfigImportButton-DJ2xKjw1.js",
+      "firstAttempt": "aborted",
+      "recoveredThrough": "Retry"
+    },
+    "deferredStylesheet": {
+      "feature": "assets/Training-CBmYcF5U.css",
+      "firstAttempt": "aborted",
+      "recoveredThrough": "Reload application",
+      "recoveredComputedDisplay": "flex"
+    },
+    "stylesheetRetryLimitation": {
+      "feature": "assets/Training-CBmYcF5U.css",
+      "retried": true,
+      "computedDisplay": "block",
+      "note": "Retry restores the JavaScript but not the failed stylesheet; Reload is required."
+    },
+    "missingHashedAsset": {
+      "feature": "assets/NewGameForm-DJ9nY6z4.js",
+      "retriedWhileMissing": true,
+      "recoveredThrough": "Reload application"
+    }
+  },
+  "publicEntryIsolation": {
+    "authenticatedEntry": "assets/AuthenticatedArena-tbdf6sic.js",
+    "publicEntry": "assets/PublicArena-ENbWWVyE.js",
+    "authenticatedGraphIncludesPublicEntry": false,
+    "publicGraphIncludesAuthenticatedEntry": false
+  }
+}

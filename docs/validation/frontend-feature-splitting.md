@@ -70,10 +70,11 @@ Clean production revision `64819d6ebd16d61f46f8873676b994c1c91bbb4a` passed
 1,862-byte first-paint script and 535,529-byte application entry arrived initially.
 Workshop navigation subsequently requested Training and its four shared chunks;
 all nine excluded feature families were absent initially. Source/build Git
-identity and the complete asset fingerprint matched. Full branch CI is pending. These results
-do not establish physical-device performance, merged cross-feature visual
-acceptance or release readiness. Separate tournament, spectator and league work
-is outside this branch.
+identity and the complete asset fingerprint matched. Full branch CI was later
+recorded green: run `44438662412` passed all four jobs at the reviewed head
+`7558e7d` (see [CI](#ci)). These results do not establish physical-device
+performance, merged cross-feature visual acceptance or release readiness.
+Separate tournament, spectator and league work is outside this branch.
 
 ## Reviewed main integration, 18 November
 
@@ -98,8 +99,9 @@ Both previously CI-failing field-error browser cases passed (desktop and phone,
 22.6 seconds total) after using the existing initial-job readiness helper before
 reading disclosure state. Error text, focus, contrast and geometry checks remain.
 The production build and clean-source/fingerprint request probe passed. Full
-integrated CI is pending; the earlier run had 363 main browser cases pass and two
-field-readiness failures, so it is not recorded as green.
+integrated CI is recorded green at the reviewed head `7558e7d` by run
+`44438662412`; the earlier run had 363 main browser cases pass and two
+field-readiness failures, so only the later run is green.
 
 ## Review follow-up: modal shell, recovery and network evidence, 19 November
 
@@ -138,4 +140,97 @@ Validation: 1,465 Vitest tests, 33 script tests, 12 benchmark tests, a clean
 `audit:ci`, and 40 focused browser cases (`new-game-modal` 22,
 `bundle-loading` 10, `game-setup` 8) across desktop and mobile in English and
 German. The production build and probe passed with Retry recovery and public
-entry isolation. Full browser suites and GitHub Actions remain the final gate.
+entry isolation. This reviewed head `7558e7d` was verified by run `44438662412`,
+which passed all four GitHub Actions jobs; that result is historical evidence for
+the state before the final hardening below.
+
+## Final hardening: setup lifecycle and production recovery, 19 November
+
+### Asynchronous New Game setup lifecycle
+
+`useNewGameSetup` owns the setup operation with a generation counter, an
+`AbortController` and an ownership check. `App` starts it from the Dashboard's
+"Play vs AI" action or the `?setup=single-player` deep link. Only the newest
+generation may publish options, open the dialog or report a failure; cancelling,
+navigating (including Browser Back/Forward), switching account or logging out
+advances the generation and aborts the pending option request. Route equality is
+kept only as a secondary guard. `owns()` gates the game-creation completion, and
+`NewGameForm` additionally ignores a POST completion after unmount.
+
+A dismissed or navigated-away creation therefore cannot reopen the dialog, close
+a newer setup dialog, navigate away from the current destination or persist stale
+preferences. The committed server game is preserved in the account's history;
+the client never retries or duplicates the POST. Repeated clicks while options
+load supersede rather than race, and a response that arrives after navigating
+away and back cannot reactivate the obsolete operation.
+
+Tests: `useNewGameSetup.test.tsx` (overlapping, reverse-order, cancellation,
+supersede, ownership), `NewGameSetup.test.tsx` (repeated clicks, navigation away,
+navigate away/back, explicit reopen, navigation during creation, late completion,
+account change, query-driven creation) and two `new-game-modal` browser cases
+(repeated pending clicks, navigation while POST `/games` is pending). The
+existing modal, Escape, focus and deferred-feature tests are retained.
+
+### Production asset failure and recovery
+
+The production probe (`benchmarks/feature-network.mjs`) verifies against the
+real hashed assets and their manifest relationships:
+
+| Scenario | First attempt | Recovery |
+| --- | --- | --- |
+| New Game form JavaScript chunk | aborted | Retry |
+| Transitive preload dependency (`ConfigImportButton`) | aborted | Retry |
+| Training deferred stylesheet | aborted | Reload application |
+| Training stylesheet retried while failed | aborted | none (mounts unstyled) |
+| Permanently missing hashed form chunk | aborted | Reload application |
+
+The stylesheet case verifies computed layout after recovery
+(`.workshop-global` computes `display: flex`) and records that Retry alone leaves
+it `block`, because the failed `<link>` is not re-requested; the explicit Reload
+is required. Only the existing promise-based loader is used: no automatic reload
+loops, cache-busting imports, remote scripts or weaker CSP.
+
+Remaining browser limitation: a permanently missing asset is recovered by
+unblocking it and reloading the document, which models a fixed or updated
+deployment. A permanently missing asset with no new deployment cannot recover.
+
+### Asset observation and forbidden-module detection
+
+The initial window no longer depends on `networkidle`. The probe waits for the
+Dashboard to leave its loading state and for every manifest-graph asset to
+produce a response or a recorded failure, then observes for a bounded 750 ms
+settle. It records JavaScript and CSS requests, responses, HTTP status, MIME type
+and requests that fail before any response, and rejects any failed asset in the
+initial window. A Vite `writeBundle` plugin writes a build-only module ownership
+map to `frontend/.cache/bundle-modules.json` (outside `dist`, never shipped and
+never fingerprinted). The probe checks every eager chunk's modules against the
+prohibited feature list, so a feature folded into a shared eager chunk is caught
+even without its filename prefix; intentionally shared lightweight dependencies
+remain allowed. The filename-prefix check is retained as an independent
+cross-check. Script tests cover folded features, shared dependencies, failed or
+missing responses, and public/authenticated entry isolation.
+
+Limitations: the finite window cannot prove that an arbitrarily future scheduled
+import never occurs, and the ownership map must be regenerated by the build.
+
+### Final bundle evidence
+
+Clean production revision `4fbe87993c0ffaaf41a293d6592be7860bb2748f`
+(fingerprint `810bcd9f1d02e5557f590ff80c7d20fef8a5f04e569e80b631320227a57c39b3`),
+[measurement](measurements/frontend-feature-network-hardening.json):
+
+| Initial graph | Integrated reference | Review (`59dddff`) | Final (`4fbe879`) | Budget |
+| --- | ---: | ---: | ---: | ---: |
+| JavaScript raw | 565,320 | 565,637 | 566,115 | 600,000 |
+| JavaScript gzip | 180,407 | 180,533 | 180,690 | 200,000 |
+| CSS raw | 114,187 | 114,187 | 114,187 | 150,000 |
+| CSS gzip | 23,803 | 23,803 | 23,803 | 35,000 |
+
+The +478 raw / +157 gzip bytes over the reviewed head are the setup-lifecycle
+hook and the eager shell it drives; no budget changed. The heavy NewGameForm,
+Training, Tournaments, recorded review and analysis chunks remain deferred.
+
+### CI
+
+Historical: GitHub Actions run `44438662412` passed all four jobs on the reviewed
+head `7558e7d`. Results for the final head `4fbe879` are recorded on PR #93.
