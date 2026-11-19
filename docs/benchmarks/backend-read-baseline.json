@@ -1,0 +1,881 @@
+{
+  "scope": "warm bounded GETs against fresh disposable SQLite, one API process, no AI searches or training",
+  "source_root": "/root/src/hnefatafl",
+  "source_revision": "b755fdb4251804817b310e2885ff029399e64e2b",
+  "source_clean": true,
+  "observed_at": "2026-11-18T17:21:18.465896+00:00",
+  "script_sha256": "107b5b666a652bc6d7de493bb757f6cfa310c9ab2db79a9f23b1ee01f7e0f1f8",
+  "environment": {
+    "python": "3.13.5",
+    "platform": "Linux-7.0.14-26-pve-x86_64-with-glibc2.41",
+    "logical_cpus": 4,
+    "client": "httpx keep-alive clients; one sequential worker per distinct account",
+    "server": "uvicorn one worker, background account/online sweep loops disabled",
+    "port": 8501
+  },
+  "parameters": {
+    "users": 8,
+    "rounds": 3,
+    "concurrency": [
+      1,
+      4,
+      8
+    ]
+  },
+  "seed_counts": {
+    "accounts": 9,
+    "games": 40,
+    "online_games": 32,
+    "online_moves": 64,
+    "online_results": 8,
+    "rating_events": 8,
+    "player_ratings": 8,
+    "player_tournaments": 2,
+    "player_tournament_entrants": 8,
+    "player_tournament_matches": 14,
+    "player_tournament_legs": 8
+  },
+  "sqlite": {
+    "version": "3.46.1",
+    "journal_mode": "wal",
+    "database_bytes": 716800,
+    "wal_bytes": 0
+  },
+  "query_plan_note": "Separate representative read fragments on the small fixture, not an assertion that every HTTP service query has this plan.",
+  "query_plans": {
+    "owned_single_category": {
+      "query": "SELECT id FROM games WHERE category=? AND owner_account_id=? ORDER BY created_at DESC LIMIT 25",
+      "plan": [
+        "SEARCH games USING INDEX games_category_owner (category=? AND owner_account_id=?)"
+      ]
+    },
+    "owned_local_category": {
+      "query": "SELECT id FROM games WHERE category=? AND owner_account_id=? ORDER BY created_at DESC LIMIT 5",
+      "plan": [
+        "SEARCH games USING INDEX games_category_owner (category=? AND owner_account_id=?)"
+      ]
+    },
+    "online_status_updated": {
+      "query": "SELECT id FROM online_games WHERE status=? ORDER BY updated_at DESC,id LIMIT 25",
+      "plan": [
+        "SCAN online_games USING INDEX online_updated"
+      ]
+    },
+    "online_moves_replay": {
+      "query": "SELECT ply,source,target,accepted_at FROM online_moves WHERE game_id=? ORDER BY ply",
+      "plan": [
+        "SEARCH online_moves USING INDEX sqlite_autoindex_online_moves_1 (game_id=?)"
+      ]
+    },
+    "tournament_matches": {
+      "query": "SELECT id FROM player_tournament_matches WHERE tournament_id=? ORDER BY bracket,round,slot LIMIT 50",
+      "plan": [
+        "SEARCH player_tournament_matches USING INDEX player_tournament_matches_order (tournament_id=?)"
+      ]
+    }
+  },
+  "indexes": {
+    "games": [
+      "games_category_owner",
+      "games_owner",
+      "sqlite_autoindex_games_1"
+    ],
+    "online_games": [
+      "online_waiting_creator",
+      "online_defenders",
+      "online_attackers",
+      "online_updated",
+      "online_created",
+      "online_due",
+      "sqlite_autoindex_online_games_3",
+      "sqlite_autoindex_online_games_2",
+      "sqlite_autoindex_online_games_1"
+    ],
+    "online_moves": [
+      "sqlite_autoindex_online_moves_2",
+      "sqlite_autoindex_online_moves_1"
+    ],
+    "player_tournaments": [
+      "player_tournaments_creator",
+      "player_tournaments_start_due",
+      "player_tournaments_ruleset",
+      "player_tournaments_status",
+      "sqlite_autoindex_player_tournaments_1"
+    ],
+    "player_tournament_matches": [
+      "player_tournament_matches_order",
+      "sqlite_autoindex_player_tournament_matches_2",
+      "sqlite_autoindex_player_tournament_matches_1"
+    ],
+    "player_ratings": [
+      "player_ratings_pool",
+      "sqlite_autoindex_player_ratings_1"
+    ]
+  },
+  "warmup_requests": 120,
+  "percentile_method": "nearest rank; 24 samples per endpoint per level",
+  "runs": [
+    {
+      "concurrency": 1,
+      "maximum_observed_inflight_distinct_accounts": 1,
+      "distinct_authenticated_accounts": 8,
+      "elapsed_seconds": 1.9277338639367372,
+      "observed_requests_per_second": 161.84806722378508,
+      "api_process_cpu_seconds": 1.71,
+      "api_process_core_seconds_per_wall_second": 0.8870519068995912,
+      "api_process_memory_kib_after_phase": {
+        "VmHWM": 92320,
+        "VmRSS": 62012
+      },
+      "requests": 312,
+      "successes": 312,
+      "status_counts": {
+        "200": 312
+      },
+      "latency_ms": {
+        "median": 5.843532388098538,
+        "p95": 9.73704201169312,
+        "p99": 10.813408996909857,
+        "max": 11.60431606695056
+      },
+      "response_bytes": {
+        "total": 1596387,
+        "max": 33177
+      },
+      "endpoints": {
+        "dashboard_online": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 6.825804943218827,
+            "p95": 7.887838175520301,
+            "p99": 8.371028117835522,
+            "max": 8.371028117835522
+          },
+          "response_bytes": {
+            "total": 96144,
+            "max": 4006
+          }
+        },
+        "dashboard_local": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 5.528791109099984,
+            "p95": 6.454853108152747,
+            "p99": 6.5900560002774,
+            "max": 6.5900560002774
+          },
+          "response_bytes": {
+            "total": 27360,
+            "max": 1140
+          }
+        },
+        "dashboard_single": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 6.183122401125729,
+            "p95": 8.016083156690001,
+            "p99": 9.368868777528405,
+            "max": 9.368868777528405
+          },
+          "response_bytes": {
+            "total": 79200,
+            "max": 3300
+          }
+        },
+        "profile": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 4.855223465710878,
+            "p95": 5.729061085730791,
+            "p99": 5.848840810358524,
+            "max": 5.848840810358524
+          },
+          "response_bytes": {
+            "total": 36048,
+            "max": 1502
+          }
+        },
+        "personal_statistics": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 5.93364960514009,
+            "p95": 6.643607979640365,
+            "p99": 6.918591912835836,
+            "max": 6.918591912835836
+          },
+          "response_bytes": {
+            "total": 74784,
+            "max": 3116
+          }
+        },
+        "online_statistics": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 4.876838997006416,
+            "p95": 5.246358923614025,
+            "p99": 5.603872938081622,
+            "max": 5.603872938081622
+          },
+          "response_bytes": {
+            "total": 1968,
+            "max": 82
+          }
+        },
+        "leaderboard": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 5.399379529990256,
+            "p95": 6.092685041949153,
+            "p99": 6.14545401185751,
+            "max": 6.14545401185751
+          },
+          "response_bytes": {
+            "total": 50640,
+            "max": 2110
+          }
+        },
+        "lobby": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 9.887918015010655,
+            "p95": 11.485784081742167,
+            "p99": 11.60431606695056,
+            "max": 11.60431606695056
+          },
+          "response_bytes": {
+            "total": 796248,
+            "max": 33177
+          }
+        },
+        "active_game": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 5.454356083646417,
+            "p95": 6.112999049946666,
+            "p99": 6.139780860394239,
+            "max": 6.139780860394239
+          },
+          "response_bytes": {
+            "total": 34512,
+            "max": 1438
+          }
+        },
+        "completed_replay": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 6.538342917338014,
+            "p95": 7.403527153655887,
+            "p99": 8.11346503905952,
+            "max": 8.11346503905952
+          },
+          "response_bytes": {
+            "total": 138960,
+            "max": 5790
+          }
+        },
+        "player_tournaments": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 5.28136792127043,
+            "p95": 5.945516983047128,
+            "p99": 6.461203098297119,
+            "max": 6.461203098297119
+          },
+          "response_bytes": {
+            "total": 31560,
+            "max": 1315
+          }
+        },
+        "player_bracket": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 6.13667257130146,
+            "p95": 6.8756151013076305,
+            "p99": 6.947303889319301,
+            "max": 6.947303889319301
+          },
+          "response_bytes": {
+            "total": 195456,
+            "max": 8144
+          }
+        },
+        "recent_records": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 6.714801536872983,
+            "p95": 7.77787808328867,
+            "p99": 9.030320914462209,
+            "max": 9.030320914462209
+          },
+          "response_bytes": {
+            "total": 33507,
+            "max": 1411
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 4,
+      "maximum_observed_inflight_distinct_accounts": 4,
+      "distinct_authenticated_accounts": 8,
+      "elapsed_seconds": 1.779853980988264,
+      "observed_requests_per_second": 175.29527890077924,
+      "api_process_cpu_seconds": 3.370000000000001,
+      "api_process_core_seconds_per_wall_second": 1.8934137496654688,
+      "api_process_memory_kib_after_phase": {
+        "VmHWM": 92320,
+        "VmRSS": 65744
+      },
+      "requests": 312,
+      "successes": 312,
+      "status_counts": {
+        "200": 312
+      },
+      "latency_ms": {
+        "median": 22.593903122469783,
+        "p95": 33.165279077365994,
+        "p99": 39.17976398952305,
+        "max": 54.588475031778216
+      },
+      "response_bytes": {
+        "total": 1596387,
+        "max": 33177
+      },
+      "endpoints": {
+        "dashboard_online": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 25.846464443020523,
+            "p95": 34.16762198321521,
+            "p99": 34.69522995874286,
+            "max": 34.69522995874286
+          },
+          "response_bytes": {
+            "total": 96144,
+            "max": 4006
+          }
+        },
+        "dashboard_local": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 23.833927465602756,
+            "p95": 26.974701089784503,
+            "p99": 29.850361170247197,
+            "max": 29.850361170247197
+          },
+          "response_bytes": {
+            "total": 27360,
+            "max": 1140
+          }
+        },
+        "dashboard_single": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 23.259090026840568,
+            "p95": 25.143533013761044,
+            "p99": 25.709657929837704,
+            "max": 25.709657929837704
+          },
+          "response_bytes": {
+            "total": 79200,
+            "max": 3300
+          }
+        },
+        "profile": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 20.000893622636795,
+            "p95": 24.16789415292442,
+            "p99": 24.24201392568648,
+            "max": 24.24201392568648
+          },
+          "response_bytes": {
+            "total": 36048,
+            "max": 1502
+          }
+        },
+        "personal_statistics": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 23.079531034454703,
+            "p95": 26.3178669847548,
+            "p99": 26.895151007920504,
+            "max": 26.895151007920504
+          },
+          "response_bytes": {
+            "total": 74784,
+            "max": 3116
+          }
+        },
+        "online_statistics": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 17.89335743524134,
+            "p95": 24.258237099274993,
+            "p99": 25.765659986063838,
+            "max": 25.765659986063838
+          },
+          "response_bytes": {
+            "total": 1968,
+            "max": 82
+          }
+        },
+        "leaderboard": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 21.789346588775516,
+            "p95": 24.638767819851637,
+            "p99": 24.900519056245685,
+            "max": 24.900519056245685
+          },
+          "response_bytes": {
+            "total": 50640,
+            "max": 2110
+          }
+        },
+        "lobby": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 32.75592648424208,
+            "p95": 42.92531288228929,
+            "p99": 54.588475031778216,
+            "max": 54.588475031778216
+          },
+          "response_bytes": {
+            "total": 796248,
+            "max": 33177
+          }
+        },
+        "active_game": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 21.54449501540512,
+            "p95": 26.78536018356681,
+            "p99": 33.82643614895642,
+            "max": 33.82643614895642
+          },
+          "response_bytes": {
+            "total": 34512,
+            "max": 1438
+          }
+        },
+        "completed_replay": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 21.834088023751974,
+            "p95": 26.071927044540644,
+            "p99": 26.549752801656723,
+            "max": 26.549752801656723
+          },
+          "response_bytes": {
+            "total": 138960,
+            "max": 5790
+          }
+        },
+        "player_tournaments": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 20.67606197670102,
+            "p95": 23.176132002845407,
+            "p99": 26.06599102728069,
+            "max": 26.06599102728069
+          },
+          "response_bytes": {
+            "total": 31560,
+            "max": 1315
+          }
+        },
+        "player_bracket": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 21.318413550034165,
+            "p95": 25.389768881723285,
+            "p99": 26.07074985280633,
+            "max": 26.07074985280633
+          },
+          "response_bytes": {
+            "total": 195456,
+            "max": 8144
+          }
+        },
+        "recent_records": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 23.9492601249367,
+            "p95": 30.049494933336973,
+            "p99": 33.32840092480183,
+            "max": 33.32840092480183
+          },
+          "response_bytes": {
+            "total": 33507,
+            "max": 1411
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 8,
+      "maximum_observed_inflight_distinct_accounts": 8,
+      "distinct_authenticated_accounts": 8,
+      "elapsed_seconds": 1.679903564043343,
+      "observed_requests_per_second": 185.7249467636406,
+      "api_process_cpu_seconds": 3.7399999999999984,
+      "api_process_core_seconds_per_wall_second": 2.226318272102614,
+      "api_process_memory_kib_after_phase": {
+        "VmHWM": 92320,
+        "VmRSS": 70164
+      },
+      "requests": 312,
+      "successes": 312,
+      "status_counts": {
+        "200": 312
+      },
+      "latency_ms": {
+        "median": 43.960844981484115,
+        "p95": 57.61139001697302,
+        "p99": 91.65879897773266,
+        "max": 119.2222610116005
+      },
+      "response_bytes": {
+        "total": 1596387,
+        "max": 33177
+      },
+      "endpoints": {
+        "dashboard_online": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 49.713006941601634,
+            "p95": 58.94584208726883,
+            "p99": 61.266796896234155,
+            "max": 61.266796896234155
+          },
+          "response_bytes": {
+            "total": 96144,
+            "max": 4006
+          }
+        },
+        "dashboard_local": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 46.2775866035372,
+            "p95": 52.27482598274946,
+            "p99": 59.402100974693894,
+            "max": 59.402100974693894
+          },
+          "response_bytes": {
+            "total": 27360,
+            "max": 1140
+          }
+        },
+        "dashboard_single": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 34.0011544758454,
+            "p95": 49.84208615496755,
+            "p99": 59.60106197744608,
+            "max": 59.60106197744608
+          },
+          "response_bytes": {
+            "total": 79200,
+            "max": 3300
+          }
+        },
+        "profile": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 45.850844122469425,
+            "p95": 62.59801494888961,
+            "p99": 63.385386019945145,
+            "max": 63.385386019945145
+          },
+          "response_bytes": {
+            "total": 36048,
+            "max": 1502
+          }
+        },
+        "personal_statistics": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 46.53207154478878,
+            "p95": 54.92069711908698,
+            "p99": 57.063867105171084,
+            "max": 57.063867105171084
+          },
+          "response_bytes": {
+            "total": 74784,
+            "max": 3116
+          }
+        },
+        "online_statistics": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 37.68295852933079,
+            "p95": 49.28568098694086,
+            "p99": 50.68889702670276,
+            "max": 50.68889702670276
+          },
+          "response_bytes": {
+            "total": 1968,
+            "max": 82
+          }
+        },
+        "leaderboard": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 40.55715550202876,
+            "p95": 52.27480595931411,
+            "p99": 53.72517090290785,
+            "max": 53.72517090290785
+          },
+          "response_bytes": {
+            "total": 50640,
+            "max": 2110
+          }
+        },
+        "lobby": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 51.45041854120791,
+            "p95": 118.83489903993905,
+            "p99": 119.2222610116005,
+            "max": 119.2222610116005
+          },
+          "response_bytes": {
+            "total": 796248,
+            "max": 33177
+          }
+        },
+        "active_game": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 39.54907553270459,
+            "p95": 49.71090494655073,
+            "p99": 52.11640289053321,
+            "max": 52.11640289053321
+          },
+          "response_bytes": {
+            "total": 34512,
+            "max": 1438
+          }
+        },
+        "completed_replay": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 43.68198348674923,
+            "p95": 52.17960104346275,
+            "p99": 54.74416492506862,
+            "max": 54.74416492506862
+          },
+          "response_bytes": {
+            "total": 138960,
+            "max": 5790
+          }
+        },
+        "player_tournaments": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 40.66247900482267,
+            "p95": 48.18052495829761,
+            "p99": 48.81185805425048,
+            "max": 48.81185805425048
+          },
+          "response_bytes": {
+            "total": 31560,
+            "max": 1315
+          }
+        },
+        "player_bracket": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 39.646781515330076,
+            "p95": 51.458489848300815,
+            "p99": 53.62749611958861,
+            "max": 53.62749611958861
+          },
+          "response_bytes": {
+            "total": 195456,
+            "max": 8144
+          }
+        },
+        "recent_records": {
+          "requests": 24,
+          "successes": 24,
+          "status_counts": {
+            "200": 24
+          },
+          "latency_ms": {
+            "median": 45.446675387211144,
+            "p95": 52.05673910677433,
+            "p99": 52.360527915880084,
+            "max": 52.360527915880084
+          },
+          "response_bytes": {
+            "total": 33507,
+            "max": 1411
+          }
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "small eight-player/default fixture, warm local keep-alive GETs only; not production capacity",
+    "same-host threaded HTTP driver and one API process, no WAN/TLS/proxy/device load",
+    "background account/online sweep disabled, no mixed writes or AI/training contention",
+    "short eight-ply completed replays, no large-history or rare-name scans",
+    "no league queue exists in baseline so it is not benchmarked",
+    "no inference/analysis load generated; use separate bounded-admission/security tests",
+    "statistics/leaderboard sample represents this fixture only; no large-database or hardware extrapolation"
+  ]
+}
