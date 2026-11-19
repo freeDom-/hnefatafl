@@ -778,8 +778,15 @@ reload, and unmounted loaders cannot commit late state. This avoids coupling
 feature readiness to paused gameplay clocks. The canonical `useGameAnalysis`
 hook remains independent of the deferred analysis presentation.
 
+The New Game dialog keeps its shared modal shell eager and defers only the form,
+so close, Escape, focus management and cancellation work while the form loads or
+fails. Navigating away closes the dialog before a late import can resolve.
+
 Production builds enforce budgets across the complete transitive eager manifest
-graph, including the first-paint appearance script. See the
+graph, including the first-paint appearance script. The production probe compares
+actual first-load JavaScript and CSS with that manifest graph, checks
+public/authenticated entry isolation and verifies Retry recovery against real
+hashed chunks. See the
 [measurement scope and validation](docs/validation/frontend-feature-splitting.md).
 
 ## Human tournament scheduling and compatibility

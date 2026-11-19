@@ -16,6 +16,9 @@ prevent stale updates. Existing permission checks run before requesting Workshop
 code. Browser tests cover English/German errors, navigation during failure,
 recovery and frozen gameplay clocks.
 
+The New Game flow keeps its shared modal shell eager and defers only the form, so
+close, Escape and focus management work during loading and failure.
+
 ## Bundle evidence and budgets
 
 Measured baseline is main `2579a86b82ed1eca91f39e7d8064196597e873ed`.
@@ -97,3 +100,42 @@ reading disclosure state. Error text, focus, contrast and geometry checks remain
 The production build and clean-source/fingerprint request probe passed. Full
 integrated CI is pending; the earlier run had 363 main browser cases pass and two
 field-readiness failures, so it is not recorded as green.
+
+## Review follow-up: modal shell, recovery and network evidence, 19 November
+
+The deferred New Game component used to own its modal, so a pending or failed
+import rendered a bare section without the close button, Escape handling, focus
+management or cancellation. `NewGame` is now an eager shell that renders the
+shared `Modal` immediately and defers only `NewGameForm`. Loading and import
+failure feedback render inside the dialog; cancellation unmounts the form so a
+late import cannot reopen a closed dialog, and navigation closes a setup dialog
+that belongs to another route. Query-driven setup and ruleset selection, model
+controls, validation and submission are unchanged.
+
+The production probe now derives the expected initial graph from the Vite
+manifest (`scripts/bundleGraph.mjs`, shared with the budget checker), compares it
+with the actual JavaScript and CSS responses, verifies status and content type,
+detects delayed unexpected assets after Dashboard network idle, verifies deferred
+chunks arrive on first use, checks public/authenticated entry isolation, and
+proves Retry recovery by aborting the real hashed New Game form chunk. The budget
+tests reject incorrect manifests, missing assets, shared eager dependencies and
+unexpected delayed loads.
+
+Fresh clean production evidence at `59dddff` (source revision and fingerprint in
+[the measurement](measurements/frontend-feature-network-review.json)):
+
+| Initial graph | Integrated reference | Review measurement | Difference |
+| --- | ---: | ---: | ---: |
+| JavaScript raw | 565,320 | 565,637 | +317 (+0.06%) |
+| JavaScript gzip | 180,407 | 180,533 | +126 (+0.07%) |
+| CSS raw | 114,187 | 114,187 | 0 |
+| CSS gzip | 23,803 | 23,803 | 0 |
+
+The increase is the eager dialog shell (modal, close, Escape and focus) that
+keeps the creation flow usable while the form is deferred. Budgets are unchanged.
+
+Validation: 1,465 Vitest tests, 33 script tests, 12 benchmark tests, a clean
+`audit:ci`, and 40 focused browser cases (`new-game-modal` 22,
+`bundle-loading` 10, `game-setup` 8) across desktop and mobile in English and
+German. The production build and probe passed with Retry recovery and public
+entry isolation. Full browser suites and GitHub Actions remain the final gate.
