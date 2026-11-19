@@ -6,7 +6,9 @@ import signal
 import socket
 import statistics
 import subprocess
+import sys
 import threading
+import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -82,10 +84,11 @@ def test_deterministic_environment_covers_required_isolation(tmp_path):
 
 def test_environment_metadata_distinguishes_unavailable_from_zero(monkeypatch):
     monkeypatch.setattr(bench.os, "cpu_count", lambda: None)
-    metadata = environment_metadata(8501)
+    metadata = environment_metadata(8501, caller_numeric_threads={"OMP_NUM_THREADS": "9"})
     assert metadata["logical_cpus"] is None
     assert metadata["port"] == 8501
-    assert metadata["numeric_threads"]["OMP_NUM_THREADS"] in (None, "2")
+    assert metadata["caller_numeric_threads"] == {"OMP_NUM_THREADS": "9"}
+    assert metadata["benchmark_numeric_threads"]["OMP_NUM_THREADS"] in (None, "2")
 
 
 # ---------------------------------------------------------------------------
@@ -364,10 +367,11 @@ def test_resources_close_terminates_process_even_if_client_close_fails():
     resources.clients = [_FailingClient()]
     process = _FakeProcess()
     resources.process = process
-    problems = resources.close()
+    result = resources.close()
     assert process.terminated is True
     assert process.waited is True
-    assert any("client close" in problem for problem in problems)
+    assert result.ok is False
+    assert any("client close" in problem for problem in result.problems)
 
 
 def test_resources_close_escalates_to_kill_when_graceful_times_out():
@@ -381,9 +385,10 @@ def test_resources_close_escalates_to_kill_when_graceful_times_out():
     resources = BenchmarkResources()
     process = StubbornProcess()
     resources.process = process
-    resources.close()
+    result = resources.close()
     assert process.terminated is True
     assert process.killed is True
+    assert result.process_stopped is True
 
 
 def test_handle_signal_sets_cooperative_cancellation():
@@ -419,14 +424,15 @@ def test_measure_level_records_network_errors():
             raise httpx.ConnectError("refused")
 
     resources = BenchmarkResources()
-    rows, maximum, cancelled = bench.measure_level(
+    phase = bench.measure_level(
         1, [0], [[("endpoint", "/api/endpoint")]], 1, resources, [FailingActor()]
     )
-    assert cancelled is False
-    assert maximum == 1
-    assert rows[0]["status"] == 0
-    assert rows[0]["error_type"] == "ConnectError"
-    assert metrics(rows)["failures"] == 1
+    assert phase.cancelled is False
+    assert phase.maximum_inflight == 1
+    assert phase.workers_stopped is True
+    assert phase.rows[0]["status"] == 0
+    assert phase.rows[0]["error_type"] == "ConnectError"
+    assert metrics(phase.rows)["failures"] == 1
 
 
 def test_warmup_rejects_ownership_mismatch():
@@ -593,3 +599,340 @@ def test_git_revision_rejects_dirty_nested_and_missing_checkout(tmp_path):
 def test_verified_source_requires_the_runners_own_checkout(tmp_path):
     with pytest.raises(ValueError, match="own checkout"):
         verified_source(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Cleanup completion
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_failure_retains_fixture_and_is_not_ok(tmp_path):
+    fixture = create_fixture_directory(tmp_path)
+
+    class Stubborn:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            if timeout is not None:
+                raise subprocess.TimeoutExpired("child", timeout)
+            raise RuntimeError("still running")
+
+    resources = BenchmarkResources()
+    resources.fixture = fixture
+    resources.process = Stubborn()
+    result = resources.close()
+    assert result.ok is False
+    assert result.process_stopped is False
+    assert result.fixture_removed is False
+    assert result.retained_fixture == str(fixture.path)
+    assert fixture.path.exists()
+    assert any("may still use it" in problem for problem in result.problems)
+
+
+def test_internal_shutdown_budget_fits_external_kill_grace():
+    total = (
+        bench.STOP_TIMEOUT_SECONDS
+        + bench.WORKER_DRAIN_SECONDS
+        + bench.TERMINATE_GRACE_SECONDS
+        + bench.TERMINATE_FORCE_SECONDS
+    )
+    assert total < bench.EXTERNAL_KILL_AFTER_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Cancellation propagation
+# ---------------------------------------------------------------------------
+
+
+def test_play_repetition_stops_on_cancel():
+    cancel = threading.Event()
+    cancel.set()
+
+    class Client:
+        pass
+
+    with pytest.raises(bench.BenchmarkCancelled):
+        bench.play_repetition(Client(), "/x", Client(), Client(), 0, wrapped=True, cancel=cancel)
+
+
+def test_seed_fixture_stops_on_cancel():
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(bench.BenchmarkCancelled):
+        bench.seed_fixture([object()], object(), [("u", "p", "id", "USER")], 1, cancel)
+
+
+def _state_for_cancel_tests():
+    return bench.FixtureState(
+        users=1,
+        account_ids=["account"],
+        admin_id="admin",
+        local_ids=[["local"]],
+        single_ids=[["single"]],
+        active_ids=["active"],
+        replay_ids=["replay"],
+        waiting_ids=["waiting"],
+        started_tournament_id="started",
+        upcoming_tournament_id="upcoming",
+    )
+
+
+def test_verify_fixture_stops_on_cancel(tmp_path):
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(bench.BenchmarkCancelled):
+        bench.verify_fixture(
+            actors=[object()],
+            admin=object(),
+            state=_state_for_cancel_tests(),
+            db_path=tmp_path / "missing.sqlite3",
+            cancel=cancel,
+        )
+
+
+def test_warmup_stops_on_cancel():
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(bench.BenchmarkCancelled):
+        bench.warmup_fixture([object()], [[]], _state_for_cancel_tests(), cancel)
+
+
+def test_login_stops_on_cancel():
+    cancel = threading.Event()
+    cancel.set()
+    probe = type("Probe", (), {"base_url": "http://127.0.0.1:8501"})()
+    with pytest.raises(bench.BenchmarkCancelled):
+        bench.login_actors(probe, [("u", "p", "id", "USER")], BenchmarkResources(), cancel)
+
+
+def test_start_server_stops_on_cancel(tmp_path):
+    cancel = threading.Event()
+    cancel.set()
+    resources = BenchmarkResources(cancel=cancel)
+    fixture = create_fixture_directory(tmp_path)
+    with pytest.raises(bench.BenchmarkCancelled):
+        bench.start_server(bench.SOURCE_ROOT, fixture, 8501, tmp_path, resources)
+    assert resources.process is None
+
+
+def test_measure_level_stops_on_cancel():
+    cancel = threading.Event()
+    cancel.set()
+    resources = BenchmarkResources(cancel=cancel)
+    phase = bench.measure_level(1, [0], [[("e", "/e")]], 1, resources, [object()])
+    assert phase.cancelled is True
+    assert phase.rows == []
+
+
+def test_real_subprocess_termination_escalates_and_reaps():
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)",
+        ]
+    )
+    resources = BenchmarkResources()
+    resources.process = child
+    try:
+        assert resources.terminate_process(grace=0.5, force=5.0) is True
+        assert child.poll() is not None
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+
+# ---------------------------------------------------------------------------
+# Measurement scheduling
+# ---------------------------------------------------------------------------
+
+
+def test_measure_level_does_not_busy_wait_on_completed_futures(monkeypatch):
+    calls = {"count": 0}
+    real_wait = bench.wait
+
+    def counting_wait(futures, timeout=None, return_when=None):
+        calls["count"] += 1
+        return real_wait(futures, timeout=timeout, return_when=return_when)
+
+    monkeypatch.setattr(bench, "wait", counting_wait)
+
+    class SlowActor:
+        def __init__(self, delay):
+            self.delay = delay
+
+        def get(self, path):
+            time.sleep(self.delay)
+            return httpx.Response(
+                200, request=httpx.Request("GET", "http://127.0.0.1:1" + path), content=b""
+            )
+
+    resources = BenchmarkResources()
+    phase = bench.measure_level(
+        2,
+        [0, 1],
+        [[("e", "/e")], [("e", "/e")]],
+        1,
+        resources,
+        [SlowActor(0.01), SlowActor(0.6)],
+    )
+    assert len(phase.rows) == 2
+    assert phase.maximum_inflight == 2
+    assert calls["count"] <= 8
+
+
+# ---------------------------------------------------------------------------
+# Fixture storage safety
+# ---------------------------------------------------------------------------
+
+
+def test_fixture_storage_rejects_symlink_to_external_sentinel(tmp_path):
+    sentinel = tmp_path / "operator.sqlite3"
+    sentinel.write_text("operator-data", encoding="utf-8")
+    fixture = create_fixture_directory(tmp_path)
+    (fixture.path / "hnefatafl.sqlite3").symlink_to(sentinel)
+    with pytest.raises(ValueError, match="symlink"):
+        validate_fixture_directory(fixture.path, require_config=False)
+    assert sentinel.read_text(encoding="utf-8") == "operator-data"
+
+
+def test_fixture_storage_rejects_nested_symlink_escape(tmp_path):
+    external = tmp_path / "outside"
+    external.mkdir()
+    fixture = create_fixture_directory(tmp_path)
+    jobs = fixture.path / "jobs"
+    jobs.mkdir()
+    (jobs / "escape").symlink_to(external)
+    with pytest.raises(ValueError, match="symlink"):
+        validate_fixture_directory(fixture.path, require_config=False)
+
+
+def test_serve_rejects_indirect_storage_before_backend_init(tmp_path, monkeypatch):
+    sentinel = tmp_path / "sentinel.sqlite3"
+    sentinel.write_text("keep", encoding="utf-8")
+    fixture = create_fixture_directory(tmp_path)
+    (fixture.path / "hnefatafl.sqlite3").symlink_to(sentinel)
+    monkeypatch.setenv("HNEFATAFL_DATA_DIR", str(fixture.path))
+    with pytest.raises(ValueError, match="symlink"):
+        bench.serve(bench.SOURCE_ROOT, fixture.path, 8501)
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+# ---------------------------------------------------------------------------
+# Exact fixture semantics
+# ---------------------------------------------------------------------------
+
+
+def test_require_exact_ids_rejects_missing_extra_and_empty():
+    bench.require_exact_ids({"a", "b"}, {"a", "b"}, "x")
+    with pytest.raises(RuntimeError, match="missing"):
+        bench.require_exact_ids({"a"}, {"a", "b"}, "x")
+    with pytest.raises(RuntimeError, match="unexpected"):
+        bench.require_exact_ids({"a", "b", "c"}, {"a", "b"}, "x")
+    with pytest.raises(RuntimeError, match="non-empty"):
+        bench.require_exact_ids(set(), set(), "x")
+
+
+def test_require_no_ids_rejects_foreign_records():
+    bench.require_no_ids(set(), "x")
+    with pytest.raises(RuntimeError, match="expected no records"):
+        bench.require_no_ids({"a"}, "x")
+
+
+def test_expected_bracket_counts_match_double_elimination_plan():
+    assert bench.expected_bracket_match_count(2) == 2
+    assert bench.expected_bracket_match_count(4) == 6
+    assert bench.expected_bracket_match_count(8) == 14
+    assert bench.expected_bracket_leg_count(2, 2) == 2
+    assert bench.expected_bracket_leg_count(4, 4) == 4
+    assert bench.expected_bracket_leg_count(8, 8) == 8
+    assert bench.expected_bracket_leg_count(3, 4) == 2
+    assert bench.expected_bracket_leg_count(5, 8) == 2
+    assert bench.expected_bracket_leg_count(6, 8) == 4
+
+
+def test_tournament_games_maps_legs_to_participants():
+    bracket = {
+        "upper": [
+            {
+                "round": 1,
+                "matches": [
+                    {
+                        "participants": {
+                            "a": {"account_id": "x"},
+                            "b": {"account_id": "y"},
+                        },
+                        "legs": [{"game_id": "g1"}, {"game_id": "g2"}],
+                    }
+                ],
+            }
+        ],
+        "lower": [],
+        "final": None,
+        "reset": None,
+    }
+    assert bench.tournament_games(bracket) == {"g1": ("x", "y"), "g2": ("x", "y")}
+
+
+# ---------------------------------------------------------------------------
+# Partial evidence and telemetry
+# ---------------------------------------------------------------------------
+
+
+def test_raw_samples_survive_summary_failure(tmp_path):
+    out = tmp_path / "evidence"
+    out.mkdir()
+    raw = [
+        {
+            "concurrency": 1,
+            "actor_index": 0,
+            "endpoint": "e",
+            "status": 200,
+            "bytes": 1,
+            "milliseconds": 1.0,
+            "error_type": None,
+        }
+    ]
+    assert bench.write_raw_evidence(out, raw) == []
+    assert (out / "requests.json").exists()
+    problems = bench.write_summary_evidence(out, {"unserializable": object()})
+    assert problems and problems[0].startswith("summary evidence")
+    assert (out / "requests.json").read_text(encoding="utf-8")
+
+
+def test_telemetry_unavailable_is_none():
+    class Dead:
+        pid = 999_999_999
+
+    assert bench.safe_server_cpu_seconds(Dead()) is None
+    assert bench.safe_server_memory(Dead()) is None
+
+
+# ---------------------------------------------------------------------------
+# Environment metadata
+# ---------------------------------------------------------------------------
+
+
+def test_assert_import_origin_records_imported_paths():
+    recorded = bench.assert_import_origin(bench.SOURCE_ROOT)
+    assert recorded["server"] == str((bench.SOURCE_ROOT / "hnefatafl" / "server.py").resolve())
+    assert recorded["engine"].endswith("hnefatafl/engine.py")
+
+
+def test_cgroup_hierarchy_walks_nested_slices(tmp_path, monkeypatch):
+    root = tmp_path / "cg"
+    (root / "a" / "b").mkdir(parents=True)
+    (root / "a" / "cpu.max").write_text("50000 100000", encoding="utf-8")
+    (root / "a" / "b" / "cpu.max").write_text("max 100000", encoding="utf-8")
+    monkeypatch.setattr(bench, "cgroup_v2_mount", lambda: root)
+    monkeypatch.setattr(bench, "cgroup_v2_leaf", lambda mount: root / "a" / "b")
+    assert bench._cgroup_v2_hierarchy("cpu.max") == ["max 100000", "50000 100000"]
+    assert bench.cgroup_cpu_quota_cores() == 0.5

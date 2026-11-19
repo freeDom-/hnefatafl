@@ -70,12 +70,48 @@ THREAD_KEYS = frozenset(
     }
 )
 
-STOP_TIMEOUT_SECONDS = 20.0
+# The documented runner wraps the benchmark in `timeout --kill-after=15s`.
+# Keep the whole internal shutdown budget below that so a cooperative SIGTERM
+# is never escalated to SIGKILL before cleanup has a chance to finish.
+EXTERNAL_KILL_AFTER_SECONDS = 15.0
+STOP_TIMEOUT_SECONDS = 4.0
+WORKER_DRAIN_SECONDS = 3.0
+TERMINATE_GRACE_SECONDS = 3.0
+TERMINATE_FORCE_SECONDS = 2.0
 BARRIER_TIMEOUT_SECONDS = 30.0
 STARTUP_TIMEOUT_SECONDS = 45.0
-TERMINATE_GRACE_SECONDS = 5.0
-TERMINATE_FORCE_SECONDS = 5.0
+CANCEL_POLL_SECONDS = 0.2
 CLIENT_TIMEOUT = httpx.Timeout(10.0, connect=5.0, pool=5.0)
+
+# Top-level paths the application owns inside a fixture. Validation rejects
+# symlinks and out-of-fixture resolution for these and for every other entry.
+KNOWN_STORAGE = {
+    MARKER_NAME: "file",
+    "hnefatafl.sqlite3": "file",
+    "hnefatafl.sqlite3-wal": "file",
+    "hnefatafl.sqlite3-shm": "file",
+    "hnefatafl.sqlite3-journal": "file",
+    ".deployment-gate": "file",
+    "jobs": "dir",
+    "models": "dir",
+    "tournaments": "dir",
+    ".uploads": "dir",
+    "jobs/.study-deletions": "dir",
+}
+SQLITE_STORAGE_NAMES = (
+    "hnefatafl.sqlite3",
+    "hnefatafl.sqlite3-wal",
+    "hnefatafl.sqlite3-shm",
+    "hnefatafl.sqlite3-journal",
+)
+OTHER_STORAGE_NAMES = (
+    MARKER_NAME,
+    ".deployment-gate",
+    "jobs",
+    "models",
+    "tournaments",
+    ".uploads",
+)
 
 LOCAL_GAMES_PER_PLAYER = 3
 SINGLE_GAMES_PER_PLAYER = 2
@@ -124,6 +160,31 @@ class FixtureState:
 
 
 @dataclass
+class CleanupResult:
+    """Outcome of releasing benchmark resources, including what was retained."""
+
+    problems: list[str] = field(default_factory=list)
+    process_stopped: bool = True
+    fixture_removed: bool | None = None
+    retained_fixture: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+@dataclass
+class PhaseResult:
+    """One measured concurrency phase plus worker/cleanup diagnostics."""
+
+    rows: list[dict]
+    maximum_inflight: int
+    cancelled: bool
+    worker_problems: list[str]
+    workers_stopped: bool
+
+
+@dataclass
 class BenchmarkResources:
     """Owns every disposable resource and closes them in a bounded order."""
 
@@ -141,45 +202,61 @@ class BenchmarkResources:
 
     def terminate_process(
         self, *, grace: float = TERMINATE_GRACE_SECONDS, force: float = TERMINATE_FORCE_SECONDS
-    ) -> None:
+    ) -> bool:
+        """Stop and reap the owned child; return False if it could not be reaped."""
         process = self.process
         if process is None:
-            return
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=grace)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=force)
-        else:
-            process.wait()
-
-    def close(self) -> list[str]:
-        """Release every owned resource; never lets one failure skip another."""
-        problems: list[str] = []
-        for client in self.clients:
-            try:
-                client.close()
-            except Exception as error:  # noqa: BLE001 - cleanup must continue
-                problems.append(f"client close: {type(error).__name__}")
-        self.clients.clear()
+            return True
         try:
-            self.terminate_process()
-        except Exception as error:  # noqa: BLE001 - report, do not raise
-            problems.append(f"process cleanup: {type(error).__name__}")
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=grace)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=force)
+            else:
+                process.wait()
+        except Exception:  # noqa: BLE001 - reported by the caller as a cleanup failure
+            return False
+        return process.poll() is not None
+
+    def close(self, *, close_clients: bool = True) -> CleanupResult:
+        """Release every owned resource; one failure never skips the others."""
+        result = CleanupResult()
+        # Stop the child first so a terminated server unblocks any in-flight
+        # request before the fixture is touched.
+        result.process_stopped = self.terminate_process()
+        if not result.process_stopped:
+            result.problems.append("owned subprocess did not stop and was not reaped")
+        if close_clients:
+            for client in self.clients:
+                try:
+                    client.close()
+                except Exception as error:  # noqa: BLE001 - cleanup must continue
+                    result.problems.append(f"client close: {type(error).__name__}")
+        self.clients.clear()
         if self.log is not None:
             try:
                 self.log.close()
             except Exception as error:  # noqa: BLE001
-                problems.append(f"log close: {type(error).__name__}")
+                result.problems.append(f"log close: {type(error).__name__}")
         if self.fixture is not None:
-            try:
-                if not cleanup_fixture_directory(self.fixture):
-                    problems.append("fixture cleanup refused")
-            except Exception as error:  # noqa: BLE001
-                problems.append(f"fixture cleanup: {type(error).__name__}")
-        return problems
+            if not result.process_stopped:
+                # Never delete a database an un-reaped server might still use.
+                result.fixture_removed = False
+                result.retained_fixture = str(self.fixture.path)
+                result.problems.append("fixture retained because the subprocess may still use it")
+            else:
+                try:
+                    result.fixture_removed = cleanup_fixture_directory(self.fixture)
+                except Exception as error:  # noqa: BLE001
+                    result.fixture_removed = False
+                    result.problems.append(f"fixture cleanup: {type(error).__name__}")
+                if result.fixture_removed is False:
+                    result.retained_fixture = str(self.fixture.path)
+                    result.problems.append("fixture cleanup refused; fixture retained")
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +299,12 @@ def verified_source(source: Path) -> str:
     return git_revision(source)
 
 
-def assert_import_origin(source: Path) -> None:
-    """Fail unless the imported backend modules come from the verified checkout."""
+def assert_import_origin(source: Path) -> dict[str, str]:
+    """Fail unless the imported backend modules come from the verified checkout.
+
+    Returns the verified imported locations so the report can record them rather
+    than only checking them internally.
+    """
     import hnefatafl.engine as engine_module
     import hnefatafl.server as server_module
 
@@ -237,6 +318,7 @@ def assert_import_origin(source: Path) -> None:
     }
     if actual != expected:
         raise ValueError("Imported backend does not match the verified source checkout")
+    return {key: str(value) for key, value in actual.items()}
 
 
 def file_fingerprint(path: Path) -> str:
@@ -321,7 +403,40 @@ def validate_phase_counts(
 # ---------------------------------------------------------------------------
 
 
-def validate_fixture_directory(data: str | Path | None, *, require_config: bool = True) -> Fixture:
+def validate_fixture_storage(fixture: Fixture) -> None:
+    """Reject indirect storage paths before the backend can open them.
+
+    A directory name and marker do not prove that arbitrary preexisting content
+    is disposable. Every entry must be a real path inside the fixture, and the
+    application-owned paths must have the expected type. Symlinks are rejected
+    anywhere in the tree, so a link to operator storage cannot be followed.
+    """
+    root = fixture.path
+    for current, directories, files in os.walk(root, followlinks=False):
+        base = Path(current)
+        for name in (*directories, *files):
+            entry = base / name
+            if entry.is_symlink():
+                raise ValueError(f"Fixture contains a symlink: {entry.relative_to(root)}")
+            if not entry.resolve().is_relative_to(root):
+                raise ValueError(f"Fixture path escapes the fixture: {entry.relative_to(root)}")
+    for name, kind in KNOWN_STORAGE.items():
+        path = root / name
+        if path.is_symlink():
+            raise ValueError(f"Fixture storage path {name} must not be a symlink")
+        if not path.exists():
+            continue
+        if not path.resolve().is_relative_to(root):
+            raise ValueError(f"Fixture storage path {name} escapes the fixture")
+        if kind == "file" and not path.is_file():
+            raise ValueError(f"Fixture storage path {name} must be a regular file")
+        if kind == "dir" and not path.is_dir():
+            raise ValueError(f"Fixture storage path {name} must be a directory")
+
+
+def validate_fixture_directory(
+    data: str | Path | None, *, require_config: bool = True, require_storage: bool = True
+) -> Fixture:
     if data is None:
         raise ValueError("Benchmark requires an explicit fixture directory")
     raw = Path(data)
@@ -350,9 +465,12 @@ def validate_fixture_directory(data: str | Path | None, *, require_config: bool 
         raise ValueError("Fixture marker identity is invalid")
     if require_config:
         configured = os.environ.get("HNEFATAFL_DATA_DIR")
-        if configured is not None and Path(configured).resolve() != resolved:
+        if configured is None or Path(configured).resolve() != resolved:
             raise ValueError("Fixture directory does not match HNEFATAFL_DATA_DIR")
-    return Fixture(resolved, identity)
+    fixture = Fixture(resolved, identity)
+    if require_storage:
+        validate_fixture_storage(fixture)
+    return fixture
 
 
 def create_fixture_directory(base: str | Path | None = None) -> Fixture:
@@ -365,9 +483,15 @@ def create_fixture_directory(base: str | Path | None = None) -> Fixture:
 
 
 def cleanup_fixture_directory(fixture: Fixture) -> bool:
-    """Remove only the fixture this process created; never an operator path."""
+    """Remove only the fixture this process created; never an operator path.
+
+    ``shutil.rmtree`` removes symlinks without following them, so a foreign link
+    inside our own fixture is safe to delete and cannot reach operator storage.
+    """
     try:
-        current = validate_fixture_directory(fixture.path, require_config=False)
+        current = validate_fixture_directory(
+            fixture.path, require_config=False, require_storage=False
+        )
     except ValueError:
         return False
     if current.identity != fixture.identity:
@@ -596,13 +720,68 @@ def cpu_affinity_count() -> int | None:
         return None
 
 
-def cpu_quota_cores() -> float | None:
+def cgroup_v2_mount() -> Path | None:
+    """Resolve the cgroup2 mount from /proc/self/mountinfo when present."""
     try:
-        parts = Path("/sys/fs/cgroup/cpu.max").read_text(encoding="utf-8").split()
-        if parts[0] != "max":
-            return int(parts[0]) / int(parts[1])
-    except (OSError, ValueError, IndexError):
-        pass
+        for line in Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines():
+            before, separator, after = line.partition(" - ")
+            if not separator:
+                continue
+            fields = before.split()
+            if len(fields) >= 5 and after.split() and after.split()[0] == "cgroup2":
+                return Path(fields[4])
+    except OSError:
+        return None
+    return None
+
+
+def cgroup_v2_leaf(mount: Path) -> Path | None:
+    """Resolve this process's cgroup path, including nested systemd slices."""
+    try:
+        for line in Path("/proc/self/cgroup").read_text(encoding="utf-8").splitlines():
+            if line.startswith("0::"):
+                relative = line.split("::", 1)[1].strip().lstrip("/")
+                return mount / relative if relative else mount
+    except OSError:
+        return None
+    return None
+
+
+def _cgroup_v2_hierarchy(name: str) -> list[str]:
+    """Values for one cgroup v2 file from the process slice up to the mount root."""
+    mount = cgroup_v2_mount()
+    if mount is None:
+        return []
+    leaf = cgroup_v2_leaf(mount)
+    if leaf is None:
+        return []
+    values: list[str] = []
+    current = leaf
+    while True:
+        candidate = current / name
+        try:
+            if candidate.is_file():
+                values.append(candidate.read_text(encoding="utf-8").strip())
+        except OSError:
+            pass
+        if current == mount or mount not in current.parents:
+            break
+        current = current.parent
+    return values
+
+
+def cgroup_cpu_quota_cores() -> float | None:
+    ratios: list[float] = []
+    for value in _cgroup_v2_hierarchy("cpu.max"):
+        parts = value.split()
+        try:
+            if parts[0] != "max":
+                ratios.append(int(parts[0]) / int(parts[1]))
+        except (ValueError, IndexError):
+            continue
+    if ratios:
+        return min(ratios)
+    # cgroup v1 fallback.
     try:
         quota = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text(encoding="utf-8"))
         period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text(encoding="utf-8"))
@@ -613,41 +792,51 @@ def cpu_quota_cores() -> float | None:
     return None
 
 
-def memory_limit_bytes() -> tuple[int | None, str | None]:
-    try:
-        value = Path("/sys/fs/cgroup/memory.max").read_text(encoding="utf-8").strip()
+def cgroup_memory_limit_bytes() -> int | None:
+    limits: list[int] = []
+    for value in _cgroup_v2_hierarchy("memory.max"):
         if value != "max":
-            return int(value), "cgroup-v2 memory.max"
-    except (OSError, ValueError):
-        pass
+            try:
+                limits.append(int(value))
+            except ValueError:
+                continue
+    if limits:
+        return min(limits)
     try:
         value = int(Path("/sys/fs/cgroup/memory/memory.limit_in_bytes").read_text(encoding="utf-8"))
         if value < (1 << 60):
-            return value, "cgroup-v1 memory.limit_in_bytes"
+            return value
     except (OSError, ValueError):
         pass
+    return None
+
+
+def system_memory_bytes() -> int | None:
     try:
         for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
             if line.startswith("MemTotal:"):
-                return int(line.split()[1]) * 1024, "proc meminfo MemTotal"
+                return int(line.split()[1]) * 1024
     except (OSError, ValueError, IndexError):
         pass
-    return None, None
+    return None
 
 
-def environment_metadata(port: int) -> dict:
-    memory_bytes, memory_source = memory_limit_bytes()
+def environment_metadata(port: int, *, caller_numeric_threads: dict | None = None) -> dict:
+    """Describe the actual benchmark environment; unavailable values stay null."""
     return {
         "python": platform.python_version(),
         "platform": platform.platform(),
         "cpu_model": cpu_model(),
         "logical_cpus": os.cpu_count(),
         "affinity_cpus": cpu_affinity_count(),
-        "cpu_quota_cores": cpu_quota_cores(),
-        "memory_limit_bytes": memory_bytes,
-        "memory_limit_source": memory_source,
+        "cpu_quota_cores": cgroup_cpu_quota_cores(),
+        "system_memory_bytes": system_memory_bytes(),
+        "cgroup_memory_limit_bytes": cgroup_memory_limit_bytes(),
+        "caller_numeric_threads": caller_numeric_threads
+        if caller_numeric_threads is not None
+        else {key: os.environ.get(key) for key in sorted(THREAD_KEYS)},
+        "benchmark_numeric_threads": {key: os.environ.get(key) for key in sorted(THREAD_KEYS)},
         "sqlite": sqlite3.sqlite_version,
-        "numeric_threads": {key: os.environ.get(key) for key in sorted(THREAD_KEYS)},
         "client": "httpx keep-alive clients; one sequential worker per distinct account",
         "server": "uvicorn one worker, background account/online sweep loops disabled",
         "port": port,
@@ -684,6 +873,9 @@ def run_actor_requests(
                 except threading.BrokenBarrierError:
                     return issued
                 first_barrier = None
+                # A cancellation can arrive while the wave waits at the barrier.
+                if cancel.is_set():
+                    return issued
             perform(actor_index, label, path)
             issued += 1
     return issued
@@ -696,12 +888,21 @@ def measure_level(
     rounds: int,
     resources: BenchmarkResources,
     actors: list[httpx.Client],
-) -> tuple[list[dict], int, bool]:
-    """Measure one concurrency level with synchronized waves and bounded stop."""
+    *,
+    unblock: Callable[[], bool] | None = None,
+) -> PhaseResult:
+    """Measure one concurrency level with synchronized waves and bounded stop.
+
+    The wait tracks only still-pending futures, so a completed actor never makes
+    the loop spin until the slowest one finishes. On cancellation the barrier is
+    aborted, queued futures are cancelled, and the server can be stopped to
+    unblock an in-flight request within the shutdown budget.
+    """
     rows: list[dict] = []
     lock = threading.Lock()
     active: set[int] = set()
     maximum = [0]
+    worker_problems: list[str] = []
 
     def perform(actor_index: int, label: str, path: str) -> None:
         with lock:
@@ -733,7 +934,7 @@ def measure_level(
             )
 
     executor = ThreadPoolExecutor(max_workers=level, thread_name_prefix="bench")
-    futures = []
+    futures: list = []
     cancelled = False
     try:
         for wave in waves(actor_ids, level):
@@ -754,21 +955,38 @@ def measure_level(
                 for actor in wave
             ]
             futures.extend(wave_futures)
-            while True:
+            pending = set(wave_futures)
+            while pending:
                 if resources.cancel.is_set():
                     cancelled = True
                     barrier.abort()
                     break
-                _, pending = wait(wave_futures, timeout=0.2, return_when=FIRST_COMPLETED)
-                if not pending:
-                    break
+                _, pending = wait(pending, timeout=CANCEL_POLL_SECONDS, return_when=FIRST_COMPLETED)
             if cancelled:
                 break
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
-        wait(futures, timeout=STOP_TIMEOUT_SECONDS)
+        pending = wait(set(futures), timeout=STOP_TIMEOUT_SECONDS)[1]
+        if pending and unblock is not None and not unblock():
+            worker_problems.append("could not stop the API subprocess to unblock workers")
+        if pending:
+            pending = wait(pending, timeout=WORKER_DRAIN_SECONDS)[1]
+        workers_stopped = not pending
+        if pending:
+            worker_problems.append(f"{len(pending)} measurement workers did not stop")
+        for future in futures:
+            if future.cancelled():
+                continue
+            try:
+                future.result()
+            except BenchmarkCancelled:
+                pass
+            except Exception as error:  # noqa: BLE001 - record worker failure explicitly
+                worker_problems.append(f"worker: {type(error).__name__}")
         executor.shutdown(wait=False)
-    return rows, maximum[0], cancelled
+    with lock:
+        snapshot = list(rows)
+    return PhaseResult(snapshot, maximum[0], cancelled, worker_problems, workers_stopped)
 
 
 # ---------------------------------------------------------------------------
@@ -832,11 +1050,20 @@ def seed_accounts(setup, users: int, cancel: threading.Event) -> list[tuple[str,
 
 
 def play_repetition(
-    client: httpx.Client, path: str, first, second, start_version: int, *, wrapped: bool
+    client: httpx.Client,
+    path: str,
+    first,
+    second,
+    start_version: int,
+    *,
+    wrapped: bool,
+    cancel: threading.Event,
 ) -> dict:
     version = start_version
     game: dict = {}
     for turn, (source, target) in enumerate(REPETITION_MOVES):
+        if cancel.is_set():
+            raise BenchmarkCancelled("cancelled during repetition fixture creation")
         mover = first if turn % 2 == 0 else second
         payload = require(
             mover.post(path, json={"version": version, "source": source, "target": target})
@@ -856,6 +1083,12 @@ def seed_fixture(
     """Seed authoritative fixtures through real HTTP adapters; no AI search."""
     from hnefatafl.engine import RULESETS
 
+    def mutate(client: httpx.Client, method: str, path: str, payload=None, expected=200):
+        if cancel.is_set():
+            raise BenchmarkCancelled("cancelled during fixture creation")
+        response = client.post(path, json=payload) if method == "post" else client.get(path)
+        return require(response, expected)
+
     account_ids = [row[2] for row in credentials[:-1]]
     local_ids: list[list[str]] = []
     single_ids: list[list[str]] = []
@@ -867,15 +1100,15 @@ def seed_fixture(
             raise BenchmarkCancelled("cancelled during fixture creation")
         local_ids.append(
             [
-                require(
-                    client.post(
-                        "/api/games/local",
-                        json={
-                            "ruleset": "brandubh",
-                            "attackers_label": "Local attacker",
-                            "defenders_label": "Local defender",
-                        },
-                    ),
+                mutate(
+                    client,
+                    "post",
+                    "/api/games/local",
+                    {
+                        "ruleset": "brandubh",
+                        "attackers_label": "Local attacker",
+                        "defenders_label": "Local defender",
+                    },
                     201,
                 )["id"]
                 for _ in range(LOCAL_GAMES_PER_PLAYER)
@@ -889,37 +1122,38 @@ def seed_fixture(
             client,
             0,
             wrapped=False,
+            cancel=cancel,
         )
         single_ids.append([])
         for rule in ("brandubh", "tablut"):
             single_ids[-1].append(
-                require(
-                    client.post(
-                        "/api/games",
-                        json={
-                            "ruleset": rule,
-                            "human_side": RULESETS[rule].first_player,
-                            "players": {
-                                "defenders"
-                                if RULESETS[rule].first_player == "attackers"
-                                else "attackers": {"profile_id": "baseline"}
-                            },
+                mutate(
+                    client,
+                    "post",
+                    "/api/games",
+                    {
+                        "ruleset": rule,
+                        "human_side": RULESETS[rule].first_player,
+                        "players": {
+                            "defenders"
+                            if RULESETS[rule].first_player == "attackers"
+                            else "attackers": {"profile_id": "baseline"}
                         },
-                    ),
+                    },
                     201,
                 )["id"]
             )
         for kind in ("active", "completed", "waiting"):
-            created = require(
-                client.post(
-                    "/api/online/games",
-                    json={
-                        "request_id": str(uuid4()),
-                        "ruleset": "brandubh",
-                        "side_selection": "attackers",
-                        "time_per_move": 259200,
-                    },
-                ),
+            created = mutate(
+                client,
+                "post",
+                "/api/online/games",
+                {
+                    "request_id": str(uuid4()),
+                    "ruleset": "brandubh",
+                    "side_selection": "attackers",
+                    "time_per_move": 259200,
+                },
                 201,
             )["game"]
             path = "/api/online/games/" + created["id"]
@@ -927,54 +1161,58 @@ def seed_fixture(
             if kind == "waiting":
                 waiting_ids.append(created["id"])
                 continue
-            joined = require(opponent.post(path + "/join", json={"version": created["version"]}))[
+            joined = mutate(opponent, "post", path + "/join", {"version": created["version"]})[
                 "game"
             ]
             if kind == "active":
                 active_ids.append(joined["id"])
                 continue
             completed = play_repetition(
-                client, path + "/moves", client, opponent, joined["version"], wrapped=True
+                client,
+                path + "/moves",
+                client,
+                opponent,
+                joined["version"],
+                wrapped=True,
+                cancel=cancel,
             )
             if completed["status"] != "completed" or completed["result"]["winner"] != "draw":
                 raise RuntimeError("Expected an authoritative completed repetition fixture")
             replay_ids.append(completed["id"])
-    tournament = require(
-        admin.post(
-            "/api/player-tournaments",
-            json={
-                "name": "Read benchmark bracket",
-                "ruleset": "brandubh",
-                "match_mode": "simultaneous",
-                "capacity": users,
-                "time_per_move": 259200,
-            },
-        ),
+    tournament = mutate(
+        admin,
+        "post",
+        "/api/player-tournaments",
+        {
+            "name": "Read benchmark bracket",
+            "ruleset": "brandubh",
+            "match_mode": "simultaneous",
+            "capacity": users,
+            "time_per_move": 259200,
+        },
         201,
     )
     started_tournament_id = tournament["id"]
     for client in actors:
-        if cancel.is_set():
-            raise BenchmarkCancelled("cancelled during fixture creation")
-        require(client.post(f"/api/player-tournaments/{started_tournament_id}/register"))
-    current = require(admin.get(f"/api/player-tournaments/{started_tournament_id}"))
-    require(
-        admin.post(
-            f"/api/player-tournaments/{started_tournament_id}/start",
-            json={"version": current["version"]},
-        )
+        mutate(client, "post", f"/api/player-tournaments/{started_tournament_id}/register")
+    current = mutate(admin, "get", f"/api/player-tournaments/{started_tournament_id}")
+    mutate(
+        admin,
+        "post",
+        f"/api/player-tournaments/{started_tournament_id}/start",
+        {"version": current["version"]},
     )
-    upcoming = require(
-        admin.post(
-            "/api/player-tournaments",
-            json={
-                "name": "Upcoming benchmark bracket",
-                "ruleset": "tablut",
-                "match_mode": "simultaneous",
-                "capacity": users,
-                "time_per_move": 259200,
-            },
-        ),
+    upcoming = mutate(
+        admin,
+        "post",
+        "/api/player-tournaments",
+        {
+            "name": "Upcoming benchmark bracket",
+            "ruleset": "tablut",
+            "match_mode": "simultaneous",
+            "capacity": users,
+            "time_per_move": 259200,
+        },
         201,
     )
     return FixtureState(
@@ -1016,66 +1254,224 @@ def bracket_leg_count(bracket: dict) -> int:
     return total
 
 
+def power_of_two_at_least(value: int) -> int:
+    return 1 << (value - 1).bit_length()
+
+
+def expected_bracket_match_count(bracket_size: int) -> int:
+    """Double-elimination match count derived from the bracket size, not the API.
+
+    Mirrors the production bracket plan: a full upper bracket, the lower-bracket
+    drop/consolidation rounds, and one grand final (a reset match is only added
+    later if the lower-bracket entrant wins).
+    """
+    upper = bracket_size.bit_length() - 1
+    if upper < 1:
+        return 0
+    lower = 0
+    if upper >= 2:
+        lower = bracket_size // 4
+        survivors = bracket_size // 4
+        for drop in range(2, upper + 1):
+            lower += survivors
+            if drop < upper:
+                lower += survivors // 2
+                survivors //= 2
+    return (bracket_size - 1) + lower + 1
+
+
+def expected_bracket_leg_count(users: int, bracket_size: int) -> int:
+    """At start only first-round matches without a bye are ready, two legs each."""
+    return 2 * users - bracket_size
+
+
+def require_exact_ids(actual: set[str], expected: set[str], label: str) -> None:
+    """Reject missing, extra or empty listings where the fixture is fully known."""
+    if not expected:
+        raise RuntimeError(f"{label}: expected a non-empty set of seeded identifiers")
+    missing = expected - actual
+    extra = actual - expected
+    if missing or extra:
+        raise RuntimeError(f"{label}: missing {sorted(missing)}, unexpected {sorted(extra)}")
+
+
+def require_no_ids(actual: set[str], label: str) -> None:
+    """Reject a listing that should be empty for the bounded fixture."""
+    if actual:
+        raise RuntimeError(f"{label}: expected no records, found {sorted(actual)}")
+
+
+def tournament_games(bracket: dict) -> dict[str, tuple[str | None, str | None]]:
+    """Map every bracket leg's game id to its two participant account ids."""
+    games: dict[str, tuple[str | None, str | None]] = {}
+    for group in ("upper", "lower"):
+        for round_ in bracket[group]:
+            for match in round_["matches"]:
+                games.update(_match_games(match))
+    for key in ("final", "reset"):
+        match = bracket.get(key)
+        if match:
+            games.update(_match_games(match))
+    return games
+
+
+def _match_games(match: dict) -> dict[str, tuple[str | None, str | None]]:
+    first = (match.get("participants", {}).get("a") or {}).get("account_id")
+    second = (match.get("participants", {}).get("b") or {}).get("account_id")
+    return {leg["game_id"]: (first, second) for leg in match.get("legs", [])}
+
+
 def verify_fixture(
     *,
     actors: list[httpx.Client],
     admin: httpx.Client,
     state: FixtureState,
     db_path: Path,
+    cancel: threading.Event,
 ) -> dict:
     """Prove the fixture is owned, complete and semantically as expected."""
     users = state.users
+    account_ids = state.account_ids
     expected_repetition = [(source, target) for source, target in REPETITION_MOVES]
     facts: dict[str, Any] = {"checked_accounts": users}
+
+    def check() -> None:
+        if cancel.is_set():
+            raise BenchmarkCancelled("cancelled during semantic verification")
+
+    check()
+
+    def get(client: httpx.Client, path: str):
+        check()
+        return require(client.get(path))
+
     # Distinct, non-administrator, verified player identities.
-    if len(set(state.account_ids)) != users:
+    if len(set(account_ids)) != users:
         raise RuntimeError("Fixture player accounts are not distinct")
-    if state.admin_id in state.account_ids:
+    if state.admin_id in account_ids:
         raise RuntimeError("Administrator identity collides with a player account")
-    facts["distinct_player_accounts"] = len(set(state.account_ids))
+    facts["distinct_player_accounts"] = len(set(account_ids))
     facts["administrator_accounts"] = 1
+
+    # Establish bracket expectations independently of the returned counts.
+    bracket_size = power_of_two_at_least(users)
+    expected_matches = expected_bracket_match_count(bracket_size)
+    expected_legs = expected_bracket_leg_count(users, bracket_size)
+    reference = get(actors[0], f"/api/player-tournaments/{state.started_tournament_id}/bracket")
+    if bracket_match_count(reference) != expected_matches:
+        raise RuntimeError(
+            f"Bracket matches {bracket_match_count(reference)} != expected {expected_matches}"
+        )
+    if bracket_leg_count(reference) != expected_legs:
+        raise RuntimeError(
+            f"Bracket legs {bracket_leg_count(reference)} != expected {expected_legs}"
+        )
+    game_participants = tournament_games(reference)
+    if not game_participants:
+        raise RuntimeError("Tournament bracket has no first-round games")
+    for game_id, (first, second) in game_participants.items():
+        if first not in account_ids or second not in account_ids or first == second:
+            raise RuntimeError(f"Tournament game {game_id} has unexpected participants")
+    # Tournament responses must agree across accounts.
+    for client in actors[1:]:
+        other = get(client, f"/api/player-tournaments/{state.started_tournament_id}/bracket")
+        if tournament_games(other) != game_participants:
+            raise RuntimeError("Tournament bracket differs across authenticated accounts")
+    facts["bracket_size"] = bracket_size
+    facts["tournament_matches"] = expected_matches
+    facts["tournament_legs"] = expected_legs
+
     for index, client in enumerate(actors):
-        me = require(client.get("/api/auth/me"))["account"]
-        if me["id"] != state.account_ids[index] or me["role"] != "USER":
+        account_id = account_ids[index]
+        opponent_id = account_ids[(index + 1) % users]
+        me = get(client, "/api/auth/me")["account"]
+        if me["id"] != account_id or me["role"] != "USER":
             raise RuntimeError("Authenticated account does not match the seeded player")
         if me["email_verified"] is not True:
             raise RuntimeError("Seeded player account is not verified")
-        local = require(client.get("/api/personal/local?limit=100"))
-        owned_local = {row["id"] for row in local["games"]}
-        if not set(state.local_ids[index]) <= owned_local:
-            raise RuntimeError("Personal local records do not match the seeded account")
-        completed_local = [row for row in local["games"] if row["id"] == state.local_ids[index][0]]
-        if not completed_local or completed_local[0]["status"] != "completed":
-            raise RuntimeError("Completed local fixture is missing or unfinished")
-        single = require(client.get("/api/personal/single-player?limit=100"))
-        owned_single = {row["id"] for row in single["games"]}
-        if not set(state.single_ids[index]) <= owned_single:
-            raise RuntimeError("Personal single-player records do not match the seeded account")
-        if any(
-            row["status"] != "in_progress"
-            for row in single["games"]
-            if row["id"] in state.single_ids[index]
-        ):
-            raise RuntimeError("Single-player fixture unexpectedly reports a completed result")
-        current = require(client.get("/api/personal/online?section=current&limit=100"))
+
+        expected_local = set(state.local_ids[index])
+        expected_local_open = {state.local_ids[index][1], state.local_ids[index][2]}
+        expected_local_done = {state.local_ids[index][0]}
+        local_all = get(client, "/api/personal/local?limit=100")
+        require_exact_ids(
+            {row["id"] for row in local_all["games"]}, expected_local, f"local actor {index}"
+        )
+        local_open = get(client, "/api/personal/local?status=in_progress&limit=5")
+        require_exact_ids(
+            {row["id"] for row in local_open["games"]},
+            expected_local_open,
+            f"in-progress local actor {index}",
+        )
+        local_done = get(client, "/api/personal/local?status=completed&limit=5")
+        require_exact_ids(
+            {row["id"] for row in local_done["games"]},
+            expected_local_done,
+            f"completed local actor {index}",
+        )
+        completed_local = next(
+            row for row in local_done["games"] if row["id"] == state.local_ids[index][0]
+        )
+        if completed_local["winner"] != "draw" or completed_local["plies"] != len(REPETITION_MOVES):
+            raise RuntimeError("Completed local fixture is not the expected repetition draw")
+
+        expected_single = set(state.single_ids[index])
+        single_all = get(client, "/api/personal/single-player?limit=100")
+        require_exact_ids(
+            {row["id"] for row in single_all["games"]},
+            expected_single,
+            f"single-player actor {index}",
+        )
+        single_open = get(client, "/api/personal/single-player?status=in_progress&limit=25")
+        require_exact_ids(
+            {row["id"] for row in single_open["games"]},
+            expected_single,
+            f"in-progress single-player actor {index}",
+        )
+        single_done = get(client, "/api/personal/single-player?status=completed&limit=25")
+        require_no_ids(
+            {row["id"] for row in single_done["games"]},
+            f"completed single-player actor {index}",
+        )
+
+        expected_completed = {state.replay_ids[index], state.replay_ids[(index - 1) % users]}
+        expected_active = {state.active_ids[index], state.active_ids[(index - 1) % users]}
+        expected_waiting = {state.waiting_ids[index]}
+        expected_tournament = {
+            game_id
+            for game_id, (first, second) in game_participants.items()
+            if account_id in (first, second)
+        }
+        expected_current = expected_active | expected_waiting | expected_tournament
+        current = get(client, "/api/personal/online?section=current&limit=100")
         current_ids = {row["id"] for row in current["games"]}
-        if (
-            state.active_ids[index] not in current_ids
-            or state.waiting_ids[index] not in current_ids
-        ):
-            raise RuntimeError("Current online fixture is missing from personal history")
-        if state.replay_ids[index] in current_ids:
+        require_exact_ids(current_ids, expected_current, f"current online actor {index}")
+        if any(row["status"] == "completed" for row in current["games"]):
             raise RuntimeError("Completed online fixture leaked into current games")
-        active = require(client.get(f"/api/online/games/{state.active_ids[index]}"))
+        waiting = get(client, "/api/personal/online?section=waiting&limit=100")
+        require_exact_ids(
+            {row["id"] for row in waiting["games"]},
+            expected_waiting,
+            f"waiting online actor {index}",
+        )
+        history = get(client, "/api/personal/online?section=history&limit=100")
+        require_exact_ids(
+            {row["id"] for row in history["games"]},
+            expected_completed,
+            f"online history actor {index}",
+        )
+        if any(row["outcome"] != "draw" for row in history["games"]):
+            raise RuntimeError("Online history does not record the expected draws")
+
+        active = get(client, f"/api/online/games/{state.active_ids[index]}")
         if active["status"] != "active":
             raise RuntimeError("Active online fixture has the wrong status")
-        opponent_id = state.account_ids[(index + 1) % users]
         if (
-            active["participants"]["attackers"]["account_id"] != state.account_ids[index]
+            active["participants"]["attackers"]["account_id"] != account_id
             or active["participants"]["defenders"]["account_id"] != opponent_id
         ):
             raise RuntimeError("Active online fixture participants are wrong")
-        replay = require(client.get(f"/api/online/games/{state.replay_ids[index]}/replay"))
+        replay = get(client, f"/api/online/games/{state.replay_ids[index]}/replay")
         if replay.get("validated") is not True or len(replay["states"]) != 9:
             raise RuntimeError("Completed replay fixture is not a validated nine-state game")
         if [(row["source"], row["target"]) for row in replay["game"]["moves"]] != (
@@ -1088,57 +1484,118 @@ def verify_fixture(
             or replay["game"]["result"]["termination_reason"] != "threefold_repetition"
         ):
             raise RuntimeError("Completed replay fixture result is not authoritative")
-        statistics = require(client.get("/api/online/stats"))
-        if statistics["played"] != 2 or statistics["draws"] != 2:
-            raise RuntimeError("Online statistics do not reflect the completed draws")
-        board = require(client.get("/api/leaderboard?ruleset=brandubh&limit=100"))
-        if board["total"] != users or not {row["account_id"] for row in board["entries"]} >= set(
-            state.account_ids
+        replay_participants = replay["game"]["participants"]
+        if {
+            replay_participants["attackers"]["account_id"],
+            replay_participants["defenders"]["account_id"],
+        } != {account_id, opponent_id}:
+            raise RuntimeError("Completed replay participants do not match the seeded identities")
+
+        statistics = get(client, "/api/online/stats")
+        if (
+            statistics["played"] != 2
+            or statistics["draws"] != 2
+            or statistics["wins"] != 0
+            or statistics["losses"] != 0
         ):
-            raise RuntimeError("Leaderboard is missing seeded rated accounts")
-        rating = require(client.get("/api/personal/ratings/brandubh/history?limit=100"))
+            raise RuntimeError("Online statistics do not reflect the completed draws")
+        board = get(client, "/api/leaderboard?ruleset=brandubh&limit=100")
+        if board["total"] != users:
+            raise RuntimeError("Leaderboard total does not match the rated players")
+        require_exact_ids(
+            {row["account_id"] for row in board["entries"]},
+            set(account_ids),
+            f"leaderboard actor {index}",
+        )
+        rating = get(client, "/api/personal/ratings/brandubh/history?limit=100")
         if rating["matching"] != 2 or len(rating["items"]) != 2:
             raise RuntimeError("Rating history does not match the completed games")
-        history = require(client.get("/api/history/games?category=online&limit=100"))
-        history_ids = {row["id"] for row in history["games"]}
-        if state.replay_ids[index] not in history_ids:
-            raise RuntimeError("Recorded history is missing a completed online fixture")
-        tournaments = require(client.get("/api/player-tournaments?limit=50"))
-        listed = {row["id"] for row in tournaments["items"]}
-        if {state.started_tournament_id, state.upcoming_tournament_id} - listed:
-            raise RuntimeError("Tournament discovery is missing a seeded tournament")
-        started = require(client.get(f"/api/player-tournaments/{state.started_tournament_id}"))
-        if started["status"] != "running" or started["entrant_count"] != users:
+        if {row["game_id"] for row in rating["items"]} != expected_completed:
+            raise RuntimeError("Rating history game identifiers do not match the completed games")
+        recorded = get(client, "/api/history/games?category=online&limit=100")
+        require_exact_ids(
+            {row["id"] for row in recorded["games"]},
+            expected_current | expected_completed,
+            f"recorded online actor {index}",
+        )
+
+        tournaments = get(client, "/api/player-tournaments?limit=50")
+        require_exact_ids(
+            {row["id"] for row in tournaments["items"]},
+            {state.started_tournament_id, state.upcoming_tournament_id},
+            f"tournament discovery actor {index}",
+        )
+        started = get(client, f"/api/player-tournaments/{state.started_tournament_id}")
+        if (
+            started["status"] != "running"
+            or started["entrant_count"] != users
+            or started["bracket_size"] != bracket_size
+        ):
             raise RuntimeError("Started tournament status or entrant count is wrong")
-        if {row["account_id"] for row in started["entrants"]} != set(state.account_ids):
+        if {row["account_id"] for row in started["entrants"]} != set(account_ids):
             raise RuntimeError("Started tournament entrants do not match the seeded players")
-        upcoming = require(client.get(f"/api/player-tournaments/{state.upcoming_tournament_id}"))
+        upcoming = get(client, f"/api/player-tournaments/{state.upcoming_tournament_id}")
         if upcoming["status"] != "registration" or upcoming["entrant_count"] != 0:
             raise RuntimeError("Upcoming tournament fixture is not an empty registration")
-        bracket = require(
-            client.get(f"/api/player-tournaments/{state.started_tournament_id}/bracket")
+
+        # Timed endpoint variants must be semantically valid in an untimed phase.
+        dashboard_online = get(client, "/api/personal/online?section=current&limit=25")
+        require_exact_ids(
+            {row["id"] for row in dashboard_online["games"]},
+            expected_current,
+            f"dashboard online actor {index}",
         )
-        matches = bracket_match_count(bracket)
-        legs = bracket_leg_count(bracket)
-        if matches <= 0 or legs <= 0:
-            raise RuntimeError("Tournament bracket is missing entrants, matches or legs")
-        facts.setdefault("tournament_matches", matches)
-        facts.setdefault("tournament_legs", legs)
-    admin_me = require(admin.get("/api/auth/me"))["account"]
+        dashboard_local = get(client, "/api/personal/local?status=in_progress&limit=5")
+        require_exact_ids(
+            {row["id"] for row in dashboard_local["games"]},
+            expected_local_open,
+            f"dashboard local actor {index}",
+        )
+        dashboard_single = get(client, "/api/personal/single-player?status=in_progress&limit=25")
+        require_exact_ids(
+            {row["id"] for row in dashboard_single["games"]},
+            expected_single,
+            f"dashboard single-player actor {index}",
+        )
+        profile = get(client, "/api/profile")
+        if profile.get("id") not in (None, account_id):
+            raise RuntimeError("Profile does not match the authenticated account")
+        statistics_page = get(client, "/api/personal/single-player?limit=1")
+        if len(statistics_page["games"]) != 1:
+            raise RuntimeError("Statistics endpoint did not return exactly one game")
+        if statistics_page["games"][0]["id"] not in expected_single:
+            raise RuntimeError("Statistics endpoint returned a foreign game")
+        leaderboard_page = get(client, "/api/leaderboard?ruleset=brandubh&limit=10")
+        if {row["account_id"] for row in leaderboard_page["entries"]} - set(account_ids):
+            raise RuntimeError("Leaderboard returned a foreign account")
+        lobby = get(client, "/api/online/games?section=all&limit=25")
+        expected_lobby = set(state.active_ids) | set(state.waiting_ids) | set(game_participants)
+        lobby_ids = {row["id"] for row in lobby["games"]}
+        if not lobby_ids <= expected_lobby:
+            raise RuntimeError("Lobby returned an unexpected online game")
+        if any(row["status"] == "completed" for row in lobby["games"]):
+            raise RuntimeError("Lobby exposed a completed game")
+        recent = get(client, "/api/history/games?category=online&limit=3")
+        if len(recent["games"]) != 3:
+            raise RuntimeError("Recent records did not return the requested page size")
+        if not {row["id"] for row in recent["games"]} <= (expected_current | expected_completed):
+            raise RuntimeError("Recent records returned a foreign game")
+
+    admin_me = get(admin, "/api/auth/me")["account"]
     if admin_me["id"] != state.admin_id or admin_me["role"] != "ADMIN":
         raise RuntimeError("Administrator identity verification failed")
     expected_counts = {
         "accounts": users + 1,
         "games": users * (LOCAL_GAMES_PER_PLAYER + SINGLE_GAMES_PER_PLAYER),
-        "online_games": users * ONLINE_GAMES_PER_PLAYER + facts["tournament_legs"],
+        "online_games": users * ONLINE_GAMES_PER_PLAYER + expected_legs,
         "online_moves": users * len(REPETITION_MOVES),
         "online_results": users,
         "rating_events": users,
         "player_ratings": users,
         "player_tournaments": 2,
         "player_tournament_entrants": users,
-        "player_tournament_matches": facts["tournament_matches"],
-        "player_tournament_legs": facts["tournament_legs"],
+        "player_tournament_matches": expected_matches,
+        "player_tournament_legs": expected_legs,
     }
     tables = list(expected_counts)
     with closing(sqlite3.connect(db_path)) as connection:
@@ -1212,6 +1669,8 @@ def start_server(
     resources: BenchmarkResources,
 ) -> tuple[subprocess.Popen, httpx.Client]:
     """Spawn and probe the worker, registering resources before they can leak."""
+    if resources.cancel.is_set():
+        raise BenchmarkCancelled("cancelled during startup")
     log = open(out / "server.log", "w")
     resources.log = log
     process = subprocess.Popen(
@@ -1278,11 +1737,23 @@ def login_actors(
     return clients
 
 
-def write_evidence(out: Path, report: dict, raw: list[dict]) -> None:
-    (out / "summary.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    # One compact sample per line keeps large raw evidence reviewable.
-    rows = ",\n".join(json.dumps(row, separators=(",", ":")) for row in raw)
-    (out / "requests.json").write_text("[\n" + rows + "\n]\n", encoding="utf-8")
+def write_raw_evidence(out: Path, raw: list[dict]) -> list[str]:
+    """Persist collected samples first so telemetry or summary failures lose nothing."""
+    try:
+        # One compact sample per line keeps large raw evidence reviewable.
+        rows = ",\n".join(json.dumps(row, separators=(",", ":")) for row in raw)
+        (out / "requests.json").write_text("[\n" + rows + "\n]\n", encoding="utf-8")
+    except Exception as error:  # noqa: BLE001 - report, do not lose the summary
+        return [f"requests evidence: {type(error).__name__}"]
+    return []
+
+
+def write_summary_evidence(out: Path, report: dict) -> list[str]:
+    try:
+        (out / "summary.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    except Exception as error:  # noqa: BLE001
+        return [f"summary evidence: {type(error).__name__}"]
+    return []
 
 
 def safe_error(error: BaseException) -> str:
@@ -1300,9 +1771,10 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
     out = Path(args.output).resolve()
     out.mkdir(parents=True, exist_ok=False)
     origin = f"http://{LOOPBACK}:{args.port}"
+    caller_threads = {key: os.environ.get(key) for key in sorted(THREAD_KEYS)}
 
     report: dict[str, Any] = {
-        "schema": 2,
+        "schema": 3,
         "scope": (
             "warm bounded GETs against fresh disposable SQLite, one API process, "
             "no AI searches or training"
@@ -1318,7 +1790,8 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
             "installed_matches_lock": "unverified; a recorded lock fingerprint is not a lock check",
         },
         "dependency_versions": dependency_versions(),
-        "environment": environment_metadata(args.port),
+        "environment": None,
+        "imported_backend": None,
         "parameters": {"users": args.users, "rounds": args.rounds, "concurrency": concurrency},
         "fixture": {
             "endpoints": list(ENDPOINT_LABELS),
@@ -1331,8 +1804,9 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
     raw: list[dict] = []
     runs: list[dict] = []
     failure: BaseException | None = None
+    cancelled = False
+    clients_safe = True
     fixture: Fixture | None = None
-    setup = None
     try:
         fixture = create_fixture_directory()
         resources.fixture = fixture
@@ -1341,7 +1815,10 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
             from hnefatafl.online_settings import OnlineSettings
             from hnefatafl.server import create_app
 
-            assert_import_origin(source)
+            report["imported_backend"] = assert_import_origin(source)
+            report["environment"] = environment_metadata(
+                args.port, caller_numeric_threads=caller_threads
+            )
             report["fixture"]["identity_sha256"] = hashlib.sha256(
                 fixture.identity.encode()
             ).hexdigest()
@@ -1360,7 +1837,7 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
             db = fixture.path / "hnefatafl.sqlite3"
             report["seed_counts"] = read_seed_counts(db)
             report["fixture_verification"] = verify_fixture(
-                actors=actors, admin=admin, state=state, db_path=db
+                actors=actors, admin=admin, state=state, db_path=db, cancel=resources.cancel
             )
             report["sqlite"] = read_sqlite_metadata(db)
             report["query_plans"] = read_query_plans(db, state)
@@ -1390,69 +1867,113 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
             for level in concurrency:
                 if resources.cancel.is_set():
                     raise BenchmarkCancelled("cancelled before measurement")
-                cpu_before = server_cpu_seconds(process)
+                cpu_before = safe_server_cpu_seconds(process)
                 started = time.perf_counter()
-                rows, max_inflight, cancelled = measure_level(
-                    level, list(range(args.users)), templates, args.rounds, resources, actors
+                phase = measure_level(
+                    level,
+                    list(range(args.users)),
+                    templates,
+                    args.rounds,
+                    resources,
+                    actors,
+                    unblock=resources.terminate_process,
                 )
                 elapsed = time.perf_counter() - started
-                cpu_seconds = server_cpu_seconds(process) - cpu_before
-                problems = validate_phase_counts(rows, args.users, args.rounds, ENDPOINT_LABELS)
-                run_metrics = metrics(rows)
+                cpu_after = safe_server_cpu_seconds(process)
+                cpu_seconds = (
+                    None if cpu_before is None or cpu_after is None else cpu_after - cpu_before
+                )
+                problems = validate_phase_counts(
+                    phase.rows, args.users, args.rounds, ENDPOINT_LABELS
+                )
+                run_metrics = metrics(phase.rows)
                 by_endpoint = defaultdict(list)
-                for row in rows:
+                for row in phase.rows:
                     by_endpoint[row["endpoint"]].append(row)
-                concurrency_achieved = max_inflight >= level
+                concurrency_achieved = phase.maximum_inflight >= level
                 run = {
                     "concurrency": level,
                     "configured_concurrency": level,
-                    "maximum_observed_inflight_distinct_accounts": max_inflight,
-                    "distinct_authenticated_accounts": len({row["actor_index"] for row in rows}),
+                    "maximum_observed_inflight_distinct_accounts": phase.maximum_inflight,
+                    "distinct_authenticated_accounts": len(
+                        {row["actor_index"] for row in phase.rows}
+                    ),
                     "authenticated_accounts": len(actors),
                     "concurrency_achieved": concurrency_achieved,
                     "expected_requests": expected_request_count(
                         args.users, args.rounds, len(ENDPOINT_LABELS)
                     ),
                     "count_problems": problems,
-                    "cancelled": cancelled,
+                    "worker_problems": phase.worker_problems,
+                    "workers_stopped": phase.workers_stopped,
+                    "cancelled": phase.cancelled,
                     "complete": (
-                        not cancelled
+                        not phase.cancelled
                         and not problems
+                        and not phase.worker_problems
+                        and phase.workers_stopped
                         and run_metrics["failures"] == 0
                         and concurrency_achieved
                     ),
                     "elapsed_seconds": elapsed,
-                    "observed_requests_per_second": len(rows) / elapsed if elapsed else None,
-                    "api_process_cpu_seconds": cpu_seconds,
-                    "api_process_core_seconds_per_wall_second": cpu_seconds / elapsed
-                    if elapsed
-                    else None,
-                    "api_process_memory_kib_after_phase": safe_server_memory(process),
+                    "observed_requests_per_second": len(phase.rows) / elapsed if elapsed else None,
                     **run_metrics,
                     "endpoints": {key: metrics(value) for key, value in by_endpoint.items()},
                 }
+                # Retain samples before reading optional process telemetry.
                 runs.append(run)
-                raw.extend({"concurrency": level, **row} for row in rows)
+                raw.extend({"concurrency": level, **row} for row in phase.rows)
+                run["api_process_cpu_seconds"] = cpu_seconds
+                run["api_process_core_seconds_per_wall_second"] = (
+                    cpu_seconds / elapsed if cpu_seconds is not None and elapsed else None
+                )
+                run["api_process_memory_kib_after_phase"] = safe_server_memory(process)
+                run["api_process_telemetry_available"] = (
+                    cpu_seconds is not None
+                    and run["api_process_memory_kib_after_phase"] is not None
+                )
                 print(json.dumps({k: v for k, v in run.items() if k != "endpoints"}), flush=True)
-                if cancelled or resources.cancel.is_set():
+                if phase.cancelled or resources.cancel.is_set():
+                    cancelled = True
                     break
+            if resources.cancel.is_set():
+                raise BenchmarkCancelled("cancelled during measurement")
+            # Repeat essential semantics after measurement, before success.
+            report["post_measurement_verification"] = verify_fixture(
+                actors=actors, admin=admin, state=state, db_path=db, cancel=resources.cancel
+            )
             if verified_source(source) != revision:
                 raise RuntimeError("Source changed during measurement; evidence invalid")
     except BenchmarkCancelled:
+        cancelled = True
         report["cancelled"] = True
         report["cancel_signal"] = resources.signal_name
     except Exception as error:  # noqa: BLE001 - preserve evidence then re-raise
         report["error"] = safe_error(error)
         failure = error
     finally:
-        report["cleanup_problems"] = resources.close()
+        clients_safe = all(run.get("workers_stopped", True) for run in runs)
+        cleanup = resources.close(close_clients=clients_safe)
+        report["cleanup"] = {
+            "problems": list(cleanup.problems),
+            "process_stopped": cleanup.process_stopped,
+            "fixture_removed": cleanup.fixture_removed,
+            "retained_fixture": cleanup.retained_fixture,
+            "clients_closed": clients_safe,
+        }
+        report["cleanup_problems"] = list(cleanup.problems)
         report["runs"] = runs
-        report["complete"] = (
+        measured_levels = [run["concurrency"] for run in runs]
+        measurement_complete = (
             failure is None
+            and not cancelled
             and not resources.cancel.is_set()
             and bool(runs)
+            and measured_levels == concurrency
             and all(run["complete"] for run in runs)
         )
+        report["measurement_complete"] = measurement_complete
+        report["complete"] = measurement_complete and cleanup.ok
         report["limitations"] = [
             "small bounded fixture, warm local keep-alive GETs only; not production capacity",
             "same-host threaded HTTP driver and one API process, no WAN/TLS/proxy/device load",
@@ -1463,7 +1984,16 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
             "no league queue exists in baseline so it is not benchmarked",
             "cleanup after SIGKILL or abnormal host termination cannot be guaranteed",
         ]
-        write_evidence(out, report, raw)
+        # Raw samples are written before the summary so a summary failure keeps them.
+        evidence_problems = write_raw_evidence(out, raw)
+        report["cleanup_problems"].extend(evidence_problems)
+        report["cleanup"]["problems"].extend(evidence_problems)
+        report["complete"] = measurement_complete and cleanup.ok and not evidence_problems
+        summary_problems = write_summary_evidence(out, report)
+        if summary_problems:
+            report["cleanup_problems"].extend(summary_problems)
+            report["complete"] = False
+            write_summary_evidence(out, report)
     if failure is not None:
         raise failure
     if not report["complete"]:
@@ -1563,6 +2093,13 @@ def safe_server_memory(process: subprocess.Popen) -> dict | None:
     try:
         return server_memory(process)
     except (OSError, ValueError):
+        return None
+
+
+def safe_server_cpu_seconds(process: subprocess.Popen) -> float | None:
+    try:
+        return server_cpu_seconds(process)
+    except (OSError, ValueError, IndexError):
         return None
 
 
