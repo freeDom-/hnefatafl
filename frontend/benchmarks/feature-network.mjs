@@ -259,7 +259,7 @@ try {
   const afterTraining = assets(responses, '.js');
   if (!afterTraining.some((file) => file.includes('/Training-')))
     throw new Error('Training chunk not loaded after Workshop navigation');
-  if (!afterTraining.some((file) => file.includes('/Tournaments-')))
+  if (afterTraining.some((file) => file.includes('/Tournaments-')))
     throw new Error(
       'Training navigation must not eagerly load Tournaments: ' + JSON.stringify(afterTraining),
     );
