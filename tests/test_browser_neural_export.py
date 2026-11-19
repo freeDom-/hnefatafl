@@ -253,12 +253,15 @@ def test_prepare_rejects_incompatible_graph_outputs(exported, tmp_path):
     # graph validation itself must reject the incompatible output, rather than
     # the digest check catching an unrelated corruption.
     tampered = onnx_export.digest(copy / "model.onnx")
+    tampered_bytes = (copy / "model.onnx").stat().st_size
     for name, key in (("model.json", "onnx"), ("export-manifest.json", None)):
         payload = json.loads((copy / name).read_text())
         if key:
             payload[key]["sha256"] = tampered
+            payload[key]["bytes"] = tampered_bytes
         else:
             payload["model_sha256"] = tampered
+            payload["model_bytes"] = tampered_bytes
         (copy / name).write_text(json.dumps(payload))
     marker = json.loads((copy / "VALIDATED.json").read_text())
     marker["model_sha256"] = tampered
@@ -276,7 +279,73 @@ def test_prepare_rejects_reference_generated_for_other_model(exported, tmp_path)
     reference["model_sha256"] = "0" * 64
     (copy / "reference.json").write_text(json.dumps(reference))
     (copy / "model.json").write_text((copy / "model.json").read_text())
-    with pytest.raises(SystemExit, match="different model bytes"):
+    with pytest.raises(SystemExit, match="Reference-vector digest|different model bytes"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_forced_unvalidated_replacement_invalidates_the_marker(
+    source_checkpoint, exported, tmp_path
+):
+    copy = _copied_export(exported, tmp_path)
+    assert (copy / "VALIDATED.json").is_file()
+    code = _run_export(source_checkpoint, copy, force=True, no_parity=True)
+    assert code == 1
+    assert not (copy / "VALIDATED.json").exists(), "stale marker must be removed"
+    manifest = json.loads((copy / "export-manifest.json").read_text())
+    assert manifest["validated"] is False
+    with pytest.raises(SystemExit, match="VALIDATED.json"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_stale_marker_with_unvalidated_manifest_is_rejected(exported, tmp_path):
+    copy = _copied_export(exported, tmp_path)
+    manifest = json.loads((copy / "export-manifest.json").read_text())
+    manifest["validated"] = False
+    (copy / "export-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(SystemExit, match="Stale marker|validation status"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_manifest_claiming_validation_without_marker_is_rejected(exported, tmp_path):
+    copy = _copied_export(exported, tmp_path)
+    (copy / "VALIDATED.json").unlink()
+    with pytest.raises(SystemExit, match="VALIDATED.json|validation"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_differing_reference_digest_is_rejected(exported, tmp_path):
+    copy = _copied_export(exported, tmp_path)
+    reference = json.loads((copy / "reference.json").read_text())
+    reference["extra"] = "tampered"
+    (copy / "reference.json").write_text(json.dumps(reference))
+    with pytest.raises(SystemExit, match="Reference-vector digest"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_inconsistent_ruleset_between_marker_and_sidecar_is_rejected(exported, tmp_path):
+    copy = _copied_export(exported, tmp_path)
+    marker = json.loads((copy / "VALIDATED.json").read_text())
+    marker["ruleset"] = "tablut"
+    (copy / "VALIDATED.json").write_text(json.dumps(marker))
+    with pytest.raises(SystemExit, match="ruleset"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_failed_parity_replacement_removes_the_marker(
+    source_checkpoint, exported, tmp_path, monkeypatch
+):
+    copy = _copied_export(exported, tmp_path)
+    assert (copy / "VALIDATED.json").is_file()
+
+    monkeypatch.setattr(
+        onnx_export,
+        "parity",
+        lambda *args, **kwargs: {"ok": False, "failures": ["synthetic"], "providers": []},
+    )
+    with pytest.raises(onnx_export.ExportError, match="parity failed"):
+        _run_export(source_checkpoint, copy, force=True)
+    assert not (copy / "VALIDATED.json").exists(), "failed replacement must not keep old marker"
+    with pytest.raises(SystemExit):
         prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
 
 

@@ -340,6 +340,8 @@ def reference_vectors(model, target: Path) -> dict:
                     "illegal_mass_raw": illegal_mass(logits_list, ids),
                     "policy_shape": [1, len(logits_list)],
                     "value_shape": [1],
+                    "policy_dtype": "float32",
+                    "value_dtype": "float32",
                 }
             )
             seen_kinds.add(case["kind"])
@@ -352,6 +354,8 @@ def reference_vectors(model, target: Path) -> dict:
                     "top5": [],
                     "policy_shape": [1, state.size**4],
                     "value_shape": [1],
+                    "policy_dtype": "float32",
+                    "value_dtype": "float32",
                     "inference_bypassed": True,
                 }
             )
@@ -412,16 +416,32 @@ def native_onnx_outputs(model, target: Path, reference: dict) -> dict:
         policy, value = result
         if not np.isfinite(policy).all() or not np.isfinite(value).all():
             raise ExportError(f"ONNX Runtime produced a non-finite output for {case['position']}")
+        logits = [float(item) for item in np.asarray(policy).reshape(-1)]
+        legal = list(case.get("legal") or [])
+        values = [logits[index] for index in legal]
+        maximum = max(values)
+        exponentials = [math.exp(item - maximum) for item in values]
+        total = sum(exponentials)
         outputs.append(
             {
                 "position": case["position"],
-                "policy_logits": [float(item) for item in np.asarray(policy).reshape(-1)],
+                "position_digest": case.get("position_digest"),
+                "model_sha256": reference["model_sha256"],
+                "policy_logits": logits,
                 "value": float(np.asarray(value).reshape(-1)[0]),
                 "policy_shape": list(policy.shape),
                 "value_shape": list(value.shape),
+                "policy_dtype": str(policy.dtype),
+                "value_dtype": str(value.dtype),
+                "legal": legal,
+                "legal_probabilities": [item / total for item in exponentials],
             }
         )
-    return {"provider": "onnxruntime-cpu", "outputs": outputs}
+    return {
+        "provider": "onnxruntime-cpu",
+        "model_sha256": reference["model_sha256"],
+        "outputs": outputs,
+    }
 
 
 def parity(model, target: Path, reference: dict) -> dict:
@@ -441,6 +461,11 @@ def run(args) -> int:
     if not source.is_file():
         raise SystemExit(f"Checkpoint not found: {source}")
     output = _safe_output_path(args.output)
+    if output.exists() and args.force:
+        # Invalidate acceptance before attempting a replacement so a failure at
+        # any later step cannot leave an old marker accepting new/partial bytes.
+        for stale in ("VALIDATED.json", "parity.json", "export.json"):
+            (output / stale).unlink(missing_ok=True)
     if output.exists():
         existing = [item for item in output.iterdir() if item.name not in {".keep"}]
         if existing and not args.force:
@@ -457,16 +482,19 @@ def run(args) -> int:
         if len(reference["cases"]) == 0:
             raise ExportError("Parity reference set is empty")
         reference["model_sha256"] = sidecar["onnx"]["sha256"]
+        # The recorded reference digest must cover the exact bytes written to
+        # disk, not a differently-formatted serialization.
+        _write_json(staging / "reference.json", reference)
+        if (staging / "reference.json").stat().st_size > MAX_REFERENCE_BYTES:
+            raise ExportError("Reference vector file exceeds the experimental size limit")
+        reference_digest = digest(staging / "reference.json")
         sidecar["reference"] = {
-            "sha256": digest_bytes(json.dumps(reference, sort_keys=True).encode()),
+            "sha256": reference_digest,
             "cases": len(reference["cases"]),
             "covered_kinds": reference["covered_kinds"],
             "missing_kinds": reference["missing_kinds"],
         }
         _write_json(staging / "model.json", sidecar)
-        _write_json(staging / "reference.json", reference)
-        if (staging / "reference.json").stat().st_size > MAX_REFERENCE_BYTES:
-            raise ExportError("Reference vector file exceeds the experimental size limit")
 
         manifest = {
             "schema": 2,
@@ -500,8 +528,13 @@ def run(args) -> int:
                     f"Failures: {report['failures'][:3]}"
                 )
 
-        # Publish atomically: move only files this tool owns.
+        # Coherent commit protocol: remove any previous acceptance marker FIRST,
+        # then publish the new artifact set and write the marker LAST. A crash
+        # mid-publication therefore leaves an unvalidated directory, never an old
+        # marker blessing new bytes.
         output.mkdir(parents=True, exist_ok=True)
+        for stale in ("VALIDATED.json", "parity.json", "export.json"):
+            (output / stale).unlink(missing_ok=True)
         for name in ("model.onnx", "model.json", "reference.json", "export-manifest.json"):
             os.replace(staging / name, output / name)
         if (staging / "parity.json").exists():

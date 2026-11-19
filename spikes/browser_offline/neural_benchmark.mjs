@@ -12,9 +12,10 @@
 //   node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
 //     --provider webgpu --require-webgpu
 //
-// The benchmark fails (non-zero exit) if model loading, inference or the
-// mandatory parity relationship between batched and single inference fails.
-// Capability probing alone is not acceptance.
+// The benchmark fails (non-zero exit) if the model is unvalidated, model loading
+// or inference fails, or distinct-position batched inference disagrees with
+// independent single-position inference.
+import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, extname, resolve, sep } from "node:path";
@@ -35,6 +36,7 @@ const batchSizes = option("batch-sizes", "1,2,4,8,16,32")
 const reps = Number(option("reps", "5"));
 const warmup = Number(option("warmup", "2"));
 const switches = Number(option("switches", "3"));
+const sustained = Number(option("sustained", "100"));
 const mobile = flag("mobile");
 const requireWebGPU = flag("require-webgpu");
 
@@ -48,6 +50,60 @@ if (!batchSizes.length || batchSizes.some((batch) => !Number.isInteger(batch) ||
 if (!Number.isInteger(reps) || reps < 1 || reps > 50) usageError("--reps must be 1..50");
 if (!Number.isInteger(warmup) || warmup < 0 || warmup > 20) usageError("--warmup must be 0..20");
 if (!Number.isInteger(switches) || switches < 0 || switches > 20) usageError("--switches must be 0..20");
+if (!Number.isInteger(sustained) || sustained < 0 || sustained > 1000)
+  usageError("--sustained must be 0..1000");
+
+function median(values) {
+  if (!values.length) return null;
+  const ordered = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
+}
+
+const report = {
+  kind: "browser-neural-benchmark",
+  schema: 3,
+  generated: new Date().toISOString(),
+  profile: mobile ? "mobile-emulated" : "desktop",
+  browser: null,
+  ort_version: null,
+  requested_provider: provider,
+  batch_sizes: batchSizes,
+  reps,
+  warmup,
+  switches,
+  sustained: sustained,
+  failures: [],
+  notes: [],
+};
+
+// Validate staged artifacts before starting any server or browser resource.
+let assets;
+let reference;
+try {
+  assets = JSON.parse(await readFile(resolve(root, "neural-assets.json"), "utf8"));
+  const referenceRaw = await readFile(resolve(root, assets.model.reference));
+  const referenceDigest = createHash("sha256").update(referenceRaw).digest("hex");
+  reference = JSON.parse(referenceRaw.toString("utf8"));
+  report.ort_version = assets.ort_version;
+  report.model = assets.model;
+  report.runtime_inventory = assets.ort_inventory ?? [];
+  if (assets.model.reference_sha256 !== referenceDigest)
+    throw new Error("reference-vector digest does not match the staged manifest");
+  if (assets.model.validated !== true)
+    throw new Error("model artifact is not validated; refusing mandatory benchmark");
+  if (reference.model_sha256 !== assets.model.sha256)
+    throw new Error("reference vectors were generated for different model bytes");
+} catch (error) {
+  report.failures.push(`staged artifact validation failed: ${error?.message ?? error}`);
+  report.ok = false;
+  if (output) {
+    await mkdir(dirname(resolve(output)), { recursive: true });
+    await writeFile(resolve(output), JSON.stringify(report, null, 2) + "\n");
+  }
+  console.log(JSON.stringify({ ok: false, failures: report.failures }, null, 2));
+  process.exit(1);
+}
 
 const mime = {
   ".js": "text/javascript",
@@ -57,44 +113,28 @@ const mime = {
   ".wasm": "application/wasm",
   ".onnx": "application/octet-stream",
 };
-const server = createServer(async (request, response) => {
-  try {
-    let path = resolve(
-      root,
-      "." + decodeURIComponent(new URL(request.url, "http://localhost").pathname),
-    );
-    if (path !== root && !path.startsWith(root + sep)) throw new Error("outside root");
-    if ((await stat(path)).isDirectory()) path = resolve(path, "index.html");
-    response.setHeader("Content-Type", mime[extname(path)] || "application/octet-stream");
-    response.end(await readFile(path));
-  } catch {
-    response.writeHead(404).end();
-  }
-});
-await new Promise((done) => server.listen(0, "127.0.0.1", done));
-const origin = `http://127.0.0.1:${server.address().port}`;
-const assets = JSON.parse(await readFile(resolve(root, "neural-assets.json"), "utf8"));
 
-const report = {
-  kind: "browser-neural-benchmark",
-  schema: 2,
-  generated: new Date().toISOString(),
-  profile: mobile ? "mobile-emulated" : "desktop",
-  browser: null,
-  ort_version: assets.ort_version,
-  requested_provider: provider,
-  batch_sizes: batchSizes,
-  reps,
-  warmup,
-  model: assets.model,
-  runtime_inventory: assets.ort_inventory ?? [],
-  failures: [],
-  notes: [],
-};
-
+let server = null;
 let browser = null;
 let context = null;
 try {
+  server = createServer(async (request, response) => {
+    try {
+      let path = resolve(
+        root,
+        "." + decodeURIComponent(new URL(request.url, "http://localhost").pathname),
+      );
+      if (path !== root && !path.startsWith(root + sep)) throw new Error("outside root");
+      if ((await stat(path)).isDirectory()) path = resolve(path, "index.html");
+      response.setHeader("Content-Type", mime[extname(path)] || "application/octet-stream");
+      response.end(await readFile(path));
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+
   browser = await chromium.launch({ executablePath: process.env.SPIKE_CHROMIUM || undefined });
   report.browser = browser.version();
   context = await browser.newContext(
@@ -143,26 +183,36 @@ try {
     report.failures.push(`model load failed: ${report.load_error}`);
   }
   report.initialization_ms = performance.now() - initStarted;
-  report.memory_after_load = await page.evaluate(() => window.neural.client.capabilities().then((c) => c.memory));
+  report.memory_after_load = await page.evaluate(() =>
+    window.neural.client.capabilities().then((value) => value.memory),
+  );
 
   if (report.load) {
     const cases = await page.evaluate(async () => {
       const { assets: staged } = await window.neural.assets();
-      const reference = await (await fetch("./" + staged.model.reference)).json();
-      return reference.cases
+      const vectors = await (await fetch("./" + staged.model.reference)).json();
+      return vectors.cases
         .filter((entry) => !entry.terminal)
-        .map((entry) => ({ planes: entry.planes, legal: entry.legal, position: entry.position }));
+        .map((entry) => ({
+          planes: entry.planes,
+          legal: entry.legal,
+          position: entry.position,
+        }));
     });
-    report.reference_positions = cases.length;
+    report.reference_positions = reference.cases.filter((entry) => !entry.terminal).length;
 
-    // First inference (cold) vs warm inference, split into tensor prep and run.
     const first = await page.evaluate(
-      (payload) => window.neural.client.infer(payload.planes, payload.size, payload.legal),
-      { planes: cases[0].planes, size: assets.model.size, legal: cases[0].legal },
+      (payload) =>
+        window.neural.client.infer(payload.planes, payload.size, payload.legal, payload.ruleset),
+      {
+        planes: nonTerminal(reference)[0].planes,
+        size: assets.model.size,
+        legal: nonTerminal(reference)[0].legal,
+        ruleset: assets.model.ruleset,
+      },
     );
     report.first_inference = {
-      provider: first.provider_requested,
-      execution_placement: first.execution_placement,
+      provider: report.load.execution_placement,
       inference_ms: first.inference_ms,
       tensor_prepare_ms: first.tensor_prepare_ms,
       run_ms: first.run_ms,
@@ -175,10 +225,20 @@ try {
     const warm = [];
     for (let index = 0; index < reps; index += 1) {
       const value = await page.evaluate(
-        (payload) => window.neural.client.infer(payload.planes, payload.size, payload.legal),
-        { planes: cases[0].planes, size: assets.model.size, legal: cases[0].legal },
+        (payload) =>
+          window.neural.client.infer(payload.planes, payload.size, payload.legal, payload.ruleset),
+        {
+          planes: nonTerminal(reference)[0].planes,
+          size: assets.model.size,
+          legal: nonTerminal(reference)[0].legal,
+          ruleset: assets.model.ruleset,
+        },
       );
-      warm.push({ inference_ms: value.inference_ms, run_ms: value.run_ms, tensor_prepare_ms: value.tensor_prepare_ms });
+      warm.push({
+        inference_ms: value.inference_ms,
+        run_ms: value.run_ms,
+        tensor_prepare_ms: value.tensor_prepare_ms,
+      });
     }
     report.warm_inference = {
       samples: warm.length,
@@ -187,7 +247,6 @@ try {
       inference_ms_median: median(warm.map((row) => row.inference_ms)),
     };
 
-    // Batched distinct-position benchmark.
     try {
       report.benchmark = await page.evaluate(
         (payload) =>
@@ -201,8 +260,7 @@ try {
       report.failures.push(`batched benchmark failed: ${error?.message ?? error}`);
     }
 
-    // Batched-vs-single relationship: each batched row must equal its own
-    // single-position inference. This is the genuine batched inference contract.
+    // Genuine distinct-position batched inference vs independent single calls.
     const batchCheck = [];
     for (const batch of batchSizes) {
       const filled = Array.from({ length: batch }, (_, index) => cases[index % cases.length]);
@@ -216,12 +274,27 @@ try {
         report.failures.push(`inferMany batch ${batch} failed: ${error?.message ?? error}`);
         continue;
       }
+      if (many.batch !== batch || many.results.length !== batch) {
+        report.failures.push(`inferMany batch ${batch} returned ${many.results.length} results`);
+        continue;
+      }
       const singles = [];
       for (const entry of filled) {
         singles.push(
           await page.evaluate(
-            (payload) => window.neural.client.infer(payload.planes, payload.size, payload.legal),
-            { planes: entry.planes, size: assets.model.size, legal: entry.legal },
+            (payload) =>
+              window.neural.client.infer(
+                payload.planes,
+                payload.size,
+                payload.legal,
+                payload.ruleset,
+              ),
+            {
+              planes: entry.planes,
+              size: assets.model.size,
+              legal: entry.legal,
+              ruleset: assets.model.ruleset,
+            },
           ),
         );
       }
@@ -229,6 +302,7 @@ try {
       let worstValue = 0;
       let worstProbability = 0;
       many.results.forEach((row, index) => {
+        if (row.index !== index) report.failures.push(`batch ${batch} result order mismatch`);
         const single = singles[index];
         for (let at = 0; at < row.policy_logits.length; at += 1)
           worstLogit = Math.max(worstLogit, Math.abs(row.policy_logits[at] - single.policy_logits[at]));
@@ -248,18 +322,44 @@ try {
         worst_probability_abs_error: worstProbability,
         pass,
       });
-      if (!pass) report.failures.push(`batched inference diverged from single inference at batch ${batch}`);
+      if (!pass) report.failures.push(`batched inference diverged from single at batch ${batch}`);
     }
     report.batch_vs_single = batchCheck;
 
-    // Model switching / release behaviour: reload the same model and record
-    // observed memory drift. This does not claim to measure process RSS.
+    // Sustained inference and repeated model replacement: record observed
+    // behaviour, never claiming memory stability for untested hardware.
+    if (sustained > 0) {
+      const sustainedCases = Array.from({ length: 8 }, (_, index) => cases[index % cases.length]);
+      const before = await page.evaluate(() =>
+        window.neural.client.capabilities().then((value) => value.memory),
+      );
+      // Measured inside the worker so this is inference throughput rather than
+      // per-call postMessage/serialization overhead.
+      const measurement = await page.evaluate(
+        (payload) => window.neural.client.sustained(payload.cases, payload.iterations),
+        {
+          cases: sustainedCases.map(({ planes, legal }) => ({ planes, legal })),
+          iterations: sustained,
+        },
+      );
+      const after = await page.evaluate(() =>
+        window.neural.client.capabilities().then((value) => value.memory),
+      );
+      report.sustained_inference = {
+        ...measurement,
+        memory_before: before,
+        memory_after: after,
+      };
+    }
+
     const switchRows = [];
     for (let index = 0; index < switches; index += 1) {
       try {
         await page.evaluate(() => window.neural.client.release({ unloadBundle: false }));
         const loaded = await pageLoad(provider);
-        const memory = await page.evaluate(() => window.neural.client.capabilities().then((c) => c.memory));
+        const memory = await page.evaluate(() =>
+          window.neural.client.capabilities().then((value) => value.memory),
+        );
         switchRows.push({
           iteration: index,
           execution_placement: loaded.execution_placement,
@@ -272,7 +372,7 @@ try {
     }
     report.model_switching = switchRows;
     report.memory_after_switches = await page.evaluate(() =>
-      window.neural.client.capabilities().then((c) => c.memory),
+      window.neural.client.capabilities().then((value) => value.memory),
     );
   } else if (requireWebGPU) {
     report.failures.push("--require-webgpu: no GPU session could be created");
@@ -292,7 +392,11 @@ try {
 } finally {
   await context?.close().catch(() => {});
   await browser?.close().catch(() => {});
-  await new Promise((done) => server.close(done));
+  if (server) await new Promise((done) => server.close(done));
+}
+
+function nonTerminal(vectors) {
+  return vectors.cases.filter((entry) => !entry.terminal);
 }
 
 report.ok = report.failures.length === 0;
@@ -320,10 +424,3 @@ console.log(
   ),
 );
 process.exit(report.ok ? 0 : 1);
-
-function median(values) {
-  if (!values.length) return null;
-  const ordered = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(ordered.length / 2);
-  return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
-}

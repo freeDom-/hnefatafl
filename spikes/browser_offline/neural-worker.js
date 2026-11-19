@@ -4,23 +4,33 @@
  *  - load a pinned ORT Web bundle for the requested provider;
  *  - verify the received model bytes against the staged SHA-256 before creating
  *    any inference session;
- *  - own and release inference sessions and tensors explicitly;
+ *  - own and release inference sessions and tensors explicitly (release is
+ *    awaited, tensors are disposed in finally blocks, failed sessions are
+ *    released);
+ *  - validate every returned tensor before publishing a result: batch count,
+ *    shapes, dtypes, finite logits, finite in-range values, legal indices;
  *  - run single-position and genuine distinct-position batched inference;
  *  - report the provider that was requested, accepted and observed, and never
  *    present a WASM/CPU fallback as GPU acceleration.
  *
- * Provider limitation: ORT Web does not expose a stable per-node execution
- * provider placement API in the pinned version. A session created with the
- * WebGPU provider list is reported as "webgpu-session-unverified": the session
- * accepted the GPU provider, but per-node GPU execution is NOT claimed.
+ * Provider limitation: the pinned ORT Web version exposes no stable per-node
+ * execution-placement API. A session created for WebGPU is reported as
+ * "webgpu-session-unverified": the session accepted the GPU provider, but
+ * per-operator GPU execution is NOT claimed.
  */
 const MAX_BATCH = 32;
 const INPUT_PLANES = 6;
+const MAX_MODEL_BYTES = 64 * 1024 * 1024;
+const SIZE_RULESETS = { brandubh: 7, tablut: 9, copenhagen: 11 };
 
 let ortLib = null;
 let ortBundle = null;
 let session = null;
 let model = null;
+
+function named(name, message) {
+  return Object.assign(new Error(message), { code: name });
+}
 
 function median(values) {
   if (!values.length) return null;
@@ -55,9 +65,9 @@ async function ensureOrt(provider) {
   const wanted = provider === "webgpu" ? "webgpu" : "wasm";
   if (ortLib) {
     if (ortBundle !== wanted)
-      throw Object.assign(
-        new Error("This worker loaded a different ORT bundle; recreate the worker to switch providers"),
-        { code: "PROVIDER_SWITCH_REQUIRES_RECREATE" },
+      throw named(
+        "PROVIDER_SWITCH_REQUIRES_RECREATE",
+        "This worker loaded a different ORT bundle; recreate the worker to switch providers",
       );
     return ortLib;
   }
@@ -117,113 +127,52 @@ async function sha256Hex(buffer) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function releaseSession() {
-  const released = !!session;
-  try {
-    session?.release?.();
-  } catch {
-    // Releasing an already-released session is not an error we need to surface.
-  }
+async function releaseSession({ unloadBundle = false } = {}) {
+  const current = session;
   session = null;
+  let released = false;
+  if (current) {
+    if (typeof current.release === "function") {
+      // Release is asynchronous in ORT Web; awaiting it ensures the previous
+      // session's resources are gone before a replacement is created.
+      await current.release();
+      released = true;
+    } else if (typeof current.dispose === "function") {
+      current.dispose();
+      released = true;
+    }
+  }
+  if (unloadBundle) {
+    ortLib = null;
+    ortBundle = null;
+  }
   return released;
 }
 
-async function loadModel(request) {
-  const { buffer, provider, size, ruleset, expectedSha256 } = request;
-  if (!(buffer instanceof ArrayBuffer)) throw new Error("Model buffer must be an ArrayBuffer");
-  if (buffer.byteLength === 0 || buffer.byteLength > 64 * 1024 * 1024)
-    throw Object.assign(new Error("Model exceeds the experimental size limit"), {
-      code: "ARTIFACT_SIZE",
-    });
-  if (!["wasm", "webgpu"].includes(provider))
-    throw Object.assign(new Error(`Unsupported provider: ${provider}`), { code: "UNSUPPORTED_PROVIDER" });
-  if (!Number.isInteger(size) || size < 5 || size > 15) throw new Error("Invalid board size");
-  if (!expectedSha256 || !/^[0-9a-f]{64}$/.test(expectedSha256))
-    throw Object.assign(new Error("A staged model SHA-256 is required"), { code: "ARTIFACT_NO_DIGEST" });
-  const received = await sha256Hex(buffer);
-  if (received !== expectedSha256) {
-    throw Object.assign(
-      new Error(`Model integrity check failed: ${received} != ${expectedSha256}`),
-      { code: "ARTIFACT_DIGEST_MISMATCH" },
-    );
-  }
-  if (provider === "webgpu") {
-    const probe = await capabilities();
-    if (!probe.webGPUAdapter) {
-      throw Object.assign(
-        new Error(`WebGPU requested but no adapter is available: ${probe.webGPUAdapterError ?? "null adapter"}`),
-        { code: "WEBGPU_NO_ADAPTER" },
-      );
-    }
-  }
-  await ensureOrt(provider);
-  releaseSession();
-  let created;
-  try {
-    created = await ortLib.InferenceSession.create(buffer, {
-      executionProviders: [provider],
-      graphOptimizationLevel: "all",
-    });
-  } catch (error) {
-    throw Object.assign(new Error(`Session creation failed: ${error?.message ?? error}`), {
-      code: "SESSION_CREATE_FAILED",
-    });
-  }
-  const inputNames = [...created.inputNames];
-  const outputNames = [...created.outputNames];
-  if (inputNames.length !== 1 || inputNames[0] !== "planes")
-    throw Object.assign(new Error(`Unexpected input names: ${inputNames}`), {
-      code: "ARTIFACT_BAD_INPUT",
-    });
-  if (outputNames.length !== 2 || !["policy_logits", "defender_value"].every((n) => outputNames.includes(n)))
-    throw Object.assign(new Error(`Unexpected output names: ${outputNames}`), {
-      code: "ARTIFACT_BAD_OUTPUT",
-    });
-  session = created;
-  const evidence = self.__neuralProvider.providerEvidence(created);
-  const placement = self.__neuralProvider.placementFor(provider, evidence);
-  model = {
-    size,
-    ruleset: ruleset ?? null,
-    providerRequested: provider,
-    providerEvidence: evidence,
-    executionPlacement: placement,
-    modelSha256: expectedSha256,
-    modelBytes: buffer.byteLength,
-    inputName: "planes",
-    policyName: "policy_logits",
-    valueName: "defender_value",
-  };
-  return {
-    provider_requested: provider,
-    provider_evidence: evidence,
-    execution_placement: placement,
-    gpu_execution_verified: self.__neuralProvider.gpuVerified(placement),
-    model_sha256: expectedSha256,
-    model_bytes: buffer.byteLength,
-    input_names: inputNames,
-    output_names: outputNames,
-    memory: memorySnapshot(),
-  };
+function assertFiniteF32(value, label) {
+  if (typeof value !== "number" || !Number.isFinite(value))
+    throw named("INPUT_INVALID", `${label} contains a non-finite value`);
+  if (!Number.isFinite(Math.fround(value)))
+    throw named("INPUT_OVERFLOW", `${label} overflows when converted to FP32`);
 }
 
 function assertPlanes(planes, size) {
   const expected = INPUT_PLANES * size * size;
   if (!Array.isArray(planes) || planes.length !== expected)
-    throw new Error(`Expected ${expected} plane values, received ${planes?.length ?? "none"}`);
-  for (const value of planes) {
-    if (typeof value !== "number" || !Number.isFinite(value))
-      throw new Error("Input planes contain a non-finite value");
-  }
+    throw named("INPUT_INVALID", `Expected ${expected} plane values, received ${planes?.length ?? "none"}`);
+  for (const value of planes) assertFiniteF32(value, "Input planes");
 }
 
 function assertLegal(legal, size) {
   const limit = size ** 4;
   if (!Array.isArray(legal) || legal.length === 0)
-    throw new Error("Legal action indices are required");
+    throw named("INPUT_INVALID", "Legal action indices are required");
+  const seen = new Set();
   for (const index of legal) {
     if (!Number.isInteger(index) || index < 0 || index >= limit)
-      throw new Error(`Legal action index ${index} is out of range [0, ${limit})`);
+      throw named("INPUT_INVALID", `Legal action index ${index} is out of range [0, ${limit})`);
+    if (seen.has(index)) throw named("INPUT_INVALID", `Duplicate legal action index ${index}`);
+    seen.add(index);
   }
   return legal;
 }
@@ -231,10 +180,12 @@ function assertLegal(legal, size) {
 function legalSoftmax(logits, legal) {
   const values = legal.map((index) => logits[index]);
   if (legal.some((index, position) => !Number.isFinite(values[position])))
-    throw new Error("Policy logits contain a non-finite value");
+    throw named("OUTPUT_INVALID", "Policy logits contain a non-finite value");
   const maximum = Math.max(...values);
   const exponentials = values.map((value) => Math.exp(value - maximum));
   const total = exponentials.reduce((sum, value) => sum + value, 0);
+  if (!Number.isFinite(total) || total <= 0)
+    throw named("OUTPUT_INVALID", "Legal softmax normaliser is not finite and positive");
   return exponentials.map((value) => value / total);
 }
 
@@ -249,114 +200,246 @@ function illegalMass(logits, legal) {
   return sum / total;
 }
 
-async function inferSingle(request) {
-  if (!session || !model) throw new Error("No model session is loaded");
-  const { planes, legal } = request;
-  assertPlanes(planes, model.size);
-  const legalIds = assertLegal(legal, model.size);
-  const prepStarted = performance.now();
-  const data = new Float32Array(planes);
-  const tensor = new ortLib.Tensor("float32", data, [1, 6, model.size, model.size]);
-  const prepareMs = performance.now() - prepStarted;
-  const runStarted = performance.now();
-  const output = await session.run({ [model.inputName]: tensor });
-  const runMs = performance.now() - runStarted;
-  tensor?.dispose?.();
-  const policy = output[model.policyName];
-  const value = output[model.valueName];
-  const logits = Array.from(policy.data);
-  const probabilities = legalSoftmax(logits, legalIds);
+function validateOutputs(output, batch, size) {
+  const policy = output["policy_logits"];
+  const value = output["defender_value"];
+  if (!policy || !value)
+    throw named("OUTPUT_INVALID", "Model output is missing a policy or value tensor");
+  if (policy.type !== "float32" || value.type !== "float32")
+    throw named("OUTPUT_INVALID", "Model outputs must be float32");
+  const row = size ** 4;
+  if (policy.dims.length !== 2 || policy.dims[0] !== batch || policy.dims[1] !== row)
+    throw named("OUTPUT_INVALID", `Unexpected policy dims ${policy.dims} for batch ${batch}`);
+  if (value.dims.length !== 1 || value.dims[0] !== batch)
+    throw named("OUTPUT_INVALID", `Unexpected value dims ${value.dims} for batch ${batch}`);
+  if (policy.data.length !== batch * row || value.data.length !== batch)
+    throw named("OUTPUT_INVALID", "Model output element count is inconsistent with its dims");
+  for (let index = 0; index < policy.data.length; index += 1)
+    if (!Number.isFinite(policy.data[index]))
+      throw named("OUTPUT_INVALID", "Model produced a non-finite policy logit");
+  for (let index = 0; index < value.data.length; index += 1) {
+    if (!Number.isFinite(value.data[index]))
+      throw named("OUTPUT_INVALID", "Model produced a non-finite defender value");
+    if (value.data[index] < -1 - 1e-6 || value.data[index] > 1 + 1e-6)
+      throw named("OUTPUT_INVALID", "Model produced a defender value outside [-1, 1]");
+  }
+  return { policy, value };
+}
+
+async function loadModel(request) {
+  const { buffer, provider, size, ruleset, expectedSha256 } = request;
+  if (!(buffer instanceof ArrayBuffer)) throw named("INPUT_INVALID", "Model buffer must be an ArrayBuffer");
+  if (buffer.byteLength === 0 || buffer.byteLength > MAX_MODEL_BYTES)
+    throw named("ARTIFACT_SIZE", "Model exceeds the experimental size limit");
+  if (!["wasm", "webgpu"].includes(provider))
+    throw named("UNSUPPORTED_PROVIDER", `Unsupported provider: ${provider}`);
+  if (!Number.isInteger(size) || size < 5 || size > 15) throw named("INPUT_INVALID", "Invalid board size");
+  if (ruleset && SIZE_RULESETS[ruleset] !== size)
+    throw named("ARTIFACT_RULESET_MISMATCH", `Ruleset ${ruleset} does not match board size ${size}`);
+  if (!expectedSha256 || !/^[0-9a-f]{64}$/.test(expectedSha256))
+    throw named("ARTIFACT_NO_DIGEST", "A staged model SHA-256 is required");
+  const received = await sha256Hex(buffer);
+  if (received !== expectedSha256)
+    throw named("ARTIFACT_DIGEST_MISMATCH", `Model integrity check failed: ${received} != ${expectedSha256}`);
+  if (provider === "webgpu") {
+    const probe = await capabilities();
+    if (!probe.webGPUAdapter)
+      throw named(
+        "WEBGPU_NO_ADAPTER",
+        `WebGPU requested but no adapter is available: ${probe.webGPUAdapterError ?? "null adapter"}`,
+      );
+  }
+  await ensureOrt(provider);
+  try {
+    await releaseSession();
+  } catch (error) {
+    throw named("SESSION_RELEASE_FAILED", `Previous session release failed: ${error?.message ?? error}`);
+  }
+  let created;
+  try {
+    created = await ortLib.InferenceSession.create(buffer, {
+      executionProviders: [provider],
+      graphOptimizationLevel: "all",
+    });
+  } catch (error) {
+    throw named("SESSION_CREATE_FAILED", `Session creation failed: ${error?.message ?? error}`);
+  }
+  const inputNames = [...created.inputNames];
+  const outputNames = [...created.outputNames];
+  if (inputNames.length !== 1 || inputNames[0] !== "planes") {
+    await releaseQuietly(created);
+    throw named("ARTIFACT_BAD_INPUT", `Unexpected input names: ${inputNames}`);
+  }
+  if (
+    outputNames.length !== 2 ||
+    !["policy_logits", "defender_value"].every((name) => outputNames.includes(name))
+  ) {
+    await releaseQuietly(created);
+    throw named("ARTIFACT_BAD_OUTPUT", `Unexpected output names: ${outputNames}`);
+  }
+  session = created;
+  const evidence = self.__neuralProvider.providerEvidence(created);
+  const placement = self.__neuralProvider.placementFor(provider, evidence);
+  model = {
+    size,
+    ruleset: ruleset ?? null,
+    providerRequested: provider,
+    providerEvidence: evidence,
+    executionPlacement: placement,
+    modelSha256: expectedSha256,
+    modelBytes: buffer.byteLength,
+    inputName: "planes",
+  };
   return {
-    provider_requested: model.providerRequested,
-    execution_placement: model.executionPlacement,
-    inference_ms: prepareMs + runMs,
-    tensor_prepare_ms: prepareMs,
-    run_ms: runMs,
-    policy_shape: [...policy.dims],
-    value_shape: [...value.dims],
-    policy_logits: logits,
-    value: value.data[0],
-    legal: legalIds,
-    legal_probabilities: probabilities,
-    illegal_mass_raw: illegalMass(logits, legalIds),
-    model_sha256: model.modelSha256,
+    provider_requested: provider,
+    provider_evidence: evidence,
+    execution_placement: placement,
+    gpu_execution_verified: self.__neuralProvider.gpuVerified(placement),
+    model_sha256: expectedSha256,
+    model_bytes: buffer.byteLength,
+    input_names: inputNames,
+    output_names: outputNames,
+    memory: memorySnapshot(),
   };
 }
 
-async function inferMany(request) {
-  if (!session || !model) throw new Error("No model session is loaded");
-  const cases = request.cases;
-  if (!Array.isArray(cases) || cases.length === 0) throw new Error("cases must be a non-empty array");
-  if (cases.length > MAX_BATCH) throw new Error(`batch ${cases.length} exceeds the ${MAX_BATCH} limit`);
-  const prepStarted = performance.now();
-  const planeCount = INPUT_PLANES * model.size * model.size;
+async function releaseQuietly(target) {
+  try {
+    if (typeof target?.release === "function") await target.release();
+    else target?.dispose?.();
+  } catch {
+    // A failed release of a rejected session is not actionable; the worker can
+    // still be terminated as the final recovery mechanism.
+  }
+}
+
+function buildInputTensor(cases, size) {
+  const planeCount = INPUT_PLANES * size * size;
   const data = new Float32Array(planeCount * cases.length);
-  const legalIds = [];
   cases.forEach((entry, batchIndex) => {
-    assertPlanes(entry.planes, model.size);
-    legalIds.push(assertLegal(entry.legal, model.size));
+    assertPlanes(entry.planes, size);
+    assertLegal(entry.legal, size);
     data.set(entry.planes, batchIndex * planeCount);
   });
-  const tensor = new ortLib.Tensor("float32", data, [cases.length, 6, model.size, model.size]);
-  const tensorPrepareMs = performance.now() - prepStarted;
+  return new ortLib.Tensor("float32", data, [cases.length, 6, size, size]);
+}
+
+async function runBatch(cases, size) {
+  if (!session || !model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
+  if (model.size !== size) throw named("ARTIFACT_RULESET_MISMATCH", "Requested board size differs from the model");
+  if (!Array.isArray(cases) || cases.length === 0) throw named("INPUT_INVALID", "cases must be a non-empty array");
+  if (cases.length > MAX_BATCH) throw named("INPUT_INVALID", `batch ${cases.length} exceeds the ${MAX_BATCH} limit`);
+  const prepared = performance.now();
+  const tensor = buildInputTensor(cases, size);
+  const prepareMs = performance.now() - prepared;
+  let output;
   const runStarted = performance.now();
-  const output = await session.run({ [model.inputName]: tensor });
+  try {
+    output = await session.run({ [model.inputName]: tensor });
+  } finally {
+    // Always dispose the input tensor, including on inference failure.
+    try {
+      tensor.dispose?.();
+    } catch {
+      // ignored: the session remains usable and the worker can be terminated.
+    }
+  }
   const runMs = performance.now() - runStarted;
-  tensor?.dispose?.();
-  const policy = output[model.policyName];
-  const values = output[model.valueName].data;
-  const policyRow = model.size ** 4;
+  const { policy, value } = validateOutputs(output, cases.length, size);
+  const row = size ** 4;
   const results = cases.map((entry, batchIndex) => {
-    const logits = Array.from(
-      policy.data.subarray(batchIndex * policyRow, (batchIndex + 1) * policyRow),
-    );
+    const logits = Array.from(policy.data.subarray(batchIndex * row, (batchIndex + 1) * row));
+    const legal = entry.legal;
+    const probabilities = legalSoftmax(logits, legal);
     return {
       index: batchIndex,
       policy_logits: logits,
-      value: values[batchIndex],
-      legal: legalIds[batchIndex],
-      legal_probabilities: legalSoftmax(logits, legalIds[batchIndex]),
+      value: value.data[batchIndex],
+      legal,
+      legal_probabilities: probabilities,
+      illegal_mass_raw: illegalMass(logits, legal),
     };
   });
+  const shapes = {
+    policy_shape: [...policy.dims],
+    value_shape: [...value.dims],
+    policy_dtype: policy.type,
+    value_dtype: value.type,
+  };
+  // Copying is complete; release the output tensors.
+  for (const tensorOut of [policy, value]) {
+    try {
+      tensorOut.dispose?.();
+    } catch {
+      // ignored: see input disposal note.
+    }
+  }
   return {
+    ...shapes,
     provider_requested: model.providerRequested,
     execution_placement: model.executionPlacement,
+    model_sha256: model.modelSha256,
+    tensor_prepare_ms: prepareMs,
+    run_ms: runMs,
     batch: cases.length,
     batch_limit: MAX_BATCH,
-    tensor_prepare_ms: tensorPrepareMs,
-    run_ms: runMs,
-    per_position_ms: runMs / cases.length,
-    policy_shape: [...policy.dims],
-    value_shape: [...output[model.valueName].dims],
     results,
-    model_sha256: model.modelSha256,
+  };
+}
+
+async function inferSingle(request) {
+  const { planes, legal, ruleset } = request;
+  if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
+  if (ruleset && model.ruleset && ruleset !== model.ruleset)
+    throw named("ARTIFACT_RULESET_MISMATCH", `Ruleset ${ruleset} does not match the model`);
+  const result = await runBatch([{ planes, legal }], model.size);
+  const single = {
+    ...result,
+    index: 0,
+    policy_logits: result.results[0].policy_logits,
+    value: result.results[0].value,
+    legal: result.results[0].legal,
+    legal_probabilities: result.results[0].legal_probabilities,
+    illegal_mass_raw: result.results[0].illegal_mass_raw,
+    inference_ms: result.tensor_prepare_ms + result.run_ms,
+  };
+  delete single.results;
+  return single;
+}
+
+async function inferMany(request) {
+  const { cases } = request;
+  if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
+  const result = await runBatch(cases, model.size);
+  return {
+    ...result,
+    per_position_ms: result.run_ms / result.batch,
   };
 }
 
 async function benchmark(request) {
-  if (!session || !model) throw new Error("No model session is loaded");
+  if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   const batchSizes = request.batchSizes;
   if (!Array.isArray(batchSizes) || !batchSizes.length) throw new Error("batchSizes is required");
   for (const batch of batchSizes) {
     if (!Number.isInteger(batch) || batch < 1 || batch > MAX_BATCH)
-      throw new Error(`Invalid batch size ${batch}; allowed 1..${MAX_BATCH}`);
+      throw named("INPUT_INVALID", `Invalid batch size ${batch}; allowed 1..${MAX_BATCH}`);
   }
   const warmup = Number.isInteger(request.warmup) ? request.warmup : 2;
   const reps = Number.isInteger(request.reps) ? request.reps : 5;
-  if (warmup < 0 || warmup > 20) throw new Error("warmup must be 0..20");
-  if (reps < 1 || reps > 50) throw new Error("reps must be 1..50");
-  // Distinct positions: repeat the supplied distinct cases to fill a batch so
-  // this exercises real batched inference rather than duplicating one input.
+  if (warmup < 0 || warmup > 20) throw named("INPUT_INVALID", "warmup must be 0..20");
+  if (reps < 1 || reps > 50) throw named("INPUT_INVALID", "reps must be 1..50");
   const cases = request.cases;
-  if (!Array.isArray(cases) || !cases.length) throw new Error("distinct benchmark cases are required");
+  if (!Array.isArray(cases) || !cases.length)
+    throw named("INPUT_INVALID", "distinct benchmark cases are required");
   const rows = [];
   for (const batch of batchSizes) {
     const filled = Array.from({ length: batch }, (_, index) => cases[index % cases.length]);
-    for (let index = 0; index < warmup; index += 1) await inferMany({ cases: filled });
+    for (let index = 0; index < warmup; index += 1) await runBatch(filled, model.size);
     const times = [];
     for (let index = 0; index < reps; index += 1) {
       const started = performance.now();
-      await inferMany({ cases: filled });
+      await runBatch(filled, model.size);
       times.push(performance.now() - started);
     }
     rows.push({
@@ -371,15 +454,36 @@ async function benchmark(request) {
       positions_per_second: batch / (median(times) / 1000),
     });
   }
-  return { provider_requested: model.providerRequested, execution_placement: model.executionPlacement, rows };
+  return {
+    provider_requested: model.providerRequested,
+    execution_placement: model.executionPlacement,
+    rows,
+  };
+}
+
+async function sustained(request) {
+  if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
+  const cases = request.cases;
+  const iterations = request.iterations;
+  if (!Array.isArray(cases) || !cases.length) throw named("INPUT_INVALID", "cases are required");
+  if (!Number.isInteger(iterations) || iterations < 1 || iterations > 10000)
+    throw named("INPUT_INVALID", "iterations must be 1..10000");
+  const started = performance.now();
+  for (let index = 0; index < iterations; index += 1) await runBatch(cases, model.size);
+  const elapsed = performance.now() - started;
+  return {
+    iterations,
+    batch: cases.length,
+    elapsed_ms: elapsed,
+    positions_per_second: (iterations * cases.length) / (elapsed / 1000),
+    execution_placement: model.executionPlacement,
+    model_sha256: model.modelSha256,
+    memory: memorySnapshot(),
+  };
 }
 
 async function release(request) {
-  const released = releaseSession();
-  if (request?.unloadBundle) {
-    ortLib = null;
-    ortBundle = null;
-  }
+  const released = await releaseSession({ unloadBundle: request?.unloadBundle === true });
   model = null;
   return { released, memory: memorySnapshot() };
 }
@@ -392,14 +496,11 @@ onmessage = async ({ data: { id, request } }) => {
     else if (request.action === "infer") value = await inferSingle(request);
     else if (request.action === "inferMany") value = await inferMany(request);
     else if (request.action === "benchmark") value = await benchmark(request);
+    else if (request.action === "sustained") value = await sustained(request);
     else if (request.action === "release") value = await release(request);
     else throw new Error(`Unknown neural action: ${request.action}`);
     postMessage({ id, value });
   } catch (error) {
-    postMessage({
-      id,
-      error: String(error?.message ?? error),
-      code: error?.code ?? null,
-    });
+    postMessage({ id, error: String(error?.message ?? error), code: error?.code ?? null });
   }
 };

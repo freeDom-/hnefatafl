@@ -1,20 +1,25 @@
 /* Isolated neural inference client.
  *
- * Lifecycle guarantees mirror the proven classical analysis client:
+ * Lifecycle and ownership guarantees:
  *  - every request belongs to a worker generation; a superseded worker's
  *    messages and errors are ignored;
  *  - hard timeouts clear their own timer and only abort the still-active
  *    generation, so an obsolete timer can never kill a replacement worker;
  *  - terminate()/dispose() reject the active promise with an AbortError instead
- *    of abandoning it;
- *  - model download is bounded and cancellable, and a failed load never leaves
- *    the interface believing a new model is active;
- *  - a provider switch requires worker recreation and is handled explicitly.
+ *    of abandoning it, and cancel any in-flight download;
+ *  - a single logical load owns the download, bounded body read, digest
+ *    verification, worker initialization, session creation and model
+ *    publication. Cancellation at any point prevents a stale load from
+ *    publishing a replacement session;
+ *  - a failed replacement never leaves the old model advertised as active;
+ *  - the worker's loaded runtime/provider is tracked independently of model
+ *    state, so a failed WASM load does not block a later WebGPU request from
+ *    recreating the correct worker.
  *
  * Error kinds are distinguishable by `name`:
  *  - AbortError      user/model cancellation or disposal
  *  - TimeoutError    hard job deadline
- *  - ModelLoadError  model download or integrity failure
+ *  - ModelLoadError  model download, size or integrity failure
  *  - ProviderError   unsupported/unavailable execution provider
  *  - WorkerError     worker crash or transport failure
  */
@@ -30,16 +35,68 @@ function named(name, message) {
   return error;
 }
 
+async function sha256Hex(buffer) {
+  if (!globalThis.crypto?.subtle)
+    throw named("ModelLoadError", "crypto.subtle is unavailable for model verification");
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function readBodyBounded(response, maxBytes) {
+  // Content-Length is advisory. The bounded reader is authoritative so a
+  // response without a length cannot buffer an arbitrarily large body.
+  const declared = Number(response.headers?.get?.("content-length") ?? 0);
+  if (Number.isFinite(declared) && declared > maxBytes)
+    throw named("ModelLoadError", "Model exceeds the size limit");
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > maxBytes)
+      throw named("ModelLoadError", "Model exceeds the size limit");
+    return buffer;
+  }
+  const chunks = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      try {
+        await response.body?.cancel?.();
+      } catch {
+        // best effort; the size violation is the actionable error
+      }
+      throw named("ModelLoadError", "Model exceeds the size limit");
+    }
+    chunks.push(value);
+  }
+  const combined = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined.buffer;
+}
+
 export class NeuralClient {
   constructor() {
     this.worker = null;
+    this.workerProvider = null;
     this.pending = null;
     this.busy = false;
     this.sequence = 0;
     this.generation = 0;
     this.model = null;
     this.download = null;
-    this.modelUrl = null;
+    this.loading = null;
+    this.sequenceLoad = 0;
+    // Injectable digest seam so cancellation during verification can be tested
+    // deterministically. Production always uses crypto.subtle SHA-256.
+    this.digestFn = sha256Hex;
   }
 
   _spawn() {
@@ -62,7 +119,10 @@ export class NeuralClient {
         pending.resolve(data.value);
       }
     };
-    childErrorHandler(this, worker);
+    worker.onerror = (event) => {
+      if (this.worker !== worker) return;
+      this.abort(named("WorkerError", event.message || "Neural worker failed"));
+    };
     return this;
   }
 
@@ -75,8 +135,10 @@ export class NeuralClient {
       // terminating an already-dead worker is harmless
     }
     this.worker = null;
+    this.workerProvider = null;
     this.busy = false;
     this.model = null;
+    this.loading = null;
     const pending = this.pending;
     this.pending = null;
     if (pending) {
@@ -91,7 +153,11 @@ export class NeuralClient {
     this.download = null;
     if (download) {
       clearTimeout(download.timer);
-      download.controller.abort();
+      try {
+        download.controller.abort();
+      } catch {
+        // already aborted
+      }
       download.reject(error);
     }
   }
@@ -105,9 +171,9 @@ export class NeuralClient {
     this.terminate("Neural inference disposed");
   }
 
-  async request(request, { timeoutMs = INFER_TIMEOUT_MS, name = "WorkerError" } = {}) {
+  async request(request, { timeoutMs = INFER_TIMEOUT_MS } = {}) {
     if (!this.worker) this._spawn();
-    if (this.busy) throw new Error("A neural job is already running");
+    if (this.busy) throw named("WorkerError", "A neural job is already running");
     const worker = this.worker;
     const generation = this.generation;
     this.busy = true;
@@ -122,7 +188,7 @@ export class NeuralClient {
       try {
         worker.postMessage({ id, request });
       } catch (error) {
-        this.abort(named(name, `Neural transport failure: ${error?.message ?? error}`));
+        this.abort(named("WorkerError", `Neural transport failure: ${error?.message ?? error}`));
       }
     });
   }
@@ -131,11 +197,12 @@ export class NeuralClient {
     return this.request({ action: "capabilities" }, { timeoutMs: 15000 });
   }
 
-  // Bounded, cancellable model download that verifies the staged digest before
-  // handing bytes to the worker.
+  // Bounded, cancellable model download that verifies the staged digest. The
+  // download owns admission until digest verification has completed.
   async fetchModel(url, { expectedSha256 } = {}) {
-    if (this.download) throw new Error("A model download is already in progress");
+    if (this.download) throw named("ModelLoadError", "A model download is already in progress");
     const controller = new AbortController();
+    const startGeneration = this.generation;
     const download = { controller, reject: null, timer: null };
     const promise = new Promise((resolve, reject) => {
       download.reject = reject;
@@ -143,66 +210,91 @@ export class NeuralClient {
         controller.abort();
         reject(named("TimeoutError", "Model download exceeded its deadline"));
       }, DOWNLOAD_TIMEOUT_MS);
-      fetch(url, { signal: controller.signal })
-        .then(async (response) => {
-          if (!response.ok) throw named("ModelLoadError", `Cannot load model: ${response.status}`);
-          const length = Number(response.headers.get("content-length") ?? 0);
-          if (length > MAX_MODEL_BYTES) throw named("ModelLoadError", "Model exceeds the size limit");
-          const buffer = await response.arrayBuffer();
-          if (buffer.byteLength > MAX_MODEL_BYTES)
-            throw named("ModelLoadError", "Model exceeds the size limit");
-          clearTimeout(download.timer);
-          if (this.download === download) this.download = null;
-          if (expectedSha256) {
-            const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buffer))]
-              .map((byte) => byte.toString(16).padStart(2, "0"))
-              .join("");
-            if (digest !== expectedSha256)
-              throw named("ModelLoadError", "Downloaded model failed its integrity check");
-          }
-          resolve({ buffer, sha256: expectedSha256 ?? null });
-        })
-        .catch((error) => {
-          clearTimeout(download.timer);
-          if (this.download === download) this.download = null;
-          reject(
-            error?.name === "AbortError"
-              ? named("AbortError", "Model download cancelled")
-              : error?.name === "ModelLoadError" || error?.name === "TimeoutError"
-                ? error
-                : named("ModelLoadError", `Model download failed: ${error?.message ?? error}`),
-          );
-        });
+      (async () => {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw named("ModelLoadError", `Cannot load model: ${response.status}`);
+        const buffer = await readBodyBounded(response, MAX_MODEL_BYTES);
+        if (controller.signal.aborted || this.generation !== startGeneration)
+          throw named("AbortError", "Model download cancelled");
+        if (expectedSha256) {
+          const digest = await this.digestFn(buffer);
+          if (controller.signal.aborted || this.generation !== startGeneration)
+            throw named("AbortError", "Model download cancelled during verification");
+          if (digest !== expectedSha256)
+            throw named("ModelLoadError", "Downloaded model failed its integrity check");
+        }
+        resolve({ buffer, sha256: expectedSha256 ?? null });
+      })().catch((error) => {
+        reject(
+          error?.name === "AbortError"
+            ? named("AbortError", "Model download cancelled")
+            : error?.name === "ModelLoadError" || error?.name === "TimeoutError"
+              ? error
+              : named("ModelLoadError", `Model download failed: ${error?.message ?? error}`),
+        );
+      });
     });
     this.download = download;
-    return promise;
+    try {
+      return await promise;
+    } finally {
+      clearTimeout(download.timer);
+      if (this.download === download) this.download = null;
+    }
   }
 
   async load(modelUrl, { provider = "wasm", size, ruleset, expectedSha256 } = {}) {
-    // Switching provider on an existing worker is rejected by the worker; make
-    // the recreation explicit instead of producing a confusing failure.
-    if (this.worker && this.model && this.model.provider !== provider)
-      this.abort(named("AbortError", "Recreating worker for provider switch"));
-    const { buffer } = await this.fetchModel(modelUrl, { expectedSha256 });
-    // From here the worker may release the previous session, so the interface
-    // must not keep advertising it as active. A failed replacement leaves no
-    // model rather than a stale one.
-    this.model = null;
-    const result = await this.request(
-      { action: "load", buffer, provider, size, ruleset, expectedSha256 },
-      { timeoutMs: LOAD_TIMEOUT_MS },
-    );
-    this.model = { url: modelUrl, provider, size, ruleset, ...result };
-    this.modelUrl = modelUrl;
-    return this.model;
+    if (!["wasm", "webgpu"].includes(provider))
+      throw named("ProviderError", `Unsupported provider: ${provider}`);
+    if (this.loading) throw named("ModelLoadError", "A model load is already in progress");
+    const token = ++this.sequenceLoad;
+    this.loading = token;
+    try {
+      // A worker that loaded a different ORT bundle cannot serve this provider,
+      // even when the previous load failed before publishing a model. Abort
+      // before capturing the generation so the new load owns the new worker.
+      if (this.worker && this.workerProvider !== provider) {
+        this.abort(named("AbortError", "Recreating worker for provider switch"));
+        this.loading = token;
+      }
+      const generation = this.generation;
+      const { buffer } = await this.fetchModel(modelUrl, { expectedSha256 });
+      if (this.generation !== generation || this.loading !== token)
+        throw named("AbortError", "Model load superseded");
+      if (!this.worker) this._spawn();
+      this.workerProvider = provider;
+      // From here the worker may release the previous session, so the interface
+      // must not keep advertising it as active.
+      this.model = null;
+      const result = await this.request(
+        { action: "load", buffer, provider, size, ruleset, expectedSha256 },
+        { timeoutMs: LOAD_TIMEOUT_MS },
+      );
+      if (this.generation !== generation || this.loading !== token)
+        throw named("AbortError", "Model load superseded during session creation");
+      this.model = { url: modelUrl, provider, size, ruleset, ...result };
+      return this.model;
+    } finally {
+      if (this.loading === token) this.loading = null;
+    }
   }
 
-  infer(planes, size, legal) {
-    return this.request({ action: "infer", planes, size, legal }, { timeoutMs: INFER_TIMEOUT_MS });
+  infer(planes, size, legal, ruleset) {
+    return this.request(
+      { action: "infer", planes, size, legal, ruleset },
+      { timeoutMs: INFER_TIMEOUT_MS },
+    );
   }
 
   inferMany(cases) {
     return this.request({ action: "inferMany", cases }, { timeoutMs: INFER_TIMEOUT_MS });
+  }
+
+  sustained(cases, iterations) {
+    return this.request(
+      { action: "sustained", cases, iterations },
+      { timeoutMs: BENCHMARK_TIMEOUT_MS },
+    );
   }
 
   benchmark(cases, batchSizes, { warmup = 2, reps = 5 } = {}) {
@@ -216,14 +308,7 @@ export class NeuralClient {
     if (!this.worker) return { released: false };
     const result = await this.request({ action: "release", unloadBundle }, { timeoutMs: 10000 });
     this.model = null;
+    if (unloadBundle) this.workerProvider = null;
     return result;
   }
-}
-
-// Attach the error handler separately so it can be replaced in tests.
-function childErrorHandler(client, worker) {
-  worker.onerror = (event) => {
-    if (client.worker !== worker) return;
-    client.abort(named("WorkerError", event.message || "Neural worker failed"));
-  };
 }

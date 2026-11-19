@@ -86,8 +86,13 @@ await check("webgpu-only evidence is verified GPU", () => {
 });
 await check("webgpu session falling back to wasm is reported as cpu-fallback", () => {
   assert.equal(provider.placementFor("webgpu", ["wasm"]), "cpu-fallback");
-  assert.equal(provider.placementFor("webgpu", ["webgpu", "wasm"]), "cpu-fallback");
   assert.equal(provider.gpuVerified("cpu-fallback"), false);
+});
+await check("mixed provider lists are mixed, not CPU-only or verified GPU", () => {
+  assert.equal(provider.placementFor("webgpu", ["webgpu", "wasm"]), "webgpu-mixed");
+  assert.equal(provider.gpuVerified("webgpu-mixed"), false);
+  assert.equal(provider.placementFor("webgpu", ["foo"]), "placement-unknown");
+  assert.equal(provider.gpuVerified("placement-unknown"), false);
 });
 await check("providerEvidence reads known session surfaces only", () => {
   assert.equal(provider.providerEvidence({ executionProviders: ["webgpu"] })[0], "webgpu");
@@ -298,6 +303,119 @@ await check("release clears the active model", async () => {
   client.worker.respond(0, { released: true });
   await pending;
   assert.equal(client.model, null);
+  client.terminate();
+});
+
+await check("cancellation during digest verification prevents publication", async () => {
+  globalThis.Worker = FakeWorker;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Map(),
+    arrayBuffer: async () => new Uint8Array(8).buffer,
+  });
+  const client = new NeuralClient();
+  let releaseDigest;
+  client.digestFn = () =>
+    new Promise((resolve) => {
+      releaseDigest = resolve;
+    });
+  const loading = client.load("./model.onnx", {
+    provider: "wasm",
+    size: 7,
+    expectedSha256: "a".repeat(64),
+  });
+  await sleep(5);
+  client.terminate("cancel during digest");
+  await assert.rejects(loading, (error) => error.name === "AbortError");
+  if (releaseDigest) releaseDigest("a".repeat(64));
+  await sleep(10);
+  assert.equal(client.model, null, "cancelled load must not publish a model");
+  assert.equal(client.worker, null, "cancelled load must not keep a worker");
+});
+await check("competing model loads have deterministic admission", async () => {
+  globalThis.Worker = FakeWorker;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Map(),
+    arrayBuffer: async () => new Uint8Array(8).buffer,
+  });
+  const client = new NeuralClient();
+  client.digestFn = () => new Promise(() => {});
+  const first = client.load("./model.onnx", {
+    provider: "wasm",
+    size: 7,
+    expectedSha256: "a".repeat(64),
+  });
+  await sleep(5);
+  await assert.rejects(
+    () =>
+      client.load("./model.onnx", { provider: "wasm", size: 7, expectedSha256: "a".repeat(64) }),
+    /already in progress/,
+  );
+  client.terminate("stop");
+  await assert.rejects(first, (error) => error.name === "AbortError");
+});
+await check("a failed WASM load does not block a later WebGPU worker", async () => {
+  globalThis.Worker = FakeWorker;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Map(),
+    arrayBuffer: async () => new Uint8Array(8).buffer,
+  });
+  const client = new NeuralClient();
+  const wasmLoad = client.load("./model.onnx", { provider: "wasm", size: 7 });
+  await sleep(5);
+  const wasmWorker = client.worker;
+  wasmWorker.respond(0, null, "session creation failed", "SESSION_CREATE_FAILED");
+  await assert.rejects(wasmLoad, /session creation failed/);
+  assert.equal(client.model, null);
+  const webgpu = client.load("./model.onnx", { provider: "webgpu", size: 7 });
+  await sleep(5);
+  assert.equal(wasmWorker.terminated, true, "provider change must recreate the worker");
+  client.worker.respond(0, {
+    provider_requested: "webgpu",
+    execution_placement: "webgpu-session-unverified",
+    gpu_execution_verified: false,
+    model_sha256: "a".repeat(64),
+  });
+  const loaded = await webgpu;
+  assert.equal(loaded.execution_placement, "webgpu-session-unverified");
+  client.terminate();
+});
+await check("an oversized response without Content-Length is rejected", async () => {
+  globalThis.Worker = FakeWorker;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Map(),
+    body: {
+      getReader() {
+        let sent = false;
+        return {
+          async read() {
+            if (sent) return { done: true };
+            sent = true;
+            return { done: false, value: new Uint8Array(70 * 1024 * 1024) };
+          },
+        };
+      },
+    },
+  });
+  const client = new NeuralClient();
+  await assert.rejects(
+    () => client.fetchModel("./model.onnx"),
+    (error) => error.name === "ModelLoadError" && /size limit/.test(error.message),
+  );
+  client.terminate();
+});
+await check("worker creation after an obsolete operation was cancelled", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.terminate("cancelled before any work");
+  const capability = client.capabilities();
+  await sleep(5);
+  client.worker.respond(0, { webGPUAdapter: false });
+  const value = await capability;
+  assert.equal(value.webGPUAdapter, false);
   client.terminate();
 });
 

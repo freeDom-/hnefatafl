@@ -153,7 +153,12 @@
             await ensureAssets();
             if (!client.model) await api.load();
             const entry = inputs.cases.find((candidate) => !candidate.terminal);
-            const value = await client.infer(entry.planes, assets.model.size, entry.legal);
+            const value = await client.infer(
+              entry.planes,
+              assets.model.size,
+              entry.legal,
+              assets.model.ruleset,
+            );
             show({
               provider_requested: value.provider_requested,
               execution_placement: value.execution_placement,

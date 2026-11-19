@@ -5,15 +5,18 @@ worker/page/client, and stages an explicitly supplied *validated* exported model
 plus its native reference vectors. Nothing here enters the production
 application, and no model is downloaded from the network.
 
-Artifact integrity is checked before staging:
+Artifact lifecycle validation is coherent and fail-closed:
 
-* the export must carry a passing ``VALIDATED.json`` marker (unless
-  ``--allow-unvalidated`` is given for structural experiments);
-* the model bytes must hash to the digest recorded in the sidecar, the manifest
-  and the marker — a re-hashed copy is never accepted as proof of integrity;
-* the sidecar schema, artifact type, ruleset, board size, input/output names,
-  shapes, dtypes, dynamic batch and action-indexing semantics must agree with
-  the graph and the engine.
+* the export must carry a passing ``VALIDATED.json`` marker and a manifest that
+  agree on validation status, ruleset, model digest and reference-vector digest
+  (unless ``--allow-unvalidated`` is given for a separate structural mode);
+* the model *and* reference-vector bytes are verified against their recorded
+  digests — a re-hashed copy is never accepted as proof of integrity;
+* the sidecar schema, artifact type, architecture configuration, ruleset, board
+  size, input/output contract, dynamic batch, tensor ranks, element types, policy
+  width and graph outputs are validated against the actual ONNX graph;
+* stale, incomplete or mismatched marker/manifest combinations are rejected, so
+  an unvalidated replacement can never inherit an earlier marker.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ for path in (str(SPIKE), str(ROOT)):
         sys.path.insert(0, path)
 
 from hnefatafl.engine import RULESETS  # noqa: E402
+from hnefatafl.models import ARCHITECTURE  # noqa: E402
 
 ORT_VERSION = "1.22.0"
 ORT_BASE = f"https://cdn.jsdelivr.net/npm/onnxruntime-web@{ORT_VERSION}/dist"
@@ -53,8 +57,11 @@ WASM_ONLY = {
 }
 SIDECAR_SCHEMA = 1
 SIDECAR_ARTIFACT = "hnefatafl-policy-value-onnx"
+MANIFEST_SCHEMA = 2
 MAX_MODEL_BYTES = 64 * 1024 * 1024
 MAX_REFERENCE_BYTES = 16 * 1024 * 1024
+MIN_OPSET = 13
+MAX_OPSET = 21
 
 
 def sha256(path: Path) -> str:
@@ -66,20 +73,34 @@ def gzip_size(path: Path) -> int:
 
 
 def validate_sidecar(sidecar: dict) -> tuple[str, int]:
-    """Validate the export sidecar and return (ruleset, board size)."""
+    """Validate the declared architecture, ruleset, shapes and semantics."""
     if not isinstance(sidecar, dict):
         raise SystemExit("model.json must be a JSON object")
     if sidecar.get("schema") != SIDECAR_SCHEMA:
         raise SystemExit(f"Unsupported sidecar schema: {sidecar.get('schema')!r}")
     if sidecar.get("artifact") != SIDECAR_ARTIFACT:
         raise SystemExit(f"Unsupported artifact type: {sidecar.get('artifact')!r}")
+    if sidecar.get("architecture") != ARCHITECTURE:
+        raise SystemExit(f"Unsupported architecture {sidecar.get('architecture')!r}")
     ruleset = sidecar.get("ruleset")
     if ruleset not in RULESETS:
         raise SystemExit(f"Unsupported model ruleset: {ruleset!r}")
     size = RULESETS[ruleset].size
     configuration = sidecar.get("model_config")
-    if not isinstance(configuration, dict) or configuration.get("ruleset") != ruleset:
+    if not isinstance(configuration, dict) or set(configuration) != {
+        "ruleset",
+        "channels",
+        "blocks",
+    }:
+        raise SystemExit("model_config must contain only ruleset, channels and blocks")
+    if configuration.get("ruleset") != ruleset:
         raise SystemExit("model_config ruleset does not match the sidecar ruleset")
+    channels = configuration.get("channels")
+    if type(channels) is not int or not 4 <= channels <= 128:
+        raise SystemExit("model_config channels must be an integer in 4..128")
+    blocks = configuration.get("blocks")
+    if type(blocks) is not int or not 0 <= blocks <= 8:
+        raise SystemExit("model_config blocks must be an integer in 0..8")
     source_input = sidecar.get("input") or {}
     if source_input.get("name") != "planes" or source_input.get("encoding") != "six-plane-v1":
         raise SystemExit("Model input must be the six-plane 'planes' tensor")
@@ -92,26 +113,42 @@ def validate_sidecar(sidecar: dict) -> tuple[str, int]:
     if source_input.get("dynamic_batch") is not True:
         raise SystemExit("Model input must declare a dynamic batch dimension")
     outputs = sidecar.get("outputs") or {}
-    expected_policy = RULESETS[ruleset].size ** 4
-    if outputs.get("policy_logits", {}).get("shape") != ["batch", expected_policy]:
+    if outputs.get("policy_logits", {}).get("shape") != ["batch", size**4]:
         raise SystemExit("policy_logits output shape is not ['batch', size**4]")
     if outputs.get("defender_value", {}).get("shape") != ["batch"]:
         raise SystemExit("defender_value output shape is not ['batch']")
+    for name in ("policy_logits", "defender_value"):
+        dtype = outputs.get(name, {}).get("dtype")
+        if dtype is not None and dtype != "float32":
+            raise SystemExit(f"{name} dtype must be float32")
     if sidecar.get("action_index") != "source*size**2+target":
         raise SystemExit("Unsupported policy action indexing")
     if sidecar.get("value_perspective") != "defenders":
         raise SystemExit("Value output must be defender-relative")
+    if sidecar.get("legal_policy_masking") != "softmax over legal action indices only":
+        raise SystemExit("Unsupported legal-policy masking description")
     return ruleset, size
 
 
-def helpers_expected_policy(ruleset: str) -> int:
-    return RULESETS[ruleset].size ** 4
+def _tensor_info(value) -> dict:
+    tensor = value.type.tensor_type
+    dims = []
+    dynamic = False
+    for dim in tensor.shape.dim:
+        if dim.dim_value:
+            dims.append(dim.dim_value)
+        else:
+            dims.append(dim.dim_param or None)
+            dynamic = True
+    return {"elem_type": tensor.elem_type, "rank": len(dims), "dims": dims, "dynamic": dynamic}
 
 
-def validate_graph(model_onnx: Path, sidecar: dict) -> None:
-    """Check the graph's input/output names and dynamic batch without ORT."""
+def validate_graph(model_onnx: Path, sidecar: dict) -> dict:
+    """Validate the actual ONNX graph rather than trusting metadata alone."""
     try:
         import onnx
+
+        float_type = onnx.TensorProto.FLOAT
     except ImportError:
         raise SystemExit(
             "onnx is required to validate the model graph; install "
@@ -122,25 +159,64 @@ def validate_graph(model_onnx: Path, sidecar: dict) -> None:
         onnx.checker.check_model(graph)
     except Exception as error:  # noqa: BLE001 - surfaced as a staging failure
         raise SystemExit(f"Graph validation failed: {error}") from None
-    names = {value.name for value in graph.graph.input}
-    outputs = {value.name for value in graph.graph.output}
-    if names != {"planes"}:
-        raise SystemExit(f"Graph inputs {sorted(names)} do not match 'planes'")
-    if outputs != {"policy_logits", "defender_value"}:
-        raise SystemExit(f"Graph outputs {sorted(outputs)} are not the expected pair")
-    dims = {
-        value.name: [dim.dim_value or dim.dim_param for dim in value.type.tensor_type.shape.dim]
-        for value in list(graph.graph.input) + list(graph.graph.output)
-    }
-    if dims.get("planes", [None])[0] not in ("batch", "B", "N", "batch_size", None):
+
+    opsets = {(opset.domain or "ai.onnx"): opset.version for opset in graph.opset_import}
+    standard = opsets.get("ai.onnx")
+    if standard is None:
+        raise SystemExit("Graph declares no standard ONNX opset")
+    if not MIN_OPSET <= standard <= MAX_OPSET:
+        raise SystemExit(f"Unsupported ONNX opset {standard} (allowed {MIN_OPSET}..{MAX_OPSET})")
+    ruleset, size = sidecar["ruleset"], RULESETS[sidecar["ruleset"]].size
+
+    inputs = {value.name: _tensor_info(value) for value in graph.graph.input}
+    outputs = {value.name: _tensor_info(value) for value in graph.graph.output}
+    if set(inputs) != {"planes"} or set(outputs) != {"policy_logits", "defender_value"}:
+        raise SystemExit(
+            f"Graph inputs/outputs {sorted(inputs)}/{sorted(outputs)} are not the expected contract"
+        )
+    planes = inputs["planes"]
+    if planes["elem_type"] != float_type:
+        raise SystemExit("Graph input 'planes' must be float32")
+    if planes["rank"] != 4 or planes["dims"][1:] != [6, size, size]:
+        raise SystemExit(f"Graph input dims {planes['dims']} are not [batch, 6, {size}, {size}]")
+    if not planes["dynamic"]:
         raise SystemExit("Graph input does not expose a dynamic batch dimension")
+    policy = outputs["policy_logits"]
+    if policy["elem_type"] != float_type:
+        raise SystemExit("Graph output 'policy_logits' must be float32")
+    if policy["rank"] != 2 or policy["dims"][1] != size**4:
+        raise SystemExit(f"Graph policy dims {policy['dims']} are not [batch, {size**4}]")
+    if not policy["dynamic"]:
+        raise SystemExit("Graph policy output does not expose a dynamic batch dimension")
+    value = outputs["defender_value"]
+    if value["elem_type"] != float_type:
+        raise SystemExit("Graph output 'defender_value' must be float32")
+    if value["rank"] != 1:
+        raise SystemExit(f"Graph value dims {value['dims']} are not [batch]")
+    if not value["dynamic"]:
+        raise SystemExit("Graph value output does not expose a dynamic batch dimension")
+    return {
+        "opset": standard,
+        "ruleset": ruleset,
+        "size": size,
+        "inputs": inputs,
+        "outputs": outputs,
+    }
+
+
+def _require_fields(payload: dict, *, name: str, fields: tuple[str, ...]) -> None:
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{name} must be a JSON object")
+    missing = [field for field in fields if field not in payload]
+    if missing:
+        raise SystemExit(f"{name} is missing required field(s): {missing}")
 
 
 def validate_export_dir(model_dir: Path, allow_unvalidated: bool) -> dict:
     model_onnx = model_dir / "model.onnx"
     model_json = model_dir / "model.json"
     reference_json = model_dir / "reference.json"
-    marker = model_dir / "VALIDATED.json"
+    marker_path = model_dir / "VALIDATED.json"
     manifest_path = model_dir / "export-manifest.json"
     for required in (model_onnx, model_json, reference_json):
         if not required.is_file():
@@ -149,47 +225,98 @@ def validate_export_dir(model_dir: Path, allow_unvalidated: bool) -> dict:
         raise SystemExit("Model exceeds the experimental size limit")
     if reference_json.stat().st_size > MAX_REFERENCE_BYTES:
         raise SystemExit("Reference vectors exceed the experimental size limit")
-    if not marker.is_file():
-        if not allow_unvalidated:
-            raise SystemExit(
-                "Model artifact has no VALIDATED.json marker. Re-export with parity "
-                "checks, or pass --allow-unvalidated for structural experiments."
-            )
-        print("WARNING: staging an UNVALIDATED model for structural experiments")
 
     sidecar = json.loads(model_json.read_text())
     ruleset, size = validate_sidecar(sidecar)
-
-    # Integrity first: never parse a graph whose bytes do not match the
-    # recorded digest, and never re-hash a copy and call it verified.
     actual_digest = sha256(model_onnx)
-    recorded = [d for d in (sidecar.get("onnx", {}).get("sha256"),) if d]
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
-    if manifest.get("model_sha256"):
-        recorded.append(manifest["model_sha256"])
-    if marker.is_file():
-        recorded.append(json.loads(marker.read_text()).get("model_sha256"))
-    if not recorded:
-        raise SystemExit("No recorded model digest to verify against")
-    if any(digest != actual_digest for digest in recorded):
-        raise SystemExit("Model digest does not match the recorded integrity metadata")
+    actual_bytes = model_onnx.stat().st_size
+    if sidecar.get("onnx", {}).get("sha256") != actual_digest:
+        raise SystemExit("Model digest does not match the sidecar")
+
+    manifest = None
+    marker = None
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text())
+        _require_fields(
+            manifest,
+            name="export-manifest.json",
+            fields=(
+                "schema",
+                "validated",
+                "artifact",
+                "model_sha256",
+                "model_bytes",
+                "ruleset",
+                "reference_sha256",
+            ),
+        )
+        if manifest.get("schema") != MANIFEST_SCHEMA:
+            raise SystemExit(f"Unsupported export manifest schema {manifest.get('schema')!r}")
+        if manifest.get("artifact") != SIDECAR_ARTIFACT:
+            raise SystemExit("Export manifest artifact type mismatch")
+    if marker_path.is_file():
+        marker = json.loads(marker_path.read_text())
+        _require_fields(
+            marker,
+            name="VALIDATED.json",
+            fields=("validated", "model_sha256", "reference_sha256", "ruleset"),
+        )
+        if manifest is None:
+            raise SystemExit("VALIDATED.json exists without a coherent export manifest")
+        if marker.get("validated") is not True or manifest.get("validated") is not True:
+            raise SystemExit("Stale marker/manifest: validation status does not agree")
+        if manifest.get("parity_passed") is not True:
+            raise SystemExit("Export manifest is not marked as parity-passed")
+        if marker.get("model_sha256") != actual_digest:
+            raise SystemExit("Stale marker: model digest does not match")
+    elif not allow_unvalidated:
+        raise SystemExit(
+            "Model artifact has no VALIDATED.json marker. Re-export with parity "
+            "checks, or pass --allow-unvalidated for structural experiments."
+        )
+    else:
+        print("WARNING: staging an UNVALIDATED model for structural experiments")
+
+    if manifest is not None:
+        if manifest.get("validated") is True and marker is None:
+            raise SystemExit("Manifest claims validation but VALIDATED.json is missing")
+        if manifest.get("model_sha256") != actual_digest:
+            raise SystemExit("Export manifest model digest does not match")
+        if manifest.get("model_bytes") != actual_bytes:
+            raise SystemExit("Export manifest model size does not match")
+        if manifest.get("ruleset") != ruleset:
+            raise SystemExit("Export manifest ruleset does not match the sidecar")
+    if marker is not None and marker.get("ruleset") != ruleset:
+        raise SystemExit("VALIDATED.json ruleset does not match the sidecar")
 
     validate_graph(model_onnx, sidecar)
 
     reference = json.loads(reference_json.read_text())
+    reference_digest = sha256(reference_json)
+    sidecar_reference = sidecar.get("reference") or {}
+    if sidecar_reference.get("sha256") != reference_digest:
+        raise SystemExit("Reference-vector digest does not match the sidecar")
+    if manifest is not None and manifest.get("reference_sha256") != reference_digest:
+        raise SystemExit("Export manifest reference-vector digest does not match")
+    if marker is not None and marker.get("reference_sha256") != reference_digest:
+        raise SystemExit("VALIDATED.json reference-vector digest does not match")
     if reference.get("ruleset") != ruleset:
         raise SystemExit("Reference vectors were generated for a different ruleset")
     if reference.get("model_sha256") != actual_digest:
         raise SystemExit("Reference vectors were generated for different model bytes")
     if not reference.get("cases"):
         raise SystemExit("Reference vectors contain no cases")
+    if reference.get("schema") != 2:
+        raise SystemExit(f"Unsupported reference schema {reference.get('schema')!r}")
+
     return {
         "sidecar": sidecar,
         "reference": reference,
         "ruleset": ruleset,
         "size": size,
         "digest": actual_digest,
-        "validated": marker.is_file(),
+        "reference_digest": reference_digest,
+        "validated": marker is not None,
     }
 
 
@@ -221,9 +348,10 @@ def main() -> None:
     shutil.copyfile(model_dir / "model.onnx", output / "model/model.onnx")
     shutil.copyfile(model_dir / "model.json", output / "model/model.json")
     shutil.copyfile(model_dir / "reference.json", output / "model/reference.json")
-    staged_digest = sha256(output / "model/model.onnx")
-    if staged_digest != export["digest"]:
+    if sha256(output / "model/model.onnx") != export["digest"]:
         raise SystemExit("Staged model digest changed during copy")
+    if sha256(output / "model/reference.json") != export["reference_digest"]:
+        raise SystemExit("Staged reference-vector digest changed during copy")
 
     ort_dir = output / "ort"
     ort_dir.mkdir(exist_ok=True)
@@ -263,6 +391,7 @@ def main() -> None:
             "gzip_bytes": gzip_size(output / "model/model.onnx"),
             "validated": export["validated"],
             "reference": "model/reference.json",
+            "reference_sha256": export["reference_digest"],
         },
         "sidecar": sidecar,
         "ort_inventory": ort_inventory,
