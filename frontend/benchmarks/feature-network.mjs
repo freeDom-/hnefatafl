@@ -127,6 +127,36 @@ const leaderboard = {
   me: null,
   policy: { version: 1, initial_rating: 1500, k_factor: 32, provisional_games: 10 },
 };
+// A minimal completed single-player review used to load the shared analysis
+// stylesheet through RecordedReview, AgentAnalysis and AdvisorSelect.
+const reviewBoard = Array(49).fill('.');
+reviewBoard[24] = 'K';
+for (const square of [0, 1, 5, 6, 7, 13, 35, 41, 42, 43, 47, 48]) reviewBoard[square] = 'A';
+for (const square of [14, 15, 16, 17, 21, 22, 26, 27, 31, 32, 33, 34]) reviewBoard[square] = 'D';
+const recordedReview = {
+  game: {
+    id: 'review-1',
+    category: 'account-single-player',
+    ruleset: 'brandubh',
+    mode: 'human-ai',
+    status: 'completed',
+    winner: 'draw',
+    plies: 1,
+    players: {
+      attackers: { name: 'BundleFixture', kind: 'human' },
+      defenders: { name: 'Jarl', kind: 'ai' },
+    },
+  },
+  game_id: 'review-1',
+  version: 1,
+  validated: true,
+  cursor: 1,
+  states: [
+    { board: reviewBoard, ply: 0, turn: 'attackers', winner: null, reason: null },
+    { board: reviewBoard, ply: 1, turn: 'defenders', winner: null, reason: null },
+  ],
+  moves: [{ source: 0, target: 1 }],
+};
 
 /** Read-only synthetic API fixtures shared by every page in the probe. */
 async function mockApi(page) {
@@ -149,29 +179,35 @@ async function mockApi(page) {
               }
             : p === '/api/personal/achievements'
               ? { items: [], summary: { unlocked: 0, total: 0 } }
-              : p === '/api/personal/progress'
-                ? { streaks: { by_ruleset: [] } }
-                : p === '/api/leaderboard'
-                  ? leaderboard
-                  : p === '/api/history/games'
-                    ? { games: [], totals: [], matching: 0, limit: 3, next_cursor: null }
-                    : p.startsWith('/api/personal/')
-                      ? {
-                          games: [],
-                          totals: { total_games: 0, in_progress: 0 },
-                          overview: { your_turn: 0, other_active: 0, waiting: 0 },
-                          statistics: { groups: [] },
-                        }
-                      : p === '/api/training/device'
-                        ? {
-                            device: 'cpu',
-                            cuda_devices: [],
-                            cuda_available: false,
-                            training_devices: [],
-                          }
-                        : p === '/api/online/availability'
-                          ? { enabled: false, eligible: false }
-                          : [];
+              : p === '/api/personal/single-player/review-1/replay'
+                ? recordedReview
+                : p === '/api/personal/progress'
+                  ? { streaks: { by_ruleset: [] } }
+                  : /^\/api\/games\/[^/]+\/analytics$/.test(p)
+                    ? { advisor: null, time_limit: 5, show_win_chances: true, revision: 0 }
+                    : /^\/api\/games\/[^/]+\/analysis$/.test(p)
+                      ? { cursor: 0, evaluations: [], hint: null, status: 'complete' }
+                      : p === '/api/leaderboard'
+                        ? leaderboard
+                        : p === '/api/history/games'
+                          ? { games: [], totals: [], matching: 0, limit: 3, next_cursor: null }
+                          : p.startsWith('/api/personal/')
+                            ? {
+                                games: [],
+                                totals: { total_games: 0, in_progress: 0 },
+                                overview: { your_turn: 0, other_active: 0, waiting: 0 },
+                                statistics: { groups: [] },
+                              }
+                            : p === '/api/training/device'
+                              ? {
+                                  device: 'cpu',
+                                  cuda_devices: [],
+                                  cuda_available: false,
+                                  training_devices: [],
+                                }
+                              : p === '/api/online/availability'
+                                ? { enabled: false, eligible: false }
+                                : [];
     return route.fulfill({ json });
   });
   return unexpectedMutations;
@@ -479,8 +515,8 @@ try {
     };
   }
 
-  // 4. A continuously failing stylesheet must not mount an unstyled feature:
-  //    Retry keeps the error panel and the explicit Reload action instead.
+  // 4. A continuously failing stylesheet must not mount an unstyled feature and
+  //    must clearly require an explicit reload (same-document Retry is unsafe).
   {
     const { page: recoveryPage, mutations, close } = await fixturePage(browser);
     const cssName = trainingCss.split('/').pop();
@@ -489,19 +525,22 @@ try {
       (route) => route.abort(),
     );
     await recoveryPage.goto(origin + '/training');
-    await recoveryPage.getByRole('alert').waitFor();
-    await recoveryPage.getByRole('button', { name: 'Retry', exact: true }).click();
-    await recoveryPage.getByRole('alert').waitFor();
-    if (await recoveryPage.locator('.training-workshop').count())
-      throw new Error('Training mounted after Retry without its stylesheet');
+    const alert = recoveryPage.getByRole('alert');
+    await alert.waitFor();
+    if (await recoveryPage.getByRole('button', { name: 'Retry', exact: true }).count())
+      throw new Error('Retry offered for a same-document-unrecoverable stylesheet failure');
     if (!(await recoveryPage.getByRole('button', { name: 'Reload application' }).isVisible()))
       throw new Error('Reload action missing while the stylesheet is unresolved');
+    if (!(await alert.textContent())?.includes('Reload the application to try again'))
+      throw new Error('Reload-required feedback missing for a stylesheet failure');
+    if (await recoveryPage.locator('.training-workshop').count())
+      throw new Error('Training mounted without its stylesheet');
     if (mutations.length)
       throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
     await close();
-    recovery.stylesheetRetryBlocked = {
+    recovery.stylesheetReloadRequired = {
       feature: trainingCss,
-      retried: true,
+      retryOffered: false,
       featureMounted: false,
       retainedErrorPanel: true,
       recoveredThrough: 'Reload application',
@@ -580,7 +619,7 @@ try {
   //    features. A failure observed by one importer must block every other
   //    feature that shares it, not only the one that saw the preload event.
   {
-    const { page: recoveryPage, mutations, close } = await fixturePage(browser);
+    const { page: recoveryPage, mutations, tracker, close } = await fixturePage(browser);
     const sharedCss = manifest['src/Archive.tsx']?.css?.find((file) => file.includes('/analysis-'));
     if (!sharedCss) throw new Error('Shared analysis stylesheet missing from the manifest');
     const sharedName = sharedCss.split('/').pop();
@@ -608,15 +647,24 @@ try {
     await recoveryPage.getByRole('alert').waitFor();
     if (await recoveryPage.locator('.training-workshop').count())
       throw new Error('Training mounted while a shared stylesheet failure is unresolved');
-    // A full reload re-requests the asset and recovers the feature with styles.
+    // Return to the affected feature, then reload to re-request the shared asset.
+    await recoveryPage.evaluate(() => {
+      history.pushState(null, '', '/dashboard/single-player/review-1');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await recoveryPage.getByRole('alert').waitFor();
     blockShared = false;
     await recoveryPage.getByRole('button', { name: 'Reload application' }).click();
-    await recoveryPage.locator('.training-workshop').waitFor();
-    const summary = recoveryPage.locator('.workshop-global');
-    await summary.waitFor();
-    const display = await summary.evaluate((element) => getComputedStyle(element).display);
-    if (display !== 'flex')
-      throw new Error(`Recovered shared-stylesheet feature is not styled (display: ${display})`);
+    const settings = recoveryPage.locator('.analytics-settings');
+    await settings.waitFor({ state: 'attached' });
+    const padding = await settings.evaluate((element) => getComputedStyle(element).paddingTop);
+    if (!padding || padding === '0px')
+      throw new Error(`Recovered analysis content is not styled (padding-top: ${padding})`);
+    const sharedResponse = tracker.responses.get(sharedCss);
+    if (!sharedResponse || sharedResponse.status !== 200)
+      throw new Error('Shared analysis stylesheet did not respond successfully after reload');
+    if (!sharedResponse.contentType.includes('text/css'))
+      throw new Error(`Shared analysis stylesheet content-type was ${sharedResponse.contentType}`);
     if (mutations.length)
       throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
     await close();
@@ -625,7 +673,8 @@ try {
       blockedImporters: ['Archive', 'RecordedReview'],
       unrelatedFeatureBlocked: true,
       recoveredThrough: 'Reload application',
-      recoveredComputedDisplay: display,
+      recoveredResponse: sharedResponse,
+      recoveredComputedPadding: padding,
     };
   }
 

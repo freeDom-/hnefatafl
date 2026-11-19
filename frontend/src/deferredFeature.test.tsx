@@ -6,16 +6,19 @@ import { setLanguage } from './i18n';
 
 afterEach(() => {
   cleanup();
+  document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => link.remove());
   vi.useRealTimers();
   vi.restoreAllMocks();
   setLanguage('en', false);
 });
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { resolve, promise };
+  return { resolve, reject, promise };
 };
 
 it('does not load code until mounted and coalesces concurrent code loads without sharing component state', async () => {
@@ -138,21 +141,31 @@ it('does not commit a resolved import after the feature unmounts', async () => {
 });
 
 /**
- * Simulate Vite's production preload failure: the stylesheet link is appended
- * and `vite:preloadError` carries the CSS payload before the import settles.
+ * Simulate Vite's production preload: the stylesheet link is appended before the
+ * import settles, and the browser fires `load` or `error` asynchronously. Tests
+ * that need the failure to arrive after the loader has tracked the link use
+ * `addStylesheet` and `failStylesheetLink` directly.
  */
-function failStylesheet(href: string): HTMLLinkElement {
+function addStylesheet(href: string): HTMLLinkElement {
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = href;
   document.head.append(link);
-  const event = new CustomEvent('vite:preloadError');
-  Object.assign(event, { payload: new Error(`Unable to preload CSS for ${href}`) });
-  window.dispatchEvent(event);
+  return link;
+}
+function failStylesheetLink(link: HTMLLinkElement) {
+  link.dispatchEvent(new Event('error'));
+}
+function resolveStylesheetLink(link: HTMLLinkElement) {
+  link.dispatchEvent(new Event('load'));
+}
+function failStylesheet(href: string): HTMLLinkElement {
+  const link = addStylesheet(href);
+  queueMicrotask(() => failStylesheetLink(link));
   return link;
 }
 
-it('keeps the error panel after Retry while a required stylesheet is unresolved', async () => {
+it('requires an explicit reload when a required stylesheet is unresolved', async () => {
   let link!: HTMLLinkElement;
   const load = vi.fn(async () => {
     link = failStylesheet('https://example.test/deferred.css');
@@ -160,12 +173,12 @@ it('keeps the error panel after Retry while a required stylesheet is unresolved'
   });
   const Feature = deferredFeature(load);
   render(<Feature />);
-  expect(await screen.findByRole('alert')).toHaveTextContent('This page could not be loaded.');
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  // Same-document recovery is unsafe, so the feature must not mount and the
-  // loader must not re-import as if it had recovered.
-  expect(await screen.findByRole('alert')).toBeVisible();
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('This page could not be loaded.');
+  // Same-document Retry is intentionally unavailable for a stylesheet failure.
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Reload application' })).toBeVisible();
+  expect(alert).toHaveTextContent('Reload the application to try again.');
   expect(load).toHaveBeenCalledTimes(1);
   link.remove();
 });
@@ -238,12 +251,55 @@ it('blocks a second sequential deferred import that shares a failed stylesheet',
   link.remove();
 });
 
-it('blocks an overlapping deferred import when a shared stylesheet fails', async () => {
+it('does not let a concurrent import mount while a shared stylesheet is pending', async () => {
+  const shared = 'https://example.test/concurrent.css';
   let link!: HTMLLinkElement;
-  const shared = 'https://example.test/overlap.css';
   const first = deferred<{ default: () => React.ReactNode }>();
   const second = deferred<{ default: () => React.ReactNode }>();
-  const First = deferredFeature(() => first.promise);
+  const First = deferredFeature(() => {
+    link = addStylesheet(shared);
+    return first.promise;
+  });
+  const Second = deferredFeature(() => second.promise);
+  const view = render(
+    <>
+      <First />
+      <Second />
+    </>,
+  );
+  expect(link).toBeDefined();
+  // Feature B resolves its JavaScript while Feature A's shared stylesheet is
+  // still pending; it must not mount or cache yet.
+  await act(async () => {
+    second.resolve({ default: () => <p>Second feature</p> });
+    await second.promise;
+  });
+  expect(screen.queryByText('Second feature')).toBeNull();
+  // The stylesheet then fails after B's JavaScript already resolved.
+  await act(async () => {
+    failStylesheetLink(link);
+    first.reject(new Error('Unable to preload CSS'));
+    await first.promise.catch(() => {});
+  });
+  expect(screen.queryByText('Second feature')).toBeNull();
+  expect(screen.getAllByRole('alert').length).toBeGreaterThanOrEqual(1);
+  // A later remount still cannot bypass the known failure.
+  view.unmount();
+  render(<Second />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.queryByText('Second feature')).toBeNull();
+  link.remove();
+});
+
+it('lets both concurrent imports complete when the shared stylesheet succeeds', async () => {
+  const shared = 'https://example.test/success.css';
+  let link!: HTMLLinkElement;
+  const first = deferred<{ default: () => React.ReactNode }>();
+  const second = deferred<{ default: () => React.ReactNode }>();
+  const First = deferredFeature(() => {
+    link = addStylesheet(shared);
+    return first.promise;
+  });
   const Second = deferredFeature(() => second.promise);
   render(
     <>
@@ -252,15 +308,13 @@ it('blocks an overlapping deferred import when a shared stylesheet fails', async
     </>,
   );
   await act(async () => {
-    link = failStylesheet(shared);
+    resolveStylesheetLink(link);
     first.resolve({ default: () => <p>First feature</p> });
     second.resolve({ default: () => <p>Second feature</p> });
     await Promise.all([first.promise, second.promise]);
   });
-  // Neither feature may cache or mount while the shared stylesheet is failed.
-  expect(screen.queryByText('First feature')).toBeNull();
-  expect(screen.queryByText('Second feature')).toBeNull();
-  expect(screen.getAllByRole('alert').length).toBeGreaterThanOrEqual(1);
+  expect(await screen.findByText('First feature')).toBeVisible();
+  expect(await screen.findByText('Second feature')).toBeVisible();
   link.remove();
 });
 
@@ -281,20 +335,68 @@ it('blocks a feature reached by navigation from an affected one', async () => {
   link.remove();
 });
 
-it('does not let a cached module bypass an unresolved shared stylesheet', async () => {
+it('does not mount after navigating away while a shared stylesheet is pending', async () => {
+  const shared = 'https://example.test/nav-pending.css';
   let link!: HTMLLinkElement;
-  const shared = 'https://example.test/cached-shared.css';
-  const Broken = deferredFeature(async () => {
-    link = failStylesheet(shared);
-    throw new Error('Unable to preload CSS');
+  const pending = deferred<{ default: () => React.ReactNode }>();
+  const Feature = deferredFeature(() => {
+    link = addStylesheet(shared);
+    return pending.promise;
   });
-  const Cached = deferredFeature(async () => ({ default: () => <p>Resolved feature</p> }));
-  const view = render(<Broken />);
-  expect(await screen.findByRole('alert')).toBeVisible();
-  // The module resolves successfully, but the shared stylesheet is unresolved,
-  // so it must not be cached or mounted.
-  view.rerender(<Cached />);
-  expect(await screen.findByRole('alert')).toBeVisible();
-  expect(screen.queryByText('Resolved feature')).toBeNull();
+  const view = render(<Feature />);
+  view.unmount();
+  await act(async () => {
+    resolveStylesheetLink(link);
+    pending.resolve({ default: () => <p>Late feature</p> });
+    await pending.promise;
+  });
+  expect(screen.queryByText('Late feature')).toBeNull();
   link.remove();
+});
+
+it('does not let a prematurely cached module bypass an unresolved shared stylesheet', async () => {
+  const shared = 'https://example.test/premature.css';
+  let link!: HTMLLinkElement;
+  const pending = deferred<{ default: () => React.ReactNode }>();
+  const Feature = deferredFeature(() => {
+    link = addStylesheet(shared);
+    return pending.promise;
+  });
+  const view = render(<Feature />);
+  // The module resolves while the shared stylesheet is still pending.
+  await act(async () => {
+    pending.resolve({ default: () => <p>Premature feature</p> });
+    await pending.promise;
+  });
+  expect(screen.queryByText('Premature feature')).toBeNull();
+  // The stylesheet then fails; the module must not have entered the cache.
+  await act(async () => {
+    failStylesheetLink(link);
+  });
+  view.unmount();
+  render(<Feature key="remount" />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.queryByText('Premature feature')).toBeNull();
+  link.remove();
+});
+
+it('keeps a genuinely cached component available after a shared stylesheet failure', async () => {
+  const shared = 'https://example.test/cached.css';
+  let cachedLink!: HTMLLinkElement;
+  const Cached = deferredFeature(() => {
+    cachedLink = addStylesheet(shared);
+    queueMicrotask(() => resolveStylesheetLink(cachedLink));
+    return Promise.resolve({ default: () => <p>Cached feature</p> });
+  });
+  const view = render(<Cached />);
+  expect(await screen.findByText('Cached feature')).toBeVisible();
+  // A different feature records a shared stylesheet failure afterwards.
+  const failed = addStylesheet('https://example.test/later.css');
+  failStylesheetLink(failed);
+  // The genuinely cached component is not made unavailable.
+  view.unmount();
+  render(<Cached />);
+  expect(await screen.findByText('Cached feature')).toBeVisible();
+  failed.remove();
+  cachedLink.remove();
 });
