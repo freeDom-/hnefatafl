@@ -38,9 +38,13 @@ account keeps at most one in-flight request. Fixture writes, semantic
 verification and warm-up reads are excluded from measured phases.
 
 The documented `--kill-after=15s` is the external grace after a SIGTERM. The
-internal shutdown budget (stop wait, worker drain, graceful and forced
-termination) totals less than that, so a cooperative cancellation is never
-escalated to SIGKILL before cleanup can finish.
+internal shutdown budget (initial outstanding-request wait, server termination
+and forced-kill allowances, worker drain, and final cleanup) is designed to fit
+inside it, but that is a design bound rather than a guarantee: a worker blocked
+in an uninterruptible operation can outlast every internal deadline and is
+ultimately stopped by the external hard timeout. Setup, verification and
+evidence writing are synchronous and also count against the overall command
+timeout.
 
 ## Environment and storage isolation
 
@@ -68,8 +72,13 @@ the backend can open it. The worker also requires an explicit
 `HNEFATAFL_DATA_DIR` that matches `--data-dir`, so the internal server mode
 cannot initialize arbitrary operator storage. Only the current process's owned
 fixture directory is removed; a changed marker or identity makes cleanup refuse.
-The benchmark never opens or modifies existing operator databases, models,
-checkpoints or training jobs.
+Application-owned files must also have a single link (no hard link sharing an
+inode with external storage) and every entry must stay on the fixture's own
+filesystem, so a bind mount or a hard-linked database cannot redirect storage.
+This is a proportionate guard for an optional local benchmark, not a defence
+against arbitrary hostile same-user process manipulation. The benchmark never
+opens or modifies existing operator databases, models, checkpoints or training
+jobs.
 
 ## Server identity
 
@@ -93,7 +102,13 @@ cancellation the current barrier is aborted, queued futures are cancelled, the
 server is stopped if that is needed to unblock an in-flight request, and the
 driver waits a bounded time for the workers. Returned samples are a consistent
 snapshot taken after the workers settle, and a phase that could not stop its
-workers is marked incomplete.
+workers is marked incomplete. Worker exceptions are inspected only on futures
+that already completed, so a pending worker is never awaited without a bound.
+When a worker remains pending after the bounded waits, remaining phases and the
+post-measurement verification are skipped, clients are left open, and the run
+cannot report success. Python's ThreadPoolExecutor may still join a stuck
+non-daemon worker at interpreter shutdown; that case is left to the external
+hard timeout after evidence has been persisted.
 
 HTTP clients are registered for cleanup immediately after creation, before
 login. Clients are only closed when every measurement phase confirmed its
@@ -140,8 +155,14 @@ moves, states and participants, that statistics and leaderboard entries reflect
 the completed results, that tournament discovery, entrants, matches and legs
 match expectations derived independently from the entrant count, that tournament
 responses agree across accounts, and that the timed endpoint paths and
-parameters return semantically appropriate results. Authoritative table counts
-must match expectations for the configured number of users.
+parameters return semantically appropriate results. The timed leaderboard page
+must contain exactly `min(users, 10)` unique rated accounts with the expected
+total and rating metadata; the timed lobby page must contain exactly
+`min(expected active/waiting games, 25)` unique non-terminal games in production
+order, with the full set checked when it fits; and the timed single-player
+statistics projection must show the expected unfinished-game totals, ruleset
+groups and no completed outcomes. Authoritative table counts must match
+expectations for the configured number of users.
 
 The essential semantics are verified again after measurement and before the run
 is declared successful. Single-player statistics remain an unfinished-game
@@ -181,16 +202,21 @@ credential, token or response payload.
 ## Environment metadata
 
 The report records the CPU model, logical and affinity CPU counts, the effective
-cgroup CPU quota and memory limit resolved from the process cgroup slice (walking
-nested systemd slices through `/proc/self/mountinfo` and `/proc/self/cgroup`),
-system memory capacity, Python and SQLite versions, FastAPI/Uvicorn/HTTPX/Pydantic
+cgroup CPU quota and memory limit resolved from the process cgroup slice
+(honouring the mount root and point from `/proc/self/mountinfo`, so delegated
+subtree mounts and nested systemd slices resolve correctly, through
+`/proc/self/cgroup`), system memory capacity, Python and SQLite versions,
+FastAPI/Uvicorn/HTTPX/Pydantic
 versions, the caller's numeric-thread settings, the benchmark-configured
 numeric-thread settings (read after entering the deterministic environment), the
 imported backend location, the lock fingerprint, benchmark parameters and fixture
 configuration. System memory capacity is reported separately from an enforced
-cgroup memory limit. Unavailable Linux resource values are `null`, distinct from
-a measured zero. No credentials, cookies, tokens, private configuration, full
-environment dump or response body is recorded.
+cgroup memory limit. The cgroup v1 fallback reads the fixed controller root and
+does not resolve nested slices, so it may over-report the available quota; it
+returns `null` when the controller files are absent. Unavailable Linux resource
+values are `null`, distinct from a measured zero. No credentials, cookies,
+tokens, private configuration, full environment dump or response body is
+recorded.
 
 ## Corrected measured baseline
 
@@ -222,8 +248,11 @@ request accounted for.
 
 ## Historical evidence
 
-Both earlier baselines are retained unchanged and must not be read as results
-from the corrected implementation.
+All three recorded baselines are retained unchanged. The corrected baseline
+above was produced before the final failure-path and verification corrections,
+which do not change successful-path measurement semantics; the two earlier
+baselines used earlier scheduling and verification and must not be read as
+results from the corrected implementation.
 
 ### Hardened baseline (before the corrected scheduling and semantics)
 
