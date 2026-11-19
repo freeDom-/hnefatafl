@@ -226,20 +226,28 @@ test.beforeAll(() => mkdirSync(navOutput, { recursive: true }));
 
 type NavKind = 'sidebar' | 'header' | 'compact';
 type NavLanguage = 'en' | 'de';
+type NavDensity = 'default' | 'compact' | 'large';
 type NavRect = { x: number; y: number; width: number; height: number };
 type LabelBox = {
   destination: string;
+  /** Visible label text; decorative descendants such as chevrons are excluded. */
   text: string;
+  /** The interactive control's own box, used for geometry and overlap checks. */
   rect: NavRect;
+  /** The measured rendered label: a nested label element or a direct text Range. */
+  labelRect: NavRect;
   scrollWidth: number;
   clientWidth: number;
   scrollHeight: number;
   clientHeight: number;
   whiteSpace: string;
   textOverflow: string;
+  /** True when the label is a nested element, false for a direct text node. */
+  nested: boolean;
 };
 type GroupBox = { text: string; rect: NavRect; scrollWidth: number; clientWidth: number };
 type NavProbe = { kind: NavKind; rect: NavRect; controls: LabelBox[]; groups: GroupBox[] };
+type NavViewport = { name: string; width: number; height: number; kind: NavKind };
 
 const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string>>> = {
   sidebar: {
@@ -309,6 +317,99 @@ async function probePrimaryNavigation(page: Page): Promise<NavProbe[]> {
       const box = node.getBoundingClientRect();
       return { x: box.x, y: box.y, width: box.width, height: box.height };
     };
+    // Chevrons, "Soon" badges, external-link arrows and screen-reader-only text
+    // are not the destination label and must not be measured as one.
+    const isDecorative = (element: Element) =>
+      element.classList.contains('sidebar-chevron') ||
+      element.classList.contains('sidebar-soon') ||
+      element.classList.contains('sidebar-external') ||
+      element.classList.contains('sr-only') ||
+      element.getAttribute('aria-hidden') === 'true';
+
+    // A nested label element (desktop rail, compact bar). Icons are <svg> and
+    // excluded; the longest remaining text is the destination name.
+    const labelElement = (control: HTMLElement) => {
+      const candidates = Array.from(
+        control.querySelectorAll<HTMLElement>('span, small, strong, em, b, i'),
+      ).filter(
+        (element) => !isDecorative(element) && (element.textContent ?? '').trim().length > 0,
+      );
+      candidates.sort(
+        (a, b) => (b.textContent ?? '').trim().length - (a.textContent ?? '').trim().length,
+      );
+      return candidates[0];
+    };
+
+    // Tablet header navigation renders the translated label directly in the
+    // button, so measure its text nodes with a DOM Range instead of a child span.
+    const directTextNodes = (control: HTMLElement) =>
+      Array.from(control.childNodes).filter(
+        (node): node is Text =>
+          node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length > 0,
+      );
+
+    const measureControl = (control: HTMLElement): LabelBox => {
+      const destination = control.dataset.destination ?? '';
+      const controlRect = rect(control);
+      const nested = labelElement(control);
+      if (nested) {
+        const style = getComputedStyle(nested);
+        return {
+          destination,
+          text: (nested.textContent ?? '').trim(),
+          rect: controlRect,
+          labelRect: rect(nested),
+          scrollWidth: nested.scrollWidth,
+          clientWidth: nested.clientWidth,
+          scrollHeight: nested.scrollHeight,
+          clientHeight: nested.clientHeight,
+          whiteSpace: style.whiteSpace,
+          textOverflow: style.textOverflow,
+          nested: true,
+        };
+      }
+      const style = getComputedStyle(control);
+      const nodes = directTextNodes(control);
+      if (nodes.length === 0)
+        return {
+          destination,
+          text: '',
+          rect: controlRect,
+          labelRect: { x: 0, y: 0, width: 0, height: 0 },
+          scrollWidth: 0,
+          clientWidth: 0,
+          scrollHeight: 0,
+          clientHeight: 0,
+          whiteSpace: style.whiteSpace,
+          textOverflow: style.textOverflow,
+          nested: false,
+        };
+      const range = document.createRange();
+      range.setStartBefore(nodes[0]);
+      range.setEndAfter(nodes[nodes.length - 1]);
+      const box = range.getBoundingClientRect();
+      // For a direct text node the control is its label container; subtract the
+      // control's padding so the painted text is compared with the usable area.
+      return {
+        destination,
+        text: nodes
+          .map((node) => node.textContent ?? '')
+          .join('')
+          .trim(),
+        rect: controlRect,
+        labelRect: { x: box.x, y: box.y, width: box.width, height: box.height },
+        scrollWidth: box.width,
+        clientWidth:
+          control.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        scrollHeight: box.height,
+        clientHeight:
+          control.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+        whiteSpace: style.whiteSpace,
+        textOverflow: style.textOverflow,
+        nested: false,
+      };
+    };
+
     return Array.from(
       document.querySelectorAll<HTMLElement>(
         '.arena-sidebar nav, .site-header nav, .workspace-bottom-nav',
@@ -322,26 +423,7 @@ async function probePrimaryNavigation(page: Page): Promise<NavProbe[]> {
             ? ('header' as const)
             : ('compact' as const),
         rect: rect(nav),
-        controls: Array.from(nav.querySelectorAll<HTMLElement>('a, button')).map((control) => {
-          const label = Array.from(control.querySelectorAll<HTMLElement>('span')).find(
-            (span) =>
-              !span.classList.contains('sidebar-chevron') &&
-              !span.classList.contains('sidebar-soon') &&
-              !span.classList.contains('sr-only'),
-          );
-          const style = label ? getComputedStyle(label) : null;
-          return {
-            destination: control.dataset.destination ?? '',
-            text: (label?.textContent ?? '').trim(),
-            rect: rect(control),
-            scrollWidth: label?.scrollWidth ?? 0,
-            clientWidth: label?.clientWidth ?? 0,
-            scrollHeight: label?.scrollHeight ?? 0,
-            clientHeight: label?.clientHeight ?? 0,
-            whiteSpace: style?.whiteSpace ?? 'normal',
-            textOverflow: style?.textOverflow ?? 'clip',
-          };
-        }),
+        controls: Array.from(nav.querySelectorAll<HTMLElement>('a, button')).map(measureControl),
         groups: Array.from(nav.querySelectorAll<HTMLElement>('.sidebar-group-label')).map(
           (group) => ({
             text: (group.textContent ?? '').trim(),
@@ -360,10 +442,31 @@ function overlapArea(a: NavRect, b: NavRect) {
   return width * height;
 }
 
-async function expectUsableNavigation(page: Page, language: NavLanguage, context: string) {
+/**
+ * The compact archive destination keeps its pre-existing German abbreviation
+ * "Wiederholungen" (English "Replays"). It is the only destination whose compact
+ * name does not fit a 320px control at larger interface scales, and it stays
+ * deliberately ellipsised: the accessible name is always the full "Hall of
+ * records" / "Halle der Aufzeichnungen". Every other destination, including the
+ * labels this change introduces, must fit. Keyed by `kind:language:destination`.
+ */
+const ACCEPTED_TRUNCATION_PX: Record<string, number> = {
+  'compact:de:archive': 20,
+};
+
+/** An ellipsised label must still show at least this fraction of its text. */
+const MIN_VISIBLE_LABEL_FRACTION = 0.7;
+
+async function expectUsableNavigation(
+  page: Page,
+  language: NavLanguage,
+  context: string,
+  expectedKind: NavKind,
+) {
   const probes = await probePrimaryNavigation(page);
   expect(probes, `${context}: exactly one visible primary navigation`).toHaveLength(1);
   const nav = probes[0];
+  expect(nav.kind, `${context}: expected primary navigation type`).toBe(expectedKind);
   const viewport = page.viewportSize()!;
 
   // The navigation itself stays inside the viewport and keeps real geometry.
@@ -391,7 +494,12 @@ async function expectUsableNavigation(page: Page, language: NavLanguage, context
   }
 
   for (const control of nav.controls) {
-    const label = control.text || control.destination;
+    const label = control.text || control.destination || '(unlabelled control)';
+    // The label must exist and be measurable. A missing nested span or direct
+    // text node fails here instead of silently substituting zero dimensions.
+    expect(control.text.trim().length, `${context}: ${label} has label text`).toBeGreaterThan(0);
+    expect(control.labelRect.width, `${context}: ${label} label width`).toBeGreaterThan(0);
+    expect(control.labelRect.height, `${context}: ${label} label height`).toBeGreaterThan(0);
     expect(control.rect.width, `${context}: ${label} width`).toBeGreaterThan(0);
     expect(control.rect.height, `${context}: ${label} height`).toBeGreaterThan(0);
     expect(control.rect.x, `${context}: ${label} left edge`).toBeGreaterThanOrEqual(nav.rect.x - 1);
@@ -399,6 +507,21 @@ async function expectUsableNavigation(page: Page, language: NavLanguage, context
       control.rect.x + control.rect.width,
       `${context}: ${label} right edge`,
     ).toBeLessThanOrEqual(nav.rect.x + nav.rect.width + 1);
+    // The measured label sits inside the control that owns it.
+    expect(control.labelRect.x, `${context}: ${label} label left`).toBeGreaterThanOrEqual(
+      control.rect.x - 1,
+    );
+    expect(
+      control.labelRect.x + control.labelRect.width,
+      `${context}: ${label} label right`,
+    ).toBeLessThanOrEqual(control.rect.x + control.rect.width + 1);
+    expect(control.labelRect.y, `${context}: ${label} label top`).toBeGreaterThanOrEqual(
+      control.rect.y - 1,
+    );
+    expect(
+      control.labelRect.y + control.labelRect.height,
+      `${context}: ${label} label bottom`,
+    ).toBeLessThanOrEqual(control.rect.y + control.rect.height + 1);
     // The rail scrolls vertically, so only its horizontal containment is fixed.
     if (nav.kind !== 'sidebar') {
       expect(control.rect.y, `${context}: ${label} top edge`).toBeGreaterThanOrEqual(
@@ -409,10 +532,24 @@ async function expectUsableNavigation(page: Page, language: NavLanguage, context
         `${context}: ${label} bottom edge`,
       ).toBeLessThanOrEqual(nav.rect.y + nav.rect.height + 1);
     }
-    if (control.scrollWidth > control.clientWidth + 1)
+    const overflow = control.scrollWidth - control.clientWidth;
+    if (overflow > 1) {
       expect(control.textOverflow, `${context}: ${label} is clipped without an ellipsis`).toBe(
         'ellipsis',
       );
+      // Ellipsis alone is not a licence to clip arbitrarily: anything beyond the
+      // one justified pre-existing compact label is a readability defect.
+      const accepted =
+        ACCEPTED_TRUNCATION_PX[`${nav.kind}:${language}:${control.destination}`] ?? 0;
+      expect(
+        overflow,
+        `${context}: ${label} loses ${overflow.toFixed(1)}px (accepted ${accepted}px)`,
+      ).toBeLessThanOrEqual(accepted + 1);
+      expect(
+        control.clientWidth / control.scrollWidth,
+        `${context}: ${label} visible fraction`,
+      ).toBeGreaterThanOrEqual(MIN_VISIBLE_LABEL_FRACTION);
+    }
     if (control.whiteSpace !== 'nowrap') {
       expect(
         control.scrollWidth,
@@ -424,6 +561,15 @@ async function expectUsableNavigation(page: Page, language: NavLanguage, context
       ).toBeLessThanOrEqual(control.clientHeight + 1);
     }
   }
+
+  // The tablet header renders translated text directly in its buttons; make sure
+  // that direct-text path is what produced the measurements above rather than a
+  // silently empty nested-label lookup.
+  if (expectedKind === 'header')
+    expect(
+      nav.controls.some((control) => !control.nested),
+      `${context}: tablet header labels are measured from direct text nodes`,
+    ).toBe(true);
 
   for (let i = 0; i < nav.controls.length; i += 1)
     for (let j = i + 1; j < nav.controls.length; j += 1)
@@ -448,12 +594,36 @@ async function expectUsableNavigation(page: Page, language: NavLanguage, context
 
   // Every visible control is keyboard reachable with a non-empty accessible name.
   const controls = primaryNavigation(page).locator('a, button');
+  const visibleIndexes: number[] = [];
   for (let index = 0; index < (await controls.count()); index += 1) {
     const control = controls.nth(index);
     if (!(await control.isVisible())) continue;
     await control.focus();
     await expect(control, `${context}: control ${index} focus`).toBeFocused();
     await expect(control, `${context}: control ${index} name`).toHaveAccessibleName(/\S/);
+    visibleIndexes.push(index);
+  }
+
+  // Sequential Tab reaches every visible control without leaving the navigation
+  // before it has visited them all.
+  if (visibleIndexes.length > 1) {
+    await controls.nth(visibleIndexes[0]).focus();
+    const reached = new Set<number>();
+    for (let step = 0; step < visibleIndexes.length * 2 + 4; step += 1) {
+      const activeIndex = await page.evaluate(() => {
+        const active = document.activeElement as HTMLElement | null;
+        const nav = active?.closest('.arena-sidebar nav, .site-header nav, .workspace-bottom-nav');
+        if (!active || !nav) return null;
+        return Array.from(nav.querySelectorAll('a, button')).indexOf(active);
+      });
+      if (activeIndex === null) break;
+      reached.add(activeIndex);
+      if (reached.size === visibleIndexes.length) break;
+      await page.keyboard.press('Tab');
+    }
+    expect(reached.size, `${context}: sequential Tab reaches every navigation control`).toBe(
+      visibleIndexes.length,
+    );
   }
 
   expect(
@@ -463,9 +633,25 @@ async function expectUsableNavigation(page: Page, language: NavLanguage, context
 }
 
 const NAV_THEMES = ['kings-table', 'iron-ash', 'saga-hall', 'classic-table'] as const;
-const NAV_DENSITIES = ['default', 'compact', 'large', 'default'] as const;
+// The original one-scale-per-theme pairing keeps Default and Compact coverage.
+const NAV_DENSITIES: NavDensity[] = ['default', 'compact', 'large', 'default'];
 
-async function setNavigationAppearance(page: Page, theme: string, density: string) {
+const NAV_VIEWPORTS: readonly NavViewport[] = [
+  { name: '320-phone', width: 320, height: 568, kind: 'compact' },
+  { name: '360-phone', width: 360, height: 640, kind: 'compact' },
+  { name: '390-phone', width: 390, height: 844, kind: 'compact' },
+  { name: '768-tablet', width: 768, height: 1024, kind: 'header' },
+  { name: '1440-desktop', width: 1440, height: 900, kind: 'sidebar' },
+];
+
+// Highest-risk scale/viewport pairs: the Large scale grows every label, and the
+// German compact names are longest on a 320px phone and the tablet header.
+const LARGE_RISK_VIEWPORTS: readonly NavViewport[] = [
+  { name: '320-phone', width: 320, height: 568, kind: 'compact' },
+  { name: '768-tablet', width: 768, height: 1024, kind: 'header' },
+];
+
+async function setNavigationAppearance(page: Page, theme: string, density: NavDensity) {
   await page.addInitScript(
     ({ uiTheme, density: value }) =>
       localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme, density: value })),
@@ -473,37 +659,105 @@ async function setNavigationAppearance(page: Page, theme: string, density: strin
   );
 }
 
+/** The applied theme/density must match the request before geometry is read. */
+async function expectNavigationAppearance(page: Page, theme: string, density: NavDensity) {
+  const applied = await page.evaluate(() => ({
+    theme: document.documentElement.dataset.uiTheme,
+    density: document.documentElement.dataset.density,
+  }));
+  expect(applied.theme, 'data-ui-theme').toBe(theme);
+  expect(applied.density, 'data-density').toBe(density);
+}
+
+/** A marker that a language switch reloaded the document would clear. */
+async function markDocument(page: Page) {
+  await page.evaluate(() => {
+    (window as Window & { __navLoadMarker?: number }).__navLoadMarker = 1;
+  });
+}
+
+async function expectNoReload(page: Page, context: string) {
+  expect(
+    await page.evaluate(() => (window as Window & { __navLoadMarker?: number }).__navLoadMarker),
+    `${context}: language switching did not reload the application`,
+  ).toBe(1);
+}
+
 test.describe('responsive navigation labels', () => {
-  for (const viewport of [
-    { name: '320-phone', width: 320, height: 568 },
-    { name: '360-phone', width: 360, height: 640 },
-    { name: '390-phone', width: 390, height: 844 },
-    { name: '768-tablet', width: 768, height: 1024 },
-    { name: '1440-desktop', width: 1440, height: 900 },
-  ]) {
+  for (const viewport of NAV_VIEWPORTS) {
     for (const [index, theme] of NAV_THEMES.entries()) {
-      test(`${viewport.name} ${theme}: labels stay visible and named in English and German`, async ({
+      const density = NAV_DENSITIES[index];
+      test(`${viewport.name} ${theme} (${density}): labels stay visible and named in English and German`, async ({
         page,
       }, info) => {
         test.skip(info.project.name === 'mobile', 'Explicit viewports; the matrix runs once.');
         test.setTimeout(120000);
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
-        await setNavigationAppearance(page, theme, NAV_DENSITIES[index]);
+        await setNavigationAppearance(page, theme, density);
         await page.goto('/dashboard');
+        await expectNavigationAppearance(page, theme, density);
+        await markDocument(page);
         const language = page.locator('.language-select select');
         await language.selectOption('en');
-        await expectUsableNavigation(page, 'en', `${viewport.name}-${theme}-en`);
+        await expectUsableNavigation(page, 'en', `${viewport.name}-${theme}-en`, viewport.kind);
         await language.selectOption('de');
-        await expectUsableNavigation(page, 'de', `${viewport.name}-${theme}-de`);
+        await expectUsableNavigation(page, 'de', `${viewport.name}-${theme}-de`, viewport.kind);
+        await expectNoReload(page, `${viewport.name}-${theme}`);
         if (index === 0)
           await primaryNavigation(page).screenshot({
             path: `${navOutput}/${viewport.name}-de.png`,
           });
         await language.selectOption('en');
-        await expectUsableNavigation(page, 'en', `${viewport.name}-${theme}-en-restored`);
+        await expectUsableNavigation(
+          page,
+          'en',
+          `${viewport.name}-${theme}-en-restored`,
+          viewport.kind,
+        );
       });
     }
   }
+
+  test.describe('large interface scale high-risk combinations', () => {
+    for (const viewport of LARGE_RISK_VIEWPORTS) {
+      for (const theme of NAV_THEMES) {
+        test(`${viewport.name} ${theme} (large): labels stay visible and named in English and German`, async ({
+          page,
+        }, info) => {
+          test.skip(info.project.name === 'mobile', 'Explicit viewports; the matrix runs once.');
+          test.setTimeout(120000);
+          await page.setViewportSize({ width: viewport.width, height: viewport.height });
+          await setNavigationAppearance(page, theme, 'large');
+          await page.goto('/dashboard');
+          await expectNavigationAppearance(page, theme, 'large');
+          await markDocument(page);
+          const language = page.locator('.language-select select');
+          await language.selectOption('en');
+          await expectUsableNavigation(
+            page,
+            'en',
+            `${viewport.name}-${theme}-large-en`,
+            viewport.kind,
+          );
+          await language.selectOption('de');
+          await expectUsableNavigation(
+            page,
+            'de',
+            `${viewport.name}-${theme}-large-de`,
+            viewport.kind,
+          );
+          await expectNoReload(page, `${viewport.name}-${theme}-large`);
+          await language.selectOption('en');
+          await expectUsableNavigation(
+            page,
+            'en',
+            `${viewport.name}-${theme}-large-en-restored`,
+            viewport.kind,
+          );
+        });
+      }
+    }
+  });
 
   test.describe('short landscape phone', () => {
     test.use({ hasTouch: true });
@@ -514,17 +768,18 @@ test.describe('responsive navigation labels', () => {
         await page.setViewportSize({ width: 844, height: 390 });
         await setNavigationAppearance(page, theme, NAV_DENSITIES[index]);
         await page.goto('/dashboard');
+        await expectNavigationAppearance(page, theme, NAV_DENSITIES[index]);
         const language = page.locator('.language-select select');
         await language.selectOption('en');
-        await expectUsableNavigation(page, 'en', `short-landscape-${theme}-en`);
+        await expectUsableNavigation(page, 'en', `short-landscape-${theme}-en`, 'compact');
         await language.selectOption('de');
-        await expectUsableNavigation(page, 'de', `short-landscape-${theme}-de`);
+        await expectUsableNavigation(page, 'de', `short-landscape-${theme}-de`, 'compact');
         if (index === 0)
           await primaryNavigation(page).screenshot({
             path: `${navOutput}/short-landscape-de.png`,
           });
         await language.selectOption('en');
-        await expectUsableNavigation(page, 'en', `short-landscape-${theme}-en-restored`);
+        await expectUsableNavigation(page, 'en', `short-landscape-${theme}-en-restored`, 'compact');
       });
     }
   });
