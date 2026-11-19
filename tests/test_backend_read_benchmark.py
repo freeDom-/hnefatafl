@@ -1,10 +1,13 @@
 """Safety, lifecycle and metrics guards for the optional disposable read benchmark."""
 
+import json
 import os
 import signal
 import socket
+import statistics
 import subprocess
 import threading
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import httpx
@@ -258,6 +261,38 @@ def test_percentile_uses_nearest_rank():
     assert percentile([1, 2, 3, 4, 5], 0.5) == 3
     assert percentile(list(range(1, 101)), 0.95) == 95
     assert percentile(list(range(1, 101)), 0.99) == 99
+
+
+def test_committed_hardened_evidence_matches_its_raw_samples():
+    root = Path(__file__).resolve().parents[1]
+    summary = json.loads(
+        (root / "docs/benchmarks/backend-read-baseline-hardened.json").read_text(encoding="utf-8")
+    )
+    raw = json.loads(
+        (root / "docs/benchmarks/backend-read-requests-hardened.json").read_text(encoding="utf-8")
+    )
+    by_level = defaultdict(list)
+    for row in raw:
+        by_level[row["concurrency"]].append(row)
+    assert summary["complete"] is True
+    assert sum(run["requests"] for run in summary["runs"]) == 936
+    for run in summary["runs"]:
+        rows = by_level[run["concurrency"]]
+        assert run["requests"] == len(rows) == 312
+        values = [row["milliseconds"] for row in rows]
+        assert run["latency_ms"] == {
+            "median": statistics.median(values),
+            "p95": percentile(values, 0.95),
+            "p99": percentile(values, 0.99),
+            "max": max(values),
+        }
+        assert run["response_bytes"] == {
+            "total": sum(row["bytes"] for row in rows),
+            "max": max(row["bytes"] for row in rows),
+        }
+        assert run["status_counts"] == dict(Counter(str(row["status"]) for row in rows))
+        assert run["successes"] == 312
+        assert run["concurrency_achieved"] is True
 
 
 def test_metrics_are_deterministic_and_handle_empty():
