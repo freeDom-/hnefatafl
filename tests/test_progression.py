@@ -224,6 +224,114 @@ def test_portrait_display_order_is_explicit_and_deterministic():
     assert all(_portrait_order(portrait)[0] == len(PORTRAIT_DISPLAY_ORDER) for portrait in unlisted)
 
 
+def test_existing_installation_reseeds_portrait_order_without_touching_progression(web):
+    """A current-schema install with the previous ordinals upgrades on startup.
+
+    Startup seeding is the only migration: reopening the store renumbers the
+    catalog while every stored award, entitlement, selection, unlock association
+    and catalog version is preserved, and repeated initialization is idempotent.
+    """
+    from hnefatafl.online_migrations import SCHEMA_VERSION
+    from hnefatafl.progression import (
+        ACHIEVEMENT_CATALOG_VERSION,
+        PORTRAIT_CATALOG_VERSION,
+        PORTRAIT_DISPLAY_ORDER,
+        PORTRAITS,
+        Portrait,
+        _portrait_order,
+    )
+
+    app, client = web
+    account = account_of(app, client)
+    store = app.state.store
+    # The exact persisted ordering this change replaces, written without a
+    # schema or catalog-version change.
+    previous_order = (
+        "shieldbearer",
+        "fjord-scout",
+        "forge-keeper",
+        "iron-helm",
+        "shieldmaiden",
+        "skald",
+        "valkyrie",
+        "wanderer",
+        "raven-seer",
+        "einherjar",
+        "berserker",
+        "one-eyed-jarl",
+    )
+    with store.connection() as c:
+        for ordinal, portrait_id in enumerate(previous_order):
+            c.execute("UPDATE portrait_catalog SET ordinal=? WHERE id=?", (ordinal, portrait_id))
+        # Representative existing progression: a permanent award, its portrait
+        # entitlement and a selected non-default portrait.
+        c.execute(
+            "INSERT INTO achievement_awards VALUES(?,?,?,?)",
+            (account["id"], "rated-wins-10", 123, 1),
+        )
+        c.execute(
+            "INSERT INTO account_portraits VALUES(?,?,?,?)",
+            (account["id"], "shieldmaiden", 123, "rated-wins-10"),
+        )
+        c.execute(
+            "INSERT INTO account_portrait_selection VALUES(?,?,?)",
+            (account["id"], "shieldmaiden", 123),
+        )
+
+    def catalog_rows(target):
+        with target.connection() as c:
+            return {
+                row["id"]: (row["name"], row["unlock_achievement_id"], row["retired"])
+                for row in c.execute(
+                    "SELECT id,name,unlock_achievement_id,retired FROM portrait_catalog"
+                )
+            }
+
+    def catalog_versions(target):
+        with target.connection() as c:
+            return (
+                c.execute("PRAGMA user_version").fetchone()[0],
+                c.execute("SELECT max(catalog_version) FROM portrait_catalog").fetchone()[0],
+                c.execute("SELECT max(catalog_version) FROM achievement_catalog").fetchone()[0],
+            )
+
+    before_rows = progression_rows(store)
+    before_catalog = catalog_rows(store)
+    before_versions = catalog_versions(store)
+    assert before_versions == (
+        SCHEMA_VERSION,
+        PORTRAIT_CATALOG_VERSION,
+        ACHIEVEMENT_CATALOG_VERSION,
+    )
+
+    # Reopen through the normal Store initialization path. Only the ordinals move.
+    reopened = Store(store.path)
+    catalog = client.get("/api/portraits/catalog").json()
+    assert [item["id"] for item in catalog["items"]] == list(PORTRAIT_DISPLAY_ORDER)
+    assert catalog["default_portrait_id"] == "shieldbearer"
+    assert catalog["catalog_version"] == PORTRAIT_CATALOG_VERSION
+    assert progression_rows(reopened) == before_rows
+    assert catalog_rows(reopened) == before_catalog
+    assert catalog_versions(reopened) == before_versions
+    # Names and unlock associations still match the code-owned catalog exactly.
+    assert {
+        portrait.id: (portrait.name, portrait.unlock_achievement_id) for portrait in PORTRAITS
+    } == {
+        portrait_id: (name, unlock)
+        for portrait_id, (name, unlock, _retired) in before_catalog.items()
+    }
+    # The deterministic fallback for a future portrait without a position remains.
+    assert _portrait_order(Portrait("future-portrait", "Future", None))[0] == len(
+        PORTRAIT_DISPLAY_ORDER
+    )
+
+    # Repeated initialization stays idempotent.
+    Store(reopened.path)
+    assert progression_rows(reopened) == before_rows
+    assert catalog_rows(reopened) == before_catalog
+    assert catalog_versions(reopened) == before_versions
+
+
 def test_fresh_read_is_read_only_and_manual_endpoint_removed(web):
     app, client = web
     before = progression_rows(app.state.store)
