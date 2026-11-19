@@ -1,4 +1,26 @@
 const translations: Record<string, string> = {
+  'AI WORKSHOP': 'KI-WERKSTATT',
+  'Build, test and refine.': 'Entwickeln, testen und verfeinern.',
+  'Create a strategist, follow its learning and compare the results. Your models and checkpoints stay under your control.':
+    'Erschaffe einen Strategen, verfolge seinen Lernfortschritt und vergleiche die Ergebnisse. Deine Modelle und Prüfpunkte bleiben unter deiner Kontrolle.',
+  'Workshop tasks': 'Aufgaben in der Werkstatt',
+  'Train or tune': 'Trainieren oder optimieren',
+  'Monitor jobs': 'Aufträge beobachten',
+  'AI comparisons': 'KI-Vergleiche',
+  'AI COMPARISONS': 'KI-VERGLEICHE',
+  'Measure your strategists.': 'Prüfe deine Strategen.',
+  'Compare computer opponents with repeatable matches. These benchmarks are separate from human player tournaments.':
+    'Vergleiche Computergegner in wiederholbaren Partien. Diese Leistungstests sind von Turnieren für menschliche Spieler getrennt.',
+  'Return to the AI workshop': 'Zurück zur KI-Werkstatt',
+  'Show selected job': 'Ausgewählten Auftrag anzeigen',
+  'Outside current page': 'Außerhalb der aktuellen Seite',
+  'Training job pages': 'Seiten der Trainingsaufträge',
+  'Previous job page': 'Vorherige Auftragsseite',
+  'Next job page': 'Nächste Auftragsseite',
+  'Page {current} of {total}': 'Seite {current} von {total}',
+  'Showing {first}–{last}': 'Angezeigt: {first}–{last}',
+  'active job': 'aktiver Auftrag',
+  'registered model': 'registriertes Modell',
   'Open calendar': 'Kalender öffnen',
   'Enter a time in HH:MM format.': 'Gib eine Uhrzeit im Format HH:MM ein.',
   'A full tournament must wait for its planned start. An administrator may override it.':

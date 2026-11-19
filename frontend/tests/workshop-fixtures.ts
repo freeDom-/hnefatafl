@@ -1,4 +1,59 @@
 import type { Job } from '../src/types';
+import type { Tournament } from '../src/tournamentTypes';
+
+/** Retained two-game comparison, with the same DTO shape used by the real API. */
+export function workshopComparisonFixture(
+  id = 'visual-completed',
+  status: 'completed' | 'running' = 'completed',
+): Tournament {
+  const completed = status === 'completed' ? 2 : 1;
+  const wins = [1, completed - 1];
+  return {
+    id,
+    name: 'Raven and Wolf',
+    status,
+    created_at: '2026-10-21T08:00:00Z',
+    config: {
+      players: [
+        { name: 'Raven', config: { algorithm: 'baseline', time_limit: 1 } },
+        { name: 'Wolf', config: { algorithm: 'alpha_beta', depth: 5, time_limit: 2 } },
+      ],
+      rulesets: ['brandubh'],
+      games: 2,
+      max_plies: 300,
+      seed: 19,
+    },
+    progress: { completed_games: completed, total_games: 2 },
+    result: {
+      scores: wins,
+      standings: [0, 1].map((player) => ({
+        player,
+        wins: wins[player],
+        losses: completed - wins[player],
+        draws: 0,
+        truncated: 0,
+        games: completed,
+        score: wins[player],
+      })),
+      by_ruleset: { brandubh: { wins, draws: 0, truncated: 0, games: completed } },
+      games: Array.from({ length: completed }, (_, attacker_player) => ({
+        ruleset: 'brandubh',
+        winner: 'attackers',
+        outcome: 'completed',
+        reason: 'king_captured',
+        plies: 12,
+        moves: [],
+        attacker_player,
+        defender_player: 1 - attacker_player,
+        average_decision_time: 0.01,
+        total_decision_time: 0.12,
+      })),
+      truncated: 0,
+      average_game_length: 12,
+      average_decision_time: 0.01,
+    },
+  };
+}
 export function workshopFixture(
   id: string,
   count: number,

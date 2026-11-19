@@ -1,0 +1,201 @@
+/* Presentation only: shared Arena surfaces and semantic tokens, no game art
+   behind charts or settings. Existing disclosures, tabs and anchors stay intact. */
+.training-workshop .workshop-intro,
+.workshop-comparison-intro {
+  /* The intro is the first child of main, which has no top padding; match the
+     shared inter-section rhythm so it never touches the application header. */
+  margin-top: var(--gap-card);
+  padding: clamp(1rem, 2vw, 2rem);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-card);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius-card, 8px);
+}
+.workshop-heading {
+  flex: 1 1 28rem;
+  min-width: 0;
+}
+.workshop-heading h2 {
+  margin: 0.4rem 0 0.75rem;
+  font-size: clamp(1.65rem, 2.4vw, 2.5rem);
+  line-height: 1.15;
+}
+.workshop-heading > p:not(.arena-kicker) {
+  max-width: 75ch;
+  color: var(--ui-copy);
+  font-size: var(--text-body);
+  line-height: 1.65;
+}
+.workshop-heading > a {
+  display: inline-block;
+  margin-top: 0.75rem;
+  text-underline-offset: 0.2em;
+}
+.training-workshop .workshop-global {
+  flex: 0 1 26rem;
+  justify-content: flex-end;
+  align-content: start;
+  gap: 0.75rem 1rem;
+  font-size: var(--text-label);
+}
+.training-workshop .workshop-global > span {
+  background: var(--surface-raised);
+  border: 1px solid var(--ui-border);
+  padding: 0.5rem 0.7rem;
+  border-radius: 5px;
+}
+.training-workshop .workshop-task-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-block: var(--gap-card);
+}
+.training-workshop .workshop-task-nav .button {
+  white-space: normal;
+  text-align: center;
+}
+.training-workshop .panel,
+.tournament-layout > .panel,
+.tournament-layout .tournament-detail {
+  border-color: var(--ui-border);
+}
+.training-workshop .panel-title {
+  align-items: center;
+  gap: var(--gap-stack);
+  flex-wrap: wrap;
+}
+.training-workshop .panel-title h2 {
+  font-size: var(--text-section);
+}
+.training-workshop .workshop-creation .subtle,
+.training-workshop .workshop-creation .training-start > span,
+.training-workshop .navigator-count,
+.training-workshop .job-worker,
+.training-workshop .training-job-navigator .job-row small,
+.training-workshop .training-job-navigator .job-row > span:not(.job-status),
+.tournament-layout .tournament-saved small,
+.tournament-layout .tournament-history > .subtle,
+.tournament-layout .tournament-history-empty {
+  color: var(--ui-copy);
+  font-size: max(0.8125rem, var(--text-caption, 0.8125rem));
+  line-height: 1.6;
+}
+.training-workshop .training-job-navigator .job-status {
+  font-size: 0.75rem;
+}
+.training-workshop .training-job-navigator .job-row {
+  border: 1px solid var(--ui-border);
+  background: var(--surface-raised);
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  text-align: left;
+}
+.training-workshop .training-job-navigator .job-row:hover,
+.training-workshop .training-job-navigator .job-row.selected {
+  border-color: var(--green);
+  box-shadow: inset 3px 0 var(--green);
+}
+.training-workshop .training-job-navigator .job-row strong {
+  font-size: 1rem;
+}
+.training-workshop .navigator-selection {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-block: 0.75rem;
+  border: 1px solid var(--green);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  overflow-wrap: anywhere;
+  color: var(--ui-copy);
+}
+.training-workshop .navigator-selection button {
+  justify-self: start;
+}
+.training-workshop .job-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block: 0.75rem;
+}
+.training-workshop .job-pagination output {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-copy);
+}
+.training-workshop .job-pagination button {
+  white-space: normal;
+  flex: 1 1 6rem;
+}
+.training-workshop .workshop-jobs > [role='status'],
+.training-workshop .workshop-jobs > [role='alert'] {
+  padding: 1rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  color: var(--ui-copy);
+}
+.training-workshop .workshop-jobs > [role='alert'] {
+  color: var(--ui-error);
+  background: var(--ui-error-surface);
+  border-color: var(--ui-error);
+}
+.training-workshop .workshop-workspace {
+  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr);
+}
+.training-workshop .workshop-workspace.navigator-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+.workshop-comparison-intro .tournament-create {
+  align-self: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 1100px) {
+  .training-workshop .workshop-workspace {
+    grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .training-workshop .workshop-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .training-workshop .training-job-dashboard.job-detail {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .training-workshop .workshop-global {
+    flex-basis: auto;
+    justify-content: flex-start;
+  }
+  .training-workshop .workshop-task-nav .button {
+    flex: 1 1 9rem;
+  }
+}
+@media (max-width: 600px) {
+  .training-workshop .workshop-intro,
+  .workshop-comparison-intro {
+    flex-direction: column;
+  }
+  .workshop-heading {
+    flex-basis: auto;
+  }
+  .workshop-comparison-intro .tournament-create {
+    align-self: stretch;
+  }
+  .training-workshop .job-pagination output {
+    flex-basis: 100%;
+    text-align: center;
+    order: -1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .training-workshop .job-row,
+  .workshop-task-nav *,
+  .workshop-comparison-intro * {
+    transition: none;
+    animation: none;
+    scroll-behavior: auto;
+  }
+}

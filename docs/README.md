@@ -75,6 +75,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Watch Hall production CSS regression and browser validation](validation/public-watch-production.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
+- [Workshop presentation and bounded rendering](validation/workshop-consolidation.md)
 - [Player tournament Arena and settlement validation](validation/player-tournaments-arena.md)
 - [Scheduled starts, creator permissions and themed calendar validation](validation/player-tournament-scheduling.md)
 - [Tournament final review, compact popup and two-game creation validation](validation/player-tournament-refinement.md)
