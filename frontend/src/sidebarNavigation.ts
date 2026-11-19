@@ -26,7 +26,7 @@ export const ARENA_SIDEBAR_ITEMS: SidebarItem[] = [
       { kind: 'placeholder', id: 'leagues', label: 'Leagues' },
     ],
   },
-  { kind: 'destination', id: 'archive', label: 'Replays & analysis', href: '/archive' },
+  { kind: 'destination', id: 'archive', label: 'Hall of records', href: '/archive' },
   { kind: 'destination', id: 'portraits', label: 'Hall of Renown', href: '/portraits' },
 ];
 
