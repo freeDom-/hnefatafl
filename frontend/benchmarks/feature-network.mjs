@@ -260,7 +260,9 @@ try {
   if (!afterTraining.some((file) => file.includes('/Training-')))
     throw new Error('Training chunk not loaded after Workshop navigation');
   if (!afterTraining.some((file) => file.includes('/Tournaments-')))
-    throw new Error('Training navigation must not eagerly load Tournaments');
+    throw new Error(
+      'Training navigation must not eagerly load Tournaments: ' + JSON.stringify(afterTraining),
+    );
 
   // Production recovery: abort the real hashed New Game form chunk once, prove
   // the modal reports the failure, then recover through Retry on the same page.
