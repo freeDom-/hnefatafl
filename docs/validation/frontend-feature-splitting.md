@@ -267,11 +267,14 @@ and analysis chunks remain deferred.
 
 ### CI
 
-Reviewed head `e0c2c87` (the stylesheet and setup-ownership fix): GitHub Actions
-run `44491439214` passed all four jobs (python, security, node22 and browser,
-including `npm test`, the benchmark and script suites, the production build and
-every browser suite). This is historical evidence for the state before the main
-integration and shared-stylesheet fix.
+Integrated head `79f84b6` (main merge plus the shared-stylesheet fix): GitHub
+Actions run `44506279478` passed all four jobs (python, security, node22 and
+browser, including `npm test`, the benchmark and script suites, the production
+build and every browser suite).
+
+Reviewed head `e0c2c87` (the earlier stylesheet and setup-ownership fix): run
+`44491439214` passed all four jobs. This is historical evidence for the state
+before the main integration and shared-stylesheet fix.
 
 Earlier in the branch: `946e448` passed in run `44466537774`; `2627ee1` passed in
 run `44483899080`; source head `29ee2a0` passed in run `44457030473`; the
