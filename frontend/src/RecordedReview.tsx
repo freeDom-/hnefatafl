@@ -279,7 +279,7 @@ export default function RecordedReview({
   }
 
   const back = backTo ?? (personal ? '/dashboard' : '/archive');
-  const backLabel = personal ? 'Back to dashboard' : 'Back to Hall of records';
+  const backLabel = personal ? 'Back to the Great Hall' : 'Back to Hall of records';
   const reviewRows = [
     {
       label: t('Lifecycle'),

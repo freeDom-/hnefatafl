@@ -62,7 +62,7 @@ punctuation). The input uses that same code-point bound instead of UTF-16
 `maxlength`, so a complete Unicode label can be pasted intact. Current private
 display names do not enter the search projection.
 These read projections do not modify ratings, ownership, permissions or records.
-The compact Dashboard leaderboard keeps its four columns; the full leaderboard
+The compact Great Hall leaderboard keeps its four columns; the full leaderboard
 adds country, city and age. Ranking, filters, tie-breaking and pagination
 are unchanged.
 
@@ -111,7 +111,7 @@ The same UTC date is sampled once for entries and the caller's `me` standing, so
 crossing midnight during a response cannot produce inconsistent ages. Neither
 birth dates nor birth years enter public leaderboard, game or history responses.
 The old range response is replaced by `age`; clients should deploy together with
-the updated backend. The compact Dashboard leaderboard retains its four columns.
+the updated backend. The compact Great Hall leaderboard retains its four columns.
 
 A historical birth year alone cannot establish an exact age. It remains private,
 available to the owner as read-only `legacy_birth_year`, until a full-date edit or
@@ -124,7 +124,7 @@ leaderboard cache is introduced. Ratings and historical ownership use account ID
 ## Account security
 
 The profile shows the authenticated email and verification status. Unverified
-accounts can use the existing verification resend endpoint; the Dashboard warning
+accounts can use the existing verification resend endpoint; the warning on The Great Hall
 links to `/profile#email-verification`, whose section receives focus. Existing
 single-use, expiring tokens, generic acknowledgments, durable SMTP delivery and
 rate limits are reused without exposing links or tokens in the profile API.
@@ -238,6 +238,6 @@ SMTP delivery.
 ## Selected portrait
 
 The profile displays the effective server-selected portrait and links to
-[Portrait Hall](PROGRESSION.md#portrait-hall-and-player-artwork) at `/portraits`.
-Only earned catalog IDs can be selected there. The selection appears in Dashboard,
+[Hall of Renown](PROGRESSION.md#hall-of-renown-and-player-artwork) at `/portraits`.
+Only earned catalog IDs can be selected there. The selection appears in The Great Hall,
 online player cards and leaderboard; no private achievement progress is published.

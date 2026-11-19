@@ -256,7 +256,7 @@ export default function ProfilePage() {
           </p>
         )}
         <a className="button secondary" href="/portraits" onClick={surfaceLink}>
-          {t('Open Portrait Hall')}
+          {t('Open Hall of Renown')}
         </a>
       </section>
       <div className="profile-sections">

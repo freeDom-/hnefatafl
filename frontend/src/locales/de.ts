@@ -259,7 +259,6 @@ const translations: Record<string, string> = {
   'Retry to load the latest application files.':
     'Lade die Seite erneut, um die aktuellen Anwendungsdateien zu laden.',
   'Your saga, your portrait': 'Deine Saga, dein Porträt',
-  'Portrait hall': 'Porträthalle',
   'Earn Viking portraits through your games. Achievements unlock automatically from official results.':
     'Verdiene Wikingerporträts durch deine Spiele. Errungenschaften werden anhand offizieller Ergebnisse automatisch freigeschaltet.',
   'Portraits unlocked: {count} / {total}': 'Freigeschaltete Porträts: {count} / {total}',
@@ -278,6 +277,7 @@ const translations: Record<string, string> = {
   'Keep playing to complete this achievement.':
     'Spiele weiter, um diese Errungenschaft zu erfüllen.',
   Achievements: 'Errungenschaften',
+  'Deeds of Valor': 'Heldentaten',
   'Earned achievements remain unlocked, even if a later result correction changes current progress.':
     'Verdiente Errungenschaften bleiben freigeschaltet, auch wenn eine spätere Ergebniskorrektur den aktuellen Fortschritt verändert.',
   'Achievements unlocked: {count}': 'Errungenschaften freigeschaltet: {count}',
@@ -320,7 +320,7 @@ const translations: Record<string, string> = {
   'Trial of Steel': 'Prüfung des Stahls',
   'Beat a computer opponent in a finished single-player game.':
     'Besiege einen Computergegner in einem abgeschlossenen Einzelspiel.',
-  'Open Portrait Hall': 'Porträthalle öffnen',
+  'Open Hall of Renown': 'Halle des Ruhms öffnen',
   'Selected portrait': 'Ausgewähltes Porträt',
   'Loading your portrait…': 'Dein Porträt wird geladen…',
   'Selected portrait unavailable.': 'Ausgewähltes Porträt nicht verfügbar.',

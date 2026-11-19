@@ -187,17 +187,33 @@ PORTRAITS: tuple[Portrait, ...] = (
     Portrait("forge-keeper", "Forge Keeper", "ai-wins-10"),
 )
 
-_ACHIEVEMENT_BY_ID = {item.id: item for item in ACHIEVEMENTS}
+# The single source of truth for portrait gallery ordering. The API exposes the
+# catalog in this order and every gallery renders the catalog as received, so a
+# new surface must not re-sort it. A portrait absent from this list sorts after
+# every listed portrait, by stable id, so introducing one stays deterministic
+# without renumbering the entries above it.
+PORTRAIT_DISPLAY_ORDER: tuple[str, ...] = (
+    "shieldbearer",
+    "forge-keeper",
+    "shieldmaiden",
+    "raven-seer",
+    "einherjar",
+    "iron-helm",
+    "valkyrie",
+    "wanderer",
+    "skald",
+    "fjord-scout",
+    "berserker",
+    "one-eyed-jarl",
+)
+_PORTRAIT_RANK = {portrait_id: index for index, portrait_id in enumerate(PORTRAIT_DISPLAY_ORDER)}
 
 
-def _portrait_difficulty(portrait: Portrait) -> tuple:
-    if portrait.unlock_achievement_id is None:
-        return (0, 0, portrait.id)
-    achievement = _ACHIEVEMENT_BY_ID[portrait.unlock_achievement_id]
-    return (2 if achievement.category == "streak" else 1, achievement.threshold, portrait.id)
+def _portrait_order(portrait: Portrait) -> tuple:
+    return (_PORTRAIT_RANK.get(portrait.id, len(PORTRAIT_DISPLAY_ORDER)), portrait.id)
 
 
-PORTRAITS = tuple(sorted(PORTRAITS, key=_portrait_difficulty))
+PORTRAITS = tuple(sorted(PORTRAITS, key=_portrait_order))
 
 PORTRAIT_BY_ACHIEVEMENT = {
     portrait.unlock_achievement_id: portrait.id
@@ -226,6 +242,8 @@ def _validate_catalogs() -> None:
     portrait_ids = [portrait.id for portrait in PORTRAITS]
     if len(portrait_ids) != len(set(portrait_ids)):
         raise ValueError("Portrait IDs must be unique")
+    if len(PORTRAIT_DISPLAY_ORDER) != len(set(PORTRAIT_DISPLAY_ORDER)):
+        raise ValueError("Portrait display order must not repeat an id")
     defaults = [
         portrait
         for portrait in PORTRAITS

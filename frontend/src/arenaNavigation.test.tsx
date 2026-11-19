@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { ArenaShell, WorkshopShell } from './ArenaShell';
+import ArenaSidebar from './ArenaSidebar';
 import type { Account } from './Auth';
 import { I18nProvider, LANGUAGE_KEY, setLanguage } from './i18n';
 
@@ -56,8 +57,8 @@ const bottomLabels = (name?: string) =>
 it('keeps Arena and Workshop destinations in separate workspace navigations', () => {
   shell(player, 'arena', 'dashboard');
   expect(headerLabels()).toEqual([
-    'Dashboard',
-    'Play',
+    'The Great Hall',
+    'Battlefield',
     'Statistics',
     'Leaderboard',
     'Hall of records',
@@ -67,7 +68,7 @@ it('keeps Arena and Workshop destinations in separate workspace navigations', ()
 
   shell(keeper, 'workshop', 'training');
   expect(headerLabels()).toEqual(['Training', 'AI testing', 'Models', 'Workers']);
-  expect(within(headerNav()).queryByRole('button', { name: 'Dashboard' })).toBeNull();
+  expect(within(headerNav()).queryByRole('button', { name: 'The Great Hall' })).toBeNull();
   expect(within(headerNav()).queryByRole('button', { name: 'Hall of records' })).toBeNull();
 });
 
@@ -103,10 +104,10 @@ it('never shows an unauthorized Workshop destination', () => {
 it('uses the compact Workshop navigation instead of the Arena one on mobile', () => {
   shell(keeper, 'workshop', 'training');
   expect(bottomLabels()).toEqual(['Training', 'Testing', 'Models', 'Workers']);
-  expect(within(bottomNav()).queryByRole('link', { name: 'Home' })).toBeNull();
+  expect(within(bottomNav()).queryByRole('link', { name: 'Great Hall' })).toBeNull();
 
   shell(player, 'arena', 'dashboard');
-  expect(bottomLabels()).toEqual(['Home', 'Play', 'Stats', 'Compete', 'Replays']);
+  expect(bottomLabels()).toEqual(['Great Hall', 'Battlefield', 'Stats', 'Trials', 'Replays']);
   expect(within(bottomNav()).queryByRole('link', { name: 'Training' })).toBeNull();
 });
 
@@ -139,15 +140,15 @@ it('keeps the compact navigation outside the gameplay region so it cannot cover 
 it('marks the active destination in both navigations, including workshop section anchors', () => {
   history.replaceState(null, '', '/play');
   shell(player, 'arena', 'play');
-  expect(within(headerNav()).getByRole('button', { name: 'Play' })).toHaveAttribute(
+  expect(within(headerNav()).getByRole('button', { name: 'Battlefield' })).toHaveAttribute(
     'aria-current',
     'page',
   );
-  expect(within(bottomNav()).getByRole('link', { name: 'Play' })).toHaveAttribute(
+  expect(within(bottomNav()).getByRole('link', { name: 'Battlefield' })).toHaveAttribute(
     'aria-current',
     'page',
   );
-  expect(within(bottomNav()).getByRole('link', { name: 'Home' })).not.toHaveAttribute(
+  expect(within(bottomNav()).getByRole('link', { name: 'Great Hall' })).not.toHaveAttribute(
     'aria-current',
   );
 
@@ -182,8 +183,8 @@ it('keeps every navigation control keyboard reachable with an accessible name', 
 it('keeps the preserved routes reachable from the header navigation', () => {
   shell(keeper, 'arena', 'dashboard');
   for (const [label, path] of [
-    ['Dashboard', '/dashboard'],
-    ['Play', '/play'],
+    ['The Great Hall', '/dashboard'],
+    ['Battlefield', '/play'],
     ['Statistics', '/statistics'],
     ['Leaderboard', '/leaderboard'],
     ['Hall of records', '/archive'],
@@ -209,20 +210,64 @@ it('localizes the Arena and Workshop navigation', () => {
   localStorage.setItem(LANGUAGE_KEY, 'de');
   shell(keeper, 'arena', 'dashboard');
   expect(headerLabels()).toEqual([
-    'Übersicht',
-    'Abspielen',
+    'Die große Halle',
+    'Schlachtfeld',
     'Statistik',
     'Rangliste',
     'Halle der Aufzeichnungen',
   ]);
   expect(bottomLabels('Mobile Navigation')).toEqual([
-    'Start',
-    'Abspielen',
+    'Große Halle',
+    'Schlachtfeld',
     'Statistik',
-    'Wettkampf',
+    'Wettstreit',
     'Wiederholungen',
   ]);
 
   shell(keeper, 'workshop', 'training');
   expect(headerLabels()).toEqual(['Training', 'KI-Tests', 'Modelle', 'Worker']);
+});
+
+it('uses the approved Norse labels in the desktop Arena rail', () => {
+  render(
+    <I18nProvider>
+      <ArenaSidebar account={keeper} current="dashboard" />
+    </I18nProvider>,
+  );
+  const nav = screen.getByRole('navigation', { name: 'Main navigation' });
+  expect(within(nav).getByRole('link', { name: 'The Great Hall' })).toHaveAttribute(
+    'href',
+    '/dashboard',
+  );
+  expect(within(nav).getByRole('link', { name: 'Battlefield' })).toHaveAttribute('href', '/play');
+  expect(within(nav).getByRole('button', { name: 'Trials of Valor' })).toBeVisible();
+  expect(within(nav).getByRole('link', { name: 'Leaderboard' })).toBeVisible();
+  expect(within(nav).getByRole('link', { name: 'Player tournaments' })).toBeVisible();
+  expect(within(nav).getByText('Leagues')).toBeVisible();
+  expect(within(nav).getByRole('link', { name: 'Hall of Renown' })).toHaveAttribute(
+    'href',
+    '/portraits',
+  );
+  // The preserved destinations keep their existing labels and routes.
+  expect(within(nav).getByRole('link', { name: 'Statistics' })).toHaveAttribute(
+    'href',
+    '/statistics',
+  );
+  expect(within(nav).getByRole('link', { name: 'Replays & analysis' })).toHaveAttribute(
+    'href',
+    '/archive',
+  );
+
+  localStorage.setItem(LANGUAGE_KEY, 'de');
+  cleanup();
+  render(
+    <I18nProvider>
+      <ArenaSidebar account={keeper} current="dashboard" />
+    </I18nProvider>,
+  );
+  const german = screen.getByRole('navigation', { name: 'Hauptnavigation' });
+  expect(within(german).getByRole('link', { name: 'Die große Halle' })).toBeVisible();
+  expect(within(german).getByRole('link', { name: 'Schlachtfeld' })).toBeVisible();
+  expect(within(german).getByRole('button', { name: 'Prüfungen des Mutes' })).toBeVisible();
+  expect(within(german).getByRole('link', { name: 'Halle des Ruhms' })).toBeVisible();
 });
