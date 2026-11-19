@@ -40,25 +40,31 @@ function stylesheetLinks(): HTMLLinkElement[] {
 /** The URL in Vite's documented `vite:preloadError` CSS payload. */
 const CSS_PRELOAD_ERROR = /^Unable to preload CSS for (.+)$/;
 
+/**
+ * Vite's preload helper keeps a document-wide set of attempted stylesheet URLs:
+ * once a deferred stylesheet has failed, a later deferred import silently skips
+ * it and would mount without its styles. A shared asset such as
+ * `analysis-*.css` is imported by several features, and the loader cannot
+ * reliably map a URL back to every importer at runtime. A failure therefore
+ * marks the whole document as reload-required until the failed link is gone,
+ * which only a full reload (that re-requests the asset) provides. The set is
+ * module-wide so a shared failure is visible to every deferred feature, not just
+ * the one that observed the event.
+ */
+const failedStylesheets = new Set<string>();
+const hasUnresolvedStylesheet = () =>
+  [...failedStylesheets].some((href) => stylesheetLinks().some((link) => link.href === href));
+
 /** Code-only cache: component state, props, requests and account data stay local.
  * Explicit promises avoid Suspense's timed reveal under paused advisor clocks. */
 export function deferredFeature<Props extends object>(load: () => Promise<FeatureModule<Props>>) {
   let cached: ComponentType<Props> | null = null;
   let pending: Promise<ComponentType<Props>> | null = null;
-  // Vite adds a deferred feature's stylesheets as <link rel="stylesheet"> before
-  // importing its module and only settles the import after every CSS preload has
-  // settled. When one fails, Vite dispatches `vite:preloadError` and keeps the
-  // failed link in the document; a later import can still succeed because the
-  // helper skips the already-attempted link. The loader therefore remembers the
-  // failed stylesheet and refuses to mount until a full reload can retry it. The
-  // set is per deferred feature, so an unrelated feature that loads cleanly is
-  // unaffected.
-  const failedStylesheets = new Set<string>();
-  const hasUnresolvedStylesheet = () =>
-    [...failedStylesheets].some((href) => stylesheetLinks().some((link) => link.href === href));
   const resolve = () => {
     if (cached) return Promise.resolve(cached);
     if (!pending) {
+      // Dependency ownership is not reliably available at runtime, so a known
+      // failed shared stylesheet conservatively blocks this import too.
       if (hasUnresolvedStylesheet())
         return Promise.reject(new Error('deferred stylesheet unavailable'));
       const before = new Set(stylesheetLinks().map((link) => link.href));
@@ -76,7 +82,7 @@ export function deferredFeature<Props extends object>(load: () => Promise<Featur
       const settle = () => {
         window.removeEventListener('vite:preloadError', onPreloadError);
         for (const href of failed) failedStylesheets.add(href);
-        return failed.size > 0;
+        return hasUnresolvedStylesheet();
       };
       pending = load()
         .then((module) => {

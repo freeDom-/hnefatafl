@@ -576,6 +576,59 @@ try {
     };
   }
 
+  // 6. A shared deferred stylesheet (analysis-*.css) is imported by several
+  //    features. A failure observed by one importer must block every other
+  //    feature that shares it, not only the one that saw the preload event.
+  {
+    const { page: recoveryPage, mutations, close } = await fixturePage(browser);
+    const sharedCss = manifest['src/Archive.tsx']?.css?.find((file) => file.includes('/analysis-'));
+    if (!sharedCss) throw new Error('Shared analysis stylesheet missing from the manifest');
+    const sharedName = sharedCss.split('/').pop();
+    let blockShared = true;
+    await recoveryPage.route(
+      (url) => url.pathname.endsWith(`/${sharedName}`),
+      (route) => (blockShared ? route.abort() : route.continue()),
+    );
+    // Archive imports the shared stylesheet directly.
+    await recoveryPage.goto(origin + '/archive');
+    await recoveryPage.getByRole('alert').waitFor();
+    // RecordedReview is a separate deferred import that shares the same asset.
+    await recoveryPage.evaluate(() => {
+      history.pushState(null, '', '/dashboard/single-player/review-1');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await recoveryPage.getByRole('alert').waitFor();
+    if (await recoveryPage.getByRole('grid').count())
+      throw new Error('RecordedReview mounted despite the failed shared stylesheet');
+    // An unrelated deferred feature is conservatively blocked by the policy.
+    await recoveryPage.evaluate(() => {
+      history.pushState(null, '', '/training');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await recoveryPage.getByRole('alert').waitFor();
+    if (await recoveryPage.locator('.training-workshop').count())
+      throw new Error('Training mounted while a shared stylesheet failure is unresolved');
+    // A full reload re-requests the asset and recovers the feature with styles.
+    blockShared = false;
+    await recoveryPage.getByRole('button', { name: 'Reload application' }).click();
+    await recoveryPage.locator('.training-workshop').waitFor();
+    const summary = recoveryPage.locator('.workshop-global');
+    await summary.waitFor();
+    const display = await summary.evaluate((element) => getComputedStyle(element).display);
+    if (display !== 'flex')
+      throw new Error(`Recovered shared-stylesheet feature is not styled (display: ${display})`);
+    if (mutations.length)
+      throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+    await close();
+    recovery.sharedStylesheet = {
+      feature: sharedCss,
+      blockedImporters: ['Archive', 'RecordedReview'],
+      unrelatedFeatureBlocked: true,
+      recoveredThrough: 'Reload application',
+      recoveredComputedDisplay: display,
+    };
+  }
+
   if (unexpectedMutations.length)
     throw new Error('Unexpected API mutations: ' + JSON.stringify(unexpectedMutations));
 

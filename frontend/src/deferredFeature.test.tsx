@@ -198,16 +198,103 @@ it('keeps a stylesheet failure across unmount and remount', async () => {
   link.remove();
 });
 
-it('does not let one feature stylesheet failure affect an unrelated feature', async () => {
+it('conservatively blocks an unrelated deferred feature while a stylesheet failure is unresolved', async () => {
   let link!: HTMLLinkElement;
   const Broken = deferredFeature(async () => {
     link = failStylesheet('https://example.test/broken.css');
     throw new Error('Unable to preload CSS');
   });
   const Healthy = deferredFeature(async () => ({ default: () => <p>Healthy feature</p> }));
-  render(<Broken />);
+  const view = render(<Broken />);
   expect(await screen.findByRole('alert')).toBeVisible();
+  view.rerender(<Healthy />);
+  // Dependency ownership is not reliably available at runtime, so the document
+  // stays reload-required until the failed link is gone.
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.queryByText('Healthy feature')).toBeNull();
+  view.unmount();
+  link.remove();
+  // A full reload re-requests the asset; once the failed link is gone the
+  // feature loads normally.
   render(<Healthy />);
   expect(await screen.findByText('Healthy feature')).toBeVisible();
+});
+
+it('blocks a second sequential deferred import that shares a failed stylesheet', async () => {
+  let link!: HTMLLinkElement;
+  const shared = 'https://example.test/shared.css';
+  const First = deferredFeature(async () => {
+    link = failStylesheet(shared);
+    throw new Error('Unable to preload CSS');
+  });
+  // The second feature shares the asset but, like Vite, does not add a new link
+  // for an already-attempted stylesheet.
+  const Second = deferredFeature(async () => ({ default: () => <p>Second feature</p> }));
+  const view = render(<First />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  view.rerender(<Second />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.queryByText('Second feature')).toBeNull();
+  link.remove();
+});
+
+it('blocks an overlapping deferred import when a shared stylesheet fails', async () => {
+  let link!: HTMLLinkElement;
+  const shared = 'https://example.test/overlap.css';
+  const first = deferred<{ default: () => React.ReactNode }>();
+  const second = deferred<{ default: () => React.ReactNode }>();
+  const First = deferredFeature(() => first.promise);
+  const Second = deferredFeature(() => second.promise);
+  render(
+    <>
+      <First />
+      <Second />
+    </>,
+  );
+  await act(async () => {
+    link = failStylesheet(shared);
+    first.resolve({ default: () => <p>First feature</p> });
+    second.resolve({ default: () => <p>Second feature</p> });
+    await Promise.all([first.promise, second.promise]);
+  });
+  // Neither feature may cache or mount while the shared stylesheet is failed.
+  expect(screen.queryByText('First feature')).toBeNull();
+  expect(screen.queryByText('Second feature')).toBeNull();
+  expect(screen.getAllByRole('alert').length).toBeGreaterThanOrEqual(1);
+  link.remove();
+});
+
+it('blocks a feature reached by navigation from an affected one', async () => {
+  let link!: HTMLLinkElement;
+  const shared = 'https://example.test/nav-shared.css';
+  const First = deferredFeature(async () => {
+    link = failStylesheet(shared);
+    throw new Error('Unable to preload CSS');
+  });
+  const Second = deferredFeature(async () => ({ default: () => <p>Second feature</p> }));
+  const view = render(<First />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  view.unmount();
+  render(<Second />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.queryByText('Second feature')).toBeNull();
+  link.remove();
+});
+
+it('does not let a cached module bypass an unresolved shared stylesheet', async () => {
+  let link!: HTMLLinkElement;
+  const shared = 'https://example.test/cached-shared.css';
+  const Broken = deferredFeature(async () => {
+    link = failStylesheet(shared);
+    throw new Error('Unable to preload CSS');
+  });
+  const Cached = deferredFeature(async () => ({ default: () => <p>Resolved feature</p> }));
+  const view = render(<Broken />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  // The module resolves successfully, but the shared stylesheet is unresolved,
+  // so it must not be cached or mounted.
+  view.rerender(<Cached />);
+  expect(await screen.findByRole('alert')).toBeVisible();
+  expect(screen.queryByText('Resolved feature')).toBeNull();
   link.remove();
 });
