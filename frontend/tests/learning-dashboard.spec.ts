@@ -65,6 +65,9 @@ for (const mode of ['light', 'dark']) {
     for (const label of ['Search jobs', 'Status', 'Sort jobs'])
       await expect(nav.getByLabel(label, { exact: true })).toBeVisible();
     await expect(nav.locator('.navigator-count')).toBeVisible();
+    expect(await list.locator('.job-row').count()).toBeLessThanOrEqual(20);
+    await nav.getByRole('button', { name: 'Next job page' }).click();
+    await nav.getByRole('button', { name: 'Next job page' }).click();
     const last = list.locator('.job-row').last();
     await last.focus();
     await expect(last).toBeFocused();
@@ -72,6 +75,8 @@ for (const mode of ['light', 'dark']) {
     await last.press('Enter');
     await expect(last).toHaveAttribute('aria-current', 'true');
     await expect(page.getByRole('heading', { name: jobs[1].name, exact: true })).toBeVisible();
+    await nav.getByRole('button', { name: 'Previous job page' }).click();
+    await nav.getByRole('button', { name: 'Previous job page' }).click();
     const first = list.locator('.job-row').first();
     await first.click();
     await expect(first).toHaveAttribute('aria-current', 'true');
