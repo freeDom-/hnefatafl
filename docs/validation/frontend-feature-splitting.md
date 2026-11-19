@@ -278,10 +278,13 @@ Training, Tournaments, recorded review and analysis chunks remain deferred.
 
 ### CI
 
+Final head `173b706` (the concurrent pending-stylesheet correction): GitHub
+Actions run `44523944772` passed all four jobs (python, security, node22 and
+browser, including `npm test`, the benchmark and script suites, the production
+build and every browser suite).
+
 Reviewed head `825391d` (the main integration and document-wide stylesheet fix):
-GitHub Actions run `44512862330` passed all four jobs (python, security, node22
-and browser, including `npm test`, the benchmark and script suites, the
-production build and every browser suite). This is historical evidence for the
+run `44512862330` passed all four jobs. This is historical evidence for the
 state before the concurrent pending-stylesheet correction.
 
 Earlier: integrated head `79f84b6` passed in run `44506279478`; `e0c2c87` passed
