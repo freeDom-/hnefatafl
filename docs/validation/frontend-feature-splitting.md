@@ -294,11 +294,15 @@ analysis chunks remain deferred, and the new Workshop stylesheet stays deferred.
 
 ### CI
 
-Reviewed head `1750799` (the concurrent pending-stylesheet correction): GitHub
-Actions run `44532411372` passed all four jobs (python, security, node22 and
-browser, including `npm test`, the benchmark and script suites, the production
-build and every browser suite). This is historical evidence for the state before
-the Workshop-consolidation integration.
+Final integrated head `19b52ac` (Workshop consolidation merged, corrected
+cached-component test, concurrent production probe): GitHub Actions run
+`44553136308` passed all four jobs (python, security, node22 and browser,
+including `npm test`, the benchmark and script suites, the production build and
+every browser suite).
+
+Reviewed head `1750799` (the concurrent pending-stylesheet correction): run
+`44532411372` passed all four jobs. This is historical evidence for the state
+before the Workshop-consolidation integration.
 
 Earlier: `173b706` passed in run `44523944772`; `825391d` passed in run
 `44512862330`; integrated head `79f84b6` passed in run `44506279478`; `e0c2c87`
