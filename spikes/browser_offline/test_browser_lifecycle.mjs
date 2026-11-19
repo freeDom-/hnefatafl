@@ -4,10 +4,27 @@
 //
 // Usage: node spikes/browser_offline/test_browser_lifecycle.mjs
 import assert from "node:assert/strict";
+import { copyFileSync, mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const { LocalAnalysisClient } = await import("./analysis-client.js");
-const { NeuralClient } = await import("./neural-client.js");
+// The isolated clients are browser ES modules with a `.js` extension. Node
+// treats `.js` as CommonJS when no package type is declared, so import temporary
+// `.mjs` copies to keep this test independent of the Node version and of
+// `--experimental-detect-module`.
+const staging = mkdtempSync(join(tmpdir(), "hnefatafl-lifecycle-"));
+for (const name of ["analysis-client.js", "neural-client.js"]) {
+  copyFileSync(
+    new URL(`./${name}`, import.meta.url),
+    join(staging, name.replace(/\.js$/, ".mjs")),
+  );
+}
+const { LocalAnalysisClient } = await import(
+  pathToFileURL(join(staging, "analysis-client.mjs")).href
+);
+const { NeuralClient } = await import(pathToFileURL(join(staging, "neural-client.mjs")).href);
 // neural-provider.js is a classic (CommonJS) script; load it through require.
 const provider = createRequire(import.meta.url)("./neural-provider.js");
 
