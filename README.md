@@ -105,7 +105,7 @@ for administration, prerequisites and retained-container recovery.
 
 ## Play or train
 
-On **Dashboard**, choose **New single-player game**, then a battlefield, mode, sides and opponents. Select a piece,
+On **The Great Hall**, choose **New single-player game**, then a battlefield, mode, sides and opponents. Select a piece,
 then a highlighted legal destination. Arrow keys navigate, Enter/Space selects,
 and Escape clears selection. **Hall of records** opens read-only history; **Resume single-player** reconnects account play. **Analytics**
 below move history configures an advisor. See [Gameplay](docs/GAMEPLAY.md).

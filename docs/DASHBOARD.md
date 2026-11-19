@@ -267,7 +267,7 @@ history/statistics/replay reads and discard late responses. The personal APIs re
 strictly own-account even for administrators; broader Hall access uses separate
 read-only `/api/history` routes with trusted session rechecks.
 
-The Great Hall reads only account-scoped records. The Great Hall cards share padding and
+The Great Hall reads only account-scoped records. Its cards share padding and
 one grid gap. The shared header shows the
 signed-in navigation; only it checks the session. Protected destinations retain
 their auth guard. See

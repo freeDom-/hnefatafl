@@ -38,9 +38,9 @@ account-switch guards and stale-response handling cover the four themes.
 
 Game completion, successful analysis completion, window focus and reconnect trigger
 coalesced account-scoped refreshes. One shared `ProgressionProvider` owns the single
-`GET /personal/achievements` read for the authenticated shell, so the Dashboard,
+`GET /personal/achievements` read for the authenticated shell, so The Great Hall,
 the Hall of Renown and the notification baseline never fetch it independently.
-The Dashboard already owns the account-wide result-totals poll, so it invalidates
+The Great Hall already owns the account-wide result-totals poll, so it invalidates
 the shared read from that poll without a second timer. Every other route,
 including an open local, single-player or online game board, keeps a 15-second
 visible-tab backstop: a game route only observes its own game and cannot see a
@@ -184,7 +184,7 @@ history may increase the one-time upgrade duration.
 Administrator rating-ledger rebuilds reconcile only actors present in the affected
 pool (including withdrawn events), or all ledger actors for a full rebuild, and
 only rated achievement criteria, inside the existing transaction. Migration
-reconciliation remains all-account and all-criteria. Dashboard account-result
+reconciliation remains all-account and all-criteria. The Great Hall's account-result
 polling signals the existing notification hook when authoritative totals change;
 refreshes defer while hidden and resume on visibility. Ordinary GET endpoints and portrait selection never reconcile.
 Old analysis without a durable successful receipt is not retroactively inferred
