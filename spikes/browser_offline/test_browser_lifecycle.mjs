@@ -272,6 +272,22 @@ await check("successful load records the model, provider switch recreates", asyn
   client.terminate();
   await switched;
 });
+await check("a failed replacement load clears the previously active model", async () => {
+  globalThis.Worker = FakeWorker;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Map([["content-length", "8"]]),
+    arrayBuffer: async () => new Uint8Array(8).buffer,
+  });
+  const client = new NeuralClient();
+  client.model = { provider: "wasm", digest: "old" };
+  const replacement = client.load("./model.onnx", { provider: "wasm", size: 7 });
+  await sleep(5);
+  client.worker.respond(0, null, "session creation failed", "SESSION_CREATE_FAILED");
+  await assert.rejects(replacement, /session creation failed/);
+  assert.equal(client.model, null, "a failed replacement must not expose the old model");
+  client.terminate();
+});
 await check("release clears the active model", async () => {
   globalThis.Worker = FakeWorker;
   const client = new NeuralClient();

@@ -184,6 +184,10 @@ export class NeuralClient {
     if (this.worker && this.model && this.model.provider !== provider)
       this.abort(named("AbortError", "Recreating worker for provider switch"));
     const { buffer } = await this.fetchModel(modelUrl, { expectedSha256 });
+    // From here the worker may release the previous session, so the interface
+    // must not keep advertising it as active. A failed replacement leaves no
+    // model rather than a stale one.
+    this.model = null;
     const result = await this.request(
       { action: "load", buffer, provider, size, ruleset, expectedSha256 },
       { timeoutMs: LOAD_TIMEOUT_MS },

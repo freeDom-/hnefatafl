@@ -168,6 +168,16 @@ def test_expected_deadline_limited_fixed_work_case_is_reported_not_failed():
     assert jc.compare(_report(copy.deepcopy(expected_records)), actual)["ok"] is False
 
 
+def test_completed_work_counter_differences_are_diagnostic_not_fatal():
+    expected = _report(
+        [_record("brandubh-opening", "quick", "brandubh", nodes=120, evaluations=40)]
+    )
+    actual = _report([_record("brandubh-opening", "quick", "brandubh", nodes=118, evaluations=39)])
+    result = jc.compare(expected, actual)
+    assert result["ok"] is True, result["failures"]
+    assert any("completed-work counters differ" in message for message in result["warnings"])
+
+
 def test_fixed_time_differences_are_informational_only():
     expected = _report([_record("brandubh-opening", "quick", "brandubh")], mode="fixed_time")
     actual = _report(

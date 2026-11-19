@@ -131,6 +131,10 @@ function releaseSession() {
 async function loadModel(request) {
   const { buffer, provider, size, ruleset, expectedSha256 } = request;
   if (!(buffer instanceof ArrayBuffer)) throw new Error("Model buffer must be an ArrayBuffer");
+  if (buffer.byteLength === 0 || buffer.byteLength > 64 * 1024 * 1024)
+    throw Object.assign(new Error("Model exceeds the experimental size limit"), {
+      code: "ARTIFACT_SIZE",
+    });
   if (!["wasm", "webgpu"].includes(provider))
     throw Object.assign(new Error(`Unsupported provider: ${provider}`), { code: "UNSUPPORTED_PROVIDER" });
   if (!Number.isInteger(size) || size < 5 || size > 15) throw new Error("Invalid board size");

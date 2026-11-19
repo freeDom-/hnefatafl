@@ -187,10 +187,18 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
         move_match = expected_row.get("best_move") == actual_row.get("best_move")
         value_match = _values_agree(expected_row.get("value"), actual_row.get("value"))
         depth_match = expected_row.get("completed_depth") == actual_row.get("completed_depth")
+        nodes_match = expected_row.get("nodes") == actual_row.get("nodes")
+        evaluations_match = expected_row.get("evaluations") == actual_row.get("evaluations")
         agreement["move"] += int(move_match)
         agreement["value"] += int(value_match)
         agreement["depth"] += int(depth_match)
         failures.extend(case_failures)
+        if fixed_work and (not nodes_match or not evaluations_match):
+            warnings.append(
+                f"{key[0]}/{key[1]}: completed-work counters differ "
+                f"(nodes={nodes_match}, evaluations={evaluations_match}); "
+                "recorded as a diagnostic, not a correctness failure"
+            )
         if not fixed_work and (not move_match or not value_match or not depth_match):
             warnings.append(
                 f"{key[0]}/{key[1]}: fixed-time results differ "
@@ -214,6 +222,8 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
                     expected_row.get("elapsed_ms"), actual_row.get("elapsed_ms")
                 ),
                 "same_completed_work": depth_match,
+                "nodes_match": nodes_match,
+                "evaluations_match": evaluations_match,
                 "problems": case_failures,
             }
         )
