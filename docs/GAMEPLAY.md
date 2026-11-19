@@ -2,8 +2,8 @@
 
 [Documentation index](README.md) · [Quick start](../README.md#quick-start)
 
-The authenticated [personal dashboard](DASHBOARD.md) is the landing page for new single-player/online games, personal statistics and
-read-only history. Hall visibility depends on role; see the dashboard guide.
+The authenticated [Great Hall](DASHBOARD.md) is the landing page for new single-player/online games, personal statistics and
+read-only history. Hall visibility depends on role; see the Great Hall guide.
 
 ## Choose where to play
 
@@ -15,13 +15,13 @@ sections, so the game-details panel, armies panel, board toolbar and move list
 stay identical between them; the single-player sidebar additionally offers
 post-game analysis and the online room adds its lifecycle and replay controls.
 
-Dashboard and `/play` share one hierarchy: **Your turn / Continue** lists the
+The Great Hall and Battlefield (`/play`) share one hierarchy: **Your turn / Continue** lists the
 running games of the signed-in account (single-player, online and local 1v1,
 with the server-confirmed turn marked), followed by the three equal-start modes
 **Play online**, **Local 1v1** and **Play vs AI**. Only online creation requires
 a verified account; the mode stays disabled and a verification prompt links to
 the profile. `/play` keeps its automatic resume: with a running game it replaces
-the Play entry with that game, so Browser Back never lands on Play and reopens
+the Battlefield entry with that game, so Browser Back never lands on Battlefield and reopens
 it. **Local 1v1** opens a dialog that labels both seats and calls
 `POST /api/games/local`; the created game opens on the shared play screen.
 
@@ -51,7 +51,7 @@ waiting games, opponents' turns and AI turns use the normal secondary style.
 The **Analytics** tab shows one agent at a time, with an agent selector when
 several have evaluated the position. Detailed settings scroll within the options
 dialog. Active online games keep their remaining time in the header and offer no
-live assistance. The game toolbar's back link returns to Dashboard; the same site
+live assistance. The game toolbar's back link returns to The Great Hall; the same site
 menu, account controls, appearance and language remain available during play.
 
 Desktop keeps the board between a compact game/player summary and a tabbed panel
@@ -86,7 +86,7 @@ draws. Ordinary games have no experimental move cap.
 
 ## Create and control an account game
 
-1. On Dashboard open **New single-player game** and select a battlefield.
+1. On The Great Hall open **New single-player game** and select a battlefield.
    Human vs AI is the only normal-account mode; administrators can also choose AI vs AI.
 2. Your human seat uses the signed-in account. Choose your side and Shield bearer,
    Shield maiden, Jarl or Seer. These are fixed server-resolved presets; the dialog
@@ -107,7 +107,7 @@ is not deletion of saved games. A connection to the server is required.
 ## Play local 1v1 on one device
 
 **Local 1v1** is a same-device pass-and-play mode for two humans sharing one
-screen. Create it from Dashboard or `/play` (or `POST /api/games/local`), choose
+screen. Create it from The Great Hall or Battlefield, or via `POST /api/games/local`; choose
 a battlefield and label both seats. The creating account owns the record; both seats
 belong to it, so no second account, lobby, matchmaking or clock is involved. The
 server keeps the authoritative turn, validates every move through the shared
@@ -145,7 +145,7 @@ Select **Return to live board**, or the latest move, to continue. Only the accou
 bound to the active human seat can move; the AI plays automatically on its turn
 at the live position. Completed games remain read-only. The play screen has no
 previous/next move, undo/redo, restart, or New game buttons. Create new games on
-Dashboard instead. On mobile, the space beneath the board goes to the tabs.
+The Great Hall instead. On mobile, the space beneath the board goes to the tabs.
 
 Moves include expected versions; stale concurrent requests cannot overwrite a
 newer move. The server also rejects human and AI moves from a rewound saved

@@ -74,7 +74,7 @@ export default function PlayLanding({
   }, [games.phase, target, creation, creatingSingle]);
   return (
     <section className="personal-dashboard play-home arena-surface">
-      <PageHeading title={t('Play')} />
+      <PageHeading title={t('Battlefield')} />
       {games.phase === 'loading' || resuming ? (
         <p role="status">{t('Loading your games…')}</p>
       ) : games.phase === 'stale' ? (

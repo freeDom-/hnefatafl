@@ -8,7 +8,7 @@ Commands assume the repository root unless a different directory is shown.
 
 - [Repository introduction and quick start](../README.md)
 - [Online lobby, multiplayer controls, clocks and replay](ONLINE_PLAY.md)
-- [Personal dashboard, statistics and read-only history](DASHBOARD.md)
+- [The Great Hall, statistics and read-only history](DASHBOARD.md)
 - [Gameplay: ruleset comparison, controls, replay and persistence](GAMEPLAY.md)
 - [Profiles, records, model suggestions, language and appearance](PERSONALIZATION.md)
 - [Account menu, private profile details, password changes and leaderboard sharing](PROFILE.md)

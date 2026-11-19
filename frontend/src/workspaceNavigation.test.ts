@@ -12,8 +12,8 @@ afterEach(() => history.replaceState(null, '', '/'));
 
 it('keeps the frozen Arena destinations and their canonical routes', () => {
   expect(ARENA_DESTINATIONS.map(({ id, label, href }) => ({ id, label, href }))).toEqual([
-    { id: 'dashboard', label: 'Dashboard', href: '/dashboard' },
-    { id: 'play', label: 'Play', href: '/play' },
+    { id: 'dashboard', label: 'The Great Hall', href: '/dashboard' },
+    { id: 'play', label: 'Battlefield', href: '/play' },
     { id: 'statistics', label: 'Statistics', href: '/statistics' },
     { id: 'leaderboard', label: 'Leaderboard', href: '/leaderboard' },
     { id: 'archive', label: 'Hall of records', href: '/archive' },

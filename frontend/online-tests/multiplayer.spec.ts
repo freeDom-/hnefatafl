@@ -580,7 +580,7 @@ test('online army portrait falls back inside its symbol without the gallery chun
 }) => {
   test.setTimeout(120000);
   await login(page, 'OnlineArcher');
-  // Abort portrait artwork before the game room mounts; never open Portrait Hall.
+  // Abort portrait artwork before the game room mounts; never open Hall of Renown.
   await page.route('**/portraits/*.webp', (route) => route.abort());
   await create(page);
   const symbol = page.locator('.army-symbol').first();
