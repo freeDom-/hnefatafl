@@ -287,12 +287,116 @@ def test_jarl_benchmark_runs_shared_positions_in_the_worker_contract():
     assert extended["error"] and "between 1 and 8" in extended["error"]
 
 
+def test_jarl_identity_is_stable_and_covers_effective_configuration():
+    dispatch = _analysis_bridge()
+    spec = importlib.util.spec_from_file_location("analysis_fixtures", SPIKE / "fixtures.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    positions = [case for case in module.jarl_positions() if case["name"] == "brandubh-king-escape"]
+    first = json.loads(
+        dispatch(
+            json.dumps(
+                {
+                    "action": "jarl_identity",
+                    "positions": positions,
+                    "configs": ["quick"],
+                    "mode": "fixed_work",
+                    "seed": 7,
+                }
+            )
+        )
+    )
+    assert first["protocol"] == 2
+    assert len(first["workload_digest"]) == 64
+    assert first["effective_configs"]["quick"]["depth"] == 3
+    assert first["engine_identity"]["sha256"]
+    second = json.loads(
+        dispatch(
+            json.dumps(
+                {
+                    "action": "jarl_identity",
+                    "positions": positions,
+                    "configs": ["quick"],
+                    "mode": "fixed_time",
+                    "seed": 7,
+                }
+            )
+        )
+    )
+    # Mode and effective settings are part of the identity.
+    assert first["workload_digest"] != second["workload_digest"]
+
+
+def test_jarl_case_runs_one_pair_and_rejects_multiples():
+    import pytest
+
+    dispatch = _analysis_bridge()
+    spec = importlib.util.spec_from_file_location("analysis_fixtures", SPIKE / "fixtures.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    positions = [case for case in module.jarl_positions() if case["name"] == "brandubh-king-escape"]
+    record = json.loads(
+        dispatch(
+            json.dumps(
+                {
+                    "action": "jarl_case",
+                    "positions": positions,
+                    "configs": ["quick"],
+                    "mode": "fixed_work",
+                    "seed": 7,
+                }
+            )
+        )
+    )
+    assert record["status"] == "completed"
+    assert record["completed_depth"] == record["expected_depth"] == 3
+    with pytest.raises(ValueError):
+        dispatch(
+            json.dumps(
+                {
+                    "action": "jarl_case",
+                    "positions": positions + positions,
+                    "configs": ["quick"],
+                }
+            )
+        )
+    with pytest.raises(ValueError):
+        dispatch(
+            json.dumps(
+                {"action": "jarl_case", "positions": positions, "configs": ["quick", "standard"]}
+            )
+        )
+
+
+def test_jarl_benchmark_rejects_duplicate_position_names():
+    import pytest
+
+    ns = {}
+    exec(compile((SPIKE / "bridge.py").read_text(), "bridge.py", "exec"), ns)
+    dispatch = ns["dispatch"]
+    from fixtures import jarl_positions
+
+    position = next(p for p in jarl_positions() if p["name"] == "brandubh-king-escape")
+    with pytest.raises(ValueError, match="unique"):
+        dispatch(
+            json.dumps(
+                {
+                    "action": "jarl_identity",
+                    "positions": [position, position],
+                    "configs": ["quick"],
+                }
+            )
+        )
+
+
 def test_jarl_benchmark_rejects_unbounded_requests():
     import pytest
 
     dispatch = _analysis_bridge()
     for request in (
         {"action": "jarl_benchmark", "positions": [], "configs": ["quick"]},
+        {"action": "jarl_benchmark", "positions": [{}] * 65, "configs": ["quick"]},
+        {"action": "jarl_benchmark", "positions": [{}], "configs": ["quick"] * 9},
         {"action": "jarl_benchmark", "positions": [{}], "configs": []},
         {"action": "jarl_benchmark", "positions": [{}], "configs": ["quick"], "mode": "x"},
         {"action": "jarl_benchmark", "positions": [{}], "configs": ["quick"], "seed": -1},

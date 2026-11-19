@@ -1,63 +1,92 @@
 // Browser Jarl benchmark gate for the isolated spike. Serves a staged directory
 // (see prepare.py), runs the shared benchmark inside the Pyodide worker and
-// writes a machine-readable report comparable with native_jarl_benchmark.py.
+// writes a machine-readable report. When `--native` is supplied, the canonical
+// Python comparator (jarl_compare) enforces the mandatory correctness gate and
+// this process exits non-zero if it fails.
 //
 // Usage:
 //   node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
-//     --suite quick --mode fixed_time --output /tmp/jarl-browser.json
+//     --suite quick --mode fixed_work --output /tmp/jarl-browser.json
 //   node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
-//     --suite standard --native /tmp/jarl-native.json
-import assert from "node:assert/strict";
-import { readFile, stat, writeFile } from "node:fs/promises";
+//     --positions custom.json --mode fixed_work --native /tmp/jarl-native.json
+//
+// The verifier analyses the exact serialized state objects supplied by
+// `--positions`. It never re-selects positions by name from the staged bundle,
+// so custom positions and positions that share a name with a fixture but differ
+// in board or repetition history are honoured.
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { resolve, sep, extname } from "node:path";
+import { dirname, extname, resolve, sep } from "node:path";
 import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
 
+// Run a child process with data written to its standard input. `execFile` does
+// not support an `input` option, so the comparator is invoked through `spawn`.
+function runWithStdin(command, args, input) {
+  return new Promise((done) => {
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", (error) =>
+      done({ code: 1, stdout, stderr: `${stderr}${error.message}` }),
+    );
+    child.on("close", (code) => done({ code: code ?? 1, stdout, stderr }));
+    child.stdin.end(input);
+  });
+}
 const argv = process.argv.slice(2);
-const root = resolve(
-  argv.find((arg) => !arg.startsWith("--")) || "work/phase0/offline",
-);
 const option = (name, fallback) => {
   const index = argv.indexOf(`--${name}`);
   return index >= 0 && argv[index + 1] ? argv[index + 1] : fallback;
 };
-const suite = option("suite", "quick");
-const mode = option("mode", "fixed_time");
-const nativePath = option("native", null);
-const output = option("output", null);
-const positionsPath = option("positions", resolve(root, "jarl-positions.json"));
-const mobile = argv.includes("--mobile");
+const flag = (name) => argv.includes(`--${name}`);
+const root = resolve(argv.find((arg) => !arg.startsWith("--")) || "work/phase0/offline");
 
 const SUITES = {
   quick: { configs: ["quick"], reps: 1 },
   standard: { configs: ["quick", "interactive", "standard"], reps: 2 },
-  extended: {
-    configs: ["quick", "interactive", "standard", "deep", "extended"],
-    reps: 3,
-  },
+  extended: { configs: ["quick", "interactive", "standard", "deep", "extended"], reps: 2 },
 };
-assert.ok(SUITES[suite], `unknown suite: ${suite}`);
-assert.ok(["fixed_time", "fixed_work"].includes(mode), `unknown mode: ${mode}`);
-const { reps } = SUITES[suite];
+// One case is independently bounded well above the 60 s fixed-work cooperative
+// deadline; the whole run is not held under a single oversized watchdog.
+const CASE_TIMEOUT_MS = 75000;
+const INIT_TIMEOUT_MS = 30000;
+
+function usageError(message) {
+  console.error(`verify_jarl: ${message}`);
+  process.exit(2);
+}
+
+const suiteName = option("suite", "quick");
+if (!SUITES[suiteName]) usageError(`unknown suite: ${suiteName}`);
+const mode = option("mode", "fixed_time");
+if (!["fixed_time", "fixed_work"].includes(mode)) usageError(`unknown mode: ${mode}`);
+const reps = Number(option("reps", String(SUITES[suiteName].reps)));
+if (!Number.isInteger(reps) || reps < 1 || reps > 50) usageError("--reps must be 1..50");
+const warmup = Number(option("warmup", "1"));
+if (!Number.isInteger(warmup) || warmup < 0 || warmup > 10) usageError("--warmup must be 0..10");
+const seed = Number(option("seed", "7"));
+if (!Number.isInteger(seed) || seed < 0) usageError("--seed must be a non-negative integer");
 const configs = option("configs", null)
   ? option("configs", "").split(",")
-  : SUITES[suite].configs;
-// Bound the whole batch: each config's worst-case time budget times the number
-// of positions, plus serialization/startup margin.
-const positionsPreview = JSON.parse(
-  await readFile(positionsPath, "utf8"),
-);
-const maxTime = Math.max(
-  ...configs.map((name) =>
-    name === "deep" ? 5 : name === "standard" ? 2 : name === "interactive" ? 1 : 0.25,
-  ),
-);
-const requestTimeoutMs = Math.min(
-  180000,
-  Math.ceil(
-    positionsPreview.length * (mode === "fixed_work" ? 60000 : maxTime * 1000),
-  ) + 15000,
-);
+  : SUITES[suiteName].configs;
+if (!configs.length || configs.some((name) => !name)) usageError("empty --configs entry");
+const nativePath = option("native", null);
+const output = option("output", null);
+const positionsPath = option("positions", resolve(root, "jarl-positions.json"));
+const mobile = flag("mobile");
+const python = process.env.SPIKE_PYTHON || resolve(import.meta.dirname, "../../.venv/bin/python");
+
+const positionsRaw = await readFile(resolve(positionsPath));
+const positions = JSON.parse(positionsRaw.toString("utf8"));
+const positionsSha256 = createHash("sha256").update(positionsRaw).digest("hex");
+if (!Array.isArray(positions) || positions.length === 0)
+  usageError("--positions must contain a non-empty JSON array");
+const names = positions.map((entry) => entry?.name);
+if (new Set(names).size !== names.length) usageError("--positions contains duplicate names");
 
 const mime = {
   ".js": "text/javascript",
@@ -82,250 +111,290 @@ const server = createServer(async (request, response) => {
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch({
-  executablePath: process.env.SPIKE_CHROMIUM || undefined,
-});
+const report = {
+  kind: "browser-jarl-benchmark",
+  schema: 2,
+  generated: new Date().toISOString(),
+  runtime: "pyodide",
+  suite: suiteName,
+  mode,
+  configs,
+  repetitions: reps,
+  warmup,
+  case_timeout_ms: CASE_TIMEOUT_MS,
+  profile: mobile ? "mobile-emulated" : "desktop",
+  positions_file: positionsPath.split(/[\\/]/).pop(),
+  positions_sha256: positionsSha256,
+  browser: null,
+  records: [],
+  failures: [],
+  batch: {},
+};
+
+let browser = null;
+let context = null;
 try {
-  const context = await browser.newContext(
+  browser = await chromium.launch({ executablePath: process.env.SPIKE_CHROMIUM || undefined });
+  report.browser = browser.version();
+  context = await browser.newContext(
     mobile
       ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }
       : { viewport: { width: 1920, height: 1080 } },
   );
+  const external = [];
+  await context.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin) {
+      external.push(url.href);
+      return route.abort();
+    }
+    return route.continue();
+  });
   const page = await context.newPage();
-  const started = performance.now();
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(String(error)));
+  page.on("console", (message) => {
+    if (message.type() === "error") pageErrors.push(`console: ${message.text()}`);
+  });
+
+  const initStarted = performance.now();
   await page.goto(origin);
-  await page.waitForFunction(() => window.spike);
+  await page.waitForFunction(() => window.spike, null, { timeout: INIT_TIMEOUT_MS });
   await page.evaluate(() => window.spike.ready);
-  await page.evaluate(() => window.spike.info());
-  const startupMs = performance.now() - started;
-  const info = await page.evaluate(() => window.spike.info());
-  const plan = await page.evaluate(() => window.spike.jarlPlan());
-  const positions = await page.evaluate(() => window.spike.jarlPositions());
-  const wanted = new Set(positionsPreview.map((entry) => entry.name));
-  const selected = positions.filter((entry) => wanted.has(entry.name));
-  assert.equal(selected.length, positionsPreview.length);
-  assert.deepEqual(
-    selected.map((entry) => entry.name),
-    positionsPreview.map((entry) => entry.name),
-  );
-  assert.equal(plan.unsupported.extended, "engine alpha-beta depth cap is 8");
+  report.startup_ms = performance.now() - initStarted;
+  report.worker_info = await page.evaluate(() => window.spike.info());
+  report.plan = await page.evaluate(() => window.spike.jarlPlan());
+  if (report.plan.unsupported.extended !== "engine alpha-beta depth cap is 8")
+    throw new Error("engine depth constraint report changed");
 
-  // Warm-up: one bounded request so the shared benchmark module and search
-  // caches are resident before measured runs.
-  await page.evaluate(
+  // Identity is computed inside the worker from the exact supplied positions,
+  // so the digest proves the browser analysed the same workload as the native
+  // reference rather than a fixture selected by name.
+  report.identity = await page.evaluate(
     (payload) =>
-      window.spike.jarlBenchmark(payload.positions, payload.configs, {
+      window.spike.jarlIdentity(payload.positions, payload.configs, {
         mode: payload.mode,
-        timeoutMs: 30000,
+        seed: payload.seed,
       }),
-    {
-      positions: positions.filter((entry) => entry.name.endsWith("king-escape")),
-      configs: ["quick"],
-      mode: "fixed_time",
-    },
+    { positions, configs, mode, seed },
   );
 
-  const runs = [];
-  for (let repetition = 0; repetition < reps; repetition += 1) {
-    for (const config of configs) {
-      const subset = selected;
-      const wallStart = performance.now();
-      const result = await page.evaluate(
+  const perCase = async (entry, config, phase, repetition) => {
+    try {
+      const record = await page.evaluate(
         (payload) =>
-          window.spike.jarlBenchmark(payload.positions, payload.configs, {
+          window.spike.jarlCase(payload.position, payload.config, {
             mode: payload.mode,
-            seed: 7,
+            seed: payload.seed,
             timeoutMs: payload.timeoutMs,
           }),
-        { positions: subset, configs: [config], mode, timeoutMs: requestTimeoutMs },
+        { position: entry, config, mode, seed, timeoutMs: CASE_TIMEOUT_MS },
       );
-      const wallMs = performance.now() - wallStart;
-      for (const record of result.records) {
-        runs.push({ ...record, phase: "measured", repetition, wall_ms: wallMs });
+      return { ...record, phase, repetition };
+    } catch (error) {
+      // Record a failed case without discarding earlier records; the next case
+      // starts from a freshly recreated worker if the worker died.
+      return {
+        position: entry.name,
+        kind: entry.kind ?? null,
+        config,
+        mode,
+        seed,
+        ruleset: entry.state?.ruleset ?? null,
+        phase,
+        repetition,
+        expected_depth: report.plan.configs?.[config]?.depth ?? null,
+        terminal: null,
+        unsupported: false,
+        elapsed_ms: null,
+        best_move: null,
+        value: null,
+        completed_depth: null,
+        status: "error",
+        case_failure: true,
+        error: `${error?.name ?? "Error"}: ${error?.message ?? String(error)}`,
+      };
+    }
+  };
+
+  // Warm-up runs are excluded from measured statistics.
+  for (let index = 0; index < warmup; index += 1) {
+    for (const entry of positions) {
+      for (const config of configs) {
+        report.records.push(await perCase(entry, config, "warmup", index));
       }
     }
   }
 
-  // UI responsiveness while a real worker search is busy.
-  const responsiveness = await page.evaluate(async () => {
-    const positions = await window.spike.jarlPositions();
-    const busy = window.spike.jarlBenchmark(
-      positions.filter((entry) => entry.name.endsWith("midgame")),
-      ["standard"],
-      { mode: "fixed_time", timeoutMs: 60000 },
-    );
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const start = performance.now();
-    document.querySelector("#pulse").click();
-    const clickMs = performance.now() - start;
-    await busy;
-    return { click_ms: clickMs, pulses: document.querySelector("#pulses").textContent };
-  });
-
-  // Cancellation acknowledgement and worker restart after termination.
-  const cancellation = await page.evaluate(async () => {
-    const positions = await window.spike.jarlPositions();
-    const busy = window.spike
-      .jarlBenchmark(positions, ["standard"], {
-        mode: "fixed_time",
-        timeoutMs: 60000,
-      })
-      .then(
-        () => "completed",
-        (error) => error.name,
-      );
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const start = performance.now();
-    window.spike.cancel();
-    const cancelMs = performance.now() - start;
-    const outcome = await busy;
-    const restartStart = performance.now();
-    await window.spike.info();
-    return {
-      cancel_ack_ms: cancelMs,
-      outcome,
-      restart_ms: performance.now() - restartStart,
-    };
-  });
-  assert.equal(cancellation.outcome, "AbortError");
-
-  const memory = await page.evaluate(() => window.spike.memory());
-
-  const report = {
-    kind: "browser-jarl-benchmark",
-    generated: new Date().toISOString(),
-    suite,
-    mode,
-    configs,
-    repetitions: reps,
-    profile: mobile ? "mobile-emulated" : "desktop",
-    browser: browser.version(),
-    startup_ms: startupMs,
-    request_timeout_ms: requestTimeoutMs,
-    worker_info: info,
-    plan,
-    cancellation,
-    responsiveness,
-    memory,
-    records: runs,
-    summary: summarise(runs),
+  const batchStarted = performance.now();
+  for (let repetition = 0; repetition < reps; repetition += 1) {
+    for (const entry of positions) {
+      for (const config of configs) {
+        report.records.push(await perCase(entry, config, "measured", repetition));
+      }
+    }
+  }
+  report.batch = {
+    wall_clock_ms: performance.now() - batchStarted,
+    measured_cases: report.records.filter((row) => row.phase === "measured").length,
   };
 
-  if (nativePath) {
-    const native = JSON.parse(await readFile(nativePath, "utf8"));
-    report.comparison = compare(report, native);
-    assert.equal(
-      report.comparison.plan_match,
-      true,
-      "native and browser benchmark plans must match",
-    );
-  }
+  // UI responsiveness while a real worker search is active: drive an actual
+  // Playwright click and measure event-loop lag, not a synchronous DOM call.
+  await page.evaluate(() => {
+    window.__lag = [];
+    let last = performance.now();
+    const tick = () => {
+      const now = performance.now();
+      window.__lag.push(now - last);
+      last = now;
+      if (window.__lag.length < 4000) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  const busySearch = page
+    .evaluate(
+      (payload) =>
+        window.spike.jarlCase(payload.position, payload.config, {
+          mode: "fixed_time",
+          seed: payload.seed,
+          timeoutMs: payload.timeoutMs,
+        }),
+      {
+        position: positions.find((entry) => entry.kind === "midgame") ?? positions[0],
+        config: "standard",
+        seed,
+        timeoutMs: CASE_TIMEOUT_MS,
+      },
+    )
+    .catch(() => null);
+  await new Promise((done) => setTimeout(done, 250));
+  const clickStart = performance.now();
+  await page.click("#pulse");
+  const clickMs = performance.now() - clickStart;
+  const pulses = await page.textContent("#pulses");
+  await busySearch;
+  const lag = await page.evaluate(() => window.__lag ?? []);
+  report.responsiveness = {
+    click_to_handle_ms: clickMs,
+    pulses,
+    max_event_loop_lag_ms: lag.length ? Math.max(...lag) : null,
+    median_event_loop_lag_ms: lag.length
+      ? lag.slice().sort((a, b) => a - b)[Math.floor(lag.length / 2)]
+      : null,
+  };
 
-  if (output) await writeFile(resolve(output), JSON.stringify(report, null, 2) + "\n");
-  console.log(JSON.stringify(report, null, 2));
-  await context.close();
+  // Cancellation acknowledgement and worker restart after termination. The
+  // error name is captured inside the page because Playwright rewrites a
+  // rejected DOMException into a generic Error at the boundary.
+  report.cancellation = await page.evaluate(
+    async (payload) => {
+      const busy = window.spike
+        .jarlBenchmark(payload.positions, payload.configs, {
+          mode: "fixed_time",
+          seed: payload.seed,
+          timeoutMs: payload.timeoutMs,
+        })
+        .then(
+          () => "completed",
+          (error) => error?.name ?? String(error),
+        );
+      await new Promise((done) => setTimeout(done, 100));
+      const cancelStart = performance.now();
+      window.spike.cancel();
+      const cancelMs = performance.now() - cancelStart;
+      const outcome = await busy;
+      const restartStart = performance.now();
+      await window.spike.info();
+      return {
+        cancel_ack_ms: cancelMs,
+        outcome,
+        restart_ms: performance.now() - restartStart,
+      };
+    },
+    { positions, configs: ["standard"], seed, timeoutMs: CASE_TIMEOUT_MS },
+  );
+
+  report.page_errors = pageErrors;
+  report.external_requests = external;
+  if (pageErrors.length) report.failures.push(`page errors: ${pageErrors.length}`);
+  if (external.length) report.failures.push(`external requests: ${external.length}`);
+  if (report.cancellation.outcome !== "AbortError")
+    report.failures.push(
+      `cancellation outcome was ${report.cancellation.outcome}, expected AbortError`,
+    );
+
+  const measured = report.records.filter((row) => row.phase === "measured");
+  const failed = measured.filter((row) => row.case_failure || row.status === "error");
+  if (!measured.length) report.failures.push("no measured cases were executed");
+  if (failed.length) report.failures.push(`${failed.length} measured case(s) failed to execute`);
+
+  if (nativePath) {
+    const comparisonOut = resolve(
+      dirname(output ? resolve(output) : resolve(root, "jarl-unused.json")),
+      "jarl-comparison.json",
+    );
+    const comparison = await runWithStdin(
+      python,
+      [
+        resolve(import.meta.dirname, "compare_jarl_benchmarks.py"),
+        resolve(nativePath),
+        "-",
+        "--output",
+        comparisonOut,
+      ],
+      JSON.stringify(report),
+    );
+    report.comparison_exit_code = comparison.code;
+    try {
+      report.comparison = JSON.parse(await readFile(comparisonOut, "utf8"));
+    } catch {
+      report.comparison = { stderr: String(comparison.stderr).slice(-2000) };
+    }
+    if (comparison.code !== 0) {
+      report.failures.push(
+        ...(report.comparison.failures ?? ["native/browser comparison failed"]),
+      );
+    }
+    report.comparison_output = comparisonOut.split(/[\\/]/).pop();
+  }
+} catch (error) {
+  report.failures.push(`harness error: ${error?.message ?? String(error)}`);
 } finally {
-  await browser.close();
+  await context?.close().catch(() => {});
+  await browser?.close().catch(() => {});
   await new Promise((done) => server.close(done));
 }
 
-function median(values) {
-  if (!values.length) return null;
-  const ordered = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(ordered.length / 2);
-  return ordered.length % 2
-    ? ordered[middle]
-    : (ordered[middle - 1] + ordered[middle]) / 2;
+report.ok = report.failures.length === 0;
+if (output) {
+  await mkdir(dirname(resolve(output)), { recursive: true });
+  await writeFile(resolve(output), JSON.stringify(report, null, 2) + "\n");
 }
-
-function percentile(values, fraction) {
-  if (!values.length) return null;
-  const ordered = [...values].sort((a, b) => a - b);
-  if (ordered.length === 1) return ordered[0];
-  const position = fraction * (ordered.length - 1);
-  const lower = Math.floor(position);
-  const upper = Math.min(lower + 1, ordered.length - 1);
-  return ordered[lower] * (1 - (position - lower)) + ordered[upper] * (position - lower);
-}
-
-function summarise(records) {
-  const groups = new Map();
-  for (const record of records) {
-    const key = `${record.config}|${record.ruleset}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(record);
-  }
-  return [...groups.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, rows]) => {
-      const [config, ruleset] = key.split("|");
-      const measured = rows.filter((row) => row.phase === "measured");
-      const elapsed = measured.map((row) => row.elapsed_ms);
-      const depths = measured
-        .map((row) => row.completed_depth)
-        .filter((value) => value);
-      return {
-        config,
-        ruleset,
-        samples: measured.length,
-        errors: measured.filter((row) => row.error).length,
-        elapsed_ms_median: median(elapsed),
-        elapsed_ms_p90: percentile(elapsed, 0.9),
-        completed_depth_median: median(depths),
-      };
-    });
-}
-
-function compare(browserReport, nativeReport) {
-  const planMatch =
-    JSON.stringify(browserReport.plan.configs) ===
-    JSON.stringify(nativeReport.plan.configs);
-  const key = (row) => `${row.position}|${row.config}|${row.ruleset}`;
-  const native = new Map();
-  for (const row of nativeReport.records) {
-    if (row.phase && row.phase !== "measured") continue;
-    const list = native.get(key(row)) || [];
-    list.push(row);
-    native.set(key(row), list);
-  }
-  const rows = [];
-  let comparable = 0;
-  let moveAgreement = 0;
-  let valueAgreement = 0;
-  for (const row of browserReport.records) {
-    const reference = native.get(key(row));
-    if (!reference || !reference.length) continue;
-    const first = reference[0];
-    comparable += 1;
-    const moveMatch =
-      JSON.stringify(row.best_move) === JSON.stringify(first.best_move);
-    const valueMatch =
-      row.value != null &&
-      first.value != null &&
-      Math.abs(row.value - first.value) <= 1e-9;
-    if (moveMatch) moveAgreement += 1;
-    if (valueMatch) valueAgreement += 1;
-    rows.push({
-      position: row.position,
-      config: row.config,
-      ruleset: row.ruleset,
-      native_best_move: first.best_move,
-      browser_best_move: row.best_move,
-      move_match: moveMatch,
-      native_value: first.value,
-      browser_value: row.value,
-      value_match: valueMatch,
-      native_completed_depth: first.completed_depth,
-      browser_completed_depth: row.completed_depth,
-      browser_elapsed_ms: row.elapsed_ms,
-      native_elapsed_ms: first.elapsed_ms,
-    });
-  }
-  return {
-    plan_match: planMatch,
-    comparable_cases: comparable,
-    move_agreement: comparable ? moveAgreement / comparable : null,
-    value_agreement: comparable ? valueAgreement / comparable : null,
-    rows,
-  };
-}
+console.log(
+  JSON.stringify(
+    {
+      ok: report.ok,
+      records: report.records.length,
+      failures: report.failures,
+      startup_ms: report.startup_ms,
+      batch: report.batch,
+      comparison: report.comparison
+        ? {
+            ok: report.comparison.ok,
+            comparable_cases: report.comparison.comparable_cases,
+            limited_cases: report.comparison.limited_cases ?? null,
+            move_agreement: report.comparison.move_agreement,
+            value_agreement: report.comparison.value_agreement,
+            depth_agreement: report.comparison.depth_agreement,
+            equal_work_latency_ratio_median:
+              report.comparison.equal_work_latency_ratio_median,
+            warnings: (report.comparison.warnings ?? []).length,
+          }
+        : null,
+    },
+    null,
+    2,
+  ),
+);
+process.exit(report.ok ? 0 : 1);

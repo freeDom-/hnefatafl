@@ -1,12 +1,13 @@
 """Native CPython Jarl benchmark; mirrors the browser benchmark workload.
 
 Runs the shared ``jarl_benchmark`` definitions directly (no Pyodide) and writes a
-machine-readable report. The browser verifier reads the same serialized positions
-and produces a comparable report, and ``compare_jarl_benchmarks.py`` merges them.
+normalised, machine-readable report that ``jarl_compare`` can compare with a
+browser report. Each case is measured independently; a single ``wall_clock``
+total is recorded at report level and never attached to an individual case.
 
 Example:
     .venv/bin/python spikes/browser_offline/native_jarl_benchmark.py \
-        --suite standard --output /tmp/jarl-native.json
+        --suite standard --mode fixed_work --output /tmp/jarl-native.json
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import statistics
 import sys
 import time
 from datetime import datetime, timezone
@@ -32,11 +32,7 @@ from hnefatafl.engine import State  # noqa: E402
 
 SUITES = {
     "quick": {"configs": ["quick"], "repetitions": 1, "warmup": 1},
-    "standard": {
-        "configs": ["quick", "interactive", "standard"],
-        "repetitions": 3,
-        "warmup": 1,
-    },
+    "standard": {"configs": ["quick", "interactive", "standard"], "repetitions": 3, "warmup": 1},
     "extended": {
         "configs": ["quick", "interactive", "standard", "deep", "extended"],
         "repetitions": 5,
@@ -45,50 +41,21 @@ SUITES = {
 }
 
 
-def percentile(values: list[float], fraction: float) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    position = fraction * (len(ordered) - 1)
-    lower = int(position)
-    upper = min(lower + 1, len(ordered) - 1)
-    weight = position - lower
-    return ordered[lower] * (1 - weight) + ordered[upper] * weight
+def _environment() -> dict:
+    return {
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+        "implementation": platform.python_implementation(),
+        "processor": platform.processor() or None,
+        "cpu_count": __import__("os").cpu_count(),
+    }
 
 
-def summarise(records: list[dict]) -> list[dict]:
-    groups: dict[tuple[str, str], list[dict]] = {}
-    for record in records:
-        groups.setdefault((record["config"], record["ruleset"]), []).append(record)
-    summary = []
-    for (config, ruleset), rows in sorted(groups.items()):
-        measured = [row for row in rows if row.get("phase") == "measured"]
-        elapsed = [row["elapsed_ms"] for row in measured]
-        depths = [row["completed_depth"] for row in measured if row["completed_depth"]]
-        nodes = [row["nodes"] for row in measured if isinstance(row["nodes"], int)]
-        errors = sum(1 for row in measured if row.get("error"))
-        summary.append(
-            {
-                "config": config,
-                "ruleset": ruleset,
-                "samples": len(measured),
-                "errors": errors,
-                "elapsed_ms_median": statistics.median(elapsed) if elapsed else None,
-                "elapsed_ms_p90": percentile(elapsed, 0.9),
-                "completed_depth_median": statistics.median(depths) if depths else None,
-                "nodes_median": statistics.median(nodes) if nodes else None,
-            }
-        )
-    return summary
-
-
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--suite", choices=sorted(SUITES), default="quick")
     parser.add_argument("--configs", nargs="*", help="Override the suite configuration list")
-    parser.add_argument("--mode", choices=["fixed_time", "fixed_work"], default="fixed_time")
+    parser.add_argument("--mode", choices=list(jb.MODES), default="fixed_time")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--repetitions", type=int, default=None)
     parser.add_argument("--warmup", type=int, default=None)
@@ -96,58 +63,78 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=ROOT / "work/jarl-native.json")
     args = parser.parse_args()
 
+    if args.repetitions is not None and args.repetitions < 1:
+        parser.error("--repetitions must be at least 1")
+    if args.warmup is not None and args.warmup < 0:
+        parser.error("--warmup must be non-negative")
+
     suite = SUITES[args.suite]
     configs = args.configs or suite["configs"]
+    unknown = [name for name in configs if name not in jb.BENCHMARK_CONFIGS]
+    if unknown:
+        parser.error(f"unknown benchmark configuration(s): {unknown}")
     repetitions = args.repetitions if args.repetitions is not None else suite["repetitions"]
     warmup = args.warmup if args.warmup is not None else suite["warmup"]
     positions = json.loads(args.positions.read_text()) if args.positions else jarl_positions()
-    plan = jb.benchmark_plan()
+    names = [case.get("name") for case in positions]
+    if len(set(names)) != len(names):
+        parser.error("position names must be unique")
 
     records: list[dict] = []
     started = time.perf_counter()
     for case in positions:
         state = State.from_dict(case["state"])
+        digest = jb.position_digest(case)
         for name in configs:
             for _ in range(warmup):
-                record = jb.run_case(state, name, mode=args.mode, seed=args.seed)
-                record.update(position=case["name"], kind=case.get("kind"), phase="warmup")
+                record = jb.run_case(
+                    state,
+                    name,
+                    mode=args.mode,
+                    seed=args.seed,
+                    position=case.get("name"),
+                    kind=case.get("kind"),
+                    position_hash=digest,
+                )
+                record["phase"] = "warmup"
                 records.append(record)
             for repetition in range(repetitions):
-                record = jb.run_case(state, name, mode=args.mode, seed=args.seed)
-                record.update(
-                    position=case["name"],
+                record = jb.run_case(
+                    state,
+                    name,
+                    mode=args.mode,
+                    seed=args.seed,
+                    position=case.get("name"),
                     kind=case.get("kind"),
-                    phase="measured",
-                    repetition=repetition,
+                    position_hash=digest,
                 )
+                record["phase"] = "measured"
+                record["repetition"] = repetition
                 records.append(record)
-    elapsed = time.perf_counter() - started
+    wall_clock = time.perf_counter() - started
 
-    report = {
-        "kind": "native-jarl-benchmark",
-        "generated": datetime.now(timezone.utc).isoformat(),
-        "environment": {
-            "platform": platform.platform(),
-            "python": sys.version.split()[0],
-            "processor": platform.processor(),
-            "cpu_count": __import__("os").cpu_count(),
+    report = jb.build_report(
+        kind="native-jarl-benchmark",
+        runtime="cpython",
+        environment=_environment(),
+        positions=positions,
+        configs=configs,
+        mode=args.mode,
+        seed=args.seed,
+        records=records,
+        extra={
+            "generated": datetime.now(timezone.utc).isoformat(),
+            "suite": args.suite,
+            "repetitions": repetitions,
+            "warmup": warmup,
+            "batch_wall_clock_seconds": wall_clock,
         },
-        "plan": plan,
-        "suite": args.suite,
-        "configs": configs,
-        "mode": args.mode,
-        "seed": args.seed,
-        "repetitions": repetitions,
-        "warmup": warmup,
-        "positions": len(positions),
-        "wall_clock_seconds": elapsed,
-        "records": records,
-        "summary": summarise(records),
-    }
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"output": str(args.output), "records": len(records)}, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

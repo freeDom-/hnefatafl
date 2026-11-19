@@ -79,8 +79,12 @@ def dispatch(payload):
         from jarl_benchmark import benchmark_plan
 
         return json.dumps(benchmark_plan())
+    if action == "jarl_identity":
+        return json.dumps(jarl_identity(request))
     if action == "jarl_benchmark":
         return json.dumps(run_jarl_benchmark(request))
+    if action == "jarl_case":
+        return json.dumps(run_jarl_case(request))
     if action == "restore":
         return json.dumps(snapshot(State.from_dict(request["state"])))
     if action == "new":
@@ -157,6 +161,44 @@ def local_analysis(request):
     }
 
 
+def jarl_identity(request):
+    """Return the workload identity for a benchmark request without searching.
+
+    The client uses this to record the exact workload digest and effective
+    configuration in its report, so a report from a different workload or a
+    different engine revision is never compared as if it were equivalent.
+    """
+    from jarl_benchmark import engine_identity, workload_identity
+
+    positions = request.get("positions")
+    configs = request.get("configs")
+    if not isinstance(positions, list) or not 1 <= len(positions) <= 64:
+        raise ValueError("Benchmark positions must be a list of 1 to 64 entries")
+    if not isinstance(configs, list) or not 1 <= len(configs) <= 8:
+        raise ValueError("Benchmark configs must be a list of 1 to 8 names")
+    if not all(isinstance(name, str) for name in configs):
+        raise ValueError("Benchmark config names must be strings")
+    names = [case.get("name") for case in positions]
+    if len(set(names)) != len(names):
+        raise ValueError("Benchmark position names must be unique")
+    mode = request.get("mode", "fixed_time")
+    if mode not in ("fixed_time", "fixed_work"):
+        raise ValueError("Benchmark mode must be fixed_time or fixed_work")
+    seed = request.get("seed", 7)
+    if type(seed) is not int or not 0 <= seed <= 2**32 - 1:
+        raise ValueError("Invalid benchmark seed")
+    workload = workload_identity(positions, configs, mode=mode, seed=seed)
+    return {
+        "protocol": workload["protocol"],
+        "workload": workload,
+        "workload_digest": workload["digest"],
+        "mode": mode,
+        "seed": seed,
+        "engine_identity": engine_identity(),
+        "effective_configs": workload["effective_configs"],
+    }
+
+
 def run_jarl_benchmark(request):
     """Run the shared Jarl benchmark matrix inside the worker.
 
@@ -180,4 +222,44 @@ def run_jarl_benchmark(request):
     seed = request.get("seed", 7)
     if type(seed) is not int or not 0 <= seed <= 2**32 - 1:
         raise ValueError("Invalid benchmark seed")
+    names = [case.get("name") for case in positions]
+    if len(set(names)) != len(names):
+        raise ValueError("Benchmark position names must be unique")
     return run_suite(positions, configs, mode=mode, seed=seed)
+
+
+def run_jarl_case(request):
+    """Run exactly one (position, config) pair.
+
+    A single request per case keeps every search independently bounded: a slow
+    or failing case cannot discard records already returned for earlier cases,
+    and the client can apply a per-case watchdog instead of one oversized batch
+    deadline.
+    """
+    from jarl_benchmark import position_digest, run_case
+
+    positions = request.get("positions")
+    configs = request.get("configs")
+    if not isinstance(positions, list) or len(positions) != 1:
+        raise ValueError("jarl_case requires exactly one position")
+    if not isinstance(configs, list) or len(configs) != 1:
+        raise ValueError("jarl_case requires exactly one config")
+    entry = positions[0]
+    if not isinstance(entry, dict) or "state" not in entry:
+        raise ValueError("jarl_case position needs a state")
+    mode = request.get("mode", "fixed_time")
+    if mode not in ("fixed_time", "fixed_work"):
+        raise ValueError("Benchmark mode must be fixed_time or fixed_work")
+    seed = request.get("seed", 7)
+    if type(seed) is not int or not 0 <= seed <= 2**32 - 1:
+        raise ValueError("Invalid benchmark seed")
+    state = State.from_dict(entry["state"])
+    return run_case(
+        state,
+        configs[0],
+        mode=mode,
+        seed=seed,
+        position=entry.get("name"),
+        kind=entry.get("kind"),
+        position_hash=position_digest(entry),
+    )

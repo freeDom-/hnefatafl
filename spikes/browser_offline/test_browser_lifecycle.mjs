@@ -1,0 +1,276 @@
+// Deterministic lifecycle tests for the isolated browser clients. Runs in plain
+// Node with a fake Worker, so it exercises generation guards, timer cleanup,
+// cancellation, download admission and provider reporting without a browser.
+//
+// Usage: node spikes/browser_offline/test_browser_lifecycle.mjs
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+
+const { LocalAnalysisClient } = await import("./analysis-client.js");
+const { NeuralClient } = await import("./neural-client.js");
+// neural-provider.js is a classic (CommonJS) script; load it through require.
+const provider = createRequire(import.meta.url)("./neural-provider.js");
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+class FakeWorker {
+  constructor() {
+    this.messages = [];
+    this.terminated = false;
+    this.onmessage = null;
+    this.onerror = null;
+  }
+  postMessage(message) {
+    this.messages.push(message);
+  }
+  terminate() {
+    this.terminated = true;
+  }
+  respond(index, value, error = null, code = null) {
+    const message = this.messages[index];
+    if (this.onmessage)
+      this.onmessage({ data: { id: message.id, value, error, code } });
+  }
+  fail(message = "fake worker failure") {
+    if (this.onerror) this.onerror({ message });
+  }
+}
+
+const results = [];
+function check(name, fn) {
+  return Promise.resolve()
+    .then(fn)
+    .then(() => {
+      results.push({ name, ok: true });
+      console.log(`ok   ${name}`);
+    })
+    .catch((error) => {
+      results.push({ name, ok: false, error: String(error?.message ?? error) });
+      console.log(`FAIL ${name}: ${error?.message ?? error}`);
+    });
+}
+
+// ---------- provider placement reporting (review item 5) ----------
+await check("wasm provider reports wasm placement", () => {
+  assert.equal(provider.placementFor("wasm", null), "wasm");
+  assert.equal(provider.placementFor("wasm", ["wasm"]), "wasm");
+  assert.equal(provider.gpuVerified("wasm"), false);
+});
+await check("webgpu without evidence is unverified, not GPU", () => {
+  const placement = provider.placementFor("webgpu", null);
+  assert.equal(placement, "webgpu-session-unverified");
+  assert.equal(provider.gpuVerified(placement), false);
+  assert.notEqual(placement, "wasm");
+});
+await check("webgpu-only evidence is verified GPU", () => {
+  const placement = provider.placementFor("webgpu", ["webgpu"]);
+  assert.equal(placement, "webgpu-session-verified");
+  assert.equal(provider.gpuVerified(placement), true);
+});
+await check("webgpu session falling back to wasm is reported as cpu-fallback", () => {
+  assert.equal(provider.placementFor("webgpu", ["wasm"]), "cpu-fallback");
+  assert.equal(provider.placementFor("webgpu", ["webgpu", "wasm"]), "cpu-fallback");
+  assert.equal(provider.gpuVerified("cpu-fallback"), false);
+});
+await check("providerEvidence reads known session surfaces only", () => {
+  assert.equal(provider.providerEvidence({ executionProviders: ["webgpu"] })[0], "webgpu");
+  assert.equal(provider.providerEvidence({}), null);
+  assert.equal(provider.providerEvidence(null), null);
+});
+
+// ---------- classical analysis client watchdog selection (review item 3) ----------
+await check("analysis watchdog covers a legitimate 10 second search", () => {
+  const ten = LocalAnalysisClient.watchdogFor({ time_limit: 10 });
+  assert.ok(ten >= 10000, `watchdog ${ten} must permit a 10 s search`);
+  assert.ok(ten <= 20000, `watchdog ${ten} must stay bounded`);
+  const small = LocalAnalysisClient.watchdogFor({ time_limit: 0.02 });
+  assert.ok(small >= 5000 && small <= 6000, `tiny watchdog ${small} must stay near the 5 s floor`);
+});
+await check("analysis request rejects a deadline above its ceiling", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new LocalAnalysisClient();
+  await assert.rejects(
+    () => client.request({ action: "info" }, { timeoutMs: 5001 }),
+    /deadline must be between 1 and 5000/,
+  );
+  client.dispose();
+});
+await check("classical cancel keeps foreground priority and rejects as AbortError", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new LocalAnalysisClient();
+  const worker = (client.load(), client.worker);
+  await Promise.resolve();
+  worker.onmessage?.({ data: { id: 0, value: { ready: true } } });
+  const pending = client.request({ action: "probe" }, { timeoutMs: 1000 });
+  await sleep(5);
+  client.cancel("test cancel");
+  await assert.rejects(pending, (error) => error.name === "AbortError");
+  client.dispose();
+});
+
+await check("classical hard timeout rejects and the next request recovers", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new LocalAnalysisClient();
+  const worker = (client.load(), client.worker);
+  await Promise.resolve();
+  worker.onmessage?.({ data: { id: 0, value: { ready: true } } });
+  await assert.rejects(
+    () => client.request({ action: "probe" }, { timeoutMs: 20 }),
+    (error) => error.name === "TimeoutError",
+  );
+  assert.equal(client.worker, null, "a timed-out worker must be released");
+  const next = client.request({ action: "info" }, { timeoutMs: 500 });
+  await sleep(5);
+  // The replacement worker must complete its startup handshake first.
+  client.worker.onmessage?.({ data: { id: 0, value: { ready: true } } });
+  await sleep(5);
+  client.worker.onmessage?.({ data: { id: client.pending.id, value: { ok: true } } });
+  assert.deepEqual(await next, { ok: true });
+  client.dispose();
+});
+await check("classical dispose rejects active work and clears timers", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new LocalAnalysisClient();
+  const worker = (client.load(), client.worker);
+  await Promise.resolve();
+  worker.onmessage?.({ data: { id: 0, value: { ready: true } } });
+  const pending = client.request({ action: "probe" }, { timeoutMs: 5000 });
+  await sleep(5);
+  client.dispose();
+  await assert.rejects(pending, (error) => error.name === "AbortError");
+  assert.equal(client.pending, null);
+});
+
+// ---------- neural client lifecycle (review item 6) ----------
+function fakeFetchFailure() {
+  globalThis.fetch = async () => ({ ok: false, status: 404, headers: new Map() });
+}
+
+await check("neural terminate rejects the active promise with AbortError", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  const pending = client.request({ action: "infer" }, { timeoutMs: 5000 });
+  await sleep(5);
+  client.terminate("user cancelled");
+  await assert.rejects(pending, (error) => error.name === "AbortError");
+});
+await check("neural hard timeout rejects with TimeoutError and recovers", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  await assert.rejects(
+    () => client.request({ action: "infer" }, { timeoutMs: 20 }),
+    (error) => error.name === "TimeoutError",
+  );
+  const worker = client.worker;
+  assert.equal(worker, null, "a timed-out worker must be released");
+  const next = client.request({ action: "infer" }, { timeoutMs: 500 });
+  await sleep(5);
+  client.worker.respond(0, { value: 1 });
+  assert.deepEqual(await next, { value: 1 });
+  client.terminate();
+});
+await check("obsolete neural timeout cannot abort a replacement worker", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  const first = client.request({ action: "infer" }, { timeoutMs: 20 });
+  await sleep(5);
+  // Recreate the transport before the first timer fires.
+  client.abort(new Error("replace"));
+  await assert.rejects(first, /replace/);
+  const second = client.request({ action: "infer" }, { timeoutMs: 2000 });
+  await sleep(60); // past the original 20 ms timer
+  assert.ok(client.worker, "replacement worker must survive the obsolete timer");
+  client.worker.respond(0, { value: 2 });
+  assert.deepEqual(await second, { value: 2 });
+  client.terminate();
+});
+await check("stale worker errors are ignored after replacement", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  const first = client.request({ action: "infer" }, { timeoutMs: 2000 });
+  await sleep(5);
+  const stale = client.worker;
+  client.abort(new Error("replaced"));
+  await assert.rejects(first, /replaced/);
+  const second = client.request({ action: "infer" }, { timeoutMs: 2000 });
+  await sleep(5);
+  stale.fail("late crash from the old worker");
+  assert.ok(client.worker, "a stale worker error must not kill the replacement");
+  client.worker.respond(0, { value: 3 });
+  assert.deepEqual(await second, { value: 3 });
+  client.terminate();
+});
+await check("a failed model load never leaves a model active", async () => {
+  globalThis.Worker = FakeWorker;
+  fakeFetchFailure();
+  const client = new NeuralClient();
+  await assert.rejects(
+    () => client.load("./model.onnx", { provider: "wasm", size: 7, expectedSha256: "0".repeat(64) }),
+    (error) => error.name === "ModelLoadError",
+  );
+  assert.equal(client.model, null);
+  client.terminate();
+});
+await check("concurrent model downloads are explicitly rejected", async () => {
+  globalThis.Worker = FakeWorker;
+  let release;
+  globalThis.fetch = () =>
+    new Promise((done) => {
+      release = () =>
+        done({ ok: true, headers: new Map(), arrayBuffer: async () => new ArrayBuffer(8) });
+    });
+  const client = new NeuralClient();
+  const first = client.fetchModel("./model.onnx");
+  await sleep(5);
+  await assert.rejects(() => client.fetchModel("./model.onnx"), /already in progress/);
+  release();
+  await first;
+  client.terminate();
+});
+await check("successful load records the model, provider switch recreates", async () => {
+  globalThis.Worker = FakeWorker;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Map([["content-length", "8"]]),
+    arrayBuffer: async () => new Uint8Array(8).buffer,
+  });
+  const client = new NeuralClient();
+  const load = client.load("./model.onnx", { provider: "wasm", size: 7 });
+  await sleep(5);
+  client.worker.respond(0, {
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    gpu_execution_verified: false,
+    model_sha256: "0".repeat(64),
+  });
+  const loaded = await load;
+  assert.equal(loaded.execution_placement, "wasm");
+  assert.ok(client.model);
+  // Provider switch must terminate and recreate instead of reusing the worker.
+  const oldWorker = client.worker;
+  const switched = client.load("./model.onnx", { provider: "webgpu", size: 7 }).catch(() => null);
+  await sleep(5);
+  assert.equal(oldWorker.terminated, true, "provider switch must recreate the worker");
+  assert.notEqual(client.worker, oldWorker);
+  client.terminate();
+  await switched;
+});
+await check("release clears the active model", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client._spawn();
+  client.model = { provider: "wasm" };
+  const pending = client.release();
+  await sleep(5);
+  client.worker.respond(0, { released: true });
+  await pending;
+  assert.equal(client.model, null);
+  client.terminate();
+});
+
+const failures = results.filter((row) => !row.ok);
+console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
+if (failures.length) {
+  for (const row of failures) console.error(`  - ${row.name}: ${row.error}`);
+  process.exit(1);
+}
