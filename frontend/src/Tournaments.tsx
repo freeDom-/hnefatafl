@@ -716,20 +716,22 @@ export default function Tournaments({
                     {t('Explore every result')}
                   </span>
                 </div>
-                <button
-                  className="button secondary"
-                  onClick={openSetup}
-                  disabled={loading || running}
-                >
-                  {t('Set up a tournament')}
-                </button>
-                <button
-                  className="button secondary"
-                  onClick={openFixedSetup}
-                  disabled={loading || running}
-                >
-                  {t('Fixed-role comparison')}
-                </button>
+                <div className="tournament-welcome-actions">
+                  <button
+                    className="button secondary"
+                    onClick={openSetup}
+                    disabled={loading || running}
+                  >
+                    {t('Set up a tournament')}
+                  </button>
+                  <button
+                    className="button secondary"
+                    onClick={openFixedSetup}
+                    disabled={loading || running}
+                  >
+                    {t('Fixed-role comparison')}
+                  </button>
+                </div>
                 <small>{t('Saved automatically. Come back whenever you like.')}</small>
               </section>
             )

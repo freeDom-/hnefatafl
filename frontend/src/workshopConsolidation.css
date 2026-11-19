@@ -2,6 +2,9 @@
    behind charts or settings. Existing disclosures, tabs and anchors stay intact. */
 .training-workshop .workshop-intro,
 .workshop-comparison-intro {
+  /* The intro is the first child of main, which has no top padding; match the
+     shared inter-section rhythm so it never touches the application header. */
+  margin-top: var(--gap-card);
   padding: clamp(1rem, 2vw, 2rem);
   display: flex;
   align-items: flex-start;
