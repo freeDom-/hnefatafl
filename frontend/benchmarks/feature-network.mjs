@@ -14,7 +14,9 @@ import { gzipSync } from 'node:zlib';
 import {
   collectInitialGraph,
   collectRouteGraph,
+  compareAssetOutcomes,
   compareInitialGraph,
+  findForbiddenModules,
   normalizeAssetPath,
   routeChunk,
 } from '../scripts/bundleGraph.mjs';
@@ -32,6 +34,12 @@ const fingerprint = verifyBuildFingerprint(build, await fingerprintProductionBun
 if (!fingerprint.ok) throw new Error(fingerprint.message);
 
 const manifest = JSON.parse(await readFile(join(root, '.vite', 'manifest.json'), 'utf8'));
+// Build-only ownership map, written outside `dist` by the Vite plugin. It maps
+// each emitted chunk to its source modules so a prohibited feature folded into
+// an eager shared chunk is detected even without its filename prefix.
+const ownership = JSON.parse(
+  await readFile(join(frontend, '.cache', 'bundle-modules.json'), 'utf8'),
+);
 const expected = collectInitialGraph(manifest);
 const publicGraph = collectRouteGraph(manifest, 'PublicArena');
 const authenticatedEntry = routeChunk(manifest, 'AuthenticatedArena')[1].file;
@@ -42,6 +50,18 @@ if (expected.scripts.has(publicEntry))
   throw new Error('Authenticated initial graph includes the public entry');
 if (publicGraph.scripts.has(authenticatedEntry))
   throw new Error('Public entry graph includes the authenticated application');
+// The ownership map must describe every eager JavaScript chunk (the inline
+// first-paint script is an asset, not a chunk) so a missing entry cannot hide a
+// folded feature. Conversely every ownership entry must exist in `dist`.
+for (const file of expected.scripts) {
+  if (file === 'assets/appearance-init.js') continue;
+  if (!ownership.chunks[file])
+    throw new Error(`Missing module ownership metadata for eager chunk ${file}`);
+}
+for (const file of Object.keys(ownership.chunks)) {
+  const match = Object.values(manifest).find((chunk) => chunk.file === file);
+  if (!match) throw new Error(`Module ownership metadata references unknown chunk ${file}`);
+}
 
 const types = {
   '.js': 'text/javascript',
@@ -157,19 +177,36 @@ async function mockApi(page) {
   return unexpectedMutations;
 }
 
-/** Track every asset response with its status and content type. */
+const isAsset = (asset) => /^assets\/.*\.(js|css)$/.test(asset);
+
+/**
+ * Track every asset request, response and pre-response failure for a page.
+ * Recording failures as well as responses means an unexpected failed asset can
+ * never disappear silently from the inventory.
+ */
 function observeAssets(page) {
+  const requests = new Map();
   const responses = new Map();
+  const failures = new Map();
+  page.on('request', (request) => {
+    const asset = normalizeAssetPath(request.url());
+    if (!isAsset(asset)) return;
+    requests.set(asset, (requests.get(asset) || 0) + 1);
+  });
   page.on('response', (response) => {
     const asset = normalizeAssetPath(response.url());
-    if (!asset.startsWith('assets/')) return;
-    if (!asset.endsWith('.js') && !asset.endsWith('.css')) return;
+    if (!isAsset(asset)) return;
     responses.set(asset, {
       status: response.status(),
       contentType: response.headers()['content-type'] ?? '',
     });
   });
-  return responses;
+  page.on('requestfailed', (request) => {
+    const asset = normalizeAssetPath(request.url());
+    if (!isAsset(asset)) return;
+    failures.set(asset, request.failure()?.errorText ?? 'request failed');
+  });
+  return { requests, responses, failures };
 }
 
 const assets = (responses, extension) =>
@@ -201,6 +238,39 @@ async function inventory(files) {
   return rows;
 }
 
+/**
+ * The observation window is the deterministic Dashboard initialization: the
+ * document is parsed, the route-selected authenticated graph is requested, and
+ * the Dashboard leaves its loading state. The window then holds for a bounded
+ * settle period so a delayed eager/feature request can surface before the
+ * intentional Workshop navigation. A finite probe cannot prove that an
+ * arbitrarily future scheduled import will never occur.
+ */
+const INITIAL_SETTLE_MS = 750;
+
+async function waitForExpectedGraph(expected, tracker, timeoutMs = 15000) {
+  const wanted = [...expected.scripts, ...expected.styles].map(normalizeAssetPath);
+  const deadline = Date.now() + timeoutMs;
+  let missing = wanted;
+  while (Date.now() < deadline) {
+    missing = wanted.filter(
+      (asset) => !tracker.responses.has(asset) && !tracker.failures.has(asset),
+    );
+    if (!missing.length) return;
+    await new Promise((done) => setTimeout(done, 50));
+  }
+  throw new Error('Timed out waiting for the initial manifest graph: ' + missing.join(', '));
+}
+
+/** A page with the read-only fixtures and asset observation already installed. */
+async function fixturePage(context) {
+  const page = await context.newPage();
+  await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
+  const mutations = await mockApi(page);
+  const tracker = observeAssets(page);
+  return { page, mutations, tracker };
+}
+
 let browser;
 try {
   browser = await chromium.launch({
@@ -211,18 +281,25 @@ try {
   const page = await context.newPage();
   await page.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
   const unexpectedMutations = await mockApi(page);
-  const responses = observeAssets(page);
+  const tracker = observeAssets(page);
 
   await page.goto(origin + '/dashboard');
   await page.locator('.personal-dashboard').waitFor();
-  // Let Dashboard initialization settle so delayed eager/feature requests are
-  // observed rather than missed immediately after the first paint.
-  await page.waitForLoadState('networkidle');
+  // Deterministic readiness: the Dashboard's own polls have settled rather than
+  // an arbitrary network-idle gap. The status badge leaves its loading copy once
+  // the mocked account reads complete.
+  await page.locator('.dashboard-status-badge').filter({ hasNotText: 'Loading' }).waitFor();
+  await waitForExpectedGraph(expected, tracker);
+  await page.waitForTimeout(INITIAL_SETTLE_MS);
 
-  const initialFiles = assets(responses, '.js');
-  const initialCssFiles = assets(responses, '.css');
-  const jsComparison = compareInitialGraph(expected.scripts, initialFiles);
-  const cssComparison = compareInitialGraph(expected.styles, initialCssFiles);
+  const initialRequests = new Set(tracker.requests.keys());
+  const initialFailures = new Map(tracker.failures);
+  const initialFiles = assets(tracker.responses, '.js');
+  const initialCssFiles = assets(tracker.responses, '.css');
+  const initialJsRequests = [...initialRequests].filter((asset) => asset.endsWith('.js')).sort();
+  const initialCssRequests = [...initialRequests].filter((asset) => asset.endsWith('.css')).sort();
+  const jsComparison = compareInitialGraph(expected.scripts, initialJsRequests);
+  const cssComparison = compareInitialGraph(expected.styles, initialCssRequests);
   if (jsComparison.unexpected.length)
     throw new Error('Unexpected initial JavaScript: ' + JSON.stringify(jsComparison.unexpected));
   if (jsComparison.missing.length)
@@ -231,33 +308,51 @@ try {
     throw new Error('Unexpected initial CSS: ' + JSON.stringify(cssComparison.unexpected));
   if (cssComparison.missing.length)
     throw new Error('Missing initial CSS: ' + JSON.stringify(cssComparison.missing));
-  verifyAssetResponses(responses, initialFiles, 'js');
-  verifyAssetResponses(responses, initialCssFiles, 'css');
+  // Any failed asset request in the initial window is a real regression.
+  const initialFailed = compareAssetOutcomes(initialRequests, tracker.responses, initialFailures);
+  if (initialFailed.length)
+    throw new Error('Failed initial asset requests: ' + JSON.stringify(initialFailed));
+  verifyAssetResponses(tracker.responses, initialFiles, 'js');
+  verifyAssetResponses(tracker.responses, initialCssFiles, 'css');
+
+  // Prohibited feature implementations must not appear in any eager chunk,
+  // regardless of the generated filename.
+  const forbidden = [
+    'src/Training.tsx',
+    'src/Tournaments.tsx',
+    'src/RecordedReview.tsx',
+    'src/AgentAnalysis.tsx',
+    'src/AdvisorSelect.tsx',
+    'src/NewGameForm.tsx',
+    'src/AgentConfigFields.tsx',
+    'src/StatisticsPage.tsx',
+    'src/ProfilePage.tsx',
+    'src/Online.tsx',
+    'src/PortraitHall.tsx',
+    'src/PlayerTournaments.tsx',
+    'node_modules/react-markdown/',
+  ];
+  const eagerFiles = [...expected.scripts].map(normalizeAssetPath);
+  const forbiddenModules = findForbiddenModules(ownership.chunks, eagerFiles, forbidden);
+  if (forbiddenModules.length)
+    throw new Error(
+      'Prohibited feature modules in the eager graph: ' + JSON.stringify(forbiddenModules),
+    );
+  // Keep the lightweight filename-prefix signal as an independent cross-check.
+  const unexpectedlyEager = forbidden
+    .filter((name) => name.startsWith('src/'))
+    .map((name) => name.replace('src/', '').replace('.tsx', ''))
+    .filter((name) => initialFiles.some((file) => file.includes(`/${name}-`)));
+  if (unexpectedlyEager.length)
+    throw new Error('Unexpected eager feature ' + JSON.stringify(unexpectedlyEager));
 
   const initialInventory = await inventory(initialFiles);
   const initialCssInventory = await inventory(initialCssFiles);
 
-  const forbidden = [
-    'Training',
-    'Tournaments',
-    'RecordedReview',
-    'AgentAnalysis',
-    'AdvisorSelect',
-    'NewGameForm',
-    'StatisticsPage',
-    'ProfilePage',
-    'Online',
-  ];
-  const unexpectedlyEager = forbidden.filter((name) =>
-    initialFiles.some((file) => file.includes(`/${name}-`)),
-  );
-  if (unexpectedlyEager.length)
-    throw new Error('Unexpected eager feature ' + JSON.stringify(unexpectedlyEager));
-
   // Workshop navigation must request its own deferred chunk after first use.
   await page.getByRole('link', { name: 'AI Workshop', exact: true }).click();
   await page.locator('.training-workshop').waitFor();
-  const afterTraining = assets(responses, '.js');
+  const afterTraining = assets(tracker.responses, '.js');
   if (!afterTraining.some((file) => file.includes('/Training-')))
     throw new Error('Training chunk not loaded after Workshop navigation');
   if (afterTraining.some((file) => file.includes('/Tournaments-')))
@@ -265,44 +360,167 @@ try {
       'Training navigation must not eagerly load Tournaments: ' + JSON.stringify(afterTraining),
     );
 
-  // Production recovery: hold the real hashed New Game form chunk (including
-  // Vite's preload attempt) until the modal reports the failure, then recover
-  // through Retry on the same page.
+  // Production recovery scenarios. Each uses the real hashed assets and their
+  // manifest relationships, not mocked development-server module imports.
+  const recovery = {};
+
+  // 1. Existing New Game form JS recovery through Retry (preserved).
   const formChunk = Object.values(manifest).find((chunk) => chunk.name === 'NewGameForm')?.file;
   if (!formChunk) throw new Error('NewGameForm chunk missing from the production manifest');
-  const recoveryPage = await context.newPage();
-  await recoveryPage.addInitScript(() => localStorage.setItem('hnefatafl-language', 'en'));
-  const recoveryMutations = await mockApi(recoveryPage);
-  const recoveryResponses = observeAssets(recoveryPage);
-  const formName = formChunk.split('/').pop();
-  const formPattern = (url) => url.pathname.endsWith(`/${formName}`);
-  let blockForm = true;
-  await recoveryPage.route(formPattern, (route) => (blockForm ? route.abort() : route.continue()));
-  await recoveryPage.goto(origin + '/dashboard');
-  await recoveryPage.locator('.personal-dashboard').waitFor();
-  await recoveryPage.getByRole('button', { name: 'Play vs AI', exact: true }).click();
-  const recoveryDialog = recoveryPage.getByRole('dialog', {
-    name: 'Begin a new saga',
-    exact: true,
-  });
-  await recoveryDialog.getByRole('alert').waitFor();
-  const retry = recoveryDialog.getByRole('button', { name: 'Retry', exact: true });
-  await retry.waitFor();
-  // Vite preloads the module and its dependencies before importing it, so a
-  // single aborted request can fall back to the import. Hold the failure until
-  // the modal reports it, then prove the explicit Retry recovers the module.
-  blockForm = false;
-  await retry.click();
-  await recoveryDialog.getByRole('button', { name: 'To the table' }).waitFor();
-  if (!assets(recoveryResponses, '.js').includes(formChunk))
-    throw new Error('New Game form chunk did not recover through Retry');
-  if (recoveryMutations.length)
-    throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(recoveryMutations));
-  const recovery = {
-    feature: formChunk,
-    firstAttempt: 'aborted',
-    recoveredThrough: 'Retry',
-  };
+  {
+    const { page: recoveryPage, mutations, tracker: recoveryTracker } = await fixturePage(context);
+    const formName = formChunk.split('/').pop();
+    let blockForm = true;
+    await recoveryPage.route(
+      (url) => url.pathname.endsWith(`/${formName}`),
+      (route) => (blockForm ? route.abort() : route.continue()),
+    );
+    await recoveryPage.goto(origin + '/dashboard');
+    await recoveryPage.locator('.personal-dashboard').waitFor();
+    await recoveryPage.getByRole('button', { name: 'Play vs AI', exact: true }).click();
+    const recoveryDialog = recoveryPage.getByRole('dialog', {
+      name: 'Begin a new saga',
+      exact: true,
+    });
+    await recoveryDialog.getByRole('alert').waitFor();
+    blockForm = false;
+    await recoveryDialog.getByRole('button', { name: 'Retry', exact: true }).click();
+    await recoveryDialog.getByRole('button', { name: 'To the table' }).waitFor();
+    if (!assets(recoveryTracker.responses, '.js').includes(formChunk))
+      throw new Error('New Game form chunk did not recover through Retry');
+    if (mutations.length)
+      throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+    await recoveryPage.close();
+    recovery.newGameForm = {
+      feature: formChunk,
+      firstAttempt: 'aborted',
+      recoveredThrough: 'Retry',
+    };
+  }
+
+  // 2. A failed transitive preload dependency recovers through Retry.
+  const dependency = Object.values(manifest).find((chunk) => chunk.name === 'ConfigImportButton');
+  if (!dependency) throw new Error('ConfigImportButton chunk missing from the production manifest');
+  {
+    const { page: recoveryPage, mutations, tracker: recoveryTracker } = await fixturePage(context);
+    const dependencyName = dependency.file.split('/').pop();
+    let blockDependency = true;
+    await recoveryPage.route(
+      (url) => url.pathname.endsWith(`/${dependencyName}`),
+      (route) => (blockDependency ? route.abort() : route.continue()),
+    );
+    await recoveryPage.goto(origin + '/training');
+    await recoveryPage.getByRole('alert').waitFor();
+    blockDependency = false;
+    await recoveryPage.getByRole('button', { name: 'Retry', exact: true }).click();
+    await recoveryPage.locator('.training-workshop').waitFor();
+    if (!assets(recoveryTracker.responses, '.js').includes(dependency.file))
+      throw new Error('Transitive dependency did not recover through Retry');
+    if (mutations.length)
+      throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+    await recoveryPage.close();
+    recovery.transitiveDependency = {
+      feature: dependency.file,
+      firstAttempt: 'aborted',
+      recoveredThrough: 'Retry',
+    };
+  }
+
+  // 3. A deferred stylesheet failure recovers through the explicit Reload and
+  //    leaves the recovered content correctly styled.
+  const trainingCss = manifest['src/Training.tsx']?.css?.[0];
+  if (!trainingCss) throw new Error('Training deferred stylesheet missing from the manifest');
+  {
+    const { page: recoveryPage, mutations } = await fixturePage(context);
+    const cssName = trainingCss.split('/').pop();
+    let blockCss = true;
+    await recoveryPage.route(
+      (url) => url.pathname.endsWith(`/${cssName}`),
+      (route) => (blockCss ? route.abort() : route.continue()),
+    );
+    await recoveryPage.goto(origin + '/training');
+    await recoveryPage.getByRole('alert').waitFor();
+    blockCss = false;
+    await recoveryPage.getByRole('button', { name: 'Reload application' }).click();
+    await recoveryPage.locator('.training-workshop').waitFor();
+    const summary = recoveryPage.locator('.workshop-global');
+    await summary.waitFor();
+    const display = await summary.evaluate((element) => getComputedStyle(element).display);
+    if (display !== 'flex')
+      throw new Error(`Recovered Training content is not styled (display: ${display})`);
+    if (mutations.length)
+      throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+    await recoveryPage.close();
+    recovery.deferredStylesheet = {
+      feature: trainingCss,
+      firstAttempt: 'aborted',
+      recoveredThrough: 'Reload application',
+      recoveredComputedDisplay: display,
+    };
+  }
+
+  // 4. Retry alone cannot restore a deferred stylesheet: the failed CSS link is
+  //    not re-requested, so the feature mounts without its styles.
+  {
+    const { page: recoveryPage, mutations } = await fixturePage(context);
+    const cssName = trainingCss.split('/').pop();
+    await recoveryPage.route(
+      (url) => url.pathname.endsWith(`/${cssName}`),
+      (route) => route.abort(),
+    );
+    await recoveryPage.goto(origin + '/training');
+    await recoveryPage.getByRole('alert').waitFor();
+    await recoveryPage.getByRole('button', { name: 'Retry', exact: true }).click();
+    await recoveryPage.locator('.training-workshop').waitFor();
+    const display = await recoveryPage
+      .locator('.workshop-global')
+      .evaluate((element) => getComputedStyle(element).display);
+    if (display === 'flex') throw new Error('Retry unexpectedly restored the deferred stylesheet');
+    if (mutations.length)
+      throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+    await recoveryPage.close();
+    recovery.stylesheetRetryLimitation = {
+      feature: trainingCss,
+      retried: true,
+      computedDisplay: display,
+      note: 'Retry restores the JavaScript but not the failed stylesheet; Reload is required.',
+    };
+  }
+
+  // 5. A permanently missing hashed JavaScript asset keeps failing through
+  //    Retry and recovers only through a fresh document (explicit Reload).
+  {
+    const { page: recoveryPage, mutations } = await fixturePage(context);
+    const formName = formChunk.split('/').pop();
+    let blockAsset = true;
+    await recoveryPage.route(
+      (url) => url.pathname.endsWith(`/${formName}`),
+      (route) => (blockAsset ? route.abort() : route.continue()),
+    );
+    await recoveryPage.goto(origin + '/dashboard');
+    await recoveryPage.locator('.personal-dashboard').waitFor();
+    await recoveryPage.getByRole('button', { name: 'Play vs AI', exact: true }).click();
+    const dialog = recoveryPage.getByRole('dialog', { name: 'Begin a new saga', exact: true });
+    await dialog.getByRole('alert').waitFor();
+    await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
+    await dialog.getByRole('alert').waitFor();
+    blockAsset = false;
+    await dialog.getByRole('button', { name: 'Reload application' }).click();
+    await recoveryPage.locator('.personal-dashboard').waitFor();
+    await recoveryPage.getByRole('button', { name: 'Play vs AI', exact: true }).click();
+    await recoveryPage
+      .getByRole('dialog', { name: 'Begin a new saga', exact: true })
+      .getByRole('button', { name: 'To the table' })
+      .waitFor();
+    if (mutations.length)
+      throw new Error('Unexpected recovery API mutations: ' + JSON.stringify(mutations));
+    await recoveryPage.close();
+    recovery.missingHashedAsset = {
+      feature: formChunk,
+      retriedWhileMissing: true,
+      recoveredThrough: 'Reload application',
+    };
+  }
 
   if (unexpectedMutations.length)
     throw new Error('Unexpected API mutations: ' + JSON.stringify(unexpectedMutations));
@@ -315,6 +533,12 @@ try {
     node: process.version,
     fixture:
       'Production static assets; read-only mocked account/dashboard/workshop API responses. Network graph proof, not backend capacity evidence.',
+    initialWindow: {
+      readiness: 'Dashboard left its loading state and the manifest graph responded',
+      settleMs: INITIAL_SETTLE_MS,
+      limitation:
+        'A bounded observation window cannot prove that an arbitrarily future scheduled import never occurs.',
+    },
     manifest: {
       authenticatedEntry,
       publicEntry,
@@ -323,13 +547,16 @@ try {
     },
     initialFiles,
     initialCssFiles,
+    initialRequests: [...initialRequests].sort(),
+    initialFailed,
     initialInventory,
     initialCssInventory,
     initialRaw: initialInventory.reduce((n, f) => n + f.raw, 0),
     initialGzipLevel9: initialInventory.reduce((n, f) => n + f.gzip_level9, 0),
     initialCssRaw: initialCssInventory.reduce((n, f) => n + f.raw, 0),
     initialCssGzipLevel9: initialCssInventory.reduce((n, f) => n + f.gzip_level9, 0),
-    observedResponses: Object.fromEntries([...responses].sort()),
+    observedResponses: Object.fromEntries([...tracker.responses].sort()),
+    forbiddenModules,
     deferredFeaturesAbsentInitially: forbidden,
     afterTrainingFiles: afterTraining,
     recovery,

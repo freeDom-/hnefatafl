@@ -65,3 +65,41 @@ export function compareInitialGraph(expected, observed) {
     missing: [...expectedSet].filter((asset) => !observedSet.has(asset)).sort(),
   };
 }
+
+/** Normalize a Rollup/Vite module id to a query-free forward-slash path. */
+export function normalizeModuleId(id) {
+  return String(id).replace(/\\/g, '/').split('?')[0];
+}
+
+/**
+ * Find prohibited feature modules that appear in the eager chunk graph. The
+ * ownership map comes from build-time Rollup output, so a feature folded into a
+ * shared eager chunk is detected even when its generated filename lost the
+ * feature prefix. Intentionally shared lightweight dependencies are absent from
+ * `forbidden` and therefore allowed.
+ */
+export function findForbiddenModules(chunks, files, forbidden) {
+  const violations = [];
+  for (const file of files) {
+    for (const moduleId of chunks[file] || []) {
+      const normalized = normalizeModuleId(moduleId);
+      const feature = forbidden.find((fragment) => normalized.includes(fragment));
+      if (feature) violations.push({ file, module: normalized, feature });
+    }
+  }
+  return violations;
+}
+
+/**
+ * Asset requests that did not produce a successful response, including requests
+ * that failed before any response arrived. Missing or failed assets must never
+ * disappear silently from the inventory.
+ */
+export function compareAssetOutcomes(requests, responses, failures) {
+  const failed = [];
+  for (const asset of requests) {
+    const response = responses.get(asset);
+    if (!response || response.status !== 200 || failures.has(asset)) failed.push(asset);
+  }
+  return failed.sort();
+}

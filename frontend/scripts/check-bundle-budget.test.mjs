@@ -8,7 +8,10 @@ import { fileURLToPath } from 'node:url';
 import {
   APPEARANCE_INIT,
   collectInitialGraph,
+  collectRouteGraph,
+  compareAssetOutcomes,
   compareInitialGraph,
+  findForbiddenModules,
   normalizeAssetPath,
 } from './bundleGraph.mjs';
 const checker = fileURLToPath(new URL('./check-bundle-budget.mjs', import.meta.url));
@@ -178,4 +181,49 @@ test('compareInitialGraph reports unexpected delayed loads and missing initial a
   );
   assert.equal(normalizeAssetPath('http://127.0.0.1:1/assets/main.js?t=1'), 'assets/main.js');
   assert.equal(normalizeAssetPath('/assets/main.css'), 'assets/main.css');
+});
+
+test('findForbiddenModules detects a feature folded into an eager shared chunk but allows shared dependencies', () => {
+  const chunks = {
+    'assets/index-abc.js': ['/repo/frontend/src/main.tsx', '/repo/frontend/src/Training.tsx'],
+    'assets/shared.js': ['/repo/frontend/src/profileConfiguration.ts'],
+  };
+  assert.deepEqual(findForbiddenModules(chunks, ['assets/index-abc.js'], ['src/Training.tsx']), [
+    {
+      file: 'assets/index-abc.js',
+      module: '/repo/frontend/src/Training.tsx',
+      feature: 'src/Training.tsx',
+    },
+  ]);
+  // A legitimately shared lightweight dependency is not a prohibited feature.
+  assert.deepEqual(findForbiddenModules(chunks, ['assets/shared.js'], ['src/Training.tsx']), []);
+});
+
+test('compareAssetOutcomes reports failed and missing asset responses', () => {
+  const requests = new Set(['assets/a.js', 'assets/b.js', 'assets/c.js']);
+  const responses = new Map([
+    ['assets/a.js', { status: 200 }],
+    ['assets/b.js', { status: 404 }],
+  ]);
+  const failures = new Set(['assets/c.js']);
+  assert.deepEqual(compareAssetOutcomes(requests, responses, failures), [
+    'assets/b.js',
+    'assets/c.js',
+  ]);
+});
+
+test('collectRouteGraph keeps public and authenticated entries isolated while sharing light dependencies', () => {
+  const manifest = {
+    'index.html': { file: 'assets/main.js', dynamicImports: ['auth', 'public'] },
+    auth: { name: 'AuthenticatedArena', file: 'assets/auth.js', imports: ['shared'] },
+    public: { name: 'PublicArena', file: 'assets/public.js', imports: ['shared'] },
+    shared: { file: 'assets/shared.js' },
+  };
+  const authenticated = collectRouteGraph(manifest, 'AuthenticatedArena');
+  const publicGraph = collectRouteGraph(manifest, 'PublicArena');
+  assert.equal(authenticated.scripts.has('assets/public.js'), false);
+  assert.equal(publicGraph.scripts.has('assets/auth.js'), false);
+  // A deliberately shared lightweight dependency appears in both graphs.
+  assert.equal(authenticated.scripts.has('assets/shared.js'), true);
+  assert.equal(publicGraph.scripts.has('assets/shared.js'), true);
 });

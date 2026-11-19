@@ -1,9 +1,38 @@
 import { env } from 'node:process';
-import { defineConfig } from 'vitest/config';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, type Plugin } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
+const frontend = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Record which source modules each emitted chunk contains. The production probe
+ * uses this build-only ownership map to prove a prohibited feature was not
+ * folded into an eager shared chunk even when its generated filename lost the
+ * feature prefix. It is written outside `dist`, so it never ships to clients and
+ * never enters the bundle fingerprint.
+ */
+function bundleModuleOwnership(): Plugin {
+  return {
+    name: 'hnefatafl-bundle-module-ownership',
+    apply: 'build',
+    writeBundle(_options, bundle) {
+      const chunks: Record<string, string[]> = {};
+      for (const [fileName, output] of Object.entries(bundle)) {
+        if (output.type !== 'chunk') continue;
+        chunks[fileName] = Object.keys(output.modules).sort();
+      }
+      const target = resolve(frontend, '.cache/bundle-modules.json');
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, JSON.stringify({ chunks }, null, 2) + '\n');
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), bundleModuleOwnership()],
   build: { manifest: true },
   server: {
     proxy: {
