@@ -253,6 +253,9 @@ Reviewed head `946e448`: GitHub Actions run `44466537774` passed all four jobs
 script suites, the production build and every browser suite). This is historical
 evidence for the state before the stylesheet and setup-ownership hardening.
 
+Source head `2627ee1` (the stylesheet and setup-ownership fix): run `44483899080`
+passed all four jobs.
+
 Earlier in the branch: source head `29ee2a0` passed in run `44457030473`; the
 docs-only follow-up `4efda34` passed in run `44461520565`. An intermediate run
 `44450317436` on `5fed3f3` failed `test:e2e` because React StrictMode's
