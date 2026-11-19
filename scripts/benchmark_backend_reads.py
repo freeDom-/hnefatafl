@@ -407,17 +407,33 @@ def validate_fixture_storage(fixture: Fixture) -> None:
     """Reject indirect storage paths before the backend can open them.
 
     A directory name and marker do not prove that arbitrary preexisting content
-    is disposable. Every entry must be a real path inside the fixture, and the
-    application-owned paths must have the expected type. Symlinks are rejected
-    anywhere in the tree, so a link to operator storage cannot be followed.
+    is disposable. Every entry must be a real path on the fixture's own
+    filesystem, inside the fixture, and the application-owned files must not be
+    hard-linked to external storage. Symlinks are rejected anywhere in the tree.
+    This is a proportionate guard for an optional local benchmark, not a
+    defence against an arbitrary hostile same-user process.
     """
     root = fixture.path
+    try:
+        root_device = root.stat().st_dev
+    except OSError as error:
+        raise ValueError("Fixture directory is not readable") from error
     for current, directories, files in os.walk(root, followlinks=False):
         base = Path(current)
         for name in (*directories, *files):
             entry = base / name
             if entry.is_symlink():
                 raise ValueError(f"Fixture contains a symlink: {entry.relative_to(root)}")
+            try:
+                entry_stat = entry.stat()
+            except OSError as error:
+                raise ValueError(
+                    f"Fixture entry is not readable: {entry.relative_to(root)}"
+                ) from error
+            if entry_stat.st_dev != root_device:
+                raise ValueError(
+                    f"Fixture entry crosses a mount boundary: {entry.relative_to(root)}"
+                )
             if not entry.resolve().is_relative_to(root):
                 raise ValueError(f"Fixture path escapes the fixture: {entry.relative_to(root)}")
     for name, kind in KNOWN_STORAGE.items():
@@ -426,10 +442,16 @@ def validate_fixture_storage(fixture: Fixture) -> None:
             raise ValueError(f"Fixture storage path {name} must not be a symlink")
         if not path.exists():
             continue
+        path_stat = path.stat()
+        if path_stat.st_dev != root_device:
+            raise ValueError(f"Fixture storage path {name} crosses a mount boundary")
         if not path.resolve().is_relative_to(root):
             raise ValueError(f"Fixture storage path {name} escapes the fixture")
-        if kind == "file" and not path.is_file():
-            raise ValueError(f"Fixture storage path {name} must be a regular file")
+        if kind == "file":
+            if not path.is_file():
+                raise ValueError(f"Fixture storage path {name} must be a regular file")
+            if path_stat.st_nlink > 1:
+                raise ValueError(f"Fixture storage file {name} is hard-linked outside the fixture")
         if kind == "dir" and not path.is_dir():
             raise ValueError(f"Fixture storage path {name} must be a directory")
 
@@ -720,8 +742,16 @@ def cpu_affinity_count() -> int | None:
         return None
 
 
-def cgroup_v2_mount() -> Path | None:
-    """Resolve the cgroup2 mount from /proc/self/mountinfo when present."""
+@dataclass(frozen=True)
+class CgroupMount:
+    """A cgroup2 mount: the subtree root inside the filesystem and its mount point."""
+
+    root: str
+    point: Path
+
+
+def cgroup_v2_mount() -> CgroupMount | None:
+    """Resolve the cgroup2 mount root and point from /proc/self/mountinfo."""
     try:
         for line in Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines():
             before, separator, after = line.partition(" - ")
@@ -729,22 +759,45 @@ def cgroup_v2_mount() -> Path | None:
                 continue
             fields = before.split()
             if len(fields) >= 5 and after.split() and after.split()[0] == "cgroup2":
-                return Path(fields[4])
+                return CgroupMount(root=fields[3], point=Path(fields[4]))
     except OSError:
         return None
     return None
 
 
-def cgroup_v2_leaf(mount: Path) -> Path | None:
-    """Resolve this process's cgroup path, including nested systemd slices."""
+def _process_cgroup_path() -> str | None:
+    """This process's cgroup v2 path relative to the hierarchy root."""
     try:
         for line in Path("/proc/self/cgroup").read_text(encoding="utf-8").splitlines():
             if line.startswith("0::"):
-                relative = line.split("::", 1)[1].strip().lstrip("/")
-                return mount / relative if relative else mount
+                return line.split("::", 1)[1].strip()
     except OSError:
         return None
     return None
+
+
+def cgroup_v2_leaf(mount: CgroupMount) -> Path | None:
+    """Resolve this process's cgroup directory under a possibly delegated mount.
+
+    ``/proc/self/cgroup`` reports the path relative to the whole cgroup
+    hierarchy. A mountinfo root other than ``/`` means the mounted filesystem is
+    a delegated subtree, so the root prefix must be stripped before joining with
+    the mount point. Returns ``None`` when the process lies outside that subtree.
+    """
+    cgroup_path = _process_cgroup_path()
+    if cgroup_path is None:
+        return None
+    root = mount.root.rstrip("/")
+    if root:
+        if cgroup_path == root:
+            relative = ""
+        elif cgroup_path.startswith(root + "/"):
+            relative = cgroup_path[len(root) + 1 :]
+        else:
+            return None
+    else:
+        relative = cgroup_path.strip("/")
+    return mount.point / relative if relative else mount.point
 
 
 def _cgroup_v2_hierarchy(name: str) -> list[str]:
@@ -764,7 +817,7 @@ def _cgroup_v2_hierarchy(name: str) -> list[str]:
                 values.append(candidate.read_text(encoding="utf-8").strip())
         except OSError:
             pass
-        if current == mount or mount not in current.parents:
+        if current == mount.point or mount.point not in current.parents:
             break
         current = current.parent
     return values
@@ -781,7 +834,10 @@ def cgroup_cpu_quota_cores() -> float | None:
             continue
     if ratios:
         return min(ratios)
-    # cgroup v1 fallback.
+    # cgroup v1 fallback: this reads the fixed controller root and does not
+    # resolve nested slices or delegated mounts, so it may over-report the
+    # available quota. It is retained only for older hosts and returns null
+    # when the files are absent.
     try:
         quota = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text(encoding="utf-8"))
         period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text(encoding="utf-8"))
@@ -802,6 +858,7 @@ def cgroup_memory_limit_bytes() -> int | None:
                 continue
     if limits:
         return min(limits)
+    # cgroup v1 fallback with the same fixed-root limitation as the CPU quota.
     try:
         value = int(Path("/sys/fs/cgroup/memory/memory.limit_in_bytes").read_text(encoding="utf-8"))
         if value < (1 << 60):
@@ -971,22 +1028,31 @@ def measure_level(
             worker_problems.append("could not stop the API subprocess to unblock workers")
         if pending:
             pending = wait(pending, timeout=WORKER_DRAIN_SECONDS)[1]
-        workers_stopped = not pending
         if pending:
             worker_problems.append(f"{len(pending)} measurement workers did not stop")
+        # Inspect exceptions only on futures that already finished. A pending
+        # future is never awaited here, so the shutdown stays bounded. Python's
+        # ThreadPoolExecutor may still join a stuck non-daemon worker at
+        # interpreter shutdown; the external hard timeout is the final bound.
         for future in futures:
-            if future.cancelled():
+            if future.cancelled() or not future.done():
                 continue
             try:
-                future.result()
+                future.result(timeout=0)
             except BenchmarkCancelled:
                 pass
             except Exception as error:  # noqa: BLE001 - record worker failure explicitly
                 worker_problems.append(f"worker: {type(error).__name__}")
+        workers_stopped = not pending
         executor.shutdown(wait=False)
     with lock:
         snapshot = list(rows)
     return PhaseResult(snapshot, maximum[0], cancelled, worker_problems, workers_stopped)
+
+
+def measurement_should_stop(phase: PhaseResult, cancel: threading.Event) -> bool:
+    """A cancelled phase or one whose workers did not stop ends the plan."""
+    return phase.cancelled or cancel.is_set() or not phase.workers_stopped
 
 
 # ---------------------------------------------------------------------------
@@ -1301,6 +1367,91 @@ def require_no_ids(actual: set[str], label: str) -> None:
         raise RuntimeError(f"{label}: expected no records, found {sorted(actual)}")
 
 
+def require_page_size(identifiers: list, expected_count: int, label: str) -> None:
+    """Reject empty, short, over-long or duplicated pages."""
+    if len(identifiers) != expected_count:
+        raise RuntimeError(f"{label}: {len(identifiers)} records != expected {expected_count}")
+    if len(set(identifiers)) != len(identifiers):
+        raise RuntimeError(f"{label}: duplicate identifiers in one page")
+
+
+def validate_leaderboard_page(page: dict, account_ids: list[str], limit: int) -> None:
+    """Check the timed leaderboard page against the rated fixture accounts."""
+    entries = page.get("entries", [])
+    identifiers = [entry.get("account_id") for entry in entries]
+    expected_count = min(len(account_ids), limit)
+    require_page_size(identifiers, expected_count, "leaderboard")
+    if any(identifier not in account_ids for identifier in identifiers):
+        raise RuntimeError("Leaderboard returned a foreign account")
+    if page.get("total") != len(account_ids):
+        raise RuntimeError("Leaderboard total does not match the rated players")
+    if page.get("limit") != limit:
+        raise RuntimeError("Leaderboard did not report the requested page size")
+    if expected_count == len(account_ids) and set(identifiers) != set(account_ids):
+        raise RuntimeError("Leaderboard does not contain every rated account")
+    policy = page.get("policy")
+    if not isinstance(policy, dict) or not {
+        "version",
+        "initial_rating",
+        "k_factor",
+        "provisional_games",
+    } <= set(policy):
+        raise RuntimeError("Leaderboard policy metadata is missing")
+    for entry in entries:
+        if not {
+            "account_id",
+            "rating",
+            "rated_games",
+            "wins",
+            "losses",
+            "draws",
+            "rank",
+        } <= set(entry):
+            raise RuntimeError("Leaderboard entry is missing rating metadata")
+
+
+def validate_lobby_page(games: list[dict], expected_ordered: list[str], limit: int) -> None:
+    """Check the timed lobby page against the production ordering and visibility."""
+    identifiers = [game.get("id") for game in games]
+    expected_count = min(len(expected_ordered), limit)
+    require_page_size(identifiers, expected_count, "lobby")
+    if any(identifier not in expected_ordered for identifier in identifiers):
+        raise RuntimeError("Lobby returned an unexpected online game")
+    if any(game.get("status") == "completed" for game in games):
+        raise RuntimeError("Lobby exposed a completed game")
+    if identifiers != expected_ordered[:expected_count]:
+        raise RuntimeError("Lobby page does not match the production ordering")
+
+
+def validate_single_player_statistics(page: dict, expected_games: int) -> None:
+    """Check the timed statistics projection of the unfinished single-player fixture."""
+    games = page.get("games", [])
+    if len(games) != 1:
+        raise RuntimeError("Statistics endpoint did not return exactly one game")
+    totals = page.get("totals", {})
+    if (
+        totals.get("total_games") != expected_games
+        or totals.get("completed_games") != 0
+        or totals.get("in_progress") != expected_games
+    ):
+        raise RuntimeError("Single-player totals do not match the unfinished-game fixture")
+    statistics = page.get("statistics", {})
+    groups = {group.get("ruleset"): group for group in statistics.get("groups", [])}
+    if set(groups) != {"brandubh", "tablut"}:
+        raise RuntimeError("Single-player statistics groups do not match the fixture")
+    for ruleset, group in groups.items():
+        if (
+            group.get("played") != 1
+            or group.get("completed") != 0
+            or group.get("wins") != 0
+            or group.get("losses") != 0
+            or group.get("draws") != 0
+        ):
+            raise RuntimeError(f"Single-player statistics for {ruleset} are not unfinished")
+    if statistics.get("coverage", {}).get("unattributed_games") != 0:
+        raise RuntimeError("Single-player statistics report unattributed games")
+
+
 def tournament_games(bracket: dict) -> dict[str, tuple[str | None, str | None]]:
     """Map every bracket leg's game id to its two participant account ids."""
     games: dict[str, tuple[str | None, str | None]] = {}
@@ -1380,6 +1531,21 @@ def verify_fixture(
     facts["bracket_size"] = bracket_size
     facts["tournament_matches"] = expected_matches
     facts["tournament_legs"] = expected_legs
+
+    # The lobby page must follow the production ordering and visibility, so
+    # derive it from the same authoritative active/waiting rows the API reads.
+    with closing(sqlite3.connect(db_path)) as connection:
+        expected_lobby_order = [
+            row[0]
+            for row in connection.execute(
+                "SELECT id FROM online_games WHERE status IN ('waiting','active') "
+                "ORDER BY created_at DESC,id"
+            )
+        ]
+    if set(expected_lobby_order) != (
+        set(state.active_ids) | set(state.waiting_ids) | set(game_participants)
+    ):
+        raise RuntimeError("Fixture active/waiting games do not match the lobby query")
 
     for index, client in enumerate(actors):
         account_id = account_ids[index]
@@ -1568,20 +1734,13 @@ def verify_fixture(
         if profile.get("username") != me["username"] or profile.get("email") != me["email"]:
             raise RuntimeError("Profile does not match the authenticated account")
         statistics_page = get(client, "/api/personal/single-player?limit=1")
-        if len(statistics_page["games"]) != 1:
-            raise RuntimeError("Statistics endpoint did not return exactly one game")
         if statistics_page["games"][0]["id"] not in expected_single:
             raise RuntimeError("Statistics endpoint returned a foreign game")
+        validate_single_player_statistics(statistics_page, SINGLE_GAMES_PER_PLAYER)
         leaderboard_page = get(client, "/api/leaderboard?ruleset=brandubh&limit=10")
-        if {row["account_id"] for row in leaderboard_page["entries"]} - set(account_ids):
-            raise RuntimeError("Leaderboard returned a foreign account")
+        validate_leaderboard_page(leaderboard_page, account_ids, 10)
         lobby = get(client, "/api/online/games?section=all&limit=25")
-        expected_lobby = set(state.active_ids) | set(state.waiting_ids) | set(game_participants)
-        lobby_ids = {row["id"] for row in lobby["games"]}
-        if not lobby_ids <= expected_lobby:
-            raise RuntimeError("Lobby returned an unexpected online game")
-        if any(row["status"] == "completed" for row in lobby["games"]):
-            raise RuntimeError("Lobby exposed a completed game")
+        validate_lobby_page(lobby["games"], expected_lobby_order, 25)
         recent = get(client, "/api/history/games?category=online&limit=3")
         if len(recent["games"]) != 3:
             raise RuntimeError("Recent records did not return the requested page size")
@@ -1879,6 +2038,7 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
                 )
                 for i in range(args.users)
             ]
+            workers_aborted = False
             for level in concurrency:
                 if resources.cancel.is_set():
                     raise BenchmarkCancelled("cancelled before measurement")
@@ -1894,10 +2054,10 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
                     unblock=resources.terminate_process,
                 )
                 elapsed = time.perf_counter() - started
-                cpu_after = safe_server_cpu_seconds(process)
-                cpu_seconds = (
-                    None if cpu_before is None or cpu_after is None else cpu_after - cpu_before
-                )
+                # Preserve collected samples immediately, before metrics or any
+                # optional process telemetry, so a telemetry failure cannot
+                # discard them. Concurrency attribution stays on every sample.
+                raw.extend({"concurrency": level, **row} for row in phase.rows)
                 problems = validate_phase_counts(
                     phase.rows, args.users, args.rounds, ENDPOINT_LABELS
                 )
@@ -1935,9 +2095,11 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
                     **run_metrics,
                     "endpoints": {key: metrics(value) for key, value in by_endpoint.items()},
                 }
-                # Retain samples before reading optional process telemetry.
                 runs.append(run)
-                raw.extend({"concurrency": level, **row} for row in phase.rows)
+                cpu_after = safe_server_cpu_seconds(process)
+                cpu_seconds = (
+                    None if cpu_before is None or cpu_after is None else cpu_after - cpu_before
+                )
                 run["api_process_cpu_seconds"] = cpu_seconds
                 run["api_process_core_seconds_per_wall_second"] = (
                     cpu_seconds / elapsed if cpu_seconds is not None and elapsed else None
@@ -1948,9 +2110,14 @@ def main(args, resources: BenchmarkResources | None = None) -> dict:
                     and run["api_process_memory_kib_after_phase"] is not None
                 )
                 print(json.dumps({k: v for k, v in run.items() if k != "endpoints"}), flush=True)
-                if phase.cancelled or resources.cancel.is_set():
-                    cancelled = True
+                if measurement_should_stop(phase, resources.cancel):
+                    cancelled = cancelled or phase.cancelled or resources.cancel.is_set()
+                    workers_aborted = workers_aborted or not phase.workers_stopped
                     break
+            if workers_aborted:
+                raise RuntimeError(
+                    "Measurement workers did not stop; skipping remaining phases and verification"
+                )
             if resources.cancel.is_set():
                 raise BenchmarkCancelled("cancelled during measurement")
             # Repeat essential semantics after measurement, before success.
@@ -2105,16 +2272,17 @@ def read_indexes(db: Path) -> dict[str, list[str]]:
 
 
 def safe_server_memory(process: subprocess.Popen) -> dict | None:
+    # Telemetry is optional: any read failure must not discard collected samples.
     try:
         return server_memory(process)
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001
         return None
 
 
 def safe_server_cpu_seconds(process: subprocess.Popen) -> float | None:
     try:
         return server_cpu_seconds(process)
-    except (OSError, ValueError, IndexError):
+    except Exception:  # noqa: BLE001
         return None
 
 

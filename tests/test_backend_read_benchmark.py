@@ -690,7 +690,9 @@ def test_cleanup_failure_retains_fixture_and_is_not_ok(tmp_path):
     assert any("may still use it" in problem for problem in result.problems)
 
 
-def test_internal_shutdown_budget_fits_external_kill_grace():
+def test_internal_shutdown_budget_is_below_external_grace():
+    # A design invariant, not a proof that a stalled worker always stops in
+    # time; the external hard timeout remains the final bound.
     total = (
         bench.STOP_TIMEOUT_SECONDS
         + bench.WORKER_DRAIN_SECONDS
@@ -698,6 +700,15 @@ def test_internal_shutdown_budget_fits_external_kill_grace():
         + bench.TERMINATE_FORCE_SECONDS
     )
     assert total < bench.EXTERNAL_KILL_AFTER_SECONDS
+
+
+def test_measurement_should_stop_only_after_a_stopped_phase():
+    stopped = bench.PhaseResult([], 1, False, [], True)
+    assert bench.measurement_should_stop(stopped, threading.Event()) is False
+    pending = bench.PhaseResult([], 1, False, ["did not stop"], False)
+    assert bench.measurement_should_stop(pending, threading.Event()) is True
+    cancelled = bench.PhaseResult([], 1, True, [], True)
+    assert bench.measurement_should_stop(cancelled, threading.Event()) is True
 
 
 # ---------------------------------------------------------------------------
@@ -986,7 +997,209 @@ def test_cgroup_hierarchy_walks_nested_slices(tmp_path, monkeypatch):
     (root / "a" / "b").mkdir(parents=True)
     (root / "a" / "cpu.max").write_text("50000 100000", encoding="utf-8")
     (root / "a" / "b" / "cpu.max").write_text("max 100000", encoding="utf-8")
-    monkeypatch.setattr(bench, "cgroup_v2_mount", lambda: root)
-    monkeypatch.setattr(bench, "cgroup_v2_leaf", lambda mount: root / "a" / "b")
+    mount = bench.CgroupMount(root="/", point=root)
+    monkeypatch.setattr(bench, "cgroup_v2_mount", lambda: mount)
+    monkeypatch.setattr(bench, "cgroup_v2_leaf", lambda item: root / "a" / "b")
     assert bench._cgroup_v2_hierarchy("cpu.max") == ["max 100000", "50000 100000"]
     assert bench.cgroup_cpu_quota_cores() == 0.5
+
+
+def test_cgroup_leaf_resolves_normal_root_and_nested_slice(tmp_path, monkeypatch):
+    mount = bench.CgroupMount(root="/", point=tmp_path / "cg")
+    monkeypatch.setattr(bench, "_process_cgroup_path", lambda: "/user.slice/foo.scope")
+    assert bench.cgroup_v2_leaf(mount) == mount.point / "user.slice" / "foo.scope"
+
+
+def test_cgroup_leaf_resolves_delegated_subtree(tmp_path, monkeypatch):
+    mount = bench.CgroupMount(root="/delegated", point=tmp_path / "cg")
+    monkeypatch.setattr(bench, "_process_cgroup_path", lambda: "/delegated/session-1")
+    assert bench.cgroup_v2_leaf(mount) == mount.point / "session-1"
+
+
+def test_cgroup_leaf_outside_delegated_subtree_is_unavailable(tmp_path, monkeypatch):
+    mount = bench.CgroupMount(root="/delegated", point=tmp_path / "cg")
+    monkeypatch.setattr(bench, "_process_cgroup_path", lambda: "/other/slice")
+    assert bench.cgroup_v2_leaf(mount) is None
+
+
+def test_cgroup_leaf_unavailable_without_process_path(tmp_path, monkeypatch):
+    mount = bench.CgroupMount(root="/", point=tmp_path / "cg")
+    monkeypatch.setattr(bench, "_process_cgroup_path", lambda: None)
+    assert bench.cgroup_v2_leaf(mount) is None
+
+
+# ---------------------------------------------------------------------------
+# Bounded worker shutdown
+# ---------------------------------------------------------------------------
+
+
+def test_measure_level_reports_worker_pending_after_bounded_waits(monkeypatch):
+    monkeypatch.setattr(bench, "STOP_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(bench, "WORKER_DRAIN_SECONDS", 0.2)
+    monkeypatch.setattr(bench, "CANCEL_POLL_SECONDS", 0.05)
+    resources = BenchmarkResources()
+
+    class StuckActor:
+        def get(self, path):
+            time.sleep(1.2)
+            return httpx.Response(
+                200, request=httpx.Request("GET", "http://127.0.0.1:1"), content=b""
+            )
+
+    def cancel_later():
+        time.sleep(0.1)
+        resources.cancel.set()
+
+    threading.Thread(target=cancel_later, daemon=True).start()
+    started = time.monotonic()
+    phase = bench.measure_level(1, [0], [[("e", "/e")]], 1, resources, [StuckActor()])
+    elapsed = time.monotonic() - started
+    assert elapsed < 1.0
+    assert phase.cancelled is True
+    assert phase.workers_stopped is False
+    assert any("did not stop" in problem for problem in phase.worker_problems)
+    assert bench.measurement_should_stop(phase, resources.cancel) is True
+
+
+def test_safe_telemetry_swallows_unexpected_errors(monkeypatch):
+    def boom(process):
+        raise RuntimeError("unexpected telemetry failure")
+
+    monkeypatch.setattr(bench, "server_cpu_seconds", boom)
+    monkeypatch.setattr(bench, "server_memory", boom)
+
+    class Dead:
+        pid = 1
+
+    assert bench.safe_server_cpu_seconds(Dead()) is None
+    assert bench.safe_server_memory(Dead()) is None
+
+
+# ---------------------------------------------------------------------------
+# Hard-linked storage
+# ---------------------------------------------------------------------------
+
+
+def test_fixture_storage_rejects_hard_link_to_external_sentinel(tmp_path):
+    sentinel = tmp_path / "operator.sqlite3"
+    sentinel.write_text("operator-data", encoding="utf-8")
+    fixture = create_fixture_directory(tmp_path)
+    os.link(sentinel, fixture.path / "hnefatafl.sqlite3")
+    with pytest.raises(ValueError, match="hard-linked"):
+        validate_fixture_directory(fixture.path, require_config=False)
+    assert sentinel.read_text(encoding="utf-8") == "operator-data"
+
+
+# ---------------------------------------------------------------------------
+# Timed endpoint semantics
+# ---------------------------------------------------------------------------
+
+
+def _leaderboard_entry(account_id, rank):
+    return {
+        "account_id": account_id,
+        "rating": 1500.0,
+        "rated_games": 1,
+        "wins": 0,
+        "losses": 0,
+        "draws": 1,
+        "rank": rank,
+    }
+
+
+def _leaderboard_page(account_ids):
+    return {
+        "entries": [
+            _leaderboard_entry(account_id, index + 1)
+            for index, account_id in enumerate(account_ids)
+        ],
+        "total": len(account_ids),
+        "limit": 10,
+        "policy": {
+            "version": 1,
+            "initial_rating": 1500,
+            "k_factor": 32,
+            "provisional_games": 10,
+        },
+    }
+
+
+def test_validate_leaderboard_page_rejects_empty_incomplete_and_foreign():
+    accounts = ["a", "b", "c"]
+    bench.validate_leaderboard_page(_leaderboard_page(accounts), accounts, 10)
+    with pytest.raises(RuntimeError, match="expected 3"):
+        bench.validate_leaderboard_page(
+            {**_leaderboard_page(accounts), "entries": []}, accounts, 10
+        )
+    with pytest.raises(RuntimeError, match="foreign"):
+        foreign = _leaderboard_page(accounts)
+        foreign["entries"][0]["account_id"] = "z"
+        bench.validate_leaderboard_page(foreign, accounts, 10)
+    with pytest.raises(RuntimeError, match="total"):
+        bench.validate_leaderboard_page({**_leaderboard_page(accounts), "total": 2}, accounts, 10)
+
+
+def test_validate_lobby_page_rejects_empty_short_and_foreign():
+    expected = ["g1", "g2", "g3"]
+    games = [{"id": game_id, "status": "active"} for game_id in expected]
+    bench.validate_lobby_page(games, expected, 25)
+    with pytest.raises(RuntimeError, match="expected 3"):
+        bench.validate_lobby_page([], expected, 25)
+    with pytest.raises(RuntimeError, match="expected 3"):
+        bench.validate_lobby_page(games[:2], expected, 25)
+    with pytest.raises(RuntimeError, match="production ordering"):
+        bench.validate_lobby_page([games[1], games[0], games[2]], expected, 25)
+    with pytest.raises(RuntimeError, match="completed"):
+        bench.validate_lobby_page(
+            [{"id": game_id, "status": "completed"} for game_id in expected], expected, 25
+        )
+
+
+def test_validate_lobby_page_honours_a_limited_page():
+    expected = [f"g{index}" for index in range(30)]
+    page = [{"id": game_id, "status": "active"} for game_id in expected[:25]]
+    bench.validate_lobby_page(page, expected, 25)
+    with pytest.raises(RuntimeError, match="expected 25"):
+        bench.validate_lobby_page(page[:24], expected, 25)
+
+
+def _single_player_page():
+    return {
+        "games": [{"id": "g"}],
+        "totals": {"total_games": 2, "completed_games": 0, "in_progress": 2},
+        "statistics": {
+            "groups": [
+                {
+                    "ruleset": "brandubh",
+                    "played": 1,
+                    "completed": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                },
+                {
+                    "ruleset": "tablut",
+                    "played": 1,
+                    "completed": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                },
+            ],
+            "coverage": {"unattributed_games": 0},
+        },
+    }
+
+
+def test_validate_single_player_statistics_rejects_malformed():
+    bench.validate_single_player_statistics(_single_player_page(), 2)
+    with pytest.raises(RuntimeError, match="exactly one"):
+        bench.validate_single_player_statistics({**_single_player_page(), "games": []}, 2)
+    with pytest.raises(RuntimeError, match="totals"):
+        bench.validate_single_player_statistics(
+            {**_single_player_page(), "totals": {"total_games": 0}}, 2
+        )
+    with pytest.raises(RuntimeError, match="groups"):
+        bench.validate_single_player_statistics(
+            {**_single_player_page(), "statistics": {"groups": []}}, 2
+        )
