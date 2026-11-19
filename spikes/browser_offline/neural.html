@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hnefatafl neural inference spike</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1rem;
+        max-width: 70rem;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 0.75rem;
+        overflow: auto;
+      }
+      .row {
+        margin: 0.5rem 0;
+      }
+      label {
+        margin-right: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Neural inference spike</h1>
+    <p>
+      Experimental ORT Web inference for an exported policy/value model. This
+      page is isolated from the production application and downloads no
+      production dependency.
+    </p>
+    <div class="row">
+      <label>
+        Provider
+        <select id="provider">
+          <option value="wasm">wasm (single-threaded)</option>
+          <option value="webgpu">webgpu</option>
+        </select>
+      </label>
+      <button id="capabilities">Capabilities</button>
+      <button id="load">Load model</button>
+      <button id="infer">Infer</button>
+      <button id="benchmark">Benchmark batches</button>
+    </div>
+    <p id="status">Ready.</p>
+    <pre id="output"></pre>
+    <script type="module">
+      import { NeuralClient } from "./neural-client.js";
+      const client = new NeuralClient();
+      const status = document.querySelector("#status");
+      const output = document.querySelector("#output");
+      let assets = null;
+      let inputs = null;
+      const setStatus = (text) => {
+        status.textContent = text;
+      };
+      const show = (value) => {
+        output.textContent = JSON.stringify(value, null, 2);
+      };
+      async function ensureAssets() {
+        if (!assets) assets = await (await fetch("./neural-assets.json")).json();
+        if (!inputs) inputs = await (await fetch("./neural-inputs.json")).json();
+        return { assets, inputs };
+      }
+      const api = {
+        client,
+        async capabilities() {
+          const value = await client.capabilities();
+          show(value);
+          setStatus(value.webGPUAdapter ? "WebGPU adapter available" : "No WebGPU adapter");
+          return value;
+        },
+        async load(providerOverride) {
+          const { assets } = await ensureAssets();
+          const provider =
+            providerOverride || document.querySelector("#provider").value;
+          setStatus(`Loading ${provider}…`);
+          const value = await client.load("./" + assets.model.file, {
+            provider,
+            size: assets.model.size,
+          });
+          show(value);
+          setStatus(`Loaded with ${value.provider}`);
+          return value;
+        },
+        async infer() {
+          const { assets, inputs } = await ensureAssets();
+          if (!client.model) await api.load();
+          const value = await client.infer(inputs.planes, assets.model.size, inputs.legal);
+          const compact = {
+            provider: value.provider,
+            inference_ms: value.inference_ms,
+            value: value.value,
+            legal_count: value.legal.length,
+            legal_probability_sum: value.legal_probabilities.reduce((a, b) => a + b, 0),
+          };
+          show(compact);
+          return value;
+        },
+        async benchmark(batchSizes = [1, 2, 4, 8, 16, 32], reps = 5) {
+          const { assets, inputs } = await ensureAssets();
+          if (!client.model) await api.load();
+          setStatus("Benchmarking…");
+          const value = await client.benchmark(inputs.planes, assets.model.size, batchSizes, {
+            warmup: 2,
+            reps,
+          });
+          show(value);
+          setStatus("Benchmark complete");
+          return value;
+        },
+        assets: () => ensureAssets(),
+        setStatus,
+      };
+      window.neural = api;
+      for (const [id, action] of Object.entries({
+        capabilities: api.capabilities,
+        load: api.load,
+        infer: api.infer,
+        benchmark: () => api.benchmark(),
+      }))
+        document.querySelector(`#${id}`).onclick = () =>
+          Promise.resolve()
+            .then(action)
+            .catch((error) => {
+              setStatus(`Error: ${error.message}`);
+              show({ error: error.message });
+            });
+      window.neural.ready = ensureAssets().then(() => true);
+    </script>
+  </body>
+</html>
