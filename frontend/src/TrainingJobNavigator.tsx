@@ -4,6 +4,21 @@ import type { Job, Model } from './types';
 import { jobGameCounts } from './trainingGameCounts';
 import { filterJobs, jobName, jobRuleset, jobProgress, finite } from './trainingDashboardData';
 
+// The navigator and its tests share one responsive query so the desktop row and
+// mobile selector branches never drift apart.
+function desktopNavigation() {
+  return typeof matchMedia === 'undefined' || !matchMedia('(max-width: 900px)').matches;
+}
+
+// Focus only targets an element that is still connected, rendered and visible.
+// A collapsed <details> is checked explicitly because jsdom has no layout and
+// Element.checkVisibility() is unavailable there.
+function isFocusableTarget(element: HTMLElement | null): element is HTMLElement {
+  if (!element?.isConnected) return false;
+  if (element.closest('details:not([open])')) return false;
+  return typeof element.checkVisibility !== 'function' || element.checkVisibility();
+}
+
 export default function TrainingJobNavigator({
   jobs,
   selected,
@@ -18,11 +33,19 @@ export default function TrainingJobNavigator({
   const { t, locale } = useI18n();
   const navigatorRef = useRef<HTMLElement>(null);
   const selectorRef = useRef<HTMLSelectElement>(null);
-  // Incremented only by Show selected job so background polls never move focus.
-  const [focusRequest, setFocusRequest] = useState(0);
-  const [expanded, setExpanded] = useState(
-    () => typeof matchMedia === 'undefined' || !matchMedia('(max-width: 900px)').matches,
-  );
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  // One bounded request per Show selected job activation, tied to the intended
+  // job id. Background polls never create or replay a request.
+  const [focusRequest, setFocusRequest] = useState<{ id: string; token: number } | null>(null);
+  const focusToken = useRef(0);
+  const handledToken = useRef(0);
+  const latest = useRef({ jobs, selected });
+  latest.current = { jobs, selected };
+  // The disclosure is uncontrolled: it starts open on desktop and only Show
+  // selected job reopens it, so filtering, sorting and polling never expand it.
+  useEffect(() => {
+    if (detailsRef.current) detailsRef.current.open = desktopNavigation();
+  }, []);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [sort, setSort] = useState('active');
@@ -54,23 +77,34 @@ export default function TrainingJobNavigator({
       setStatus('all');
       setPage(Math.max(0, Math.floor(all.findIndex((job) => job.id === selected) / 20)));
     }
+    // The restored row lives inside the desktop disclosure; open it first.
+    if (desktopNavigation() && detailsRef.current) detailsRef.current.open = true;
     // Restore focus after the restored row/selector has rendered.
-    setFocusRequest((value) => value + 1);
+    focusToken.current += 1;
+    setFocusRequest({ id: selected, token: focusToken.current });
   };
   useEffect(() => {
-    if (!focusRequest) return;
-    const mobile = typeof matchMedia !== 'undefined' && matchMedia('(max-width: 900px)').matches;
-    const scope = navigatorRef.current;
+    if (!focusRequest || focusRequest.token <= handledToken.current) return;
+    // Mark handled before applying so a completed or cancelled request can
+    // never execute again, even if this effect runs a second time.
+    handledToken.current = focusRequest.token;
+    const { id } = focusRequest;
+    const { jobs: currentJobs, selected: currentSelection } = latest.current;
+    // A vanished job or a selection that moved on invalidates the request.
+    if (currentSelection !== id || !currentJobs.some((job) => job.id === id)) return;
     let target: HTMLElement | null = null;
-    if (mobile) target = selectorRef.current;
-    else if (scope) {
-      const rows = Array.from(scope.querySelectorAll<HTMLButtonElement>('.job-row[data-job-id]'));
-      target =
-        rows.find((row) => row.dataset.jobId === selected) ??
-        scope.querySelector<HTMLButtonElement>('.job-row[data-job-id]');
+    if (desktopNavigation()) {
+      const scope = navigatorRef.current;
+      const rows = scope
+        ? Array.from(scope.querySelectorAll<HTMLButtonElement>('.job-row[data-job-id]'))
+        : [];
+      target = rows.find((row) => row.dataset.jobId === id) ?? null;
+    } else {
+      target = selectorRef.current;
     }
-    // A job can vanish between activation and rendering; do not steal focus then.
-    if (!target) return;
+    // Never fall back to an unrelated row: drop the request if the intended
+    // target is gone, hidden or inside a collapsed disclosure.
+    if (!isFocusableTarget(target)) return;
     target.focus();
     target.scrollIntoView?.({ block: 'nearest' });
     // Only an explicit Show selected job request should move focus.
@@ -145,11 +179,7 @@ export default function TrainingJobNavigator({
           </button>
         </div>
       )}
-      <details
-        className="job-navigation-options"
-        open={expanded}
-        onToggle={(event) => setExpanded(event.currentTarget.open)}
-      >
+      <details ref={detailsRef} className="job-navigation-options">
         <summary>{t('Find a training job')}</summary>
         <div className="job-filters">
           <label>

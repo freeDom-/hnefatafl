@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import TrainingJobNavigator from './TrainingJobNavigator';
@@ -26,6 +26,26 @@ function stubMobileLayout(mobile: boolean) {
 }
 function rows() {
   return Array.from(document.querySelectorAll<HTMLButtonElement>('.job-row'));
+}
+// A layout stub whose responsive answer can change mid-test so mobile-to-desktop
+// resizing is exercised without a second breakpoint.
+function stubLayout() {
+  let mobile = false;
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    get matches() {
+      return query.includes('max-width: 900px') && mobile;
+    },
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+  return {
+    setMobile(value: boolean) {
+      mobile = value;
+    },
+  };
+}
+function disclosure() {
+  return screen.getByText('Find a training job').closest('details') as HTMLDetailsElement;
 }
 it('bounds native selector and rows to 20 while every matching job remains reachable', () => {
   render(<TrainingJobNavigator jobs={jobs} models={[]} onSelect={vi.fn()} />);
@@ -201,6 +221,108 @@ it('resets pagination after search or sort and clamps when polling removes pages
   });
   expect(screen.getByText('No jobs match these filters.')).toBeVisible();
 });
+it('opens a collapsed desktop disclosure and focuses the restored row from the keyboard', async () => {
+  const user = userEvent.setup();
+  const onSelect = vi.fn();
+  render(<TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={onSelect} />);
+  fireEvent.click(screen.getByText('Find a training job'));
+  expect(disclosure().open).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Previous job page' }));
+  expect(rows().some((row) => row.dataset.jobId === 'job-056')).toBe(false);
+  const restore = screen.getByRole('button', { name: 'Show selected job' });
+  restore.focus();
+  await user.keyboard('{Enter}');
+  expect(disclosure().open).toBe(true);
+  const restored = document.querySelector('[data-job-id="job-056"]') as HTMLElement;
+  expect(restored).toBeVisible();
+  expect(restored).toHaveFocus();
+  expect(onSelect).not.toHaveBeenCalled();
+});
+
+it('opens a disclosure collapsed on mobile after the layout resizes to desktop', async () => {
+  const layout = stubLayout();
+  layout.setMobile(true);
+  const user = userEvent.setup();
+  render(<TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={vi.fn()} />);
+  expect(disclosure().open).toBe(false);
+  layout.setMobile(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Previous job page' }));
+  const restore = screen.getByRole('button', { name: 'Show selected job' });
+  restore.focus();
+  await user.keyboard('{Enter}');
+  expect(disclosure().open).toBe(true);
+  expect(document.querySelector('[data-job-id="job-056"]')).toHaveFocus();
+});
+
+it('clears filters and opens a collapsed disclosure for a filtered-out selection', () => {
+  render(<TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={vi.fn()} />);
+  fireEvent.click(screen.getByText('Find a training job'));
+  fireEvent.change(screen.getByLabelText('Search jobs'), { target: { value: 'Strategist 007' } });
+  expect(rows()).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Show selected job' }));
+  expect(screen.getByLabelText('Search jobs')).toHaveValue('');
+  expect(disclosure().open).toBe(true);
+  expect(document.querySelector('[data-job-id="job-056"]')).toHaveFocus();
+});
+
+it('discards a restoration request when the selected job disappears before it applies', () => {
+  const onSelect = vi.fn();
+  const { rerender } = render(
+    <TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={onSelect} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Previous job page' }));
+  const search = screen.getByLabelText('Search jobs');
+  search.focus();
+  act(() => {
+    fireEvent.click(screen.getByRole('button', { name: 'Show selected job' }));
+    rerender(
+      <TrainingJobNavigator
+        jobs={jobs.slice(0, 56)}
+        selected="job-056"
+        models={[]}
+        onSelect={onSelect}
+      />,
+    );
+  });
+  expect(search).toHaveFocus();
+  expect(rows().some((row) => row.dataset.jobId === 'job-056')).toBe(false);
+  expect(document.querySelector('.job-row:focus')).toBeNull();
+  expect(onSelect).not.toHaveBeenCalled();
+});
+
+it('discards a restoration request when the selection changes before it applies', () => {
+  const onSelect = vi.fn();
+  const { rerender } = render(
+    <TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={onSelect} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Previous job page' }));
+  const search = screen.getByLabelText('Search jobs');
+  search.focus();
+  act(() => {
+    fireEvent.click(screen.getByRole('button', { name: 'Show selected job' }));
+    rerender(
+      <TrainingJobNavigator jobs={jobs} selected="job-000" models={[]} onSelect={onSelect} />,
+    );
+  });
+  expect(search).toHaveFocus();
+  expect(document.querySelector('[data-job-id="job-000"]')).not.toHaveFocus();
+  expect(document.querySelector('.job-row:focus')).toBeNull();
+});
+
+it('does not steal focus on later polling after a restoration request', () => {
+  const { rerender } = render(
+    <TrainingJobNavigator jobs={jobs} selected="job-056" models={[]} onSelect={vi.fn()} />,
+  );
+  const other = document.querySelector('[data-job-id="job-040"]') as HTMLElement;
+  other.focus();
+  const polled = jobs.map((job) => ({ ...job, progress: { iteration: 500 } }));
+  rerender(
+    <TrainingJobNavigator jobs={polled} selected="job-056" models={[]} onSelect={vi.fn()} />,
+  );
+  expect(other).toHaveFocus();
+  expect(document.querySelector('[data-job-id="job-056"]')).not.toHaveFocus();
+});
+
 it('native selector and keyboard activation select the intended job without losing ids', async () => {
   const onSelect = vi.fn();
   const user = userEvent.setup();

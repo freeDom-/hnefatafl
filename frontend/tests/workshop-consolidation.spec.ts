@@ -395,6 +395,112 @@ test.describe('Workshop mobile focus restoration', () => {
   });
 });
 
+test.describe('Workshop focus restoration edge cases', () => {
+  test.skip(
+    ({ isMobile }) => isMobile,
+    'The collapsed desktop disclosure and row focus run in the Chromium project.',
+  );
+
+  async function openTraining(page: Page, width = 1920) {
+    await prepare(page, 'kings-table', 'en', true);
+    await page.setViewportSize({ width, height: width <= 390 ? 844 : 1080 });
+    await page.goto('/training');
+    await expect(page.locator('.training-job-dashboard')).toBeVisible();
+  }
+
+  async function selectLastJob(page: Page) {
+    const nav = page.locator('.training-job-navigator');
+    await nav.getByRole('button', { name: 'Next job page' }).click();
+    await nav.getByRole('button', { name: 'Next job page' }).click();
+    await nav.locator('.job-row').last().click();
+    await expect(page.getByRole('heading', { name: 'Strategist 056', exact: true })).toBeVisible();
+  }
+
+  test('keyboard restoration opens a collapsed desktop disclosure and focuses the row', async ({
+    page,
+  }) => {
+    await openTraining(page);
+    const nav = page.locator('.training-job-navigator');
+    const disclosure = nav.locator('.job-navigation-options');
+    await selectLastJob(page);
+    await nav.getByRole('button', { name: 'Previous job page' }).click();
+    await nav.locator('summary').click();
+    await expect(disclosure).not.toHaveAttribute('open');
+    const show = nav.getByRole('button', { name: 'Show selected job' });
+    await show.focus();
+    await page.keyboard.press('Enter');
+    await expect(disclosure).toHaveAttribute('open');
+    const row = nav.locator('[data-job-id="page-056"]');
+    await expect(row).toBeVisible();
+    await expect(row).toBeFocused();
+    await expect(nav.locator('.job-row').first()).not.toBeFocused();
+    await expect(page.getByRole('heading', { name: 'Strategist 056', exact: true })).toBeVisible();
+  });
+
+  test('clears filters and opens a collapsed disclosure for a filtered-out selection', async ({
+    page,
+  }) => {
+    await openTraining(page);
+    const nav = page.locator('.training-job-navigator');
+    const disclosure = nav.locator('.job-navigation-options');
+    await selectLastJob(page);
+    await nav.getByLabel('Search jobs').fill('Strategist 007');
+    await expect(nav.locator('.job-row')).toHaveCount(1);
+    await nav.locator('summary').click();
+    await expect(disclosure).not.toHaveAttribute('open');
+    await nav.getByRole('button', { name: 'Show selected job' }).click();
+    await expect(disclosure).toHaveAttribute('open');
+    await expect(nav.getByLabel('Search jobs')).toHaveValue('');
+    await expect(nav.locator('[data-job-id="page-056"]')).toBeFocused();
+  });
+
+  test('opens a disclosure collapsed on mobile after resizing to desktop', async ({ page }) => {
+    await openTraining(page, 390);
+    const nav = page.locator('.training-job-navigator');
+    const disclosure = nav.locator('.job-navigation-options');
+    await expect(disclosure).not.toHaveAttribute('open');
+    const selector = nav.locator('.mobile-job-selector select');
+    await expect(selector).toBeVisible();
+    await nav.getByRole('button', { name: 'Next job page' }).click();
+    await nav.getByRole('button', { name: 'Next job page' }).click();
+    await selector.selectOption('page-056');
+    await nav.getByRole('button', { name: 'Previous job page' }).click();
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await expect(disclosure).not.toHaveAttribute('open');
+    const show = nav.getByRole('button', { name: 'Show selected job' });
+    await show.focus();
+    await page.keyboard.press('Enter');
+    await expect(disclosure).toHaveAttribute('open');
+    await expect(nav.locator('[data-job-id="page-056"]')).toBeFocused();
+  });
+
+  test('restoration does not refetch details or move focus during later polling', async ({
+    page,
+  }) => {
+    await page.clock.install();
+    await prepare(page, 'kings-table', 'en', true);
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    let detailRequests = 0;
+    await page.route(/\/api\/training\/jobs\/[^/?]+(?:\?.*)?$/, (route) => {
+      detailRequests++;
+      return route.continue();
+    });
+    await page.route(/\/api\/training\/jobs(?:\?.*)?$/, (route) => route.fulfill({ json: jobs }));
+    await page.goto('/training');
+    const nav = page.locator('.training-job-navigator');
+    await selectLastJob(page);
+    await nav.getByRole('button', { name: 'Previous job page' }).click();
+    const show = nav.getByRole('button', { name: 'Show selected job' });
+    await show.focus();
+    await page.keyboard.press('Enter');
+    await expect(nav.locator('[data-job-id="page-056"]')).toBeFocused();
+    const before = detailRequests;
+    await page.clock.runFor(6000);
+    await expect(nav.locator('[data-job-id="page-056"]')).toBeFocused();
+    expect(detailRequests).toBe(before);
+  });
+});
+
 test('Workshop task and shell links reopen sections and navigate across routes without reloading', async ({
   page,
 }) => {
