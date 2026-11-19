@@ -529,6 +529,15 @@ def test_serve_rejects_a_non_fixture_directory(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def test_safe_error_redacts_secret_like_diagnostics():
+    redacted = bench.safe_error(RuntimeError("login failed for password=hunter2"))
+    assert "hunter2" not in redacted
+    assert redacted.endswith("<redacted diagnostic>")
+    assert bench.safe_error(RuntimeError("Fixture request failed")) == (
+        "RuntimeError: Fixture request failed"
+    )
+
+
 def test_require_never_leaks_response_body_or_credentials():
     response = httpx.Response(
         500,

@@ -1414,6 +1414,13 @@ def verify_fixture(
         )
         if completed_local["winner"] != "draw" or completed_local["plies"] != len(REPETITION_MOVES):
             raise RuntimeError("Completed local fixture is not the expected repetition draw")
+        local_replay = get(client, f"/api/personal/local/{state.local_ids[index][0]}/replay")
+        if local_replay.get("validated") is not True or len(local_replay["states"]) != 9:
+            raise RuntimeError("Completed local replay is not a validated nine-state game")
+        if [(row["source"], row["target"]) for row in local_replay["moves"]] != (
+            expected_repetition
+        ):
+            raise RuntimeError("Completed local replay moves do not match the seeded line")
 
         expected_single = set(state.single_ids[index])
         single_all = get(client, "/api/personal/single-player?limit=100")
@@ -1558,7 +1565,7 @@ def verify_fixture(
             f"dashboard single-player actor {index}",
         )
         profile = get(client, "/api/profile")
-        if profile.get("id") not in (None, account_id):
+        if profile.get("username") != me["username"] or profile.get("email") != me["email"]:
             raise RuntimeError("Profile does not match the authenticated account")
         statistics_page = get(client, "/api/personal/single-player?limit=1")
         if len(statistics_page["games"]) != 1:
@@ -1756,8 +1763,16 @@ def write_summary_evidence(out: Path, report: dict) -> list[str]:
     return []
 
 
+SECRET_PATTERN = re.compile(
+    r"(?i)(password|passwd|token|csrf|cookie|authorization|secret|bearer|api[_-]?key)"
+)
+
+
 def safe_error(error: BaseException) -> str:
+    """Type plus a short message, redacted when it may carry a secret."""
     text = f"{type(error).__name__}: {error}"
+    if SECRET_PATTERN.search(text):
+        return f"{type(error).__name__}: <redacted diagnostic>"
     return text[:500]
 
 
