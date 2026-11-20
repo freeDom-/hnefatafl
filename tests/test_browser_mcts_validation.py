@@ -21,7 +21,7 @@ NODE = shutil.which("node")
 NEURAL_DIR = os.environ.get("SPIKE_NEURAL_DIR")
 
 
-def _run(script: str, *args: str, timeout: int = 300) -> subprocess.CompletedProcess:
+def _run(script: str, *args: str, timeout: int = 900) -> subprocess.CompletedProcess:
     return subprocess.run(
         [NODE, str(SPIKE / script), *args],
         capture_output=True,
@@ -42,7 +42,7 @@ def test_analysis_ui_jarl_and_neural_mcts(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(output.read_text())
     assert report["ok"] is True
-    assert len(report["checks"]) == 9
+    assert len(report["checks"]) == 18
     assert all(check["ok"] for check in report["checks"])
 
 
@@ -80,5 +80,12 @@ def test_browser_level_a_parity_is_exact(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(output.read_text())
     assert report["ok"] is True
-    assert report["comparison"]["parity"] is True
-    assert report["comparison"]["exact_cases"] == report["comparison"]["positions"]
+    comparison = report["comparison"]
+    assert comparison["acceptance"] is True
+    assert comparison["execution_validity"]["ok"] is True
+    assert comparison["deterministic_parity"]["ok"] is True
+    assert (
+        comparison["deterministic_parity"]["exact_cases"]
+        == comparison["deterministic_parity"]["positions"]
+    )
+    assert comparison["workload_completion"]["complete"] is True

@@ -74,16 +74,18 @@ try {
     return route.continue();
   });
 
-  async function freshPage() {
+  async function freshPage(setup = null) {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => errors.push(String(error)));
+    const startIndex = requested.length;
+    if (setup) await setup(page);
     await page.goto(origin + "/neural.html");
     await page.waitForFunction(() => window.neural && window.neural.ready, null, {
       timeout: 90000,
     });
     await page.evaluate(() => window.neural.analysis.loadPositions());
-    return { page, errors };
+    return { page, errors, startIndex, requested };
   }
   async function analysisState(page) {
     return page.textContent("#analysis-state");
@@ -114,8 +116,7 @@ try {
   }
 
   await record("Jarl analysis works without the neural runtime", async () => {
-    const { page, errors } = await freshPage();
-    const before = requested.length;
+    const { page, errors, startIndex, requested } = await freshPage();
     await page.evaluate(() => {
       const analysis = window.neural.analysis;
       analysis.setRuleset("brandubh");
@@ -136,13 +137,59 @@ try {
     assert.equal(state.neuralWorker, false, "ORT worker must not be created for Jarl");
     assert.equal(state.model, false, "no model may be loaded for Jarl");
     assert.equal(state.searchWorker, false, "search worker must not be created for Jarl");
-    const newRequests = requested.slice(before);
+    const newRequests = requested.slice(startIndex);
     assert.equal(
       newRequests.some((path) => path.includes("model/model.onnx") || path.includes("/ort/")),
       false,
       `unexpected neural asset requests: ${newRequests.join(", ")}`,
     );
     assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Jarl works when neural-only assets are unavailable", async () => {
+    const { page, errors } = await freshPage(async (page) => {
+      await page.route("**/neural-assets.json", (route) => route.abort());
+      await page.route("**/model/reference.json", (route) => route.abort());
+      await page.route("**/model/model.onnx", (route) => route.abort());
+      await page.route("**/ort/**", (route) => route.abort());
+    });
+    await page.evaluate(() => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset("tablut");
+      analysis.setAgent("jarl");
+      analysis.setBudget({ time: 1, seed: 7 });
+    });
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed");
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.agent, "jarl");
+    assert.equal(result.position, "tablut-opening");
+    assert.ok(result.analysis.best_move);
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Asset loading is lazy and only neural MCTS needs the manifest", async () => {
+    const { page, startIndex, requested } = await freshPage();
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    const requests = requested.slice(startIndex);
+    assert.ok(
+      requests.some((path) => path.includes("neural-assets.json")),
+      "neural MCTS loads the model manifest",
+    );
+    assert.equal(
+      requests.some((path) => path.includes("reference.json")),
+      false,
+      "neural MCTS must not download numerical reference vectors",
+    );
     await page.close();
   });
 
@@ -350,6 +397,206 @@ try {
     assert.equal(payload.agent, "neural-mcts");
     assert.equal(payload.search.completed_simulations, 128);
     assert.ok(payload.search.position_identity);
+    await page.close();
+  });
+
+  await record("Cancellation during model download allows an immediate retry", async () => {
+    let delayed = true;
+    const { page } = await freshPage(async (page) => {
+      await page.route("**/model/model.onnx", async (route) => {
+        if (delayed) {
+          delayed = false;
+          await delay(1200);
+        }
+        await route.continue();
+      });
+    });
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "loading", 120000);
+    await page.click("#analysis-cancel");
+    assert.equal(await analysisState(page), "cancelled");
+    await started;
+    assert.equal(
+      await page.evaluate(() => window.neural.client.model),
+      null,
+      "a cancelled model download must not publish a session",
+    );
+    await delay(1300);
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.search.completed_simulations, 128);
+    await page.close();
+  });
+
+  await record("Cancellation during ORT session initialization recovers", async () => {
+    let delayed = true;
+    const { page } = await freshPage(async (page) => {
+      await page.route("**/ort/ort-wasm-simd-threaded.wasm", async (route) => {
+        if (delayed) {
+          delayed = false;
+          await delay(1200);
+        }
+        await route.continue();
+      });
+    });
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "loading", 120000);
+    await page.click("#analysis-cancel");
+    await started;
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.search.completed_simulations, 128);
+    await page.close();
+  });
+
+  await record("Cancellation during cold search-worker initialization recovers", async () => {
+    let delayed = true;
+    const { page } = await freshPage(async (page) => {
+      await page.route("**/runtime/pyodide.asm.wasm", async (route) => {
+        if (delayed) {
+          delayed = false;
+          await delay(1500);
+        }
+        await route.continue();
+      });
+    });
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "loading", 120000);
+    await page.click("#analysis-cancel");
+    assert.equal(await analysisState(page), "cancelled");
+    await started;
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.search.completed_simulations, 128);
+    await page.close();
+  });
+
+  await record("Back-forward restoration installs a usable runtime", async () => {
+    const { page } = await freshPage();
+    await page.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })),
+    );
+    await page.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
+    );
+    // Jarl works after restoration.
+    await page.evaluate(() => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset("brandubh");
+      analysis.setAgent("jarl");
+      analysis.setBudget({ time: 1 });
+    });
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 120000);
+    assert.ok((await page.evaluate(() => window.neural.analysis.result())).analysis.best_move);
+    // A full neural MCTS search works after restoration, not only a probe.
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.agent, "neural-mcts");
+    assert.equal(result.search.completed_simulations, 128);
+    assert.ok(result.search.search_id);
+    await page.close();
+  });
+
+  await record("Navigation away and back runs a new neural MCTS search", async () => {
+    const { page } = await freshPage();
+    await page.goto("about:blank");
+    await page.goBack();
+    await page.waitForFunction(() => window.neural && window.neural.ready, null, {
+      timeout: 60000,
+    });
+    await page.evaluate(() => window.neural.analysis.loadPositions());
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.search.completed_simulations, 128);
+    await page.close();
+  });
+
+  await record("Non-default positions are preserved and analyzed exactly", async () => {
+    const { page } = await freshPage();
+    const positions = await page.evaluate(() => window.neural.analysis.positions());
+    const chosen = positions.filter(
+      (entry) => entry.ruleset === "brandubh" && entry.kind !== "opening",
+    );
+    assert.ok(chosen.length >= 2, "expected midgame/endgame/repetition fixtures");
+    for (const entry of chosen.slice(0, 3)) {
+      await page.evaluate(
+        ({ ruleset, name }) => {
+          const analysis = window.neural.analysis;
+          analysis.setRuleset(ruleset);
+          analysis.setPosition(name);
+          analysis.setAgent("jarl");
+          analysis.setBudget({ time: 1 });
+        },
+        { ruleset: entry.ruleset, name: entry.name },
+      );
+      // Reloading an already available position list must not reset selection.
+      await page.evaluate(() => window.neural.analysis.loadPositions());
+      assert.equal(
+        await page.evaluate(() => window.neural.analysis.ui.position.value),
+        entry.name,
+      );
+      await page.evaluate(() => window.neural.analysis.start());
+      await waitAnalysisState(page, "completed", 120000);
+      const result = await page.evaluate(() => window.neural.analysis.result());
+      assert.equal(result.position, entry.name);
+      assert.equal(result.ruleset, entry.ruleset);
+      assert.ok(result.analysis.best_move, "the selected position produced a move");
+    }
+    await page.close();
+  });
+
+  await record("A selector change cannot redirect an in-flight analysis", async () => {
+    const { page } = await freshPage();
+    await page.evaluate(() => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset("brandubh");
+      analysis.setPosition("brandubh-opening");
+      analysis.setAgent("jarl");
+      analysis.setBudget({ time: 1 });
+    });
+    const started = page.evaluate(() => window.neural.analysis.start());
+    // Change the visible selection while the operation is admitted/running.
+    await page.evaluate(() => window.neural.analysis.setPosition("brandubh-endgame"));
+    await started;
+    await waitAnalysisState(page, "completed", 120000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.position, "brandubh-opening");
     await page.close();
   });
 

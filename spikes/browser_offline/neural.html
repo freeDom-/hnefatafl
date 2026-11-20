@@ -170,12 +170,21 @@
         normalizeSearchSettings,
       } from "./search-client.js";
       import { LocalAnalysisClient } from "./analysis-client.js";
-      const client = new NeuralClient();
-      // Browser neural MCTS: the coordinator owns the Pyodide search worker and
-      // relays each dependent leaf evaluation to the neural inference worker.
-      const coordinator = new NeuralSearchCoordinator({ neural: client });
-      // Jarl runs on the shared Python engine and never loads the neural runtime.
-      const jarl = new LocalAnalysisClient();
+      // The runtime instances are recreated after a back-forward cache restore:
+      // a disposed coordinator can never be reused, so restoration must install
+      // fresh clients rather than expose a permanently retired instance.
+      let client;
+      let coordinator;
+      let jarl;
+      function createRuntime() {
+        client = new NeuralClient();
+        // Browser neural MCTS: the coordinator owns the Pyodide search worker and
+        // relays each dependent leaf evaluation to the neural inference worker.
+        coordinator = new NeuralSearchCoordinator({ neural: client });
+        // Jarl runs on the shared Python engine; it never loads the neural runtime.
+        jarl = new LocalAnalysisClient();
+      }
+      createRuntime();
       const JARL_CONFIG = {
         algorithm: "alpha_beta",
         depth: 5,
@@ -192,11 +201,16 @@
       const status = document.querySelector("#status");
       const output = document.querySelector("#output");
       const providerSelect = document.querySelector("#provider");
-      const controls = document.querySelectorAll("button");
+      // Only the raw inference controls are governed by the inference busy flag;
+      // the analysis controls have their own ownership state.
+      const controls = ["capabilities", "load", "infer", "inferMany", "benchmark"].map(
+        (id) => document.querySelector(`#${id}`),
+      );
       let assets = null;
       let inputs = null;
-      let assetsPromise = null;
-      let inputsPromise = null;
+      let manifestPromise = null;
+      let referencePromise = null;
+      let positionsPromise = null;
       let active = null;
       let shuttingDown = false;
       // Counts worker creations so tests can prove that a page-lifecycle
@@ -208,8 +222,9 @@
         status.textContent = text;
       }
       function setBusy(busy) {
-        for (const button of controls) if (button.id !== "cancel") button.disabled = busy;
+        for (const button of controls) button.disabled = busy;
         providerSelect.disabled = busy;
+        syncAnalysisControls();
       }
       function show(value) {
         output.textContent = JSON.stringify(value, null, 2);
@@ -221,6 +236,12 @@
       }
       async function run(action) {
         if (active) return undefined;
+        if (analysisToken) {
+          // The raw inference controls and neural MCTS share one neural client;
+          // incompatible operations must not compete for it.
+          setState("failed", "an analysis operation is running");
+          return undefined;
+        }
         const token = Symbol("run");
         active = token;
         setBusy(true);
@@ -267,37 +288,60 @@
           throw error;
         });
       }
-      function sharedAssets() {
-        if (!assetsPromise) {
-          assetsPromise = resetable(
+      // Nothing neural is fetched eagerly: Jarl runs with no neural network
+      // requests at all, neural MCTS loads only the model manifest, and the large
+      // numerical reference vectors are loaded only by raw inference/benchmarks.
+      function sharedManifest() {
+        if (!manifestPromise) {
+          manifestPromise = resetable(
             () => fetchJson("./neural-assets.json"),
             () => {
-              assetsPromise = null;
+              manifestPromise = null;
             },
-          );
+          ).then((value) => {
+            assets = value;
+            return value;
+          });
         }
-        if (!inputsPromise) {
-          inputsPromise = resetable(
+        return manifestPromise;
+      }
+      function sharedReference() {
+        if (!referencePromise) {
+          referencePromise = resetable(
             () => fetchJson("./model/reference.json"),
             () => {
-              inputsPromise = null;
+              referencePromise = null;
             },
-          );
+          ).then((value) => {
+            inputs = value;
+            return value;
+          });
         }
-        return Promise.all([assetsPromise, inputsPromise]);
+        return referencePromise;
       }
       // Shared fetches may be cached, but a cancelled or shut-down operation
       // must not resume when a shared fetch completes: ownership is re-checked
       // after the await, so no worker or model can be created afterwards.
-      async function assetsFor(check) {
-        const [loadedAssets, loadedInputs] = await sharedAssets();
+      async function manifestFor(check) {
+        const value = await sharedManifest();
         check();
-        assets = loadedAssets;
-        inputs = loadedInputs;
+        return value;
+      }
+      async function referenceFor(check) {
+        const value = await sharedReference();
+        check();
+        return value;
+      }
+      async function assetsFor(check) {
+        await manifestFor(check);
+        await referenceFor(check);
         return { assets, inputs };
       }
       function ensureAssets(token) {
         return assetsFor(() => ensureCurrent(token));
+      }
+      function ensureManifest(token) {
+        return manifestFor(() => ensureCurrent(token));
       }
       function identityOf(loaded) {
         const identity = {
@@ -312,7 +356,7 @@
       // Internal load used inside an operation already owned by run(). It never
       // calls run(), and it re-checks ownership after every asynchronous step.
       async function ensureLoaded(token, { force = false } = {}) {
-        await ensureAssets(token);
+        await ensureManifest(token);
         ensureCurrent(token);
         const provider = providerSelect.value;
         if (!force && client.model && client.model.provider === provider) return client.model;
@@ -366,7 +410,7 @@
         document.querySelector(id).textContent = value ?? "—";
       }
       function syncAnalysisControls() {
-        const busy = analysisToken !== null;
+        const busy = analysisToken !== null || active !== null;
         const neural = analysisUi.agent.value === "neural";
         for (const control of [analysisUi.ruleset, analysisUi.position, analysisUi.agent])
           control.disabled = busy;
@@ -379,7 +423,8 @@
         analysisUi.time.disabled = busy;
         analysisUi.seed.disabled = busy;
         analysisUi.start.disabled = busy;
-        analysisUi.export.disabled = analysisResult === null;
+        analysisUi.cancel.disabled = analysisToken === null;
+        analysisUi.export.disabled = analysisResult === null || busy;
       }
       function ensureAnalysisCurrent(token) {
         if (shuttingDown) throw new DOMException("Page is shutting down", "AbortError");
@@ -388,6 +433,7 @@
       }
       function selectAnalysisPositions() {
         const ruleset = analysisUi.ruleset.value;
+        const previous = analysisUi.position.value;
         const options = (analysisPositions ?? []).filter(
           (entry) => entry.ruleset === ruleset,
         );
@@ -399,10 +445,23 @@
             return option;
           }),
         );
+        // Refreshing already loaded options must not silently reset the user's
+        // selection; only fall back to the first option when it is unavailable.
+        if (options.some((entry) => entry.name === previous))
+          analysisUi.position.value = previous;
       }
       async function loadAnalysisPositions() {
-        if (!analysisPositions) analysisPositions = await fetchJson("./mcts-positions.json");
-        selectAnalysisPositions();
+        if (!analysisPositions) {
+          if (!positionsPromise)
+            positionsPromise = resetable(
+              () => fetchJson("./mcts-positions.json"),
+              () => {
+                positionsPromise = null;
+              },
+            );
+          analysisPositions = await positionsPromise;
+          selectAnalysisPositions();
+        }
         return analysisPositions;
       }
       function publishAnalysis(result) {
@@ -487,12 +546,12 @@
         }
         return { agent: "jarl", ...result };
       }
-      async function runNeuralAnalysis(token, position, settings) {
+      async function runNeuralAnalysis(token, position, settings, provider) {
         // The analysis owns its own operation token, so it must not be checked
-        // against the inference operation's ownership.
-        await assetsFor(() => ensureAnalysisCurrent(token));
+        // against the inference operation's ownership. Neural MCTS needs only
+        // the model manifest, never the large numerical reference vectors.
+        await manifestFor(() => ensureAnalysisCurrent(token));
         ensureAnalysisCurrent(token);
-        const provider = analysisUi.provider.value;
         if (!client.model || client.model.provider !== provider) {
           setAnalysisState("loading", `loading ${provider} model…`);
           await client.load("./" + assets.model.file, {
@@ -528,9 +587,28 @@
       async function runAnalysis() {
         if (analysisToken) return undefined;
         if (shuttingDown) return undefined;
+        if (active) {
+          setAnalysisState("failed", "an inference operation is running");
+          return undefined;
+        }
         const token = Symbol("analysis");
         analysisToken = token;
         analysisResult = null;
+        setBusy(true);
+        // Capture the exact position and settings at admission. A later selector
+        // change must never redirect a running analysis to another position.
+        const requested = {
+          ruleset: analysisUi.ruleset.value,
+          position: analysisUi.position.value,
+          agent: analysisUi.agent.value,
+          provider: analysisUi.provider.value,
+          settings: {
+            iterations: Number(analysisUi.simulations.value),
+            time_limit: Number(analysisUi.time.value),
+            seed: Number(analysisUi.seed.value),
+            exploration: Number(analysisUi.exploration.value),
+          },
+        };
         document.querySelector("#analysis-output").textContent = "";
         syncAnalysisControls();
         const started = performance.now();
@@ -538,19 +616,18 @@
           const positions = await loadAnalysisPositions();
           ensureAnalysisCurrent(token);
           const position = positions.find(
-            (entry) => entry.name === analysisUi.position.value,
+            (entry) =>
+              entry.name === requested.position && entry.ruleset === requested.ruleset,
           );
-          if (!position) throw new Error("Select a position first");
-          const settings = {
-            iterations: Number(analysisUi.simulations.value),
-            time_limit: Number(analysisUi.time.value),
-            seed: Number(analysisUi.seed.value),
-            exploration: Number(analysisUi.exploration.value),
-          };
+          if (!position)
+            throw new Error(
+              `The selected ${requested.ruleset} position is not available`,
+            );
+          const settings = requested.settings;
           const result =
-            analysisUi.agent.value === "jarl"
+            requested.agent === "jarl"
               ? await runJarlAnalysis(token, position, settings)
-              : await runNeuralAnalysis(token, position, settings);
+              : await runNeuralAnalysis(token, position, settings, requested.provider);
           ensureAnalysisCurrent(token);
           result.elapsed_ms = result.elapsed_ms ?? performance.now() - started;
           result.ruleset = position.ruleset;
@@ -576,19 +653,36 @@
         } finally {
           if (analysisToken === token) {
             analysisToken = null;
+            setBusy(false);
             syncAnalysisControls();
           }
         }
         return analysisResult;
       }
       function cancelAnalysis(reason = "Cancelled by user") {
-        if (!analysisToken) return;
-        // Clear ownership before cancelling so a late completion cannot publish.
+        if (!analysisToken) return Promise.resolve({ cancelled: false });
+        // Clear ownership before cancelling so no late completion can publish.
         analysisToken = null;
-        jarl.cancel(reason);
-        coordinator.cancel(reason).catch(() => {});
         setAnalysisState("cancelled", "cancelled by user");
+        setBusy(false);
         syncAnalysisControls();
+        const jarlResult = (() => {
+          try {
+            jarl.cancel(reason);
+          } catch {
+            // idempotent cancellation
+          }
+        })();
+        return (async () => {
+          const [search, inference] = await Promise.all([
+            coordinator.cancel(reason).catch(() => ({ cancelled: true })),
+            client.cancelWork({ reason }).catch(() => ({
+              state: "failed",
+              sessionRetained: false,
+            })),
+          ]);
+          return { cancelled: true, search, inference, jarl: jarlResult ?? null };
+        })();
       }
       analysisUi.ruleset.addEventListener("change", () => {
         selectAnalysisPositions();
@@ -636,8 +730,15 @@
       syncAnalysisControls();
 
       const api = {
-        client,
-        coordinator,
+        get client() {
+          return client;
+        },
+        get coordinator() {
+          return coordinator;
+        },
+        get jarl() {
+          return jarl;
+        },
         normalizeSearchSettings,
         // Shared experimental position fixtures (all three rulesets).
         positions: async () => fetchJson("./mcts-positions.json"),
@@ -663,6 +764,7 @@
         infer: () =>
           run(async (token) => {
             const loaded = await ensureLoaded(token);
+            await referenceFor(() => ensureCurrent(token));
             const model = identityOf(loaded);
             const entry = inputs.cases.find((candidate) => !candidate.terminal);
             const value = await client.infer({
@@ -691,6 +793,7 @@
         inferMany: (batch = 8) =>
           run(async (token) => {
             const loaded = await ensureLoaded(token);
+            await referenceFor(() => ensureCurrent(token));
             const model = identityOf(loaded);
             const value = await client.inferMany({ cases: casesForBatch(batch), model });
             ensureCurrent(token);
@@ -711,6 +814,7 @@
         benchmark: (batchSizes = [1, 2, 4, 8, 16, 32], reps = 5) =>
           run(async (token) => {
             const loaded = await ensureLoaded(token);
+            await referenceFor(() => ensureCurrent(token));
             const model = identityOf(loaded);
             const value = await client.benchmark({
               cases: casesForBatch(32),
@@ -732,8 +836,12 @@
         },
         diagnostics: () => ({ ...diagnostics }),
         exportReport: () => output.textContent ?? "",
-        assets: () => {
-          if (!assets || !inputs) throw new Error("Assets are not loaded");
+        // Manifest-only accessor for neural MCTS/parity harnesses; the large
+        // reference vectors are never needed for an actual search.
+        meta: () => manifestFor(() => {}),
+        assets: async () => {
+          await manifestFor(() => {});
+          await referenceFor(() => {});
           return { assets, inputs };
         },
         setState,
@@ -769,43 +877,55 @@
         diagnostics.pagehide += 1;
         active = null;
         analysisToken = null;
-        jarl.dispose();
-        coordinator.dispose();
-        client.dispose();
+        try {
+          jarl.dispose();
+        } catch {
+          // already disposed
+        }
+        try {
+          coordinator.dispose();
+        } catch {
+          // already disposed
+        }
+        try {
+          client.dispose();
+        } catch {
+          // already disposed
+        }
         setBusy(false);
         setState("cancelled", reason);
         setAnalysisState("cancelled", reason);
       }
       api.shutdown = shutdown;
+      function restoreAfterBfcache() {
+        // The disposed clients are permanently retired. Install fresh instances
+        // so the restored page is actually usable, and drop operation ownership
+        // so nothing resumes. Successful immutable manifest caches may persist.
+        createRuntime();
+        shuttingDown = false;
+        active = null;
+        analysisToken = null;
+        analysisResult = null;
+        // The immutable model manifest and analysis positions may be reused; the
+        // large numerical reference vectors and every operation are dropped.
+        inputs = null;
+        referencePromise = null;
+        if (analysisPositions) selectAnalysisPositions();
+        setBusy(false);
+        setAnalysisState("idle", "restored");
+        setState("idle", "restored from the back-forward cache");
+        syncAnalysisControls();
+      }
+      api.restoreAfterBfcache = restoreAfterBfcache;
       window.addEventListener("pagehide", () => shutdown("page hidden"));
       window.addEventListener("pageshow", (event) => {
         if (!event.persisted) return;
-        // Restored from the back-forward cache: allow new operations, but never
-        // resume the operation that was interrupted by pagehide.
-        shuttingDown = false;
-        active = null;
-        setBusy(false);
-        setState("idle", "restored; assets may be reused");
+        restoreAfterBfcache();
       });
-      // Warm the shared asset promises without granting any operation ownership.
-      api.ready = sharedAssets()
-        .then(([loadedAssets, loadedInputs]) => {
-          assets = loadedAssets;
-          inputs = loadedInputs;
-          return true;
-        })
-        .catch((error) => {
-          // The eager warm-up is not an operation: record the failure for
-          // diagnostics and let a later operation retry the same shared loader.
-          const message = error?.message ?? String(error);
-          api.readyError = message;
-          setState("failed", `assets unavailable: ${message}`);
-          throw error;
-        });
-      // The ready promise is observed by harnesses that wait for a boolean; the
-      // no-op catch below prevents an unhandled rejection when it fails before
-      // any operation has subscribed.
-      api.ready.catch(() => {});
+      // No neural asset is fetched eagerly: Jarl must work with zero neural
+      // requests, and neural assets are loaded on demand with retryable caching.
+      // `ready` describes page-script readiness, not network readiness.
+      api.ready = Promise.resolve(true);
       window.neural = api;
     </script>
   </body>

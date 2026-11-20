@@ -57,8 +57,10 @@ try {
   report.browser = browser.version();
   context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const external = [];
+  const requested = [];
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
+    requested.push(url.pathname);
     if (url.origin !== origin) {
       external.push(url.href);
       return route.abort();
@@ -70,6 +72,7 @@ try {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => errors.push(String(error)));
+    const startIndex = requested.length;
     if (setup) await setup(page);
     await page.goto(origin + "/neural.html");
     if (waitReady) {
@@ -81,7 +84,7 @@ try {
       // intentionally still in flight so cancellation can be observed.
       await page.waitForFunction(() => window.neural, null, { timeout: 30000 });
     }
-    return { page, errors };
+    return { page, errors, startIndex, requested };
   }
   async function state(page) {
     return page.textContent("#state");
@@ -381,9 +384,9 @@ try {
     await page.close();
   });
 
-  await record("Initial manifest failure is retryable without a page reload", async () => {
+  await record("Manifest failure on first use is retryable without a reload", async () => {
     let failed = false;
-    const { page, errors } = await freshPage(
+    const { page, errors, startIndex, requested } = await freshPage(
       async (page) => {
         await page.route("**/neural-assets.json", async (route) => {
           if (!failed) {
@@ -395,7 +398,14 @@ try {
       },
       { waitReady: false },
     );
-    await page.waitForFunction(() => window.neural?.readyError, null, { timeout: 30000 });
+    assert.equal(
+      requested.slice(startIndex).some((path) => path.includes("neural-assets.json")),
+      false,
+      "nothing neural may be fetched before an operation asks for it",
+    );
+    await page.click("#infer");
+    await waitState(page, "failed", 60000);
+    assert.match(await page.textContent("#status"), /500|Cannot load/i);
     await page.click("#infer");
     await waitState(page, "completed", 60000);
     assert.match(await page.textContent("#output"), /"model_sha256"/);
@@ -403,9 +413,9 @@ try {
     await page.close();
   });
 
-  await record("Initial reference-vector failure is retryable", async () => {
+  await record("Reference-vector failure on first use is retryable", async () => {
     let failed = false;
-    const { page, errors } = await freshPage(
+    const { page, errors, startIndex, requested } = await freshPage(
       async (page) => {
         await page.route("**/model/reference.json", async (route) => {
           if (!failed) {
@@ -417,9 +427,16 @@ try {
       },
       { waitReady: false },
     );
-    await page.waitForFunction(() => window.neural?.readyError, null, { timeout: 30000 });
+    assert.equal(
+      requested.slice(startIndex).some((path) => path.includes("reference.json")),
+      false,
+      "reference vectors must not load before a raw inference operation",
+    );
+    await page.click("#infer");
+    await waitState(page, "failed", 60000);
     await page.click("#infer");
     await waitState(page, "completed", 60000);
+    assert.equal(errors.length, 0, errors.join("; "));
     await page.close();
   });
 
@@ -441,7 +458,8 @@ try {
       },
       { waitReady: false },
     );
-    await page.waitForFunction(() => window.neural?.readyError, null, { timeout: 30000 });
+    await page.click("#infer");
+    await waitState(page, "failed", 60000);
     assert.match(await page.textContent("#status"), /JSON/i);
     await page.click("#infer");
     await waitState(page, "completed", 60000);
