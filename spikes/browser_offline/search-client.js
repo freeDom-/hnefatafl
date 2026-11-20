@@ -209,6 +209,33 @@ export class NeuralSearchCoordinator {
     }
   }
 
+  // Replace an unresponsive worker without touching the active search record.
+  // Used when a *previous* search's cancellation fails after a newer admission
+  // has already taken ownership.
+  _replaceWorker(error) {
+    this.generation += 1;
+    const worker = this.worker;
+    this.worker = null;
+    this.boot = null;
+    this.info = null;
+    try {
+      worker?.terminate();
+    } catch {
+      // terminating an already-dead worker is harmless
+    }
+    if (this.startup) {
+      clearTimeout(this.startup.timer);
+      const { reject } = this.startup;
+      this.startup = null;
+      reject(error);
+    }
+    const pending = this.pending;
+    if (pending) {
+      this._settlePending(pending);
+      pending.reject(error);
+    }
+  }
+
   dispose() {
     this.disposed = true;
     const active = this.active;
@@ -307,7 +334,7 @@ export class NeuralSearchCoordinator {
         try {
           const envelope = await this._request(
             { action: "cancel", search_id: search.searchId },
-            { timeoutMs: CANCEL_ACK_TIMEOUT_MS },
+            { timeoutMs: CANCEL_ACK_TIMEOUT_MS, abortOnTimeout: false },
           );
           const event = envelope.event;
           if (event.search_id !== search.searchId) {
@@ -317,12 +344,15 @@ export class NeuralSearchCoordinator {
           released.context = event.released ?? null;
         } catch (cancelError) {
           if (this.generation === search.generation && this.worker) {
-            // Bounded final recovery. The search is still the active owner (or
-            // was superseded and no newer request can be in flight yet), so
-            // terminating is safe and cannot kill a newer search context.
-            this.abort(
-              named("WorkerError", "Search worker did not acknowledge cancellation"),
+            // Bounded final recovery. Never poison a newer admission that already
+            // owns the worker: replace the worker instead of aborting the active
+            // search record.
+            const failure = named(
+              "WorkerError",
+              "Search worker did not acknowledge cancellation",
             );
+            if (this.active === search) this.abort(failure);
+            else this._replaceWorker(failure);
           }
         }
       }
@@ -349,7 +379,7 @@ export class NeuralSearchCoordinator {
     }
   }
 
-  async _request(payload, { timeoutMs }) {
+  async _request(payload, { timeoutMs, abortOnTimeout = true }) {
     await this.load();
     if (this.pending) throw named("WorkerError", "A search message is already in flight");
     const worker = this.worker;
@@ -363,7 +393,17 @@ export class NeuralSearchCoordinator {
       const id = ++this.sequence;
       const timer = setTimeout(() => {
         if (this.generation !== generation || this.worker !== worker) return;
-        this.abort(named("TimeoutError", `Search step exceeded ${timeoutMs} ms`));
+        const error = named("TimeoutError", `Search step exceeded ${timeoutMs} ms`);
+        if (abortOnTimeout) {
+          this.abort(error);
+          return;
+        }
+        // A cancellation acknowledgement may time out without aborting the
+        // worker that a newer admission now owns.
+        const outstanding = this.pending;
+        if (!outstanding) return;
+        this._settlePending(outstanding);
+        outstanding.reject(error);
       }, timeoutMs);
       const pending = { id, resolve, reject, timer };
       pending.finished = () => {};
@@ -466,11 +506,12 @@ export class NeuralSearchCoordinator {
       // shared boot promise is raced against this search's cancellation signal.
       await Promise.race([this.load(), search.cancelSignal]);
       this._assertOwner(search);
-      if (search.generation !== this.generation)
-        throw named(
-          "WorkerError",
-          "The search worker was recreated while the search was being admitted",
-        );
+      if (search.generation !== this.generation) {
+        // A previous search's failed cancellation may have replaced the shared
+        // worker before this search submitted anything. The fresh worker is now
+        // owned by this admission; re-bind rather than failing the newer search.
+        search.generation = this.generation;
+      }
       // The cooperative search budget and the watchdog start when the search is
       // actually submitted, so cold worker/Pyodide initialization is bounded by
       // the separate initialization timeout instead of the search budget.

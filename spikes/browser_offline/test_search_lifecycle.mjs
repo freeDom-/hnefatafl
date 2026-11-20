@@ -771,6 +771,38 @@ await check("repeated cancellation and recovery keeps working", async () => {
   coordinator.dispose();
 });
 
+await check("a newer search survives a failed cancellation of the previous one", async () => {
+  const { coordinator, neural, worker } = await bootCoordinator();
+  let release;
+  neural.response = () => new Promise((done) => (release = done));
+  const first = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  await sleep(10);
+  const rejected = assert.rejects(first, (error) => error.name === "AbortError");
+  // The old worker refuses the cooperative cancel; the newer search must still
+  // run on a replacement worker and not be terminated by the old search.
+  worker.cancelAcks = false;
+  neural.response = null;
+  const second = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  await sleep(2800); // bounded cancellation acknowledgement deadline elapses
+  const replacement = workers.at(-1);
+  if (replacement !== worker) replacement.ready();
+  const result = await second;
+  await rejected;
+  assert.equal(result.search.completed_simulations, 8);
+  assert.equal(worker.terminated, true, "the unresponsive old worker is replaced");
+  assert.notEqual(coordinator.worker, null);
+  if (release) release(new Promise(() => {}));
+  coordinator.dispose();
+});
+
 const failures = results.filter((row) => !row.ok);
 console.log(`\n${results.length - failures.length}/${results.length} search checks passed`);
 if (failures.length) process.exit(1);

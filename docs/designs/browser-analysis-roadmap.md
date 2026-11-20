@@ -344,7 +344,7 @@ production readiness.
     8.5–20 ms, max 22 ms. Benchmarks validate raw repetition coverage, missing and
     duplicate records, failed repetitions and fixed-work completion before
     comparing equal work.
-  - Lifecycle gates: 23 search-coordinator checks, 33 neural-client checks, 18
+  - Lifecycle gates: 24 search-coordinator checks, 33 neural-client checks, 18
     staged-source integrity checks and 18 analysis UI checks (lazy assets,
     cancellation during download/session/worker initialization, bfcache and
     navigation restoration with a full neural search, non-default positions,
@@ -478,7 +478,7 @@ production readiness.
 | Phase 2 / end-to-end simulations per second | Measured for smoke fixtures only (232–564/s) |
 | Phase 2 / tactical validation | Validated structurally (legal moves, terminals, immediate wins) |
 | Phase 2 / playing strength | Not started |
-| Phase 2 / search ownership before initialization | Validated (23 coordinator checks) |
+| Phase 2 / search ownership before initialization | Validated (24 coordinator checks) |
 | Phase 2 / cancellation across search and inference workers | Validated (drain/terminate, replacement refusal, repeated recovery) |
 | Phase 2 / model identity and checkpoint binding | Validated (source-weight fingerprint, same-architecture different-weight rejection) |
 | Phase 2 / search-context cleanup | Validated (all exit paths, registry capacity, final summary) |

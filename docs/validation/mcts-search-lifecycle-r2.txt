@@ -21,5 +21,6 @@ ok   delayed obsolete neural responses cannot affect a newer search
 ok   a neural failure while the generator is suspended releases it
 ok   a search worker failure during inference cancels the neural request
 ok   repeated cancellation and recovery keeps working
+ok   a newer search survives a failed cancellation of the previous one
 
-23/23 search checks passed
+24/24 search checks passed

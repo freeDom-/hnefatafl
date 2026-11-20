@@ -579,7 +579,7 @@ Machine-readable evidence in this directory:
 | Level B Brandubh 256 / Tablut 128 / Copenhagen 128 | 7/7 best moves each; max value Δ 2.2e-9 / 3.0e-9 / 3.7e-9; visit TV 0; acceptance true |
 | Browser WASM vs native PyTorch (Brandubh 256) | 7/7 best moves; acceptance true |
 | Independent production reference | exact tree/policy/value/visit/trace agreement for deterministic predictions; `mcts_policy` with a real network matches |
-| Search coordinator checks | 23/23 (ownership, cold-init cancel, competing searches, stale start id, cancel before publication, delayed responses, both worker failures, repeated recovery) |
+| Search coordinator checks | 24/24 (ownership, cold-init cancel, competing searches, stale start id, cancel before publication, delayed responses, both worker failures, repeated recovery) |
 | Neural client lifecycle checks | 33/33 (drain vs terminate, replacement refusal while draining, load cancellation, idle retention) |
 | Staged-source integrity checks | 21/21 |
 | Analysis UI checks | 18/18 including lazy assets, cancellation during download/session/worker init, bfcache and navigation restoration with a full neural search, non-default positions, in-flight selector change |
