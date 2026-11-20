@@ -1,0 +1,16 @@
+{
+  "schema": 3,
+  "validated": true,
+  "artifact": "hnefatafl-policy-value-onnx",
+  "model_sha256": "959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3",
+  "model_bytes": 46924,
+  "ruleset": "brandubh",
+  "reference_sha256": "ec04c4a660fe69001fa6bef2fe5b0fff314962c4201cc27b45b16bb88ebcd02b",
+  "sidecar_sha256": "60f085f248d093623b41c44f26a7eea86435c8f515c8fbd08dba91a589a3dbaa",
+  "generated": "2026-11-20T07:27:38.601015+00:00",
+  "parity_sha256": "36da98fef6efb22b756790d6f162c9c9296064ee557717097e21fff6b4c0442b",
+  "parity_passed": true,
+  "parity_providers": [
+    "onnxruntime-cpu"
+  ]
+}

@@ -1,223 +1,209 @@
-# Browser analysis Phase 1 validation (revision 3)
+# Browser analysis Phase 1 validation (revision 4)
 
 Validation record for Phase 1A (full-strength Jarl) and Phase 1B (trained-model
 ONNX export and browser neural inference) after integrating current `main`
-(`07d7438`, merged as `9daa668`) and correcting the follow-up review findings.
+(`17d3819`, merged as `3fa29c2`) and applying the final focused corrections.
 
-Historical evidence is preserved unchanged and must not be read as evidence for
-the current contract:
+## Integration and source identity
 
-- Revision 1 (`07f63bb`): `browser-analysis-jarl-*-2026-11-19.json`,
-  `browser-neural-*-2026-11-19.json`. It compared only the benchmark plan,
-  selected positions by name, did not fail on fixed-work divergence, duplicated
-  one input for batching and recorded the requested provider as the observed one.
-- Revision 2 (`c158ed8`): `*-r2.json`. It added a real fixed-work gate, custom
-  workloads, bounded per-case requests, browser WASM parity and distinct-position
-  batching, but retained first-repetition-only comparison, reconstructed browser
-  probabilities from logits, could retain a stale `VALIDATED.json` after a forced
-  unvalidated replacement, did not await session release, and ended download
-  ownership before digest verification.
-- Revision 3 (this record): `*-r3.json`. It validates every repetition, separates
-  execution validity from parity and acceptance, validates the **actual returned
-  browser policy**, enforces a coherent artifact lifecycle, validates graph and
-  runtime tensors, awaits resource release, closes load/cancellation races and
-  refines provider evidence.
+- PR head before this round: `274e983`. Current main at review: `17d38192` (39
+  commits ahead). Integrated with a normal merge as `3fa29c2`.
+- Upstream changes were frontend feature splitting, analysis components, bundle
+  budgets and documentation. No engine, model, inference, dependency or frontend
+  runtime source used by the spike changed, so the revision-3 engine/runtime
+  identities still apply.
+- The staged engine closure and production-equivalent Jarl preset were
+  revalidated against the merged sources. Revision-1/2/3 measurement artifacts are
+  preserved unchanged; the depth-5 and fixed-time figures below are revision-3
+  measurements **re-evaluated** with the revision-4 comparator, not rerun, and are
+  identified as such.
 
-The project owner's earlier Phase 0 WSL run remains separate historical evidence
-in [browser-analysis-prototype.md](browser-analysis-prototype.md).
+Historical evidence: `*-2026-11-19.json` (r1), `*-r2.json` (r2), `*-r3.json` (r3).
+They validate older contracts and must not be read as revision-4 acceptance.
 
-Machine-readable revision-3 evidence:
+Machine-readable revision-4 evidence:
 
-- [native fixed-work quick](jarl-native-fixed-work-quick-r3.json) ·
-  [browser fixed-work quick](jarl-browser-fixed-work-quick-r3.json)
-- [native depth-5 Brandubh](jarl-native-depth5-brandubh-r3.json) ·
-  [browser depth-5 Brandubh](jarl-browser-depth5-brandubh-r3.json)
-- [native depth-5 Tablut+Copenhagen](jarl-native-depth5-tablut-copenhagen-r3.json) ·
-  [browser depth-5 Tablut+Copenhagen](jarl-browser-depth5-tablut-copenhagen-r3.json)
-- [native fixed-time standard](jarl-native-fixed-time-standard-r3.json) ·
-  [browser fixed-time standard](jarl-browser-fixed-time-standard-r3.json)
-- [ONNX export manifest](neural-export-manifest-r3.json) ·
-  [native ONNX parity](neural-native-onnx-parity-r3.json)
-- [browser WASM policy parity](neural-browser-parity-wasm-r3.json) ·
-  [all corruption kinds rejected](neural-browser-corruption-r3.json)
-- [browser WASM benchmark](neural-browser-wasm-benchmark-r3.json)
-- [WebGPU parity blocked](neural-browser-parity-webgpu-blocked-r3.json) ·
-  [WebGPU benchmark blocked](neural-browser-benchmark-webgpu-blocked-r3.json)
+- [native fixed-work quick](jarl-native-fixed-work-quick-r4.json) ·
+  [browser fixed-work quick](jarl-browser-fixed-work-quick-r4.json)
+- [r3 depth-5 Brandubh re-evaluated](jarl-acceptance-depth5-brandubh-r4.json) ·
+  [r3 depth-5 Tablut+Copenhagen re-evaluated](jarl-acceptance-depth5-tablut-copenhagen-r4.json) ·
+  [r3 fixed-time standard re-evaluated](jarl-acceptance-fixed-time-standard-r4.json)
+- [ONNX export manifest](neural-export-manifest-r4.json) ·
+  [native ONNX parity](neural-native-onnx-parity-r4.json)
+- [browser WASM parity](neural-browser-parity-wasm-r4.json) ·
+  [16 corruption kinds rejected](neural-browser-corruption-r4.json)
+- [browser WASM benchmark](neural-browser-wasm-benchmark-r4.json) ·
+  [actual-browser UI checks](neural-browser-ui-r4.json)
+- [WebGPU parity blocked](neural-browser-parity-webgpu-blocked-r4.json) ·
+  [WebGPU benchmark blocked](neural-browser-benchmark-webgpu-blocked-r4.json) ·
+  [GPU-execution evidence blocked](neural-browser-gpu-execution-blocked-r4.json)
 
 ## Environment
 
-| Item | Value |
-| --- | --- |
-| Host | Linux x86_64 container (Proxmox LXC), glibc 2.41, 4 exposed logical CPUs |
-| CPython | 3.11.18 |
-| PyTorch / ONNX / onnxruntime | 2.14.1+cpu / 1.23.2 / 1.32.0 |
-| Node.js / Chromium | 22.23.4 / 156.0.8078.4 headless |
-| Pyodide / CPython | 0.27.7 / 3.12.7 |
-| ORT Web | 1.22.0 (digest-verified staging) |
+Linux x86_64 LXC, 4 CPUs; CPython 3.11.18; torch 2.14.1+cpu; onnx 1.23.2 /
+onnxruntime 1.32.0; Node 22.23.4; Chromium 156.0.8078.4 headless; Pyodide 0.27.7;
+ORT Web 1.22.0. No physical GPU adapter, physical phone or competitive checkpoint
+was available.
 
-No physical phone, no WebGPU adapter and no competitive trained checkpoint were
-available. Single observations unless a median/p90 is stated; mobile emulation is
-not physical-mobile evidence.
+## Phase 1A — corrected acceptance semantics
 
-## Phase 1A — Jarl contract in revision 3
+Revision-4 corrections in `jarl_compare.py`:
 
-`jarl_benchmark.py` owns positions, per-position legal-move/terminal contracts,
-effective configuration and workload digest. `jarl_compare.py` is the only
-comparison implementation. Revision 3 changes:
+- **Deterministic parity is independent of work counters.** Two valid
+  non-terminal results with the same completed depth are always compared for best
+  move and defender value, even when node/evaluation counters differ.
+- **Computational-work equivalence only governs performance ratios.** Equal-work
+  latency requires equal depth, the same interruption state and matching
+  measured node/evaluation counters; unavailable counters are not treated as
+  equivalent.
+- **Acceptance requires no mandatory failure.** A parity mismatch, missing
+  duplicate/invalid record, unexpected execution error or invalid case prevents
+  `acceptance_complete`, and invalid parity cases never contribute acceptance
+  counts.
+- **Expected depth and budget come from the validated effective configuration.**
+  A record that redefines `expected_depth`, reports a different completed depth,
+  or reports an inconsistent `time_limit_ms` fails validation. Malformed work
+  counters are rejected.
+- Deadline-limited, unsupported and terminal cases stay distinct; unresolved
+  completion remains listed; fixed-time differences from different completed
+  depths stay informational; terminal/unsupported/failed cases are excluded from
+  search-overhead statistics.
 
-- **Every repetition is validated.** Record keys include the repetition index;
-  duplicates are rejected; expected coverage is derived independently from the
-  workload cases × configurations × declared repetitions. Both reports omitting
-  the same position, empty reports and mismatched repetition counts all fail.
-- **Record identity is validated.** Position hash, ruleset, mode, seed and the
-  normalised effective-settings digest must match the workload. Numeric
-  normalisation keeps digests stable across the Python/JavaScript JSON boundary.
-- **Execution, parity and acceptance are separate.** A result is structurally
-  valid only with a finite value, a legal workload move, correct
-  defender-relative terminal value and a coherent status/depth. Parity is
-  compared at equal completed work (same depth, interruption state and, when
-  available, node/evaluation counters). Acceptance means every expected case
-  completed the configured depth on both sides.
-- **Honest incompleteness.** Asymmetric or depth-limited results never fail a run
-  merely because one runtime completed more work; they are listed as
-  `unresolved` acceptance targets. A comparison can legitimately finish
-  collecting evidence while `acceptance_complete` is false.
-- **Known unsupported depth 10 stays explicit.** It is accepted only for the
-  configuration declared unsupported by the plan and remains unresolved.
-- **Equal-work performance.** Terminal, unsupported, failed, zero-depth and
-  non-equivalent cases are excluded from latency ratios; node-rate metrics are
-  reported when counters permit and are `null` otherwise (never zero).
+### Fresh revision-4 run (merged sources)
 
-### Fixed-work correctness gate
-
-| Comparison | Expected | Compared | Valid | Parity (equal work) | Acceptance | Browser ÷ native |
+| Comparison | Expected | Compared | Valid | Parity | Acceptance | Equal-work browser ÷ native |
 | --- | ---: | ---: | ---: | ---: | --- | ---: |
-| quick (depth 3), all rulesets, reps=2 | 42 | 42 | 42 | 36/36 | complete | 2.14× |
-| standard (depth 5), Brandubh, reps=2 | 14 | 14 | 14 | 12/12 | complete | 2.25× |
-| standard (depth 5), Tablut+Copenhagen, reps=1 | 14 | 14 | 14 | 12/12 | **incomplete (3)** | 2.08× |
+| quick (depth 3), all rulesets, reps=2 | 42 | 42 | 42 | 36/36 | complete | 2.13× |
 
-Brandubh `warm-up=1`; the Tablut+Copenhagen run uses `warm-up=0` to bound the
-58–60 s Copenhagen searches. The three unresolved cases are Copenhagen `opening`,
-`midgame` and `repetition`: native CPython and browser Pyodide both reach depth 4
-inside the 60 s fixed-work safety limit, parity matches at that equal depth, and
-the runs are reported as limited rather than passed or failed. Tablut completes
-depth 5 on all tested positions.
+Startup 2,825 ms; each case independently bounded; no failures or warnings.
 
-### Fixed-time workload comparison (informational)
+### Revision-3 measurements re-evaluated under the revision-4 comparator
 
-`standard` (depth 5, 2 s), two measured repetitions, warm-up 1. 42/42 cases
-executed validly; 16 cases reached identical completed work (all parity matched);
-24 could not be compared because the runtimes completed different work; 20
-informational warnings. `acceptance_complete` is true for the fixed-time
-evidence target, which does not claim depth completion.
+No long searches were repeated because the engine source identity is unchanged.
 
-## Phase 1B — neural export, parity and runtime
+| Workload (r3 measurements) | Expected | Compared | Parity | Acceptance | Unresolved |
+| --- | ---: | ---: | ---: | --- | ---: |
+| depth 5, Brandubh, reps=2 | 14 | 14 | 12/12 | complete | 0 |
+| depth 5, Tablut+Copenhagen, reps=1 | 14 | 14 | 12/12 | **incomplete** | 3 |
+| fixed-time standard, all rulesets, reps=2 | 42 | 42 | 16/16 | evidence complete | 24 (different work) |
 
-### Artifact lifecycle
+The three unresolved cases remain Copenhagen `opening`, `midgame` and
+`repetition`: native CPython and browser Pyodide both reach depth 4 inside the
+60 s fixed-work safety limit; parity matches at that equal depth and completion is
+honestly reported as unresolved. The 60 s safety limit was not increased. The
+fixed-time run reports 20 informational warnings and never claims a speedup.
 
-The export is transactional and fail-closed. A validated export contains the ONNX
-model, sidecar, reference vectors, a manifest and `VALIDATED.json`; the marker and
-manifest agree on status, ruleset, model digest, model size and **reference-vector
-digest**. Staging verifies the actual received bytes, the graph (opset, tensor
-ranks, element types, spatial dims, dynamic batch, policy width) and the full
-metadata contract. A forced replacement invalidates the old marker **before**
-attempting publication, so a failed or unvalidated replacement can never inherit
-an earlier marker. Stale markers, mismatched reference digests and inconsistent
-manifests are rejected.
+## Phase 1B — response contract, tensor ownership and provider evidence
+
+### Complete inference-response contract
+
+The comparator now requires the actual response fields: model identity, model
+ruleset, request/position identity, policy/value data, shapes, dtypes, legal
+indices and order, legal-only probabilities, and batch count/result count/index.
+Missing mandatory fields fail; the harness does not substitute expected values.
+Harness-generated terminal skips are marked `harness_generated`. Native ONNX
+outputs are normalized to the same schema explicitly.
+
+Batch order is verified independently: `batch_count == results_count ==
+outputs.length`, each returned `index` equals its array position, request
+identities are unique, and each result's request/position identity matches the
+requested position order. Sixteen deliberate corruption kinds fail
+independently, including batch count, missing/extra result, duplicate/missing/
+wrong index, reorder and wrong position association.
+
+### Artifact trust chain
+
+The export manifest and `VALIDATED.json` now cover the complete accepted artifact
+set: model digest/size, reference-vector digest, metadata-sidecar digest and
+parity-report digest. Staging verifies the actual graph, sidecar, reference and
+parity digests; an unvalidated replacement cannot inherit a marker, and an
+unvalidated artifact must not contain a stale parity report.
 
 | Metric | Value |
 | --- | --- |
 | Checkpoint | trained Brandubh **smoke** model (channels 4, blocks 0) |
 | Model SHA-256 | `959578236ead3fa9…` |
-| ONNX graph | 46,924 B raw / 6,926 B gzip estimate |
+| ONNX graph / gzip estimate | 46,924 B / 6,926 B |
 | Reference cases | 39 (38 non-terminal incl. 32 distinct generated, 1 terminal) |
-| Coverage kinds | opening, midgame, endgame, tactical, king-escape, repetition, generated, terminal |
+| Native PyTorch → ORT CPU | worst logit 7.15e-7, value 2.98e-8, postprocess 0 |
+| Native PyTorch → browser WASM | worst logit 1.67e-6, value 2.98e-8, postprocess 0 |
 
-### Numerical parity (actual returned policy)
+Distinct-position batched inference at 1, 2, 4, 8, 16 and 32 passed.
 
-The browser gate validates the policy the runtime actually returned: model and
-position identity, logits, defender value, **legal indices and their order**,
-legal-only normalised probabilities, shapes and dtypes, finiteness, probability
-sum, and postprocessing consistency. It does not reconstruct browser
-probabilities from logits.
+### Output-tensor ownership
 
-| Stage | Cases | Worst logit abs | Worst value abs | Worst postprocess | Material ranking changes |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Native PyTorch → ORT CPU | 39 | 7.15e-7 | 2.98e-8 | 0 | 0 |
-| Native PyTorch → browser ORT WASM | 39 | 1.67e-6 | 2.98e-8 | 0 | 0 |
-
-Distinct-position batched inference at batch sizes 1, 2, 4, 8, 16 and 32 all
-passed parity against their own single-position reference, in order.
-
-Every deliberate corruption kind fails the mandatory gate: a policy logit, the
-defender value, legal indices, legal ordering, probabilities, policy shape, value
-shape, model identity, and batched count/ordering. See
-[neural-browser-corruption-r3.json](neural-browser-corruption-r3.json).
+Every output tensor is disposed in a `finally` path, including invalid shapes,
+non-finite values, extraction and normalisation failures. A disposal failure is
+reported as `RESOURCE_CLEANUP_FAILED` and resets the worker rather than silently
+reusing a potentially unhealthy one. Seven deterministic Node checks use
+instrumented tensor objects.
 
 ### Browser inference performance (smoke model, WASM)
 
 | Metric | Value |
 | --- | ---: |
-| ORT + session initialization | 528.9 ms |
-| First inference (cold, incl. tensor prep) | 24.7 ms |
-| Warm run median / tensor prep median | 0.8 ms / 0.1 ms |
-| Sustained in-worker throughput (200 × batch 8) | 4,523.6 positions/s |
+| ORT + session initialization | 508.6 ms |
+| First inference (cold) | 18.6 ms |
+| Warm run median | 0.6 ms |
+| Sustained in-worker throughput (200 × batch 8) | 4,469.3 positions/s |
 
-| Batch | Distinct positions | Median | p90 | Positions/s |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 1 | 0.9 ms | 2.14 ms | 1,111 |
-| 2 | 2 | 1.3 ms | 1.42 ms | 1,538 |
-| 4 | 4 | 1.8 ms | 2.00 ms | 2,222 |
-| 8 | 8 | 2.8 ms | 6.20 ms | 2,857 |
-| 16 | 16 | 4.0 ms | 8.64 ms | 4,000 |
-| 32 | 32 | 7.1 ms | 7.96 ms | 4,507 |
+| Batch | Median | p90 | Positions/s |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.8 ms | 1.12 ms | 1,250 |
+| 2 | 1.3 ms | 2.20 ms | 1,538 |
+| 4 | 1.8 ms | 3.32 ms | 2,222 |
+| 8 | 2.7 ms | 3.14 ms | 2,963 |
+| 16 | 4.0 ms | 4.60 ms | 4,000 |
+| 32 | 6.7 ms | 8.60 ms | 4,776 |
 
-Repeated model replacement (3 cycles) succeeded with explicit release. Memory
-hints were unavailable in headless Chromium and the pinned ORT Web build does not
-expose its WASM heap size, so heap fields are `null`, not zero and not a stability
-claim.
+Heap fields are `null`: headless Chromium does not expose `performance.memory`
+and ORT Web does not expose its WASM heap. No memory-stability claim is made.
 
-### Provider reporting and WebGPU
+### Actual-browser UI checks
 
-Requested provider, adapter availability, session creation, inference success and
-observed placement are reported separately. Placement is `wasm`,
-`webgpu-session-verified` (only when the session reports WebGPU providers alone),
-`webgpu-session-unverified` (GPU session accepted but per-node placement is not
-observable), `webgpu-mixed` (WebGPU plus another provider), `cpu-fallback` or
-`placement-unknown`. `gpu_execution_verified` is true only for
-`webgpu-session-verified`.
+Six interactions pass from a clean initial state: Infer, distinct batch,
+Benchmark, controls disabled while active, cancellation invalidating stale UI, and
+provider change failure followed by WASM recovery. The nested-load admission bug
+is fixed with an internal loader that runs inside the owned operation.
 
-On this host `navigator.gpu` exists but `requestAdapter()` returns no adapter.
-Both WebGPU gates fail explicitly with
-`WebGPU requested but no adapter is available` and `--require-webgpu` exits
-non-zero. WebGPU execution remains **blocked and unvalidated**.
+### Provider evidence semantics
+
+Session-level provider lists are not treated as proof of per-operator GPU
+execution. Placement is `wasm`, `webgpu-session-unverified`, `webgpu-mixed`,
+`cpu-fallback` or `placement-unknown`; `gpu_execution_verified` is false because
+the pinned ORT Web version exposes no supported per-operator placement diagnostic.
+
+- `--require-webgpu` requires an obtained adapter, a WebGPU-requested session and
+  successful numerical inference. It does not claim GPU-only execution.
+- `--require-gpu-execution` requires independently verified actual GPU execution
+  and currently fails explicitly.
+
+On this host both WebGPU gates fail with
+`WebGPU requested but no adapter is available` and exit non-zero.
 
 ## Repository checks
 
+- `tests/test_browser_jarl_benchmark.py`: 35 passed.
+- `tests/test_browser_neural_parity.py`: 47 passed.
+- `tests/test_browser_neural_export.py`: 29 passed (optional ONNX deps).
+- `tests/test_browser_client_lifecycle.py`: 2 passed (25 Node checks).
+- `tests/test_browser_tensor_cleanup.py`: 1 passed (7 Node checks).
+- `tests/test_browser_neural_ui.py`: opt-in actual-browser UI gate (6 checks
+  passed when `SPIKE_NEURAL_DIR` was set for this run).
 - `tests/test_offline_spike.py`: 17 passed.
-- `tests/test_browser_jarl_benchmark.py`: 24 passed (all-repetition coverage,
-  duplicates, independent expected coverage, both-empty, identity/record identity,
-  terminal value, illegal moves, both-side errors, malformed limited results,
-  asymmetric completion, work counters, custom positions).
-- `tests/test_browser_neural_parity.py`: 30 passed (all reported-policy
-  corruptions, batch count/order, duplicates, empty reference, tolerances).
-- `tests/test_browser_neural_export.py`: 25 passed with the optional ONNX
-  dependencies (skip without them), including forced unvalidated replacement,
-  stale marker, reference digest, inconsistent manifest and interrupted export.
-- `tests/test_browser_client_lifecycle.py`: 2 passed (25 deterministic Node
-  lifecycle checks incl. digest cancellation, competing loads, failed-WASM→WebGPU
-  recreation and oversized body).
-- Real-browser gates run manually: `verify.mjs` (Phase 0, green),
-  `verify_jarl.mjs` (all tables above), `neural_parity.mjs` (WASM + 9 corruptions +
-  WebGPU blocked), `neural_benchmark.mjs` (WASM + WebGPU blocked).
+- `verify.mjs` Phase 0 gate, `verify_jarl.mjs`, `neural_parity.mjs`,
+  `neural_benchmark.mjs` and `test_neural_ui.mjs` all run manually.
+- `ruff check`/`format --check`, `mypy hnefatafl` and `scripts/check_docs.py` pass.
 
-## Remaining validation and blockers
+## Remaining blockers and readiness
 
-- Competitive trained weights (32×2+) for all three rulesets.
-- Physical WebGPU execution on Windows/Linux/Android/Safari hardware.
-- Physical desktop/mobile performance and real process memory.
-- Long-run memory behaviour with a representative network.
-- Playing strength (Phase 3).
+- Competitive trained weights (32×2+) for all three rulesets: blocked.
+- Physical WebGPU execution: blocked (no adapter); per-operator placement is not
+  exposed by the pinned runtime even on hardware.
+- Physical desktop/mobile performance and process memory: blocked.
+- Three Copenhagen depth-5 cases remain unresolved within the 60 s budget.
+- Playing strength: Phase 3, not started.
 
-No production browser analysis is enabled, no production limit/API/rules/training
-behaviour/CSP changed and no runtime dependency entered the application bundle.
+Software inference contracts are now reliable enough that Phase 2 (browser neural
+MCTS) can proceed using validated WASM inference, in parallel with competitive
+model and physical-GPU validation. This PR does not implement Phase 2.

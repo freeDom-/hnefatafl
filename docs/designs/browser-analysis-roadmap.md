@@ -11,12 +11,14 @@ Related: [Phase 1 validation](../validation/browser-analysis-phase1.md) ·
 [isolated spike](../../spikes/browser_offline/README.md) ·
 [documentation index](../README.md).
 
-**Current integration revision:** `9daa668`, a normal merge of `origin/main`
-`07d7438` (`perf/backend-read-baseline`) into `feat/browser-analysis-phase1`.
-The upstream change touched only the backend-read benchmark, its documentation
-and the documentation index; no engine, model, inference, dependency or frontend
-runtime file changed. The staged engine closure and the production-equivalent
-Jarl preset were revalidated against the merged sources.
+**Current integration revision:** `3fa29c2`, a normal merge of `origin/main`
+`17d3819` (`perf/frontend-feature-splitting`) into `feat/browser-analysis-phase1`.
+The upstream change introduced frontend feature splitting, deferred/lazy-loaded
+analysis components, bundle budgets and documentation. No engine, model,
+inference, dependency or frontend runtime file used by the spike changed, so
+revision-3 engine/runtime identities still apply. The staged engine closure and
+the production-equivalent Jarl preset were revalidated against the merged
+sources.
 
 ## Status definitions
 
@@ -95,9 +97,32 @@ production readiness.
   limited cases are unresolved acceptance targets, not regressions. Terminal,
   unsupported, failed and non-equivalent cases are excluded from equal-work
   latency ratios; node-rate metrics are `null` when unavailable.
+- **Revision-4 contract:** deterministic parity is compared whenever both valid
+  results completed the same depth, even when node/evaluation counters differ;
+  computational-work equivalence (depth, interruption state and measured counters)
+  only governs equal-work latency/throughput. Any mandatory failure prevents
+  `acceptance_complete`, and invalid parity never contributes acceptance counts.
+  Required depth and cooperative deadline come from the validated effective
+  configuration; a record cannot redefine `expected_depth`, report an inconsistent
+  budget, or supply malformed work counters.
 - **Engine constraint:** alpha-beta depth is capped at 8; the public validator caps
   at 5. `extended` (depth 10) is rejected by the engine and reported explicitly;
   it is never silently reduced.
+- **Validation evidence (revision 4):**
+  - Fresh quick (depth 3) fixed-work on the merged sources: 42/42 expected,
+    compared and execution-valid; 36/36 parity; acceptance complete; 2.13×
+    equal-work ratio.
+  - Revision-3 depth-5 and fixed-time measurements **re-evaluated** with the
+    revision-4 comparator (engine source identity unchanged, no long reruns):
+    Brandubh 14/14 with 12/12 parity and acceptance complete; Tablut+Copenhagen
+    12/12 parity with 3 Copenhagen cases unresolved at depth 4 and acceptance
+    incomplete; fixed-time 16/16 parity at equal work with 24 not equal-work
+    comparable.
+  - Evidence: [jarl-native-fixed-work-quick-r4.json](../validation/jarl-native-fixed-work-quick-r4.json),
+    [jarl-browser-fixed-work-quick-r4.json](../validation/jarl-browser-fixed-work-quick-r4.json),
+    [jarl-acceptance-depth5-brandubh-r4.json](../validation/jarl-acceptance-depth5-brandubh-r4.json),
+    [jarl-acceptance-depth5-tablut-copenhagen-r4.json](../validation/jarl-acceptance-depth5-tablut-copenhagen-r4.json),
+    [jarl-acceptance-fixed-time-standard-r4.json](../validation/jarl-acceptance-fixed-time-standard-r4.json).
 - **Validation evidence (revision 3):**
   - quick (depth 3), all rulesets, reps=2: 42/42 expected, 42/42 compared and
     execution-valid, 36/36 parity at equal work, acceptance complete, browser
@@ -162,11 +187,47 @@ production readiness.
     model publication; failed WASM loads do not block a later WebGPU worker;
     deterministic load admission and cancellation; failed replacements never
     publish a stale model.
-- **Provider reporting:** requested, adapter, session-created, inference-succeeded
-  and observed placement are separate. Placement is `wasm`,
-  `webgpu-session-verified`, `webgpu-session-unverified`, `webgpu-mixed`,
-  `cpu-fallback` or `placement-unknown`. Only `webgpu-session-verified` sets
-  `gpu_execution_verified`. `--require-webgpu` requires that verified state.
+  - Revision-4 response contract: the comparator requires model/ruleset identity,
+    request/position identity, policy/value data, shapes, dtypes, legal indices
+    and order, probabilities and batch count/result count/index. Missing fields
+    fail; the harness never substitutes expected values. Harness-generated
+    terminal skips are marked; native ONNX outputs are normalized explicitly.
+  - Revision-4 batch contract: `batch_count == results_count == outputs.length`,
+    each returned index equals its array position, request identities are unique
+    and match the requested order. Sixteen corruption kinds fail independently.
+  - Revision-4 resource ownership: output tensors are disposed on every failure
+    path; disposal failure reports `RESOURCE_CLEANUP_FAILED` and resets the worker.
+  - Revision-4 artifact trust chain: manifest and marker cover model,
+    reference-vector, metadata-sidecar and parity-report digests; unvalidated
+    replacement cannot inherit a marker and cannot keep a stale parity report.
+  - Revision-4 UI: an internal loader runs inside the owned operation, so Infer,
+    distinct batch and Benchmark work from a clean initial state; provider changes
+    reload; cancellation invalidates stale UI.
+- **Provider reporting (revision 4):** requested provider, adapter availability,
+  session creation, inference success, numerical parity and observed placement are
+  separate. Placement is `wasm`, `webgpu-session-unverified`, `webgpu-mixed`,
+  `cpu-fallback` or `placement-unknown`. A session-level provider list is never
+  treated as proof of per-operator GPU execution, and `gpu_execution_verified` is
+  false because the pinned ORT Web version exposes no supported per-operator
+  diagnostic. `--require-webgpu` requires an adapter, a WebGPU-requested session
+  and successful numerical inference; `--require-gpu-execution` requires
+  independently verified GPU execution and currently fails explicitly.
+- **Validation evidence (revision 4, trained **smoke** model):**
+  - Native PyTorch → ORT CPU and browser WASM parity over 39 cases: worst logit
+    7.15e-7 / 1.67e-6, value 2.98e-8, postprocess 0; batched 1–32 pass.
+  - All 16 deliberate corruption kinds fail (numerical, metadata, identity, batch
+    count/missing/extra/duplicate/missing/wrong index, reorder, position).
+  - WASM: init 508.6 ms, first inference 18.6 ms, warm 0.6 ms, sustained
+    4,469.3 positions/s; six actual-browser UI checks pass.
+  - Evidence: [neural-export-manifest-r4.json](../validation/neural-export-manifest-r4.json),
+    [neural-native-onnx-parity-r4.json](../validation/neural-native-onnx-parity-r4.json),
+    [neural-browser-parity-wasm-r4.json](../validation/neural-browser-parity-wasm-r4.json),
+    [neural-browser-corruption-r4.json](../validation/neural-browser-corruption-r4.json),
+    [neural-browser-wasm-benchmark-r4.json](../validation/neural-browser-wasm-benchmark-r4.json),
+    [neural-browser-ui-r4.json](../validation/neural-browser-ui-r4.json),
+    [neural-browser-parity-webgpu-blocked-r4.json](../validation/neural-browser-parity-webgpu-blocked-r4.json),
+    [neural-browser-benchmark-webgpu-blocked-r4.json](../validation/neural-browser-benchmark-webgpu-blocked-r4.json),
+    [neural-browser-gpu-execution-blocked-r4.json](../validation/neural-browser-gpu-execution-blocked-r4.json).
 - **Validation evidence (revision 3, trained **smoke** model):**
   - Native PyTorch → ORT CPU over 39 reference cases: worst logit 7.15e-7, value
     2.98e-8, postprocess 0, zero material ranking changes.
@@ -200,9 +261,11 @@ production readiness.
 
 ## Phase 2 — Browser-side neural MCTS (subsequent PR)
 
-- **Status:** Not started. Phase 1B provides a distinct-position batched inference
-  interface (1–32), validated tensor/publication contract and bounded asynchronous
-  client intended as the future search boundary. No MCTS engine is implemented or
+- **Status:** Not started, but **ready to begin** using validated WASM inference.
+  Phase 1B provides a distinct-position batched inference interface (1–32), a
+  complete response/tensor contract and a bounded asynchronous client intended as
+  the search boundary. Competitive-model and physical-WebGPU validation can run in
+  parallel rather than blocking development. No MCTS engine is implemented or
   claimed; batched inference alone does not start this phase.
 - **Design constraints:** reuse existing tree traversal/expansion/selection/
   backpropagation; avoid per-node serialization and blocking synchronization.
@@ -239,8 +302,15 @@ production readiness.
 - **Scope:** normalized `Auto`/`Local`/`Server`/`Disabled` execution modes,
   lazy-loaded local execution, no eager bundle growth, no automatic runtime/model
   download on public spectator pages, no silent agent/strength substitution, and
-  reuse of existing design tokens and components. Production UI and design system
-  are unchanged by this PR.
+  reuse of existing design tokens and components.
+- **Latest frontend architecture to integrate with:** the merged feature-splitting
+  work (`perf/frontend-feature-splitting`, `docs/validation/frontend-feature-splitting.md`)
+  with deferred feature modules (`frontend/src/deferredFeature.tsx`), shared
+  stylesheet coordination, `useGameAnalysis`/`AgentAnalysis` analysis components and
+  the bundle-budget check (`frontend/scripts/check-bundle-budget.mjs`). Local
+  browser analysis must join the deferred/lazy-loaded boundary, must not increase
+  the initial bundle, and must satisfy the existing bundle budgets. Production UI
+  and design system are unchanged by this PR.
 
 ## Phase 6 — Final production acceptance
 
@@ -267,6 +337,11 @@ production readiness.
 | WebGPU capability | Reported; adapter unavailable |
 | Verified GPU execution | Blocked (no physical adapter) |
 | Distinct-position batched inference | Completed (1–32, equals single inference) |
+| Complete inference-response contract | Validated (mandatory fields; no substitution) |
+| Independent batch order/association | Validated (16 corruption kinds) |
+| Output-tensor release on failure paths | Validated (7 instrumented checks) |
+| Actual-browser UI clean-state flows | Validated (6 interaction checks) |
+| GPU execution evidence | Not available (no per-operator diagnostic); GPU execution blocked |
 | Competitive trained-model validation | Blocked (weights unavailable) |
 | Physical-device validation | Blocked |
 | Worker lifecycle validation | Validated (25 deterministic Node checks + browser gates) |
@@ -338,11 +413,16 @@ node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider wasm --output /tmp/neural-parity-wasm.json
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
-  --provider wasm --corrupt legal --output /tmp/neural-parity-corrupt.json   # must fail
+  --provider wasm --corrupt reorder --output /tmp/neural-parity-corrupt.json  # must fail
 node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
   --provider wasm --sustained 200 --output /tmp/neural-wasm.json
+node spikes/browser_offline/test_neural_ui.mjs /tmp/neural-spike \
+  --output /tmp/neural-ui.json
+node spikes/browser_offline/test_neural_tensors.mjs
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider webgpu --require-webgpu --output /tmp/neural-parity-webgpu.json
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider webgpu --require-gpu-execution   # fails without a placement API
 
 # Deterministic client lifecycle checks (no browser)
 node spikes/browser_offline/test_browser_lifecycle.mjs
@@ -358,3 +438,4 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-19 | Roadmap created; Phase 1A/1B implemented and partially validated (revision 1). |
 | 2026-11-19 | Revision 2: corrected fixed-work gate, custom positions, bounded per-case watchdogs, browser WASM parity, provider reporting, lifecycle, artifact integrity and distinct-position batching. |
 | 2026-11-19 | Revision 3: integrated `main` `07d7438`; validate every repetition and derive coverage independently; separate execution/parity/acceptance; validate the actual returned browser policy and all corruption kinds; coherent artifact lifecycle; graph/runtime tensor validation; awaited resource release; closed load/cancellation races; refined provider evidence and harness failure handling. |
+| 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |

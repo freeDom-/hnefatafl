@@ -66,12 +66,14 @@ node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
   /tmp/jarl-native.json /tmp/jarl-browser.json --output /tmp/jarl-comparison.json
 ```
 
-The neural side stages a *validated* export only: the ONNX graph, metadata and
-**reference-vector digest** are verified, and a forced replacement invalidates the
-old marker before publishing. Browser parity validates the policy the runtime
-actually returned (legal indices and order, probabilities, shapes, dtypes, model
-identity), not a reconstruction from logits, and every deliberate corruption kind
-must fail.
+The neural side stages a *validated* export only: the ONNX graph, metadata,
+reference vectors and parity report are bound by digests, and a forced replacement
+invalidates the old marker before publishing. Browser parity validates the complete
+inference response the runtime actually returned (model/ruleset and request/position
+identity, logits, value, legal indices/order, probabilities, shapes, dtypes) and
+independently verifies batch count, result count, per-result index and position
+association. Missing response fields fail; sixteen deliberate corruption kinds must
+fail.
 
 ```sh
 uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
@@ -81,11 +83,16 @@ uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider wasm --output /tmp/neural-parity-wasm.json
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
-  --provider wasm --corrupt legal --output /tmp/neural-corrupt.json   # must fail
+  --provider wasm --corrupt reorder --output /tmp/neural-corrupt.json   # must fail
 node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
   --provider wasm --sustained 200 --output /tmp/neural-wasm.json
+node spikes/browser_offline/test_neural_ui.mjs /tmp/neural-spike \
+  --output /tmp/neural-ui.json
+node spikes/browser_offline/test_neural_tensors.mjs
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider webgpu --require-webgpu
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider webgpu --require-gpu-execution   # fails without a placement API
 node spikes/browser_offline/test_browser_lifecycle.mjs
 ```
 
@@ -249,39 +256,88 @@ It displays a runtime-loading error while the UI response control still works.
 
 ### Physical-device validation (owner hardware)
 
-The automated gates above run headless Chromium. To validate a real GPU, stage the
-experiment and either serve it to a native browser or point Playwright at that
-browser. Competitive trained checkpoints are never committed; pass them
-explicitly.
+Privately supplied trained weights must stay local. Do **not** bind a file server
+to `0.0.0.0` or open a LAN HTTP address: that can expose the model artifacts and
+does not provide the secure context required by WebGPU and Web Crypto.
+
+#### WSL to a native Windows browser (safe loopback)
 
 ```sh
-# 1. Export and validate a competitive trained model (private checkpoint).
-.venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/brandubh-model
-# 2. Stage it with the pinned ORT Web assets.
+# 1. Export and stage in WSL (private checkpoint stays local).
+.venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/model-export
 .venv/bin/python spikes/browser_offline/prepare_neural.py \
-  --model-dir /tmp/brandubh-model --output /tmp/neural-spike
-# 3. From WSL, serve the staged experiment on the LAN for a Windows browser.
-.venv/bin/python -m http.server 8765 --bind 0.0.0.0 --directory /tmp/neural-spike
-#    Open http://<wsl-host-ip>:8765/neural.html, choose webgpu, and use
-#    Capabilities / Load model / Infer distinct batch / Benchmark batches.
+  --model-dir /tmp/model-export --output /tmp/neural-spike
+# 2. Loopback only. WSL2 normally forwards http://localhost:8765 to Windows.
+.venv/bin/python -m http.server 8765 --bind 127.0.0.1 --directory /tmp/neural-spike
 ```
 
-On Windows (PowerShell), run the same gates against native Chrome or Edge. The
-report records the adapter, the session placement and whether GPU execution was
-verified; `--require-webgpu` fails unless that verification succeeds.
+Open `http://localhost:8765/neural.html` in Windows Chrome/Edge and verify in the
+DevTools console:
+
+```js
+window.isSecureContext          // must be true
+!!crypto.subtle                 // must be true
+navigator.gpu                   // may be undefined on unsupported browsers
+await navigator.gpu?.requestAdapter()   // null/undefined means no GPU adapter
+```
+
+If Windows localhost forwarding is unavailable, use an SSH tunnel or trusted
+HTTPS. Do not disable browser security.
 
 ```powershell
-$env:SPIKE_CHROMIUM = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-node spikes\browser_offline\neural_parity.mjs C:\work\neural-spike `
-  --provider webgpu --require-webgpu --output C:\work\webgpu-parity.json
-node spikes\browser_offline\neural_benchmark.mjs C:\work\neural-spike `
-  --provider webgpu --require-webgpu --output C:\work\webgpu-bench.json
-# Firefox/Safari without WebGPU: use --provider wasm for numerical parity.
+# From Windows, tunnel the WSL loopback port and open http://localhost:8765.
+ssh -N -L 8765:127.0.0.1:8765 <wsl-user>@<wsl-host>
 ```
 
-Report the adapter and placement fields verbatim. A `webgpu-session-unverified`
-placement (or an explicit "no adapter" error) is a correct, honest outcome; do not
-relabel it as GPU acceleration.
+For a non-loopback origin, serve through a reverse proxy with a certificate the
+Windows browser already trusts (for example a local development CA). HTTP over a
+LAN address is not a valid WebGPU/Web Crypto test.
+
+#### Native Windows automated parity and benchmark
+
+Copy the staged directory to a Windows-accessible path (for example
+`C:\work\neural-spike`). Use a Windows checkout of this repository, Node.js 22+,
+and either the Playwright Chromium or an installed Chrome/Edge.
+
+```powershell
+cd C:\path\to\hnefatafl
+npm --prefix frontend ci
+npx --prefix frontend playwright install chromium   # or use installed Chrome below
+
+# Resolve the Windows Python interpreter explicitly (no Unix .venv path).
+$env:SPIKE_PYTHON = (Get-Command py -ErrorAction SilentlyContinue).Source
+if (-not $env:SPIKE_PYTHON) { $env:SPIKE_PYTHON = (Get-Command python).Source }
+$env:SPIKE_CHROMIUM = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+# Edge alternative:
+# $env:SPIKE_CHROMIUM = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+
+node spikes\browser_offline\neural_parity.mjs C:\work\neural-spike `
+  --provider wasm --output C:\work\parity-wasm.json
+node spikes\browser_offline\neural_parity.mjs C:\work\neural-spike `
+  --provider webgpu --require-webgpu --output C:\work\parity-webgpu.json
+node spikes\browser_offline\neural_benchmark.mjs C:\work\neural-spike `
+  --provider webgpu --require-webgpu --output C:\work\bench-webgpu.json
+node spikes\browser_offline\test_neural_ui.mjs C:\work\neural-spike `
+  --output C:\work\ui.json
+```
+
+`--require-webgpu` requires a WebGPU-requested session and successful numerical
+inference. It does **not** claim per-operator GPU execution.
+`--require-gpu-execution` requires independently verified actual GPU execution;
+the pinned ORT Web build exposes no per-operator placement API, so it currently
+fails explicitly even on GPU hardware. Report `execution_placement` verbatim.
+
+#### Firefox, Safari and physical mobile
+
+The automated harness launches Chromium only. `--provider wasm` selects the
+execution provider; it does **not** run the harness on Firefox or Safari.
+
+- Firefox/Safari: open the loopback (or trusted HTTPS) page manually, choose
+  `wasm`, and use Capabilities → Load → Infer / Infer distinct batch /
+  Benchmark. Copy the `#output` JSON as evidence, or run the harness with
+  `SPIKE_CHROMIUM` pointed at a Chromium-based browser only.
+- Physical mobile: use trusted HTTPS or a secure tunnel to the loopback origin;
+  do not expose the model directory over plain LAN HTTP.
 
 ## Actual environment and measurements
 
