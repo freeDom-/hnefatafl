@@ -1092,7 +1092,7 @@ remain unchanged.
 ## Arena v2 delivery, player tournaments, automatic progression and public spectators (`0.41.0` preparation)
 
 Release preparation starts from merged `main` at `1b4c4ae`, covering every change
-since published `0.40.0`: 29 pull requests, #73–#95, #97, #100–#103 and #105,
+since published `0.40.0`: 30 pull requests, #73–#95, #97 and #100–#105,
 including their review fixes. Python/npm metadata and both lockfiles move together
 to `0.41.0` on `release/0.41.0`.
 
@@ -1129,7 +1129,9 @@ streak fast paths and invested public/backend benchmarks reduce measured loading
 request and render work within their recorded component scopes. Dependency-audit
 governance is fail-closed, development Vitest is updated, CI has a Node 22.12 job,
 and current full and production-only audits report zero findings with no active
-exception.
+exception. The isolated browser-analysis spike also adds Phase 1A Jarl and
+Phase 1B ONNX/browser-inference evidence (#89, #104), while remaining
+research with no production route, CSP change or neural MCTS implementation.
 
 The online database schema advances **15 → 21**; account schema **9**, checkpoint
 tensor format **1**, job-archive schema **3**, training configuration and worker
