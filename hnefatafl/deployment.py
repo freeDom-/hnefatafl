@@ -9,12 +9,14 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 import re
 import secrets
 import shutil
 import signal
+import socket
 import sqlite3
 import stat
 import subprocess
@@ -38,6 +40,31 @@ DOWNLOAD_HOSTS = {
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",
 }
+READINESS_ATTEMPTS = 30
+READINESS_TIMEOUT_SECONDS = 3
+READINESS_INTERVAL_SECONDS = 1
+READINESS_BODY_LIMIT = 64 * 1024
+# 0.41.0 cannot start while the updater holds the exclusive deployment gate:
+# its lifespan takes the shared tournament-reconciliation lock. A rollback to
+# that immutable release would reproduce the original production failure.
+INCOMPATIBLE_ROLLBACK_RELEASES = {
+    "0.41.0": (
+        "0.41.0 startup reconciliation takes the shared deployment gate while "
+        "the updater holds it exclusively, so the service cannot become ready"
+    )
+}
+
+
+class ReadinessError(ValueError):
+    """Sanitized readiness failure suitable for operator-facing output."""
+
+
+class DeploymentStepError(ValueError):
+    """Sanitized deployment/recovery failure that identifies the failed step."""
+
+
+class DeploymentError(ValueError):
+    """Deliberate operator-facing deployment error with a safe message."""
 
 
 def version_key(tag: str) -> tuple[int, ...]:
@@ -344,11 +371,13 @@ class Deployment:
                 # the manifest and disappear later during connection GC.
                 copy.execute("PRAGMA journal_mode=DELETE")
                 if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise ValueError("Backup SQLite integrity check failed")
+                    raise DeploymentError("Backup SQLite integrity check failed")
         manifest = {}
         for file in backup.rglob("*"):
             if file.is_symlink():
-                raise ValueError("Backup encountered a symlink; inspect storage before continuing")
+                raise DeploymentError(
+                    "Backup encountered a symlink; inspect storage before continuing"
+                )
             if file.is_file():
                 manifest[str(file.relative_to(backup))] = checksum(file)
         atomic_json(backup / "manifest.json", manifest)
@@ -366,7 +395,7 @@ class Deployment:
                 or not file.is_file()
                 or checksum(file) != expected
             ):
-                raise ValueError("Backup verification failed")
+                raise DeploymentError("Backup verification failed")
 
     def restore(self, backup: Path):
         self.verify_snapshot(backup)
@@ -376,7 +405,7 @@ class Deployment:
         # undo password, role, and status changes made since the snapshot.
         live_db, copy_db = self.data / "hnefatafl.sqlite3", restored / "hnefatafl.sqlite3"
         if live_db.exists() and not copy_db.exists():
-            raise ValueError(
+            raise DeploymentError(
                 "Snapshot has no database; manual recovery is required before replacing live authority"
             )
         if live_db.exists() and copy_db.exists():
@@ -391,7 +420,7 @@ class Deployment:
                     live_columns = [row[1] for row in live.execute(f"PRAGMA table_info({table})")]
                     copy_columns = [row[1] for row in copy.execute(f"PRAGMA table_info({table})")]
                     if copy_columns and live_columns != copy_columns:
-                        raise ValueError(
+                        raise DeploymentError(
                             "Account schema changed; manual recovery is required before restoring security state"
                         )
                     if copy_columns:
@@ -404,7 +433,10 @@ class Deployment:
                 self.revoke_restore_capabilities(copy)
                 from .online_migrations import retain_online_on_restore
 
-                retain_online_on_restore(live, copy)
+                try:
+                    retain_online_on_restore(live, copy)
+                except ValueError as error:
+                    raise DeploymentError(str(error)) from error
                 copy.commit()
         elif copy_db.exists():
             # Disaster recovery without a live DB cannot recover post-snapshot
@@ -413,10 +445,13 @@ class Deployment:
                 from .online_migrations import pause_online_after_restore
 
                 self.revoke_restore_capabilities(copy)
-                pause_online_after_restore(
-                    copy,
-                    "Snapshot-only recovery; timeout finalization paused for operator reconciliation.",
-                )
+                try:
+                    pause_online_after_restore(
+                        copy,
+                        "Snapshot-only recovery; timeout finalization paused for operator reconciliation.",
+                    )
+                except ValueError as error:
+                    raise DeploymentError(str(error)) from error
                 copy.commit()
         retained = self.data.with_name(self.data.name + ".retained-" + secrets.token_hex(4))
         gate = self.data / ".deployment-gate"
@@ -533,29 +568,355 @@ class Deployment:
         self.run(["chmod", "-R", "a+rX,a-w", target])
         return target
 
+    def fetch_url(self, request, *, timeout):
+        """HTTP transport seam for disposable integration tests."""
+        return urllib.request.urlopen(request, timeout=timeout)
+
+    @staticmethod
+    def release_version(path: Path | None) -> str:
+        """Best-effort sanitized version for an installed release directory."""
+        if path is None:
+            return "none"
+        try:
+            metadata = json.loads((Path(path) / ".release.json").read_text())
+            candidate = metadata.get("version") if isinstance(metadata, dict) else None
+            if isinstance(candidate, str) and VERSION.fullmatch(candidate):
+                return candidate
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        return "unknown"
+
+    def _deployment_diagnostics(self) -> dict[str, str]:
+        """Best-effort journal/release context; never raises into a failure path."""
+        phase, target, previous = "unknown", "unknown", "unknown"
+        try:
+            transaction = json.loads(self.journal.read_text())
+            if isinstance(transaction, dict):
+                candidate = transaction.get("phase")
+                if isinstance(candidate, str) and re.fullmatch(r"[a-z][a-z-]{0,31}", candidate):
+                    phase = candidate
+                candidate = transaction.get("target")
+                if isinstance(candidate, str):
+                    target = self.release_version(Path(candidate))
+                candidate = transaction.get("previous")
+                if isinstance(candidate, str):
+                    previous = self.release_version(Path(candidate))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        installed = "unknown"
+        try:
+            state = json.loads(self.state.read_text())
+            candidate = state.get("version") if isinstance(state, dict) else None
+            if isinstance(candidate, str) and VERSION.fullmatch(candidate):
+                installed = candidate
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        current = "none"
+        try:
+            current = (
+                self.release_version(self.current.resolve())
+                if self.current.is_symlink()
+                else "none"
+            )
+        except (OSError, RuntimeError):
+            current = "unknown"
+        return {
+            "phase": phase,
+            "target": target,
+            "previous": previous,
+            "current": current,
+            "installed": installed,
+            "recovery_target": getattr(self, "_diagnostic_recovery_target", None) or "none",
+            "failure_phase": getattr(self, "_diagnostic_failure_phase", None)
+            or "readiness verification",
+        }
+
+    def service_status(self) -> str:
+        """Allowlisted systemd state for diagnostics; never arbitrary unit output."""
+        fields = ("ActiveState", "SubState", "Result", "ExecMainStatus")
+        try:
+            result = subprocess.run(
+                [
+                    "systemctl",
+                    "show",
+                    "hnefatafl.service",
+                    "--no-pager",
+                    *(argument for field in fields for argument in ("-p", field)),
+                ],
+                env=self.env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return "unavailable"
+        values = {}
+        for line in result.stdout.splitlines():
+            name, separator, value = line.partition("=")
+            if separator and name in fields and re.fullmatch(r"[A-Za-z0-9_.-]{0,64}", value):
+                values[name] = value
+        if not values:
+            return "unavailable"
+        return (
+            f"{values.get('ActiveState', 'unknown')} ({values.get('SubState', 'unknown')}), "
+            f"result={values.get('Result', 'unknown')}, "
+            f"exit={values.get('ExecMainStatus', 'unknown')}"
+        )
+
+    def _readiness_error(
+        self,
+        probe: str,
+        category: str,
+        *,
+        attempts: int,
+        elapsed: float,
+        status: int | None = None,
+    ) -> ReadinessError:
+        context = self._deployment_diagnostics()
+        status_text = "none" if status is None else str(status)
+        return ReadinessError(
+            f"Service readiness failed during {probe} probe. "
+            f"Failure phase: {context['failure_phase']}. "
+            f"Deployment phase: {context['phase']}. "
+            f"Original target: {context['target']}; "
+            f"previous release: {context['previous']}; "
+            f"currently probed release: {context['current']}; "
+            f"recovery target: {context['recovery_target']}; "
+            f"installed release: {context['installed']}. "
+            f"Probe category: {category}; last HTTP status: {status_text}. "
+            f"Attempts: {attempts}; elapsed: {elapsed:.1f}s. "
+            f"Service state: {self.service_status()}. "
+            "Automatic recovery: not evaluated by this readiness probe. "
+            f"Inspect: journalctl -u hnefatafl -n 200 --no-pager; "
+            f"transaction journal: {self.journal}."
+        )
+
+    @staticmethod
+    def _transport_category(reason) -> str:
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            return "connection_timeout"
+        if isinstance(reason, ConnectionRefusedError):
+            return "connection_refused"
+        return "connection_error"
+
+    def _probe_health(self, url: str, host: str) -> None:
+        attempts = 0
+        started = time.monotonic()
+        category, status = "invalid_response", None
+        for attempt in range(READINESS_ATTEMPTS):
+            attempts = attempt + 1
+            request = urllib.request.Request(url + "/api/health", headers={"Host": host})
+            try:
+                with self.fetch_url(request, timeout=READINESS_TIMEOUT_SECONDS) as response:
+                    status = int(getattr(response, "status", 200))
+                    if status != 200:
+                        category = "http_status"
+                        raise ReadinessError
+                    body = response.read(READINESS_BODY_LIMIT + 1)
+                    if len(body) > READINESS_BODY_LIMIT:
+                        category = "invalid_response"
+                        raise ReadinessError
+                    try:
+                        payload = json.loads(body)
+                    except (ValueError, TypeError):
+                        category = "invalid_json"
+                        raise ReadinessError from None
+                    if payload != {"status": "ok"}:
+                        category = "unexpected_health_response"
+                        raise ReadinessError
+                    return
+            except ReadinessError:
+                pass
+            except http.client.IncompleteRead:
+                category, status = "truncated_response", None
+            except http.client.HTTPException:
+                category, status = "http_protocol_error", None
+            except urllib.error.HTTPError as error:
+                category, status = "http_status", int(error.code)
+            except urllib.error.URLError as error:
+                category, status = self._transport_category(error.reason), None
+            except (TimeoutError, socket.timeout):
+                category, status = "connection_timeout", None
+            except OSError:
+                category, status = "connection_error", None
+            if attempts < READINESS_ATTEMPTS:
+                time.sleep(READINESS_INTERVAL_SECONDS)
+        raise self._readiness_error(
+            "health",
+            category,
+            attempts=attempts,
+            elapsed=time.monotonic() - started,
+            status=status,
+        )
+
+    def _probe_authentication(self, url: str, host: str, token: str) -> None:
+        started = time.monotonic()
+        for path in ("/api/auth/me", "/api/rulesets"):
+            request = urllib.request.Request(
+                url + path, headers={"Host": host, "Cookie": "hnefatafl_session=" + token}
+            )
+            try:
+                with self.fetch_url(request, timeout=10) as response:
+                    status = int(getattr(response, "status", 200))
+                    if status != 200:
+                        raise self._readiness_error(
+                            "authenticated",
+                            "authenticated_http_status",
+                            attempts=1,
+                            elapsed=time.monotonic() - started,
+                            status=status,
+                        )
+                    body = response.read(READINESS_BODY_LIMIT + 1)
+                    if len(body) > READINESS_BODY_LIMIT:
+                        raise self._readiness_error(
+                            "authenticated",
+                            "invalid_response",
+                            attempts=1,
+                            elapsed=time.monotonic() - started,
+                        )
+                    try:
+                        payload = json.loads(body)
+                    except (ValueError, TypeError):
+                        raise self._readiness_error(
+                            "authenticated",
+                            "authenticated_invalid_json",
+                            attempts=1,
+                            elapsed=time.monotonic() - started,
+                        ) from None
+                    account = payload.get("account") if isinstance(payload, dict) else None
+                    permissions = account.get("permissions") if isinstance(account, dict) else None
+                    if path.endswith("/me") and (
+                        not isinstance(permissions, list) or "training" not in permissions
+                    ):
+                        raise self._readiness_error(
+                            "authenticated",
+                            "authenticated_permission_probe_failed",
+                            attempts=1,
+                            elapsed=time.monotonic() - started,
+                            status=status,
+                        )
+            except ReadinessError:
+                raise
+            except http.client.IncompleteRead:
+                raise self._readiness_error(
+                    "authenticated",
+                    "truncated_response",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+            except http.client.HTTPException:
+                raise self._readiness_error(
+                    "authenticated",
+                    "http_protocol_error",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+            except urllib.error.HTTPError as error:
+                raise self._readiness_error(
+                    "authenticated",
+                    "authenticated_http_status",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                    status=int(error.code),
+                ) from None
+            except urllib.error.URLError as error:
+                raise self._readiness_error(
+                    "authenticated",
+                    self._transport_category(error.reason),
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+            except (TimeoutError, socket.timeout):
+                raise self._readiness_error(
+                    "authenticated",
+                    "connection_timeout",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+            except OSError:
+                raise self._readiness_error(
+                    "authenticated",
+                    "connection_error",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+
+    def _probe_anonymous_rejection(self, url: str, host: str) -> None:
+        started = time.monotonic()
+        request = urllib.request.Request(url + "/api/rulesets", headers={"Host": host})
+        try:
+            with self.fetch_url(request, timeout=10) as response:
+                status = int(getattr(response, "status", 200))
+        except http.client.IncompleteRead:
+            raise self._readiness_error(
+                "anonymous rejection",
+                "truncated_response",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        except http.client.HTTPException:
+            raise self._readiness_error(
+                "anonymous rejection",
+                "http_protocol_error",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        except urllib.error.HTTPError as error:
+            if int(error.code) == 401:
+                return
+            raise self._readiness_error(
+                "anonymous rejection",
+                "anonymous_http_status",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+                status=int(error.code),
+            ) from None
+        except urllib.error.URLError as error:
+            raise self._readiness_error(
+                "anonymous rejection",
+                self._transport_category(error.reason),
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        except (TimeoutError, socket.timeout):
+            raise self._readiness_error(
+                "anonymous rejection",
+                "connection_timeout",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        except OSError:
+            raise self._readiness_error(
+                "anonymous rejection",
+                "connection_error",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        raise self._readiness_error(
+            "anonymous rejection",
+            "anonymous_access_accepted",
+            attempts=1,
+            elapsed=time.monotonic() - started,
+            status=status,
+        )
+
     def probe(self):
         url = f"http://127.0.0.1:{int(self.config['port'])}"
         host = urllib.parse.urlparse(self.config["public_url"]).netloc
-        last_error = None
-        for _ in range(30):
-            try:
-                request = urllib.request.Request(url + "/api/health", headers={"Host": host})
-                with urllib.request.urlopen(request, timeout=3) as response:
-                    if json.load(response) != {"status": "ok"}:
-                        raise ValueError("Unexpected health response")
-                last_error = None
-                break
-            except (OSError, ValueError) as error:
-                last_error = error
-                time.sleep(1)
-        if last_error:
-            raise ValueError("Service readiness failed; inspect journalctl -u hnefatafl")
+        self._probe_health(url, host)
         with closing(sqlite3.connect(self.data / "hnefatafl.sqlite3")) as c:
             row = c.execute(
                 "SELECT id FROM accounts WHERE active=1 AND role='ADMIN' LIMIT 1"
             ).fetchone()
             if not row:
-                raise ValueError("No active administrator after deployment")
+                raise self._readiness_error(
+                    "administrator",
+                    "no_active_administrator",
+                    attempts=1,
+                    elapsed=0.0,
+                    status=200,
+                )
             token = secrets.token_urlsafe(32)
             hashed = hashlib.sha256(token.encode()).hexdigest()
             c.execute(
@@ -564,38 +925,82 @@ class Deployment:
             )
             c.commit()
         try:
-            for path in ("/api/auth/me", "/api/rulesets"):
-                with urllib.request.urlopen(
-                    urllib.request.Request(
-                        url + path, headers={"Host": host, "Cookie": "hnefatafl_session=" + token}
-                    ),
-                    timeout=10,
-                ) as response:
-                    payload = json.load(response)
-                    if path.endswith("/me") and "training" not in payload.get("account", {}).get(
-                        "permissions", []
-                    ):
-                        raise ValueError("Authenticated permission probe failed")
-            try:
-                urllib.request.urlopen(
-                    urllib.request.Request(url + "/api/rulesets", headers={"Host": host}),
-                    timeout=10,
-                )
-            except urllib.error.HTTPError as error:
-                if error.code != 401:
-                    raise ValueError("Anonymous access probe failed") from None
-            else:
-                raise ValueError("Protected API accepted an anonymous request")
+            self._probe_authentication(url, host, token)
+            self._probe_anonymous_rejection(url, host)
         finally:
             with closing(sqlite3.connect(self.data / "hnefatafl.sqlite3")) as c:
                 c.execute("DELETE FROM sessions WHERE token_hash=?", (hashed,))
                 c.commit()
+
+    def _ensure_rollback_target_supported(self, path: Path, *, action: str) -> None:
+        version = self.release_version(path)
+        reason = INCOMPATIBLE_ROLLBACK_RELEASES.get(version)
+        if reason is None:
+            return
+        raise DeploymentError(
+            f"Refusing {action} to unsupported release {version}: {reason}. "
+            "No snapshot restore, release switch or service start was attempted; "
+            "the current release symlink and persistent data were left unchanged. "
+            f"Inspect journalctl -u hnefatafl and {self.journal}; use a corrected "
+            "0.41.1 or later release, or perform a reviewed manual recovery. "
+            "Do not run older code against migrated data."
+        )
+
+    def _verify_restore_preflight(self, backup: Path) -> None:
+        """Read-only schema preflight before stopping a healthy service.
+
+        The authoritative restore still performs its complete checks. This only
+        detects the common cross-schema refusal early, without modifying live or
+        snapshot data.
+        """
+        snapshot = Path(backup) / "data/hnefatafl.sqlite3"
+        live = self.data / "hnefatafl.sqlite3"
+        if not snapshot.is_file() or not live.is_file():
+            return
+        try:
+            with (
+                closing(sqlite3.connect(f"file:{live}?mode=ro", uri=True)) as current,
+                closing(sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)) as saved,
+            ):
+                live_version = current.execute("PRAGMA user_version").fetchone()[0]
+                snapshot_version = saved.execute("PRAGMA user_version").fetchone()[0]
+                if max(live_version, snapshot_version) >= 10 and (live_version != snapshot_version):
+                    raise DeploymentError(
+                        f"Snapshot schema {snapshot_version} differs from live schema "
+                        f"{live_version}; automatic rollback would be refused by the "
+                        "online schema-authority checks. The service was not stopped "
+                        "and persistent data was not replaced. Preserve the snapshot, "
+                        "inspect both databases, and perform reviewed manual recovery."
+                    )
+                for table in ("accounts", "auth_meta", "account_limits"):
+                    current_columns = [
+                        row[1] for row in current.execute(f"PRAGMA table_info({table})")
+                    ]
+                    saved_columns = [row[1] for row in saved.execute(f"PRAGMA table_info({table})")]
+                    if saved_columns and current_columns != saved_columns:
+                        raise DeploymentError(
+                            "Account schema changed; manual recovery is required before "
+                            "restoring security state. The service was not stopped and "
+                            "persistent data was not replaced."
+                        )
+        except sqlite3.Error as error:
+            raise DeploymentError(
+                "Snapshot compatibility could not be read safely; manual recovery is required."
+            ) from error
+
+    @staticmethod
+    def _safe_failure_detail(error: BaseException) -> str:
+        if isinstance(error, (ReadinessError, DeploymentStepError, DeploymentError)):
+            return str(error)
+        return type(error).__name__
 
     def deploy(self, target: Path, *, initialize=False):
         with self.write_gate():
             return self._deploy_locked(target, initialize=initialize)
 
     def _deploy_locked(self, target: Path, *, initialize=False):
+        self._diagnostic_failure_phase = None
+        self._diagnostic_recovery_target = None
         if active_jobs(self.data):
             raise ValueError(
                 "Active/queued training or tournament jobs exist. Cancel/finish jobs and pause remote workers first."
@@ -610,16 +1015,28 @@ class Deployment:
             "backup": None,
         }
         self.record(transaction)
-        if old or self.unit_file.exists():
-            self.service("stop")
+        deployment_step = "stopping current service"
         try:
+            if old or self.unit_file.exists():
+                self.service("stop")
+        except BaseException as error:
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise
+            raise DeploymentStepError(
+                f"Deployment failed during {deployment_step} ({type(error).__name__}). "
+                f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+            ) from error
+        try:
+            deployment_step = "post-stop activity check"
             if active_jobs(self.data):
-                raise ValueError(
+                raise DeploymentError(
                     "New job activity detected during shutdown; update refused, retained state preserved"
                 )
+            deployment_step = "pre-deployment snapshot"
             transaction["backup"] = str(self.snapshot())
             transaction["phase"] = "migrating"
             self.record(transaction)
+            deployment_step = "database migration"
             self.run(
                 [
                     target / ".venv/bin/python",
@@ -632,6 +1049,7 @@ class Deployment:
                 cwd=target,
                 user=True,
             )
+            deployment_step = "initial administrator provisioning"
             if initialize:
                 self.run(
                     [
@@ -645,51 +1063,113 @@ class Deployment:
                     cwd=target,
                     user=False,
                 )
+            deployment_step = "release activation"
             self.activate(target)
             shutil.copyfile(
                 target / "deployment/hnefatafl.service",
                 self.unit_file,
             )
+            deployment_step = "service unit update"
             self.run(["systemctl", "daemon-reload"])
             transaction["phase"] = "activated"
             self.record(transaction)
+            deployment_step = "service startup"
             self.service("start")
+            deployment_step = "readiness verification"
+            self._diagnostic_failure_phase = "readiness verification"
             self.probe()
+            deployment_step = "commit"
             transaction["phase"] = "committed"
             atomic_json(
                 self.state, {**json.loads((target / ".release.json").read_text()), **transaction}
             )
             self.record(transaction)
             print("Release ready: " + str(target))
-        except BaseException:
-            if old or self.unit_file.exists():
-                self.service("stop")
-            if transaction["backup"]:
-                self.restore(Path(transaction["backup"]))
+        except BaseException as error:
+            recovery_step = "stopping failed target service"
+            self._diagnostic_recovery_target = self.release_version(old) if old else "none"
+            self._diagnostic_failure_phase = f"{deployment_step}; automatic recovery"
+            try:
+                if old or self.unit_file.exists():
+                    self.service("stop")
+                recovery_step = "unsupported rollback policy check"
+                if old:
+                    self._ensure_rollback_target_supported(old, action="automatic recovery")
+                recovery_step = "snapshot compatibility preflight"
+                if transaction["backup"]:
+                    self._verify_restore_preflight(Path(transaction["backup"]))
+                recovery_step = "snapshot restoration"
+                if transaction["backup"]:
+                    self.restore(Path(transaction["backup"]))
+                if old:
+                    recovery_step = "previous release activation"
+                    self.activate(old)
+                    shutil.copyfile(
+                        old / "deployment/hnefatafl.service",
+                        self.unit_file,
+                    )
+                    self.run(["systemctl", "daemon-reload"])
+                    recovery_step = "previous release service startup"
+                    self.service("start")
+                    recovery_step = "previous release readiness verification"
+                    self._diagnostic_failure_phase = (
+                        "readiness verification during automatic recovery"
+                    )
+                    self.probe()
+                elif self.current.is_symlink():
+                    recovery_step = "release symlink cleanup"
+                    self.current.unlink()
+                recovery_step = "installed state restoration"
+                if old_state is not None:
+                    atomic_json(self.state, old_state)
+                else:
+                    self.state.unlink(missing_ok=True)
+                transaction["phase"] = "recovered"
+                self.record(transaction)
+            except BaseException as recovery_error:
+                if isinstance(error, ReadinessError):
+                    detail = self._safe_failure_detail(recovery_error)
+                    raise ReadinessError(
+                        f"{error} Automatic recovery: failed during {recovery_step}. {detail}"
+                    ) from recovery_error
+                if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                    raise
+                detail = self._safe_failure_detail(recovery_error)
+                primary = self._safe_failure_detail(error)
+                raise DeploymentStepError(
+                    f"Deployment failed during {deployment_step}: {primary}; "
+                    f"automatic recovery failed during {recovery_step}. {detail}. "
+                    f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+                ) from recovery_error
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise
+            if isinstance(error, ReadinessError):
+                if old:
+                    raise ReadinessError(
+                        f"{error} Automatic recovery: succeeded; "
+                        "previous release restored and verified."
+                    ) from error
+                raise ReadinessError(
+                    f"{error} Automatic recovery: not applicable; "
+                    "initial installation has no previous release and remains stopped."
+                ) from error
             if old:
-                self.activate(old)
-                shutil.copyfile(
-                    old / "deployment/hnefatafl.service",
-                    self.unit_file,
-                )
-                self.run(["systemctl", "daemon-reload"])
-                self.service("start")
-                self.probe()
-            elif self.current.is_symlink():
-                self.current.unlink()
-            if old_state is not None:
-                atomic_json(self.state, old_state)
+                outcome = "automatic recovery succeeded; previous release restored and verified"
             else:
-                self.state.unlink(missing_ok=True)
-            transaction["phase"] = "recovered"
-            self.record(transaction)
-            raise
+                outcome = "automatic recovery not applicable; initial installation remains stopped"
+            raise DeploymentStepError(
+                f"Deployment failed during {deployment_step}: "
+                f"{self._safe_failure_detail(error)}; {outcome}. "
+                f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+            ) from error
 
     def recover(self, *, rollback=False):
         with self.write_gate():
             return self._recover_locked(rollback=rollback)
 
     def _recover_locked(self, *, rollback=False):
+        self._diagnostic_failure_phase = None
+        self._diagnostic_recovery_target = None
         source = self.state if rollback else self.journal
         transaction = json.loads(source.read_text())
         if not rollback and transaction.get("phase") in {"committed", "recovered"}:
@@ -698,34 +1178,63 @@ class Deployment:
         previous, backup = transaction.get("previous"), transaction.get("backup")
         if rollback and not previous:
             raise ValueError("No previous release to roll back to")
+        if previous:
+            self._diagnostic_recovery_target = self.release_version(Path(previous))
+            self._ensure_rollback_target_supported(
+                Path(previous), action="rollback" if rollback else "interrupted recovery"
+            )
         if active_jobs(self.data):
-            raise ValueError("Finish/cancel training and tournaments before recovery")
-        self.service("stop")
+            raise DeploymentError("Finish/cancel training and tournaments before recovery")
         if backup:
-            self.restore(Path(backup))
-        if previous:
-            self.activate(Path(previous))
-            shutil.copyfile(
-                Path(previous) / "deployment/hnefatafl.service",
-                self.unit_file,
-            )
-            self.run(["systemctl", "daemon-reload"])
-            self.service("start")
-            self.probe()
-        elif self.current.is_symlink():
-            self.current.unlink()
-        self.record({"phase": "recovered"})
-        if previous:
-            atomic_json(
-                self.state,
-                {
-                    **json.loads((Path(previous) / ".release.json").read_text()),
-                    "previous": None,
-                    "backup": None,
-                },
-            )
-        else:
-            self.state.unlink(missing_ok=True)
+            self._diagnostic_failure_phase = "rollback compatibility preflight"
+            self._verify_restore_preflight(Path(backup))
+        recovery_step = "stopping current service"
+        try:
+            self.service("stop")
+            if backup:
+                recovery_step = "snapshot restoration"
+                self.restore(Path(backup))
+            if previous:
+                recovery_step = "previous release activation"
+                self.activate(Path(previous))
+                shutil.copyfile(
+                    Path(previous) / "deployment/hnefatafl.service",
+                    self.unit_file,
+                )
+                self.run(["systemctl", "daemon-reload"])
+                recovery_step = "previous release service startup"
+                self.service("start")
+                recovery_step = "previous release readiness verification"
+                self._diagnostic_failure_phase = "readiness verification during " + (
+                    "rollback" if rollback else "interrupted recovery"
+                )
+                self.probe()
+            elif self.current.is_symlink():
+                recovery_step = "release symlink cleanup"
+                self.current.unlink()
+            recovery_step = "installed state restoration"
+            self.record({"phase": "recovered"})
+            if previous:
+                atomic_json(
+                    self.state,
+                    {
+                        **json.loads((Path(previous) / ".release.json").read_text()),
+                        "previous": None,
+                        "backup": None,
+                    },
+                )
+            else:
+                self.state.unlink(missing_ok=True)
+        except BaseException as error:
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise
+            if isinstance(error, ReadinessError):
+                raise
+            raise DeploymentStepError(
+                f"Recovery failed during {recovery_step}: "
+                f"{self._safe_failure_detail(error)}. "
+                f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+            ) from error
 
 
 def protected_json(path: Path):
