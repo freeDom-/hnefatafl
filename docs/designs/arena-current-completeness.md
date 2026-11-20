@@ -89,13 +89,32 @@ production feature. The program is not complete or release-accepted.
 
 | PR | State | Head / merge revision | Evidence and remaining work |
 | --- | --- | --- | --- |
-| #99 | Draft, open | `ac5fb6f` on `feat/league-arena` | Schema 22 proposal, league policy/service/migrations and tests; no frontend. Security and Python checks failed at review; do not describe as merged or accepted |
-| #104 | Open | `535331f` on `feat/browser-analysis-phase1` | Phase 1A/1B implementation and revision-3 evidence; integrates reviewed `main` `17d3819`; security, python, node22 and browser checks green. Competitive weights, physical WebGPU/devices, neural MCTS and production integration remain open |
-| #105 | Open | `f9e008a` on `fix/benchmark-mountinfo-read` | Follow-up hardening of the disposable benchmark's cgroup mountinfo parsing; benchmark-only, no production query or schema change |
+| #99 | Draft, open | `ac5fb6f` on `feat/league-arena` | Schema 22 proposal, league policy/service/migrations and tests; no frontend. Run `44363101788` failed security and Python at review; do not describe as merged or accepted |
+| #104 | Open | `535331f` on `feat/browser-analysis-phase1` | Phase 1A/1B implementation and revision-3 evidence; integrates reviewed `main` `17d3819`; run `44696065034` passed security, python, node22 and browser. Competitive weights, physical WebGPU/devices, neural MCTS and production integration remain open |
+| #105 | Open | `f9e008a` on `fix/benchmark-mountinfo-read` | Follow-up hardening of the disposable benchmark's cgroup mountinfo parsing; run `44693560872` green; benchmark-only, no production query or schema change |
 
-Status corrections: PR #96 was closed without merging and superseded by
-#100/#102. PR #93 and #97 are merged, not open. Re-verify every PR state before
-acting on this table.
+Merged-PR provenance (pull-request runs verified green at review):
+
+| PR | Merge commit | Run |
+| --- | --- | --- |
+| #86 | `c41bd2b` | `43891662193` |
+| #87 | `8f64047` | `44028009651` |
+| #89 | `e717138` | `44039573047` |
+| #90 | `0c5f270` | `44343230926` |
+| #91 | `3f1836d` | `44028995122` |
+| #92 | `1283ae9` | `44517675636` |
+| #93 | `17d3819` | `44631294977` |
+| #94 | `a8ecb64` | `44298853250` |
+| #95 | `484b787` | `44292097758` |
+| #97 | `07d7438` | `44560533558` |
+| #100 | `2ffa951` | `44412396271` |
+| #101 | `b630273` | `44451495521` |
+| #102 | `711978e` | `44424088052` |
+| #103 | `86a90eb` | `44488081403` |
+
+These are per-PR results, not a combined-main suite. Status corrections: PR #96
+was closed without merging and superseded by #100/#102. PR #93 and #97 are merged,
+not open. Re-verify every PR state before acting on this table.
 
 ## Security status
 
