@@ -212,3 +212,62 @@ def test_encoding_module_is_importable_without_torch():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ENCODER_VERSION
+
+
+def _previous_encoder(state):
+    """The pre-Phase-2 assignment path, used only as a performance baseline."""
+    size = state.size
+    encoded = torch.zeros((6, size, size), dtype=torch.float32)
+    for index, piece in enumerate(state.board):
+        if piece in "ADK":
+            encoded["ADK".index(piece), index // size, index % size] = 1.0
+    if state.turn == "defenders":
+        encoded[3].fill_(1.0)
+    encoded[4, size // 2, size // 2] = 1.0
+    if state.ruleset != "tablut":
+        for row, column in ((0, 0), (0, size - 1), (size - 1, 0), (size - 1, size - 1)):
+            encoded[5, row, column] = 1.0
+    return encoded
+
+
+def _median_us(operation, states, repetitions=5):
+    import time
+
+    for state in states:
+        operation(state)
+    samples = []
+    for _ in range(repetitions):
+        started = time.perf_counter()
+        for state in states:
+            operation(state)
+        samples.append((time.perf_counter() - started) / len(states) * 1e6)
+    import statistics
+
+    return statistics.median(samples)
+
+
+@pytest.mark.parametrize("ruleset", ["brandubh", "tablut", "copenhagen"])
+def test_shared_encoder_does_not_regress_native_encoding_cost(ruleset):
+    states = [new_game(ruleset) for _ in range(8)]
+    previous = _median_us(_previous_encoder, states)
+    current = _median_us(encode_state, states)
+    # Generous bound: the shared byte-plane encoder is measured ~10-16x faster
+    # than the previous assignment path. This only guards a material regression.
+    assert current <= previous * 2.0, (
+        f"{ruleset}: shared encoder {current:.1f} us vs previous {previous:.1f} us"
+    )
+    for state in states:
+        assert torch.equal(_previous_encoder(state), encode_state(state))
+
+
+@pytest.mark.parametrize("ruleset", ["brandubh", "tablut", "copenhagen"])
+def test_encoded_batches_preserve_dtype_shape_and_device(ruleset):
+    states = [new_game(ruleset) for _ in range(4)]
+    batch = torch.stack([encode_state(state) for state in states])
+    size = BOARD_SIZES[ruleset]
+    assert batch.shape == (4, 6, size, size)
+    assert batch.dtype == torch.float32
+    assert batch.device.type == "cpu"
+    assert batch.is_contiguous()
+    for index, state in enumerate(states):
+        assert torch.equal(batch[index], encode_state(state))

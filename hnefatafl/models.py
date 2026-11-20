@@ -96,7 +96,14 @@ def encode_state(state: State) -> torch.Tensor:
     wrapper only materialises it as the FP32 tensor the native network expects.
     """
     planes = encode_planes(state)
-    return torch.tensor(list(planes), dtype=torch.float32).reshape(6, state.size, state.size)
+    # A zero-copy uint8 view followed by the FP32 conversion is substantially
+    # faster than building the tensor element by element, and it keeps the shared
+    # byte-plane encoder as the only source of truth.
+    return (
+        torch.frombuffer(bytearray(planes), dtype=torch.uint8)
+        .reshape(6, state.size, state.size)
+        .to(torch.float32)
+    )
 
 
 class _ResidualBlock(nn.Module):
