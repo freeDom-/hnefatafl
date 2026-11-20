@@ -5,14 +5,17 @@
 ## Arena v2 delivery, player tournaments, automatic progression and public spectators (`0.41.0` preparation)
 
 The [0.41.0 release notes](releases/0.41.0.md#validation) identify integration
-coverage for the 29 pull requests merged since `0.40.0`. Coverage includes the
+coverage for the 30 pull requests merged since `0.40.0`. Coverage includes the
 four-theme responsive Arena, persisted Local 1v1, human double-elimination
 tournaments with durable start/settlement workers, signed-out public discovery
 and replay, automatic tiered achievements with schema-21 reconciliation, rating
 history and streaks, Workshop consolidation, frontend feature splitting and
 polling reductions, fail-closed dependency auditing, and disposable backend and
-progression benchmarks. The online schema advances 15 → 21; account schema 9,
-checkpoint tensor format 1 and job-archive schema 3 are unchanged.
+progression benchmarks. Isolated browser-analysis research also records Phase 1A
+(Jarl) and Phase 1B (ONNX/browser inference) parity and lifecycle evidence; it
+ships no production route, CSP change or neural MCTS implementation. The online
+schema advances 15 → 21; account schema 9, checkpoint tensor format 1 and
+job-archive schema 3 are unchanged.
 
 Release preparation records its exact local checks and release-PR Verify result
 separately from the feature-PR integration evidence. Successful release-PR and
