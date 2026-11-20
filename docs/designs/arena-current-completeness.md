@@ -90,7 +90,7 @@ production feature. The program is not complete or release-accepted.
 | PR | State | Head / merge revision | Evidence and remaining work |
 | --- | --- | --- | --- |
 | #99 | Draft, open | `ac5fb6f` on `feat/league-arena` | Schema 22 proposal, league policy/service/migrations and tests; no frontend. Run `44363101788` failed security and Python at review; do not describe as merged or accepted |
-| #104 | Open | `1f03202` on `feat/browser-analysis-phase1` | Revision-5 Phase 1A/1B implementation; integrates merged `main` `1b4c4ae`. Run `44715192141`: security, python and node22 green; browser still running at this snapshot. Phase 1A/1B remain partially validated. Competitive weights, physical WebGPU/devices, neural MCTS and production integration remain open |
+| #104 | Open | `1f03202` on `feat/browser-analysis-phase1` | Revision-5 Phase 1A/1B implementation; integrates merged `main` `1b4c4ae`; run `44715192141` passed security, python, node22 and browser. Phase 1A/1B remain partially validated. Competitive weights, physical WebGPU/devices, neural MCTS and production integration remain open |
 
 Merged-PR provenance (pull-request runs verified green at review):
 
