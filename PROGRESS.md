@@ -13,6 +13,26 @@ The formerly unreleased online phases are consolidated in the
 [0.32.0 release preparation](docs/releases/0.32.0.md). Their original phase status,
 test counts and rollout limits below remain historical evidence.
 
+## Deployment-safe tournament recovery (`0.41.1` hotfix)
+
+`0.41.0` startup reconciliation took the shared deployment gate during the FastAPI
+lifespan, while the production updater holds the exclusive gate until readiness
+passes. The cycle failed startup even with no tournaments and triggered automatic
+rollback. `0.41.1` distinguishes expected `DeploymentLocked` contention from real
+errors, defers only the expected contention to the existing settlement worker, and
+retries once after the updater commits. Unexpected failures remain incomplete,
+retries are bounded/shutdown-aware and normal startup is still synchronous. The
+lifespan now also cleans up partially started workers.
+
+Readiness failures report sanitized phase/target, probe category, last HTTP status,
+transport classification, attempts/elapsed time, allowlisted systemd state/exit,
+automatic-recovery outcome and journal/transaction locations. New mandatory
+`make deployment-check` coverage uses a real lifespan under a real exclusive flock,
+plus disposable updater integration for fresh install, schema-20 update, schema-21
+restart, failed activation/rollback and interrupted recovery. No schema change is
+included; target-host systemd/Proxmox validation remains outstanding. See the
+[0.41.1 release notes](docs/releases/0.41.1.md).
+
 ## Persistent Champion-aware HyperController (unreleased)
 
 Replaces the reset-based Champion handling in `hnefatafl/hyper_adaptation.py` with

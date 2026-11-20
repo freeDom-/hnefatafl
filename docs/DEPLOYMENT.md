@@ -351,6 +351,37 @@ activation, recovery and backup, new mutations receive 503; health/authenticated
 read probes remain available. The lock's inode survives data restoration. This
 prevents a new training request from racing the update's graceful service stop.
 
+### Deferred tournament recovery during activation
+
+The updater holds that exclusive lock from before shutdown until activation,
+readiness verification, commit or rollback. Player-tournament settlement must not
+make the new service's lifespan require the same lock: that would create a cycle
+where readiness needs a lock the updater cannot release until readiness passes.
+Startup therefore attempts the one-time reconciliation synchronously. If, and only
+if, it observes genuine deployment-gate contention, it leaves durable queue rows
+untouched and starts the normal settlement worker. The worker retries after the
+gate is released, performs the reconciliation exactly once in that worker
+lifecycle, then resumes due scheduled starts and settlement. Database, integrity
+and programming errors are not treated as deployment contention; a synchronous
+startup attempt still raises them, and worker retries remain incomplete with
+bounded backoff. No browser request, administrator action or extra restart is
+required.
+
+This preserves all existing write protection: tournament settlement, scheduled
+starts, online timeouts and account mail still take the shared gate and return or
+defer while the exclusive deployment gate is held. The gate is never bypassed,
+disabled or replaced. An update started by an already installed `0.40.0` updater
+needs no changes in the updater: it holds the same lock, starts the corrected
+service and probes health as before.
+
+Readiness failures now report sanitized operator diagnostics: deployment phase
+and target version, failed probe category, last HTTP status, transport category
+(connection refused/timeout/error, invalid JSON or unexpected health response),
+attempt count and elapsed time, allowlisted systemd state/exit result, whether
+automatic recovery succeeded or failed, and the journal/transaction locations.
+Credentials, cookies, CSRF values, response bodies, configuration secrets and
+GitHub tokens are never included.
+
 ## Rollback and recovery
 
 ```sh
@@ -379,9 +410,12 @@ Data created after the snapshot is kept in a sibling
 Other local game/model data is not silently merged. Application configuration
 is preserved; each snapshot also contains its prior protected configuration.
 Failed migration/readiness normally restores the previous code/data and starts it.
-If recovery itself fails, the command exits nonzero, preserves artifacts and prints
-journal/log locations. Do not restart arbitrary old code against an unknown schema.
-An initial failed install has no previous release and stays stopped.
+The readiness error reports the probe/category/transport, attempts, service state
+and whether that automatic recovery succeeded. If recovery itself fails, the
+command exits nonzero, preserves artifacts and reports the failed recovery plus
+the journal and transaction locations. Do not restart arbitrary old code against
+an unknown schema. An initial failed install has no previous release and stays
+stopped.
 
 Backups contain account hashes, sessions, worker credentials and private
 configuration: keep root-only and copy encrypted off the container. Container

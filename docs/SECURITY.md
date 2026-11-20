@@ -190,7 +190,10 @@ award milestones; schema 21 reconciles historical evidence once. Portrait
 selection checks existing entitlement and never awards achievements. Awards and
 entitlements are append-only and unique. Existing origin, CSRF, bounded-body and
 deployment-freeze protection applies to the underlying game/analysis/selection
-mutations. See [portraits and achievements](PROGRESSION.md).
+mutations. Tournament startup reconciliation also respects that freeze: expected
+deployment-gate contention is deferred to the existing background worker rather
+than opening a second write path or bypassing the gate. See
+[portraits and achievements](PROGRESSION.md).
 
 ## Coverage and explicit exceptions
 

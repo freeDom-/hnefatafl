@@ -2,6 +2,27 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Deployment-safe tournament recovery (`0.41.1` preparation)
+
+The [0.41.1 hotfix notes](releases/0.41.1.md) record the `0.41.0` startup
+deadlock root cause and the deferred recovery lifecycle. Regression coverage now
+starts a real FastAPI lifespan while a real exclusive `.deployment-gate` flock is
+held, for both empty and populated tournament databases. It verifies health and
+authenticated reads, anonymous rejection, 503 mutation blocking, no reconciliation
+writes under the gate, automatic recovery after release, idempotent repeated
+recovery, restart/shutdown while deferred, due scheduled starts, and genuine
+database-error propagation. Disposable updater integration exercises fresh
+installation, schema-20 activation/probe/commit, schema-21 restart, failed
+activation rollback and explicit interrupted recovery with the real application
+lifespan and data snapshot/restore path. Readiness diagnostics cover connection
+refusal, timeout, unexpected status, invalid health bodies, transient recovery,
+successful rollback and failed rollback without leaking response bodies.
+
+`make deployment-check` is mandatory in the Python CI job before the full backend
+suite. Exact local/CI counts and any target-host exceptions are recorded in the
+release pull request; the tests use disposable data and do not exercise real
+systemd, proxying or a live Proxmox update.
+
 ## Arena v2 delivery, player tournaments, automatic progression and public spectators (`0.41.0` preparation)
 
 The [0.41.0 release notes](releases/0.41.0.md#validation) identify integration

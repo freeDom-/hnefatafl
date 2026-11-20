@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import sqlite3
 import stat
 import subprocess
@@ -38,6 +39,14 @@ DOWNLOAD_HOSTS = {
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",
 }
+READINESS_ATTEMPTS = 30
+READINESS_TIMEOUT_SECONDS = 3
+READINESS_INTERVAL_SECONDS = 1
+READINESS_BODY_LIMIT = 64 * 1024
+
+
+class ReadinessError(ValueError):
+    """Sanitized readiness failure suitable for operator-facing output."""
 
 
 def version_key(tag: str) -> tuple[int, ...]:
@@ -533,23 +542,272 @@ class Deployment:
         self.run(["chmod", "-R", "a+rX,a-w", target])
         return target
 
+    def fetch_url(self, request, *, timeout):
+        """HTTP transport seam for disposable integration tests."""
+        return urllib.request.urlopen(request, timeout=timeout)
+
+    def _transaction_context(self) -> tuple[str, str]:
+        phase, version = "unknown", "unknown"
+        try:
+            transaction = json.loads(self.journal.read_text())
+            if isinstance(transaction, dict):
+                candidate = transaction.get("phase")
+                if isinstance(candidate, str) and re.fullmatch(r"[a-z][a-z-]{0,31}", candidate):
+                    phase = candidate
+                target = transaction.get("target")
+                if isinstance(target, str):
+                    metadata = json.loads((Path(target) / ".release.json").read_text())
+                    candidate = metadata.get("version")
+                    if isinstance(candidate, str) and VERSION.fullmatch(candidate):
+                        version = candidate
+        except (OSError, ValueError, TypeError):
+            pass
+        if version == "unknown":
+            try:
+                installed = json.loads(self.state.read_text())
+                candidate = installed.get("version")
+                if isinstance(candidate, str) and VERSION.fullmatch(candidate):
+                    version = candidate
+            except (OSError, ValueError, TypeError, AttributeError):
+                pass
+        return phase, version
+
+    def service_status(self) -> str:
+        """Allowlisted systemd state for diagnostics; never arbitrary unit output."""
+        fields = ("ActiveState", "SubState", "Result", "ExecMainStatus")
+        try:
+            result = subprocess.run(
+                [
+                    "systemctl",
+                    "show",
+                    "hnefatafl.service",
+                    "--no-pager",
+                    *(argument for field in fields for argument in ("-p", field)),
+                ],
+                env=self.env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return "unavailable"
+        values = {}
+        for line in result.stdout.splitlines():
+            name, separator, value = line.partition("=")
+            if separator and name in fields and re.fullmatch(r"[A-Za-z0-9_.-]{0,64}", value):
+                values[name] = value
+        if not values:
+            return "unavailable"
+        return (
+            f"{values.get('ActiveState', 'unknown')} ({values.get('SubState', 'unknown')}), "
+            f"result={values.get('Result', 'unknown')}, "
+            f"exit={values.get('ExecMainStatus', 'unknown')}"
+        )
+
+    def _readiness_error(
+        self,
+        probe: str,
+        category: str,
+        *,
+        attempts: int,
+        elapsed: float,
+        status: int | None = None,
+    ) -> ReadinessError:
+        phase, version = self._transaction_context()
+        status_text = "none" if status is None else str(status)
+        return ReadinessError(
+            f"Service readiness failed during {probe} probe. "
+            f"Deployment phase: {phase}; target version: {version}. "
+            f"Probe category: {category}; last HTTP status: {status_text}. "
+            f"Attempts: {attempts}; elapsed: {elapsed:.1f}s. "
+            f"Service state: {self.service_status()}. "
+            "Automatic recovery: pending. "
+            f"Inspect: journalctl -u hnefatafl -n 200 --no-pager; "
+            f"transaction journal: {self.journal}."
+        )
+
+    @staticmethod
+    def _transport_category(reason) -> str:
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            return "connection_timeout"
+        if isinstance(reason, ConnectionRefusedError):
+            return "connection_refused"
+        return "connection_error"
+
+    def _probe_health(self, url: str, host: str) -> None:
+        attempts = 0
+        started = time.monotonic()
+        category, status = "invalid_response", None
+        for attempt in range(READINESS_ATTEMPTS):
+            attempts = attempt + 1
+            request = urllib.request.Request(url + "/api/health", headers={"Host": host})
+            try:
+                with self.fetch_url(request, timeout=READINESS_TIMEOUT_SECONDS) as response:
+                    status = int(getattr(response, "status", 200))
+                    if status != 200:
+                        category = "http_status"
+                        raise ReadinessError
+                    body = response.read(READINESS_BODY_LIMIT + 1)
+                    if len(body) > READINESS_BODY_LIMIT:
+                        category = "invalid_response"
+                        raise ReadinessError
+                    try:
+                        payload = json.loads(body)
+                    except (ValueError, TypeError):
+                        category = "invalid_json"
+                        raise ReadinessError from None
+                    if payload != {"status": "ok"}:
+                        category = "unexpected_health_response"
+                        raise ReadinessError
+                    return
+            except ReadinessError:
+                pass
+            except urllib.error.HTTPError as error:
+                category, status = "http_status", int(error.code)
+            except urllib.error.URLError as error:
+                category, status = self._transport_category(error.reason), None
+            except (TimeoutError, socket.timeout):
+                category, status = "connection_timeout", None
+            except OSError:
+                category, status = "connection_error", None
+            if attempts < READINESS_ATTEMPTS:
+                time.sleep(READINESS_INTERVAL_SECONDS)
+        raise self._readiness_error(
+            "health",
+            category,
+            attempts=attempts,
+            elapsed=time.monotonic() - started,
+            status=status,
+        )
+
+    def _probe_authentication(self, url: str, host: str, token: str) -> None:
+        started = time.monotonic()
+        for path in ("/api/auth/me", "/api/rulesets"):
+            request = urllib.request.Request(
+                url + path, headers={"Host": host, "Cookie": "hnefatafl_session=" + token}
+            )
+            try:
+                with self.fetch_url(request, timeout=10) as response:
+                    status = int(getattr(response, "status", 200))
+                    if status != 200:
+                        raise self._readiness_error(
+                            "authenticated",
+                            "authenticated_http_status",
+                            attempts=1,
+                            elapsed=time.monotonic() - started,
+                            status=status,
+                        )
+                    body = response.read(READINESS_BODY_LIMIT + 1)
+                    if len(body) > READINESS_BODY_LIMIT:
+                        raise self._readiness_error(
+                            "authenticated",
+                            "invalid_response",
+                            attempts=1,
+                            elapsed=time.monotonic() - started,
+                        )
+                    try:
+                        payload = json.loads(body)
+                    except (ValueError, TypeError):
+                        raise self._readiness_error(
+                            "authenticated",
+                            "authenticated_invalid_json",
+                            attempts=1,
+                            elapsed=time.monotonic() - started,
+                        ) from None
+                    account = payload.get("account") if isinstance(payload, dict) else None
+                    permissions = account.get("permissions") if isinstance(account, dict) else None
+                    if path.endswith("/me") and (
+                        not isinstance(permissions, list) or "training" not in permissions
+                    ):
+                        raise self._readiness_error(
+                            "authenticated",
+                            "authenticated_permission_probe_failed",
+                            attempts=1,
+                            elapsed=time.monotonic() - started,
+                            status=status,
+                        )
+            except ReadinessError:
+                raise
+            except urllib.error.HTTPError as error:
+                raise self._readiness_error(
+                    "authenticated",
+                    "authenticated_http_status",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                    status=int(error.code),
+                ) from None
+            except urllib.error.URLError as error:
+                raise self._readiness_error(
+                    "authenticated",
+                    self._transport_category(error.reason),
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+            except (TimeoutError, socket.timeout):
+                raise self._readiness_error(
+                    "authenticated",
+                    "connection_timeout",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+            except OSError:
+                raise self._readiness_error(
+                    "authenticated",
+                    "connection_error",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+
+    def _probe_anonymous_rejection(self, url: str, host: str) -> None:
+        started = time.monotonic()
+        request = urllib.request.Request(url + "/api/rulesets", headers={"Host": host})
+        try:
+            with self.fetch_url(request, timeout=10) as response:
+                status = int(getattr(response, "status", 200))
+        except urllib.error.HTTPError as error:
+            if int(error.code) == 401:
+                return
+            raise self._readiness_error(
+                "anonymous rejection",
+                "anonymous_http_status",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+                status=int(error.code),
+            ) from None
+        except urllib.error.URLError as error:
+            raise self._readiness_error(
+                "anonymous rejection",
+                self._transport_category(error.reason),
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        except (TimeoutError, socket.timeout):
+            raise self._readiness_error(
+                "anonymous rejection",
+                "connection_timeout",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        except OSError:
+            raise self._readiness_error(
+                "anonymous rejection",
+                "connection_error",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        raise self._readiness_error(
+            "anonymous rejection",
+            "anonymous_access_accepted",
+            attempts=1,
+            elapsed=time.monotonic() - started,
+            status=status,
+        )
+
     def probe(self):
         url = f"http://127.0.0.1:{int(self.config['port'])}"
         host = urllib.parse.urlparse(self.config["public_url"]).netloc
-        last_error = None
-        for _ in range(30):
-            try:
-                request = urllib.request.Request(url + "/api/health", headers={"Host": host})
-                with urllib.request.urlopen(request, timeout=3) as response:
-                    if json.load(response) != {"status": "ok"}:
-                        raise ValueError("Unexpected health response")
-                last_error = None
-                break
-            except (OSError, ValueError) as error:
-                last_error = error
-                time.sleep(1)
-        if last_error:
-            raise ValueError("Service readiness failed; inspect journalctl -u hnefatafl")
+        self._probe_health(url, host)
         with closing(sqlite3.connect(self.data / "hnefatafl.sqlite3")) as c:
             row = c.execute(
                 "SELECT id FROM accounts WHERE active=1 AND role='ADMIN' LIMIT 1"
@@ -564,28 +822,8 @@ class Deployment:
             )
             c.commit()
         try:
-            for path in ("/api/auth/me", "/api/rulesets"):
-                with urllib.request.urlopen(
-                    urllib.request.Request(
-                        url + path, headers={"Host": host, "Cookie": "hnefatafl_session=" + token}
-                    ),
-                    timeout=10,
-                ) as response:
-                    payload = json.load(response)
-                    if path.endswith("/me") and "training" not in payload.get("account", {}).get(
-                        "permissions", []
-                    ):
-                        raise ValueError("Authenticated permission probe failed")
-            try:
-                urllib.request.urlopen(
-                    urllib.request.Request(url + "/api/rulesets", headers={"Host": host}),
-                    timeout=10,
-                )
-            except urllib.error.HTTPError as error:
-                if error.code != 401:
-                    raise ValueError("Anonymous access probe failed") from None
-            else:
-                raise ValueError("Protected API accepted an anonymous request")
+            self._probe_authentication(url, host, token)
+            self._probe_anonymous_rejection(url, host)
         finally:
             with closing(sqlite3.connect(self.data / "hnefatafl.sqlite3")) as c:
                 c.execute("DELETE FROM sessions WHERE token_hash=?", (hashed,))
@@ -661,28 +899,50 @@ class Deployment:
             )
             self.record(transaction)
             print("Release ready: " + str(target))
-        except BaseException:
-            if old or self.unit_file.exists():
-                self.service("stop")
-            if transaction["backup"]:
-                self.restore(Path(transaction["backup"]))
-            if old:
-                self.activate(old)
-                shutil.copyfile(
-                    old / "deployment/hnefatafl.service",
-                    self.unit_file,
-                )
-                self.run(["systemctl", "daemon-reload"])
-                self.service("start")
-                self.probe()
-            elif self.current.is_symlink():
-                self.current.unlink()
-            if old_state is not None:
-                atomic_json(self.state, old_state)
-            else:
-                self.state.unlink(missing_ok=True)
-            transaction["phase"] = "recovered"
-            self.record(transaction)
+        except BaseException as error:
+            try:
+                if old or self.unit_file.exists():
+                    self.service("stop")
+                if transaction["backup"]:
+                    self.restore(Path(transaction["backup"]))
+                if old:
+                    self.activate(old)
+                    shutil.copyfile(
+                        old / "deployment/hnefatafl.service",
+                        self.unit_file,
+                    )
+                    self.run(["systemctl", "daemon-reload"])
+                    self.service("start")
+                    self.probe()
+                elif self.current.is_symlink():
+                    self.current.unlink()
+                if old_state is not None:
+                    atomic_json(self.state, old_state)
+                else:
+                    self.state.unlink(missing_ok=True)
+                transaction["phase"] = "recovered"
+                self.record(transaction)
+            except BaseException as recovery_error:
+                if isinstance(error, ReadinessError):
+                    detail = (
+                        str(recovery_error)
+                        if isinstance(recovery_error, ReadinessError)
+                        else "previous-release readiness verification failed"
+                    )
+                    raise ReadinessError(
+                        f"{error} Automatic recovery: failed. {detail}"
+                    ) from recovery_error
+                raise
+            if isinstance(error, ReadinessError):
+                if old:
+                    raise ReadinessError(
+                        f"{error} Automatic recovery: succeeded; "
+                        "previous release restored and verified."
+                    ) from error
+                raise ReadinessError(
+                    f"{error} Automatic recovery: not applicable; "
+                    "initial installation has no previous release and remains stopped."
+                ) from error
             raise
 
     def recover(self, *, rollback=False):

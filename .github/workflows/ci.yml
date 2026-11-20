@@ -33,6 +33,7 @@ jobs:
       - run: uv sync --frozen --all-extras --python 3.12
       - run: make foundation
       - run: make docs
+      - run: make deployment-check
       - run: .venv/bin/python -m pytest
       - run: .venv/bin/ruff check hnefatafl tests
       - run: .venv/bin/ruff format --check hnefatafl tests

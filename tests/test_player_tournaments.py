@@ -8,8 +8,12 @@ results. No client-side bracket arithmetic is trusted.
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import base64
+import fcntl
 import json
 import shutil
+import sqlite3
+import threading
+import time
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -104,6 +108,55 @@ def client(rig):
         return result
 
     return build
+
+
+def authenticated_client(rig, name=ADMIN):
+    result = TestClient(rig.app)
+    result.cookies.set(COOKIE, rig.tokens[name])
+    result.headers.update(
+        {
+            "Origin": "http://testserver",
+            "X-CSRF-Token": digest("csrf:" + rig.tokens[name]),
+        }
+    )
+    return result
+
+
+@pytest.fixture
+def background_rig(tmp_path, account_template):
+    template, accounts, tokens = account_template
+    shutil.copy(template, tmp_path / "hnefatafl.sqlite3")
+    clock = Clock()
+    app = create_app(
+        tmp_path,
+        online_settings=POLICY,
+        online_clock=clock,
+        online_background=True,
+        account_background=False,
+    )
+    credentials = {name: digest(token) for name, token in tokens.items()}
+    return SimpleNamespace(
+        app=app,
+        store=app.state.store,
+        auth=app.state.auth,
+        online=app.state.online,
+        core=app.state.player_tournaments,
+        clock=clock,
+        accounts=accounts,
+        tokens=tokens,
+        credentials=credentials,
+        by_id={accounts[name]["id"]: credentials[name] for name in accounts},
+        admin=credentials[ADMIN],
+    )
+
+
+def wait_until(predicate, timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return predicate()
 
 
 def create(rig, *, name="Cup", capacity=16, match_legs=1, ruleset="brandubh", deadline=None):
@@ -2526,3 +2579,188 @@ def test_actual_bootstrap_admin_can_create_without_verified_email(tmp_path, monk
             ).status_code
             == 401
         )
+
+
+def tournament_counts(rig):
+    with rig.store.connection() as c:
+        return {
+            table: c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in (
+                "online_games",
+                "online_results",
+                "player_tournament_matches",
+                "player_tournament_legs",
+                "player_tournament_audit",
+                "player_tournament_settlement_queue",
+                "rating_events",
+            )
+        }
+
+
+@pytest.mark.parametrize("populated", [False, True])
+def test_startup_survives_exclusive_deployment_gate_and_recovers(background_rig, populated):
+    rig = background_rig
+    tournament = None
+    if populated:
+        tournament = tournament_with_entrants(rig, PLAYERS[:4], capacity=4, match_legs=2)
+        rig.core.start(rig.admin, tournament["id"], tournament["version"])
+        match = ready_matches(rig, tournament["id"])[0]
+        force_match(rig, match, match["participants"]["a"]["account_id"])
+        # Simulate a schema-20 snapshot or a pre-worker terminal result whose
+        # durable reconciliation outbox was never written.
+        with rig.store.connection() as c:
+            c.execute("DELETE FROM player_tournament_settlement_queue")
+    worker = rig.app.state.tournament_settlement
+    before = tournament_counts(rig)
+    gate = rig.auth.gate_path.open("rb")
+    fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    client = authenticated_client(rig)
+    try:
+        with client:
+            assert client.get("/api/health").json() == {"status": "ok"}
+            assert client.get("/api/auth/me").status_code == 200
+            session = client.cookies.pop(COOKIE)
+            try:
+                assert client.get("/api/rulesets").status_code == 401
+            finally:
+                client.cookies.set(COOKIE, session)
+            assert client.post("/api/games", json={}).status_code == 503
+            assert (
+                client.post(
+                    "/api/player-tournaments",
+                    json={"name": "Deployment cup", "capacity": 2, "match_mode": "sequential"},
+                ).status_code
+                == 503
+            )
+            # The startup attempt must not write while the updater holds the
+            # gate, and background workers must not bypass it either.
+            assert not worker.recovered
+            assert worker.start_due() == 0
+            assert worker.drain() == 0
+            assert tournament_counts(rig) == before
+            if tournament is not None:
+                with rig.store.connection() as c:
+                    assert (
+                        c.execute(
+                            "SELECT COUNT(*) FROM player_tournament_audit WHERE action='automatic_settlement'"
+                        ).fetchone()[0]
+                        == 0
+                    )
+            fcntl.flock(gate, fcntl.LOCK_UN)
+            assert wait_until(lambda: worker.recovered), "deferred recovery did not run"
+            if tournament is not None:
+                assert wait_until(lambda: _automatic_settlements(rig) == 1), (
+                    "deferred settlement did not complete"
+                )
+                settled = tournament_counts(rig)
+                # A repeated reconciliation/consumption is idempotent: no
+                # duplicate games, results or automatic audit events.
+                assert worker.recover() is True
+                assert worker.drain() == 0
+                assert tournament_counts(rig) == settled
+                bracket = rig.core.bracket(rig.admin, tournament["id"])
+                assert any(
+                    m["status"] == "complete" for r in bracket["upper"] for m in r["matches"]
+                )
+            assert client.post("/api/games", json={}).status_code == 201
+    finally:
+        gate.close()
+
+
+def _automatic_settlements(rig):
+    with rig.store.connection() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM player_tournament_audit WHERE action='automatic_settlement'"
+        ).fetchone()[0]
+
+
+def test_recovery_defers_only_for_deployment_lock_and_restart_is_idempotent(rig):
+    from hnefatafl.player_tournament_settlement import TournamentSettlement
+
+    worker = TournamentSettlement(rig.core)
+    gate = rig.auth.gate_path.open("rb")
+    fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        assert worker.recover() is False
+        assert worker.recover() is False
+        assert not worker.recovered
+        # A process restart before the lock is released still defers.
+        restarted = TournamentSettlement(rig.core)
+        assert restarted.recover() is False
+        assert not restarted.recovered
+    finally:
+        fcntl.flock(gate, fcntl.LOCK_UN)
+        gate.close()
+    assert worker.recover() is True and worker.recovered
+    assert restarted.recover() is True and restarted.recovered
+
+
+def test_recovery_propagates_unexpected_errors_and_does_not_mark_complete(rig, monkeypatch):
+    from hnefatafl.player_tournament_settlement import TournamentSettlement
+
+    worker = TournamentSettlement(rig.core)
+
+    def broken():
+        raise sqlite3.OperationalError("private database payload")
+
+    monkeypatch.setattr(worker.core, "_write", broken)
+    with pytest.raises(sqlite3.OperationalError, match="private database payload"):
+        worker.recover()
+    assert not worker.recovered
+    # The worker retry path records no completion and backs off instead of
+    # spinning on the same failure.
+    assert worker._recover_if_needed() is False
+    assert not worker.recovered
+
+
+def test_shutdown_while_recovery_is_deferred_stops_the_worker(rig, monkeypatch):
+    from hnefatafl.player_tournament_settlement import TournamentSettlement
+
+    worker = TournamentSettlement(rig.core)
+    attempted = threading.Event()
+    original = worker.recover
+
+    def observe():
+        attempted.set()
+        return original()
+
+    monkeypatch.setattr(worker, "recover", observe)
+    gate = rig.auth.gate_path.open("rb")
+    fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        worker.start()
+        assert attempted.wait(5), "worker did not attempt deferred recovery"
+        worker.shutdown()
+        assert worker.thread is not None and not worker.thread.is_alive()
+        assert not worker.recovered
+    finally:
+        fcntl.flock(gate, fcntl.LOCK_UN)
+        gate.close()
+
+
+def test_due_scheduled_start_stays_blocked_during_deployment(rig):
+    from hnefatafl.player_tournament_settlement import TournamentSettlement
+
+    tournament = rig.core.create(
+        rig.admin,
+        name="Scheduled cup",
+        ruleset="brandubh",
+        capacity=4,
+        match_mode="sequential",
+        time_per_move=600,
+        scheduled_start_at=rig.clock.value + timedelta(minutes=1),
+    )
+    for name in PLAYERS[:4]:
+        rig.core.register(rig.credentials[name], tournament["id"])
+    rig.clock.value += timedelta(minutes=2)
+    worker = TournamentSettlement(rig.core)
+    gate = rig.auth.gate_path.open("rb")
+    fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        assert worker.start_due() == 0
+        assert rig.core.detail(rig.admin, tournament["id"])["status"] == "registration"
+    finally:
+        fcntl.flock(gate, fcntl.LOCK_UN)
+        gate.close()
+    assert worker.start_due() == 1
+    assert rig.core.detail(rig.admin, tournament["id"])["status"] == "running"
