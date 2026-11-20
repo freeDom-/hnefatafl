@@ -1,11 +1,11 @@
 // Actual-browser UI interaction tests for the standalone neural experiment.
 //
-// Exercises the page as a user would: Infer / Infer distinct batch / Benchmark
-// from a clean initial state, provider change and recovery, cancellation and
-// disabled-controls feedback. Requires a staged neural directory:
+// Covers clean-state Infer/batch/benchmark, operation ownership through delayed
+// asset loading, cancellation/supersession, and provider recovery. The provider
+// test is split into a deterministic simulated failure and an outcome-agnostic
+// hardware check (WebGPU may legitimately succeed on real GPUs).
 //
-//   node spikes/browser_offline/test_neural_ui.mjs /tmp/neural-spike \
-//     --output /tmp/neural-ui.json
+//   node spikes/browser_offline/test_neural_ui.mjs /tmp/neural-spike --output /tmp/ui.json
 import assert from "node:assert/strict";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -27,7 +27,12 @@ const mime = {
   ".wasm": "application/wasm",
   ".onnx": "application/octet-stream",
 };
-const report = { kind: "browser-neural-ui", generated: new Date().toISOString(), checks: [], failures: [] };
+const report = {
+  kind: "browser-neural-ui",
+  generated: new Date().toISOString(),
+  checks: [],
+  failures: [],
+};
 let server = null;
 let browser = null;
 let context = null;
@@ -61,23 +66,31 @@ try {
     return route.continue();
   });
 
-  async function freshPage() {
+  async function freshPage(setup, { waitReady = true } = {}) {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => errors.push(String(error)));
+    if (setup) await setup(page);
     await page.goto(origin + "/neural.html");
-    await page.waitForFunction(() => window.neural && window.neural.ready, null, {
-      timeout: 30000,
-    });
+    if (waitReady) {
+      await page.waitForFunction(() => window.neural && window.neural.ready, null, {
+        timeout: 30000,
+      });
+    } else {
+      // The page script exists, but readiness (and shared asset loading) is
+      // intentionally still in flight so cancellation can be observed.
+      await page.waitForFunction(() => window.neural, null, { timeout: 30000 });
+    }
     return { page, errors };
   }
   async function state(page) {
     return page.textContent("#state");
   }
   async function waitState(page, expected, timeout = 60000) {
+    const targets = Array.isArray(expected) ? expected : [expected];
     await page.waitForFunction(
-      (value) => document.querySelector("#state")?.textContent === value,
-      expected,
+      (values) => values.includes(document.querySelector("#state")?.textContent),
+      targets,
       { timeout },
     );
   }
@@ -100,6 +113,7 @@ try {
     }
     report.checks.push(entry);
   }
+  const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 
   await record("Infer works from a clean initial state", async () => {
     const { page, errors } = await freshPage();
@@ -108,6 +122,7 @@ try {
     await waitState(page, "completed");
     const text = await page.textContent("#output");
     assert.match(text, /"provider_requested"/);
+    assert.match(text, /"model_sha256"/);
     assert.equal(errors.length, 0, errors.join("; "));
     await page.close();
   });
@@ -141,6 +156,7 @@ try {
     await page.waitForFunction(() => document.querySelector("#load")?.disabled === true, null, {
       timeout: 5000,
     });
+    assert.equal(await page.isDisabled("#provider"), true);
     await waitState(page, "completed");
     await page.waitForFunction(() => document.querySelector("#load")?.disabled === false, null, {
       timeout: 5000,
@@ -160,16 +176,167 @@ try {
     await page.close();
   });
 
-  await record("Provider change reports failure then recovers on WASM", async () => {
+  await record("Cancellation during manifest loading does not initialize a worker", async () => {
+    let first = true;
+    const { page, errors } = await freshPage(
+      async (page) => {
+        await page.route("**/neural-assets.json", async (route) => {
+          if (first) {
+            first = false;
+            await delay(1200);
+          }
+          await route.continue();
+        });
+      },
+      { waitReady: false },
+    );
+    await page.evaluate(() => {
+      // Force a fresh fetch even though readiness warmed the cache.
+      window.neural.client.model = null;
+    });
+    await page.click("#infer");
+    await page.waitForTimeout(150);
+    await page.click("#cancel");
+    await delay(1600);
+    assert.equal(await state(page), "cancelled");
+    const internals = await page.evaluate(() => ({
+      worker: window.neural.client.worker !== null,
+      model: window.neural.client.model !== null,
+    }));
+    assert.deepEqual(internals, { worker: false, model: false });
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Cancellation during reference loading does not publish a model", async () => {
+    let first = true;
+    const { page } = await freshPage(
+      async (page) => {
+        await page.route("**/model/reference.json", async (route) => {
+          if (first) {
+            first = false;
+            await delay(1200);
+          }
+          await route.continue();
+        });
+      },
+      { waitReady: false },
+    );
+    await page.click("#infer");
+    await page.waitForTimeout(150);
+    await page.click("#cancel");
+    await delay(1600);
+    assert.equal(await state(page), "cancelled");
+    const internals = await page.evaluate(() => ({
+      worker: window.neural.client.worker !== null,
+      model: window.neural.client.model !== null,
+    }));
+    assert.deepEqual(internals, { worker: false, model: false });
+    await page.close();
+  });
+
+  await record("Replacement operation after cancellation completes", async () => {
+    let delayed = true;
+    const { page } = await freshPage(
+      async (page) => {
+        await page.route("**/neural-assets.json", async (route) => {
+          if (delayed) {
+            delayed = false;
+            await delay(1200);
+          }
+          await route.continue();
+        });
+      },
+      { waitReady: false },
+    );
+    await page.click("#infer");
+    await page.waitForTimeout(150);
+    await page.click("#cancel");
+    await waitState(page, "cancelled");
+    await page.click("#infer");
+    await waitState(page, "completed", 60000);
+    const model = await page.evaluate(() => window.neural.client.model?.model_sha256 ?? null);
+    assert.ok(model, "replacement operation must publish a model");
+    await page.close();
+  });
+
+  await record("Obsolete asset completion cannot overwrite a newer operation", async () => {
+    let delayed = true;
+    const { page } = await freshPage(
+      async (page) => {
+        await page.route("**/neural-assets.json", async (route) => {
+          if (delayed) {
+            delayed = false;
+            await delay(1000);
+          }
+          await route.continue();
+        });
+      },
+      { waitReady: false },
+    );
+    await page.click("#infer");
+    await page.waitForTimeout(100);
+    await page.click("#cancel");
+    await page.click("#inferMany");
+    await waitState(page, "completed", 60000);
+    await page.waitForTimeout(1200);
+    assert.equal(await state(page), "completed", "obsolete completion must not publish");
+    const text = await page.textContent("#output");
+    assert.match(text, /"batch": 8/);
+    await page.close();
+  });
+
+  await record("Deterministic provider failure recovers on WASM", async () => {
     const { page } = await freshPage();
+    await page.evaluate(() => {
+      const client = window.neural.client;
+      client.__realLoad = client.load.bind(client);
+      client.load = async (url, options) => {
+        if (options.provider === "webgpu") {
+          const error = new Error("simulated provider initialization failure");
+          error.name = "ProviderError";
+          throw error;
+        }
+        return client.__realLoad(url, options);
+      };
+    });
     await page.selectOption("#provider", "webgpu");
     await page.click("#load");
     await waitState(page, "failed", 30000);
-    const failedText = await page.textContent("#status");
-    assert.match(failedText, /adapter|WebGPU/i);
+    assert.match(await page.textContent("#status"), /simulated provider/i);
     await page.selectOption("#provider", "wasm");
     await page.click("#load");
     await waitState(page, "completed", 60000);
+    await page.close();
+  });
+
+  await record("WebGPU provider load reports a legitimate outcome", async () => {
+    const { page } = await freshPage();
+    await page.selectOption("#provider", "webgpu");
+    await page.click("#load");
+    await waitState(page, ["completed", "failed"], 60000);
+    const result = await state(page);
+    report.webgpu_outcome = result;
+    if (result === "completed") {
+      // Real GPU hardware: validate the session and a numerical response, but do
+      // not claim GPU-only placement.
+      const loaded = await page.evaluate(() => ({
+        provider: window.neural.client.model?.provider,
+        placement: window.neural.client.model?.execution_placement,
+        sha: window.neural.client.model?.model_sha256,
+      }));
+      assert.equal(loaded.provider, "webgpu");
+      assert.ok(loaded.sha);
+      assert.notEqual(loaded.placement, "cpu-fallback");
+      await page.click("#infer");
+      await waitState(page, "completed", 60000);
+      const text = await page.textContent("#output");
+      assert.match(text, /"provider_requested": "webgpu"/);
+      report.webgpu_placement = loaded.placement;
+    } else {
+      const message = await page.textContent("#status");
+      assert.match(message, /adapter|WebGPU|unsupported|provider/i);
+    }
     await page.close();
   });
 
