@@ -417,6 +417,44 @@ remains supported where schema/data-authority rules permit, as does rollback
 between corrected releases with tournament workers. The command exits nonzero with
 the journal and log locations; inspect them before any manual action.
 
+### Cross-schema automatic recovery is fail-closed
+
+Creating an automatic pre-deployment snapshot is **not** a guarantee that an
+automatic rollback can complete. After a successful migration the live database
+uses a newer schema than the pre-deployment snapshot. Existing account/online
+schema-authority checks refuse to replace a schema-21 live database with a
+schema-15/schema-20 snapshot, because that would silently downgrade authoritative
+online, tournament and security state. The corrected updater performs a read-only
+compatibility preflight before stopping a healthy service for an explicit
+`--rollback`; a schema mismatch is refused before service stop, data replacement or
+release switching. During automatic recovery it performs the same preflight and
+retains the activated target, migrated live database, verified snapshot, model and
+checkpoint files, installed state and transaction journal.
+
+The historical `0.40.0` updater also fails closed after migrating to schema 21:
+its `retain_online_on_restore` check reports `Online schema changed; manual
+recovery is required` before replacing live authority. It does not start the old
+application against the newer database. In that situation the target release may
+already be activated and the service stopped; the old release is not automatically
+started, and the transaction remains unrecovered. Do not force a downgrade.
+
+Supported automatic recovery:
+
+- a failed deployment whose snapshot and live database have compatible schemas
+  and whose previous release is not `0.41.0`;
+- rollback between corrected releases with matching schemas and compatible data;
+- the historical updater restoring a compatible snapshot when its own schema
+  checks permit it.
+
+Manual recovery is required when the live database was migrated to a newer schema
+than the snapshot, when account/online columns differ, when `0.41.0` is the
+previous release, or when backup verification/integrity fails. Preserve
+`/etc/hnefatafl/transaction.json`, the referenced snapshot and
+`/var/lib/hnefatafl.retained-*` directories. Restore the snapshot and matching old
+release only after a reviewed compatibility plan; otherwise keep the corrected
+target release and recover forward. There is no general database downgrade
+mechanism in this hotfix.
+
 With matching current overall schemas, recovery retains live authoritative online
 matches, games, moves/results, audit, rating history and start-rating snapshots, then pauses the timeout
 gate with an audit entry. It does not rewind accepted online play to the snapshot. A changed

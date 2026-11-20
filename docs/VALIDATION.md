@@ -19,25 +19,40 @@ labeled simulations because each release directory executes the current checkout
 
 Genuine cross-version tests fetch pinned `0.40.0` updater/application, `0.41.0`
 application and schema-20 historical commit objects from the trusted origin (never
-committed source copies), verify their commit IDs, generate an authentic schema-20
-database with historical code, and launch real Uvicorn subprocesses. They verify
-the old updater's exclusive lock, activation/probe/commit of the corrected app,
-authentic schema 20→21 migration and preservation of representative accounts,
-models, jobs, checkpoints, games and online/tournament records. A separate genuine
-test reproduces historical `0.41.0` startup failure under the exclusive gate.
-Rollback-policy tests prove `0.41.0` is rejected before service stop/data/symlink
-changes for explicit rollback, interrupted recovery and automatic recovery, while
-`0.40.0` and corrected releases remain supported. Readiness diagnostics cover
-connection refusal, timeout, truncated responses, HTTP protocol errors,
-unexpected status, invalid health bodies, transient recovery, release/phase
-identification, malformed metadata, successful rollback and failed rollback
-without leaking response bodies.
+committed source copies), verify their commit IDs, generate authentic schema-15 and
+schema-20 databases with historical code, and launch real Uvicorn subprocesses.
+They verify the old updater's exclusive lock, activation/probe/commit of the
+corrected app, direct schema 15→21 and schema 20→21 migration, preservation of
+representative accounts/permissions, models, jobs, checkpoints, games and (for
+schema 20) online/tournament records, plus post-commit authentication and a
+protected mutation through the activated target release. A separate genuine test
+reproduces historical `0.41.0` startup failure under the exclusive gate.
+
+A deterministic post-migration readiness failure (administrator deactivation after
+the target becomes healthy) exercises the actual historical `0.40.0` updater. Its
+schema-authority check refuses `Online schema changed` rather than replacing live
+schema 21 with the schema-15/20 snapshot. Tests verify the target remains
+activated, the live database remains schema 21, the original verified snapshot,
+models, checkpoints and transaction metadata are retained, and the old application
+is not started. The corrected updater's read-only rollback preflight refuses the
+same mismatch before service stop/data/symlink changes; matching-schema rollback
+between corrected releases succeeds. Rollback-policy tests prove `0.41.0` is
+rejected for explicit rollback, interrupted recovery and automatic recovery.
+
+Readiness diagnostics cover connection refusal, timeout, truncated responses, HTTP
+protocol errors, unexpected status, invalid health bodies, transient recovery,
+release/phase identification, malformed metadata, safe schema/preflight errors,
+successful rollback and failed rollback. Tests prove deliberate operator-facing
+schema-refusal messages remain visible while unexpected exception strings
+containing synthetic credentials/session values are not exposed. Harness cleanup
+tests use the exact PID-file derivation and verify the application process is gone
+after success, readiness failure and timeout.
 
 `make deployment-check` is mandatory in the Python CI job before the full backend
 suite. A dedicated CI job builds the frontend, runs `scripts/fetch_historical_refs.py`
 and executes the cross-version suite with the real updater/application processes.
-Local focused results for this preparation: deployment/lifecycle **57 passed**,
-cross-version **2 passed**, player-tournament/security **149 passed**; Ruff,
+Local focused results for this preparation: deployment/lifecycle **63 passed**,
+cross-version **6 passed**, player-tournament/security **149 passed**; Ruff,
 format, mypy, documentation and the production frontend build passed. Exact CI
 counts and any target-host exceptions are recorded in the release pull request;
 the tests use disposable data and do not exercise real systemd, proxying or a live

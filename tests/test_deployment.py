@@ -884,8 +884,10 @@ def test_deployment_step_diagnostics_identify_snapshot_failure(deployment, monke
 
 
 def test_recovery_step_diagnostics_identify_snapshot_restore_failure(deployment, monkeypatch):
+    from hnefatafl.deployment import DeploymentError
+
     def fail_restore(_backup):
-        raise ValueError("snapshot restore failed")
+        raise DeploymentError("snapshot restore failed")
 
     deployment.probe_failures = ["readiness"]
     monkeypatch.setattr(deployment, "restore", fail_restore)
@@ -894,3 +896,54 @@ def test_recovery_step_diagnostics_identify_snapshot_restore_failure(deployment,
     message = str(error.value)
     assert "Automatic recovery: failed during snapshot restoration" in message
     assert "snapshot restore failed" in message
+
+
+def test_recovery_preserves_actionable_schema_refusal_detail(deployment, monkeypatch):
+    from hnefatafl.deployment import DeploymentError
+
+    def fail_restore(_backup):
+        raise DeploymentError("Online schema changed; manual recovery is required")
+
+    deployment.probe_failures = ["readiness"]
+    monkeypatch.setattr(deployment, "restore", fail_restore)
+    with pytest.raises(ReadinessError) as error:
+        deployment.deploy(deployment.release("2.0.0"))
+    assert "Online schema changed; manual recovery is required" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("failure", "category"),
+    [
+        (ValueError("password=secret-token"), "ValueError"),
+        (RuntimeError("cookie=private-session"), "RuntimeError"),
+        (OSError("token=github-secret"), "OSError"),
+    ],
+)
+def test_recovery_diagnostics_do_not_expose_unexpected_payloads(
+    deployment, monkeypatch, failure, category
+):
+    def fail_restore(_backup):
+        raise failure
+
+    deployment.probe_failures = ["readiness"]
+    monkeypatch.setattr(deployment, "restore", fail_restore)
+    with pytest.raises(ReadinessError) as error:
+        deployment.deploy(deployment.release("2.0.0"))
+    message = str(error.value)
+    assert category in message
+    for secret in ("secret-token", "private-session", "github-secret"):
+        assert secret not in message
+
+
+def test_corrected_release_rollback_with_matching_schemas(deployment):
+    old = deployment.release("0.41.1")
+    deployment.current.unlink()
+    deployment.activate(old)
+    atomic_json(deployment.state, {"version": "0.41.1"})
+    target = deployment.release("0.41.2")
+    deployment.deploy(target)
+    assert deployment.current.resolve() == target
+    deployment.recover(rollback=True)
+    assert deployment.current.resolve() == old
+    assert json.loads(deployment.state.read_text())["version"] == "0.41.1"
+    assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
