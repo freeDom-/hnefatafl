@@ -90,7 +90,7 @@ production feature. The program is not complete or release-accepted.
 | PR | State | Head / merge revision | Evidence and remaining work |
 | --- | --- | --- | --- |
 | #99 | Draft, open | `ac5fb6f` on `feat/league-arena` | Schema 22 proposal, league policy/service/migrations and tests; no frontend. Security and Python checks failed at review; do not describe as merged or accepted |
-| #104 | Open | `274e983` on `feat/browser-analysis-phase1` | Phase 1A/1B implementation and revision-3 evidence; security, python, node22 and browser checks green. Competitive weights, physical WebGPU/devices, neural MCTS and production integration remain open |
+| #104 | Open | `535331f` on `feat/browser-analysis-phase1` | Phase 1A/1B implementation and revision-3 evidence; integrates reviewed `main` `17d3819`; security, python, node22 and browser checks green. Competitive weights, physical WebGPU/devices, neural MCTS and production integration remain open |
 | #105 | Open | `f9e008a` on `fix/benchmark-mountinfo-read` | Follow-up hardening of the disposable benchmark's cgroup mountinfo parsing; benchmark-only, no production query or schema change |
 
 Status corrections: PR #96 was closed without merging and superseded by
@@ -146,7 +146,7 @@ optional for the initial public release. Phase status:
 | 6 | Final acceptance and controlled rollout | Not started |
 
 The dedicated roadmap and its revision-3 evidence are carried by open PR #104
-(not yet on `main`): [browser-analysis-roadmap.md](https://github.com/freeDom-/hnefatafl/blob/274e98332ede8e764253219a2d900b7deca963e6/docs/designs/browser-analysis-roadmap.md)
+(not yet on `main`): [browser-analysis-roadmap.md](https://github.com/freeDom-/hnefatafl/blob/535331fe186bafad0082149877e0bc3681414df8/docs/designs/browser-analysis-roadmap.md)
 and [PR #104](https://github.com/freeDom-/hnefatafl/pull/104). Current local
 records are [classical prototype validation](../validation/browser-analysis-prototype.md)
 and [neural feasibility](../validation/browser-neural-feasibility.md).

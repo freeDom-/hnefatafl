@@ -159,7 +159,7 @@ initial public release.
   strength, CPU/memory/startup/physical-device benchmarks, production CSP/runtime
   packaging/licensing, frontend execution modes and final rollout acceptance.
 - The dedicated roadmap and revision-3 evidence live on open PR #104
-  ([roadmap](https://github.com/freeDom-/hnefatafl/blob/274e98332ede8e764253219a2d900b7deca963e6/docs/designs/browser-analysis-roadmap.md),
+  ([roadmap](https://github.com/freeDom-/hnefatafl/blob/535331fe186bafad0082149877e0bc3681414df8/docs/designs/browser-analysis-roadmap.md),
   [PR](https://github.com/freeDom-/hnefatafl/pull/104)); local records are the
   [classical prototype](validation/browser-analysis-prototype.md) and
   [neural feasibility](validation/browser-neural-feasibility.md).
