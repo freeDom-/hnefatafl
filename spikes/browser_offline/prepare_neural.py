@@ -57,7 +57,7 @@ WASM_ONLY = {
 }
 SIDECAR_SCHEMA = 1
 SIDECAR_ARTIFACT = "hnefatafl-policy-value-onnx"
-MANIFEST_SCHEMA = 2
+MANIFEST_SCHEMA = 3
 MAX_MODEL_BYTES = 64 * 1024 * 1024
 MAX_REFERENCE_BYTES = 16 * 1024 * 1024
 MIN_OPSET = 13
@@ -248,6 +248,7 @@ def validate_export_dir(model_dir: Path, allow_unvalidated: bool) -> dict:
                 "model_bytes",
                 "ruleset",
                 "reference_sha256",
+                "sidecar_sha256",
             ),
         )
         if manifest.get("schema") != MANIFEST_SCHEMA:
@@ -259,7 +260,14 @@ def validate_export_dir(model_dir: Path, allow_unvalidated: bool) -> dict:
         _require_fields(
             marker,
             name="VALIDATED.json",
-            fields=("validated", "model_sha256", "reference_sha256", "ruleset"),
+            fields=(
+                "validated",
+                "model_sha256",
+                "reference_sha256",
+                "sidecar_sha256",
+                "parity_sha256",
+                "ruleset",
+            ),
         )
         if manifest is None:
             raise SystemExit("VALIDATED.json exists without a coherent export manifest")
@@ -288,6 +296,26 @@ def validate_export_dir(model_dir: Path, allow_unvalidated: bool) -> dict:
             raise SystemExit("Export manifest ruleset does not match the sidecar")
     if marker is not None and marker.get("ruleset") != ruleset:
         raise SystemExit("VALIDATED.json ruleset does not match the sidecar")
+
+    # Bind the accepted artifact set: the marker and manifest must cover the
+    # exact metadata sidecar and parity report, not just the model bytes.
+    actual_sidecar = sha256(model_json)
+    if manifest is not None and manifest.get("sidecar_sha256") != actual_sidecar:
+        raise SystemExit("Metadata sidecar digest does not match the export manifest")
+    if marker is not None and marker.get("sidecar_sha256") != actual_sidecar:
+        raise SystemExit("Metadata sidecar digest does not match VALIDATED.json")
+    validated = marker is not None
+    parity_path = model_dir / "parity.json"
+    if validated:
+        if not parity_path.is_file():
+            raise SystemExit("Validated export is missing its parity report")
+        actual_parity = sha256(parity_path)
+        if manifest.get("parity_sha256") != actual_parity:
+            raise SystemExit("Parity report digest does not match the export manifest")
+        if marker.get("parity_sha256") != actual_parity:
+            raise SystemExit("Parity report digest does not match VALIDATED.json")
+    elif parity_path.is_file():
+        raise SystemExit("Unvalidated export must not contain a stale parity report")
 
     validate_graph(model_onnx, sidecar)
 
@@ -342,7 +370,13 @@ def main() -> None:
     size = export["size"]
 
     output.mkdir(parents=True, exist_ok=True)
-    for name in ("neural-worker.js", "neural-provider.js", "neural.html", "neural-client.js"):
+    for name in (
+        "neural-worker.js",
+        "neural-provider.js",
+        "neural-tensors.js",
+        "neural.html",
+        "neural-client.js",
+    ):
         shutil.copyfile(SPIKE / name, output / name)
     (output / "model").mkdir(exist_ok=True)
     shutil.copyfile(model_dir / "model.onnx", output / "model/model.onnx")

@@ -79,10 +79,14 @@ await check("webgpu without evidence is unverified, not GPU", () => {
   assert.equal(provider.gpuVerified(placement), false);
   assert.notEqual(placement, "wasm");
 });
-await check("webgpu-only evidence is verified GPU", () => {
+await check("webgpu-only evidence is unverified, not proven GPU execution", () => {
   const placement = provider.placementFor("webgpu", ["webgpu"]);
-  assert.equal(placement, "webgpu-session-verified");
-  assert.equal(provider.gpuVerified(placement), true);
+  assert.equal(placement, "webgpu-session-unverified");
+  assert.equal(provider.gpuVerified(placement), false);
+  assert.equal(provider.perOperatorPlacementAvailable(), false);
+  // Even an explicit verified-looking placement is never claimed without a
+  // supported per-operator diagnostic.
+  assert.equal(provider.gpuVerified("webgpu-session-verified"), false);
 });
 await check("webgpu session falling back to wasm is reported as cpu-fallback", () => {
   assert.equal(provider.placementFor("webgpu", ["wasm"]), "cpu-fallback");

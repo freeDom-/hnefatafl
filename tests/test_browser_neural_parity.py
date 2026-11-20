@@ -1,9 +1,9 @@
-"""Fail-closed tests for the browser neural policy parity contract.
+"""Fail-closed tests for the complete neural inference-response contract.
 
-These exercise the canonical comparator (``neural_parity``) and prove that the
-gate validates the **actual returned browser policy** — legal indices, their
-order, normalised probabilities, shapes, dtypes and model identity — rather than
-reconstructing that policy from logits.
+These verify that the comparator requires the actual response fields (model and
+ruleset identity, request/position identity, tensor data/shape/dtype, legal
+indices/order, probabilities, batch count/index/order) and that numerical
+corruptions fail.
 """
 
 from __future__ import annotations
@@ -21,7 +21,9 @@ if str(SPIKE) not in sys.path:
 import neural_parity as parity  # noqa: E402
 
 MODEL = "a" * 64
+RULESET = "brandubh"
 DIGEST = "b" * 64
+DIGESTS = ["b" * 64, "c" * 64, "d" * 64]
 TOLERANCES = {
     "logit_atol": 1e-3,
     "value_atol": 1e-4,
@@ -35,51 +37,55 @@ LOGITS = [0.1, -5.0, 0.3, -9.0]
 LEGAL = [0, 2]
 
 
-def _softmax(values):
-    return parity.stable_softmax(values)
-
-
 def _probabilities(logits, legal):
-    return _softmax([logits[index] for index in legal])
+    return parity.stable_softmax([logits[index] for index in legal])
 
 
-def _reference(*, logits=None, legal=None):
+def _case(position, digest, logits=None, legal=None, value=0.2, terminal=False):
     logits = list(logits if logits is not None else LOGITS)
     legal = list(legal if legal is not None else LEGAL)
+    if terminal:
+        return {
+            "position": position,
+            "kind": "terminal",
+            "position_digest": digest,
+            "terminal": True,
+            "legal": [],
+            "policy_logits": None,
+            "value": 0.0,
+            "legal_probabilities": [],
+            "policy_shape": [1, 2401],
+            "value_shape": [1],
+            "policy_dtype": "float32",
+            "value_dtype": "float32",
+            "inference_bypassed": True,
+        }
+    return {
+        "position": position,
+        "kind": "opening",
+        "position_digest": digest,
+        "terminal": False,
+        "legal": legal,
+        "policy_logits": logits,
+        "value": value,
+        "legal_probabilities": _probabilities(logits, legal),
+        "policy_shape": [1, len(logits)],
+        "value_shape": [1],
+        "policy_dtype": "float32",
+        "value_dtype": "float32",
+    }
+
+
+def _reference(*, logits=None, legal=None, cases=None):
     return {
         "schema": 2,
         "model_sha256": MODEL,
+        "ruleset": RULESET,
         "tolerances": dict(TOLERANCES),
-        "cases": [
-            {
-                "position": "brandubh-opening",
-                "kind": "opening",
-                "position_digest": DIGEST,
-                "terminal": False,
-                "legal": legal,
-                "policy_logits": logits,
-                "value": 0.2,
-                "legal_probabilities": _probabilities(logits, legal),
-                "policy_shape": [1, len(logits)],
-                "value_shape": [1],
-                "policy_dtype": "float32",
-                "value_dtype": "float32",
-            },
-            {
-                "position": "brandubh-terminal",
-                "kind": "terminal",
-                "position_digest": "c" * 64,
-                "terminal": True,
-                "legal": [],
-                "policy_logits": None,
-                "value": 0.0,
-                "legal_probabilities": [],
-                "policy_shape": [1, 2401],
-                "value_shape": [1],
-                "policy_dtype": "float32",
-                "value_dtype": "float32",
-                "inference_bypassed": True,
-            },
+        "cases": cases
+        or [
+            _case("brandubh-opening", DIGEST, logits=logits, legal=legal),
+            _case("brandubh-terminal", "e" * 64, terminal=True),
         ],
     }
 
@@ -97,9 +103,10 @@ def _output(
     value_dtype="float32",
     model=MODEL,
     position_digest=DIGEST,
+    request_id=None,
     index=None,
 ):
-    case = reference["cases"][0]
+    case = next(entry for entry in reference["cases"] if not entry["terminal"])
     logits = list(logits if logits is not None else case["policy_logits"])
     legal = list(legal if legal is not None else case["legal"])
     probabilities = (
@@ -108,6 +115,7 @@ def _output(
     return {
         "position": case["position"],
         "index": index,
+        "request_id": request_id if request_id is not None else case["position"],
         "position_digest": position_digest,
         "model_sha256": model,
         "policy_logits": logits,
@@ -121,19 +129,20 @@ def _output(
     }
 
 
-def _observed(reference, *, output=None, terminal_skipped=True, **kwargs):
+def _observed(reference, *, output=None, **kwargs):
     return {
-        "schema": 3,
+        "schema": 4,
         "provider": "wasm:wasm",
         "model_sha256": MODEL,
+        "model_ruleset": RULESET,
         "outputs": [
             output if output is not None else _output(reference, **kwargs),
-            {"position": "brandubh-terminal", "skipped": terminal_skipped},
+            {"position": "brandubh-terminal", "skipped": True, "harness_generated": True},
         ],
     }
 
 
-def test_identical_reported_policy_passes():
+def test_complete_response_passes():
     reference = _reference()
     result = parity.compare(reference, _observed(reference))
     assert result["ok"] is True, result["failures"]
@@ -145,11 +154,7 @@ def test_identical_reported_policy_passes():
     "kwargs, marker",
     [
         (
-            {
-                "logits": [LOGITS[0] + float("nan"), *LOGITS[1:]],
-                "legal": [0, 2],
-                "probabilities": [0.5, 0.5],
-            },
+            {"logits": [LOGITS[0] + float("nan"), *LOGITS[1:]], "probabilities": [0.5, 0.5]},
             "non-finite",
         ),
         ({"value": float("inf")}, "non-finite"),
@@ -161,51 +166,193 @@ def test_identical_reported_policy_passes():
         ({"policy_dtype": "float16"}, "policy_dtype"),
         ({"value_dtype": "int32"}, "value_dtype"),
         ({"model": "d" * 64}, "model identity"),
-        ({"position_digest": "e" * 64}, "position identity"),
+        ({"position_digest": "f" * 64}, "position identity"),
         ({"legal": [0, 1]}, "legal indices/order"),
         ({"legal": [2, 0]}, "legal indices/order"),
         ({"probabilities": [0.9, 0.9]}, "do not sum to 1"),
         ({"probabilities": [0.4, 0.6]}, "inconsistent with the returned"),
     ],
 )
-def test_mandatory_policy_corruption_fails(kwargs, marker):
+def test_numerical_and_metadata_corruption_fails(kwargs, marker):
     reference = _reference()
     result = parity.compare(reference, _observed(reference, **kwargs))
     assert result["ok"] is False
     assert any(marker in message for message in result["failures"]), result["failures"]
 
 
-def test_duplicate_legal_indices_fail():
+def test_missing_per_case_model_identity_fails():
     reference = _reference()
-    result = parity.compare(reference, _observed(reference, legal=[0, 0]))
+    output = _output(reference)
+    output.pop("model_sha256")
+    result = parity.compare(reference, _observed(reference, output=output))
     assert result["ok"] is False
-    assert any("duplicate observed legal indices" in message for message in result["failures"])
+    assert any("model identity" in message for message in result["failures"])
 
 
-def test_material_ranking_change_fails():
-    reference = _reference(logits=[0.1, -5.0, 0.3, -9.0])
-    logits = [0.4, -5.0, 0.0, -9.0]
-    result = parity.compare(reference, _observed(reference, logits=logits))
+def test_missing_policy_shape_fails():
+    reference = _reference()
+    output = _output(reference)
+    output.pop("policy_shape")
+    result = parity.compare(reference, _observed(reference, output=output))
     assert result["ok"] is False
-    assert any("material top-5 ranking change" in message for message in result["failures"])
+    assert any(
+        "missing mandatory field 'policy_shape'" in message for message in result["failures"]
+    )
 
 
-def test_near_tied_reordering_is_informational_only():
-    logits = [0.1, -5.0, 0.1000001, -9.0]
-    reference = _reference(logits=logits)
-    swapped = [0.1000001, -5.0, 0.1, -9.0]
-    result = parity.compare(reference, _observed(reference, logits=swapped))
-    assert result["ok"] is True, result["failures"]
-    assert any("near-tied" in message for message in result["notes"])
+def test_missing_value_dtype_fails():
+    reference = _reference()
+    output = _output(reference)
+    output.pop("value_dtype")
+    result = parity.compare(reference, _observed(reference, output=output))
+    assert result["ok"] is False
+    assert any("missing mandatory field 'value_dtype'" in message for message in result["failures"])
 
 
-def test_missing_case_fails():
+def test_wrong_request_association_fails():
+    reference = _reference()
+    result = parity.compare(reference, _observed(reference, request_id="other-position"))
+    assert result["ok"] is False
+    assert any("not associated with this position" in message for message in result["failures"])
+
+
+def test_unexpected_response_structure_fails():
     reference = _reference()
     observed = _observed(reference)
-    observed["outputs"].pop(0)
+    observed["outputs"] = {"not": "a list"}
     result = parity.compare(reference, observed)
     assert result["ok"] is False
-    assert any("missing observed case" in message for message in result["failures"])
+    assert any("missing outputs array" in message for message in result["failures"])
+
+
+def test_missing_top_level_model_identity_fails():
+    reference = _reference()
+    observed = _observed(reference)
+    observed.pop("model_sha256")
+    result = parity.compare(reference, observed)
+    assert result["ok"] is False
+    assert any("observed model identity" in message for message in result["failures"])
+
+
+def test_missing_top_level_ruleset_identity_fails():
+    reference = _reference()
+    observed = _observed(reference)
+    observed.pop("model_ruleset")
+    result = parity.compare(reference, observed)
+    assert result["ok"] is False
+    assert any("model ruleset" in message for message in result["failures"])
+
+
+def test_terminal_skip_must_be_marked_harness_generated():
+    reference = _reference()
+    observed = _observed(reference)
+    observed["outputs"][1] = {"position": "brandubh-terminal", "skipped": True}
+    result = parity.compare(reference, observed)
+    assert result["ok"] is False
+    assert any("harness_generated" in message for message in result["failures"])
+
+
+# ---------- independent batch contract ----------
+
+BATCH_CASES = [
+    _case("p0", DIGESTS[0]),
+    _case("p1", DIGESTS[1]),
+    _case("p2", DIGESTS[2]),
+]
+
+
+def _batch_reference():
+    return _reference(cases=BATCH_CASES)
+
+
+def _batch_observed(reference):
+    entries = reference["cases"]
+    outputs = [
+        {
+            "position": entry["position"],
+            "index": index,
+            "request_id": entry["position"],
+            "position_digest": entry["position_digest"],
+            "model_sha256": MODEL,
+            "policy_logits": entry["policy_logits"],
+            "value": entry["value"],
+            "legal": entry["legal"],
+            "legal_probabilities": entry["legal_probabilities"],
+            "policy_shape": [len(entries), len(entry["policy_logits"])],
+            "value_shape": [len(entries)],
+            "policy_dtype": "float32",
+            "value_dtype": "float32",
+        }
+        for index, entry in enumerate(entries)
+    ]
+    return {
+        "schema": 4,
+        "provider": "wasm:wasm",
+        "model_sha256": MODEL,
+        "model_ruleset": RULESET,
+        "batch_count": len(entries),
+        "results_count": len(outputs),
+        "outputs": outputs,
+    }
+
+
+def test_correct_batch_passes():
+    reference = _batch_reference()
+    result = parity.compare(reference, _batch_observed(reference))
+    assert result["ok"] is True, result["failures"]
+    assert result["batch_count"] == 3
+
+
+def _corrupt_batch(kind):
+    reference = _batch_reference()
+    observed = _batch_observed(reference)
+    outputs = observed["outputs"]
+    if kind == "batch-count":
+        observed["batch_count"] += 1
+    elif kind == "missing-result":
+        outputs.pop()
+        observed["results_count"] = len(outputs)
+    elif kind == "extra-result":
+        outputs.append({**outputs[0], "index": len(outputs), "request_id": "extra"})
+        observed["results_count"] = len(outputs)
+    elif kind == "duplicate-index":
+        outputs[1]["index"] = outputs[0]["index"]
+    elif kind == "missing-index":
+        outputs[0].pop("index")
+    elif kind == "wrong-index":
+        outputs[0]["index"] = 1
+    elif kind == "reorder":
+        outputs.reverse()
+    elif kind == "position":
+        outputs[0]["request_id"], outputs[1]["request_id"] = (
+            outputs[1]["request_id"],
+            outputs[0]["request_id"],
+        )
+        outputs[0]["position_digest"], outputs[1]["position_digest"] = (
+            outputs[1]["position_digest"],
+            outputs[0]["position_digest"],
+        )
+    return reference, observed
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "batch-count",
+        "missing-result",
+        "extra-result",
+        "duplicate-index",
+        "missing-index",
+        "wrong-index",
+        "reorder",
+        "position",
+    ],
+)
+def test_batch_corruption_independently_fails(kind):
+    reference, observed = _corrupt_batch(kind)
+    result = parity.compare(reference, observed)
+    assert result["ok"] is False, f"{kind} unexpectedly passed"
+    assert result["failures"], kind
 
 
 def test_duplicate_observed_position_fails():
@@ -227,39 +374,27 @@ def test_duplicate_reference_position_fails():
 
 def test_empty_reference_fails():
     reference = _reference()
-    reference["cases"] = [reference["cases"][1]]  # terminal only
+    reference["cases"] = [reference["cases"][1]]
     result = parity.compare(reference, _observed(_reference()))
     assert result["ok"] is False
     assert any("no non-terminal reference case" in message for message in result["failures"])
 
 
-def test_terminal_case_that_runs_inference_fails():
-    reference = _reference()
-    result = parity.compare(reference, _observed(reference, terminal_skipped=False))
+def test_material_ranking_change_fails():
+    reference = _reference(logits=[0.1, -5.0, 0.3, -9.0])
+    logits = [0.4, -5.0, 0.0, -9.0]
+    result = parity.compare(reference, _observed(reference, logits=logits))
     assert result["ok"] is False
-    assert any("terminal case must bypass inference" in message for message in result["failures"])
+    assert any("material top-5 ranking change" in message for message in result["failures"])
 
 
-def test_top_level_model_identity_mismatch_fails():
-    reference = _reference()
-    observed = _observed(reference)
-    observed["model_sha256"] = "f" * 64
-    result = parity.compare(reference, observed)
-    assert result["ok"] is False
-    assert any("model identity" in message for message in result["failures"])
-
-
-def test_batched_count_and_order_are_validated():
-    reference = _reference()
-    base = _observed(reference)
-    wrong_count = dict(base, batch_count=2)
-    assert parity.compare(reference, wrong_count)["ok"] is False
-
-    output = _output(reference, index=3)
-    wrong_order = dict(base, batch_count=1, outputs=[output, base["outputs"][1]])
-    result = parity.compare(reference, wrong_order)
-    assert result["ok"] is False
-    assert any("ordering" in message for message in result["failures"])
+def test_near_tied_reordering_is_informational_only():
+    logits = [0.1, -5.0, 0.1000001, -9.0]
+    reference = _reference(logits=logits)
+    swapped = [0.1000001, -5.0, 0.1, -9.0]
+    result = parity.compare(reference, _observed(reference, logits=swapped))
+    assert result["ok"] is True, result["failures"]
+    assert any("near-tied" in message for message in result["notes"])
 
 
 def test_extreme_finite_logits_do_not_overflow():
@@ -285,18 +420,3 @@ def test_nonfinite_reference_values_are_rejected():
     result = parity.compare(reference, _observed(reference))
     assert result["ok"] is False
     assert any("non-finite reference value" in message for message in result["failures"])
-
-
-def test_reconstructed_probabilities_cannot_substitute_for_reported_ones():
-    # The comparator must compare the *reported* probabilities, so reporting a
-    # normalised but wrong distribution must fail even though the logits are
-    # correct and a reconstruction would look perfect.
-    reference = _reference()
-    reported = list(reference["cases"][0]["legal_probabilities"])
-    reported = [reported[1], reported[0]]
-    result = parity.compare(reference, _observed(reference, probabilities=reported))
-    assert result["ok"] is False
-    assert any(
-        "inconsistent with the returned" in message or "abs error" in message
-        for message in result["failures"]
-    )

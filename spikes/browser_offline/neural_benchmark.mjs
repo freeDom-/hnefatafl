@@ -39,6 +39,7 @@ const switches = Number(option("switches", "3"));
 const sustained = Number(option("sustained", "100"));
 const mobile = flag("mobile");
 const requireWebGPU = flag("require-webgpu");
+const requireGpuExecution = flag("require-gpu-execution");
 
 function usageError(message) {
   console.error(`neural_benchmark: ${message}`);
@@ -197,18 +198,28 @@ try {
           planes: entry.planes,
           legal: entry.legal,
           position: entry.position,
+          request_id: entry.position,
+          position_digest: entry.position_digest,
         }));
     });
     report.reference_positions = reference.cases.filter((entry) => !entry.terminal).length;
 
     const first = await page.evaluate(
       (payload) =>
-        window.neural.client.infer(payload.planes, payload.size, payload.legal, payload.ruleset),
+        window.neural.client.infer(
+          payload.planes,
+          payload.size,
+          payload.legal,
+          payload.ruleset,
+          { request_id: payload.request_id, position_digest: payload.position_digest },
+        ),
       {
         planes: nonTerminal(reference)[0].planes,
         size: assets.model.size,
         legal: nonTerminal(reference)[0].legal,
         ruleset: assets.model.ruleset,
+        request_id: nonTerminal(reference)[0].position,
+        position_digest: nonTerminal(reference)[0].position_digest,
       },
     );
     report.first_inference = {
@@ -226,12 +237,20 @@ try {
     for (let index = 0; index < reps; index += 1) {
       const value = await page.evaluate(
         (payload) =>
-          window.neural.client.infer(payload.planes, payload.size, payload.legal, payload.ruleset),
+          window.neural.client.infer(
+            payload.planes,
+            payload.size,
+            payload.legal,
+            payload.ruleset,
+            { request_id: payload.request_id, position_digest: payload.position_digest },
+          ),
         {
           planes: nonTerminal(reference)[0].planes,
           size: assets.model.size,
           legal: nonTerminal(reference)[0].legal,
           ruleset: assets.model.ruleset,
+          request_id: nonTerminal(reference)[0].position,
+          position_digest: nonTerminal(reference)[0].position_digest,
         },
       );
       warm.push({
@@ -268,7 +287,12 @@ try {
       try {
         many = await page.evaluate(
           (payload) => window.neural.client.inferMany(payload.cases),
-          { cases: filled.map(({ planes, legal }) => ({ planes, legal })) },
+          { cases: filled.map(({ planes, legal, request_id, position_digest }) => ({
+              planes,
+              legal,
+              request_id,
+              position_digest,
+            })) },
         );
       } catch (error) {
         report.failures.push(`inferMany batch ${batch} failed: ${error?.message ?? error}`);
@@ -288,12 +312,15 @@ try {
                 payload.size,
                 payload.legal,
                 payload.ruleset,
+                { request_id: payload.request_id, position_digest: payload.position_digest },
               ),
             {
               planes: entry.planes,
               size: assets.model.size,
               legal: entry.legal,
               ruleset: assets.model.ruleset,
+              request_id: entry.request_id,
+              position_digest: entry.position_digest,
             },
           ),
         );
@@ -338,7 +365,12 @@ try {
       const measurement = await page.evaluate(
         (payload) => window.neural.client.sustained(payload.cases, payload.iterations),
         {
-          cases: sustainedCases.map(({ planes, legal }) => ({ planes, legal })),
+          cases: sustainedCases.map(({ planes, legal, request_id, position_digest }) => ({
+            planes,
+            legal,
+            request_id,
+            position_digest,
+          })),
           iterations: sustained,
         },
       );
@@ -378,9 +410,20 @@ try {
     report.failures.push("--require-webgpu: no GPU session could be created");
   }
 
-  if (requireWebGPU && report.load && !report.gpu_execution_verified)
+  if (requireWebGPU && report.load) {
+    const accepted =
+      report.load.provider_requested === "webgpu" &&
+      !["wasm", "cpu-fallback"].includes(report.execution_placement);
+    if (!accepted)
+      report.failures.push(
+        `--require-webgpu: WebGPU-requested session not accepted ` +
+          `(placement ${report.execution_placement})`,
+      );
+  }
+  if (requireGpuExecution && report.load && report.gpu_execution_verified !== true)
     report.failures.push(
-      `--require-webgpu: GPU execution was not verified (placement ${report.execution_placement})`,
+      "--require-gpu-execution: actual GPU execution was not independently verified " +
+        "(the pinned ORT Web build exposes no per-operator placement API)",
     );
 
   report.page_errors = pageErrors;

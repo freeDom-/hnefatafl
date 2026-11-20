@@ -65,8 +65,8 @@
       import { NeuralClient } from "./neural-client.js";
       const client = new NeuralClient();
       const status = document.querySelector("#status");
-      const stateLabel = document.querySelector("#state");
       const output = document.querySelector("#output");
+      const providerSelect = document.querySelector("#provider");
       const controls = document.querySelectorAll("button");
       let assets = null;
       let inputs = null;
@@ -77,20 +77,19 @@
         status.textContent = text;
       }
       function setBusy(busy) {
-        for (const button of controls)
-          if (button.id !== "cancel") button.disabled = busy;
+        for (const button of controls) if (button.id !== "cancel") button.disabled = busy;
       }
       function show(value) {
         output.textContent = JSON.stringify(value, null, 2);
       }
-      async function run(name, action, { allowWhileBusy = false } = {}) {
+      async function run(action, { allowWhileBusy = false } = {}) {
         if (active && !allowWhileBusy) return undefined;
-        setBusy(true);
-        setState("running");
         const token = Symbol("run");
         active = token;
+        setBusy(true);
+        setState("running");
         try {
-          const value = await action();
+          const value = await action(token);
           if (active !== token) return undefined;
           setState("completed");
           return value;
@@ -115,17 +114,38 @@
         if (!inputs) inputs = await (await fetch("./model/reference.json")).json();
         return { assets, inputs };
       }
-      function casesForBatch(count) {
+      // Internal load used inside an operation already owned by run(). It never
+      // calls run(), so inference works from a clean initial state.
+      async function ensureLoaded({ force = false } = {}) {
+        await ensureAssets();
+        const provider = providerSelect.value;
+        if (!force && client.model && client.model.provider === provider) return client.model;
+        setState("loading", `Loading ${provider}…`);
+        const value = await client.load("./" + assets.model.file, {
+          provider,
+          size: assets.model.size,
+          ruleset: assets.model.ruleset,
+          expectedSha256: assets.model.sha256,
+        });
+        setState("running", `Loaded with ${value.execution_placement}`);
+        return value;
+      }
+      function casesForBatch(count, offset = 0) {
         const cases = inputs.cases.filter((entry) => !entry.terminal);
         return Array.from({ length: count }, (_, index) => {
-          const entry = cases[index % cases.length];
-          return { planes: entry.planes, legal: entry.legal };
+          const entry = cases[(index + offset) % cases.length];
+          return {
+            planes: entry.planes,
+            legal: entry.legal,
+            request_id: entry.position,
+            position_digest: entry.position_digest,
+          };
         });
       }
       const api = {
         client,
         capabilities: () =>
-          run("capabilities", async () => {
+          run(async () => {
             const value = await client.capabilities();
             show(value);
             setState(
@@ -135,33 +155,28 @@
             return value;
           }),
         load: (providerOverride) =>
-          run("load", async () => {
-            const { assets } = await ensureAssets();
-            const provider = providerOverride || document.querySelector("#provider").value;
-            const value = await client.load("./" + assets.model.file, {
-              provider,
-              size: assets.model.size,
-              ruleset: assets.model.ruleset,
-              expectedSha256: assets.model.sha256,
-            });
+          run(async () => {
+            if (providerOverride) providerSelect.value = providerOverride;
+            const value = await ensureLoaded({ force: true });
             show(value);
             setState("idle", `loaded with ${value.execution_placement}`);
             return value;
           }),
         infer: () =>
-          run("infer", async () => {
-            await ensureAssets();
-            if (!client.model) await api.load();
+          run(async () => {
+            const loaded = await ensureLoaded();
             const entry = inputs.cases.find((candidate) => !candidate.terminal);
             const value = await client.infer(
               entry.planes,
               assets.model.size,
               entry.legal,
               assets.model.ruleset,
+              { request_id: entry.position, position_digest: entry.position_digest },
             );
             show({
               provider_requested: value.provider_requested,
               execution_placement: value.execution_placement,
+              model_ruleset: loaded.ruleset ?? assets.model.ruleset,
               run_ms: value.run_ms,
               value: value.value,
               legal_count: value.legal.length,
@@ -171,14 +186,15 @@
             return value;
           }),
         inferMany: (batch = 8) =>
-          run("inferMany", async () => {
-            await ensureAssets();
-            if (!client.model) await api.load();
+          run(async () => {
+            await ensureLoaded();
             const value = await client.inferMany(casesForBatch(batch));
             show({
               provider_requested: value.provider_requested,
               execution_placement: value.execution_placement,
+              model_ruleset: value.model_ruleset,
               batch: value.batch,
+              results_count: value.results.length,
               run_ms: value.run_ms,
               per_position_ms: value.per_position_ms,
               sums: value.results.map((row) =>
@@ -188,11 +204,12 @@
             return value;
           }),
         benchmark: (batchSizes = [1, 2, 4, 8, 16, 32], reps = 5) =>
-          run("benchmark", async () => {
-            await ensureAssets();
-            if (!client.model) await api.load();
-            const cases = casesForBatch(32);
-            const value = await client.benchmark(cases, batchSizes, { warmup: 2, reps });
+          run(async () => {
+            await ensureLoaded();
+            const value = await client.benchmark(casesForBatch(32), batchSizes, {
+              warmup: 2,
+              reps,
+            });
             show(value);
             return value;
           }),
@@ -208,6 +225,11 @@
         show,
       };
       window.neural = api;
+      providerSelect.addEventListener("change", () => {
+        if (client.model && client.model.provider !== providerSelect.value) {
+          setState("idle", "provider changed; reload required (Infer/Load will reload)");
+        }
+      });
       for (const [id, action] of Object.entries({
         capabilities: api.capabilities,
         load: () => api.load(),

@@ -115,6 +115,10 @@ export class NeuralClient {
         const error = new Error(data.error);
         if (data.code) error.code = data.code;
         pending.reject(error);
+        if (data.code === "RESOURCE_CLEANUP_FAILED" || data.code === "SESSION_RELEASE_FAILED") {
+          // The worker may be unhealthy; reset it so it is never reused silently.
+          this.abort(error);
+        }
       } else {
         pending.resolve(data.value);
       }
@@ -279,9 +283,17 @@ export class NeuralClient {
     }
   }
 
-  infer(planes, size, legal, ruleset) {
+  infer(planes, size, legal, ruleset, identity = {}) {
     return this.request(
-      { action: "infer", planes, size, legal, ruleset },
+      {
+        action: "infer",
+        planes,
+        size,
+        legal,
+        ruleset,
+        request_id: identity.request_id,
+        position_digest: identity.position_digest,
+      },
       { timeoutMs: INFER_TIMEOUT_MS },
     );
   }

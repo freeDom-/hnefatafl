@@ -263,8 +263,13 @@ def test_prepare_rejects_incompatible_graph_outputs(exported, tmp_path):
             payload["model_sha256"] = tampered
             payload["model_bytes"] = tampered_bytes
         (copy / name).write_text(json.dumps(payload))
+    sidecar_sha = onnx_export.digest(copy / "model.json")
+    manifest = json.loads((copy / "export-manifest.json").read_text())
+    manifest["sidecar_sha256"] = sidecar_sha
+    (copy / "export-manifest.json").write_text(json.dumps(manifest))
     marker = json.loads((copy / "VALIDATED.json").read_text())
     marker["model_sha256"] = tampered
+    marker["sidecar_sha256"] = sidecar_sha
     (copy / "VALIDATED.json").write_text(json.dumps(marker))
     reference = json.loads((copy / "reference.json").read_text())
     reference["model_sha256"] = tampered
@@ -347,6 +352,43 @@ def test_failed_parity_replacement_removes_the_marker(
     assert not (copy / "VALIDATED.json").exists(), "failed replacement must not keep old marker"
     with pytest.raises(SystemExit):
         prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_prepare_rejects_metadata_sidecar_digest_mismatch(exported, tmp_path):
+    copy = _copied_export(exported, tmp_path)
+    sidecar = json.loads((copy / "model.json").read_text())
+    sidecar["extra"] = "tampered"
+    (copy / "model.json").write_text(json.dumps(sidecar))
+    with pytest.raises(SystemExit, match="sidecar digest"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_prepare_rejects_parity_report_digest_mismatch(exported, tmp_path):
+    copy = _copied_export(exported, tmp_path)
+    parity = json.loads((copy / "parity.json").read_text())
+    parity["extra"] = "tampered"
+    (copy / "parity.json").write_text(json.dumps(parity))
+    with pytest.raises(SystemExit, match="[Pp]arity report digest"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_prepare_rejects_older_manifest_schema(exported, tmp_path):
+    copy = _copied_export(exported, tmp_path)
+    manifest = json.loads((copy / "export-manifest.json").read_text())
+    manifest["schema"] = 2
+    (copy / "export-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(SystemExit, match="schema"):
+        prepare_neural.validate_export_dir(copy, allow_unvalidated=False)
+
+
+def test_marker_covers_the_complete_artifact_set(exported):
+    marker = json.loads((exported / "VALIDATED.json").read_text())
+    manifest = json.loads((exported / "export-manifest.json").read_text())
+    sidecar_digest = onnx_export.digest(exported / "model.json")
+    parity_digest = onnx_export.digest(exported / "parity.json")
+    for payload in (marker, manifest):
+        assert payload["sidecar_sha256"] == sidecar_digest
+        assert payload["parity_sha256"] == parity_digest
 
 
 def test_metadata_sidecar_has_no_private_training_state(exported):

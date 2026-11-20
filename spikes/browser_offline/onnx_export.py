@@ -409,7 +409,13 @@ def native_onnx_outputs(model, target: Path, reference: dict) -> dict:
     outputs = []
     for case in reference["cases"]:
         if case["terminal"]:
-            outputs.append({"position": case["position"], "skipped": True})
+            outputs.append(
+                {
+                    "position": case["position"],
+                    "skipped": True,
+                    "harness_generated": True,
+                }
+            )
             continue
         planes = np.asarray(case["planes"], dtype=np.float32).reshape(case["input_shape"])
         result = session.run(list(OUTPUT_NAMES), {input_name: planes})
@@ -425,6 +431,7 @@ def native_onnx_outputs(model, target: Path, reference: dict) -> dict:
         outputs.append(
             {
                 "position": case["position"],
+                "request_id": case["position"],
                 "position_digest": case.get("position_digest"),
                 "model_sha256": reference["model_sha256"],
                 "policy_logits": logits,
@@ -438,8 +445,10 @@ def native_onnx_outputs(model, target: Path, reference: dict) -> dict:
             }
         )
     return {
+        "schema": 4,
         "provider": "onnxruntime-cpu",
         "model_sha256": reference["model_sha256"],
+        "model_ruleset": reference.get("ruleset"),
         "outputs": outputs,
     }
 
@@ -495,15 +504,17 @@ def run(args) -> int:
             "missing_kinds": reference["missing_kinds"],
         }
         _write_json(staging / "model.json", sidecar)
+        sidecar_digest = digest(staging / "model.json")
 
         manifest = {
-            "schema": 2,
+            "schema": 3,
             "validated": False,
             "artifact": SIDECAR_ARTIFACT,
             "model_sha256": sidecar["onnx"]["sha256"],
             "model_bytes": sidecar["onnx"]["bytes"],
             "ruleset": sidecar["ruleset"],
             "reference_sha256": sidecar["reference"]["sha256"],
+            "sidecar_sha256": sidecar_digest,
             "generated": datetime.now(timezone.utc).isoformat(),
         }
         if args.no_parity:
@@ -512,6 +523,7 @@ def run(args) -> int:
         else:
             report = parity(exported["model"], exported["target"], reference)
             _write_json(staging / "parity.json", report)
+            manifest["parity_sha256"] = digest(staging / "parity.json")
             manifest["parity_passed"] = bool(report["ok"])
             manifest["parity_providers"] = report["providers"]
             manifest["validated"] = bool(report["ok"])
@@ -546,6 +558,8 @@ def run(args) -> int:
                     "validated": True,
                     "model_sha256": manifest["model_sha256"],
                     "reference_sha256": manifest["reference_sha256"],
+                    "sidecar_sha256": manifest["sidecar_sha256"],
+                    "parity_sha256": manifest.get("parity_sha256"),
                     "ruleset": manifest["ruleset"],
                     "generated": manifest["generated"],
                 },

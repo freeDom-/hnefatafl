@@ -23,6 +23,8 @@ const INPUT_PLANES = 6;
 const MAX_MODEL_BYTES = 64 * 1024 * 1024;
 const SIZE_RULESETS = { brandubh: 7, tablut: 9, copenhagen: 11 };
 
+importScripts("./neural-tensors.js");
+
 let ortLib = null;
 let ortBundle = null;
 let session = null;
@@ -177,55 +179,6 @@ function assertLegal(legal, size) {
   return legal;
 }
 
-function legalSoftmax(logits, legal) {
-  const values = legal.map((index) => logits[index]);
-  if (legal.some((index, position) => !Number.isFinite(values[position])))
-    throw named("OUTPUT_INVALID", "Policy logits contain a non-finite value");
-  const maximum = Math.max(...values);
-  const exponentials = values.map((value) => Math.exp(value - maximum));
-  const total = exponentials.reduce((sum, value) => sum + value, 0);
-  if (!Number.isFinite(total) || total <= 0)
-    throw named("OUTPUT_INVALID", "Legal softmax normaliser is not finite and positive");
-  return exponentials.map((value) => value / total);
-}
-
-function illegalMass(logits, legal) {
-  const maximum = Math.max(...logits);
-  const exponentials = logits.map((value) => Math.exp(value - maximum));
-  const total = exponentials.reduce((sum, value) => sum + value, 0);
-  const legalSet = new Set(legal);
-  let sum = 0;
-  for (let index = 0; index < exponentials.length; index += 1)
-    if (!legalSet.has(index)) sum += exponentials[index];
-  return sum / total;
-}
-
-function validateOutputs(output, batch, size) {
-  const policy = output["policy_logits"];
-  const value = output["defender_value"];
-  if (!policy || !value)
-    throw named("OUTPUT_INVALID", "Model output is missing a policy or value tensor");
-  if (policy.type !== "float32" || value.type !== "float32")
-    throw named("OUTPUT_INVALID", "Model outputs must be float32");
-  const row = size ** 4;
-  if (policy.dims.length !== 2 || policy.dims[0] !== batch || policy.dims[1] !== row)
-    throw named("OUTPUT_INVALID", `Unexpected policy dims ${policy.dims} for batch ${batch}`);
-  if (value.dims.length !== 1 || value.dims[0] !== batch)
-    throw named("OUTPUT_INVALID", `Unexpected value dims ${value.dims} for batch ${batch}`);
-  if (policy.data.length !== batch * row || value.data.length !== batch)
-    throw named("OUTPUT_INVALID", "Model output element count is inconsistent with its dims");
-  for (let index = 0; index < policy.data.length; index += 1)
-    if (!Number.isFinite(policy.data[index]))
-      throw named("OUTPUT_INVALID", "Model produced a non-finite policy logit");
-  for (let index = 0; index < value.data.length; index += 1) {
-    if (!Number.isFinite(value.data[index]))
-      throw named("OUTPUT_INVALID", "Model produced a non-finite defender value");
-    if (value.data[index] < -1 - 1e-6 || value.data[index] > 1 + 1e-6)
-      throw named("OUTPUT_INVALID", "Model produced a defender value outside [-1, 1]");
-  }
-  return { policy, value };
-}
-
 async function loadModel(request) {
   const { buffer, provider, size, ruleset, expectedSha256 } = request;
   if (!(buffer instanceof ArrayBuffer)) throw named("INPUT_INVALID", "Model buffer must be an ArrayBuffer");
@@ -296,6 +249,7 @@ async function loadModel(request) {
     execution_placement: placement,
     gpu_execution_verified: self.__neuralProvider.gpuVerified(placement),
     model_sha256: expectedSha256,
+    model_ruleset: ruleset ?? null,
     model_bytes: buffer.byteLength,
     input_names: inputNames,
     output_names: outputNames,
@@ -313,6 +267,16 @@ async function releaseQuietly(target) {
   }
 }
 
+function assertRequestId(value, label = "request_id") {
+  if (typeof value !== "string" || !value || value.length > 128)
+    throw named("INPUT_INVALID", `${label} must be a non-empty string of at most 128 characters`);
+}
+
+function assertPositionDigest(value, label = "position_digest") {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value))
+    throw named("INPUT_INVALID", `${label} must be a 64-character lowercase hex digest`);
+}
+
 function buildInputTensor(cases, size) {
   const planeCount = INPUT_PLANES * size * size;
   const data = new Float32Array(planeCount * cases.length);
@@ -324,78 +288,103 @@ function buildInputTensor(cases, size) {
   return new ortLib.Tensor("float32", data, [cases.length, 6, size, size]);
 }
 
-async function runBatch(cases, size) {
+async function runBatch(cases, size, { requireIdentity = true } = {}) {
   if (!session || !model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
-  if (model.size !== size) throw named("ARTIFACT_RULESET_MISMATCH", "Requested board size differs from the model");
-  if (!Array.isArray(cases) || cases.length === 0) throw named("INPUT_INVALID", "cases must be a non-empty array");
-  if (cases.length > MAX_BATCH) throw named("INPUT_INVALID", `batch ${cases.length} exceeds the ${MAX_BATCH} limit`);
+  if (model.size !== size)
+    throw named("ARTIFACT_RULESET_MISMATCH", "Requested board size differs from the model");
+  if (!Array.isArray(cases) || cases.length === 0)
+    throw named("INPUT_INVALID", "cases must be a non-empty array");
+  if (cases.length > MAX_BATCH)
+    throw named("INPUT_INVALID", `batch ${cases.length} exceeds the ${MAX_BATCH} limit`);
+  if (requireIdentity) {
+    const seen = new Set();
+    cases.forEach((entry, index) => {
+      assertRequestId(entry.request_id);
+      assertPositionDigest(entry.position_digest);
+      if (seen.has(entry.request_id))
+        throw named("INPUT_INVALID", `Duplicate request_id ${entry.request_id}`);
+      seen.add(entry.request_id);
+      if (entry.index !== undefined && entry.index !== index)
+        throw named("INPUT_INVALID", "Request index does not match its array position");
+    });
+  } else {
+    cases = cases.map((entry, index) => ({
+      ...entry,
+      request_id: entry.request_id ?? `bench-${index}`,
+      position_digest: entry.position_digest ?? null,
+    }));
+  }
+
   const prepared = performance.now();
   const tensor = buildInputTensor(cases, size);
   const prepareMs = performance.now() - prepared;
-  let output;
+  let output = null;
+  let failure = null;
+  const inputCleanup = [];
   const runStarted = performance.now();
   try {
     output = await session.run({ [model.inputName]: tensor });
+  } catch (error) {
+    failure = error;
   } finally {
     // Always dispose the input tensor, including on inference failure.
     try {
       tensor.dispose?.();
-    } catch {
-      // ignored: the session remains usable and the worker can be terminated.
+    } catch (error) {
+      inputCleanup.push(String(error?.message ?? error));
     }
   }
   const runMs = performance.now() - runStarted;
-  const { policy, value } = validateOutputs(output, cases.length, size);
-  const row = size ** 4;
-  const results = cases.map((entry, batchIndex) => {
-    const logits = Array.from(policy.data.subarray(batchIndex * row, (batchIndex + 1) * row));
-    const legal = entry.legal;
-    const probabilities = legalSoftmax(logits, legal);
-    return {
-      index: batchIndex,
-      policy_logits: logits,
-      value: value.data[batchIndex],
-      legal,
-      legal_probabilities: probabilities,
-      illegal_mass_raw: illegalMass(logits, legal),
-    };
-  });
-  const shapes = {
-    policy_shape: [...policy.dims],
-    value_shape: [...value.dims],
-    policy_dtype: policy.type,
-    value_dtype: value.type,
-  };
-  // Copying is complete; release the output tensors.
-  for (const tensorOut of [policy, value]) {
+
+  let extracted = null;
+  if (!failure && output) {
     try {
-      tensorOut.dispose?.();
-    } catch {
-      // ignored: see input disposal note.
+      extracted = self.__neuralTensors.extractResults(output, cases.length, size, cases);
+    } catch (error) {
+      failure = error;
     }
   }
+  // Every output tensor must be released even when validation or extraction
+  // throws. Cleanup failures mark the worker unhealthy so the client can reset it.
+  const cleanup = output ? self.__neuralTensors.disposeTensors(output) : [];
+  const cleanupErrors = [...inputCleanup, ...cleanup];
+  if (cleanupErrors.length) {
+    const suffix = failure ? ` (after: ${failure?.message ?? failure})` : "";
+    throw named(
+      "RESOURCE_CLEANUP_FAILED",
+      `Tensor cleanup failed: ${cleanupErrors.join("; ")}${suffix}`,
+    );
+  }
+  if (failure) throw failure;
   return {
-    ...shapes,
+    ...extracted,
     provider_requested: model.providerRequested,
     execution_placement: model.executionPlacement,
     model_sha256: model.modelSha256,
+    model_ruleset: model.ruleset,
+    model_bytes: model.modelBytes,
     tensor_prepare_ms: prepareMs,
     run_ms: runMs,
     batch: cases.length,
+    requested_count: cases.length,
     batch_limit: MAX_BATCH,
-    results,
   };
 }
 
 async function inferSingle(request) {
-  const { planes, legal, ruleset } = request;
+  const { planes, legal, ruleset, request_id, position_digest } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (ruleset && model.ruleset && ruleset !== model.ruleset)
     throw named("ARTIFACT_RULESET_MISMATCH", `Ruleset ${ruleset} does not match the model`);
-  const result = await runBatch([{ planes, legal }], model.size);
+  const result = await runBatch(
+    [{ planes, legal, request_id, position_digest }],
+    model.size,
+  );
   const single = {
     ...result,
     index: 0,
+    request_id: result.results[0].request_id,
+    position_digest: result.results[0].position_digest,
     policy_logits: result.results[0].policy_logits,
     value: result.results[0].value,
     legal: result.results[0].legal,
@@ -435,11 +424,11 @@ async function benchmark(request) {
   const rows = [];
   for (const batch of batchSizes) {
     const filled = Array.from({ length: batch }, (_, index) => cases[index % cases.length]);
-    for (let index = 0; index < warmup; index += 1) await runBatch(filled, model.size);
+    for (let index = 0; index < warmup; index += 1) await runBatch(filled, model.size, { requireIdentity: false });
     const times = [];
     for (let index = 0; index < reps; index += 1) {
       const started = performance.now();
-      await runBatch(filled, model.size);
+      await runBatch(filled, model.size, { requireIdentity: false });
       times.push(performance.now() - started);
     }
     rows.push({
@@ -469,7 +458,8 @@ async function sustained(request) {
   if (!Number.isInteger(iterations) || iterations < 1 || iterations > 10000)
     throw named("INPUT_INVALID", "iterations must be 1..10000");
   const started = performance.now();
-  for (let index = 0; index < iterations; index += 1) await runBatch(cases, model.size);
+  for (let index = 0; index < iterations; index += 1)
+    await runBatch(cases, model.size, { requireIdentity: false });
   const elapsed = performance.now() - started;
   return {
     iterations,

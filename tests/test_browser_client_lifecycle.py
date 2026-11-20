@@ -62,6 +62,6 @@ def test_provider_placement_never_reports_wasm_as_gpu():
     assert placements == [
         "wasm",
         "webgpu-session-unverified",
-        "webgpu-session-verified",
+        "webgpu-session-unverified",
         "cpu-fallback",
     ]

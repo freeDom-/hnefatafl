@@ -1,21 +1,25 @@
-// Browser neural numerical-parity gate for the isolated spike.
+// Browser neural parity gate for the isolated spike (revision 4 contract).
 //
-// Serves a staged neural directory (prepare_neural.py), runs the *actual*
-// exported model through ORT Web, and compares the **actual returned policy**
-// (logits, value, legal indices and order, legal-only probabilities, shapes,
-// dtypes, model identity) against native reference vectors using the canonical
-// Python comparator (neural_parity.py). It exits non-zero on any mandatory
-// parity failure.
+// Validates the complete inference response: model/ruleset identity, request and
+// position identity, policy/value tensors (data, shape, dtype), legal indices and
+// order, legal-only probabilities, and independent batch count/index/order.
+// Exits non-zero on any mandatory failure.
 //
 // Usage:
 //   node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
 //     --provider wasm --output /tmp/neural-parity-wasm.json
 //   node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
 //     --provider webgpu --require-webgpu
+//   node ... --corrupt reorder   # deterministic negative check
 //
-// `--simulate-corruption <kind>` perturbs one reported field so the test suite
-// can demonstrate that the gate detects a regression. This is never used for
-// acceptance evidence.
+// CLI acceptance semantics:
+//   --require-webgpu        require an obtained adapter, a WebGPU-requested
+//                           session and successful numerical inference. Session
+//                           placement is reported but strict GPU-only execution
+//                           is NOT claimed.
+//   --require-gpu-execution require independently verified actual GPU execution.
+//                           The pinned ORT Web build exposes no per-operator
+//                           placement API, so this currently fails explicitly.
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -36,13 +40,9 @@ const output = option("output", null);
 const python = process.env.SPIKE_PYTHON || resolve(import.meta.dirname, "../../.venv/bin/python");
 const corruption = option("corrupt", null);
 const requireWebGPU = flag("require-webgpu");
+const requireGpuExecution = flag("require-gpu-execution");
 const mobile = flag("mobile");
 
-function usageError(message) {
-  console.error(`neural_parity: ${message}`);
-  process.exit(2);
-}
-if (!["wasm", "webgpu"].includes(provider)) usageError("--provider must be wasm or webgpu");
 const CORRUPTIONS = new Set([
   "logit",
   "value",
@@ -52,8 +52,42 @@ const CORRUPTIONS = new Set([
   "policy-shape",
   "value-shape",
   "model",
-  "batch",
+  "batch-count",
+  "missing-result",
+  "extra-result",
+  "duplicate-index",
+  "missing-index",
+  "wrong-index",
+  "reorder",
+  "position",
 ]);
+const SINGLE_CORRUPTIONS = new Set([
+  "logit",
+  "value",
+  "legal",
+  "order",
+  "probabilities",
+  "policy-shape",
+  "value-shape",
+  "model",
+  "position",
+]);
+const BATCH_CORRUPTIONS = new Set([
+  "batch-count",
+  "missing-result",
+  "extra-result",
+  "duplicate-index",
+  "missing-index",
+  "wrong-index",
+  "reorder",
+  "position",
+]);
+
+function usageError(message) {
+  console.error(`neural_parity: ${message}`);
+  process.exit(2);
+}
+if (!["wasm", "webgpu"].includes(provider)) usageError("--provider must be wasm or webgpu");
 if (corruption !== null && !CORRUPTIONS.has(corruption))
   usageError(`--corrupt must be one of ${[...CORRUPTIONS].join(", ")}`);
 
@@ -79,30 +113,37 @@ const mime = {
   ".onnx": "application/octet-stream",
 };
 
+function uniquePath(label) {
+  return join(
+    tmpdir(),
+    `${label}-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.json`,
+  );
+}
+
 const report = {
   kind: "browser-neural-parity",
-  schema: 3,
+  schema: 4,
   generated: new Date().toISOString(),
   browser: null,
   ort_version: null,
   requested_provider: provider,
-  simulated_corruption: simulateCorruptionName(),
+  simulated_corruption: corruption,
   failures: [],
   notes: [],
 };
 
-function fail(message) {
-  report.failures.push(message);
+function fail(...messages) {
+  report.failures.push(...messages);
 }
 
-// Validate staged artifacts BEFORE starting any server or browser resource, so
-// a missing or malformed manifest fails cleanly without a leaked server.
+// Validate staged artifacts before starting any server or browser resource.
 let assets;
 let reference;
 try {
   assets = JSON.parse(await readFile(resolve(root, "neural-assets.json"), "utf8"));
-  const referencePath = resolve(root, assets.model.reference);
-  const referenceRaw = await readFile(referencePath);
+  const referenceRaw = await readFile(resolve(root, assets.model.reference));
+  const referenceDigest = createHash("sha256").update(referenceRaw).digest("hex");
+  reference = JSON.parse(referenceRaw.toString("utf8"));
   report.model = {
     sha256: assets.model.sha256,
     bytes: assets.model.bytes,
@@ -112,8 +153,6 @@ try {
     reference_sha256: assets.model.reference_sha256,
   };
   report.ort_version = assets.ort_version;
-  const referenceDigest = createHash("sha256").update(referenceRaw).digest("hex");
-  reference = JSON.parse(referenceRaw.toString("utf8"));
   if (assets.model.reference_sha256 !== referenceDigest)
     throw new Error("reference-vector digest does not match the staged manifest");
   if (!assets.model.validated)
@@ -127,7 +166,7 @@ try {
   const names = reference.cases.map((entry) => entry.position);
   if (new Set(names).size !== names.length) throw new Error("duplicate reference positions");
 } catch (error) {
-  report.failures.push(`staged artifact validation failed: ${error?.message ?? error}`);
+  fail(`staged artifact validation failed: ${error?.message ?? error}`);
   report.ok = false;
   if (output) {
     await mkdir(dirname(resolve(output)), { recursive: true });
@@ -137,11 +176,7 @@ try {
   process.exit(1);
 }
 
-let pathCounter = 0;
-function uniquePath(label) {
-  pathCounter += 1;
-  return join(tmpdir(), `${label}-${process.pid}-${Date.now()}-${pathCounter}.json`);
-}
+const nonTerminal = reference.cases.filter((entry) => !entry.terminal);
 
 let server = null;
 let browser = null;
@@ -211,7 +246,12 @@ try {
     const observedOutputs = [];
     for (const entry of reference.cases) {
       if (entry.terminal) {
-        observedOutputs.push({ position: entry.position, skipped: true });
+        // Harness-generated skip: no inference was requested for this position.
+        observedOutputs.push({
+          position: entry.position,
+          skipped: true,
+          harness_generated: true,
+        });
         continue;
       }
       const observed = await page.evaluate(
@@ -221,22 +261,27 @@ try {
             payload.size,
             payload.legal,
             payload.ruleset,
+            { request_id: payload.request_id, position_digest: payload.position_digest },
           ),
         {
           planes: entry.planes,
           size: assets.model.size,
           legal: entry.legal,
           ruleset: assets.model.ruleset,
+          request_id: entry.position,
+          position_digest: entry.position_digest,
         },
       );
-      observedOutputs.push(observedOutput(entry, observed, load));
+      if (SINGLE_CORRUPTIONS.has(corruption) && observedOutputs.length === 0)
+        corruptSingle(observed, corruption);
+      observedOutputs.push(observedOutput(observed));
     }
 
-    applyCorruption(observedOutputs);
     const observed = {
-      schema: 3,
+      schema: 4,
       provider: `${provider}:${load.execution_placement}`,
-      model_sha256: assets.model.sha256,
+      model_sha256: load.model_sha256,
+      model_ruleset: load.model_ruleset,
       outputs: observedOutputs,
     };
     report.observed_summary = {
@@ -255,9 +300,7 @@ try {
       if (comparison.stderr) report.notes.push(comparison.stderr);
     }
 
-    // Distinct-position batched inference: every batched output must match its
-    // own single-position reference, in order, for batch sizes 1..32.
-    const nonTerminal = reference.cases.filter((entry) => !entry.terminal);
+    // Independent batch contract, including index/order/association.
     const batchResults = [];
     for (const batch of [1, 2, 4, 8, 16, 32]) {
       const selected = Array.from(
@@ -269,7 +312,12 @@ try {
         many = await page.evaluate(
           (payload) => window.neural.client.inferMany(payload.cases),
           {
-            cases: selected.map((entry) => ({ planes: entry.planes, legal: entry.legal })),
+            cases: selected.map((entry) => ({
+              planes: entry.planes,
+              legal: entry.legal,
+              request_id: entry.position,
+              position_digest: entry.position_digest,
+            })),
           },
         );
       } catch (error) {
@@ -279,32 +327,21 @@ try {
       }
       const subsetReference = {
         model_sha256: reference.model_sha256,
+        ruleset: reference.ruleset,
         tolerances: reference.tolerances,
         cases: selected,
       };
-      const outputs = many.results.map((row, index) =>
-        observedOutput(
-          selected[index],
-          {
-            ...row,
-            model_sha256: many.model_sha256,
-            policy_shape: many.policy_shape,
-            value_shape: many.value_shape,
-            policy_dtype: many.policy_dtype,
-            value_dtype: many.value_dtype,
-          },
-          load,
-          index,
-        ),
-      );
-      if (corruption === "batch") outputs.reverse();
       const batchedObserved = {
-        schema: 3,
+        schema: 4,
         provider: `${provider}:${load.execution_placement}`,
-        model_sha256: assets.model.sha256,
-        batch_count: corruption === "batch" ? batch + 1 : batch,
-        outputs,
+        model_sha256: many.model_sha256,
+        model_ruleset: many.model_ruleset,
+        batch_count: many.batch,
+        results_count: many.results.length,
+        outputs: many.results.map((row) => batchedOutput(row, many)),
       };
+      if (BATCH_CORRUPTIONS.has(corruption) && batch === 2)
+        corruptBatch(batchedObserved, corruption);
       const batchedPath = uniquePath("neural-parity-batch");
       const comparisonBatched = await runComparator(
         subsetReference,
@@ -319,12 +356,22 @@ try {
       }
     }
     report.batched = batchResults;
-    if (requireWebGPU && !load.gpu_execution_verified) {
+
+    const webgpuAccepted =
+      load.provider_requested === "webgpu" &&
+      !["wasm", "cpu-fallback"].includes(load.execution_placement) &&
+      report.comparison?.ok === true;
+    if (requireWebGPU && !webgpuAccepted) {
       fail(
-        `--require-webgpu: GPU execution was not verified ` +
-          `(placement ${load.execution_placement}; evidence ${JSON.stringify(
-            load.provider_evidence,
-          )})`,
+        `--require-webgpu: WebGPU-requested numerical inference not accepted ` +
+          `(placement ${load.execution_placement})`,
+      );
+    }
+    if (requireGpuExecution && load.gpu_execution_verified !== true) {
+      fail(
+        `--require-gpu-execution: actual GPU execution was not independently verified ` +
+          `(placement ${load.execution_placement}; the pinned ORT Web build exposes no ` +
+          `per-operator placement API)`,
       );
     }
   }
@@ -365,16 +412,16 @@ console.log(
 );
 process.exit(report.ok ? 0 : 1);
 
-function simulateCorruptionName() {
-  return corruption;
-}
-
-function observedOutput(entry, observed, load, index = null) {
+function observedOutput(observed) {
+  // Copy only fields actually returned by the worker; never substitute expected
+  // values for missing observed metadata.
   return {
-    position: entry.position,
-    index,
-    position_digest: entry.position_digest,
-    model_sha256: observed.model_sha256 ?? load.model_sha256,
+    position: observed.request_id,
+    index: observed.index,
+    request_id: observed.request_id,
+    position_digest: observed.position_digest,
+    model_sha256: observed.model_sha256,
+    model_ruleset: observed.model_ruleset,
     policy_logits: observed.policy_logits,
     value: observed.value,
     policy_shape: observed.policy_shape,
@@ -387,38 +434,100 @@ function observedOutput(entry, observed, load, index = null) {
   };
 }
 
-function applyCorruption(outputs) {
-  if (!corruption) return;
-  const target = outputs.find((row) => row.policy_logits);
-  if (corruption === "batch" || !target) return;
-  switch (corruption) {
+function batchedOutput(row, many) {
+  return {
+    position: row.request_id,
+    index: row.index,
+    request_id: row.request_id,
+    position_digest: row.position_digest,
+    model_sha256: many.model_sha256,
+    model_ruleset: many.model_ruleset,
+    policy_logits: row.policy_logits,
+    value: row.value,
+    policy_shape: many.policy_shape,
+    value_shape: many.value_shape,
+    policy_dtype: many.policy_dtype,
+    value_dtype: many.value_dtype,
+    legal: row.legal,
+    legal_probabilities: row.legal_probabilities,
+    illegal_mass_raw: row.illegal_mass_raw,
+  };
+}
+
+function corruptSingle(observed, kind) {
+  switch (kind) {
     case "logit":
-      target.policy_logits[0] += 0.05;
+      observed.policy_logits[0] += 0.05;
       break;
     case "value":
-      target.value = (target.value ?? 0) + 0.05;
+      observed.value = (observed.value ?? 0) + 0.05;
       break;
     case "legal":
-      target.legal = [...target.legal.slice(1), target.legal[0]];
+      observed.legal = [...observed.legal.slice(1), observed.legal[0]];
       break;
     case "order":
-      target.legal = [...target.legal].reverse();
-      target.legal_probabilities = [...target.legal_probabilities].reverse();
+      observed.legal = [...observed.legal].reverse();
+      observed.legal_probabilities = [...observed.legal_probabilities].reverse();
       break;
     case "probabilities":
-      target.legal_probabilities = target.legal_probabilities.map((value, index) =>
+      observed.legal_probabilities = observed.legal_probabilities.map((value, index) =>
         index === 0 ? value + 0.02 : value,
       );
       break;
     case "policy-shape":
-      target.policy_shape = [1, 1];
+      observed.policy_shape = [1, 1];
       break;
     case "value-shape":
-      target.value_shape = [2];
+      observed.value_shape = [2];
       break;
     case "model":
-      target.model_sha256 = "0".repeat(64);
+      observed.model_sha256 = "0".repeat(64);
       break;
+    case "position":
+      observed.position_digest = "0".repeat(64);
+      break;
+  }
+}
+
+function corruptBatch(observed, kind) {
+  switch (kind) {
+    case "batch-count":
+      observed.batch_count += 1;
+      break;
+    case "missing-result":
+      observed.outputs.pop();
+      observed.results_count = observed.outputs.length;
+      break;
+    case "extra-result":
+      observed.outputs.push({
+        ...observed.outputs[0],
+        index: observed.outputs.length,
+        request_id: "extra-result",
+      });
+      observed.results_count = observed.outputs.length;
+      break;
+    case "duplicate-index":
+      observed.outputs[1].index = observed.outputs[0].index;
+      break;
+    case "missing-index":
+      delete observed.outputs[0].index;
+      break;
+    case "wrong-index":
+      observed.outputs[0].index = 1;
+      break;
+    case "reorder":
+      observed.outputs.reverse();
+      break;
+    case "position": {
+      const left = observed.outputs[0];
+      const right = observed.outputs[1] ?? observed.outputs[0];
+      [left.request_id, right.request_id] = [right.request_id, left.request_id];
+      [left.position_digest, right.position_digest] = [
+        right.position_digest,
+        left.position_digest,
+      ];
+      break;
+    }
   }
 }
 

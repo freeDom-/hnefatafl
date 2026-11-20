@@ -28,19 +28,28 @@
     if (!evidence || !evidence.length) return "webgpu-session-unverified";
     const gpu = evidence.filter((name) => /webgpu/i.test(name));
     const cpu = evidence.filter((name) => /wasm|cpu/i.test(name));
-    if (gpu.length === evidence.length) return "webgpu-session-verified";
     if (cpu.length === evidence.length) return "cpu-fallback";
-    // A mixed list containing WebGPU must not be reported as CPU-only
-    // execution, and an unknown mix must not be reported as verified GPU.
+    // A session that reports only WebGPU providers is still *unverified*: the
+    // pinned ORT Web build does not expose per-operator execution placement.
+    if (gpu.length === evidence.length) return "webgpu-session-unverified";
+    // WebGPU plus another provider must not be reported as CPU-only.
     if (gpu.length > 0) return "webgpu-mixed";
     return "placement-unknown";
   }
 
   function gpuVerified(placement) {
-    return placement === "webgpu-session-verified";
+    // No supported per-operator placement diagnostic is available in the pinned
+    // ORT Web version, so actual GPU execution is never claimed from a session
+    // provider list alone.
+    void placement;
+    return false;
   }
 
-  const api = { providerEvidence, placementFor, gpuVerified };
+  function perOperatorPlacementAvailable() {
+    return false;
+  }
+
+  const api = { providerEvidence, placementFor, gpuVerified, perOperatorPlacementAvailable };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.__neuralProvider = api;
 })(typeof self !== "undefined" ? self : typeof globalThis !== "undefined" ? globalThis : null);
