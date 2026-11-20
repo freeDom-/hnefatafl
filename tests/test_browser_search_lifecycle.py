@@ -21,4 +21,4 @@ def test_search_coordinator_lifecycle_checks():
         timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "14/14 search checks passed" in result.stdout
+    assert "23/23 search checks passed" in result.stdout

@@ -134,39 +134,123 @@ def test_deterministic_search_is_reproducible(ruleset):
 # ---------------------------------------------------------------- response contract
 
 
-def test_responses_must_match_their_pending_request():
+@pytest.mark.parametrize(
+    "mutation,code",
+    [
+        ({"request_index": 99}, "REQUEST_MISMATCH"),
+        ({"legal": "reversed"}, "LEGAL_ACTIONS_MISMATCH"),
+        ({"priors": "short"}, "INVALID_POLICY"),
+        ({"prior": -0.1}, "INVALID_POLICY"),
+        ({"prior": float("nan")}, "INVALID_POLICY"),
+        ({"prior": float("inf")}, "INVALID_POLICY"),
+        ({"prior": "0.5"}, "INVALID_POLICY"),
+        ({"prior": None}, "INVALID_POLICY"),
+        ({"value": 1.5}, "INVALID_VALUE"),
+        ({"value": -2}, "INVALID_VALUE"),
+        ({"value": float("nan")}, "INVALID_VALUE"),
+        ({"value": True}, "INVALID_VALUE"),
+        ({"value": "0.2"}, "INVALID_VALUE"),
+        ({"priors": "sum_high"}, "INVALID_POLICY"),
+        ({"priors": "sum_low"}, "INVALID_POLICY"),
+    ],
+)
+def test_malformed_responses_close_the_search_without_repair(mutation, code):
     state = new_game("brandubh")
     search = NeuralSearch(state, validate_search_settings(SETTINGS), model_for(state))
-    event = search.start()
-    assert event["kind"] == "evaluate"
-    request = event["request"]
+    request = search.start()["request"]
     priors = [1.0 / len(request["legal"])] * len(request["legal"])
-    base = {
+    payload = {
         "request_index": request["request_index"],
         "legal": request["legal"],
         "priors": priors,
         "value": 0.0,
     }
+    if "prior" in mutation:
+        payload["priors"] = [mutation["prior"]] + priors[1:]
+    elif mutation.get("priors") == "short":
+        payload["priors"] = priors[:-1]
+    elif mutation.get("priors") == "sum_high":
+        payload["priors"] = [value * 1.05 for value in priors]
+    elif mutation.get("priors") == "sum_low":
+        payload["priors"] = [value * 0.95 for value in priors]
+    elif mutation.get("legal"):
+        payload["legal"] = request["legal"][::-1]
+    if "value" in mutation:
+        payload["value"] = mutation["value"]
     with pytest.raises(SearchProtocolError) as error:
-        search.resume({**base, "request_index": 99})
-    assert error.value.code == "REQUEST_MISMATCH"
-    with pytest.raises(SearchProtocolError) as error:
-        search.resume({**base, "legal": request["legal"][::-1]})
-    assert error.value.code == "LEGAL_ACTIONS_MISMATCH"
-    with pytest.raises(SearchProtocolError) as error:
-        search.resume({**base, "priors": priors[:-1]})
-    assert error.value.code == "INVALID_POLICY"
-    for bad in (-0.1, float("nan"), float("inf"), "0.5", None):
-        with pytest.raises(SearchProtocolError) as error:
-            search.resume({**base, "priors": [bad] + priors[1:]})
-        assert error.value.code == "INVALID_POLICY"
-    for bad in (1.5, -2, float("nan"), True, "0.2"):
-        with pytest.raises(SearchProtocolError) as error:
-            search.resume({**base, "value": bad})
-        assert error.value.code == "INVALID_VALUE"
-    # The pending request is unchanged by rejected responses.
-    search.resume(base)
+        search.resume({**payload, **({"request_index": 99} if "request_index" in mutation else {})})
+    assert error.value.code == code
+    # Malformed responses are not recoverable: the context is closed and the
+    # caller must start a new search.
+    assert search._closed is True
+    with pytest.raises(SearchProtocolError) as closed:
+        search.resume(payload)
+    assert closed.value.code == "SEARCH_CLOSED"
     search.close()
+
+
+def test_floating_point_rounding_in_a_valid_policy_is_accepted_unchanged():
+    state = new_game("brandubh")
+    search = NeuralSearch(state, validate_search_settings(SETTINGS), model_for(state))
+    request = search.start()["request"]
+    count = len(request["legal"])
+    # A float32 legal softmax can sum to 1 within a few ulps.
+    priors = [1.0 / count] * (count - 1)
+    priors.append(1.0 - sum(priors) + 1e-7)
+    total = sum(priors)
+    assert total != 1.0 and abs(total - 1.0) <= 1e-3
+    event = search.resume(
+        {
+            "request_index": request["request_index"],
+            "legal": request["legal"],
+            "priors": priors,
+            "value": 0.0,
+        }
+    )
+    assert event["kind"] in ("evaluate", "complete")
+    search.close()
+
+
+def test_failed_search_releases_the_bridge_registry_capacity():
+    state = new_game("brandubh")
+    model = mcts_vectors.evaluator_model_identity(state)
+    for index in range(3):
+        search_id = f"fail-{index}"
+        start = bridge(
+            {
+                "action": "start",
+                "search_id": search_id,
+                "state": state.to_dict(),
+                "settings": {"iterations": 8, "time_limit": 10},
+                "model": model,
+            }
+        )
+        assert start["ok"] is True
+        request = start["event"]["request"]
+        bad = bridge(
+            {
+                "action": "resume",
+                "search_id": search_id,
+                "request_index": request["request_index"],
+                "legal": request["legal"],
+                "priors": [1.0] * len(request["legal"]),
+                "value": 0.0,
+            }
+        )
+        assert bad["ok"] is False and bad["code"] == "INVALID_POLICY"
+        # A failed context never occupies registry capacity or remains active.
+        assert bridge({"action": "cancel", "search_id": search_id})["event"]["cancelled"] is False
+    started = bridge(
+        {
+            "action": "start",
+            "search_id": "after-failures",
+            "state": state.to_dict(),
+            "settings": {"iterations": 8, "time_limit": 10},
+            "model": model,
+        }
+    )
+    assert started["ok"] is True
+    assert bridge({"action": "cancel", "search_id": "after-failures"})["event"]["cancelled"] is True
 
 
 def test_a_zero_sum_policy_is_rejected_not_renormalised():
@@ -457,3 +541,68 @@ def test_constant_defender_value_is_backed_up_without_sign_inversion(turn):
     assert event["analysis"]["value"] == pytest.approx(value)
     assert event["search"]["search_value"] == pytest.approx(value)
     assert event["search"]["root_value"] == pytest.approx(value)
+
+
+def test_drive_releases_the_generator_when_the_evaluator_fails(monkeypatch):
+    state = new_game("brandubh")
+    captured = []
+    factory = mcts_vectors.NeuralSearch
+
+    class Captured(factory):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            captured.append(self)
+
+    monkeypatch.setattr(mcts_vectors, "NeuralSearch", Captured)
+
+    def failing(requested):
+        raise RuntimeError("evaluator exploded")
+
+    with pytest.raises(RuntimeError, match="evaluator exploded"):
+        mcts_vectors.drive(
+            state,
+            {"iterations": 8, "time_limit": 10},
+            model_for(state),
+            failing,
+        )
+    assert captured and captured[0]._closed is True
+    assert captured[0].final_summary["completed_simulations"] == 0
+    # The next search is unaffected.
+    event = mcts_vectors.run_search(state.to_dict(), {"iterations": 8, "time_limit": 10})
+    assert event["kind"] == "complete"
+
+
+def test_hard_deadline_is_reported_separately_from_cancellation():
+    state = new_game("brandubh")
+    ticks = {"now": 1000.0, "calls": 0}
+
+    def clock_after_first_request():
+        ticks["calls"] += 1
+        if ticks["calls"] > 2:
+            ticks["now"] += 10.0
+        return ticks["now"]
+
+    search = NeuralSearch(
+        state,
+        validate_search_settings({"iterations": 64, "time_limit": 0.5}),
+        model_for(state),
+        clock=clock_after_first_request,
+    )
+    event = search.start()
+    assert event["kind"] == "evaluate"
+    request = event["request"]
+    priors = [1.0 / len(request["legal"])] * len(request["legal"])
+    event = search.resume(
+        {
+            "request_index": request["request_index"],
+            "legal": request["legal"],
+            "priors": priors,
+            "value": 0.0,
+        }
+    )
+    assert event["kind"] == "cancelled"
+    assert event["reason"] == "deadline"
+    assert event["search"]["completion_reason"] == "deadline"
+    assert event["search"]["deadline_cutoff"] is True
+    assert event["search"]["completed_simulations"] >= 0
+    search.close()

@@ -565,6 +565,88 @@ await check("benchmark and sustained require an explicit model identity", async 
   client.terminate();
 });
 
+await check("a cancelled inference drains and retains a healthy session", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.model = { provider: "wasm", model_sha256: "a".repeat(64) };
+  const pending = client.request({ action: "infer" }, { timeoutMs: 5000 });
+  await sleep(5);
+  const worker = client.worker;
+  const rejected = assert.rejects(pending, (error) => error.name === "AbortError");
+  setTimeout(() => worker.respond(0, { ok: true }), 10);
+  const outcome = await client.cancelRequest({ reason: "cancel", drainMs: 500 });
+  await rejected;
+  assert.equal(outcome.state, "drained");
+  assert.equal(outcome.sessionRetained, true);
+  assert.equal(outcome.workerRetained, true);
+  assert.equal(client.busy, false);
+  assert.ok(client.model, "the model session is retained");
+  // The drained worker accepts the next request.
+  const next = client.request({ action: "infer" }, { timeoutMs: 500 });
+  await sleep(5);
+  client.worker.respond(1, { ok: true });
+  assert.deepEqual(await next, { ok: true });
+  client.terminate();
+});
+await check("an unresponsive inference is terminated after the drain deadline", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.model = { provider: "wasm", model_sha256: "a".repeat(64) };
+  const pending = client.request({ action: "infer" }, { timeoutMs: 5000 });
+  await sleep(5);
+  const worker = client.worker;
+  const rejected = assert.rejects(pending, (error) => error.name === "AbortError");
+  const outcome = await client.cancelRequest({ reason: "cancel", drainMs: 20 });
+  await rejected;
+  assert.equal(outcome.state, "terminated");
+  assert.equal(outcome.sessionRetained, false);
+  assert.equal(worker.terminated, true);
+  assert.equal(client.model, null);
+  client.terminate();
+});
+await check("a replacement inference is refused while draining", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.draining = Promise.resolve();
+  await assert.rejects(
+    async () => client.request({ action: "infer" }),
+    /still draining/,
+  );
+  client.draining = null;
+  client.terminate();
+});
+await check("cancelWork aborts an owned model load without publishing it", async () => {
+  globalThis.Worker = FakeWorker;
+  let releaseFetch;
+  globalThis.fetch = () =>
+    new Promise((done) => {
+      releaseFetch = () => done({ ok: true, headers: new Map(), arrayBuffer: async () => new ArrayBuffer(8) });
+    });
+  const client = new NeuralClient();
+  const loading = client.load("./model.onnx", { provider: "wasm", size: 7 });
+  await sleep(5);
+  const outcome = await client.cancelWork({ reason: "cancel during load" });
+  assert.equal(outcome.state, "load-aborted");
+  assert.equal(outcome.sessionRetained, false);
+  await assert.rejects(loading, (error) => error.name === "AbortError");
+  assert.equal(client.model, null);
+  if (releaseFetch) releaseFetch();
+  await sleep(10);
+  assert.equal(client.model, null, "a cancelled load never publishes a session");
+  client.terminate();
+});
+await check("cancelRequest on an idle client reports session retention", async () => {
+  const client = new NeuralClient();
+  client.model = { provider: "wasm" };
+  const outcome = await client.cancelRequest();
+  assert.deepEqual(outcome, {
+    state: "idle",
+    sessionRetained: true,
+    workerRetained: false,
+  });
+  client.terminate();
+});
+
 const failures = results.filter((row) => !row.ok);
 console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
 if (failures.length) {

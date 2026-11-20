@@ -95,6 +95,9 @@ export class NeuralClient {
     this.download = null;
     this.loading = null;
     this.sequenceLoad = 0;
+    // Set while a cancelled inference is being drained; a replacement inference
+    // must not be admitted against a worker that may still be executing it.
+    this.draining = null;
     // Injectable digest seam so cancellation during verification can be tested
     // deterministically. Production always uses crypto.subtle SHA-256.
     this.digestFn = sha256Hex;
@@ -108,10 +111,19 @@ export class NeuralClient {
     worker.onmessage = ({ data }) => {
       if (this.worker !== worker || this.generation !== generation) return;
       const pending = this.pending;
-      if (!pending || pending.id !== data.id) return;
+      if (!pending || pending.id !== data.id) {
+        // A cancelled request may still be executing; its completion frees the
+        // worker for the next request but its result is ignored.
+        if (this.abandoned && this.abandoned.id === data.id) {
+          this.abandoned.finished?.();
+          this.abandoned = null;
+        }
+        return;
+      }
       clearTimeout(pending.timer);
       this.pending = null;
       this.busy = false;
+      pending.finished?.();
       if (data.error) {
         const error = new Error(data.error);
         if (data.code) error.code = data.code;
@@ -148,7 +160,12 @@ export class NeuralClient {
     this.pending = null;
     if (pending) {
       clearTimeout(pending.timer);
+      pending.finished?.();
       pending.reject(error);
+    }
+    if (this.abandoned) {
+      this.abandoned.finished?.();
+      this.abandoned = null;
     }
     this._cancelDownload(error);
   }
@@ -173,10 +190,14 @@ export class NeuralClient {
 
   // Explicit teardown for page lifecycle; releases worker and session resources.
   dispose() {
+    this.draining = null;
+    this.abandoned = null;
     this.terminate("Neural inference disposed");
   }
 
   async request(request, { timeoutMs = INFER_TIMEOUT_MS } = {}) {
+    if (this.draining)
+      throw named("WorkerError", "A cancelled neural request is still draining");
     if (!this.worker) this._spawn();
     if (this.busy) throw named("WorkerError", "A neural job is already running");
     const worker = this.worker;
@@ -189,7 +210,9 @@ export class NeuralClient {
         if (this.generation !== generation || this.worker !== worker) return;
         this.abort(named("TimeoutError", "Neural job exceeded its hard deadline"));
       }, timeoutMs);
-      this.pending = { id, resolve, reject, timer };
+      const pending = { id, resolve, reject, timer };
+      pending.finished = () => {};
+      this.pending = pending;
       try {
         worker.postMessage({ id, request });
       } catch (error) {
@@ -200,6 +223,71 @@ export class NeuralClient {
 
   capabilities() {
     return this.request({ action: "capabilities" }, { timeoutMs: 15000 });
+  }
+
+  // Cancel one in-flight inference without losing a healthy session when it can
+  // drain within ``drainMs``. The rejected request settles immediately for the
+  // caller; only the worker drain is awaited. If the worker does not drain, it
+  // is terminated and the session must be reloaded.
+  async cancelRequest({ reason = "Neural request cancelled", drainMs = 1500 } = {}) {
+    if (this.draining) return this.draining;
+    const pending = this.pending;
+    if (!pending) {
+      return {
+        state: "idle",
+        sessionRetained: this.model !== null,
+        workerRetained: this.worker !== null,
+      };
+    }
+    const worker = this.worker;
+    const generation = this.generation;
+    const finished = new Promise((resolve) => {
+      pending.finished = resolve;
+    });
+    clearTimeout(pending.timer);
+    this.pending = null;
+    this.busy = false;
+    this.abandoned = pending;
+    pending.reject(named("AbortError", reason));
+    // `finished` resolves only when the worker actually returns or is replaced;
+    // it must not resolve just because the caller stopped waiting.
+    this.draining = (async () => {
+      let timer = null;
+      const drained = await Promise.race([
+        finished.then(() => true),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(false), drainMs);
+        }),
+      ]);
+      clearTimeout(timer);
+      this.abandoned = null;
+      if (!drained) {
+        this.abort(named("TimeoutError", "The neural worker did not drain the cancelled request"));
+        return { state: "terminated", sessionRetained: false, workerRetained: false };
+      }
+      if (this.worker !== worker || this.generation !== generation)
+        return { state: "terminated", sessionRetained: false, workerRetained: false };
+      return {
+        state: "drained",
+        sessionRetained: this.model !== null,
+        workerRetained: true,
+      };
+    })().finally(() => {
+      this.draining = null;
+    });
+    return this.draining;
+  }
+
+  // UI-level cancellation: abort an owned model download/initialization or a
+  // single inference. A healthy session is retained when only inference drains.
+  async cancelWork({ reason = "Cancelled by user", drainMs = 1500 } = {}) {
+    if (this.loading !== null || this.download) {
+      // A model operation is owned by the caller; terminate so it cannot publish
+      // a session after cancellation.
+      this.terminate(reason);
+      return { state: "load-aborted", sessionRetained: false, workerRetained: false };
+    }
+    return this.cancelRequest({ reason, drainMs });
   }
 
   // Bounded, cancellable model download that verifies the staged digest. The

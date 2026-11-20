@@ -47,6 +47,9 @@ MAX_SEED = 2**32 - 1
 # coordinator also enforces a watchdog; this is the in-worker recovery bound.
 MIN_HARD_LIMIT = 2.0
 MAX_HARD_LIMIT = 30.0
+# Legal probabilities must sum to one within this tolerance. Only floating-point
+# rounding from a validated softmax is accepted; larger deviations are rejected.
+POLICY_SUM_TOLERANCE = 1e-3
 
 SETTING_FIELDS = frozenset({"algorithm", "iterations", "time_limit", "exploration", "seed"})
 # Values this driver always forces for analysis. They may only be supplied when
@@ -59,13 +62,19 @@ INTEGER_SETTINGS = ("iterations", "seed")
 class SearchRequestError(ValueError):
     """An invalid or unsupported search request; carries a stable code."""
 
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, completed_simulations: int = 0):
         super().__init__(message)
         self.code = code
+        self.completed_simulations = completed_simulations
 
 
 class SearchProtocolError(SearchRequestError):
-    """The evaluator returned a response that does not match its request."""
+    """The evaluator returned a response that does not match its request.
+
+    Protocol errors are **not** recoverable: the search context is closed so a
+    malformed response can never leave a tree waiting for a corrected prediction.
+    The completed simulation count is attached for diagnostics.
+    """
 
 
 def _number(raw: dict, name: str) -> float:
@@ -294,6 +303,12 @@ class NeuralSearch:
         self._closed = False
         self._context = None
         self._last_event_at = self.started
+        self.final_summary = {
+            "completed_simulations": 0,
+            "neural_requests": 0,
+            "prediction_reuses": 0,
+            "deadline_hit": False,
+        }
         # Mutually exclusive in-worker timings; the coordinator measures the
         # inference and transport wait separately and reports the remainder.
         self.timings = {
@@ -303,10 +318,12 @@ class NeuralSearch:
             "requests": 0,
         }
         self._hard_deadline = self.started + hard_deadline_seconds(settings)
+        self.deadline_hit = False
         stop = should_stop
 
         def stop_check() -> bool:
             if clock() >= self._hard_deadline:
+                self.deadline_hit = True
                 return True
             return bool(stop is not None and stop())
 
@@ -352,8 +369,25 @@ class NeuralSearch:
             raise SearchRequestError("NO_LEGAL_MOVES", "No legal moves in this position")
         return self._advance()
 
+    def summary(self) -> dict:
+        """Bounded diagnostics that survive context release."""
+        diagnostics = self.diagnostics or {}
+        return {
+            "completed_simulations": int(diagnostics.get("simulations", 0) or 0),
+            "neural_requests": self.requests,
+            "prediction_reuses": int(diagnostics.get("mcts_node_prediction_reuses", 0) or 0),
+            "deadline_hit": self.deadline_hit,
+        }
+
     def close(self) -> None:
-        """Close the abandoned generator and release its search-tree resources."""
+        """Close the abandoned generator and release its search-tree resources.
+
+        Idempotent. The final completed/requested counters are retained in
+        ``self.final_summary`` so callers can report failed or cancelled work
+        without keeping the generator or its diagnostics alive.
+        """
+        if not self._closed:
+            self.final_summary = self.summary()
         if self._context is not None:
             try:
                 self._context.close()
@@ -376,25 +410,40 @@ class NeuralSearch:
         except StopIteration as finished:
             return self._complete(finished.value)
         except InterruptedError:
+            summary = self.summary()
             self.close()
-            return {
-                "kind": "cancelled",
-                "reason": "cancelled",
-                "search": self._search_summary(completed=False),
-            }
+            reason = "deadline" if self.deadline_hit else "cancelled"
+            search = self._search_summary(completed=False)
+            search["completed_simulations"] = summary["completed_simulations"]
+            search["completion_reason"] = reason
+            search["deadline_cutoff"] = self.deadline_hit
+            return {"kind": "cancelled", "reason": reason, "search": search}
+        except SearchRequestError:
+            self.close()
+            raise
         except ValueError as error:
             # The generator rejects unreachable/terminal positions; surface it as
             # a stable protocol code instead of an opaque traceback.
+            completed = self.summary()["completed_simulations"]
             self.close()
-            raise SearchRequestError("SEARCH_FAILED", str(error)) from None
+            raise SearchRequestError("SEARCH_FAILED", str(error), completed) from None
+        except Exception as error:  # noqa: BLE001 - never leak a generator
+            completed = self.summary()["completed_simulations"]
+            self.close()
+            raise SearchRequestError(
+                "SEARCH_FAILED", f"{type(error).__name__}: {error}", completed
+            ) from error
         return self._evaluation(requested)
 
     def _evaluation(self, state: State) -> dict:
         started = time.perf_counter()
         moves = legal_moves(state)
         if not moves:
+            completed = self.summary()["completed_simulations"]
             self.close()
-            raise SearchRequestError("NO_LEGAL_MOVES", "Requested position has no legal moves")
+            raise SearchRequestError(
+                "NO_LEGAL_MOVES", "Requested position has no legal moves", completed
+            )
         self.timings["legal_generation_ms"] += (time.perf_counter() - started) * 1000.0
         started = time.perf_counter()
         planes = encode_planes(state)
@@ -427,23 +476,38 @@ class NeuralSearch:
         }
 
     def resume(self, payload: Any) -> dict:
-        """Accept exactly one evaluation response and advance the generator."""
+        """Accept exactly one evaluation response and advance the generator.
+
+        The response must match the pending request exactly and carry a proper
+        legal distribution. A materially invalid response closes the search (it
+        is never silently repaired); callers must start a new search.
+        """
         if self._closed:
             raise SearchProtocolError("SEARCH_CLOSED", "This search has been closed")
         if self._pending is None:
             raise SearchProtocolError("NO_PENDING_REQUEST", "No neural evaluation is pending")
+        try:
+            return self._resume_validated(payload)
+        except SearchProtocolError as error:
+            error.completed_simulations = self.summary()["completed_simulations"]
+            self.close()
+            raise
+
+    def _resume_validated(self, payload: Any) -> dict:
+        pending = self._pending
+        assert pending is not None
         if not isinstance(payload, dict):
             raise SearchProtocolError("INVALID_RESPONSE", "Evaluation response must be an object")
         validation_started = time.perf_counter()
         self._validating = validation_started
         index = payload.get("request_index")
-        if type(index) is not int or index != self._pending["index"]:
+        if type(index) is not int or index != pending["index"]:
             raise SearchProtocolError(
                 "REQUEST_MISMATCH",
                 "Evaluation response does not belong to the pending request",
             )
         legal = payload.get("legal")
-        if not isinstance(legal, list) or legal != self._pending["legal"]:
+        if not isinstance(legal, list) or legal != pending["legal"]:
             raise SearchProtocolError(
                 "LEGAL_ACTIONS_MISMATCH",
                 "Returned legal action indices do not match the requested position",
@@ -467,11 +531,14 @@ class NeuralSearch:
             total += value
         if not math.isfinite(total) or total <= 0:
             raise SearchProtocolError("INVALID_POLICY", "Legal priors must have a positive sum")
-        if abs(total - 1.0) > 1e-3:
-            # ONNX/WASM legal softmax can differ in the last bits; the tree only
-            # requires a proper distribution, and this keeps native semantics
-            # (a softmax over legal actions) for an equivalent input.
-            values = [value / total for value in values]
+        if abs(total - 1.0) > POLICY_SUM_TOLERANCE:
+            # The validated inference backend promises legal probabilities that
+            # sum to one. A materially different sum is a broken response, not
+            # rounding, and is rejected instead of being silently renormalised.
+            raise SearchProtocolError(
+                "INVALID_POLICY",
+                f"Legal priors must sum to 1 within {POLICY_SUM_TOLERANCE}; sum was {total!r}",
+            )
         raw_value = payload.get("value")
         if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
             raise SearchProtocolError("INVALID_VALUE", "A defender-relative value is required")
@@ -481,7 +548,7 @@ class NeuralSearch:
                 "INVALID_VALUE", "The defender-relative value must be finite and within [-1, 1]"
             )
         self.timings["validation_ms"] += (time.perf_counter() - self._validating) * 1000.0
-        pending, self._pending = self._pending, None
+        self._pending = None
         priors_by_move = dict(zip(pending["moves"], values))
         if self.trace:
             self._trace.append(
@@ -492,7 +559,7 @@ class NeuralSearch:
                     "value": value,
                 }
             )
-        del pending, legal, priors
+        del legal, priors
         return self._advance((priors_by_move, value))
 
     # -- completion ---------------------------------------------------------

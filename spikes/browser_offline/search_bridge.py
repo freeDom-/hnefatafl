@@ -152,7 +152,14 @@ def _start(request: dict, started: float) -> dict:
 def _resume(request: dict, started: float) -> dict:
     search_id = _search_id(request)
     search = _active(search_id)
-    event = search.resume(request)
+    try:
+        event = search.resume(request)
+    except Exception:
+        # A failed search never stays registered: its generator and diagnostics
+        # are released here, not only on a later client cancellation request.
+        search.close()
+        _searches.pop(search_id, None)
+        raise
     if event["kind"] != "evaluate":
         _searches.pop(search_id, None)
     event["search_id"] = search_id
@@ -164,16 +171,25 @@ def _cancel(request: dict, started: float) -> dict:
     search_id = _search_id(request)
     search = _searches.pop(search_id, None)
     cancelled = search is not None
-    completed = 0
+    summary = (
+        search.summary()
+        if search is not None
+        else {"completed_simulations": 0, "neural_requests": 0, "prediction_reuses": 0}
+    )
     if search is not None:
-        completed = int(search.diagnostics.get("simulations", 0) or 0)
         search.close()
     return {
         "kind": "cancelled",
         "reason": "cancelled",
         "search_id": search_id,
         "cancelled": cancelled,
-        "completed_simulations": completed,
+        # An acknowledgement describes exactly what was released.
+        "released": {
+            "search_context": cancelled,
+            "python_generator": cancelled,
+            "completed_simulations": summary["completed_simulations"],
+        },
+        "completed_simulations": summary["completed_simulations"],
         "python": {"action_ms": (time.perf_counter() - started) * 1000.0},
     }
 
@@ -304,10 +320,13 @@ def dispatch(payload: str) -> str:
         if action == "cancel":
             return json.dumps({"ok": True, "event": _cancel(request, started)})
         if action == "close":
+            released = len(_searches)
             for search in _searches.values():
                 search.close()
             _searches.clear()
-            return json.dumps({"ok": True, "event": {"kind": "closed"}})
+            return json.dumps(
+                {"ok": True, "event": {"kind": "closed", "released_searches": released}}
+            )
         if action == "parity":
             return json.dumps({"ok": True, "event": _parity(request, started)})
         if action == "workload":
@@ -316,10 +335,15 @@ def dispatch(payload: str) -> str:
             return json.dumps({"ok": True, "event": _benchmark_workload(request, started)})
         return json.dumps(_error("UNKNOWN_ACTION", f"Unknown search action: {action!r}"))
     except SearchRequestError as error:
-        return json.dumps(_error(error.code, str(error)))
+        envelope = _error(error.code, str(error))
+        envelope["completed_simulations"] = error.completed_simulations
+        return json.dumps(envelope)
     except InterruptedError:
         return json.dumps(_error("CANCELLED", "Search cancelled"))
     except MemoryError:
+        for search in _searches.values():
+            search.close()
+        _searches.clear()
         return json.dumps(_error("RESOURCE_EXHAUSTED", "Search exceeded available memory"))
     except Exception as error:  # noqa: BLE001 - never cross the worker boundary raw
         return json.dumps(_error("SEARCH_FAILED", f"{type(error).__name__}: {error}"))

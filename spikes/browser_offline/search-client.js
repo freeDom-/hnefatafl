@@ -29,6 +29,8 @@ const MIN_STEP_TIMEOUT_MS = 2000;
 const MIN_WATCHDOG_MS = 4000;
 const MAX_WATCHDOG_MS = 45000;
 const PROGRESS_INTERVAL_MS = 100;
+// How long a cancelled inference may drain before the neural worker is replaced.
+const INFERENCE_DRAIN_MS = 1500;
 const encoder = new TextEncoder();
 
 const BOUNDS = {
@@ -122,7 +124,8 @@ export class NeuralSearchCoordinator {
     this.active = null;
     this.info = null;
     // A disposed coordinator is permanently retired: no later call may spawn a
-    // replacement worker after page teardown.
+    // replacement worker after page teardown. Callers that want a usable
+    // coordinator after a lifecycle reset must create a new instance.
     this.disposed = false;
   }
 
@@ -157,8 +160,7 @@ export class NeuralSearchCoordinator {
         }
         const pending = this.pending;
         if (!pending || pending.id !== data.id) return;
-        clearTimeout(pending.timer);
-        this.pending = null;
+        this._settlePending(pending);
         if (data.error) pending.reject(named("WorkerError", data.error));
         else pending.resolve(data.value);
       };
@@ -168,6 +170,12 @@ export class NeuralSearchCoordinator {
       };
     });
     return this.boot;
+  }
+
+  _settlePending(pending) {
+    clearTimeout(pending.timer);
+    if (this.pending === pending) this.pending = null;
+    pending.finished?.();
   }
 
   // Failure path: terminate the worker and reject in-flight work with the cause.
@@ -195,9 +203,8 @@ export class NeuralSearchCoordinator {
       reject(error);
     }
     const pending = this.pending;
-    this.pending = null;
     if (pending) {
-      clearTimeout(pending.timer);
+      this._settlePending(pending);
       pending.reject(error);
     }
   }
@@ -212,40 +219,134 @@ export class NeuralSearchCoordinator {
     this.abort(named("AbortError", "Search coordinator disposed"));
   }
 
+  _owner(search) {
+    return this.active === search && !this.disposed;
+  }
+
+  _assertOwner(search) {
+    if (this.disposed) throw named("AbortError", "Search coordinator disposed");
+    if (search.cancelled) throw search.error ?? named("AbortError", "Search cancelled");
+    if (this.active !== search)
+      throw named("AbortError", "Search superseded by a newer search");
+  }
+
+  _newSearch(configuration, expectedModel) {
+    const sequence = ++this.searchSequence;
+    const search = {
+      // Unique before the first await: ownership is never granted after
+      // initialization, so cancellation and competing admissions are effective
+      // during cold start.
+      searchId: `s${sequence}-${this.generation}-${Math.random().toString(36).slice(2, 8)}`,
+      generation: this.generation,
+      configuration,
+      expectedModel,
+      cancelled: false,
+      error: null,
+      started: performance.now(),
+      searchStarted: null,
+      startedRequest: false,
+      inferencePending: false,
+      watchdog: null,
+      cancelPromise: null,
+      phase: "admitted",
+      timings: {
+        steps: 0,
+        step_ms: 0,
+        python_ms: 0,
+        neural_wait_ms: 0,
+        inferences: 0,
+        progress_events: 0,
+        tensor_prepare_ms: 0,
+        inference_execution_ms: 0,
+        cancellation_ms: 0,
+      },
+      provider: null,
+    };
+    search.cancelSignal = new Promise((_resolve, reject) => {
+      search.rejectCancel = reject;
+    });
+    // Never let the cancellation signal become an unhandled rejection.
+    search.cancelSignal.catch(() => {});
+    return search;
+  }
+
   // Cooperative cancellation with a bounded final recovery path. Idempotent.
+  // Never cancels a search context that belongs to a newer worker generation and
+  // never terminates a worker owned by a newer search.
   cancel(reason = "Search cancelled") {
     const active = this.active;
-    if (!active) return Promise.resolve({ cancelled: false });
-    if (active.cancelPromise) return active.cancelPromise;
-    active.cancelled = true;
-    const error = named("AbortError", reason);
-    active.error = active.error ?? error;
-    clearTimeout(active.watchdog);
-    // Release the awaited step immediately; the worker still processes the
-    // queued cancel message in order and closes the Python generator.
+    if (!active) {
+      return Promise.resolve({
+        cancelled: false,
+        released: { search: false, inference: { state: "idle", sessionRetained: false } },
+      });
+    }
+    return this._cancelSearch(active, reason);
+  }
+
+  _cancelSearch(search, reason) {
+    if (search.cancelPromise) return search.cancelPromise;
+    search.cancelled = true;
+    search.error = search.error ?? named("AbortError", reason);
+    clearTimeout(search.watchdog);
+    // Stop the search loop immediately, including during initialization.
+    search.rejectCancel?.(search.error);
     const pending = this.pending;
     if (pending) {
-      clearTimeout(pending.timer);
-      this.pending = null;
-      pending.reject(error);
+      this._settlePending(pending);
+      pending.reject(search.error);
     }
-    active.rejectCancel?.(error);
-    active.cancelPromise = (async () => {
-      if (!this.worker) return { cancelled: true, cooperative: false };
-      try {
-        await this._request(
-          { action: "cancel", search_id: active.searchId },
-          { timeoutMs: CANCEL_ACK_TIMEOUT_MS },
-        );
-        return { cancelled: true, cooperative: true };
-      } catch (cancelError) {
-        if (!this.worker) return { cancelled: true, cooperative: false };
-        // Bounded final recovery: the worker did not acknowledge cancellation.
-        this.abort(named("WorkerError", "Search worker did not acknowledge cancellation"));
-        return { cancelled: true, cooperative: false };
+    const started = performance.now();
+    search.cancelPromise = (async () => {
+      const released = {
+        search: false,
+        inference: { state: "idle", sessionRetained: Boolean(this.neural?.model) },
+        searchWorkerGeneration: this.generation,
+      };
+      if (search.startedRequest && this.worker && search.generation === this.generation) {
+        try {
+          const envelope = await this._request(
+            { action: "cancel", search_id: search.searchId },
+            { timeoutMs: CANCEL_ACK_TIMEOUT_MS },
+          );
+          const event = envelope.event;
+          if (event.search_id !== search.searchId) {
+            throw named("RESPONSE_MISMATCH", "Cancellation acknowledged another search");
+          }
+          released.search = true;
+          released.context = event.released ?? null;
+        } catch (cancelError) {
+          if (this.generation === search.generation && this.worker) {
+            // Bounded final recovery. The search is still the active owner (or
+            // was superseded and no newer request can be in flight yet), so
+            // terminating is safe and cannot kill a newer search context.
+            this.abort(
+              named("WorkerError", "Search worker did not acknowledge cancellation"),
+            );
+          }
+        }
       }
+      if (search.inferencePending) {
+        released.inference = await this._releaseInference(search, reason);
+      }
+      search.timings.cancellation_ms = performance.now() - started;
+      search.phase = "cancelled";
+      return { cancelled: true, released };
     })();
-    return active.cancelPromise;
+    return search.cancelPromise;
+  }
+
+  async _releaseInference(search, reason) {
+    if (!this.neural || typeof this.neural.cancelRequest !== "function")
+      return { state: "unavailable", sessionRetained: false };
+    try {
+      return await this.neural.cancelRequest({
+        reason,
+        drainMs: INFERENCE_DRAIN_MS,
+      });
+    } finally {
+      search.inferencePending = false;
+    }
   }
 
   async _request(payload, { timeoutMs }) {
@@ -264,10 +365,13 @@ export class NeuralSearchCoordinator {
         if (this.generation !== generation || this.worker !== worker) return;
         this.abort(named("TimeoutError", `Search step exceeded ${timeoutMs} ms`));
       }, timeoutMs);
-      this.pending = { id, resolve, reject, timer };
+      const pending = { id, resolve, reject, timer };
+      pending.finished = () => {};
+      this.pending = pending;
       try {
         worker.postMessage({ id, payload: serialized });
       } catch (error) {
+        this._settlePending(pending);
         this.abort(named("WorkerError", `Search transport failure: ${error?.message ?? error}`));
       }
     });
@@ -304,6 +408,21 @@ export class NeuralSearchCoordinator {
     return envelope.event;
   }
 
+  _validateEvent(search, event) {
+    if (!event || typeof event !== "object")
+      throw named("WorkerError", "Search worker returned no event");
+    if (event.search_id !== search.searchId) {
+      const error = named(
+        "RESPONSE_MISMATCH",
+        "Search response belongs to another search context",
+      );
+      search.error = search.error ?? error;
+      if (this._owner(search)) this.abort(error);
+      throw error;
+    }
+    return event;
+  }
+
   async search({
     state,
     settings = {},
@@ -317,118 +436,125 @@ export class NeuralSearchCoordinator {
     const expectedModel = model ?? (this.neural ? this.neural.modelIdentity() : null);
     if (!expectedModel)
       throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
-    if (this.neural) {
-      const active = this.neural.modelIdentity();
-      if (
-        active.sha256 !== expectedModel.sha256 ||
-        active.ruleset !== expectedModel.ruleset ||
-        active.size !== expectedModel.size
-      )
-        throw named(
-          "MODEL_IDENTITY_MISMATCH",
-          "The prepared model identity does not match the loaded model",
-        );
-    } else {
-      throw named("MODEL_NOT_LOADED", "Neural inference is unavailable");
-    }
-    if (this.active) await this.cancel("Superseded by a newer search");
-    await this.load();
-    const generation = this.generation;
-    const search = {
-      searchId: `s${++this.searchSequence}-${generation}`,
-      generation,
-      cancelled: false,
-      error: null,
-      started: performance.now(),
-      watchdog: null,
-      cancelPromise: null,
-      timings: {
-        steps: 0,
-        step_ms: 0,
-        python_ms: 0,
-        neural_wait_ms: 0,
-        inferences: 0,
-        progress_events: 0,
-        tensor_prepare_ms: 0,
-        inference_execution_ms: 0,
-      },
-      provider: null,
-    };
-    search.cancelSignal = new Promise((_resolve, reject) => {
-      search.rejectCancel = reject;
+    if (!this.neural) throw named("MODEL_NOT_LOADED", "Neural inference is unavailable");
+    const activeModel = this.neural.modelIdentity();
+    if (
+      activeModel.sha256 !== expectedModel.sha256 ||
+      activeModel.ruleset !== expectedModel.ruleset ||
+      activeModel.size !== expectedModel.size
+    )
+      throw named(
+        "MODEL_IDENTITY_MISMATCH",
+        "The prepared model identity does not match the loaded model",
+      );
+    // Reserve ownership synchronously, before the first asynchronous operation.
+    const previous = this.active;
+    const search = this._newSearch(configuration, {
+      sha256: expectedModel.sha256,
+      ruleset: expectedModel.ruleset,
+      size: expectedModel.size,
     });
-    // Never let the cancellation signal become an unhandled rejection.
-    search.cancelSignal.catch(() => {});
     this.active = search;
-    const deadline = search.started + configuration.time_limit * 1000;
-    search.watchdog = setTimeout(() => {
-      if (this.active !== search) return;
-      this.abort(
-        named(
-          "TimeoutError",
-          `Search exceeded its ${watchdogFor(configuration)} ms hard watchdog`,
-        ),
-      );
-    }, watchdogFor(configuration));
     try {
-      let event = await this._step(
-        search,
-        {
-          action: "start",
-          search_id: search.searchId,
-          state,
-          settings: configuration,
-          model: expectedModel,
-          provider,
-          trace,
-        },
-        deadline,
-      );
-      event.search_id = search.searchId;
-      this._publishProgress(search, event, onProgress);
-      while (event.kind === "evaluate") {
-        const inference = await this._infer(
-          search,
-          event.request,
-          expectedModel,
-          deadline,
+      if (previous) {
+        // Ownership is re-checked after cancelling the previous search: a newer
+        // admission may have replaced this one while it waited.
+        await this._cancelSearch(previous, "Superseded by a newer search");
+        this._assertOwner(search);
+      }
+      // Cancel during cold initialization must be effective immediately, so the
+      // shared boot promise is raced against this search's cancellation signal.
+      await Promise.race([this.load(), search.cancelSignal]);
+      this._assertOwner(search);
+      if (search.generation !== this.generation)
+        throw named(
+          "WorkerError",
+          "The search worker was recreated while the search was being admitted",
         );
-        event = await this._step(
+      // The cooperative search budget and the watchdog start when the search is
+      // actually submitted, so cold worker/Pyodide initialization is bounded by
+      // the separate initialization timeout instead of the search budget.
+      search.searchStarted = performance.now();
+      search.phase = "starting";
+      search.startedRequest = true;
+      search.watchdog = setTimeout(() => {
+        if (!this._owner(search)) return;
+        this.abort(
+          named(
+            "TimeoutError",
+            `Search exceeded its ${watchdogFor(configuration)} ms hard watchdog`,
+          ),
+        );
+      }, watchdogFor(configuration));
+      let event = this._validateEvent(
+        search,
+        (await this._step(
           search,
           {
-            action: "resume",
+            action: "start",
             search_id: search.searchId,
-            request_index: event.request.request_index,
-            legal: event.request.legal,
-            priors: inference.legal_probabilities,
-            value: inference.value,
+            state,
+            settings: configuration,
+            model: expectedModel,
+            provider,
+            trace,
           },
-          deadline,
+          search.searchStarted + configuration.time_limit * 1000,
+        )),
+      );
+      this._assertOwner(search);
+      this._publishProgress(search, event, onProgress);
+      while (event.kind === "evaluate") {
+        this._assertOwner(search);
+        const deadline = search.searchStarted + configuration.time_limit * 1000;
+        search.phase = "inference";
+        const inference = await this._infer(search, event.request, expectedModel, deadline);
+        this._assertOwner(search);
+        search.phase = "resuming";
+        event = this._validateEvent(
+          search,
+          await this._step(
+            search,
+            {
+              action: "resume",
+              search_id: search.searchId,
+              request_index: event.request.request_index,
+              legal: event.request.legal,
+              priors: inference.legal_probabilities,
+              value: inference.value,
+            },
+            search.searchStarted + configuration.time_limit * 1000,
+          ),
         );
-        event.search_id = search.searchId;
+        this._assertOwner(search);
         this._publishProgress(search, event, onProgress);
       }
-      if (event.kind === "cancelled")
-        throw search.error ?? named("AbortError", "Search was cancelled");
+      if (event.kind === "cancelled") {
+        const timedOut = event.reason === "deadline";
+        throw timedOut
+          ? named("TimeoutError", "Search reached its cooperative deadline")
+          : search.error ?? named("AbortError", "Search was cancelled");
+      }
       if (event.kind !== "complete")
         throw named("WorkerError", `Unexpected search event: ${event.kind}`);
-      return this._finalize(search, event, configuration);
+      const result = this._finalize(search, event, configuration);
+      // Final publication is an ownership boundary.
+      this._assertOwner(search);
+      search.phase = "completed";
+      return result;
     } catch (error) {
-      // Never publish analysis for a cancelled, superseded or failed search; the
-      // Python search context is closed cooperatively so a failed inference can
-      // never leave a tree waiting for a prediction.
       const finalError = search.error ?? error;
-      if (this.active === search && this.worker) {
+      if (this._owner(search) && (search.startedRequest || this.worker)) {
         try {
-          await this.cancel("Search failed");
+          await this._cancelSearch(search, "Search failed");
         } catch {
-          // cancellation acknowledgement failure is already bounded by abort()
+          // cancellation acknowledgement failure is bounded by abort()
         }
       }
       throw finalError;
     } finally {
       clearTimeout(search.watchdog);
-      if (this.active === search) this.active = null;
+      if (this._owner(search)) this.active = null;
     }
   }
 
@@ -454,6 +580,7 @@ export class NeuralSearchCoordinator {
       throw named("TimeoutError", "Search deadline passed before leaf inference");
     const requestId = `${search.searchId}:${request.request_index}`;
     const started = performance.now();
+    search.inferencePending = true;
     const inference = Promise.resolve(
       this.neural.infer({
         planes: decodePlanes(request.planes),
@@ -475,6 +602,7 @@ export class NeuralSearchCoordinator {
       search.timings.neural_wait_ms += performance.now() - started;
       search.timings.inferences += 1;
     }
+    search.inferencePending = false;
     if (response.request_id !== requestId)
       throw named("RESPONSE_MISMATCH", "Inference response belongs to another request");
     if (response.position_digest !== request.position_digest)
@@ -509,6 +637,7 @@ export class NeuralSearchCoordinator {
 
   _publishProgress(search, event, onProgress) {
     if (!onProgress || !event.progress) return;
+    if (!this._owner(search)) return;
     const now = performance.now();
     search.timings.progress_events += 1;
     if (now - (search.lastProgressAt ?? 0) < PROGRESS_INTERVAL_MS) return;
@@ -525,10 +654,7 @@ export class NeuralSearchCoordinator {
     const searchMetrics = { ...event.search };
     const completed = Number(searchMetrics.completed_simulations) || 0;
     const timings = { ...search.timings };
-    const unattributed = Math.max(
-      0,
-      elapsed - timings.step_ms - timings.neural_wait_ms,
-    );
+    const unattributed = Math.max(0, elapsed - timings.step_ms - timings.neural_wait_ms);
     return {
       analysis: event.analysis,
       search: {
@@ -552,6 +678,7 @@ export class NeuralSearchCoordinator {
           // Nested inside neural_wait_ms: tensor preparation and ORT execution.
           tensor_prepare_ms: timings.tensor_prepare_ms,
           inference_execution_ms: timings.inference_execution_ms,
+          cancellation_ms: timings.cancellation_ms,
           worker_reused: this.info !== null,
         },
       },
