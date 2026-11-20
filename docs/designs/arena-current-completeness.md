@@ -219,7 +219,7 @@ flowchart TD
   NM --> AD
   AD --> AX[Any shipped analysis executor final QA]
   AX --> QA
-  B --> P1[Remaining page-load and network latency evidence]
+  B --> P1[Remaining bundle page-load and network latency evidence]
   R --> P2[Remaining mixed-write analysis league and capacity workload evidence]
   P1 --> PERF[Combined performance measurement on the actual release candidate]
   P2 --> PERF
