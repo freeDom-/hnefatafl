@@ -29,7 +29,7 @@ from uuid import uuid4
 from . import lifecycle
 from .account_policy import BIDI_CONTROLS, resolve_accounts
 from .engine import RULESETS
-from .online_core import OnlineCore, OnlineError, instant, micros, stamp
+from .online_core import DeploymentLocked, OnlineCore, OnlineError, instant, micros, stamp
 from .security_context import allowed, online_eligible
 
 UNRESOLVED = object()
@@ -151,7 +151,7 @@ class PlayerTournaments:
             try:
                 fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise OnlineError(503, "Deployment in progress. Please retry shortly.") from None
+                raise DeploymentLocked() from None
             with self.store.connection() as c:
                 c.execute("PRAGMA foreign_keys=ON")
                 c.execute("BEGIN IMMEDIATE")

@@ -192,6 +192,15 @@ lookup. A server lifespan worker drains at most 20 due tournaments each second,
 serializing each advancement and queue deletion in one write transaction. No
 browser or manual settlement request is needed. Timeout results use the same path.
 A one-time startup reconciliation finds pre-worker/restored terminal revisions.
+Startup attempts it synchronously when possible. During a production activation the
+updater deliberately holds the exclusive deployment gate; in that window the
+attempt defers without writing, and the existing lifespan worker retries after the
+lock is released. It then performs the reconciliation once successfully per worker
+lifecycle before normal due-start and queue polling. Expected lock contention is
+distinguished from database/integrity/programming failures: the former is deferred,
+while unexpected failures are not marked complete and are retried with bounded
+backoff. This avoids a startup/readiness deadlock without bypassing the shared
+write gate.
 
 Failed transactions remain queued across restart, with bounded exponential retries
 (up to 300 seconds). Logs and retry status contain no private exception payloads.

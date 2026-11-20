@@ -1,19 +1,24 @@
 """Release selection and failure injection use disposable data; never systemd."""
 
+import http.client
 import io
 import json
+import socket
 import subprocess
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
+from hnefatafl import deployment as deployment_module
 from hnefatafl.auth import Auth, SecuritySettings
 from hnefatafl.deployment import (
     Deployment,
+    DeploymentStepError,
     GitHub,
+    ReadinessError,
     SafeRedirect,
     active_jobs,
     atomic_json,
@@ -125,6 +130,7 @@ class DisposableDeployment(Deployment):
         )
         self.actions = []
         self.failure = None
+        self.probe_failures = []
         self.releases.mkdir(parents=True)
         self.data.mkdir()
         self.etc.mkdir()
@@ -165,6 +171,9 @@ class DisposableDeployment(Deployment):
             with pytest.raises(BlockingIOError):
                 fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
         self.actions.append("probe")
+        if self.probe_failures:
+            self.probe_failures.pop(0)
+            raise ReadinessError("synthetic readiness failure")
         if self.failure == "health":
             self.failure = None
             raise ValueError("health failed")
@@ -545,3 +554,343 @@ def test_no_release_current_and_explicit_stable_selection():
     assert select_release(releases, None, "1.10.0")[0]["tag_name"] == "1.10.0"
     with pytest.raises(ValueError, match="not a published stable"):
         select_release(releases, None, "3.0.0")
+
+
+class ProbeResponse:
+    def __init__(self, body, status=200):
+        self.body, self.status = body, status
+
+    def read(self, limit=-1):
+        return self.body if limit < 0 else self.body[:limit]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+@pytest.fixture
+def readiness(tmp_path):
+    deployment = Deployment(
+        {"port": 8000, "public_url": "https://example.test"},
+        base=tmp_path / "opt",
+        data=tmp_path / "data",
+        etc=tmp_path / "etc",
+        unit_file=tmp_path / "unit.service",
+    )
+    deployment.base.mkdir(parents=True)
+    deployment.data.mkdir()
+    deployment.etc.mkdir()
+    target = tmp_path / "release"
+    target.mkdir()
+    atomic_json(target / ".release.json", {"version": "0.41.1"})
+    atomic_json(
+        deployment.journal,
+        {"phase": "activated", "previous": None, "target": str(target), "backup": None},
+    )
+    deployment.activate(target)
+    return deployment
+
+
+def failing_readiness(deployment, monkeypatch, failure):
+    monkeypatch.setattr(deployment_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(
+        deployment, "service_status", lambda: "failed (failed), result=exit-code, exit=1"
+    )
+
+    def fetch(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(deployment, "fetch_url", fetch)
+    with pytest.raises(ReadinessError) as error:
+        deployment._probe_health("http://127.0.0.1:8000", "example.test")
+    return str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("failure", "category"),
+    [
+        (URLError(ConnectionRefusedError(111, "refused")), "connection_refused"),
+        (URLError(socket.timeout("timed out")), "connection_timeout"),
+        (URLError(OSError("socket failed")), "connection_error"),
+        (TimeoutError("timed out"), "connection_timeout"),
+    ],
+)
+def test_readiness_reports_sanitized_transport_categories(
+    readiness, monkeypatch, failure, category
+):
+    message = failing_readiness(readiness, monkeypatch, failure)
+    assert category in message
+    assert "Failure phase: readiness verification" in message
+    assert "Deployment phase: activated" in message
+    assert "Original target: 0.41.1" in message
+    assert "currently probed release: 0.41.1" in message
+    assert "Automatic recovery: not evaluated" in message
+    assert "Attempts: 30" in message
+    assert "Service state: failed (failed), result=exit-code, exit=1" in message
+    assert "journalctl -u hnefatafl" in message
+    assert str(readiness.journal) in message
+
+
+def test_readiness_reports_unexpected_status_without_private_response_body(readiness, monkeypatch):
+    private_body = b"private-response-body session=secret-token"
+    message = failing_readiness(
+        readiness,
+        monkeypatch,
+        HTTPError(
+            "http://127.0.0.1:8000/api/health",
+            503,
+            "unavailable",
+            {},
+            io.BytesIO(private_body),
+        ),
+    )
+    assert "Probe category: http_status; last HTTP status: 503" in message
+    assert private_body.decode() not in message
+
+
+@pytest.mark.parametrize(
+    ("body", "category"),
+    [
+        (b"not-json", "invalid_json"),
+        (b"[]", "unexpected_health_response"),
+        (b'{"status":"degraded"}', "unexpected_health_response"),
+        (b"x" * (deployment_module.READINESS_BODY_LIMIT + 1), "invalid_response"),
+    ],
+)
+def test_readiness_reports_invalid_or_unexpected_health_bodies(
+    readiness, monkeypatch, body, category
+):
+    monkeypatch.setattr(deployment_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(readiness, "service_status", lambda: "inactive (dead)")
+    monkeypatch.setattr(readiness, "fetch_url", lambda *_args, **_kwargs: ProbeResponse(body))
+    with pytest.raises(ReadinessError) as error:
+        readiness._probe_health("http://127.0.0.1:8000", "example.test")
+    message = str(error.value)
+    assert category in message
+    assert body.decode(errors="ignore") not in message
+
+
+def test_readiness_succeeds_after_transient_failures(readiness, monkeypatch):
+    responses = [
+        URLError(ConnectionRefusedError(111, "refused")),
+        HTTPError("http://127.0.0.1:8000/api/health", 503, "unavailable", {}, None),
+        ProbeResponse(b'{"status":"ok"}'),
+    ]
+    calls = []
+
+    def fetch(*_args, **_kwargs):
+        calls.append(1)
+        value = responses.pop(0)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    monkeypatch.setattr(deployment_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(readiness, "fetch_url", fetch)
+    readiness._probe_health("http://127.0.0.1:8000", "example.test")
+    assert len(calls) == 3
+
+
+def test_readiness_failure_reports_successful_automatic_recovery(deployment):
+    deployment.probe_failures = ["readiness"]
+    with pytest.raises(ReadinessError) as error:
+        deployment.deploy(deployment.release("2.0.0"))
+    message = str(error.value)
+    assert "synthetic readiness failure" in message
+    assert "Automatic recovery: succeeded" in message
+    assert deployment.current.resolve() == deployment.old
+    assert json.loads(deployment.journal.read_text())["phase"] == "recovered"
+
+
+def test_readiness_failure_reports_failed_automatic_recovery(deployment):
+    deployment.probe_failures = ["readiness", "readiness"]
+    with pytest.raises(ReadinessError) as error:
+        deployment.deploy(deployment.release("2.0.0"))
+    message = str(error.value)
+    assert "Automatic recovery: failed" in message
+    assert "Automatic recovery: succeeded" not in message
+    assert deployment.current.resolve() == deployment.old
+    assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
+
+
+class BrokenResponse(ProbeResponse):
+    def __init__(self, error):
+        super().__init__(b"")
+        self.error = error
+
+    def read(self, limit=-1):
+        raise self.error
+
+
+def test_health_retries_truncated_and_protocol_errors_then_succeeds(readiness, monkeypatch):
+    responses = [
+        BrokenResponse(http.client.IncompleteRead(b"partial")),
+        http.client.HTTPException("invalid protocol"),
+        ProbeResponse(b'{"status":"ok"}'),
+    ]
+    calls = []
+
+    def fetch(*_args, **_kwargs):
+        calls.append(1)
+        value = responses.pop(0)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    monkeypatch.setattr(deployment_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(readiness, "fetch_url", fetch)
+    readiness._probe_health("http://127.0.0.1:8000", "example.test")
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize(
+    ("probe", "failure", "category"),
+    [
+        ("authenticated", http.client.IncompleteRead(b"partial"), "truncated_response"),
+        ("authenticated", http.client.HTTPException("protocol"), "http_protocol_error"),
+        ("anonymous rejection", http.client.IncompleteRead(b"partial"), "truncated_response"),
+        ("anonymous rejection", http.client.HTTPException("protocol"), "http_protocol_error"),
+    ],
+)
+def test_authenticated_and_anonymous_protocol_failures_are_sanitized(
+    readiness, monkeypatch, probe, failure, category
+):
+    monkeypatch.setattr(readiness, "service_status", lambda: "failed (failed)")
+    monkeypatch.setattr(
+        readiness,
+        "fetch_url",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(failure),
+    )
+    with pytest.raises(ReadinessError) as error:
+        if probe == "authenticated":
+            readiness._probe_authentication("http://127.0.0.1:8000", "example.test", "token")
+        else:
+            readiness._probe_anonymous_rejection("http://127.0.0.1:8000", "example.test")
+    message = str(error.value)
+    assert category in message
+    assert "partial" not in message and "invalid protocol" not in message
+
+
+def test_diagnostics_distinguish_original_target_and_currently_probed_release(deployment):
+    target = deployment.release("0.41.1")
+    atomic_json(
+        deployment.journal,
+        {"phase": "activated", "previous": None, "target": str(target), "backup": None},
+    )
+    deployment.activate(target)
+    message = str(
+        deployment._readiness_error("health", "synthetic", attempts=1, elapsed=0.1, status=None)
+    )
+    assert "Original target: 0.41.1" in message
+    assert "currently probed release: 0.41.1" in message
+    deployment.activate(deployment.old)
+    deployment._diagnostic_failure_phase = "readiness verification during rollback"
+    deployment._diagnostic_recovery_target = "1.0.0"
+    message = str(
+        deployment._readiness_error("health", "synthetic", attempts=1, elapsed=0.1, status=None)
+    )
+    assert "Original target: 0.41.1" in message
+    assert "currently probed release: 1.0.0" in message
+    assert "recovery target: 1.0.0" in message
+    assert "Failure phase: readiness verification during rollback" in message
+
+
+def test_diagnostics_tolerate_missing_or_malformed_release_metadata(deployment):
+    deployment.journal.write_text("{not-json")
+    deployment.state.write_text("[]")
+    target = deployment.release("0.41.1")
+    (target / ".release.json").write_text("not-json")
+    deployment.activate(target)
+    context = deployment._deployment_diagnostics()
+    assert context["phase"] == "unknown"
+    assert context["target"] == "unknown"
+    assert context["current"] == "unknown"
+    assert context["installed"] == "unknown"
+    message = str(
+        deployment._readiness_error("health", "synthetic", attempts=1, elapsed=0.1, status=None)
+    )
+    assert "not-json" not in message
+
+
+def test_explicit_rollback_rejects_known_incompatible_release_before_change(deployment):
+    incompatible = deployment.release("0.41.0")
+    atomic_json(deployment.state, {"version": "0.41.0", "previous": str(incompatible)})
+    deployment.actions.clear()
+    with pytest.raises(ValueError, match="0.41.0") as error:
+        deployment.recover(rollback=True)
+    assert "No snapshot restore" in str(error.value)
+    assert deployment.actions == []
+    assert deployment.current.resolve() == deployment.old
+    assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
+
+
+def test_interrupted_recovery_rejects_known_incompatible_previous_release(deployment):
+    incompatible = deployment.release("0.41.0")
+    target = deployment.release("0.41.1")
+    atomic_json(
+        deployment.journal,
+        {
+            "phase": "activated",
+            "previous": str(incompatible),
+            "target": str(target),
+            "backup": None,
+        },
+    )
+    deployment.actions.clear()
+    with pytest.raises(ValueError, match="0.41.0"):
+        deployment.recover()
+    assert deployment.actions == []
+    assert deployment.current.resolve() == deployment.old
+    assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
+
+
+def test_automatic_recovery_refuses_known_incompatible_previous_release(deployment):
+    incompatible = deployment.release("0.41.0")
+    deployment.current.unlink()
+    deployment.activate(incompatible)
+    atomic_json(deployment.state, {"version": "0.41.0"})
+    target = deployment.release("0.41.1")
+    deployment.probe_failures = ["readiness"]
+    deployment.actions.clear()
+    with pytest.raises(ReadinessError) as error:
+        deployment.deploy(target)
+    message = str(error.value)
+    assert "Automatic recovery: failed during unsupported rollback policy check" in message
+    assert "0.41.0" in message
+    assert deployment.current.resolve() == target
+    assert json.loads(deployment.journal.read_text())["phase"] == "activated"
+    assert json.loads(deployment.state.read_text())["version"] == "0.41.0"
+    assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
+
+
+def test_rollback_policy_allows_040_and_corrected_releases(deployment):
+    for version in ("0.40.0", "0.41.1", "2.0.0"):
+        deployment._ensure_rollback_target_supported(deployment.release(version), action="rollback")
+
+
+def test_deployment_step_diagnostics_identify_snapshot_failure(deployment, monkeypatch):
+    def fail_snapshot():
+        raise OSError("snapshot failed")
+
+    monkeypatch.setattr(deployment, "snapshot", fail_snapshot)
+    with pytest.raises(DeploymentStepError) as error:
+        deployment.deploy(deployment.release("2.0.0"))
+    message = str(error.value)
+    assert "pre-deployment snapshot" in message
+    assert "automatic recovery succeeded" in message
+    assert deployment.current.resolve() == deployment.old
+
+
+def test_recovery_step_diagnostics_identify_snapshot_restore_failure(deployment, monkeypatch):
+    def fail_restore(_backup):
+        raise ValueError("snapshot restore failed")
+
+    deployment.probe_failures = ["readiness"]
+    monkeypatch.setattr(deployment, "restore", fail_restore)
+    with pytest.raises(ReadinessError) as error:
+        deployment.deploy(deployment.release("2.0.0"))
+    message = str(error.value)
+    assert "Automatic recovery: failed during snapshot restoration" in message
+    assert "snapshot restore failed" in message

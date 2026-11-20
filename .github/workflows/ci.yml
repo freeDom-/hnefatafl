@@ -33,10 +33,34 @@ jobs:
       - run: uv sync --frozen --all-extras --python 3.12
       - run: make foundation
       - run: make docs
+      - run: make deployment-check
       - run: .venv/bin/python -m pytest
       - run: .venv/bin/ruff check hnefatafl tests
       - run: .venv/bin/ruff format --check hnefatafl tests
       - run: .venv/bin/mypy hnefatafl
+  deployment-cross-version:
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      HNEFATAFL_CROSS_VERSION_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.23"
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --frozen --all-extras --python 3.12
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run build
+      - run: python3 scripts/fetch_historical_refs.py
+      - run: .venv/bin/python -m pytest tests/test_deployment_cross_version.py -q
+
   browser:
     runs-on: ubuntu-latest
     env:

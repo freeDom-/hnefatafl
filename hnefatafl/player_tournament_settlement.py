@@ -2,11 +2,15 @@
 
 import logging
 import threading
+import time
 from datetime import timedelta
 
-from .online_core import micros
+from .online_core import DeploymentLocked, micros
 
 LOGGER = logging.getLogger(__name__)
+
+RECOVERY_RETRY_SECONDS = 1.0
+RECOVERY_RETRY_MAX_SECONDS = 60.0
 
 
 class TournamentSettlement:
@@ -14,22 +18,78 @@ class TournamentSettlement:
         self.core = core
         self.stop = threading.Event()
         self.thread: threading.Thread | None = None
+        self._recovery_lock = threading.Lock()
+        self._recovered = threading.Event()
+        self._recovery_deferred = False
+        self._retry_delay = RECOVERY_RETRY_SECONDS
+        self._next_recovery_at = 0.0
 
-    def recover(self):
-        """One startup reconciliation for pre-worker results or restored snapshots."""
-        with self.core._write() as c:
-            c.execute(
-                """INSERT INTO player_tournament_settlement_queue(tournament_id,due_at)
-                SELECT DISTINCT m.tournament_id,? FROM player_tournament_legs l
-                JOIN player_tournament_matches m ON m.id=l.match_id
-                JOIN player_tournaments t ON t.id=m.tournament_id
-                JOIN online_games g ON g.id=l.game_id
-                WHERE t.status IN ('running','complete') AND t.review_state='ok'
-                AND g.result_revision IS NOT NULL
-                AND (l.result_revision IS NULL OR l.result_revision<>g.result_revision)
-                ON CONFLICT(tournament_id) DO NOTHING""",
-                (micros(self.core._now()),),
+    @property
+    def recovered(self) -> bool:
+        """Whether startup reconciliation completed in this worker lifecycle."""
+        return self._recovered.is_set()
+
+    def recover(self) -> bool:
+        """Run the one startup reconciliation, deferring only on deployment.
+
+        The updater holds the exclusive gate across activation and readiness.
+        Starting the API must not fail in that window, so expected lock
+        contention leaves the durable work untouched for the background worker
+        to retry after the updater commits. Database, integrity and programming
+        errors are not expected contention and must still propagate.
+        """
+        with self._recovery_lock:
+            try:
+                with self.core._write() as c:
+                    c.execute(
+                        """INSERT INTO player_tournament_settlement_queue(tournament_id,due_at)
+                        SELECT DISTINCT m.tournament_id,? FROM player_tournament_legs l
+                        JOIN player_tournament_matches m ON m.id=l.match_id
+                        JOIN player_tournaments t ON t.id=m.tournament_id
+                        JOIN online_games g ON g.id=l.game_id
+                        WHERE t.status IN ('running','complete') AND t.review_state='ok'
+                        AND g.result_revision IS NOT NULL
+                        AND (l.result_revision IS NULL OR l.result_revision<>g.result_revision)
+                        ON CONFLICT(tournament_id) DO NOTHING""",
+                        (micros(self.core._now()),),
+                    )
+            except DeploymentLocked:
+                if not self._recovery_deferred:
+                    LOGGER.info(
+                        "Tournament settlement startup reconciliation deferred during deployment"
+                    )
+                self._recovery_deferred = True
+                return False
+            self._recovered.set()
+            self._retry_delay = RECOVERY_RETRY_SECONDS
+            self._next_recovery_at = 0.0
+            if self._recovery_deferred:
+                self._recovery_deferred = False
+                LOGGER.info("Tournament settlement startup reconciliation completed")
+            return True
+
+    def _recover_if_needed(self) -> bool:
+        """Bounded retry for a deferred or failed startup reconciliation."""
+        if self._recovered.is_set():
+            return True
+        if time.monotonic() < self._next_recovery_at:
+            return False
+        try:
+            if self.recover():
+                return True
+        except Exception as error:
+            # The retry is durable work, not a swallowed failure: keep the
+            # recovery incomplete, log only its category and back off.
+            delay = min(max(RECOVERY_RETRY_SECONDS, self._retry_delay), RECOVERY_RETRY_MAX_SECONDS)
+            self._retry_delay = min(delay * 2, RECOVERY_RETRY_MAX_SECONDS)
+            self._next_recovery_at = time.monotonic() + delay
+            LOGGER.warning(
+                "Tournament settlement startup reconciliation failed (%s); retrying",
+                type(error).__name__,
             )
+            return False
+        self._next_recovery_at = time.monotonic() + RECOVERY_RETRY_SECONDS
+        return False
 
     def drain(self, limit=20):
         if type(limit) is not int or not 1 <= limit <= 100:
@@ -67,6 +127,10 @@ class TournamentSettlement:
                     )
                     self.core._audit(c, identifier, None, "automatic_settlement", now)
                     completed += 1
+            except DeploymentLocked:
+                # Expected deployment contention: keep durable work for retry
+                # and stop this batch without recording a failed settlement.
+                break
             except Exception:
                 # No account data, admin notes or exception payload in logs or
                 # durable status. Keep work for retry across restart.
@@ -83,6 +147,8 @@ class TournamentSettlement:
                                 "UPDATE player_tournament_settlement_queue SET attempts=attempts+1,due_at=?,last_error='settlement_failed' WHERE tournament_id=?",
                                 (micros(now + timedelta(seconds=delay)), identifier),
                             )
+                except DeploymentLocked:
+                    pass
                 except Exception:
                     LOGGER.warning("Tournament settlement retry could not be recorded")
         return completed
@@ -128,6 +194,8 @@ class TournamentSettlement:
                         continue
                     self.core._start(c, row, now)
                     completed += 1
+            except DeploymentLocked:
+                break
             except Exception:
                 LOGGER.warning("Tournament scheduled start deferred")
                 try:
@@ -140,6 +208,8 @@ class TournamentSettlement:
                             start_due_at=?,start_error='start_failed' WHERE id=?""",
                                 (micros(self.core._now() + timedelta(seconds=delay)), identifier),
                             )
+                except DeploymentLocked:
+                    pass
                 except Exception:
                     LOGGER.warning("Tournament scheduled start retry could not be recorded")
         return completed
@@ -150,10 +220,16 @@ class TournamentSettlement:
         self.stop.clear()
 
         def run():
-            while not self.stop.wait(1):
+            while not self.stop.wait(RECOVERY_RETRY_SECONDS):
+                if not self._recover_if_needed():
+                    continue
                 try:
                     self.start_due()
                     self.drain()
+                except DeploymentLocked:
+                    # A new activation may start after recovery. Normal polling
+                    # resumes automatically when the exclusive gate is released.
+                    continue
                 except Exception:
                     LOGGER.warning("Tournament settlement worker deferred")
 

@@ -98,7 +98,21 @@ cases sharing one peer; the production default remains five. See
 Backend online integration uses independent disposable SQLite connections/processes,
 barriers and controlled UTC clocks. Run
 `.venv/bin/python -m pytest tests/test_online_core.py tests/test_online_api.py tests/test_online_matches.py tests/test_online_migrations.py tests/test_lifecycle.py tests/test_security.py tests/test_account_migrations.py tests/test_deployment.py -q`
-before `make check`. See [online operations](ONLINE.md) and the
+before `make check`. Production deployment changes additionally run
+`make deployment-check`, which starts a real lifespan under a real exclusive
+deployment flock and covers disposable update/rollback/recovery integration.
+Genuine historical-release coverage needs a built frontend and pinned Git objects:
+
+```sh
+npm --prefix frontend ci && npm --prefix frontend run build
+make historical-refs
+make deployment-cross-version
+```
+
+`historical-refs` fetches only the pinned `0.40.0`, `0.41.0` and schema-20 commits
+from `origin` into local refs and verifies their commit IDs. Tests extract them
+into disposable directories; do not commit historical source trees. The dedicated
+CI job performs the same sequence. See [online operations](ONLINE.md) and the
 [frontend handoff](designs/online-phase3-handoff.md). There is no lobby frontend
 or new browser validation claim in this backend phase.
 
@@ -113,6 +127,9 @@ or new browser validation claim in this backend phase.
 | `make build` | TypeScript and Vite production build |
 | `make format` | Rewrites Python/frontend formatting; review the diff |
 | `make docs` | Dependency-free local Markdown links, anchors, images and navigation checks |
+| `make deployment-check` | Real lifespan/exclusive-lock startup, deferred settlement recovery and disposable updater integration; mandatory in CI |
+| `make deployment-cross-version` | Genuine historical `0.40.0` updater/schema-20/`0.41.0` subprocess coverage; needs built frontend and `make historical-refs` |
+| `make historical-refs` | Fetch and verify pinned historical Git objects from `origin`; never commits source trees |
 
 Run focused tests first when appropriate, for example:
 
