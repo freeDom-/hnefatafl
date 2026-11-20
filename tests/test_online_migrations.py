@@ -72,7 +72,7 @@ def test_schema9_upgrade_preserves_account_security_sessions_and_local_data(tmp_
         )
     upgraded = Store(store.path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 22
         assert tuple(
             c.execute(
                 "SELECT password_hash,email_verified_at,email_version FROM accounts"
@@ -95,7 +95,7 @@ def test_representative_schema8_and_normalization_collision_upgrade(tmp_path):
     legacy(path)
     Store(path)
     with sqlite3.connect(path) as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 22
         assert c.execute("SELECT owner_account_id FROM games").fetchone()[0] == "one"
         assert c.execute("SELECT email_verified_at FROM accounts").fetchone()[0] is None
     colliding = tmp_path / "collision.sqlite3"
@@ -114,16 +114,16 @@ def test_online_downgrade_and_unknown_future_restore_are_refused(tmp_path):
         with pytest.raises(ValueError, match="Online schema changed"):
             retain_online_on_restore(source, target)
     with live.connection() as c:
-        c.execute("PRAGMA user_version=22")
+        c.execute("PRAGMA user_version=23")
     with pytest.raises(ValueError, match="newer unsupported"):
         Store(live.path)
 
 
 @pytest.mark.parametrize("from_version", [16, 17])
-def test_combined_upgrade_reaches_21_with_all_feature_tables(tmp_path, from_version):
+def test_combined_upgrade_reaches_22_with_all_feature_tables(tmp_path, from_version):
     # A schema-16 database predates both feature sets; a schema-17 database has
     # the progression tables but not the tournaments. Both upgrade paths must
-    # reach 21 with every progression, tournament and settlement table and append-only
+    # reach 22 with every progression, tournament, league and settlement table and append-only
     # trigger present, without renumbering either shipped migration.
     store = Store(tmp_path / "db.sqlite3")
     with store.connection() as c:
@@ -135,7 +135,7 @@ def test_combined_upgrade_reaches_21_with_all_feature_tables(tmp_path, from_vers
         c.execute(f"PRAGMA user_version={from_version}")
     upgraded = Store(store.path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 22
         tables = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert set(PROGRESSION_TABLES) | set(TOURNAMENT_TABLES) <= tables
         triggers = {
@@ -191,7 +191,7 @@ def test_schema12_upgrade_preserves_games_and_only_resumes_untouched_default(rig
         c.execute("PRAGMA user_version=12")
     upgraded = Store(path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 22
         assert tuple(c.execute("SELECT enabled,version FROM online_timeout_gate").fetchone()) == (
             0 if explicit_pause else 1,
             1,
@@ -219,7 +219,7 @@ def test_schema18_upgrade_adds_settlement_and_planned_start_idempotently(tmp_pat
     Store(store.path)
     upgraded = Store(store.path)
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 22
         assert "scheduled_start_at" in {
             row[1] for row in c.execute("PRAGMA table_info(player_tournaments)")
         }

@@ -3,7 +3,9 @@
 import sqlite3
 import time
 
-SCHEMA_VERSION = 21
+from .league_migrations import LEAGUE_TABLES, migrate_leagues
+
+SCHEMA_VERSION = 22
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -38,6 +40,7 @@ ONLINE_TABLES = (
     "player_tournament_legs",
     "player_tournament_audit",
     "player_tournament_settlement_queue",
+    *LEAGUE_TABLES,
 )
 APPEND_ONLY = (
     "replay_analysis_completions",
@@ -46,6 +49,7 @@ APPEND_ONLY = (
     "online_void_audit",
     "online_gate_audit",
     "player_tournament_audit",
+    "league_audit",
     # A confirmed achievement and a granted portrait are permanent: no update or
     # delete path exists, including for a later result correction or void.
     "achievement_awards",
@@ -474,13 +478,15 @@ def migrate_online(c: sqlite3.Connection) -> None:
         )""",
     ):
         c.execute(statement)
-    # Schema 20 (19 remains reserved for leagues). One successful server analysis
+    # Schema 20: one successful server analysis
     # per account and replay identity; the primary key also indexes account reads.
     c.execute("""CREATE TABLE IF NOT EXISTS replay_analysis_completions (
         account_id TEXT NOT NULL REFERENCES accounts(id),
         category TEXT NOT NULL, game_id TEXT NOT NULL,
         PRIMARY KEY(account_id,category,game_id)
     )""")
+    # Schema 22 is additive; it does not reset accounts, games or training data.
+    migrate_leagues(c)
     for table in APPEND_ONLY:
         for action in ("UPDATE", "DELETE"):
             c.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_{action.lower()}_immutable
