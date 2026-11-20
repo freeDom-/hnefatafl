@@ -5,8 +5,8 @@ release-preparation report, not a release, tag, version-bump or deployment
 authorization.
 
 Reviewed source: merged `main`
-`feb28f4c337b9ea7702b1611bdfa525251ad1618` (2026-11-20, PR #106 merge of
-release 0.41.0). The checklist originates from the historical post-PR #84 audit
+`ca1a640fe6b3971cf7f7764083eee19d1598a19a` (2026-11-20, PR #107 merge
+following release 0.41.0). The checklist originates from the historical post-PR #84 audit
 baseline `2579a86b82ed1eca91f39e7d8064196597e873ed` (2026-11-15). The merged
 0.41.0 milestone is a release artifact, not evidence of initial public deployment
 readiness, and this checklist does not authorize deployment.

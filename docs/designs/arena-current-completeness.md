@@ -1,9 +1,10 @@
 # Current Arena completeness and roadmap
 
 Source snapshot: merged `main`
-`feb28f4c337b9ea7702b1611bdfa525251ad1618` (2026-11-20, PR #106 merge of
-release 0.41.0), reviewed 2026-11-20. The snapshot includes merged browser-analysis
-Phase 1 (#104) but that research work is not a production analysis executor. This is the primary current roadmap. It supplements the
+`ca1a640fe6b3971cf7f7764083eee19d1598a19a` (2026-11-20, PR #107 merge
+following release 0.41.0), reviewed 2026-11-20. The snapshot includes merged browser-analysis
+Phase 1 (#104) but that research work is not a production analysis executor. The
+later #107 release-note correction changes no implementation status. This is the primary current roadmap. It supplements the
 [original post-PR #84 audit](arena-completion.md), whose baseline matrix and
 historical test counts remain unchanged and historical. Source review is not a new
 full-suite test run or a combined release acceptance.
