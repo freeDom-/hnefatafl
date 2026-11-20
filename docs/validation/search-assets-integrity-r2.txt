@@ -1,0 +1,23 @@
+ok   a complete manifest validates and exposes every required digest
+ok   an unsupported schema is rejected
+ok   a missing Pyodide version is rejected
+ok   empty python modules are rejected
+ok   invalid module names are rejected
+ok   duplicate module names are rejected
+ok   missing root modules are rejected
+ok   a missing search_bridge is rejected
+ok   an empty inventory is rejected
+ok   a source without an inventory digest is rejected
+ok   a duplicate inventory path is rejected
+ok   a malformed inventory digest is rejected
+ok   a missing inventory byte count is rejected
+ok   an unverified source cannot request a digest
+ok   an undefined expected digest is rejected
+ok   a malformed expected digest is rejected
+ok   a duplicate runtime path is rejected
+ok   a malformed runtime digest is rejected
+ok   an altered fetched digest is rejected
+ok   a matching fetched digest is accepted
+ok   a fetched source without a valid digest is rejected
+
+21/21 asset checks passed

@@ -1,0 +1,25 @@
+ok   search settings are validated against explicit bounds
+ok   watchdog is bounded and follows the cooperative deadline
+ok   a sequential search drives one evaluation per pending request
+ok   inference response association and order are enforced
+ok   a response from another model cannot influence the tree
+ok   a stale prepared model identity is rejected before transport
+ok   search error envelopes surface their stable code
+ok   cooperative cancel rejects the search and retains the worker
+ok   cancel with no active search is a no-op
+ok   an unacknowledged cancellation terminates the worker
+ok   a newer search supersedes the running one
+ok   a worker crash rejects active work and the next search recovers
+ok   dispose rejects active work and terminates the worker
+ok   repeated searches reuse one initialized worker
+ok   cancellation during cold initialization is immediate and recoverable
+ok   simultaneous initialization waiters cannot both own a search
+ok   multiple competing searches leave only the newest owner
+ok   a stale start response is rejected, never overwritten
+ok   cancellation immediately before result publication publishes nothing
+ok   delayed obsolete neural responses cannot affect a newer search
+ok   a neural failure while the generator is suspended releases it
+ok   a search worker failure during inference cancels the neural request
+ok   repeated cancellation and recovery keeps working
+
+23/23 search checks passed

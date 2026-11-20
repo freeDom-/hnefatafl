@@ -152,7 +152,19 @@ search:
 Level A parity uses a shared deterministic evaluator and requires exact equality
 of the complete search payload and evaluation trace. Level B compares actual
 model-backed searches and reports best-move, value, visit and completed-work
-differences instead of demanding equal trees.
+differences instead of demanding equal trees. Both comparators validate the
+reports independently: reproducible fixture coverage (a case omitted from both
+reports is detected), schema/level/engine/workload/model identity, budgets,
+terminal and immediate-win semantics, legal moves, visit integrity and raw
+benchmark repetition coverage. Checkpoint weight fingerprints bind the native
+PyTorch evaluator to the exported ONNX artifact.
+
+Review-correction guarantees: search ownership is reserved before any await and
+validated at every asynchronous boundary (the worker's actual search id is never
+overwritten); cancellation drains or terminates the owned inference without
+killing newer work; cancellation covers model download/session/worker
+initialization; `pagehide`/`pageshow` restore usable clients; nothing neural is
+fetched for Jarl; every mandatory staged Python source requires a valid digest.
 
 ```sh
 # Structural smoke checkpoint (not competitive) -> validated ONNX export -> stage
@@ -184,6 +196,11 @@ node spikes/browser_offline/mcts_benchmark.mjs /tmp/neural-spike \
 # Analysis UI and cancellation/lifecycle checks
 node spikes/browser_offline/test_mcts_ui.mjs /tmp/neural-spike --output /tmp/mcts-ui.json
 node spikes/browser_offline/test_search_lifecycle.mjs
+node spikes/browser_offline/test_browser_lifecycle.mjs
+node spikes/browser_offline/test_search_assets.mjs
+
+# Native encoding comparison against the previous tensor-assignment path
+.venv/bin/python spikes/browser_offline/encoding_benchmark.py --repetitions 5
 ```
 
 Owner-supplied private checkpoints use the same commands with the export produced

@@ -12,11 +12,15 @@ Related: [Phase 2 validation](../validation/browser-analysis-phase2.md) ·
 [isolated spike](../../spikes/browser_offline/README.md) ·
 [documentation index](../README.md).
 
-**Current integration revision:** Phase 2 branch from `origin/main` `ca1a640`
-(release 0.41.0, including the merged Phase 1 work). Phase 2 executes the existing
-Python neural MCTS generator in the browser through the validated Phase 1B
-inference boundary; Phase 0/1A/1B evidence remains valid and unchanged unless a
-later revision explicitly re-runs it.
+**Current integration revision:** Phase 2 revision 2 on a branch merged with
+`origin/main` `0c7b4f0` (documentation and release-readiness changes only). Phase 2
+executes the existing Python neural MCTS generator in the browser through the
+validated Phase 1B inference boundary. Revision 2 is the PR #108 review-correction
+round: search ownership and cancellation across both workers, independent
+production-MCTS reference validation, hardened comparators, checkpoint-bound model
+identity, exception-safe cleanup, a strict legal-probability contract, lazy neural
+assets, bfcache recovery and mandatory staged-source integrity. Revision-1
+evidence is preserved unchanged.
 
 ## Status definitions
 
@@ -316,18 +320,46 @@ production readiness.
   - **2.6 Experimental UI:** Jarl and neural MCTS analysis on the existing neural
     page, with lazy neural loading, budgets, progress, cancellation, provider/model
     reporting and result export. Not production frontend integration.
-- **Validation evidence (revision 1):**
-  - Level A: 21/21 positions exact across all three rulesets, identical engine
-    source identity and workload digest, 128 simulations.
-  - Level B (smoke fixtures): Brandubh 7/7 (256 simulations) and Tablut/Copenhagen
-    7/7 (128 simulations) best-move parity against native ONNX; Brandubh also 7/7
-    against native PyTorch; max value delta ≤3.7e-9, visit total variation 0.
-  - Benchmarks (4-channel zero-residual smoke fixture): 512–1,024 fixed
-    simulations complete in 1.03–2.31 s (443–564 simulations/s); 1,024 in ≈2 s is
-    approximately met for this fixture only. Browser/native equal-work throughput
-    ratio 0.160–0.214. Fixed-time overshoot median ≤14 ms (max 18 ms).
-  - Measured bottleneck: 36 % coordinator/Pyodide step boundary, 37 % neural wait
-    (only ~36 % of it ORT execution), 26 % Python search work, 0.6 % unattributed.
+- **Validation evidence (revision 2, current):**
+  - Level A: 21/21 positions exact across all three rulesets with identical engine
+    source identity, workload digest and fixture-derived coverage; workload
+    complete. The comparator independently validates both reports (schema,
+    identity, coverage, budgets, terminal/immediate-win semantics, visit
+    integrity) and separates execution validity, deterministic parity, numerical
+    comparison, workload completion and performance comparability.
+  - Level B (smoke fixtures): Brandubh 7/7 (256 simulations), Tablut and Copenhagen
+    7/7 (128 simulations) against native ONNX; Brandubh 7/7 against native PyTorch;
+    max value delta ≤3.7e-9, visit total variation 0. Checkpoint weight
+    fingerprints bind the native PyTorch evaluator to the exported ONNX artifact;
+    identical-architecture different-weight checkpoints are rejected.
+  - Independent production-MCTS reference: new tests drive the production
+    `mcts_context`/`mcts_policy` directly and require exact tree, policy, value,
+    visit, request/reuse and evaluation-trace agreement for deterministic
+    predictions (including a real tiny network), plus terminal/immediate-win and
+    cancellation-vs-deadline semantics.
+  - Benchmarks (4-channel zero-residual smoke fixture): 1,024 fixed simulations
+    complete in 1.93–1.94 s (528–532 simulations/s) on Brandubh; 512–1,024
+    workloads complete with acceptance true. Browser/native equal-work throughput
+    ratio 0.139–0.210 (Brandubh/Tablut/Copenhagen). Fixed-time overshoot median
+    8.5–20 ms, max 22 ms. Benchmarks validate raw repetition coverage, missing and
+    duplicate records, failed repetitions and fixed-work completion before
+    comparing equal work.
+  - Lifecycle gates: 23 search-coordinator checks, 33 neural-client checks, 18
+    staged-source integrity checks and 18 analysis UI checks (lazy assets,
+    cancellation during download/session/worker initialization, bfcache and
+    navigation restoration with a full neural search, non-default positions,
+    in-flight selector change). Phase 1 inference parity (39 cases), benchmark and
+    19 UI checks re-verified at this revision; four identity corruption boundaries
+    assert exact error codes.
+  - Native encoding: the shared encoder is 8.9–15.5× faster than the previous
+    tensor-assignment path with exact parity (19.3–26.9 µs per representative
+    position).
+  - Measured bottleneck (unchanged): 36 % coordinator/Pyodide step boundary, 37 %
+    neural wait (only ~36 % of it ORT execution), 25 % Python search work, 0.6 %
+    unattributed.
+- **Validation evidence (revision 1, historical):** preserved in
+  [Phase 2 validation](../validation/browser-analysis-phase2.md) and the
+  `mcts-*-r1.json` files; superseded by revision 2 for current acceptance.
   - UI: 9/9 neural MCTS analysis checks; Phase 1 inference UI 19/19 and inference
     parity 39/39 re-verified at this revision; identity boundaries 4/4 with exact
     codes.
@@ -439,14 +471,25 @@ production readiness.
 | Phase 2 / WASM inference in search | Validated |
 | Phase 2 / WebGPU-requested inference in search | Not validated (no adapter) |
 | Phase 2 / verified physical GPU execution | Blocked (no per-operator diagnostic, no adapter) |
-| Phase 2 / worker communication overhead | Measured: 35 % step boundary, ~65 % of neural wait is dispatch/transport |
+| Phase 2 / worker communication overhead | Measured: 36 % step boundary, ~64 % of neural wait is dispatch/transport |
 | Phase 2 / search cancellation | Validated (cooperative + bounded recovery) |
 | Phase 2 / search memory lifecycle | Generator/trace/diagnostics released; long-term growth unmeasured |
 | Phase 2 / competitive trained models | Blocked (weights unavailable) |
 | Phase 2 / end-to-end simulations per second | Measured for smoke fixtures only (232–564/s) |
 | Phase 2 / tactical validation | Validated structurally (legal moves, terminals, immediate wins) |
 | Phase 2 / playing strength | Not started |
-| Phase 2 / experimental UI | Validated in the isolated spike |
+| Phase 2 / search ownership before initialization | Validated (23 coordinator checks) |
+| Phase 2 / cancellation across search and inference workers | Validated (drain/terminate, replacement refusal, repeated recovery) |
+| Phase 2 / model identity and checkpoint binding | Validated (source-weight fingerprint, same-architecture different-weight rejection) |
+| Phase 2 / search-context cleanup | Validated (all exit paths, registry capacity, final summary) |
+| Phase 2 / independent production MCTS parity | Validated (exact deterministic reference, real-network policy reference) |
+| Phase 2 / fixed-work benchmark acceptance | Validated (raw-record coverage, completion, duplicates/missing) |
+| Phase 2 / fixed-time benchmark acceptance | Validated (informative unequal-work reporting, no false ratio) |
+| Phase 2 / staged-source integrity | Validated (mandatory digests; 21 negative checks) |
+| Phase 2 / lazy neural asset loading | Validated (Jarl with neural assets unavailable) |
+| Phase 2 / bfcache and navigation restoration | Validated (full neural search after restore) |
+| Phase 2 / native encoding performance | No regression; 8.9–15.5× faster with exact parity |
+| Phase 2 / experimental UI | Validated in the isolated spike (18 checks; position/settings ownership) |
 | Phase 2 / production integration | Not started |
 
 ## Open findings and technical debt
@@ -614,3 +657,4 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-20 | Phase 2 revision 2 (PR #108 review corrections): ownership reserved before initialization with validated response association; cancellation drains/terminates inference and releases the generator without killing newer work; UI cancellation covers model download/init; bfcache restoration installs usable clients; parity/benchmark comparators independently validate coverage, budgets, semantics and raw repetitions; checkpoint weight fingerprint binds native evaluators to the export; independent production-MCTS reference tests; strict legal-probability contract; exception-safe context cleanup; lazy neural assets; mandatory staged-source digests; shared encoder measured 8.9–15.5× faster. Fresh r2/r7 evidence; r1 preserved. |
