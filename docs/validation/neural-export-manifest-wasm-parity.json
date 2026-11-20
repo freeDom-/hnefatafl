@@ -1,0 +1,14 @@
+{
+  "schema": 2,
+  "validated": true,
+  "artifact": "hnefatafl-policy-value-onnx",
+  "model_sha256": "4054099991db2d9732c43d49ea562b8bed86d68a2a806307fca63100b6eae040",
+  "model_bytes": 46924,
+  "ruleset": "brandubh",
+  "reference_sha256": "092962e8977cdce80227fa7062348d387b4fef346c05f8087418c1d126c063b5",
+  "generated": "2026-11-19T16:01:26.653110+00:00",
+  "parity_passed": true,
+  "parity_providers": [
+    "onnxruntime-cpu"
+  ]
+}

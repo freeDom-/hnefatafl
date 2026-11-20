@@ -1,0 +1,80 @@
+{
+  "kind": "browser-neural-corruption-evidence",
+  "schema": 3,
+  "cases": [
+    {
+      "corruption": "logit",
+      "ok": false,
+      "simulated_corruption": "logit",
+      "failures": [
+        "brandubh-opening: logit abs error 0.05 > 0.001"
+      ]
+    },
+    {
+      "corruption": "value",
+      "ok": false,
+      "simulated_corruption": "value",
+      "failures": [
+        "brandubh-opening: value abs error 0.05 > 0.0001"
+      ]
+    },
+    {
+      "corruption": "legal",
+      "ok": false,
+      "simulated_corruption": "legal",
+      "failures": [
+        "brandubh-opening: observed legal indices/order differ from the reference ([148, 151, 152, 499] != [149, 148, 151, 152])"
+      ]
+    },
+    {
+      "corruption": "order",
+      "ok": false,
+      "simulated_corruption": "order",
+      "failures": [
+        "brandubh-opening: observed legal indices/order differ from the reference ([2252, 2251, 2248, 2249] != [149, 148, 151, 152])"
+      ]
+    },
+    {
+      "corruption": "probabilities",
+      "ok": false,
+      "simulated_corruption": "probabilities",
+      "failures": [
+        "brandubh-opening: observed legal probabilities do not sum to 1"
+      ]
+    },
+    {
+      "corruption": "policy-shape",
+      "ok": false,
+      "simulated_corruption": "policy-shape",
+      "failures": [
+        "brandubh-opening: policy shape [1, 1] != [1, 2401]"
+      ]
+    },
+    {
+      "corruption": "value-shape",
+      "ok": false,
+      "simulated_corruption": "value-shape",
+      "failures": [
+        "brandubh-opening: value shape [2] != [1]"
+      ]
+    },
+    {
+      "corruption": "model",
+      "ok": false,
+      "simulated_corruption": "model",
+      "failures": [
+        "brandubh-opening: per-case model identity mismatch"
+      ]
+    },
+    {
+      "corruption": "batch",
+      "ok": false,
+      "simulated_corruption": "batch",
+      "failures": [
+        "batched parity failed at batch 1",
+        "batched parity failed at batch 2"
+      ]
+    }
+  ],
+  "all_failed": true
+}

@@ -1,0 +1,49 @@
+{
+  "kind": "browser-neural-identity-corruption-evidence",
+  "schema": 5,
+  "cases": [
+    {
+      "corruption": "request-model",
+      "ok": false,
+      "failures": [
+        "harness error: page.evaluate: MODEL_IDENTITY_MISMATCH: Requested model 0000000000000000000000000000000000000000000000000000000000000000 does not match active model 959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3\n    at named (http://127.0.0.1:46481/neural-client.js:33:17)\n    at NeuralClient._assertModel (http://127.0.0.1:46481/neural-client.js:303:13)\n    at NeuralClient.infer (http://127.0.0.1:46481/neural-client.js:314:10)\n    at eval (eval at evaluate (:370:30), <anonymous>:7:36)\n    at UtilityScript.evaluate (<anonymous>:372:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)"
+      ]
+    },
+    {
+      "corruption": "request-ruleset",
+      "ok": false,
+      "failures": [
+        "harness error: page.evaluate: RULESET_MISMATCH: Requested ruleset does not match the active model\n    at named (http://127.0.0.1:39387/neural-client.js:33:17)\n    at NeuralClient._assertModel (http://127.0.0.1:39387/neural-client.js:308:13)\n    at NeuralClient.infer (http://127.0.0.1:39387/neural-client.js:314:10)\n    at eval (eval at evaluate (:370:30), <anonymous>:7:36)\n    at UtilityScript.evaluate (<anonymous>:372:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)"
+      ]
+    },
+    {
+      "corruption": "request-size",
+      "ok": false,
+      "failures": [
+        "harness error: page.evaluate: BOARD_SIZE_MISMATCH: Requested board size does not match the active model\n    at named (http://127.0.0.1:38861/neural-client.js:33:17)\n    at NeuralClient._assertModel (http://127.0.0.1:38861/neural-client.js:310:13)\n    at NeuralClient.infer (http://127.0.0.1:38861/neural-client.js:314:10)\n    at eval (eval at evaluate (:370:30), <anonymous>:7:36)\n    at UtilityScript.evaluate (<anonymous>:372:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)"
+      ]
+    },
+    {
+      "corruption": "request-model-worker",
+      "ok": false,
+      "failures": [
+        "harness error: page.evaluate: Error: Requested model 0000000000000000000000000000000000000000000000000000000000000000 does not match active model 959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3\n    at worker.onmessage (http://127.0.0.1:44991/neural-client.js:116:23)"
+      ]
+    },
+    {
+      "corruption": "request-model-batch-worker",
+      "ok": false,
+      "failures": [
+        "harness error: page.evaluate: MODEL_IDENTITY_MISMATCH: Requested model 0000000000000000000000000000000000000000000000000000000000000000 does not match active model 959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3\n    at named (http://127.0.0.1:40011/neural-client.js:33:17)\n    at NeuralClient._assertModel (http://127.0.0.1:40011/neural-client.js:303:13)\n    at NeuralClient.infer (http://127.0.0.1:40011/neural-client.js:314:10)\n    at eval (eval at evaluate (:370:30), <anonymous>:7:36)\n    at UtilityScript.evaluate (<anonymous>:372:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)"
+      ]
+    },
+    {
+      "corruption": "reorder",
+      "ok": false,
+      "failures": [
+        "batched parity failed at batch 2"
+      ]
+    }
+  ],
+  "all_failed": true
+}

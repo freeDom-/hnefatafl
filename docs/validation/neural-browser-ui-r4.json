@@ -1,0 +1,34 @@
+{
+  "kind": "browser-neural-ui",
+  "generated": "2026-11-20T07:31:15.422Z",
+  "checks": [
+    {
+      "name": "Infer works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Distinct batch inference works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Benchmark works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Controls disable during an active operation",
+      "ok": true
+    },
+    {
+      "name": "Cancellation invalidates stale results and reports cancelled",
+      "ok": true
+    },
+    {
+      "name": "Provider change reports failure then recovers on WASM",
+      "ok": true
+    }
+  ],
+  "failures": [],
+  "browser": "156.0.8078.4",
+  "external_requests": [],
+  "ok": true
+}

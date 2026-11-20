@@ -1,0 +1,6220 @@
+{
+  "schema": 3,
+  "kind": "native-jarl-benchmark",
+  "runtime": "cpython",
+  "environment": {
+    "platform": "Linux-7.0.14-26-pve-x86_64-with-glibc2.41",
+    "python": "3.11.18",
+    "implementation": "CPython",
+    "processor": null,
+    "cpu_count": 4
+  },
+  "plan": {
+    "configs": {
+      "quick": {
+        "depth": 3,
+        "time_limit": 0.25
+      },
+      "interactive": {
+        "depth": 5,
+        "time_limit": 1.0
+      },
+      "standard": {
+        "depth": 5,
+        "time_limit": 2.0
+      },
+      "deep": {
+        "depth": 8,
+        "time_limit": 5.0
+      },
+      "extended": {
+        "depth": 10,
+        "time_limit": 10.0
+      }
+    },
+    "production_jarl": {
+      "depth": 5,
+      "time_limit": 2.0
+    },
+    "engine_max_depth": 8,
+    "fixed_work_deadline_seconds": 60.0,
+    "fixed_work_watchdog_ms": 75000,
+    "unsupported": {
+      "extended": "engine alpha-beta depth cap is 8"
+    },
+    "modes": [
+      "fixed_work",
+      "fixed_time"
+    ],
+    "search": {
+      "legacy": false,
+      "transposition": true,
+      "move_ordering": true,
+      "symmetry_transposition": false,
+      "symmetry_pruning": false,
+      "table_capacity": 100000
+    }
+  },
+  "identity": {
+    "protocol": 3,
+    "workload": {
+      "protocol": 3,
+      "digest": "26d16c0db487e76f8db716c4fd549b73db6aeaf0a5beb18739508bbf30e61143",
+      "mode": "fixed_time",
+      "seed": 7,
+      "configs": [
+        "standard"
+      ],
+      "effective_configs": {
+        "standard": {
+          "algorithm": "alpha_beta",
+          "depth": 5,
+          "time_limit": 2.0,
+          "heuristic": "shield_maiden",
+          "search": {
+            "legacy": false,
+            "transposition": true,
+            "move_ordering": true,
+            "symmetry_transposition": false,
+            "symmetry_pruning": false,
+            "table_capacity": 100000
+          },
+          "seed": 7
+        }
+      },
+      "cases": [
+        {
+          "name": "tablut-opening",
+          "kind": "opening",
+          "ruleset": "tablut",
+          "position_digest": "7c6199d13824b5d034ef59054c84e401ea462eb9b07511441adea3c963f9e540",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 22,
+              "target": 21
+            },
+            {
+              "source": 22,
+              "target": 20
+            },
+            {
+              "source": 22,
+              "target": 19
+            },
+            {
+              "source": 22,
+              "target": 18
+            },
+            {
+              "source": 22,
+              "target": 23
+            },
+            {
+              "source": 22,
+              "target": 24
+            },
+            {
+              "source": 22,
+              "target": 25
+            },
+            {
+              "source": 22,
+              "target": 26
+            },
+            {
+              "source": 31,
+              "target": 30
+            },
+            {
+              "source": 31,
+              "target": 29
+            },
+            {
+              "source": 31,
+              "target": 28
+            },
+            {
+              "source": 31,
+              "target": 32
+            },
+            {
+              "source": 31,
+              "target": 33
+            },
+            {
+              "source": 31,
+              "target": 34
+            },
+            {
+              "source": 38,
+              "target": 29
+            },
+            {
+              "source": 38,
+              "target": 20
+            },
+            {
+              "source": 38,
+              "target": 11
+            },
+            {
+              "source": 38,
+              "target": 2
+            },
+            {
+              "source": 38,
+              "target": 47
+            },
+            {
+              "source": 38,
+              "target": 56
+            },
+            {
+              "source": 38,
+              "target": 65
+            },
+            {
+              "source": 38,
+              "target": 74
+            },
+            {
+              "source": 39,
+              "target": 30
+            },
+            {
+              "source": 39,
+              "target": 21
+            },
+            {
+              "source": 39,
+              "target": 12
+            },
+            {
+              "source": 39,
+              "target": 48
+            },
+            {
+              "source": 39,
+              "target": 57
+            },
+            {
+              "source": 39,
+              "target": 66
+            },
+            {
+              "source": 41,
+              "target": 32
+            },
+            {
+              "source": 41,
+              "target": 23
+            },
+            {
+              "source": 41,
+              "target": 14
+            },
+            {
+              "source": 41,
+              "target": 50
+            },
+            {
+              "source": 41,
+              "target": 59
+            },
+            {
+              "source": 41,
+              "target": 68
+            },
+            {
+              "source": 42,
+              "target": 33
+            },
+            {
+              "source": 42,
+              "target": 24
+            },
+            {
+              "source": 42,
+              "target": 15
+            },
+            {
+              "source": 42,
+              "target": 6
+            },
+            {
+              "source": 42,
+              "target": 51
+            },
+            {
+              "source": 42,
+              "target": 60
+            },
+            {
+              "source": 42,
+              "target": 69
+            },
+            {
+              "source": 42,
+              "target": 78
+            },
+            {
+              "source": 49,
+              "target": 48
+            },
+            {
+              "source": 49,
+              "target": 47
+            },
+            {
+              "source": 49,
+              "target": 46
+            },
+            {
+              "source": 49,
+              "target": 50
+            },
+            {
+              "source": 49,
+              "target": 51
+            },
+            {
+              "source": 49,
+              "target": 52
+            },
+            {
+              "source": 58,
+              "target": 57
+            },
+            {
+              "source": 58,
+              "target": 56
+            },
+            {
+              "source": 58,
+              "target": 55
+            },
+            {
+              "source": 58,
+              "target": 54
+            },
+            {
+              "source": 58,
+              "target": 59
+            },
+            {
+              "source": 58,
+              "target": 60
+            },
+            {
+              "source": 58,
+              "target": 61
+            },
+            {
+              "source": 58,
+              "target": 62
+            }
+          ]
+        },
+        {
+          "name": "tablut-midgame",
+          "kind": "midgame",
+          "ruleset": "tablut",
+          "position_digest": "0804f138d4cbf9507ab620b21b667b9d8b85538f9cc50682fcf8c4383c1f821b",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 28,
+              "target": 19
+            },
+            {
+              "source": 28,
+              "target": 10
+            },
+            {
+              "source": 28,
+              "target": 29
+            },
+            {
+              "source": 28,
+              "target": 30
+            },
+            {
+              "source": 31,
+              "target": 22
+            },
+            {
+              "source": 31,
+              "target": 30
+            },
+            {
+              "source": 31,
+              "target": 29
+            },
+            {
+              "source": 31,
+              "target": 32
+            },
+            {
+              "source": 31,
+              "target": 33
+            },
+            {
+              "source": 31,
+              "target": 34
+            },
+            {
+              "source": 38,
+              "target": 29
+            },
+            {
+              "source": 38,
+              "target": 20
+            },
+            {
+              "source": 38,
+              "target": 11
+            },
+            {
+              "source": 38,
+              "target": 2
+            },
+            {
+              "source": 38,
+              "target": 47
+            },
+            {
+              "source": 38,
+              "target": 56
+            },
+            {
+              "source": 38,
+              "target": 65
+            },
+            {
+              "source": 38,
+              "target": 74
+            },
+            {
+              "source": 39,
+              "target": 30
+            },
+            {
+              "source": 39,
+              "target": 21
+            },
+            {
+              "source": 39,
+              "target": 12
+            },
+            {
+              "source": 39,
+              "target": 48
+            },
+            {
+              "source": 39,
+              "target": 57
+            },
+            {
+              "source": 39,
+              "target": 66
+            },
+            {
+              "source": 41,
+              "target": 32
+            },
+            {
+              "source": 41,
+              "target": 23
+            },
+            {
+              "source": 41,
+              "target": 14
+            },
+            {
+              "source": 41,
+              "target": 50
+            },
+            {
+              "source": 41,
+              "target": 59
+            },
+            {
+              "source": 41,
+              "target": 68
+            },
+            {
+              "source": 42,
+              "target": 33
+            },
+            {
+              "source": 42,
+              "target": 24
+            },
+            {
+              "source": 42,
+              "target": 15
+            },
+            {
+              "source": 42,
+              "target": 6
+            },
+            {
+              "source": 42,
+              "target": 51
+            },
+            {
+              "source": 42,
+              "target": 60
+            },
+            {
+              "source": 42,
+              "target": 69
+            },
+            {
+              "source": 42,
+              "target": 78
+            },
+            {
+              "source": 49,
+              "target": 48
+            },
+            {
+              "source": 49,
+              "target": 47
+            },
+            {
+              "source": 49,
+              "target": 46
+            },
+            {
+              "source": 49,
+              "target": 50
+            },
+            {
+              "source": 49,
+              "target": 51
+            },
+            {
+              "source": 49,
+              "target": 52
+            },
+            {
+              "source": 58,
+              "target": 57
+            },
+            {
+              "source": 58,
+              "target": 56
+            },
+            {
+              "source": 58,
+              "target": 55
+            },
+            {
+              "source": 58,
+              "target": 54
+            },
+            {
+              "source": 58,
+              "target": 59
+            },
+            {
+              "source": 58,
+              "target": 60
+            },
+            {
+              "source": 58,
+              "target": 61
+            },
+            {
+              "source": 58,
+              "target": 62
+            }
+          ]
+        },
+        {
+          "name": "tablut-endgame",
+          "kind": "endgame",
+          "ruleset": "tablut",
+          "position_digest": "3244c3ac23e22b20e4d86e60bef3216a8fb105e6c1b8c6ef08c8ed233ed11cad",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 4,
+              "target": 13
+            },
+            {
+              "source": 4,
+              "target": 22
+            },
+            {
+              "source": 4,
+              "target": 3
+            },
+            {
+              "source": 4,
+              "target": 2
+            },
+            {
+              "source": 4,
+              "target": 1
+            },
+            {
+              "source": 4,
+              "target": 0
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 4,
+              "target": 6
+            },
+            {
+              "source": 4,
+              "target": 7
+            },
+            {
+              "source": 4,
+              "target": 8
+            },
+            {
+              "source": 36,
+              "target": 27
+            },
+            {
+              "source": 36,
+              "target": 18
+            },
+            {
+              "source": 36,
+              "target": 9
+            },
+            {
+              "source": 36,
+              "target": 0
+            },
+            {
+              "source": 36,
+              "target": 45
+            },
+            {
+              "source": 36,
+              "target": 54
+            },
+            {
+              "source": 36,
+              "target": 63
+            },
+            {
+              "source": 36,
+              "target": 72
+            },
+            {
+              "source": 36,
+              "target": 37
+            },
+            {
+              "source": 36,
+              "target": 38
+            },
+            {
+              "source": 76,
+              "target": 67
+            },
+            {
+              "source": 76,
+              "target": 58
+            },
+            {
+              "source": 76,
+              "target": 49
+            },
+            {
+              "source": 76,
+              "target": 75
+            },
+            {
+              "source": 76,
+              "target": 74
+            },
+            {
+              "source": 76,
+              "target": 73
+            },
+            {
+              "source": 76,
+              "target": 72
+            },
+            {
+              "source": 76,
+              "target": 77
+            },
+            {
+              "source": 76,
+              "target": 78
+            },
+            {
+              "source": 76,
+              "target": 79
+            },
+            {
+              "source": 76,
+              "target": 80
+            }
+          ]
+        },
+        {
+          "name": "tablut-tactical",
+          "kind": "tactical",
+          "ruleset": "tablut",
+          "position_digest": "60fe1f08409c9c9d6e7371ac64656b419355ce243b64ba2a67a4c7c9faafdd11",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 2,
+              "target": 1
+            },
+            {
+              "source": 2,
+              "target": 0
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 2,
+              "target": 4
+            },
+            {
+              "source": 2,
+              "target": 5
+            },
+            {
+              "source": 2,
+              "target": 6
+            },
+            {
+              "source": 2,
+              "target": 7
+            },
+            {
+              "source": 2,
+              "target": 8
+            },
+            {
+              "source": 18,
+              "target": 9
+            },
+            {
+              "source": 18,
+              "target": 0
+            },
+            {
+              "source": 18,
+              "target": 27
+            },
+            {
+              "source": 18,
+              "target": 36
+            },
+            {
+              "source": 18,
+              "target": 45
+            },
+            {
+              "source": 18,
+              "target": 54
+            },
+            {
+              "source": 18,
+              "target": 63
+            },
+            {
+              "source": 18,
+              "target": 72
+            },
+            {
+              "source": 22,
+              "target": 13
+            },
+            {
+              "source": 22,
+              "target": 4
+            },
+            {
+              "source": 22,
+              "target": 31
+            },
+            {
+              "source": 22,
+              "target": 23
+            },
+            {
+              "source": 22,
+              "target": 24
+            },
+            {
+              "source": 22,
+              "target": 25
+            },
+            {
+              "source": 22,
+              "target": 26
+            },
+            {
+              "source": 47,
+              "target": 38
+            },
+            {
+              "source": 47,
+              "target": 29
+            },
+            {
+              "source": 47,
+              "target": 20
+            },
+            {
+              "source": 47,
+              "target": 56
+            },
+            {
+              "source": 47,
+              "target": 65
+            },
+            {
+              "source": 47,
+              "target": 74
+            },
+            {
+              "source": 47,
+              "target": 46
+            },
+            {
+              "source": 47,
+              "target": 45
+            },
+            {
+              "source": 47,
+              "target": 48
+            },
+            {
+              "source": 47,
+              "target": 49
+            },
+            {
+              "source": 47,
+              "target": 50
+            },
+            {
+              "source": 47,
+              "target": 51
+            },
+            {
+              "source": 47,
+              "target": 52
+            },
+            {
+              "source": 47,
+              "target": 53
+            }
+          ]
+        },
+        {
+          "name": "tablut-king-escape",
+          "kind": "king-escape",
+          "ruleset": "tablut",
+          "position_digest": "782c74eea8e5a44e18100de679a09a71a7eb056589ab04e221b4b02df5dedbd1",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 2,
+              "target": 11
+            },
+            {
+              "source": 2,
+              "target": 20
+            },
+            {
+              "source": 2,
+              "target": 29
+            },
+            {
+              "source": 2,
+              "target": 38
+            },
+            {
+              "source": 2,
+              "target": 47
+            },
+            {
+              "source": 2,
+              "target": 56
+            },
+            {
+              "source": 2,
+              "target": 65
+            },
+            {
+              "source": 2,
+              "target": 74
+            },
+            {
+              "source": 2,
+              "target": 1
+            },
+            {
+              "source": 2,
+              "target": 0
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 2,
+              "target": 4
+            },
+            {
+              "source": 2,
+              "target": 5
+            },
+            {
+              "source": 2,
+              "target": 6
+            },
+            {
+              "source": 2,
+              "target": 7
+            },
+            {
+              "source": 2,
+              "target": 8
+            }
+          ]
+        },
+        {
+          "name": "tablut-terminal",
+          "kind": "terminal",
+          "ruleset": "tablut",
+          "position_digest": "39071e8993d21e3b91002cf78c256c43c44ad8030081395707fd7a1ebbc01144",
+          "terminal": true,
+          "winner": "defenders",
+          "terminal_value": 1.0,
+          "legal_moves": []
+        },
+        {
+          "name": "tablut-repetition",
+          "kind": "repetition",
+          "ruleset": "tablut",
+          "position_digest": "3e50a6ea7b3766744f6b40a2b2fe3dfd8d7b4329cd7d1b9fe4529d273e3f25dd",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 22,
+              "target": 21
+            },
+            {
+              "source": 22,
+              "target": 20
+            },
+            {
+              "source": 22,
+              "target": 19
+            },
+            {
+              "source": 22,
+              "target": 18
+            },
+            {
+              "source": 22,
+              "target": 23
+            },
+            {
+              "source": 22,
+              "target": 24
+            },
+            {
+              "source": 22,
+              "target": 25
+            },
+            {
+              "source": 22,
+              "target": 26
+            },
+            {
+              "source": 31,
+              "target": 30
+            },
+            {
+              "source": 31,
+              "target": 29
+            },
+            {
+              "source": 31,
+              "target": 28
+            },
+            {
+              "source": 31,
+              "target": 32
+            },
+            {
+              "source": 31,
+              "target": 33
+            },
+            {
+              "source": 31,
+              "target": 34
+            },
+            {
+              "source": 38,
+              "target": 29
+            },
+            {
+              "source": 38,
+              "target": 20
+            },
+            {
+              "source": 38,
+              "target": 11
+            },
+            {
+              "source": 38,
+              "target": 2
+            },
+            {
+              "source": 38,
+              "target": 47
+            },
+            {
+              "source": 38,
+              "target": 56
+            },
+            {
+              "source": 38,
+              "target": 65
+            },
+            {
+              "source": 38,
+              "target": 74
+            },
+            {
+              "source": 39,
+              "target": 30
+            },
+            {
+              "source": 39,
+              "target": 21
+            },
+            {
+              "source": 39,
+              "target": 12
+            },
+            {
+              "source": 39,
+              "target": 48
+            },
+            {
+              "source": 39,
+              "target": 57
+            },
+            {
+              "source": 39,
+              "target": 66
+            },
+            {
+              "source": 41,
+              "target": 32
+            },
+            {
+              "source": 41,
+              "target": 23
+            },
+            {
+              "source": 41,
+              "target": 14
+            },
+            {
+              "source": 41,
+              "target": 50
+            },
+            {
+              "source": 41,
+              "target": 59
+            },
+            {
+              "source": 41,
+              "target": 68
+            },
+            {
+              "source": 42,
+              "target": 33
+            },
+            {
+              "source": 42,
+              "target": 24
+            },
+            {
+              "source": 42,
+              "target": 15
+            },
+            {
+              "source": 42,
+              "target": 6
+            },
+            {
+              "source": 42,
+              "target": 51
+            },
+            {
+              "source": 42,
+              "target": 60
+            },
+            {
+              "source": 42,
+              "target": 69
+            },
+            {
+              "source": 42,
+              "target": 78
+            },
+            {
+              "source": 49,
+              "target": 48
+            },
+            {
+              "source": 49,
+              "target": 47
+            },
+            {
+              "source": 49,
+              "target": 46
+            },
+            {
+              "source": 49,
+              "target": 50
+            },
+            {
+              "source": 49,
+              "target": 51
+            },
+            {
+              "source": 49,
+              "target": 52
+            },
+            {
+              "source": 58,
+              "target": 57
+            },
+            {
+              "source": 58,
+              "target": 56
+            },
+            {
+              "source": 58,
+              "target": 55
+            },
+            {
+              "source": 58,
+              "target": 54
+            },
+            {
+              "source": 58,
+              "target": 59
+            },
+            {
+              "source": 58,
+              "target": 60
+            },
+            {
+              "source": 58,
+              "target": 61
+            },
+            {
+              "source": 58,
+              "target": 62
+            }
+          ]
+        },
+        {
+          "name": "brandubh-opening",
+          "kind": "opening",
+          "ruleset": "brandubh",
+          "position_digest": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 3,
+              "target": 5
+            },
+            {
+              "source": 10,
+              "target": 9
+            },
+            {
+              "source": 10,
+              "target": 8
+            },
+            {
+              "source": 10,
+              "target": 7
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 10,
+              "target": 12
+            },
+            {
+              "source": 10,
+              "target": 13
+            },
+            {
+              "source": 21,
+              "target": 14
+            },
+            {
+              "source": 21,
+              "target": 7
+            },
+            {
+              "source": 21,
+              "target": 28
+            },
+            {
+              "source": 21,
+              "target": 35
+            },
+            {
+              "source": 22,
+              "target": 15
+            },
+            {
+              "source": 22,
+              "target": 8
+            },
+            {
+              "source": 22,
+              "target": 1
+            },
+            {
+              "source": 22,
+              "target": 29
+            },
+            {
+              "source": 22,
+              "target": 36
+            },
+            {
+              "source": 22,
+              "target": 43
+            },
+            {
+              "source": 26,
+              "target": 19
+            },
+            {
+              "source": 26,
+              "target": 12
+            },
+            {
+              "source": 26,
+              "target": 5
+            },
+            {
+              "source": 26,
+              "target": 33
+            },
+            {
+              "source": 26,
+              "target": 40
+            },
+            {
+              "source": 26,
+              "target": 47
+            },
+            {
+              "source": 27,
+              "target": 20
+            },
+            {
+              "source": 27,
+              "target": 13
+            },
+            {
+              "source": 27,
+              "target": 34
+            },
+            {
+              "source": 27,
+              "target": 41
+            },
+            {
+              "source": 38,
+              "target": 37
+            },
+            {
+              "source": 38,
+              "target": 36
+            },
+            {
+              "source": 38,
+              "target": 35
+            },
+            {
+              "source": 38,
+              "target": 39
+            },
+            {
+              "source": 38,
+              "target": 40
+            },
+            {
+              "source": 38,
+              "target": 41
+            },
+            {
+              "source": 45,
+              "target": 44
+            },
+            {
+              "source": 45,
+              "target": 43
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 45,
+              "target": 47
+            }
+          ]
+        },
+        {
+          "name": "brandubh-midgame",
+          "kind": "midgame",
+          "ruleset": "brandubh",
+          "position_digest": "86bbd0736f7d33154bcb77fd581f19cc8c94d70cb979c25db4e370c3eac5ab83",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 4,
+              "target": 11
+            },
+            {
+              "source": 4,
+              "target": 18
+            },
+            {
+              "source": 4,
+              "target": 3
+            },
+            {
+              "source": 4,
+              "target": 2
+            },
+            {
+              "source": 4,
+              "target": 1
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 10,
+              "target": 3
+            },
+            {
+              "source": 10,
+              "target": 17
+            },
+            {
+              "source": 10,
+              "target": 9
+            },
+            {
+              "source": 10,
+              "target": 8
+            },
+            {
+              "source": 10,
+              "target": 7
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 10,
+              "target": 12
+            },
+            {
+              "source": 10,
+              "target": 13
+            },
+            {
+              "source": 21,
+              "target": 14
+            },
+            {
+              "source": 21,
+              "target": 7
+            },
+            {
+              "source": 21,
+              "target": 28
+            },
+            {
+              "source": 21,
+              "target": 35
+            },
+            {
+              "source": 22,
+              "target": 15
+            },
+            {
+              "source": 22,
+              "target": 8
+            },
+            {
+              "source": 22,
+              "target": 1
+            },
+            {
+              "source": 22,
+              "target": 29
+            },
+            {
+              "source": 22,
+              "target": 36
+            },
+            {
+              "source": 22,
+              "target": 43
+            },
+            {
+              "source": 26,
+              "target": 19
+            },
+            {
+              "source": 26,
+              "target": 12
+            },
+            {
+              "source": 26,
+              "target": 5
+            },
+            {
+              "source": 26,
+              "target": 33
+            },
+            {
+              "source": 26,
+              "target": 40
+            },
+            {
+              "source": 26,
+              "target": 47
+            },
+            {
+              "source": 27,
+              "target": 34
+            },
+            {
+              "source": 27,
+              "target": 41
+            },
+            {
+              "source": 38,
+              "target": 37
+            },
+            {
+              "source": 38,
+              "target": 36
+            },
+            {
+              "source": 38,
+              "target": 35
+            },
+            {
+              "source": 38,
+              "target": 39
+            },
+            {
+              "source": 38,
+              "target": 40
+            },
+            {
+              "source": 38,
+              "target": 41
+            },
+            {
+              "source": 45,
+              "target": 44
+            },
+            {
+              "source": 45,
+              "target": 43
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 45,
+              "target": 47
+            }
+          ]
+        },
+        {
+          "name": "brandubh-endgame",
+          "kind": "endgame",
+          "ruleset": "brandubh",
+          "position_digest": "ef23adad480cd4db9fe2b60b0f474fc558e2f701361e7999ce0ed9d0fe89f72f",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 10
+            },
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 3,
+              "target": 5
+            },
+            {
+              "source": 21,
+              "target": 14
+            },
+            {
+              "source": 21,
+              "target": 7
+            },
+            {
+              "source": 21,
+              "target": 28
+            },
+            {
+              "source": 21,
+              "target": 35
+            },
+            {
+              "source": 21,
+              "target": 22
+            },
+            {
+              "source": 45,
+              "target": 38
+            },
+            {
+              "source": 45,
+              "target": 31
+            },
+            {
+              "source": 45,
+              "target": 44
+            },
+            {
+              "source": 45,
+              "target": 43
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 45,
+              "target": 47
+            }
+          ]
+        },
+        {
+          "name": "brandubh-tactical",
+          "kind": "tactical",
+          "ruleset": "brandubh",
+          "position_digest": "5cc0a351e06674cf3e6dc28945637f939e36ba4a6cc517bebe9cbf0e504f1a2d",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 2,
+              "target": 1
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 2,
+              "target": 4
+            },
+            {
+              "source": 2,
+              "target": 5
+            },
+            {
+              "source": 14,
+              "target": 7
+            },
+            {
+              "source": 14,
+              "target": 21
+            },
+            {
+              "source": 14,
+              "target": 28
+            },
+            {
+              "source": 14,
+              "target": 35
+            },
+            {
+              "source": 18,
+              "target": 11
+            },
+            {
+              "source": 18,
+              "target": 4
+            },
+            {
+              "source": 18,
+              "target": 25
+            },
+            {
+              "source": 18,
+              "target": 19
+            },
+            {
+              "source": 18,
+              "target": 20
+            },
+            {
+              "source": 37,
+              "target": 30
+            },
+            {
+              "source": 37,
+              "target": 23
+            },
+            {
+              "source": 37,
+              "target": 16
+            },
+            {
+              "source": 37,
+              "target": 44
+            },
+            {
+              "source": 37,
+              "target": 36
+            },
+            {
+              "source": 37,
+              "target": 35
+            },
+            {
+              "source": 37,
+              "target": 38
+            },
+            {
+              "source": 37,
+              "target": 39
+            },
+            {
+              "source": 37,
+              "target": 40
+            },
+            {
+              "source": 37,
+              "target": 41
+            }
+          ]
+        },
+        {
+          "name": "brandubh-king-escape",
+          "kind": "king-escape",
+          "ruleset": "brandubh",
+          "position_digest": "bb0a75f0ac2be5de7272889e6409dd772ba70a30d2833a8f5fcd3cb893e65914",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 2,
+              "target": 9
+            },
+            {
+              "source": 2,
+              "target": 16
+            },
+            {
+              "source": 2,
+              "target": 23
+            },
+            {
+              "source": 2,
+              "target": 30
+            },
+            {
+              "source": 2,
+              "target": 37
+            },
+            {
+              "source": 2,
+              "target": 44
+            },
+            {
+              "source": 2,
+              "target": 1
+            },
+            {
+              "source": 2,
+              "target": 0
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 2,
+              "target": 4
+            },
+            {
+              "source": 2,
+              "target": 5
+            },
+            {
+              "source": 2,
+              "target": 6
+            }
+          ]
+        },
+        {
+          "name": "brandubh-terminal",
+          "kind": "terminal",
+          "ruleset": "brandubh",
+          "position_digest": "deeff376b48c2daa5ab342ecc6d1f1389d655766b387a060f2aaa044b9624e3c",
+          "terminal": true,
+          "winner": "defenders",
+          "terminal_value": 1.0,
+          "legal_moves": []
+        },
+        {
+          "name": "brandubh-repetition",
+          "kind": "repetition",
+          "ruleset": "brandubh",
+          "position_digest": "2c691f26054f5481cd52d602ae05dd4b0cd6e1ec74f35e90c62b78632182df49",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 3,
+              "target": 5
+            },
+            {
+              "source": 10,
+              "target": 9
+            },
+            {
+              "source": 10,
+              "target": 8
+            },
+            {
+              "source": 10,
+              "target": 7
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 10,
+              "target": 12
+            },
+            {
+              "source": 10,
+              "target": 13
+            },
+            {
+              "source": 21,
+              "target": 14
+            },
+            {
+              "source": 21,
+              "target": 7
+            },
+            {
+              "source": 21,
+              "target": 28
+            },
+            {
+              "source": 21,
+              "target": 35
+            },
+            {
+              "source": 22,
+              "target": 15
+            },
+            {
+              "source": 22,
+              "target": 8
+            },
+            {
+              "source": 22,
+              "target": 1
+            },
+            {
+              "source": 22,
+              "target": 29
+            },
+            {
+              "source": 22,
+              "target": 36
+            },
+            {
+              "source": 22,
+              "target": 43
+            },
+            {
+              "source": 26,
+              "target": 19
+            },
+            {
+              "source": 26,
+              "target": 12
+            },
+            {
+              "source": 26,
+              "target": 5
+            },
+            {
+              "source": 26,
+              "target": 33
+            },
+            {
+              "source": 26,
+              "target": 40
+            },
+            {
+              "source": 26,
+              "target": 47
+            },
+            {
+              "source": 27,
+              "target": 20
+            },
+            {
+              "source": 27,
+              "target": 13
+            },
+            {
+              "source": 27,
+              "target": 34
+            },
+            {
+              "source": 27,
+              "target": 41
+            },
+            {
+              "source": 38,
+              "target": 37
+            },
+            {
+              "source": 38,
+              "target": 36
+            },
+            {
+              "source": 38,
+              "target": 35
+            },
+            {
+              "source": 38,
+              "target": 39
+            },
+            {
+              "source": 38,
+              "target": 40
+            },
+            {
+              "source": 38,
+              "target": 41
+            },
+            {
+              "source": 45,
+              "target": 44
+            },
+            {
+              "source": 45,
+              "target": 43
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 45,
+              "target": 47
+            }
+          ]
+        },
+        {
+          "name": "copenhagen-opening",
+          "kind": "opening",
+          "ruleset": "copenhagen",
+          "position_digest": "e859c62d72264f52925a157ed43047448ac2333a0eae85f424a9f08ed3aa00a6",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 14
+            },
+            {
+              "source": 3,
+              "target": 25
+            },
+            {
+              "source": 3,
+              "target": 36
+            },
+            {
+              "source": 3,
+              "target": 47
+            },
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 4,
+              "target": 15
+            },
+            {
+              "source": 4,
+              "target": 26
+            },
+            {
+              "source": 4,
+              "target": 37
+            },
+            {
+              "source": 6,
+              "target": 17
+            },
+            {
+              "source": 6,
+              "target": 28
+            },
+            {
+              "source": 6,
+              "target": 39
+            },
+            {
+              "source": 7,
+              "target": 18
+            },
+            {
+              "source": 7,
+              "target": 29
+            },
+            {
+              "source": 7,
+              "target": 40
+            },
+            {
+              "source": 7,
+              "target": 51
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 7,
+              "target": 9
+            },
+            {
+              "source": 16,
+              "target": 27
+            },
+            {
+              "source": 16,
+              "target": 15
+            },
+            {
+              "source": 16,
+              "target": 14
+            },
+            {
+              "source": 16,
+              "target": 13
+            },
+            {
+              "source": 16,
+              "target": 12
+            },
+            {
+              "source": 16,
+              "target": 11
+            },
+            {
+              "source": 16,
+              "target": 17
+            },
+            {
+              "source": 16,
+              "target": 18
+            },
+            {
+              "source": 16,
+              "target": 19
+            },
+            {
+              "source": 16,
+              "target": 20
+            },
+            {
+              "source": 16,
+              "target": 21
+            },
+            {
+              "source": 33,
+              "target": 22
+            },
+            {
+              "source": 33,
+              "target": 11
+            },
+            {
+              "source": 33,
+              "target": 34
+            },
+            {
+              "source": 33,
+              "target": 35
+            },
+            {
+              "source": 33,
+              "target": 36
+            },
+            {
+              "source": 33,
+              "target": 37
+            },
+            {
+              "source": 43,
+              "target": 32
+            },
+            {
+              "source": 43,
+              "target": 21
+            },
+            {
+              "source": 43,
+              "target": 42
+            },
+            {
+              "source": 43,
+              "target": 41
+            },
+            {
+              "source": 43,
+              "target": 40
+            },
+            {
+              "source": 43,
+              "target": 39
+            },
+            {
+              "source": 44,
+              "target": 45
+            },
+            {
+              "source": 44,
+              "target": 46
+            },
+            {
+              "source": 44,
+              "target": 47
+            },
+            {
+              "source": 54,
+              "target": 53
+            },
+            {
+              "source": 54,
+              "target": 52
+            },
+            {
+              "source": 54,
+              "target": 51
+            },
+            {
+              "source": 56,
+              "target": 45
+            },
+            {
+              "source": 56,
+              "target": 34
+            },
+            {
+              "source": 56,
+              "target": 23
+            },
+            {
+              "source": 56,
+              "target": 12
+            },
+            {
+              "source": 56,
+              "target": 1
+            },
+            {
+              "source": 56,
+              "target": 67
+            },
+            {
+              "source": 56,
+              "target": 78
+            },
+            {
+              "source": 56,
+              "target": 89
+            },
+            {
+              "source": 56,
+              "target": 100
+            },
+            {
+              "source": 56,
+              "target": 111
+            },
+            {
+              "source": 56,
+              "target": 57
+            },
+            {
+              "source": 64,
+              "target": 53
+            },
+            {
+              "source": 64,
+              "target": 42
+            },
+            {
+              "source": 64,
+              "target": 31
+            },
+            {
+              "source": 64,
+              "target": 20
+            },
+            {
+              "source": 64,
+              "target": 9
+            },
+            {
+              "source": 64,
+              "target": 75
+            },
+            {
+              "source": 64,
+              "target": 86
+            },
+            {
+              "source": 64,
+              "target": 97
+            },
+            {
+              "source": 64,
+              "target": 108
+            },
+            {
+              "source": 64,
+              "target": 119
+            },
+            {
+              "source": 64,
+              "target": 63
+            },
+            {
+              "source": 66,
+              "target": 67
+            },
+            {
+              "source": 66,
+              "target": 68
+            },
+            {
+              "source": 66,
+              "target": 69
+            },
+            {
+              "source": 76,
+              "target": 75
+            },
+            {
+              "source": 76,
+              "target": 74
+            },
+            {
+              "source": 76,
+              "target": 73
+            },
+            {
+              "source": 77,
+              "target": 88
+            },
+            {
+              "source": 77,
+              "target": 99
+            },
+            {
+              "source": 77,
+              "target": 78
+            },
+            {
+              "source": 77,
+              "target": 79
+            },
+            {
+              "source": 77,
+              "target": 80
+            },
+            {
+              "source": 77,
+              "target": 81
+            },
+            {
+              "source": 87,
+              "target": 98
+            },
+            {
+              "source": 87,
+              "target": 109
+            },
+            {
+              "source": 87,
+              "target": 86
+            },
+            {
+              "source": 87,
+              "target": 85
+            },
+            {
+              "source": 87,
+              "target": 84
+            },
+            {
+              "source": 87,
+              "target": 83
+            },
+            {
+              "source": 104,
+              "target": 93
+            },
+            {
+              "source": 104,
+              "target": 103
+            },
+            {
+              "source": 104,
+              "target": 102
+            },
+            {
+              "source": 104,
+              "target": 101
+            },
+            {
+              "source": 104,
+              "target": 100
+            },
+            {
+              "source": 104,
+              "target": 99
+            },
+            {
+              "source": 104,
+              "target": 105
+            },
+            {
+              "source": 104,
+              "target": 106
+            },
+            {
+              "source": 104,
+              "target": 107
+            },
+            {
+              "source": 104,
+              "target": 108
+            },
+            {
+              "source": 104,
+              "target": 109
+            },
+            {
+              "source": 113,
+              "target": 102
+            },
+            {
+              "source": 113,
+              "target": 91
+            },
+            {
+              "source": 113,
+              "target": 80
+            },
+            {
+              "source": 113,
+              "target": 69
+            },
+            {
+              "source": 113,
+              "target": 112
+            },
+            {
+              "source": 113,
+              "target": 111
+            },
+            {
+              "source": 114,
+              "target": 103
+            },
+            {
+              "source": 114,
+              "target": 92
+            },
+            {
+              "source": 114,
+              "target": 81
+            },
+            {
+              "source": 116,
+              "target": 105
+            },
+            {
+              "source": 116,
+              "target": 94
+            },
+            {
+              "source": 116,
+              "target": 83
+            },
+            {
+              "source": 117,
+              "target": 106
+            },
+            {
+              "source": 117,
+              "target": 95
+            },
+            {
+              "source": 117,
+              "target": 84
+            },
+            {
+              "source": 117,
+              "target": 73
+            },
+            {
+              "source": 117,
+              "target": 118
+            },
+            {
+              "source": 117,
+              "target": 119
+            }
+          ]
+        },
+        {
+          "name": "copenhagen-midgame",
+          "kind": "midgame",
+          "ruleset": "copenhagen",
+          "position_digest": "47786645ef9781d3169a05417846793d3d13263861a9ce4a9510c5dae4ffa67d",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 5,
+              "target": 4
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 7,
+              "target": 18
+            },
+            {
+              "source": 7,
+              "target": 29
+            },
+            {
+              "source": 7,
+              "target": 40
+            },
+            {
+              "source": 7,
+              "target": 51
+            },
+            {
+              "source": 7,
+              "target": 6
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 7,
+              "target": 9
+            },
+            {
+              "source": 14,
+              "target": 25
+            },
+            {
+              "source": 14,
+              "target": 36
+            },
+            {
+              "source": 14,
+              "target": 47
+            },
+            {
+              "source": 14,
+              "target": 13
+            },
+            {
+              "source": 14,
+              "target": 12
+            },
+            {
+              "source": 14,
+              "target": 11
+            },
+            {
+              "source": 14,
+              "target": 15
+            },
+            {
+              "source": 16,
+              "target": 27
+            },
+            {
+              "source": 16,
+              "target": 15
+            },
+            {
+              "source": 17,
+              "target": 6
+            },
+            {
+              "source": 17,
+              "target": 28
+            },
+            {
+              "source": 17,
+              "target": 39
+            },
+            {
+              "source": 17,
+              "target": 18
+            },
+            {
+              "source": 17,
+              "target": 19
+            },
+            {
+              "source": 17,
+              "target": 20
+            },
+            {
+              "source": 17,
+              "target": 21
+            },
+            {
+              "source": 33,
+              "target": 22
+            },
+            {
+              "source": 33,
+              "target": 11
+            },
+            {
+              "source": 33,
+              "target": 34
+            },
+            {
+              "source": 33,
+              "target": 35
+            },
+            {
+              "source": 33,
+              "target": 36
+            },
+            {
+              "source": 33,
+              "target": 37
+            },
+            {
+              "source": 43,
+              "target": 32
+            },
+            {
+              "source": 43,
+              "target": 21
+            },
+            {
+              "source": 43,
+              "target": 42
+            },
+            {
+              "source": 43,
+              "target": 41
+            },
+            {
+              "source": 43,
+              "target": 40
+            },
+            {
+              "source": 43,
+              "target": 39
+            },
+            {
+              "source": 44,
+              "target": 45
+            },
+            {
+              "source": 44,
+              "target": 46
+            },
+            {
+              "source": 44,
+              "target": 47
+            },
+            {
+              "source": 54,
+              "target": 53
+            },
+            {
+              "source": 54,
+              "target": 52
+            },
+            {
+              "source": 54,
+              "target": 51
+            },
+            {
+              "source": 56,
+              "target": 45
+            },
+            {
+              "source": 56,
+              "target": 34
+            },
+            {
+              "source": 56,
+              "target": 23
+            },
+            {
+              "source": 56,
+              "target": 12
+            },
+            {
+              "source": 56,
+              "target": 1
+            },
+            {
+              "source": 56,
+              "target": 67
+            },
+            {
+              "source": 56,
+              "target": 78
+            },
+            {
+              "source": 56,
+              "target": 89
+            },
+            {
+              "source": 56,
+              "target": 100
+            },
+            {
+              "source": 56,
+              "target": 111
+            },
+            {
+              "source": 56,
+              "target": 57
+            },
+            {
+              "source": 64,
+              "target": 53
+            },
+            {
+              "source": 64,
+              "target": 42
+            },
+            {
+              "source": 64,
+              "target": 31
+            },
+            {
+              "source": 64,
+              "target": 20
+            },
+            {
+              "source": 64,
+              "target": 9
+            },
+            {
+              "source": 64,
+              "target": 75
+            },
+            {
+              "source": 64,
+              "target": 86
+            },
+            {
+              "source": 64,
+              "target": 97
+            },
+            {
+              "source": 64,
+              "target": 108
+            },
+            {
+              "source": 64,
+              "target": 119
+            },
+            {
+              "source": 64,
+              "target": 63
+            },
+            {
+              "source": 66,
+              "target": 67
+            },
+            {
+              "source": 66,
+              "target": 68
+            },
+            {
+              "source": 66,
+              "target": 69
+            },
+            {
+              "source": 76,
+              "target": 75
+            },
+            {
+              "source": 76,
+              "target": 74
+            },
+            {
+              "source": 76,
+              "target": 73
+            },
+            {
+              "source": 77,
+              "target": 88
+            },
+            {
+              "source": 77,
+              "target": 99
+            },
+            {
+              "source": 77,
+              "target": 78
+            },
+            {
+              "source": 77,
+              "target": 79
+            },
+            {
+              "source": 77,
+              "target": 80
+            },
+            {
+              "source": 77,
+              "target": 81
+            },
+            {
+              "source": 87,
+              "target": 98
+            },
+            {
+              "source": 87,
+              "target": 109
+            },
+            {
+              "source": 87,
+              "target": 86
+            },
+            {
+              "source": 87,
+              "target": 85
+            },
+            {
+              "source": 87,
+              "target": 84
+            },
+            {
+              "source": 87,
+              "target": 83
+            },
+            {
+              "source": 104,
+              "target": 93
+            },
+            {
+              "source": 104,
+              "target": 103
+            },
+            {
+              "source": 104,
+              "target": 102
+            },
+            {
+              "source": 104,
+              "target": 101
+            },
+            {
+              "source": 104,
+              "target": 100
+            },
+            {
+              "source": 104,
+              "target": 99
+            },
+            {
+              "source": 104,
+              "target": 105
+            },
+            {
+              "source": 104,
+              "target": 106
+            },
+            {
+              "source": 104,
+              "target": 107
+            },
+            {
+              "source": 104,
+              "target": 108
+            },
+            {
+              "source": 104,
+              "target": 109
+            },
+            {
+              "source": 113,
+              "target": 102
+            },
+            {
+              "source": 113,
+              "target": 91
+            },
+            {
+              "source": 113,
+              "target": 80
+            },
+            {
+              "source": 113,
+              "target": 69
+            },
+            {
+              "source": 113,
+              "target": 112
+            },
+            {
+              "source": 113,
+              "target": 111
+            },
+            {
+              "source": 114,
+              "target": 103
+            },
+            {
+              "source": 114,
+              "target": 92
+            },
+            {
+              "source": 114,
+              "target": 81
+            },
+            {
+              "source": 116,
+              "target": 105
+            },
+            {
+              "source": 116,
+              "target": 94
+            },
+            {
+              "source": 116,
+              "target": 83
+            },
+            {
+              "source": 117,
+              "target": 106
+            },
+            {
+              "source": 117,
+              "target": 95
+            },
+            {
+              "source": 117,
+              "target": 84
+            },
+            {
+              "source": 117,
+              "target": 73
+            },
+            {
+              "source": 117,
+              "target": 118
+            },
+            {
+              "source": 117,
+              "target": 119
+            }
+          ]
+        },
+        {
+          "name": "copenhagen-endgame",
+          "kind": "endgame",
+          "ruleset": "copenhagen",
+          "position_digest": "bcbc9058bc56ffc99f8fa5b7820d74b322fea8c88538b19deb3d2c40f77e5640",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 5,
+              "target": 16
+            },
+            {
+              "source": 5,
+              "target": 27
+            },
+            {
+              "source": 5,
+              "target": 38
+            },
+            {
+              "source": 5,
+              "target": 4
+            },
+            {
+              "source": 5,
+              "target": 3
+            },
+            {
+              "source": 5,
+              "target": 2
+            },
+            {
+              "source": 5,
+              "target": 1
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 5,
+              "target": 7
+            },
+            {
+              "source": 5,
+              "target": 8
+            },
+            {
+              "source": 5,
+              "target": 9
+            },
+            {
+              "source": 55,
+              "target": 44
+            },
+            {
+              "source": 55,
+              "target": 33
+            },
+            {
+              "source": 55,
+              "target": 22
+            },
+            {
+              "source": 55,
+              "target": 11
+            },
+            {
+              "source": 55,
+              "target": 66
+            },
+            {
+              "source": 55,
+              "target": 77
+            },
+            {
+              "source": 55,
+              "target": 88
+            },
+            {
+              "source": 55,
+              "target": 99
+            },
+            {
+              "source": 55,
+              "target": 56
+            },
+            {
+              "source": 55,
+              "target": 57
+            },
+            {
+              "source": 55,
+              "target": 58
+            },
+            {
+              "source": 115,
+              "target": 104
+            },
+            {
+              "source": 115,
+              "target": 93
+            },
+            {
+              "source": 115,
+              "target": 82
+            },
+            {
+              "source": 115,
+              "target": 71
+            },
+            {
+              "source": 115,
+              "target": 114
+            },
+            {
+              "source": 115,
+              "target": 113
+            },
+            {
+              "source": 115,
+              "target": 112
+            },
+            {
+              "source": 115,
+              "target": 111
+            },
+            {
+              "source": 115,
+              "target": 116
+            },
+            {
+              "source": 115,
+              "target": 117
+            },
+            {
+              "source": 115,
+              "target": 118
+            },
+            {
+              "source": 115,
+              "target": 119
+            }
+          ]
+        },
+        {
+          "name": "copenhagen-tactical",
+          "kind": "tactical",
+          "ruleset": "copenhagen",
+          "position_digest": "5723916f197ce48b29d157e40a849f404decbefb7da6549b8ff2254364e6f282",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 2,
+              "target": 1
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 2,
+              "target": 4
+            },
+            {
+              "source": 2,
+              "target": 5
+            },
+            {
+              "source": 2,
+              "target": 6
+            },
+            {
+              "source": 2,
+              "target": 7
+            },
+            {
+              "source": 2,
+              "target": 8
+            },
+            {
+              "source": 2,
+              "target": 9
+            },
+            {
+              "source": 22,
+              "target": 11
+            },
+            {
+              "source": 22,
+              "target": 33
+            },
+            {
+              "source": 22,
+              "target": 44
+            },
+            {
+              "source": 22,
+              "target": 55
+            },
+            {
+              "source": 22,
+              "target": 66
+            },
+            {
+              "source": 22,
+              "target": 77
+            },
+            {
+              "source": 22,
+              "target": 88
+            },
+            {
+              "source": 22,
+              "target": 99
+            },
+            {
+              "source": 26,
+              "target": 15
+            },
+            {
+              "source": 26,
+              "target": 4
+            },
+            {
+              "source": 26,
+              "target": 37
+            },
+            {
+              "source": 26,
+              "target": 27
+            },
+            {
+              "source": 26,
+              "target": 28
+            },
+            {
+              "source": 26,
+              "target": 29
+            },
+            {
+              "source": 26,
+              "target": 30
+            },
+            {
+              "source": 26,
+              "target": 31
+            },
+            {
+              "source": 26,
+              "target": 32
+            },
+            {
+              "source": 57,
+              "target": 46
+            },
+            {
+              "source": 57,
+              "target": 35
+            },
+            {
+              "source": 57,
+              "target": 24
+            },
+            {
+              "source": 57,
+              "target": 68
+            },
+            {
+              "source": 57,
+              "target": 79
+            },
+            {
+              "source": 57,
+              "target": 90
+            },
+            {
+              "source": 57,
+              "target": 101
+            },
+            {
+              "source": 57,
+              "target": 112
+            },
+            {
+              "source": 57,
+              "target": 56
+            },
+            {
+              "source": 57,
+              "target": 55
+            },
+            {
+              "source": 57,
+              "target": 58
+            },
+            {
+              "source": 57,
+              "target": 59
+            },
+            {
+              "source": 57,
+              "target": 61
+            },
+            {
+              "source": 57,
+              "target": 62
+            },
+            {
+              "source": 57,
+              "target": 63
+            },
+            {
+              "source": 57,
+              "target": 64
+            },
+            {
+              "source": 57,
+              "target": 65
+            }
+          ]
+        },
+        {
+          "name": "copenhagen-king-escape",
+          "kind": "king-escape",
+          "ruleset": "copenhagen",
+          "position_digest": "aee8ac5b44c3fd78544f94f9ffdb2662f330389d926820165abcb5bcd79b92a0",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 2,
+              "target": 13
+            },
+            {
+              "source": 2,
+              "target": 24
+            },
+            {
+              "source": 2,
+              "target": 35
+            },
+            {
+              "source": 2,
+              "target": 46
+            },
+            {
+              "source": 2,
+              "target": 57
+            },
+            {
+              "source": 2,
+              "target": 68
+            },
+            {
+              "source": 2,
+              "target": 79
+            },
+            {
+              "source": 2,
+              "target": 90
+            },
+            {
+              "source": 2,
+              "target": 101
+            },
+            {
+              "source": 2,
+              "target": 112
+            },
+            {
+              "source": 2,
+              "target": 1
+            },
+            {
+              "source": 2,
+              "target": 0
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 2,
+              "target": 4
+            },
+            {
+              "source": 2,
+              "target": 5
+            },
+            {
+              "source": 2,
+              "target": 6
+            },
+            {
+              "source": 2,
+              "target": 7
+            },
+            {
+              "source": 2,
+              "target": 8
+            },
+            {
+              "source": 2,
+              "target": 9
+            },
+            {
+              "source": 2,
+              "target": 10
+            }
+          ]
+        },
+        {
+          "name": "copenhagen-terminal",
+          "kind": "terminal",
+          "ruleset": "copenhagen",
+          "position_digest": "a8f5c96a9ed82989b5ef8b71fe92dac1afb7f17246a73bbc997f7a3a83ef09d5",
+          "terminal": true,
+          "winner": "defenders",
+          "terminal_value": 1.0,
+          "legal_moves": []
+        },
+        {
+          "name": "copenhagen-repetition",
+          "kind": "repetition",
+          "ruleset": "copenhagen",
+          "position_digest": "3938956aba1e7abeb8fd7f0e5d058c470f9404e462ff8c6c9f889eac58b154bb",
+          "terminal": false,
+          "winner": null,
+          "terminal_value": null,
+          "legal_moves": [
+            {
+              "source": 3,
+              "target": 14
+            },
+            {
+              "source": 3,
+              "target": 25
+            },
+            {
+              "source": 3,
+              "target": 36
+            },
+            {
+              "source": 3,
+              "target": 47
+            },
+            {
+              "source": 3,
+              "target": 2
+            },
+            {
+              "source": 3,
+              "target": 1
+            },
+            {
+              "source": 4,
+              "target": 15
+            },
+            {
+              "source": 4,
+              "target": 26
+            },
+            {
+              "source": 4,
+              "target": 37
+            },
+            {
+              "source": 6,
+              "target": 17
+            },
+            {
+              "source": 6,
+              "target": 28
+            },
+            {
+              "source": 6,
+              "target": 39
+            },
+            {
+              "source": 7,
+              "target": 18
+            },
+            {
+              "source": 7,
+              "target": 29
+            },
+            {
+              "source": 7,
+              "target": 40
+            },
+            {
+              "source": 7,
+              "target": 51
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 7,
+              "target": 9
+            },
+            {
+              "source": 16,
+              "target": 27
+            },
+            {
+              "source": 16,
+              "target": 15
+            },
+            {
+              "source": 16,
+              "target": 14
+            },
+            {
+              "source": 16,
+              "target": 13
+            },
+            {
+              "source": 16,
+              "target": 12
+            },
+            {
+              "source": 16,
+              "target": 11
+            },
+            {
+              "source": 16,
+              "target": 17
+            },
+            {
+              "source": 16,
+              "target": 18
+            },
+            {
+              "source": 16,
+              "target": 19
+            },
+            {
+              "source": 16,
+              "target": 20
+            },
+            {
+              "source": 16,
+              "target": 21
+            },
+            {
+              "source": 33,
+              "target": 22
+            },
+            {
+              "source": 33,
+              "target": 11
+            },
+            {
+              "source": 33,
+              "target": 34
+            },
+            {
+              "source": 33,
+              "target": 35
+            },
+            {
+              "source": 33,
+              "target": 36
+            },
+            {
+              "source": 33,
+              "target": 37
+            },
+            {
+              "source": 43,
+              "target": 32
+            },
+            {
+              "source": 43,
+              "target": 21
+            },
+            {
+              "source": 43,
+              "target": 42
+            },
+            {
+              "source": 43,
+              "target": 41
+            },
+            {
+              "source": 43,
+              "target": 40
+            },
+            {
+              "source": 43,
+              "target": 39
+            },
+            {
+              "source": 44,
+              "target": 45
+            },
+            {
+              "source": 44,
+              "target": 46
+            },
+            {
+              "source": 44,
+              "target": 47
+            },
+            {
+              "source": 54,
+              "target": 53
+            },
+            {
+              "source": 54,
+              "target": 52
+            },
+            {
+              "source": 54,
+              "target": 51
+            },
+            {
+              "source": 56,
+              "target": 45
+            },
+            {
+              "source": 56,
+              "target": 34
+            },
+            {
+              "source": 56,
+              "target": 23
+            },
+            {
+              "source": 56,
+              "target": 12
+            },
+            {
+              "source": 56,
+              "target": 1
+            },
+            {
+              "source": 56,
+              "target": 67
+            },
+            {
+              "source": 56,
+              "target": 78
+            },
+            {
+              "source": 56,
+              "target": 89
+            },
+            {
+              "source": 56,
+              "target": 100
+            },
+            {
+              "source": 56,
+              "target": 111
+            },
+            {
+              "source": 56,
+              "target": 57
+            },
+            {
+              "source": 64,
+              "target": 53
+            },
+            {
+              "source": 64,
+              "target": 42
+            },
+            {
+              "source": 64,
+              "target": 31
+            },
+            {
+              "source": 64,
+              "target": 20
+            },
+            {
+              "source": 64,
+              "target": 9
+            },
+            {
+              "source": 64,
+              "target": 75
+            },
+            {
+              "source": 64,
+              "target": 86
+            },
+            {
+              "source": 64,
+              "target": 97
+            },
+            {
+              "source": 64,
+              "target": 108
+            },
+            {
+              "source": 64,
+              "target": 119
+            },
+            {
+              "source": 64,
+              "target": 63
+            },
+            {
+              "source": 66,
+              "target": 67
+            },
+            {
+              "source": 66,
+              "target": 68
+            },
+            {
+              "source": 66,
+              "target": 69
+            },
+            {
+              "source": 76,
+              "target": 75
+            },
+            {
+              "source": 76,
+              "target": 74
+            },
+            {
+              "source": 76,
+              "target": 73
+            },
+            {
+              "source": 77,
+              "target": 88
+            },
+            {
+              "source": 77,
+              "target": 99
+            },
+            {
+              "source": 77,
+              "target": 78
+            },
+            {
+              "source": 77,
+              "target": 79
+            },
+            {
+              "source": 77,
+              "target": 80
+            },
+            {
+              "source": 77,
+              "target": 81
+            },
+            {
+              "source": 87,
+              "target": 98
+            },
+            {
+              "source": 87,
+              "target": 109
+            },
+            {
+              "source": 87,
+              "target": 86
+            },
+            {
+              "source": 87,
+              "target": 85
+            },
+            {
+              "source": 87,
+              "target": 84
+            },
+            {
+              "source": 87,
+              "target": 83
+            },
+            {
+              "source": 104,
+              "target": 93
+            },
+            {
+              "source": 104,
+              "target": 103
+            },
+            {
+              "source": 104,
+              "target": 102
+            },
+            {
+              "source": 104,
+              "target": 101
+            },
+            {
+              "source": 104,
+              "target": 100
+            },
+            {
+              "source": 104,
+              "target": 99
+            },
+            {
+              "source": 104,
+              "target": 105
+            },
+            {
+              "source": 104,
+              "target": 106
+            },
+            {
+              "source": 104,
+              "target": 107
+            },
+            {
+              "source": 104,
+              "target": 108
+            },
+            {
+              "source": 104,
+              "target": 109
+            },
+            {
+              "source": 113,
+              "target": 102
+            },
+            {
+              "source": 113,
+              "target": 91
+            },
+            {
+              "source": 113,
+              "target": 80
+            },
+            {
+              "source": 113,
+              "target": 69
+            },
+            {
+              "source": 113,
+              "target": 112
+            },
+            {
+              "source": 113,
+              "target": 111
+            },
+            {
+              "source": 114,
+              "target": 103
+            },
+            {
+              "source": 114,
+              "target": 92
+            },
+            {
+              "source": 114,
+              "target": 81
+            },
+            {
+              "source": 116,
+              "target": 105
+            },
+            {
+              "source": 116,
+              "target": 94
+            },
+            {
+              "source": 116,
+              "target": 83
+            },
+            {
+              "source": 117,
+              "target": 106
+            },
+            {
+              "source": 117,
+              "target": 95
+            },
+            {
+              "source": 117,
+              "target": 84
+            },
+            {
+              "source": 117,
+              "target": 73
+            },
+            {
+              "source": 117,
+              "target": 118
+            },
+            {
+              "source": 117,
+              "target": 119
+            }
+          ]
+        }
+      ]
+    },
+    "workload_digest": "26d16c0db487e76f8db716c4fd549b73db6aeaf0a5beb18739508bbf30e61143",
+    "mode": "fixed_time",
+    "seed": 7,
+    "repetitions": 2,
+    "warmup": 1,
+    "engine_identity": {
+      "modules": [
+        "hnefatafl.engine",
+        "hnefatafl.ai",
+        "hnefatafl.shield_maiden",
+        "hnefatafl.symmetry"
+      ],
+      "sha256": "0dbd66f1201b48b99fe34c55f77aa835c96e694202c30faeda4ab2c5f75017ac"
+    },
+    "effective_configs": {
+      "standard": {
+        "algorithm": "alpha_beta",
+        "depth": 5,
+        "time_limit": 2.0,
+        "heuristic": "shield_maiden",
+        "search": {
+          "legacy": false,
+          "transposition": true,
+          "move_ordering": true,
+          "symmetry_transposition": false,
+          "symmetry_pruning": false,
+          "table_capacity": 100000
+        },
+        "seed": 7
+      }
+    }
+  },
+  "records": [
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-opening",
+      "kind": "opening",
+      "position_hash": "7c6199d13824b5d034ef59054c84e401ea462eb9b07511441adea3c963f9e540",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.1676429528743,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.16764295287430286,
+      "best_move": {
+        "source": 22,
+        "target": 21
+      },
+      "value": -0.026105178629766055,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 4207,
+      "evaluations": 25230,
+      "cutoffs": 3883,
+      "successors": 34538,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 12613.94268070081,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-opening",
+      "kind": "opening",
+      "position_hash": "7c6199d13824b5d034ef59054c84e401ea462eb9b07511441adea3c963f9e540",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2330420538783,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.23304205387830734,
+      "best_move": {
+        "source": 22,
+        "target": 21
+      },
+      "value": -0.026105178629766055,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 4207,
+      "evaluations": 25230,
+      "cutoffs": 3883,
+      "successors": 34538,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 12613.530258500952,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-opening",
+      "kind": "opening",
+      "position_hash": "7c6199d13824b5d034ef59054c84e401ea462eb9b07511441adea3c963f9e540",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2066588494927,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.2066588494926691,
+      "best_move": {
+        "source": 22,
+        "target": 21
+      },
+      "value": -0.026105178629766055,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 4207,
+      "evaluations": 25230,
+      "cutoffs": 3883,
+      "successors": 34538,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 12613.696633982885,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-midgame",
+      "kind": "midgame",
+      "position_hash": "0804f138d4cbf9507ab620b21b667b9d8b85538f9cc50682fcf8c4383c1f821b",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2385380212218,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.23853802122175694,
+      "best_move": {
+        "source": 28,
+        "target": 19
+      },
+      "value": -0.029991003238820143,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 3564,
+      "evaluations": 22995,
+      "cutoffs": 3247,
+      "successors": 28908,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11496.128868084048,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-midgame",
+      "kind": "midgame",
+      "position_hash": "0804f138d4cbf9507ab620b21b667b9d8b85538f9cc50682fcf8c4383c1f821b",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2095480449498,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.20954804494976997,
+      "best_move": {
+        "source": 28,
+        "target": 19
+      },
+      "value": -0.029991003238820143,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 3564,
+      "evaluations": 22995,
+      "cutoffs": 3247,
+      "successors": 28908,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11496.29548687828,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-midgame",
+      "kind": "midgame",
+      "position_hash": "0804f138d4cbf9507ab620b21b667b9d8b85538f9cc50682fcf8c4383c1f821b",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.35813706927,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.35813706927001476,
+      "best_move": {
+        "source": 28,
+        "target": 19
+      },
+      "value": -0.029991003238820143,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 3564,
+      "evaluations": 22995,
+      "cutoffs": 3247,
+      "successors": 28908,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11495.441528130576,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-endgame",
+      "kind": "endgame",
+      "position_hash": "3244c3ac23e22b20e4d86e60bef3216a8fb105e6c1b8c6ef08c8ed233ed11cad",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 235.8937228564173,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 76,
+        "target": 78
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1119,
+      "evaluations": 2071,
+      "cutoffs": 1063,
+      "successors": 3220,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 8779.377318406081,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-endgame",
+      "kind": "endgame",
+      "position_hash": "3244c3ac23e22b20e4d86e60bef3216a8fb105e6c1b8c6ef08c8ed233ed11cad",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 240.57056405581534,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 76,
+        "target": 78
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1119,
+      "evaluations": 2071,
+      "cutoffs": 1063,
+      "successors": 3220,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 8608.700769889298,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-endgame",
+      "kind": "endgame",
+      "position_hash": "3244c3ac23e22b20e4d86e60bef3216a8fb105e6c1b8c6ef08c8ed233ed11cad",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 214.13828106597066,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 76,
+        "target": 78
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1119,
+      "evaluations": 2071,
+      "cutoffs": 1063,
+      "successors": 3220,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 9671.32074513093,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-tactical",
+      "kind": "tactical",
+      "position_hash": "60fe1f08409c9c9d6e7371ac64656b419355ce243b64ba2a67a4c7c9faafdd11",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 329.4614530168474,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 6
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1669,
+      "evaluations": 3153,
+      "cutoffs": 1585,
+      "successors": 4917,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 9570.163584019549,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-tactical",
+      "kind": "tactical",
+      "position_hash": "60fe1f08409c9c9d6e7371ac64656b419355ce243b64ba2a67a4c7c9faafdd11",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 303.6040219012648,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 6
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1669,
+      "evaluations": 3153,
+      "cutoffs": 1585,
+      "successors": 4917,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 10385.237916991062,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-tactical",
+      "kind": "tactical",
+      "position_hash": "60fe1f08409c9c9d6e7371ac64656b419355ce243b64ba2a67a4c7c9faafdd11",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 296.32686683908105,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 6
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1669,
+      "evaluations": 3153,
+      "cutoffs": 1585,
+      "successors": 4917,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 10640.27718321006,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-king-escape",
+      "kind": "king-escape",
+      "position_hash": "782c74eea8e5a44e18100de679a09a71a7eb056589ab04e221b4b02df5dedbd1",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 73.93901096656919,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 6
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 298,
+      "evaluations": 1594,
+      "cutoffs": 194,
+      "successors": 1853,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 21558.308383658416,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-king-escape",
+      "kind": "king-escape",
+      "position_hash": "782c74eea8e5a44e18100de679a09a71a7eb056589ab04e221b4b02df5dedbd1",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 75.41195792146027,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 6
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 298,
+      "evaluations": 1594,
+      "cutoffs": 194,
+      "successors": 1853,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 21137.231334851596,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-king-escape",
+      "kind": "king-escape",
+      "position_hash": "782c74eea8e5a44e18100de679a09a71a7eb056589ab04e221b4b02df5dedbd1",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 74.20422998256981,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 6
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 298,
+      "evaluations": 1594,
+      "cutoffs": 194,
+      "successors": 1853,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 21481.25518416433,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-terminal",
+      "kind": "terminal",
+      "position_hash": "39071e8993d21e3b91002cf78c256c43c44ad8030081395707fd7a1ebbc01144",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.002671964466571808,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-terminal",
+      "kind": "terminal",
+      "position_hash": "39071e8993d21e3b91002cf78c256c43c44ad8030081395707fd7a1ebbc01144",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0011238735169172287,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-terminal",
+      "kind": "terminal",
+      "position_hash": "39071e8993d21e3b91002cf78c256c43c44ad8030081395707fd7a1ebbc01144",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0011639203876256943,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-repetition",
+      "kind": "repetition",
+      "position_hash": "3e50a6ea7b3766744f6b40a2b2fe3dfd8d7b4329cd7d1b9fe4529d273e3f25dd",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2030089963228,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.20300899632275105,
+      "best_move": {
+        "source": 22,
+        "target": 21
+      },
+      "value": 0.0,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 4269,
+      "evaluations": 26063,
+      "cutoffs": 3927,
+      "successors": 35022,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 13030.177378384253,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-repetition",
+      "kind": "repetition",
+      "position_hash": "3e50a6ea7b3766744f6b40a2b2fe3dfd8d7b4329cd7d1b9fe4529d273e3f25dd",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2755380701274,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.275538070127368,
+      "best_move": {
+        "source": 22,
+        "target": 21
+      },
+      "value": 0.0,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 4269,
+      "evaluations": 26063,
+      "cutoffs": 3927,
+      "successors": 35022,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 13029.704910127368,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-repetition",
+      "kind": "repetition",
+      "position_hash": "3e50a6ea7b3766744f6b40a2b2fe3dfd8d7b4329cd7d1b9fe4529d273e3f25dd",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2446200232953,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.24462002329528332,
+      "best_move": {
+        "source": 22,
+        "target": 21
+      },
+      "value": 0.0,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 4269,
+      "evaluations": 26063,
+      "cutoffs": 3927,
+      "successors": 35022,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 13029.906312007211,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-opening",
+      "kind": "opening",
+      "position_hash": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.1769091468304,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.17690914683043957,
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "value": -0.027770635492009685,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2782,
+      "evaluations": 7793,
+      "cutoffs": 2597,
+      "successors": 11804,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 3896.1553672390314,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-opening",
+      "kind": "opening",
+      "position_hash": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.1651109196246,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.16511091962456703,
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "value": -0.027770635492009685,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2782,
+      "evaluations": 7793,
+      "cutoffs": 2597,
+      "successors": 11804,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 3896.1783492048708,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-opening",
+      "kind": "opening",
+      "position_hash": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.1781971659511,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.17819716595113277,
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "value": -0.027770635492009685,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2782,
+      "evaluations": 7793,
+      "cutoffs": 2597,
+      "successors": 11804,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 3896.152858301269,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-midgame",
+      "kind": "midgame",
+      "position_hash": "86bbd0736f7d33154bcb77fd581f19cc8c94d70cb979c25db4e370c3eac5ab83",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2023989800364,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.2023989800363779,
+      "best_move": {
+        "source": 21,
+        "target": 14
+      },
+      "value": 0.014998875101240778,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 3641,
+      "evaluations": 9431,
+      "cutoffs": 3373,
+      "successors": 14041,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4715.022842092956,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-midgame",
+      "kind": "midgame",
+      "position_hash": "86bbd0736f7d33154bcb77fd581f19cc8c94d70cb979c25db4e370c3eac5ab83",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2544729504734,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.2544729504734278,
+      "best_move": {
+        "source": 21,
+        "target": 14
+      },
+      "value": 0.014998875101240778,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 3641,
+      "evaluations": 9431,
+      "cutoffs": 3373,
+      "successors": 14041,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4714.900092731108,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-midgame",
+      "kind": "midgame",
+      "position_hash": "86bbd0736f7d33154bcb77fd581f19cc8c94d70cb979c25db4e370c3eac5ab83",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.1653081271797,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.16530812717974186,
+      "best_move": {
+        "source": 21,
+        "target": 14
+      },
+      "value": 0.014998875101240778,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 3641,
+      "evaluations": 9431,
+      "cutoffs": 3373,
+      "successors": 14041,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4715.110276975333,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-endgame",
+      "kind": "endgame",
+      "position_hash": "ef23adad480cd4db9fe2b60b0f474fc558e2f701361e7999ce0ed9d0fe89f72f",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 202.92994286864996,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 3,
+        "target": 5
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1339,
+      "evaluations": 2320,
+      "cutoffs": 1230,
+      "successors": 3764,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11432.51689328894,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-endgame",
+      "kind": "endgame",
+      "position_hash": "ef23adad480cd4db9fe2b60b0f474fc558e2f701361e7999ce0ed9d0fe89f72f",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 196.48735807277262,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 3,
+        "target": 5
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1339,
+      "evaluations": 2320,
+      "cutoffs": 1230,
+      "successors": 3764,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11807.375409570861,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-endgame",
+      "kind": "endgame",
+      "position_hash": "ef23adad480cd4db9fe2b60b0f474fc558e2f701361e7999ce0ed9d0fe89f72f",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 195.94654790125787,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 3,
+        "target": 5
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1339,
+      "evaluations": 2320,
+      "cutoffs": 1230,
+      "successors": 3764,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11839.963627065801,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-tactical",
+      "kind": "tactical",
+      "position_hash": "5cc0a351e06674cf3e6dc28945637f939e36ba4a6cc517bebe9cbf0e504f1a2d",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 393.4122510254383,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 37,
+        "target": 41
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 2551,
+      "evaluations": 4545,
+      "cutoffs": 2390,
+      "successors": 7408,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11552.76681941996,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-tactical",
+      "kind": "tactical",
+      "position_hash": "5cc0a351e06674cf3e6dc28945637f939e36ba4a6cc517bebe9cbf0e504f1a2d",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 415.6021939124912,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 37,
+        "target": 41
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 2551,
+      "evaluations": 4545,
+      "cutoffs": 2390,
+      "successors": 7408,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 10935.938420375593,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-tactical",
+      "kind": "tactical",
+      "position_hash": "5cc0a351e06674cf3e6dc28945637f939e36ba4a6cc517bebe9cbf0e504f1a2d",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 386.0919149592519,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 37,
+        "target": 41
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 2551,
+      "evaluations": 4545,
+      "cutoffs": 2390,
+      "successors": 7408,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11771.808276481726,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-king-escape",
+      "kind": "king-escape",
+      "position_hash": "bb0a75f0ac2be5de7272889e6409dd772ba70a30d2833a8f5fcd3cb893e65914",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 72.1037951298058,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 337,
+      "evaluations": 1197,
+      "cutoffs": 218,
+      "successors": 1521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 16601.067916676024,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-king-escape",
+      "kind": "king-escape",
+      "position_hash": "bb0a75f0ac2be5de7272889e6409dd772ba70a30d2833a8f5fcd3cb893e65914",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 79.8045857809484,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 337,
+      "evaluations": 1197,
+      "cutoffs": 218,
+      "successors": 1521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 14999.138060632069,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-king-escape",
+      "kind": "king-escape",
+      "position_hash": "bb0a75f0ac2be5de7272889e6409dd772ba70a30d2833a8f5fcd3cb893e65914",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 78.25885410420597,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 337,
+      "evaluations": 1197,
+      "cutoffs": 218,
+      "successors": 1521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 15295.393904006423,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-terminal",
+      "kind": "terminal",
+      "position_hash": "deeff376b48c2daa5ab342ecc6d1f1389d655766b387a060f2aaa044b9624e3c",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0018710270524024963,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-terminal",
+      "kind": "terminal",
+      "position_hash": "deeff376b48c2daa5ab342ecc6d1f1389d655766b387a060f2aaa044b9624e3c",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0011920928955078125,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-terminal",
+      "kind": "terminal",
+      "position_hash": "deeff376b48c2daa5ab342ecc6d1f1389d655766b387a060f2aaa044b9624e3c",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0011760275810956955,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-repetition",
+      "kind": "repetition",
+      "position_hash": "2c691f26054f5481cd52d602ae05dd4b0cd6e1ec74f35e90c62b78632182df49",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.1601949334145,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.16019493341445923,
+      "best_move": {
+        "source": 45,
+        "target": 46
+      },
+      "value": -0.027770635492009685,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2520,
+      "evaluations": 7233,
+      "cutoffs": 2346,
+      "successors": 10916,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 3616.2103507118277,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-repetition",
+      "kind": "repetition",
+      "position_hash": "2c691f26054f5481cd52d602ae05dd4b0cd6e1ec74f35e90c62b78632182df49",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.1602498814464,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.16024988144636154,
+      "best_move": {
+        "source": 45,
+        "target": 46
+      },
+      "value": -0.027770635492009685,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2520,
+      "evaluations": 7233,
+      "cutoffs": 2346,
+      "successors": 10916,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 3616.2102513679665,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "position": "brandubh-repetition",
+      "kind": "repetition",
+      "position_hash": "2c691f26054f5481cd52d602ae05dd4b0cd6e1ec74f35e90c62b78632182df49",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.1666489988565,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.1666489988565445,
+      "best_move": {
+        "source": 45,
+        "target": 46
+      },
+      "value": -0.027770635492009685,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2520,
+      "evaluations": 7233,
+      "cutoffs": 2346,
+      "successors": 10916,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 3616.1986820549846,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "position_hash": "e859c62d72264f52925a157ed43047448ac2333a0eae85f424a9f08ed3aa00a6",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.4373581614345,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.4373581614345312,
+      "best_move": {
+        "source": 76,
+        "target": 74
+      },
+      "value": -0.7227283058577739,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 465,
+      "evaluations": 14707,
+      "cutoffs": 344,
+      "successors": 17757,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7351.892294951408,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "position_hash": "e859c62d72264f52925a157ed43047448ac2333a0eae85f424a9f08ed3aa00a6",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.3922688774765,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.3922688774764538,
+      "best_move": {
+        "source": 76,
+        "target": 74
+      },
+      "value": -0.7227283058577739,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 465,
+      "evaluations": 14707,
+      "cutoffs": 344,
+      "successors": 17757,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7352.058008228985,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "position_hash": "e859c62d72264f52925a157ed43047448ac2333a0eae85f424a9f08ed3aa00a6",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.4637269303203,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.4637269303202629,
+      "best_move": {
+        "source": 76,
+        "target": 74
+      },
+      "value": -0.7227283058577739,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 465,
+      "evaluations": 14707,
+      "cutoffs": 344,
+      "successors": 17757,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7351.795387246365,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "position_hash": "47786645ef9781d3169a05417846793d3d13263861a9ce4a9510c5dae4ffa67d",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.3845850005746,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.3845850005745888,
+      "best_move": {
+        "source": 114,
+        "target": 92
+      },
+      "value": -0.7253713541664499,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 461,
+      "evaluations": 14653,
+      "cutoffs": 339,
+      "successors": 17330,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7325.091439852198,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "position_hash": "47786645ef9781d3169a05417846793d3d13263861a9ce4a9510c5dae4ffa67d",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.4821040201932,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.4821040201932192,
+      "best_move": {
+        "source": 114,
+        "target": 92
+      },
+      "value": -0.7253713541664499,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 461,
+      "evaluations": 14653,
+      "cutoffs": 339,
+      "successors": 17330,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7324.734358059566,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "position_hash": "47786645ef9781d3169a05417846793d3d13263861a9ce4a9510c5dae4ffa67d",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.4684240557253,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.4684240557253361,
+      "best_move": {
+        "source": 114,
+        "target": 92
+      },
+      "value": -0.7253713541664499,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 461,
+      "evaluations": 14653,
+      "cutoffs": 339,
+      "successors": 17330,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7324.784447380922,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-endgame",
+      "kind": "endgame",
+      "position_hash": "bcbc9058bc56ffc99f8fa5b7820d74b322fea8c88538b19deb3d2c40f77e5640",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 1868.7243359163404,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 55,
+        "target": 33
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 4573,
+      "evaluations": 7953,
+      "cutoffs": 4373,
+      "successors": 12693,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4255.844399917978,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-endgame",
+      "kind": "endgame",
+      "position_hash": "bcbc9058bc56ffc99f8fa5b7820d74b322fea8c88538b19deb3d2c40f77e5640",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 1849.1725099738687,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 55,
+        "target": 33
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 4573,
+      "evaluations": 7953,
+      "cutoffs": 4373,
+      "successors": 12693,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4300.842651025775,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-endgame",
+      "kind": "endgame",
+      "position_hash": "bcbc9058bc56ffc99f8fa5b7820d74b322fea8c88538b19deb3d2c40f77e5640",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 1841.0739230457693,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 55,
+        "target": 33
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 4573,
+      "evaluations": 7953,
+      "cutoffs": 4373,
+      "successors": 12693,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4319.761363434556,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-tactical",
+      "kind": "tactical",
+      "position_hash": "5723916f197ce48b29d157e40a849f404decbefb7da6549b8ff2254364e6f282",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2718959003687,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.2718959003686905,
+      "best_move": {
+        "source": 57,
+        "target": 112
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2554,
+      "evaluations": 10436,
+      "cutoffs": 2366,
+      "successors": 13847,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 5217.2907200210975,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-tactical",
+      "kind": "tactical",
+      "position_hash": "5723916f197ce48b29d157e40a849f404decbefb7da6549b8ff2254364e6f282",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.234761973843,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.23476197384297848,
+      "best_move": {
+        "source": 57,
+        "target": 112
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2554,
+      "evaluations": 10436,
+      "cutoffs": 2366,
+      "successors": 13847,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 5217.387577896954,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-tactical",
+      "kind": "tactical",
+      "position_hash": "5723916f197ce48b29d157e40a849f404decbefb7da6549b8ff2254364e6f282",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.2961389254779,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.29613892547786236,
+      "best_move": {
+        "source": 57,
+        "target": 112
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 2554,
+      "evaluations": 10436,
+      "cutoffs": 2366,
+      "successors": 13847,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 5217.227487928875,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-king-escape",
+      "kind": "king-escape",
+      "position_hash": "aee8ac5b44c3fd78544f94f9ffdb2662f330389d926820165abcb5bcd79b92a0",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 1123.8946488592774,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 10
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1116,
+      "evaluations": 7150,
+      "cutoffs": 732,
+      "successors": 8232,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 6361.806248705834,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-king-escape",
+      "kind": "king-escape",
+      "position_hash": "aee8ac5b44c3fd78544f94f9ffdb2662f330389d926820165abcb5bcd79b92a0",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 1144.187968922779,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 10
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1116,
+      "evaluations": 7150,
+      "cutoffs": 732,
+      "successors": 8232,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 6248.973240586969,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-king-escape",
+      "kind": "king-escape",
+      "position_hash": "aee8ac5b44c3fd78544f94f9ffdb2662f330389d926820165abcb5bcd79b92a0",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 1261.7637130897492,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": {
+        "source": 2,
+        "target": 10
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1116,
+      "evaluations": 7150,
+      "cutoffs": 732,
+      "successors": 8232,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 5666.671125365784,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-terminal",
+      "kind": "terminal",
+      "position_hash": "a8f5c96a9ed82989b5ef8b71fe92dac1afb7f17246a73bbc997f7a3a83ef09d5",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0025259796530008316,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-terminal",
+      "kind": "terminal",
+      "position_hash": "a8f5c96a9ed82989b5ef8b71fe92dac1afb7f17246a73bbc997f7a3a83ef09d5",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0016209669411182404,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-terminal",
+      "kind": "terminal",
+      "position_hash": "a8f5c96a9ed82989b5ef8b71fe92dac1afb7f17246a73bbc997f7a3a83ef09d5",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.0013438984751701355,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.0,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 1
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "position_hash": "3938956aba1e7abeb8fd7f0e5d058c470f9404e462ff8c6c9f889eac58b154bb",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.4233620129526,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.42336201295256615,
+      "best_move": {
+        "source": 3,
+        "target": 14
+      },
+      "value": -1.0,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 345,
+      "evaluations": 14009,
+      "cutoffs": 230,
+      "successors": 14168,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7003.017594187291,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "warmup"
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "position_hash": "3938956aba1e7abeb8fd7f0e5d058c470f9404e462ff8c6c9f889eac58b154bb",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.397298950702,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.397298950701952,
+      "best_move": {
+        "source": 3,
+        "target": 14
+      },
+      "value": -1.0,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 345,
+      "evaluations": 14009,
+      "cutoffs": 230,
+      "successors": 14168,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7003.108836103882,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_time",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "position_hash": "3938956aba1e7abeb8fd7f0e5d058c470f9404e462ff8c6c9f889eac58b154bb",
+      "effective_config_digest": "8b90c57e07bdf16275a3a119f3a9bcd5f341805c75f38aba5401c002e6d17e7e",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 2000.4446941893548,
+      "time_limit_ms": 2000.0,
+      "deadline_overshoot_ms": 0.44469418935477734,
+      "best_move": {
+        "source": 3,
+        "target": 14
+      },
+      "value": -1.0,
+      "source": "heuristic",
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "nodes": 345,
+      "evaluations": 14009,
+      "cutoffs": 230,
+      "successors": 14168,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7002.9429159884385,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 1
+    }
+  ],
+  "generated": "2026-11-19T20:14:21.427866+00:00",
+  "suite": "quick",
+  "repetitions": 2,
+  "warmup": 1,
+  "batch_wall_clock_seconds": 72.9689205631148
+}

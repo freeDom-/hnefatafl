@@ -1,0 +1,314 @@
+{
+  "kind": "browser-neural-benchmark",
+  "schema": 3,
+  "generated": "2026-11-20T07:31:07.518Z",
+  "profile": "desktop",
+  "browser": "156.0.8078.4",
+  "ort_version": "1.22.0",
+  "requested_provider": "wasm",
+  "batch_sizes": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32
+  ],
+  "reps": 5,
+  "warmup": 2,
+  "switches": 3,
+  "sustained": 200,
+  "failures": [],
+  "notes": [],
+  "model": {
+    "file": "model/model.onnx",
+    "ruleset": "brandubh",
+    "size": 7,
+    "sha256": "959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3",
+    "bytes": 46924,
+    "gzip_bytes": 6926,
+    "validated": true,
+    "reference": "model/reference.json",
+    "reference_sha256": "ec04c4a660fe69001fa6bef2fe5b0fff314962c4201cc27b45b16bb88ebcd02b"
+  },
+  "runtime_inventory": [
+    {
+      "path": "ort/ort-wasm-simd-threaded.jsep.mjs",
+      "bytes": 44677,
+      "gzip_bytes": 15376,
+      "sha256": "1cbcba8f2c769c1eecbab66a1b1e55ef11704515bf4306373e3db3c37cf6dcd8"
+    },
+    {
+      "path": "ort/ort-wasm-simd-threaded.jsep.wasm",
+      "bytes": 21872216,
+      "gzip_bytes": 5087851,
+      "sha256": "b45970d0632383a057c27ca5b660b216f8e00c17cf8db9f6207b5e4abc839368"
+    },
+    {
+      "path": "ort/ort-wasm-simd-threaded.mjs",
+      "bytes": 20856,
+      "gzip_bytes": 8392,
+      "sha256": "30dd851d9c00622940500f71ddd2ff8820c5cb65270816080175b958705385a8"
+    },
+    {
+      "path": "ort/ort-wasm-simd-threaded.wasm",
+      "bytes": 11210254,
+      "gzip_bytes": 2864351,
+      "sha256": "71aef04959c5c1b6de461b6538e2058e306610034a85aad2742d0c7fd4533fe4"
+    },
+    {
+      "path": "ort/ort.min.js",
+      "bytes": 357641,
+      "gzip_bytes": 94558,
+      "sha256": "924e4fcdfdf69acccff3d024d6e1ad3f41ca858d27fc4dd59fc4927dd933e7db"
+    },
+    {
+      "path": "ort/ort.webgpu.min.js",
+      "bytes": 357648,
+      "gzip_bytes": 94561,
+      "sha256": "4dec2f5e74de2ec0f496d39ef55ec23762e8c6ca58cb958e691c9f2350a7b1c8"
+    }
+  ],
+  "capabilities": {
+    "crossOriginIsolated": false,
+    "sharedArrayBuffer": false,
+    "webAssembly": true,
+    "webGPUAPI": true,
+    "webGPUAdapter": false,
+    "webGPUAdapterError": null,
+    "adapterInfo": null,
+    "hardwareConcurrency": 4,
+    "deviceMemoryGiBHint": 32,
+    "memory": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    }
+  },
+  "load": {
+    "url": "./model/model.onnx",
+    "provider": "wasm",
+    "size": 7,
+    "ruleset": "brandubh",
+    "provider_requested": "wasm",
+    "provider_evidence": null,
+    "execution_placement": "wasm",
+    "gpu_execution_verified": false,
+    "model_sha256": "959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3",
+    "model_ruleset": "brandubh",
+    "model_bytes": 46924,
+    "input_names": [
+      "planes"
+    ],
+    "output_names": [
+      "policy_logits",
+      "defender_value"
+    ],
+    "memory": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    }
+  },
+  "execution_placement": "wasm",
+  "gpu_execution_verified": false,
+  "provider_evidence": null,
+  "initialization_ms": 508.635989,
+  "memory_after_load": {
+    "js_heap_size_limit_bytes": null,
+    "js_heap_used_bytes": null,
+    "wasm_heap_capacity_bytes": null,
+    "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+  },
+  "reference_positions": 38,
+  "first_inference": {
+    "provider": "wasm",
+    "inference_ms": 18.59999990463257,
+    "tensor_prepare_ms": 0.5,
+    "run_ms": 18.09999990463257,
+    "value": -0.10427549481391907,
+    "legal_probability_sum": 1.0000000000000002
+  },
+  "warm_inference": {
+    "samples": 5,
+    "run_ms_median": 0.5999999046325684,
+    "tensor_prepare_ms_median": 0,
+    "inference_ms_median": 0.5999999046325684
+  },
+  "benchmark": {
+    "provider_requested": "wasm",
+    "execution_placement": "wasm",
+    "rows": [
+      {
+        "batch": 1,
+        "distinct_positions": 1,
+        "warmup": 2,
+        "reps": 5,
+        "min_ms": 0.7000000476837158,
+        "median_ms": 0.7999999523162842,
+        "p90_ms": 1.1200000286102294,
+        "max_ms": 1.2000000476837158,
+        "positions_per_second": 1250.0000745058103
+      },
+      {
+        "batch": 2,
+        "distinct_positions": 2,
+        "warmup": 2,
+        "reps": 5,
+        "min_ms": 1.0999999046325684,
+        "median_ms": 1.2999999523162842,
+        "p90_ms": 2.200000047683716,
+        "max_ms": 2.6000001430511475,
+        "positions_per_second": 1538.4615948919734
+      },
+      {
+        "batch": 4,
+        "distinct_positions": 4,
+        "warmup": 2,
+        "reps": 5,
+        "min_ms": 1.4000000953674316,
+        "median_ms": 1.8000001907348633,
+        "p90_ms": 3.319999933242798,
+        "max_ms": 3.799999952316284,
+        "positions_per_second": 2222.2219867471076
+      },
+      {
+        "batch": 8,
+        "distinct_positions": 8,
+        "warmup": 2,
+        "reps": 5,
+        "min_ms": 2.4000000953674316,
+        "median_ms": 2.700000047683716,
+        "p90_ms": 3.1400000095367435,
+        "max_ms": 3.299999952316284,
+        "positions_per_second": 2962.9629106351554
+      },
+      {
+        "batch": 16,
+        "distinct_positions": 16,
+        "warmup": 2,
+        "reps": 5,
+        "min_ms": 3.700000047683716,
+        "median_ms": 4,
+        "p90_ms": 4.6,
+        "max_ms": 5,
+        "positions_per_second": 4000
+      },
+      {
+        "batch": 32,
+        "distinct_positions": 32,
+        "warmup": 2,
+        "reps": 5,
+        "min_ms": 6.1000001430511475,
+        "median_ms": 6.699999809265137,
+        "p90_ms": 8.600000047683716,
+        "max_ms": 8.799999952316284,
+        "positions_per_second": 4776.11953895112
+      }
+    ]
+  },
+  "batch_vs_single": [
+    {
+      "batch": 1,
+      "distinct_positions": 1,
+      "worst_logit_abs_error": 0,
+      "worst_value_abs_error": 0,
+      "worst_probability_abs_error": 0,
+      "pass": true
+    },
+    {
+      "batch": 2,
+      "distinct_positions": 2,
+      "worst_logit_abs_error": 0,
+      "worst_value_abs_error": 0,
+      "worst_probability_abs_error": 0,
+      "pass": true
+    },
+    {
+      "batch": 4,
+      "distinct_positions": 4,
+      "worst_logit_abs_error": 0,
+      "worst_value_abs_error": 0,
+      "worst_probability_abs_error": 0,
+      "pass": true
+    },
+    {
+      "batch": 8,
+      "distinct_positions": 8,
+      "worst_logit_abs_error": 0,
+      "worst_value_abs_error": 0,
+      "worst_probability_abs_error": 0,
+      "pass": true
+    },
+    {
+      "batch": 16,
+      "distinct_positions": 16,
+      "worst_logit_abs_error": 0,
+      "worst_value_abs_error": 0,
+      "worst_probability_abs_error": 0,
+      "pass": true
+    },
+    {
+      "batch": 32,
+      "distinct_positions": 32,
+      "worst_logit_abs_error": 0,
+      "worst_value_abs_error": 0,
+      "worst_probability_abs_error": 0,
+      "pass": true
+    }
+  ],
+  "sustained_inference": {
+    "iterations": 200,
+    "batch": 8,
+    "elapsed_ms": 358,
+    "positions_per_second": 4469.27374301676,
+    "execution_placement": "wasm",
+    "model_sha256": "959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3",
+    "memory": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    },
+    "memory_before": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    },
+    "memory_after": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    }
+  },
+  "model_switching": [
+    {
+      "iteration": 0,
+      "execution_placement": "wasm",
+      "js_heap_used_bytes": null
+    },
+    {
+      "iteration": 1,
+      "execution_placement": "wasm",
+      "js_heap_used_bytes": null
+    },
+    {
+      "iteration": 2,
+      "execution_placement": "wasm",
+      "js_heap_used_bytes": null
+    }
+  ],
+  "memory_after_switches": {
+    "js_heap_size_limit_bytes": null,
+    "js_heap_used_bytes": null,
+    "wasm_heap_capacity_bytes": null,
+    "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+  },
+  "page_errors": [],
+  "external_requests": [],
+  "ok": true
+}

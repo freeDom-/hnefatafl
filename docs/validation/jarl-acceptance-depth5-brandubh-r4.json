@@ -1,0 +1,519 @@
+{
+  "mode": "fixed_work",
+  "fixed_work": true,
+  "workload_digest": "35c0559b0950fa8bc123ee1610c6fd011fc046564c7fb7a068dcd9e3c4d50786",
+  "expected_cases": 14,
+  "compared_cases": 14,
+  "execution_valid_cases": 14,
+  "parity_cases": 12,
+  "parity_established": 12,
+  "acceptance_cases": 14,
+  "acceptance_complete": true,
+  "acceptance_ok_cases": 14,
+  "unresolved": [],
+  "status_counts": {
+    "expected": {
+      "completed": 12,
+      "terminal": 2
+    },
+    "actual": {
+      "completed": 12,
+      "terminal": 2
+    }
+  },
+  "equal_work_latency_ratio_median": 2.2547821131134493,
+  "equal_work_latency_ratio_samples": 12,
+  "equal_work_nodes_per_second": 3436.4319045122757,
+  "equal_work_actual_nodes_per_second": 1461.7875339944521,
+  "rows": [
+    {
+      "position": "brandubh-endgame",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 1339,
+      "actual_nodes": 1339,
+      "expected_evaluations": 2320,
+      "actual_evaluations": 2320,
+      "expected_elapsed_ms": 199.73271898925304,
+      "actual_elapsed_ms": 461.9999999999962,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.3130912268052333
+    },
+    {
+      "position": "brandubh-endgame",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 1339,
+      "actual_nodes": 1339,
+      "expected_evaluations": 2320,
+      "actual_evaluations": 2320,
+      "expected_elapsed_ms": 195.11121278628707,
+      "actual_elapsed_ms": 430.9999999999974,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.2089965709561166
+    },
+    {
+      "position": "brandubh-king-escape",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 337,
+      "actual_nodes": 337,
+      "expected_evaluations": 1197,
+      "actual_evaluations": 1197,
+      "expected_elapsed_ms": 69.851228967309,
+      "actual_elapsed_ms": 175.3,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.509619409588942
+    },
+    {
+      "position": "brandubh-king-escape",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 337,
+      "actual_nodes": 337,
+      "expected_evaluations": 1197,
+      "actual_evaluations": 1197,
+      "expected_elapsed_ms": 70.3144259750843,
+      "actual_elapsed_ms": 176.4999999999901,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.510153464987858
+    },
+    {
+      "position": "brandubh-midgame",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 11157,
+      "actual_nodes": 11157,
+      "expected_evaluations": 120328,
+      "actual_evaluations": 120328,
+      "expected_elapsed_ms": 5363.668446894735,
+      "actual_elapsed_ms": 11303.899998999996,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.107494173235917
+    },
+    {
+      "position": "brandubh-midgame",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 11157,
+      "actual_nodes": 11157,
+      "expected_evaluations": 120328,
+      "actual_evaluations": 120328,
+      "expected_elapsed_ms": 5613.442355999723,
+      "actual_elapsed_ms": 11000.500000000002,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 1.9596709652219941
+    },
+    {
+      "position": "brandubh-opening",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 9065,
+      "actual_nodes": 9065,
+      "expected_evaluations": 116923,
+      "actual_evaluations": 116923,
+      "expected_elapsed_ms": 4526.381736155599,
+      "actual_elapsed_ms": 9947.200000000003,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.197605191039074
+    },
+    {
+      "position": "brandubh-opening",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 9065,
+      "actual_nodes": 9065,
+      "expected_evaluations": 116923,
+      "actual_evaluations": 116923,
+      "expected_elapsed_ms": 4421.21316306293,
+      "actual_elapsed_ms": 10171.300000000003,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.300567655270782
+    },
+    {
+      "position": "brandubh-repetition",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 8836,
+      "actual_nodes": 8836,
+      "expected_evaluations": 114742,
+      "actual_evaluations": 114742,
+      "expected_elapsed_ms": 4494.064297992736,
+      "actual_elapsed_ms": 9740.100000999995,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.1673254664714943
+    },
+    {
+      "position": "brandubh-repetition",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 8836,
+      "actual_nodes": 8836,
+      "expected_evaluations": 114742,
+      "actual_evaluations": 114742,
+      "expected_elapsed_ms": 4961.895006010309,
+      "actual_elapsed_ms": 9850.300000999994,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 1.9851891241286634
+    },
+    {
+      "position": "brandubh-tactical",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 2551,
+      "actual_nodes": 2551,
+      "expected_evaluations": 4545,
+      "actual_evaluations": 4545,
+      "expected_elapsed_ms": 396.19367895647883,
+      "actual_elapsed_ms": 923.6000000000004,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.331183078015377
+    },
+    {
+      "position": "brandubh-tactical",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 2551,
+      "actual_nodes": 2551,
+      "expected_evaluations": 4545,
+      "actual_evaluations": 4545,
+      "expected_elapsed_ms": 389.0462520066649,
+      "actual_elapsed_ms": 961.1000010000055,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.4704003599642457
+    },
+    {
+      "position": "brandubh-terminal",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "terminal",
+      "actual_status": "terminal",
+      "terminal": true,
+      "configured_depth": 5,
+      "expected_completed_depth": null,
+      "actual_completed_depth": null,
+      "expected_nodes": null,
+      "actual_nodes": null,
+      "expected_evaluations": null,
+      "actual_evaluations": null,
+      "expected_elapsed_ms": 0.0012258533388376236,
+      "actual_elapsed_ms": 0,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": null
+    },
+    {
+      "position": "brandubh-terminal",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "terminal",
+      "actual_status": "terminal",
+      "terminal": true,
+      "configured_depth": 5,
+      "expected_completed_depth": null,
+      "actual_completed_depth": null,
+      "expected_nodes": null,
+      "actual_nodes": null,
+      "expected_evaluations": null,
+      "actual_evaluations": null,
+      "expected_elapsed_ms": 0.0011189840734004974,
+      "actual_elapsed_ms": 0,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": null
+    }
+  ],
+  "failures": [],
+  "warnings": [],
+  "ok": true
+}

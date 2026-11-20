@@ -1,0 +1,805 @@
+{
+  "schema": 2,
+  "kind": "native-jarl-benchmark",
+  "runtime": "cpython",
+  "environment": {
+    "platform": "Linux-7.0.14-26-pve-x86_64-with-glibc2.41",
+    "python": "3.11.18",
+    "implementation": "CPython",
+    "processor": null,
+    "cpu_count": 4
+  },
+  "plan": {
+    "configs": {
+      "quick": {
+        "depth": 3,
+        "time_limit": 0.25
+      },
+      "interactive": {
+        "depth": 5,
+        "time_limit": 1.0
+      },
+      "standard": {
+        "depth": 5,
+        "time_limit": 2.0
+      },
+      "deep": {
+        "depth": 8,
+        "time_limit": 5.0
+      },
+      "extended": {
+        "depth": 10,
+        "time_limit": 10.0
+      }
+    },
+    "production_jarl": {
+      "depth": 5,
+      "time_limit": 2.0
+    },
+    "engine_max_depth": 8,
+    "fixed_work_deadline_seconds": 60.0,
+    "fixed_work_watchdog_ms": 75000,
+    "unsupported": {
+      "extended": "engine alpha-beta depth cap is 8"
+    },
+    "modes": [
+      "fixed_work",
+      "fixed_time"
+    ],
+    "search": {
+      "legacy": false,
+      "transposition": true,
+      "move_ordering": true,
+      "symmetry_transposition": false,
+      "symmetry_pruning": false,
+      "table_capacity": 100000
+    }
+  },
+  "identity": {
+    "protocol": 2,
+    "workload": {
+      "protocol": 2,
+      "digest": "798259f19bbfb7952af51e84c05855b73a0e547871cbc1f64df7f442d2853861",
+      "mode": "fixed_work",
+      "seed": 7,
+      "configs": [
+        "standard"
+      ],
+      "effective_configs": {
+        "standard": {
+          "algorithm": "alpha_beta",
+          "depth": 5,
+          "time_limit": 60.0,
+          "heuristic": "shield_maiden",
+          "search": {
+            "legacy": false,
+            "transposition": true,
+            "move_ordering": true,
+            "symmetry_transposition": false,
+            "symmetry_pruning": false,
+            "table_capacity": 100000
+          }
+        }
+      },
+      "cases": [
+        {
+          "name": "tablut-opening",
+          "kind": "opening",
+          "ruleset": "tablut",
+          "position_digest": "7c6199d13824b5d034ef59054c84e401ea462eb9b07511441adea3c963f9e540"
+        },
+        {
+          "name": "tablut-midgame",
+          "kind": "midgame",
+          "ruleset": "tablut",
+          "position_digest": "0804f138d4cbf9507ab620b21b667b9d8b85538f9cc50682fcf8c4383c1f821b"
+        },
+        {
+          "name": "tablut-endgame",
+          "kind": "endgame",
+          "ruleset": "tablut",
+          "position_digest": "3244c3ac23e22b20e4d86e60bef3216a8fb105e6c1b8c6ef08c8ed233ed11cad"
+        },
+        {
+          "name": "tablut-tactical",
+          "kind": "tactical",
+          "ruleset": "tablut",
+          "position_digest": "60fe1f08409c9c9d6e7371ac64656b419355ce243b64ba2a67a4c7c9faafdd11"
+        },
+        {
+          "name": "tablut-king-escape",
+          "kind": "king-escape",
+          "ruleset": "tablut",
+          "position_digest": "782c74eea8e5a44e18100de679a09a71a7eb056589ab04e221b4b02df5dedbd1"
+        },
+        {
+          "name": "tablut-terminal",
+          "kind": "terminal",
+          "ruleset": "tablut",
+          "position_digest": "39071e8993d21e3b91002cf78c256c43c44ad8030081395707fd7a1ebbc01144"
+        },
+        {
+          "name": "tablut-repetition",
+          "kind": "repetition",
+          "ruleset": "tablut",
+          "position_digest": "3e50a6ea7b3766744f6b40a2b2fe3dfd8d7b4329cd7d1b9fe4529d273e3f25dd"
+        },
+        {
+          "name": "copenhagen-opening",
+          "kind": "opening",
+          "ruleset": "copenhagen",
+          "position_digest": "e859c62d72264f52925a157ed43047448ac2333a0eae85f424a9f08ed3aa00a6"
+        },
+        {
+          "name": "copenhagen-midgame",
+          "kind": "midgame",
+          "ruleset": "copenhagen",
+          "position_digest": "47786645ef9781d3169a05417846793d3d13263861a9ce4a9510c5dae4ffa67d"
+        },
+        {
+          "name": "copenhagen-endgame",
+          "kind": "endgame",
+          "ruleset": "copenhagen",
+          "position_digest": "bcbc9058bc56ffc99f8fa5b7820d74b322fea8c88538b19deb3d2c40f77e5640"
+        },
+        {
+          "name": "copenhagen-tactical",
+          "kind": "tactical",
+          "ruleset": "copenhagen",
+          "position_digest": "5723916f197ce48b29d157e40a849f404decbefb7da6549b8ff2254364e6f282"
+        },
+        {
+          "name": "copenhagen-king-escape",
+          "kind": "king-escape",
+          "ruleset": "copenhagen",
+          "position_digest": "aee8ac5b44c3fd78544f94f9ffdb2662f330389d926820165abcb5bcd79b92a0"
+        },
+        {
+          "name": "copenhagen-terminal",
+          "kind": "terminal",
+          "ruleset": "copenhagen",
+          "position_digest": "a8f5c96a9ed82989b5ef8b71fe92dac1afb7f17246a73bbc997f7a3a83ef09d5"
+        },
+        {
+          "name": "copenhagen-repetition",
+          "kind": "repetition",
+          "ruleset": "copenhagen",
+          "position_digest": "3938956aba1e7abeb8fd7f0e5d058c470f9404e462ff8c6c9f889eac58b154bb"
+        }
+      ]
+    },
+    "workload_digest": "798259f19bbfb7952af51e84c05855b73a0e547871cbc1f64df7f442d2853861",
+    "mode": "fixed_work",
+    "seed": 7,
+    "engine_identity": {
+      "modules": [
+        "hnefatafl.engine",
+        "hnefatafl.ai",
+        "hnefatafl.shield_maiden",
+        "hnefatafl.symmetry"
+      ],
+      "sha256": "0dbd66f1201b48b99fe34c55f77aa835c96e694202c30faeda4ab2c5f75017ac"
+    },
+    "effective_configs": {
+      "standard": {
+        "algorithm": "alpha_beta",
+        "depth": 5,
+        "time_limit": 60.0,
+        "heuristic": "shield_maiden",
+        "search": {
+          "legacy": false,
+          "transposition": true,
+          "move_ordering": true,
+          "symmetry_transposition": false,
+          "symmetry_pruning": false,
+          "table_capacity": 100000
+        }
+      }
+    },
+    "required_cases": [
+      {
+        "position": "tablut-opening",
+        "config": "standard",
+        "kind": "opening"
+      },
+      {
+        "position": "tablut-midgame",
+        "config": "standard",
+        "kind": "midgame"
+      },
+      {
+        "position": "tablut-endgame",
+        "config": "standard",
+        "kind": "endgame"
+      },
+      {
+        "position": "tablut-tactical",
+        "config": "standard",
+        "kind": "tactical"
+      },
+      {
+        "position": "tablut-king-escape",
+        "config": "standard",
+        "kind": "king-escape"
+      },
+      {
+        "position": "tablut-terminal",
+        "config": "standard",
+        "kind": "terminal"
+      },
+      {
+        "position": "tablut-repetition",
+        "config": "standard",
+        "kind": "repetition"
+      },
+      {
+        "position": "copenhagen-opening",
+        "config": "standard",
+        "kind": "opening"
+      },
+      {
+        "position": "copenhagen-midgame",
+        "config": "standard",
+        "kind": "midgame"
+      },
+      {
+        "position": "copenhagen-endgame",
+        "config": "standard",
+        "kind": "endgame"
+      },
+      {
+        "position": "copenhagen-tactical",
+        "config": "standard",
+        "kind": "tactical"
+      },
+      {
+        "position": "copenhagen-king-escape",
+        "config": "standard",
+        "kind": "king-escape"
+      },
+      {
+        "position": "copenhagen-terminal",
+        "config": "standard",
+        "kind": "terminal"
+      },
+      {
+        "position": "copenhagen-repetition",
+        "config": "standard",
+        "kind": "repetition"
+      }
+    ]
+  },
+  "records": [
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-opening",
+      "kind": "opening",
+      "position_hash": "7c6199d13824b5d034ef59054c84e401ea462eb9b07511441adea3c963f9e540",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 11466.327185044065,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 22,
+        "target": 21
+      },
+      "value": -0.0005555554983996413,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 24253,
+      "evaluations": 234472,
+      "cutoffs": 19968,
+      "successors": 267137,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 20448.7449395156,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-midgame",
+      "kind": "midgame",
+      "position_hash": "0804f138d4cbf9507ab620b21b667b9d8b85538f9cc50682fcf8c4383c1f821b",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 12960.598137928173,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 28,
+        "target": 19
+      },
+      "value": -0.0038888692845264585,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 29345,
+      "evaluations": 229939,
+      "cutoffs": 25100,
+      "successors": 265521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 17741.387978622806,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-endgame",
+      "kind": "endgame",
+      "position_hash": "3244c3ac23e22b20e4d86e60bef3216a8fb105e6c1b8c6ef08c8ed233ed11cad",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 254.14695008657873,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 76,
+        "target": 78
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1119,
+      "evaluations": 2071,
+      "cutoffs": 1063,
+      "successors": 3220,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 8148.828853914968,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-tactical",
+      "kind": "tactical",
+      "position_hash": "60fe1f08409c9c9d6e7371ac64656b419355ce243b64ba2a67a4c7c9faafdd11",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 287.0059960987419,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 2,
+        "target": 6
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1669,
+      "evaluations": 3153,
+      "cutoffs": 1585,
+      "successors": 4917,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 10985.833198116314,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-king-escape",
+      "kind": "king-escape",
+      "position_hash": "782c74eea8e5a44e18100de679a09a71a7eb056589ab04e221b4b02df5dedbd1",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 70.9714749827981,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 2,
+        "target": 6
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 298,
+      "evaluations": 1594,
+      "cutoffs": 194,
+      "successors": 1853,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 22459.72766363317,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-terminal",
+      "kind": "terminal",
+      "position_hash": "39071e8993d21e3b91002cf78c256c43c44ad8030081395707fd7a1ebbc01144",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.00254996120929718,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "tablut",
+      "seed": 7,
+      "position": "tablut-repetition",
+      "kind": "repetition",
+      "position_hash": "3e50a6ea7b3766744f6b40a2b2fe3dfd8d7b4329cd7d1b9fe4529d273e3f25dd",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 11607.186059933156,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 22,
+        "target": 21
+      },
+      "value": 0.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 18553,
+      "evaluations": 261719,
+      "cutoffs": 13773,
+      "successors": 289552,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 22548.014535876857,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "position_hash": "e859c62d72264f52925a157ed43047448ac2333a0eae85f424a9f08ed3aa00a6",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 60000.46309479512,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 76,
+        "target": 74
+      },
+      "value": -0.6936725684698277,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 20092,
+      "evaluations": 47363,
+      "cutoffs": 19627,
+      "successors": 72791,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 789.3772407251405,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "position_hash": "47786645ef9781d3169a05417846793d3d13263861a9ce4a9510c5dae4ffa67d",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 60000.39954087697,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 114,
+        "target": 92
+      },
+      "value": -0.6965437982328658,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 19953,
+      "evaluations": 49784,
+      "cutoffs": 19456,
+      "successors": 75004,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 829.7278081637313,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-endgame",
+      "kind": "endgame",
+      "position_hash": "bcbc9058bc56ffc99f8fa5b7820d74b322fea8c88538b19deb3d2c40f77e5640",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 1861.5984919015318,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 55,
+        "target": 33
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 4573,
+      "evaluations": 7953,
+      "cutoffs": 4373,
+      "successors": 12693,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4272.134960679088,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-tactical",
+      "kind": "tactical",
+      "position_hash": "5723916f197ce48b29d157e40a849f404decbefb7da6549b8ff2254364e6f282",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 3656.8542739842087,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 57,
+        "target": 112
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 8619,
+      "evaluations": 16307,
+      "cutoffs": 8331,
+      "successors": 25892,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4459.297193222094,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-king-escape",
+      "kind": "king-escape",
+      "position_hash": "aee8ac5b44c3fd78544f94f9ffdb2662f330389d926820165abcb5bcd79b92a0",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 1141.1917719524354,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 2,
+        "target": 10
+      },
+      "value": 1.0,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1116,
+      "evaluations": 7150,
+      "cutoffs": 732,
+      "successors": 8232,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 6265.379908731072,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "completed",
+      "status": "completed",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-terminal",
+      "kind": "terminal",
+      "position_hash": "a8f5c96a9ed82989b5ef8b71fe92dac1afb7f17246a73bbc997f7a3a83ef09d5",
+      "expected_depth": 5,
+      "terminal": true,
+      "unsupported": false,
+      "elapsed_ms": 0.002538086846470833,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": null,
+      "value": 1.0,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "classification": "terminal",
+      "status": "terminal",
+      "phase": "measured",
+      "repetition": 0
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "copenhagen",
+      "seed": 7,
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "position_hash": "3938956aba1e7abeb8fd7f0e5d058c470f9404e462ff8c6c9f889eac58b154bb",
+      "expected_depth": 5,
+      "terminal": false,
+      "unsupported": false,
+      "elapsed_ms": 60000.48845005222,
+      "time_limit_ms": 60000.0,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 14
+      },
+      "value": -1.0,
+      "source": "heuristic",
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "nodes": 14351,
+      "evaluations": 27786,
+      "cutoffs": 14121,
+      "successors": 42096,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 463.0962300103712,
+      "deadline_limited": true,
+      "error": null,
+      "classification": "deadline_limited",
+      "status": "deadline_limited",
+      "phase": "measured",
+      "repetition": 0
+    }
+  ],
+  "generated": "2026-11-19T16:13:47.611733+00:00",
+  "suite": "quick",
+  "repetitions": 1,
+  "warmup": 0,
+  "batch_wall_clock_seconds": 223.30964364297688
+}

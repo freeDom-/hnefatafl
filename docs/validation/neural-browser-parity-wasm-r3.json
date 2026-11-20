@@ -1,0 +1,586 @@
+{
+  "kind": "browser-neural-parity",
+  "schema": 3,
+  "generated": "2026-11-19T20:17:47.761Z",
+  "browser": "156.0.8078.4",
+  "ort_version": "1.22.0",
+  "requested_provider": "wasm",
+  "simulated_corruption": null,
+  "failures": [],
+  "notes": [],
+  "model": {
+    "sha256": "959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3",
+    "bytes": 46924,
+    "gzip_bytes": 6926,
+    "validated": true,
+    "ruleset": "brandubh",
+    "reference_sha256": "4baa8ac682c53323d0c295b8958ed32a266579360c5613ec14718f9a1d975b20"
+  },
+  "capabilities": {
+    "crossOriginIsolated": false,
+    "sharedArrayBuffer": false,
+    "webAssembly": true,
+    "webGPUAPI": true,
+    "webGPUAdapter": false,
+    "webGPUAdapterError": null,
+    "adapterInfo": null,
+    "hardwareConcurrency": 4,
+    "deviceMemoryGiBHint": 32,
+    "memory": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    }
+  },
+  "load": {
+    "url": "./model/model.onnx",
+    "provider": "wasm",
+    "size": 7,
+    "ruleset": "brandubh",
+    "provider_requested": "wasm",
+    "provider_evidence": null,
+    "execution_placement": "wasm",
+    "gpu_execution_verified": false,
+    "model_sha256": "959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3",
+    "model_bytes": 46924,
+    "input_names": [
+      "planes"
+    ],
+    "output_names": [
+      "policy_logits",
+      "defender_value"
+    ],
+    "memory": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    }
+  },
+  "observed_summary": {
+    "cases": 39,
+    "execution_placement": "wasm",
+    "gpu_execution_verified": false,
+    "provider_evidence": null
+  },
+  "comparison_exit_code": 0,
+  "comparison": {
+    "ok": true,
+    "provider": "wasm:wasm",
+    "providers": [
+      "wasm:wasm"
+    ],
+    "model_sha256": "959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3",
+    "cases": 39,
+    "non_terminal_cases": 38,
+    "tolerances": {
+      "logit_atol": 0.001,
+      "value_atol": 0.0001,
+      "probability_atol": 0.00001,
+      "probability_relative_atol": 0.001,
+      "probability_relative_floor": 0.0001,
+      "near_tie_atol": 0.0001,
+      "postprocess_atol": 0.000001
+    },
+    "worst_logit_max_abs_error": 0.0000016689300537109375,
+    "worst_value_abs_error": 2.9802322387695312e-8,
+    "worst_legal_probability_max_abs_error": 4.3365028484787516e-8,
+    "worst_legal_probability_max_relative_error": 4.211742653825605e-7,
+    "worst_postprocess_abs_error": 0,
+    "material_ranking_changes": 0,
+    "failures": [],
+    "notes": [],
+    "rows": [
+      {
+        "position": "brandubh-endgame",
+        "kind": "endgame",
+        "legal_count": 16,
+        "logit_max_abs_error": 0.0000016689300537109375,
+        "value_abs_error": 2.2351741790771484e-8,
+        "legal_probability_max_abs_error": 4.3365028484787516e-8,
+        "legal_probability_max_relative_error": 3.58074316535686e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-generated-0",
+        "kind": "generated",
+        "legal_count": 23,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 7.445389159366211e-9,
+        "legal_probability_max_relative_error": 1.458009918077778e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-generated-1",
+        "kind": "generated",
+        "legal_count": 42,
+        "logit_max_abs_error": 0.0000010132789611816406,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 8.721299384062409e-9,
+        "legal_probability_max_relative_error": 1.8147175165563473e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000004
+      },
+      {
+        "position": "brandubh-generated-10",
+        "kind": "generated",
+        "legal_count": 24,
+        "logit_max_abs_error": 3.5762786865234375e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 5.264749358691034e-9,
+        "legal_probability_max_relative_error": 1.05318326480982e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999999
+      },
+      {
+        "position": "brandubh-generated-11",
+        "kind": "generated",
+        "legal_count": 36,
+        "logit_max_abs_error": 4.76837158203125e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 9.649374563269753e-9,
+        "legal_probability_max_relative_error": 1.6427598682068526e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999998
+      },
+      {
+        "position": "brandubh-generated-12",
+        "kind": "generated",
+        "legal_count": 30,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 6.319046688685326e-9,
+        "legal_probability_max_relative_error": 1.439080366192355e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999998
+      },
+      {
+        "position": "brandubh-generated-13",
+        "kind": "generated",
+        "legal_count": 36,
+        "logit_max_abs_error": 4.76837158203125e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 7.516256728123949e-9,
+        "legal_probability_max_relative_error": 1.4100410144281798e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-generated-14",
+        "kind": "generated",
+        "legal_count": 36,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 4.136833493817438e-9,
+        "legal_probability_max_relative_error": 1.2636435429300343e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-15",
+        "kind": "generated",
+        "legal_count": 37,
+        "logit_max_abs_error": 8.344650268554688e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 8.471785946373434e-9,
+        "legal_probability_max_relative_error": 2.127173233472988e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-16",
+        "kind": "generated",
+        "legal_count": 30,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 0,
+        "legal_probability_max_abs_error": 6.648869593783857e-9,
+        "legal_probability_max_relative_error": 1.346254727869098e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-generated-17",
+        "kind": "generated",
+        "legal_count": 30,
+        "logit_max_abs_error": 4.76837158203125e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 3.00058335539477e-8,
+        "legal_probability_max_relative_error": 2.7891261973840047e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999993
+      },
+      {
+        "position": "brandubh-generated-18",
+        "kind": "generated",
+        "legal_count": 29,
+        "logit_max_abs_error": 2.682209014892578e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 3.909822417214048e-9,
+        "legal_probability_max_relative_error": 1.0863338585026453e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-generated-19",
+        "kind": "generated",
+        "legal_count": 40,
+        "logit_max_abs_error": 7.152557373046875e-7,
+        "value_abs_error": 2.2351741790771484e-8,
+        "legal_probability_max_abs_error": 4.328624633731515e-8,
+        "legal_probability_max_relative_error": 4.211742653825605e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-2",
+        "kind": "generated",
+        "legal_count": 25,
+        "logit_max_abs_error": 2.980232238769531e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 6.844695747687535e-9,
+        "legal_probability_max_relative_error": 1.4028312171001724e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999997
+      },
+      {
+        "position": "brandubh-generated-20",
+        "kind": "generated",
+        "legal_count": 22,
+        "logit_max_abs_error": 3.5762786865234375e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 1.0850627576997063e-8,
+        "legal_probability_max_relative_error": 1.6733968804711903e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-generated-21",
+        "kind": "generated",
+        "legal_count": 33,
+        "logit_max_abs_error": 4.76837158203125e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 6.2388389038270375e-9,
+        "legal_probability_max_relative_error": 1.2743740664990548e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-generated-22",
+        "kind": "generated",
+        "legal_count": 28,
+        "logit_max_abs_error": 3.2782554626464844e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 4.0098990308767846e-9,
+        "legal_probability_max_relative_error": 1.3202560200153692e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-23",
+        "kind": "generated",
+        "legal_count": 33,
+        "logit_max_abs_error": 7.152557373046875e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 3.6177366033451896e-9,
+        "legal_probability_max_relative_error": 1.549931675772635e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999994
+      },
+      {
+        "position": "brandubh-generated-24",
+        "kind": "generated",
+        "legal_count": 34,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 6.447599183723174e-9,
+        "legal_probability_max_relative_error": 1.7433856145972613e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999998
+      },
+      {
+        "position": "brandubh-generated-25",
+        "kind": "generated",
+        "legal_count": 33,
+        "logit_max_abs_error": 4.76837158203125e-7,
+        "value_abs_error": 2.2351741790771484e-8,
+        "legal_probability_max_abs_error": 3.3152623493681865e-9,
+        "legal_probability_max_relative_error": 1.3197498616139013e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999996
+      },
+      {
+        "position": "brandubh-generated-26",
+        "kind": "generated",
+        "legal_count": 35,
+        "logit_max_abs_error": 2.086162567138672e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 4.095589707653335e-9,
+        "legal_probability_max_relative_error": 1.5339442365061482e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-27",
+        "kind": "generated",
+        "legal_count": 35,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 3.3015890438248263e-9,
+        "legal_probability_max_relative_error": 7.932945547455078e-8,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999999
+      },
+      {
+        "position": "brandubh-generated-28",
+        "kind": "generated",
+        "legal_count": 28,
+        "logit_max_abs_error": 1.7881393432617188e-7,
+        "value_abs_error": 0,
+        "legal_probability_max_abs_error": 5.185293493192855e-9,
+        "legal_probability_max_relative_error": 1.5166955597360474e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999999
+      },
+      {
+        "position": "brandubh-generated-29",
+        "kind": "generated",
+        "legal_count": 35,
+        "logit_max_abs_error": 7.152557373046875e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 8.768053685881405e-9,
+        "legal_probability_max_relative_error": 2.022507771596049e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999996
+      },
+      {
+        "position": "brandubh-generated-3",
+        "kind": "generated",
+        "legal_count": 44,
+        "logit_max_abs_error": 3.5762786865234375e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 1.9941811327250925e-9,
+        "legal_probability_max_relative_error": 7.560686632697691e-8,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-30",
+        "kind": "generated",
+        "legal_count": 34,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 0,
+        "legal_probability_max_abs_error": 4.770003315945903e-9,
+        "legal_probability_max_relative_error": 1.6008075104711106e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-generated-31",
+        "kind": "generated",
+        "legal_count": 32,
+        "logit_max_abs_error": 5.960464477539062e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 3.086552242959062e-9,
+        "legal_probability_max_relative_error": 1.046017013358186e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-4",
+        "kind": "generated",
+        "legal_count": 17,
+        "logit_max_abs_error": 1.9371509552001953e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 7.788224468119331e-9,
+        "legal_probability_max_relative_error": 1.1164092007995388e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-5",
+        "kind": "generated",
+        "legal_count": 44,
+        "logit_max_abs_error": 3.5762786865234375e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 6.393685948735683e-9,
+        "legal_probability_max_relative_error": 1.30885568982843e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999998
+      },
+      {
+        "position": "brandubh-generated-6",
+        "kind": "generated",
+        "legal_count": 18,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 9.093694193496038e-9,
+        "legal_probability_max_relative_error": 1.5009469658337566e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-7",
+        "kind": "generated",
+        "legal_count": 45,
+        "logit_max_abs_error": 8.344650268554688e-7,
+        "value_abs_error": 7.450580596923828e-9,
+        "legal_probability_max_abs_error": 1.675249259452949e-8,
+        "legal_probability_max_relative_error": 3.328546828914783e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 0.9999999999999997
+      },
+      {
+        "position": "brandubh-generated-8",
+        "kind": "generated",
+        "legal_count": 22,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 0,
+        "legal_probability_max_abs_error": 1.1725034887444252e-8,
+        "legal_probability_max_relative_error": 1.6625768781785783e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-generated-9",
+        "kind": "generated",
+        "legal_count": 40,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 0,
+        "legal_probability_max_abs_error": 8.680094060187216e-9,
+        "legal_probability_max_relative_error": 1.5433055150029204e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-king-escape",
+        "kind": "king-escape",
+        "legal_count": 12,
+        "logit_max_abs_error": 2.980232238769531e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 1.0802993735681277e-8,
+        "legal_probability_max_relative_error": 1.0569835401844487e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-midgame",
+        "kind": "midgame",
+        "legal_count": 42,
+        "logit_max_abs_error": 6.556510925292969e-7,
+        "value_abs_error": 2.9802322387695312e-8,
+        "legal_probability_max_abs_error": 5.811810470379708e-9,
+        "legal_probability_max_relative_error": 1.7466006216217858e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-opening",
+        "kind": "opening",
+        "legal_count": 40,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 4.226049447886293e-9,
+        "legal_probability_max_relative_error": 8.707878243221583e-8,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-repetition",
+        "kind": "repetition",
+        "legal_count": 40,
+        "logit_max_abs_error": 2.384185791015625e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 4.226049447886293e-9,
+        "legal_probability_max_relative_error": 8.707878243221583e-8,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1.0000000000000002
+      },
+      {
+        "position": "brandubh-tactical",
+        "kind": "tactical",
+        "legal_count": 23,
+        "logit_max_abs_error": 9.5367431640625e-7,
+        "value_abs_error": 1.4901161193847656e-8,
+        "legal_probability_max_abs_error": 9.323810001848898e-9,
+        "legal_probability_max_relative_error": 1.3027886803353824e-7,
+        "postprocess_max_abs_error": 0,
+        "top5_equal": true,
+        "legal_probability_sum": 1
+      },
+      {
+        "position": "brandubh-terminal",
+        "skipped": true
+      }
+    ]
+  },
+  "batched": [
+    {
+      "batch": 1,
+      "ok": true
+    },
+    {
+      "batch": 2,
+      "ok": true
+    },
+    {
+      "batch": 4,
+      "ok": true
+    },
+    {
+      "batch": 8,
+      "ok": true
+    },
+    {
+      "batch": 16,
+      "ok": true
+    },
+    {
+      "batch": 32,
+      "ok": true
+    }
+  ],
+  "page_errors": [],
+  "external_requests": [],
+  "ok": true
+}
