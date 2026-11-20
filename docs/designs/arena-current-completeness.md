@@ -95,9 +95,9 @@ analysis executor. The program is not complete or release-accepted.
 | --- | --- | --- | --- |
 | #99 | Draft, open | `ac5fb6f` on `feat/league-arena` | Schema 22 proposal, league policy/service/migrations and tests; no frontend. Run `44363101788` failed security and Python at review; do not describe as merged or accepted |
 
-No other implementation PR was open at this snapshot. PR #104 (browser analysis) and
-#105 (benchmark hardening) merged into the reviewed `main`; their earlier evidence
-remains labelled by revision.
+No other Arena-program implementation PR was open at this snapshot. PR #104
+(browser analysis) and #105 (benchmark hardening) merged into the reviewed
+`main`; their earlier evidence remains labelled by revision.
 
 Merged-PR provenance (pull-request runs verified green at review):
 
@@ -200,11 +200,11 @@ fresh evidence, and reduced bundle size is not page-load latency or capacity.
 | Historical initial bundle | `2579a86` (PR #84 baseline) | JS 1,015,562 raw / 309,626 gzip bytes; CSS 176,657 raw / 32,599 gzip | [Historical audit](arena-completion.md#measured-performance-baseline-and-gates-historical) and PR #93 validation |
 | Historical Dashboard polling | PR #91 baseline record (descriptive, no verified build fingerprint) | 61 empty / 69 active hero / 71 simulated hidden requests per minute | [Polling validation](../validation/dashboard-polling.md) |
 | Latest clean branch bundle | `ab3ac68` (PR #93, fingerprint `9cf07db7…a7695`) | JS 569,155 raw / 181,828 gzip bytes; CSS 114,187 raw / 23,803 gzip | [Feature-splitting validation](../validation/frontend-feature-splitting.md#integrated-main-and-final-bundle-evidence) |
-| Actual merged main | `feb28f4` | No new bundle measurement was run for this review. The latest clean measurement remains `ab3ac68`; later merges include release/version metadata and browser-analysis research, so it is not relabelled a merged-main run | This review; PR #93, #104, #105 and #106 merges |
+| Actual merged main | `ca1a640` | No new bundle measurement was run for this review. The latest clean measurement remains `ab3ac68`; later merges include browser-analysis research, release/version metadata and a release-note correction, so it is not relabelled a merged-main run | This review; PR #93, #104, #105, #106 and #107 merges |
 | Latest clean branch polling | `00e5917` (PR #91) | 11.00 empty / 23.00 active / 0 hidden requests per context per minute, zero steady failures | [Polling validation](../validation/dashboard-polling.md#final-integrated-measurement) |
 | Latest corrected backend read | `c5e7066` (PR #97, merged `07d7438`) | 936/936 HTTP 200 warm loopback GETs; p95 9.74 / 31.69 / 59.36 ms at concurrency 1/4/8 | [Backend read validation](../validation/backend-read-baseline.md#corrected-measured-baseline) |
 | Proposed targets | Post-#84 audit | ≤180 KB gzip initial JavaScript; ≤12 visible Dashboard requests/minute; zero periodic hidden requests; ≤2 s online participant updates; seconds-accurate clocks | Targets, not achieved acceptance results |
-| Enforced build budgets | `main` `feb28f4` | JS 600,000 raw / 200,000 gzip bytes; CSS 150,000 raw / 35,000 gzip bytes, gzip level 9 per asset | `frontend/scripts/check-bundle-budget.mjs`; PR #93 |
+| Enforced build budgets | `main` `ca1a640` | JS 600,000 raw / 200,000 gzip bytes; CSS 150,000 raw / 35,000 gzip bytes, gzip level 9 per asset | `frontend/scripts/check-bundle-budget.mjs`; PR #93 |
 | Production network and capacity | Not measured | No WAN, TLS, mixed-write, league, analysis-admission or realistic-volume capacity result | Outstanding |
 
 The original target was written as "180 KB gzip". The enforced budget is
@@ -228,7 +228,7 @@ requirements.
 
 ```mermaid
 flowchart TD
-  M[Merged main feb28f4<br/>player surfaces human tournaments Hall of Renown]
+  M[Merged main ca1a640<br/>player surfaces human tournaments Hall of Renown]
   W[Workshop consolidation merged 92]
   AUD[Dependency audit correction merged 100 and 102]
   B[Bundle splitting and budgets merged 93]
@@ -244,31 +244,30 @@ flowchart TD
   M --> DI[Data inventory backup and verified restore]
   DI --> SC
 
-  LU --> QA[Final integration and regression QA]
-  SC --> QA
+  LU --> INT[Integration-stage regression checks]
+  SC --> INT
 
-  M --> BX[Browser analysis PR 104<br/>Jarl 1A and neural inference 1B]
-  BX --> BJ[Full-strength Jarl browser benchmarks]
-  BX --> NM[Neural MCTS research optional for initial release]
-  BJ --> AD{Browser analysis production decision}
+  M --> BX[Browser analysis PR 104<br/>Jarl 1A and neural inference 1B research]
+  BX --> AD{Explicit production decision}
   AD --> SHIP[Ship classical browser executor]
   AD --> DEFER[Defer browser analysis from initial release]
-  SHIP --> AX[Shipped executor integration security performance and regression acceptance]
-  AX --> QA
-  DEFER --> QA
+  SHIP --> BJ[Full-strength Jarl benchmarks and executor-specific acceptance]
+  BJ --> INT
+  DEFER --> INT
+  BX --> NM[Neural MCTS research independent of initial release scope]
   NM --> LATER[Optional later neural release scope]
 
   B --> P1[Remaining bundle page-load and network latency evidence]
   R --> P2[Remaining mixed-write analysis league and capacity workload evidence]
-  P1 --> QA
-  P2 --> QA
+  P1 --> INT
+  P2 --> INT
 
-  QA --> CAND[Actual release candidate after included changes integrate]
-  CAND --> PERF[Combined performance measurement]
-  CAND --> SEC[Fresh security validation before public release]
-  CAND --> DEP[Backup restoration and deployment evidence]
-  PERF --> REL[Release readiness recommendation]
-  SEC --> REL
+  INT --> CAND[Actual release candidate after included changes integrate]
+  CAND --> ACC[Combined functional visual accessibility regression security and recovery acceptance]
+  CAND --> PERF[Combined performance and capacity measurement]
+  CAND --> DEP[Deployment and restore evidence]
+  ACC --> REL[Release readiness recommendation]
+  PERF --> REL
   DEP --> REL
   LIC[Owner-selected license and third-party notices] --> REL
   REL --> OWN[Explicit owner authorization]
@@ -276,15 +275,17 @@ flowchart TD
 
 League implementation completion, not draft PR #99's existence, gates final
 canonical schema cleanup; the data inventory and verified backup/restore gate it
-independently. Browser analysis has two explicit production paths: ship a
-classical executor only after its own integration, security, performance and
-regression acceptance, or defer browser analysis from the initial release.
-Neural MCTS research remains a primary target but is optional for a server-only or
-classical-only initial release. Remaining bundle/network and backend workload
-evidence feeds final QA. Combined performance, fresh security, recovery and
-deployment gates apply to the actual candidate after every included change is
-integrated, not to an earlier branch snapshot. Licensing, third-party notices and
-explicit owner authorization remain release gates.
+independently. An explicit browser-analysis production decision depends only on
+the merged Phase 1 research: ship a classical executor only after full-strength
+Jarl benchmarks and its own executor-specific integration, security, performance
+and regression acceptance, or defer browser analysis from the initial release.
+Neural MCTS research is independent of that choice and optional for a server-only
+or classical-only initial release. Integration-stage regression checks collect the
+included changes; final combined functional, visual, accessibility, regression,
+performance, security, recovery and deployment acceptance then applies to the
+actual integrated release candidate, not to an earlier branch snapshot.
+Licensing, third-party notices and explicit owner authorization remain release
+gates.
 
 Work already owned by a PR is not duplicated: #99 owns league schema/backend
 work. Browser-analysis Phase 1 research (#104) and benchmark hardening (#105) are
@@ -293,7 +294,7 @@ acceptance for any functionality that is included in the release.
 
 ## Migration and data guards
 
-The canonical migration head on `main` `feb28f4` is **schema 21**. PR #99 proposes
+The canonical migration head on `main` `ca1a640` is **schema 21**. PR #99 proposes
 schema 22 on its own branch; that number is not reserved on `main` and must be
 re-checked after any merge. Do not allocate a migration number from an older
 document. League completion precedes final canonical schema cleanup, and a data

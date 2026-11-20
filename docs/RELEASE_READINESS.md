@@ -24,7 +24,7 @@ release evidence are not relabelled as fresh combined validation.
 | State | Scope |
 | --- | --- |
 | Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1 research ([#104](validation/browser-analysis-phase1.md), partially validated); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
-| Implemented on open branches | None at this snapshot. Browser-analysis Phase 1A/1B (#104) and benchmark hardening (#105) merged during this review |
+| Implemented on open branches | None in the Arena program at this snapshot. Browser-analysis Phase 1A/1B (#104) and benchmark hardening (#105) merged during this review |
 | In development | League seasons, queue and authoritative result accounting in draft PR #99 (proposed schema 22, partial backend, no UI, failing checks at review) |
 | Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; distribution license and third-party notices |
 | Deferred | Browser-neural production integration is optional for the initial public release; durable UTC login/activity-day streaks remain excluded |
@@ -85,9 +85,15 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
   submitting a move and conceding, through the existing permission, CSRF and
   optimistic version checks. Only the seated player whose turn it is may act.
 - [ ] Public spectator surfaces remain strictly read-only: no private game
-  categories, mutation controls, POST/PATCH/DELETE routes or analysis. Account
+  categories, mutation controls or POST/PATCH/DELETE routes. Active and waiting
+  games expose no analysis, evaluations, hints, best moves or win probabilities,
+  and a public request never generates, recomputes or mutates analysis. Completed
+  replays may expose already-stored analysis of the terminal position through the
+  existing typed public allowlist; private analysis configuration, model paths,
+  seeds, identity runes, diagnostics and private notes remain excluded. Account
   isolation, authorization boundaries and the shared authoritative result services
-  remain mandatory for online play and spectators.
+  remain mandatory for online play and spectators. Existing authenticated gameplay
+  permissions and authorized post-game analysis behavior are unchanged.
 - [ ] Public profile redaction and safe portrait IDs verified; no
   account-controlled asset paths, email, full birth dates, CSRF tokens or private
   moderation notes leak.
