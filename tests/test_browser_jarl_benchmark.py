@@ -157,9 +157,7 @@ def test_incorrect_second_repetition_fails_parity(golden):
 
     result = jc.compare(copy.deepcopy(golden), _mutated(golden, mutate))
     assert result["ok"] is False
-    assert any(
-        "parity at equal completed work differs" in message for message in result["failures"]
-    )
+    assert any("deterministic parity differs" in message for message in result["failures"])
 
 
 def test_missing_later_repetition_fails_coverage(golden):
@@ -355,7 +353,7 @@ def test_asymmetric_completion_is_unresolved_not_a_regression(golden):
     assert any(item["reason"] == "asymmetric completion" for item in result["unresolved"])
 
 
-def test_different_work_counters_are_not_equal_work():
+def test_different_work_counters_still_compare_deterministic_parity():
     expected = _report(
         [_record("brandubh-king-escape", "quick", "brandubh", nodes=120, evaluations=40)],
         mode="fixed_work",
@@ -366,9 +364,104 @@ def test_different_work_counters_are_not_equal_work():
     )
     result = jc.compare(expected, actual)
     assert result["ok"] is True, result["failures"]
-    assert result["parity_cases"] == 0
+    # Deterministic parity is checked even though the counters differ.
+    assert result["parity_cases"] == 1
+    assert result["parity_established"] == 1
+    # Counters only govern equal-work performance statistics.
     assert result["equal_work_latency_ratio_samples"] == 0
+    assert result["acceptance_complete"] is True
+
+
+def test_parity_mismatch_with_differing_node_counts_fails():
+    expected = _report(
+        [_record("brandubh-king-escape", "quick", "brandubh", nodes=120, evaluations=40)]
+    )
+    actual = _report(
+        [
+            _record(
+                "brandubh-king-escape",
+                "quick",
+                "brandubh",
+                nodes=118,
+                evaluations=39,
+                move={"source": 3, "target": 4},
+            )
+        ]
+    )
+    result = jc.compare(expected, actual)
+    assert result["ok"] is False
+    assert any("deterministic parity differs" in message for message in result["failures"])
+    assert result["parity_established"] == 0
     assert result["acceptance_complete"] is False
+
+
+def test_acceptance_is_never_complete_with_a_parity_failure(golden):
+    def mutate(report):
+        row = _measured_row(report, "brandubh-king-escape", 1)
+        row["best_move"] = _other_legal_move(report, "brandubh-king-escape", row["best_move"])
+
+    result = jc.compare(copy.deepcopy(golden), _mutated(golden, mutate))
+    assert result["ok"] is False
+    assert result["acceptance_complete"] is False
+
+
+def test_record_cannot_redefine_its_expected_depth(golden):
+    def mutate(report):
+        _measured_row(report, "brandubh-king-escape", 0)["expected_depth"] = 99
+
+    result = jc.compare(copy.deepcopy(golden), _mutated(golden, mutate))
+    assert result["ok"] is False
+    assert any(
+        "record expected depth" in message and "effective configuration depth" in message
+        for message in result["failures"]
+    )
+    assert result["acceptance_complete"] is False
+
+
+def test_completed_depth_must_match_the_effective_configuration(golden):
+    def mutate(report):
+        row = _measured_row(report, "brandubh-king-escape", 0)
+        row["completed_depth"] = 2  # status remains "completed"
+
+    result = jc.compare(copy.deepcopy(golden), _mutated(golden, mutate))
+    assert result["ok"] is False
+    assert any("completed depth 2 != requested 3" in message for message in result["failures"])
+
+
+def test_incorrect_workload_completion_status_is_unresolved(golden):
+    def mutate(report):
+        for repetition in (0, 1):
+            row = _measured_row(report, "brandubh-king-escape", repetition)
+            row["status"] = "deadline_limited"
+            row["completed_depth"] = 2
+            row["interrupted_depth"] = 3
+
+    actual = _mutated(golden, mutate)
+    expected = _mutated(golden, mutate)
+    result = jc.compare(expected, actual)
+    assert result["ok"] is True, result["failures"]
+    # Valid, parity-checked at depth 2, but the configured depth-3 workload did
+    # not complete, so acceptance must stay incomplete.
+    assert result["parity_established"] == 2
+    assert result["acceptance_complete"] is False
+
+
+def test_malformed_work_counters_fail(golden):
+    def mutate(report):
+        _measured_row(report, "brandubh-king-escape", 0)["nodes"] = "many"
+
+    result = jc.compare(copy.deepcopy(golden), _mutated(golden, mutate))
+    assert result["ok"] is False
+    assert any("malformed work counter" in message for message in result["failures"])
+
+
+def test_wrong_record_budget_is_rejected(golden):
+    def mutate(report):
+        _measured_row(report, "brandubh-king-escape", 0)["time_limit_ms"] = 1.0
+
+    result = jc.compare(copy.deepcopy(golden), _mutated(golden, mutate))
+    assert result["ok"] is False
+    assert any("record budget" in message for message in result["failures"])
 
 
 def test_terminal_times_are_excluded_from_search_performance(golden):

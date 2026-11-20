@@ -218,13 +218,42 @@ def _execution_failures(
     key: tuple,
     contract: dict[str, Any],
     known_unsupported: set[str],
+    expected_depth: int | None,
+    expected_time_limit_ms: float | None,
 ) -> list[str]:
-    """Validate one result's structure, independent of the other runtime."""
+    """Validate one result's structure, independent of the other runtime.
+
+    The required depth and cooperative deadline come from the validated effective
+    configuration, never from the record itself, so a record cannot redefine the
+    work it was asked to perform.
+    """
     problems: list[str] = []
     label = f"{side}: {_label(key)}"
     status = record.get("status")
     if status not in STATUS_VALUES:
         return [f"{label}: unknown status {status!r}"]
+
+    recorded_depth = record.get("expected_depth")
+    if expected_depth is not None and recorded_depth != expected_depth:
+        problems.append(
+            f"{label}: record expected depth {recorded_depth!r} != effective "
+            f"configuration depth {expected_depth!r}"
+        )
+    recorded_budget = record.get("time_limit_ms")
+    if (
+        expected_time_limit_ms is not None
+        and recorded_budget is not None
+        and (not _finite(recorded_budget) or abs(recorded_budget - expected_time_limit_ms) > 1e-6)
+    ):
+        problems.append(
+            f"{label}: record budget {recorded_budget!r} ms != effective "
+            f"configuration budget {expected_time_limit_ms!r} ms"
+        )
+
+    for counter in ("nodes", "evaluations", "cutoffs", "successors"):
+        value = record.get(counter)
+        if value is not None and (type(value) is not int or value < 0):
+            problems.append(f"{label}: malformed work counter {counter}={value!r}")
 
     if status == "unsupported":
         if key[1] not in known_unsupported:
@@ -235,8 +264,6 @@ def _execution_failures(
             problems.append(f"{label}: unsupported case must not return a move")
         return problems
     if status == "error":
-        # A search execution error is never an accepted result, even when both
-        # runtimes happen to fail the same way.
         problems.append(f"{label}: execution error: {record.get('error') or 'unspecified'}")
         return problems
 
@@ -272,36 +299,33 @@ def _execution_failures(
     elif _move_key(move) not in legal:
         problems.append(f"{label}: best move {move} is not legal in the workload position")
 
-    if record.get("expected_depth") is None:
-        problems.append(f"{label}: missing expected depth")
+    if expected_depth is None:
+        problems.append(f"{label}: effective configuration declares no search depth")
     completed = record.get("completed_depth")
     interrupted = record.get("interrupted_depth")
+    if completed is not None and (type(completed) is not int or completed < 0):
+        problems.append(f"{label}: malformed completed depth {completed!r}")
     if interrupted is not None and (type(interrupted) is not int or interrupted < 1):
         problems.append(f"{label}: invalid interrupted depth {interrupted!r}")
 
     if status == "completed":
         if interrupted is not None:
             problems.append(f"{label}: completed case also reports an interrupted depth")
-        if not isinstance(completed, int) or completed != record.get("expected_depth"):
+        if not isinstance(completed, int) or completed != expected_depth:
             problems.append(
-                f"{label}: completed depth {completed!r} != requested "
-                f"{record.get('expected_depth')!r}"
+                f"{label}: completed depth {completed!r} != requested {expected_depth!r}"
             )
     elif status == "deadline_limited":
         if interrupted is None:
             problems.append(f"{label}: deadline-limited case has no interrupted depth")
-        if not isinstance(completed, int) or completed < 0:
+        if not isinstance(completed, int):
             problems.append(f"{label}: deadline-limited case has no completed depth")
-        if isinstance(completed, int) and completed >= record.get("expected_depth"):
+        elif expected_depth is not None and completed >= expected_depth:
             problems.append(f"{label}: deadline-limited case claims the requested depth")
     elif status == "incomplete":
-        if not isinstance(completed, int) or completed < 0:
+        if not isinstance(completed, int):
             problems.append(f"{label}: incomplete case has no completed depth")
-        if (
-            interrupted is None
-            and isinstance(completed, int)
-            and completed >= record.get("expected_depth")
-        ):
+        elif interrupted is None and expected_depth is not None and completed >= expected_depth:
             problems.append(f"{label}: incomplete case reached the requested depth")
     return problems
 
@@ -319,38 +343,56 @@ def _effective_depth(record: dict[str, Any]) -> int | None:
     return completed
 
 
-def _comparable_work(
+def _parity_applicable(
     expected_row: dict[str, Any], actual_row: dict[str, Any]
 ) -> tuple[bool, dict[str, Any]]:
-    """Decide whether two results represent genuinely equivalent search work.
+    """Whether two results can be checked for deterministic parity.
 
-    Terminal, unsupported, failed and zero-depth results are never search work.
-    Equal completed depth is necessary but not sufficient: the interruption state
-    and the available node/evaluation counters must also agree, otherwise the two
-    searches did not perform equivalent work.
+    Deterministic parity is available whenever both runtimes performed a valid
+    search and completed the **same depth**. Node/evaluation counters must not
+    suppress this check: differing counters are a performance signal, not a
+    reason to skip verifying a deterministic result.
     """
-    if expected_row.get("status") in ("terminal", "unsupported", "error"):
-        return False, {"reason": "non-search result"}
-    if actual_row.get("status") in ("terminal", "unsupported", "error"):
-        return False, {"reason": "non-search result"}
+    for row in (expected_row, actual_row):
+        if row.get("status") in ("terminal", "unsupported", "error"):
+            return False, {"reason": "non-search result"}
     expected_depth = _effective_depth(expected_row)
     actual_depth = _effective_depth(actual_row)
     if expected_depth is None or actual_depth is None or expected_depth < 1 or actual_depth < 1:
         return False, {"reason": "no completed work"}
     if expected_depth != actual_depth:
         return False, {"reason": "different completed depth"}
+    return True, {"completed_depth": expected_depth}
+
+
+def _work_equivalent(
+    expected_row: dict[str, Any], actual_row: dict[str, Any]
+) -> tuple[bool, dict[str, Any]]:
+    """Whether two results represent genuinely equivalent computational work.
+
+    This governs equal-work latency/throughput statistics only. It requires the
+    same completed depth and interruption state, and *measured* node/evaluation
+    counters that agree. Unavailable counters mean equivalence cannot be claimed.
+    """
+    applicable, detail = _parity_applicable(expected_row, actual_row)
+    if not applicable:
+        return False, detail
     expected_interrupted = expected_row.get("interrupted_depth") is not None
     actual_interrupted = actual_row.get("interrupted_depth") is not None
     if expected_interrupted != actual_interrupted:
         return False, {"reason": "different interruption state"}
-    counters = {}
+    counters: dict[str, bool] = {}
     for name in ("nodes", "evaluations"):
         left, right = expected_row.get(name), actual_row.get(name)
         if type(left) is int and type(right) is int:
             counters[name] = left == right
+        elif left is None and right is None:
+            counters[name] = False
+        else:
+            return False, {"reason": f"inconsistent {name} counters"}
     if any(value is False for value in counters.values()):
-        return False, {"reason": "different work counters", "counters": counters}
-    return True, {"counters": counters}
+        return False, {"reason": "different or unavailable work counters", "counters": counters}
+    return True, {"counters": counters, **detail}
 
 
 def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
@@ -445,17 +487,25 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
     equal_work_ratios: list[float] = []
     node_rates: list[dict[str, float | None]] = []
     status_counts = {"expected": {}, "actual": {}}
+    effective = expected_identity.get("effective_configs") or {}
 
     for key in sorted(set(expected_measured) & set(actual_measured), key=str):
         expected_row = expected_measured[key]
         actual_row = actual_measured[key]
         contract = contracts.get(key[0], {})
+        config = effective.get(key[1]) or {}
+        expected_depth = config.get("depth") if type(config.get("depth")) is int else None
+        time_limit = config.get("time_limit")
+        expected_time_limit_ms = float(time_limit) * 1000 if _finite(time_limit) else None
+
         execution_problems = _execution_failures(
             expected_row,
             side="expected",
             key=key,
             contract=contract,
             known_unsupported=known_unsupported,
+            expected_depth=expected_depth,
+            expected_time_limit_ms=expected_time_limit_ms,
         )
         execution_problems += _execution_failures(
             actual_row,
@@ -463,6 +513,8 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
             key=key,
             contract=contract,
             known_unsupported=known_unsupported,
+            expected_depth=expected_depth,
+            expected_time_limit_ms=expected_time_limit_ms,
         )
         failures.extend(execution_problems)
         status_counts["expected"][str(expected_row.get("status"))] = (
@@ -480,6 +532,7 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
             "expected_status": expected_row.get("status"),
             "actual_status": actual_row.get("status"),
             "terminal": bool(contract.get("terminal")),
+            "configured_depth": expected_depth,
             "expected_completed_depth": expected_row.get("completed_depth"),
             "actual_completed_depth": actual_row.get("completed_depth"),
             "expected_nodes": expected_row.get("nodes"),
@@ -494,7 +547,6 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
         }
 
         if contract.get("terminal"):
-            # A terminal case is an acceptance target for structure, not a search.
             acceptance_cases += 1
             if not execution_problems:
                 acceptance_ok += 1
@@ -527,13 +579,23 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
             acceptance_cases += 1
             row["acceptance_incomplete"] = True
             failures.append(f"{_label(key)}: unexpected execution error")
+            unresolved.append(
+                {
+                    "position": key[0],
+                    "config": key[1],
+                    "repetition": key[3],
+                    "reason": "execution error",
+                }
+            )
             rows.append(row)
             continue
 
-        equal_work, work_detail = _comparable_work(expected_row, actual_row)
-        row["equal_work"] = equal_work
-        row["work_detail"] = work_detail
-        if equal_work:
+        # Deterministic parity is independent of computational-work counters.
+        parity_applicable, parity_detail = _parity_applicable(expected_row, actual_row)
+        row["parity_applicable"] = parity_applicable
+        row["parity_detail"] = parity_detail
+        parity_ok_case = False
+        if parity_applicable:
             parity_cases += 1
             move_match = expected_row.get("best_move") == actual_row.get("best_move")
             value_match = _values_agree(expected_row.get("value"), actual_row.get("value"))
@@ -543,48 +605,58 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
             row["depth_match"] = depth_match
             if not (move_match and value_match and depth_match):
                 failures.append(
-                    f"{_label(key)}: parity at equal completed work differs "
+                    f"{_label(key)}: deterministic parity differs "
                     f"(move={move_match}, value={value_match}, depth={depth_match})"
                 )
             else:
                 parity_ok += 1
+                parity_ok_case = True
+
+        # Computational-work equivalence governs performance ratios only.
+        equal_work, work_detail = _work_equivalent(expected_row, actual_row)
+        row["equal_work"] = equal_work
+        row["work_detail"] = work_detail
+        if equal_work:
             ratio = _ratio(expected_row.get("elapsed_ms"), actual_row.get("elapsed_ms"))
             row["latency_ratio"] = ratio
             if ratio is not None:
                 equal_work_ratios.append(ratio)
             node_rates.append(_node_rates(expected_row, actual_row))
-        elif not fixed_work:
+        elif not fixed_work and not parity_applicable:
             warnings.append(
-                f"{_label(key)}: fixed-time results are not equal-work comparable "
+                f"{_label(key)}: fixed-time results are not comparable "
                 f"({work_detail.get('reason')})"
             )
 
-        expected_depth = expected_row.get("expected_depth")
         completed_both = (
-            expected_row.get("status") == "completed"
+            expected_depth is not None
+            and expected_row.get("status") == "completed"
             and actual_row.get("status") == "completed"
             and expected_row.get("completed_depth") == expected_depth
             and actual_row.get("completed_depth") == expected_depth
         )
         acceptance_cases += 1
-        if completed_both and equal_work and not execution_problems:
+        if completed_both and parity_ok_case and not execution_problems:
             acceptance_ok += 1
             row["acceptance_incomplete"] = False
         else:
             row["acceptance_incomplete"] = True
-            reason = (
-                "asymmetric completion"
-                if (expected_row.get("status") == "completed")
-                != (actual_row.get("status") == "completed")
-                else f"limited at depth {expected_row.get('completed_depth')}"
-            )
+            if not completed_both:
+                reason = (
+                    "asymmetric completion"
+                    if (expected_row.get("status") == "completed")
+                    != (actual_row.get("status") == "completed")
+                    else f"limited at depth {expected_row.get('completed_depth')}"
+                )
+            else:
+                reason = "deterministic parity not established"
             unresolved.append(
                 {
                     "position": key[0],
                     "config": key[1],
                     "repetition": key[3],
                     "reason": reason,
-                    "expected_depth": expected_depth,
+                    "configured_depth": expected_depth,
                     "expected_completed_depth": expected_row.get("completed_depth"),
                     "actual_completed_depth": actual_row.get("completed_depth"),
                 }
@@ -594,14 +666,17 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
     if not expected_measured or not actual_measured:
         failures.append("comparison report contains no measured records")
 
-    if fixed_work:
+    if failures:
+        # A mandatory failure can never coexist with acceptance completion.
+        acceptance_complete = False
+    elif fixed_work:
         acceptance_complete = (
             bool(required) and acceptance_cases > 0 and acceptance_ok == acceptance_cases
         )
     else:
         # A fixed-time run collects performance evidence; completion is not the
         # acceptance target. It is complete when every compared case executed
-        # validly and no coverage/identity failure occurred.
+        # validly and coverage was complete.
         acceptance_complete = (
             bool(required)
             and acceptance_cases > 0
