@@ -1,0 +1,55 @@
+{
+  "kind": "browser-neural-ui",
+  "generated": "2026-11-20T09:55:13.295Z",
+  "checks": [
+    {
+      "name": "Infer works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Distinct batch inference works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Benchmark works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Controls disable during an active operation",
+      "ok": true
+    },
+    {
+      "name": "Cancellation invalidates stale results and reports cancelled",
+      "ok": true
+    },
+    {
+      "name": "Cancellation during manifest loading does not initialize a worker",
+      "ok": true
+    },
+    {
+      "name": "Cancellation during reference loading does not publish a model",
+      "ok": true
+    },
+    {
+      "name": "Replacement operation after cancellation completes",
+      "ok": true
+    },
+    {
+      "name": "Obsolete asset completion cannot overwrite a newer operation",
+      "ok": true
+    },
+    {
+      "name": "Deterministic provider failure recovers on WASM",
+      "ok": true
+    },
+    {
+      "name": "WebGPU provider load reports a legitimate outcome",
+      "ok": true
+    }
+  ],
+  "failures": [],
+  "browser": "156.0.8078.4",
+  "webgpu_outcome": "failed",
+  "external_requests": [],
+  "ok": true
+}

@@ -11,14 +11,12 @@ Related: [Phase 1 validation](../validation/browser-analysis-phase1.md) ·
 [isolated spike](../../spikes/browser_offline/README.md) ·
 [documentation index](../README.md).
 
-**Current integration revision:** `3fa29c2`, a normal merge of `origin/main`
-`17d3819` (`perf/frontend-feature-splitting`) into `feat/browser-analysis-phase1`.
-The upstream change introduced frontend feature splitting, deferred/lazy-loaded
-analysis components, bundle budgets and documentation. No engine, model,
-inference, dependency or frontend runtime file used by the spike changed, so
-revision-3 engine/runtime identities still apply. The staged engine closure and
-the production-equivalent Jarl preset were revalidated against the merged
-sources.
+**Current integration revision:** `b84a748`, a normal merge of `origin/main`
+`1b4c4ae` (backend-read mountinfo hardening) into `feat/browser-analysis-phase1`.
+The upstream change touched only the backend-read benchmark, its tests and
+documentation; no engine, model, inference or frontend runtime file used by the
+spike changed. Revision-3/4 engine and runtime identities still apply, and the
+staged engine closure and production-equivalent Jarl preset remain valid.
 
 ## Status definitions
 
@@ -203,6 +201,21 @@ production readiness.
   - Revision-4 UI: an internal loader runs inside the owned operation, so Infer,
     distinct batch and Benchmark work from a clean initial state; provider changes
     reload; cancellation invalidates stale UI.
+  - Revision-5 request identity: inference requests carry the immutable expected
+    model digest, ruleset and size. The worker validates them against the active
+    session before building inputs (single and batch-level metadata), the client
+    exposes `modelIdentity()` for capture at workload preparation and rejects
+    stale identities, and loading requires a supported ruleset. A request prepared
+    for model A cannot execute against model B.
+  - Revision-5 UI ownership: the operation token is propagated through manifest
+    and reference-vector loading, model initialization, inference, benchmark and
+    publication; shared cached fetches never let a cancelled operation resume.
+  - Revision-5 provider tests: deterministic simulated WebGPU failure recovery is
+    separated from a hardware test that accepts legitimate WebGPU success or an
+    explicit unsupported outcome.
+  - Revision-5 reference compatibility: reference vectors are written as compact
+    JSON (exact values, digest over bytes), so Copenhagen (11.55 MB) fits the
+    unchanged 16 MiB budget; indented output had exceeded it.
 - **Provider reporting (revision 4):** requested provider, adapter availability,
   session creation, inference success, numerical parity and observed placement are
   separate. Placement is `wasm`, `webgpu-session-unverified`, `webgpu-mixed`,
@@ -262,11 +275,11 @@ production readiness.
 ## Phase 2 — Browser-side neural MCTS (subsequent PR)
 
 - **Status:** Not started, but **ready to begin** using validated WASM inference.
-  Phase 1B provides a distinct-position batched inference interface (1–32), a
-  complete response/tensor contract and a bounded asynchronous client intended as
-  the search boundary. Competitive-model and physical-WebGPU validation can run in
-  parallel rather than blocking development. No MCTS engine is implemented or
-  claimed; batched inference alone does not start this phase.
+  Phase 1B now provides request/response model identity, distinct-position batched
+  inference (1–32), complete tensor validation and ownership, deterministic worker
+  lifecycle, bounded cancellation and exact error classification as the search
+  boundary. Competitive-model and physical-WebGPU validation can run in parallel
+  rather than blocking development. No MCTS engine is implemented or claimed.
 - **Design constraints:** reuse existing tree traversal/expansion/selection/
   backpropagation; avoid per-node serialization and blocking synchronization.
 - **Acceptance:** completed simulations (128–4096) measured against 0.5–10 s
@@ -340,11 +353,15 @@ production readiness.
 | Complete inference-response contract | Validated (mandatory fields; no substitution) |
 | Independent batch order/association | Validated (16 corruption kinds) |
 | Output-tensor release on failure paths | Validated (7 instrumented checks) |
-| Actual-browser UI clean-state flows | Validated (6 interaction checks) |
+| Request-side model identity binding | Validated (client + worker; 6 corruption kinds) |
+| UI operation ownership through asset loading | Validated (delayed asset/cancel checks) |
+| Hardware-independent provider tests | Validated (deterministic + outcome-agnostic) |
+| Larger-board reference compatibility | Structurally validated (Copenhagen fixture 11.57 MB) |
+| Actual-browser UI clean-state flows | Validated (11 interaction checks) |
 | GPU execution evidence | Not available (no per-operator diagnostic); GPU execution blocked |
 | Competitive trained-model validation | Blocked (weights unavailable) |
 | Physical-device validation | Blocked |
-| Worker lifecycle validation | Validated (25 deterministic Node checks + browser gates) |
+| Worker lifecycle validation | Validated (27 deterministic Node checks + browser gates) |
 | Artifact integrity/lifecycle validation | Validated (structural negative tests) |
 | Runtime tensor validation | Validated (worker rejects malformed outputs) |
 | Playing-strength validation | Not started |
@@ -414,6 +431,9 @@ node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider wasm --output /tmp/neural-parity-wasm.json
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider wasm --corrupt reorder --output /tmp/neural-parity-corrupt.json  # must fail
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --corrupt request-model-worker --output /tmp/neural-identity-corrupt.json
+node spikes/browser_offline/test_neural_identity.mjs
 node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
   --provider wasm --sustained 200 --output /tmp/neural-wasm.json
 node spikes/browser_offline/test_neural_ui.mjs /tmp/neural-spike \
@@ -439,3 +459,4 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-19 | Revision 2: corrected fixed-work gate, custom positions, bounded per-case watchdogs, browser WASM parity, provider reporting, lifecycle, artifact integrity and distinct-position batching. |
 | 2026-11-19 | Revision 3: integrated `main` `07d7438`; validate every repetition and derive coverage independently; separate execution/parity/acceptance; validate the actual returned browser policy and all corruption kinds; coherent artifact lifecycle; graph/runtime tensor validation; awaited resource release; closed load/cancellation races; refined provider evidence and harness failure handling. |
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
+| 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |

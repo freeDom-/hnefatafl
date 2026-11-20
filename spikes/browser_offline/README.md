@@ -72,8 +72,14 @@ invalidates the old marker before publishing. Browser parity validates the compl
 inference response the runtime actually returned (model/ruleset and request/position
 identity, logits, value, legal indices/order, probabilities, shapes, dtypes) and
 independently verifies batch count, result count, per-result index and position
-association. Missing response fields fail; sixteen deliberate corruption kinds must
-fail.
+association. Missing response fields fail; deliberate corruption kinds must fail.
+
+Inference requests are bound to the exact model they were prepared for: callers
+capture `client.modelIdentity()` (digest, ruleset, size) when preparing a workload,
+and both the client and worker reject a stale or mismatched identity before
+execution. Loading requires a supported ruleset, and batch requests carry model
+metadata once at batch level. Reference vectors are written as compact JSON so
+Copenhagen remains within the unchanged 16 MiB experimental budget.
 
 ```sh
 uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
@@ -84,10 +90,13 @@ node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider wasm --output /tmp/neural-parity-wasm.json
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider wasm --corrupt reorder --output /tmp/neural-corrupt.json   # must fail
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --corrupt request-model-worker --output /tmp/neural-identity.json
 node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
   --provider wasm --sustained 200 --output /tmp/neural-wasm.json
 node spikes/browser_offline/test_neural_ui.mjs /tmp/neural-spike \
   --output /tmp/neural-ui.json
+node spikes/browser_offline/test_neural_identity.mjs
 node spikes/browser_offline/test_neural_tensors.mjs
 node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
   --provider webgpu --require-webgpu
