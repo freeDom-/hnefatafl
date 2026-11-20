@@ -391,6 +391,36 @@ def test_marker_covers_the_complete_artifact_set(exported):
         assert payload["parity_sha256"] == parity_digest
 
 
+def test_compact_reference_vectors_fit_the_limit_for_all_rulesets(tmp_path):
+    for ruleset in ("brandubh", "tablut", "copenhagen"):
+        model = PolicyValueNet(ruleset=ruleset, channels=4, blocks=0).eval()
+        target = tmp_path / f"{ruleset}-placeholder.onnx"
+        target.write_bytes(b"placeholder")
+        reference = onnx_export.reference_vectors(model, target)
+        encoded = json.dumps(reference, separators=(",", ":"), allow_nan=False).encode()
+        assert len(reference["cases"]) >= 39, ruleset
+        assert len(encoded) <= onnx_export.MAX_REFERENCE_BYTES, (
+            f"{ruleset}: {len(encoded)} bytes exceeds the reference budget"
+        )
+
+
+def test_copenhagen_fixture_export_fits_and_validates(tmp_path):
+    # Structural compatibility only: a tiny fixture network, never competitive
+    # trained-model validation.
+    model = PolicyValueNet(ruleset="copenhagen", channels=4, blocks=0)
+    source = tmp_path / "copenhagen-fixture.pt"
+    save_checkpoint(source, model, {"ruleset": "copenhagen", "name": "structural-fixture"})
+    output = tmp_path / "copenhagen-export"
+    code = _run_export(source, output)
+    assert code == 0
+    reference_size = (output / "reference.json").stat().st_size
+    assert reference_size <= onnx_export.MAX_REFERENCE_BYTES
+    result = prepare_neural.validate_export_dir(output, allow_unvalidated=False)
+    assert result["validated"] is True
+    assert result["ruleset"] == "copenhagen"
+    assert len(result["reference"]["cases"]) >= 39
+
+
 def test_metadata_sidecar_has_no_private_training_state(exported):
     sidecar = json.loads((exported / "model.json").read_text())
     serialised = json.dumps(sidecar)

@@ -465,6 +465,16 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n")
 
 
+def _write_compact_json(path: Path, payload: dict) -> None:
+    """Compact JSON for large reference vectors.
+
+    Indented serialization of a Copenhagen reference set exceeds the 16 MiB
+    experimental budget (about 17 MB), while compact tokens preserve the exact
+    float values and fit comfortably. Digests cover the written bytes.
+    """
+    path.write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n")
+
+
 def run(args) -> int:
     source = args.checkpoint.resolve()
     if not source.is_file():
@@ -493,7 +503,7 @@ def run(args) -> int:
         reference["model_sha256"] = sidecar["onnx"]["sha256"]
         # The recorded reference digest must cover the exact bytes written to
         # disk, not a differently-formatted serialization.
-        _write_json(staging / "reference.json", reference)
+        _write_compact_json(staging / "reference.json", reference)
         if (staging / "reference.json").stat().st_size > MAX_REFERENCE_BYTES:
             raise ExportError("Reference vector file exceeds the experimental size limit")
         reference_digest = digest(staging / "reference.json")

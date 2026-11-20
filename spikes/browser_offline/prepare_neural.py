@@ -374,6 +374,7 @@ def main() -> None:
         "neural-worker.js",
         "neural-provider.js",
         "neural-tensors.js",
+        "neural-identity.js",
         "neural.html",
         "neural-client.js",
     ):
