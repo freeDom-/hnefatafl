@@ -241,3 +241,44 @@ def test_live_interrupted_activation_explicit_recovery(lifecycle):
     assert lifecycle.current.resolve() == old
     assert json.loads(lifecycle.state.read_text())["version"] == "0.40.0"
     assert (lifecycle.data / "models/weights").read_bytes() == b"retained-model"
+
+
+def test_historical_harness_timeout_cleans_child_and_pid_file(tmp_path):
+    import historical_release_support as support
+
+    fake = tmp_path / "fake_harness.py"
+    child_pid = tmp_path / "child.pid"
+    log = tmp_path / "fake.log"
+    config = tmp_path / "harness.json"
+    result = tmp_path / "result.json"
+    fake.write_text(
+        "\n".join(
+            [
+                "import json, subprocess, sys, time",
+                "from pathlib import Path",
+                "config = json.loads(Path(sys.argv[1]).read_text())",
+                "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)",
+                "Path(config['child_pid']).write_text(str(child.pid))",
+                "fields = Path(f'/proc/{child.pid}/stat').read_text().rsplit(')', 1)[1].split()",
+                "identity = {'pid': child.pid, 'start': fields[19], 'pgrp': int(fields[2])}",
+                "Path(config['log']).with_suffix('.pid').write_text(json.dumps(identity) + '\\n')",
+                "time.sleep(60)",
+            ]
+        )
+        + "\n"
+    )
+    config.write_text(
+        json.dumps(
+            {
+                "log": str(log),
+                "result": str(result),
+                "child_pid": str(child_pid),
+            }
+        )
+        + "\n"
+    )
+    with pytest.raises(AssertionError, match="timed out"):
+        support.run_updater_harness(fake, tmp_path, config, result, timeout=1)
+    pid = int(child_pid.read_text())
+    assert support.process_gone(pid)
+    assert not log.with_suffix(".pid").exists()

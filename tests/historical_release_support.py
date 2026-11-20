@@ -156,24 +156,55 @@ def fixture(script: Path, tree: Path, mode: str, data: Path, manifest: Path) -> 
     )
 
 
+def _identity(pid: int) -> dict:
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        return {"pid": pid, "start": fields[19], "pgrp": int(fields[2])}
+    except (OSError, IndexError, ValueError):
+        return {"pid": pid}
+
+
+def process_gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
+
+
 def _terminate_pid_file(pid_file: Path) -> None:
     try:
-        pid = int(pid_file.read_text())
-    except (OSError, ValueError):
+        payload = json.loads(pid_file.read_text())
+        pid = int(payload["pid"])
+    except (OSError, ValueError, TypeError, KeyError):
+        pid_file.unlink(missing_ok=True)
+        return
+    # Never signal a stale/reused PID. The harness records the start time and
+    # process-group identity with the PID.
+    if _identity(pid) != payload:
+        pid_file.unlink(missing_ok=True)
         return
     try:
-        os.killpg(pid, signal.SIGTERM)
+        if payload.get("pgrp") == pid:
+            os.killpg(pid, signal.SIGTERM)
+        else:
+            os.kill(pid, signal.SIGTERM)
         for _ in range(50):
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+            if process_gone(pid):
                 return
             import time
 
             time.sleep(0.1)
-        os.killpg(pid, signal.SIGKILL)
+        if payload.get("pgrp") == pid:
+            os.killpg(pid, signal.SIGKILL)
+        else:
+            os.kill(pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
+    finally:
+        pid_file.unlink(missing_ok=True)
 
 
 def run_updater_harness(
@@ -231,3 +262,42 @@ def release_module_path(release: Path) -> Path:
         timeout=30,
     )
     return Path(result.stdout.strip()).resolve()
+
+
+def run_target_script(
+    script: Path,
+    target: Path,
+    data: Path,
+    env_file: Path,
+    *args: str,
+    timeout: int = 120,
+) -> subprocess.CompletedProcess:
+    env = {
+        **os.environ,
+        **load_env(env_file),
+        "HNEFATAFL_DATA_DIR": str(data),
+        "PYTHONPATH": str(target),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    env.pop("PYTHONHOME", None)
+    return subprocess.run(
+        [str(target / ".venv/bin/python"), str(script), *args],
+        cwd=target,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def load_env(path: Path) -> dict[str, str]:
+    values = {}
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            name, separator, value = line.partition("=")
+            if separator:
+                values[name] = value
+    return values

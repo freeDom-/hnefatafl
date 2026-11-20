@@ -34,16 +34,27 @@ lifecycle, plus disposable updater integration for fresh install, restart, faile
 activation/rollback and interrupted recovery.
 
 Genuine cross-version coverage extracts pinned `0.40.0` updater/application and
-schema-20 historical code from the trusted origin, builds an authentic schema-20
-database with that code, and runs the old updater against a corrected Uvicorn
-release under the real lock. It preserves representative accounts, models, jobs,
-checkpoints, games and online/tournament records through schema 21. Historical
-`0.41.0` is explicitly treated as an unsafe rollback target: explicit rollback,
-interrupted recovery and automatic recovery reject it before service stop, data
-restore or symlink switch, while ordinary `0.40.0` and corrected releases remain
-supported. Enhanced diagnostics and policy apply only once the corrected updater
-runs. No schema change is included; target-host systemd/Proxmox validation remains
-outstanding. See the [0.41.1 release notes](docs/releases/0.41.1.md).
+schema-20 historical code from the trusted origin and runs the old updater against
+a corrected Uvicorn release under the real lock. Both direct authentic schema
+15→21 and schema 20→21 upgrades are covered, preserving accounts/permissions,
+models, jobs, checkpoints, games and (for schema 20) online/tournament records,
+then authenticating and performing a protected mutation through the target
+release. A deterministic post-migration readiness failure shows the historical
+updater failing closed on cross-schema restore (`Online schema changed`), retaining
+the activated target, schema-21 live database, verified snapshot, model/checkpoint
+files and transaction metadata without starting the old application. Corrected
+rollback performs a read-only schema preflight before service stop; matching-schema
+rollback between corrected releases remains supported.
+
+Historical `0.41.0` is explicitly treated as an unsafe rollback target: explicit
+rollback, interrupted recovery and automatic recovery reject it before service
+stop, data restore or symlink switch, while ordinary `0.40.0` and corrected
+releases remain supported. Diagnostics preserve defined safe operator errors while
+hiding unexpected exception payloads, and subprocess cleanup is verified by exact
+PID identity on success, readiness failure and timeout. Enhanced diagnostics and
+policy apply only once the corrected updater runs. No schema change is included;
+target-host systemd/Proxmox validation remains outstanding. See the
+[0.41.1 release notes](docs/releases/0.41.1.md).
 
 ## Persistent Champion-aware HyperController (unreleased)
 

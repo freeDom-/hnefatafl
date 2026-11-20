@@ -63,6 +63,10 @@ class DeploymentStepError(ValueError):
     """Sanitized deployment/recovery failure that identifies the failed step."""
 
 
+class DeploymentError(ValueError):
+    """Deliberate operator-facing deployment error with a safe message."""
+
+
 def version_key(tag: str) -> tuple[int, ...]:
     match = VERSION.fullmatch(tag)
     if match is None:
@@ -367,11 +371,13 @@ class Deployment:
                 # the manifest and disappear later during connection GC.
                 copy.execute("PRAGMA journal_mode=DELETE")
                 if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise ValueError("Backup SQLite integrity check failed")
+                    raise DeploymentError("Backup SQLite integrity check failed")
         manifest = {}
         for file in backup.rglob("*"):
             if file.is_symlink():
-                raise ValueError("Backup encountered a symlink; inspect storage before continuing")
+                raise DeploymentError(
+                    "Backup encountered a symlink; inspect storage before continuing"
+                )
             if file.is_file():
                 manifest[str(file.relative_to(backup))] = checksum(file)
         atomic_json(backup / "manifest.json", manifest)
@@ -389,7 +395,7 @@ class Deployment:
                 or not file.is_file()
                 or checksum(file) != expected
             ):
-                raise ValueError("Backup verification failed")
+                raise DeploymentError("Backup verification failed")
 
     def restore(self, backup: Path):
         self.verify_snapshot(backup)
@@ -399,7 +405,7 @@ class Deployment:
         # undo password, role, and status changes made since the snapshot.
         live_db, copy_db = self.data / "hnefatafl.sqlite3", restored / "hnefatafl.sqlite3"
         if live_db.exists() and not copy_db.exists():
-            raise ValueError(
+            raise DeploymentError(
                 "Snapshot has no database; manual recovery is required before replacing live authority"
             )
         if live_db.exists() and copy_db.exists():
@@ -414,7 +420,7 @@ class Deployment:
                     live_columns = [row[1] for row in live.execute(f"PRAGMA table_info({table})")]
                     copy_columns = [row[1] for row in copy.execute(f"PRAGMA table_info({table})")]
                     if copy_columns and live_columns != copy_columns:
-                        raise ValueError(
+                        raise DeploymentError(
                             "Account schema changed; manual recovery is required before restoring security state"
                         )
                     if copy_columns:
@@ -427,7 +433,10 @@ class Deployment:
                 self.revoke_restore_capabilities(copy)
                 from .online_migrations import retain_online_on_restore
 
-                retain_online_on_restore(live, copy)
+                try:
+                    retain_online_on_restore(live, copy)
+                except ValueError as error:
+                    raise DeploymentError(str(error)) from error
                 copy.commit()
         elif copy_db.exists():
             # Disaster recovery without a live DB cannot recover post-snapshot
@@ -436,10 +445,13 @@ class Deployment:
                 from .online_migrations import pause_online_after_restore
 
                 self.revoke_restore_capabilities(copy)
-                pause_online_after_restore(
-                    copy,
-                    "Snapshot-only recovery; timeout finalization paused for operator reconciliation.",
-                )
+                try:
+                    pause_online_after_restore(
+                        copy,
+                        "Snapshot-only recovery; timeout finalization paused for operator reconciliation.",
+                    )
+                except ValueError as error:
+                    raise DeploymentError(str(error)) from error
                 copy.commit()
         retained = self.data.with_name(self.data.name + ".retained-" + secrets.token_hex(4))
         gate = self.data / ".deployment-gate"
@@ -898,7 +910,13 @@ class Deployment:
                 "SELECT id FROM accounts WHERE active=1 AND role='ADMIN' LIMIT 1"
             ).fetchone()
             if not row:
-                raise ValueError("No active administrator after deployment")
+                raise self._readiness_error(
+                    "administrator",
+                    "no_active_administrator",
+                    attempts=1,
+                    elapsed=0.0,
+                    status=200,
+                )
             token = secrets.token_urlsafe(32)
             hashed = hashlib.sha256(token.encode()).hexdigest()
             c.execute(
@@ -919,7 +937,7 @@ class Deployment:
         reason = INCOMPATIBLE_ROLLBACK_RELEASES.get(version)
         if reason is None:
             return
-        raise ValueError(
+        raise DeploymentError(
             f"Refusing {action} to unsupported release {version}: {reason}. "
             "No snapshot restore, release switch or service start was attempted; "
             "the current release symlink and persistent data were left unchanged. "
@@ -927,6 +945,54 @@ class Deployment:
             "0.41.1 or later release, or perform a reviewed manual recovery. "
             "Do not run older code against migrated data."
         )
+
+    def _verify_restore_preflight(self, backup: Path) -> None:
+        """Read-only schema preflight before stopping a healthy service.
+
+        The authoritative restore still performs its complete checks. This only
+        detects the common cross-schema refusal early, without modifying live or
+        snapshot data.
+        """
+        snapshot = Path(backup) / "data/hnefatafl.sqlite3"
+        live = self.data / "hnefatafl.sqlite3"
+        if not snapshot.is_file() or not live.is_file():
+            return
+        try:
+            with (
+                closing(sqlite3.connect(f"file:{live}?mode=ro", uri=True)) as current,
+                closing(sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)) as saved,
+            ):
+                live_version = current.execute("PRAGMA user_version").fetchone()[0]
+                snapshot_version = saved.execute("PRAGMA user_version").fetchone()[0]
+                if max(live_version, snapshot_version) >= 10 and (live_version != snapshot_version):
+                    raise DeploymentError(
+                        f"Snapshot schema {snapshot_version} differs from live schema "
+                        f"{live_version}; automatic rollback would be refused by the "
+                        "online schema-authority checks. The service was not stopped "
+                        "and persistent data was not replaced. Preserve the snapshot, "
+                        "inspect both databases, and perform reviewed manual recovery."
+                    )
+                for table in ("accounts", "auth_meta", "account_limits"):
+                    current_columns = [
+                        row[1] for row in current.execute(f"PRAGMA table_info({table})")
+                    ]
+                    saved_columns = [row[1] for row in saved.execute(f"PRAGMA table_info({table})")]
+                    if saved_columns and current_columns != saved_columns:
+                        raise DeploymentError(
+                            "Account schema changed; manual recovery is required before "
+                            "restoring security state. The service was not stopped and "
+                            "persistent data was not replaced."
+                        )
+        except sqlite3.Error as error:
+            raise DeploymentError(
+                "Snapshot compatibility could not be read safely; manual recovery is required."
+            ) from error
+
+    @staticmethod
+    def _safe_failure_detail(error: BaseException) -> str:
+        if isinstance(error, (ReadinessError, DeploymentStepError, DeploymentError)):
+            return str(error)
+        return type(error).__name__
 
     def deploy(self, target: Path, *, initialize=False):
         with self.write_gate():
@@ -963,7 +1029,7 @@ class Deployment:
         try:
             deployment_step = "post-stop activity check"
             if active_jobs(self.data):
-                raise ValueError(
+                raise DeploymentError(
                     "New job activity detected during shutdown; update refused, retained state preserved"
                 )
             deployment_step = "pre-deployment snapshot"
@@ -1029,6 +1095,9 @@ class Deployment:
                 recovery_step = "unsupported rollback policy check"
                 if old:
                     self._ensure_rollback_target_supported(old, action="automatic recovery")
+                recovery_step = "snapshot compatibility preflight"
+                if transaction["backup"]:
+                    self._verify_restore_preflight(Path(transaction["backup"]))
                 recovery_step = "snapshot restoration"
                 if transaction["backup"]:
                     self.restore(Path(transaction["backup"]))
@@ -1059,23 +1128,16 @@ class Deployment:
                 self.record(transaction)
             except BaseException as recovery_error:
                 if isinstance(error, ReadinessError):
-                    detail = (
-                        str(recovery_error)
-                        if isinstance(recovery_error, ValueError)
-                        else f"{type(recovery_error).__name__} during {recovery_step}"
-                    )
+                    detail = self._safe_failure_detail(recovery_error)
                     raise ReadinessError(
                         f"{error} Automatic recovery: failed during {recovery_step}. {detail}"
                     ) from recovery_error
                 if isinstance(error, (KeyboardInterrupt, SystemExit)):
                     raise
-                detail = (
-                    str(recovery_error)
-                    if isinstance(recovery_error, ValueError)
-                    else f"{type(recovery_error).__name__}"
-                )
+                detail = self._safe_failure_detail(recovery_error)
+                primary = self._safe_failure_detail(error)
                 raise DeploymentStepError(
-                    f"Deployment failed during {deployment_step} ({type(error).__name__}); "
+                    f"Deployment failed during {deployment_step}: {primary}; "
                     f"automatic recovery failed during {recovery_step}. {detail}. "
                     f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
                 ) from recovery_error
@@ -1096,8 +1158,9 @@ class Deployment:
             else:
                 outcome = "automatic recovery not applicable; initial installation remains stopped"
             raise DeploymentStepError(
-                f"Deployment failed during {deployment_step} ({type(error).__name__}); "
-                f"{outcome}. Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+                f"Deployment failed during {deployment_step}: "
+                f"{self._safe_failure_detail(error)}; {outcome}. "
+                f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
             ) from error
 
     def recover(self, *, rollback=False):
@@ -1121,7 +1184,10 @@ class Deployment:
                 Path(previous), action="rollback" if rollback else "interrupted recovery"
             )
         if active_jobs(self.data):
-            raise ValueError("Finish/cancel training and tournaments before recovery")
+            raise DeploymentError("Finish/cancel training and tournaments before recovery")
+        if backup:
+            self._diagnostic_failure_phase = "rollback compatibility preflight"
+            self._verify_restore_preflight(Path(backup))
         recovery_step = "stopping current service"
         try:
             self.service("stop")
@@ -1165,7 +1231,8 @@ class Deployment:
             if isinstance(error, ReadinessError):
                 raise
             raise DeploymentStepError(
-                f"Recovery failed during {recovery_step} ({type(error).__name__}). "
+                f"Recovery failed during {recovery_step}: "
+                f"{self._safe_failure_detail(error)}. "
                 f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
             ) from error
 

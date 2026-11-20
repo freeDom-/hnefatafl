@@ -12,7 +12,11 @@ import argparse
 import json
 import os
 import signal
+import sqlite3
 import subprocess
+import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from hnefatafl.deployment import Deployment
@@ -43,6 +47,9 @@ class Harness(Deployment):
         self.process = None
         self.log_handle = None
         self.log_path = Path(config["log"])
+        self.fail_readiness = config.get("fail_readiness")
+        self.last_pid = None
+        self.last_exit_code = None
 
     def run(self, args, *, cwd=None, user=False, extra_env=None):
         command = [str(value) for value in args]
@@ -106,19 +113,59 @@ class Harness(Deployment):
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-        self.log_path.with_suffix(".pid").write_text(str(self.process.pid))
+        self.last_pid = self.process.pid
+        self._write_pid_file(self.process.pid)
+        if self.fail_readiness == "remove_admin":
+            self._inject_remove_admin()
+
+    @staticmethod
+    def _process_identity(pid: int) -> dict:
+        try:
+            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+            return {"pid": pid, "start": fields[19], "pgrp": int(fields[2])}
+        except (OSError, IndexError, ValueError):
+            return {"pid": pid}
+
+    def _write_pid_file(self, pid: int) -> None:
+        self.log_path.with_suffix(".pid").write_text(
+            json.dumps(self._process_identity(pid), sort_keys=True) + "\n"
+        )
+
+    def _inject_remove_admin(self) -> None:
+        base = f"http://127.0.0.1:{int(self.config['port'])}"
+        host = urllib.parse.urlparse(self.config["public_url"]).netloc
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(
+                    urllib.request.Request(base + "/api/health", headers={"Host": host}),
+                    timeout=2,
+                ) as response:
+                    if json.load(response) == {"status": "ok"}:
+                        break
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("Target application was not healthy for fault injection")
+        with sqlite3.connect(self.data / "hnefatafl.sqlite3") as c:
+            c.execute("UPDATE accounts SET active=0 WHERE role='ADMIN'")
+            c.commit()
+        self.fail_readiness = None
 
     def _stop(self):
         process = self.process
-        if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-                process.wait(timeout=90)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=10)
-            except ProcessLookupError:
-                pass
+        if process is not None:
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    process.wait(timeout=90)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=10)
+                except ProcessLookupError:
+                    pass
+            self.last_exit_code = process.poll()
         self.process = None
         if self.log_handle is not None:
             self.log_handle.close()
@@ -161,6 +208,9 @@ def main() -> int:
     finally:
         harness.close()
         result["actions"] = harness.actions
+        result["application_pid"] = harness.last_pid
+        result["application_exit_code"] = harness.last_exit_code
+        result["application_stopped"] = harness.process is None
         result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return 0
 

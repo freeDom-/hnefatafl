@@ -80,6 +80,10 @@ def create_040(data: Path, manifest_path: Path) -> None:
         {
             "schema": schema,
             "accounts": {name: entry["id"] for name, entry in accounts.items()},
+            "roles": {name: entry["role"] for name, entry in accounts.items()},
+            "email_verified": {
+                name: entry.get("email_verified_at") for name, entry in accounts.items()
+            },
             "model_sha256": hashlib.sha256(MODEL_BYTES).hexdigest(),
             "checkpoint_sha256": hashlib.sha256(CHECKPOINT_BYTES).hexdigest(),
             "job_id": JOB_ID,
