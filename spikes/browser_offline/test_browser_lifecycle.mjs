@@ -525,6 +525,46 @@ await check("an incompatible batched request identity is rejected", async () => 
   client.terminate();
 });
 
+await check("benchmark and sustained require an explicit model identity", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  const A = "a".repeat(64);
+  const B = "b".repeat(64);
+  client.model = { model_sha256: A, model_ruleset: "brandubh", size: 7, provider: "wasm" };
+  const cases = [{ planes: [], legal: [0], request_id: "p0", position_digest: "c".repeat(64) }];
+  const posted = () => client.worker.messages.length;
+  await assert.rejects(
+    async () => client.benchmark({ cases, batchSizes: [1] }),
+    (error) => error.code === "MODEL_IDENTITY_REQUIRED",
+  );
+  await assert.rejects(
+    async () => client.sustained({ cases, iterations: 1 }),
+    (error) => error.code === "MODEL_IDENTITY_REQUIRED",
+  );
+  const before = client.worker ? posted() : 0;
+  await assert.rejects(
+    async () =>
+      client.benchmark({
+        cases,
+        batchSizes: [1],
+        model: { sha256: B, ruleset: "brandubh", size: 7 },
+      }),
+    (error) => error.code === "MODEL_IDENTITY_MISMATCH",
+  );
+  assert.equal(client.worker ? posted() : 0, before, "missing identity must not reach the worker");
+  // A valid identity still reaches the worker and completes.
+  const valid = { sha256: A, ruleset: "brandubh", size: 7 };
+  const benchmark = client.benchmark({ cases, batchSizes: [1], model: valid });
+  await sleep(5);
+  client.worker.respond(client.worker.messages.length - 1, { rows: [] });
+  assert.deepEqual(await benchmark, { rows: [] });
+  const sustained = client.sustained({ cases, iterations: 1, model: valid });
+  await sleep(5);
+  client.worker.respond(client.worker.messages.length - 1, { iterations: 1 });
+  assert.deepEqual(await sustained, { iterations: 1 });
+  client.terminate();
+});
+
 const failures = results.filter((row) => !row.ok);
 console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
 if (failures.length) {

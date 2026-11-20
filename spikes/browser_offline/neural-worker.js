@@ -302,11 +302,12 @@ function activeModelIdentity() {
 
 async function runBatch(cases, size, { requireIdentity = true, expectedModel = null } = {}) {
   if (!session || !model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
-  if (expectedModel !== null) {
-    // Bind the request to the exact model it was prepared for before touching
-    // inputs; a delayed request must never execute against another session.
-    self.__neuralIdentity.validateModelIdentity(expectedModel, activeModelIdentity());
-  }
+  // Every workload — inference, batching, benchmarking and sustained runs —
+  // must name the exact model it was prepared for. Validate before touching
+  // inputs so a delayed request can never execute against another session.
+  if (expectedModel === undefined || expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+  self.__neuralIdentity.validateModelIdentity(expectedModel, activeModelIdentity());
   if (model.size !== size)
     throw named("ARTIFACT_RULESET_MISMATCH", "Requested board size differs from the model");
   if (!Array.isArray(cases) || cases.length === 0)
@@ -446,6 +447,8 @@ async function benchmark(request) {
   if (!Array.isArray(cases) || !cases.length)
     throw named("INPUT_INVALID", "distinct benchmark cases are required");
   const expectedModel = request.model ?? null;
+  if (expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "benchmark requires the expected model identity");
   const rows = [];
   for (const batch of batchSizes) {
     const filled = Array.from({ length: batch }, (_, index) => cases[index % cases.length]);
@@ -484,6 +487,8 @@ async function sustained(request) {
   if (!Number.isInteger(iterations) || iterations < 1 || iterations > 10000)
     throw named("INPUT_INVALID", "iterations must be 1..10000");
   const expectedModel = request.model ?? null;
+  if (expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "sustained requires the expected model identity");
   const started = performance.now();
   for (let index = 0; index < iterations; index += 1)
     await runBatch(cases, model.size, { requireIdentity: false, expectedModel });

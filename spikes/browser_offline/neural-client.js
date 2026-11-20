@@ -332,8 +332,10 @@ export class NeuralClient {
     return this.request({ action: "inferMany", cases, model }, { timeoutMs: INFER_TIMEOUT_MS });
   }
 
+  // Every workload must name the exact model it was prepared for. A missing or
+  // stale identity is rejected before any request reaches the worker.
   sustained({ cases, iterations, model }) {
-    if (model) this._assertModel(model);
+    this._assertModel(model);
     return this.request(
       { action: "sustained", cases, iterations, model },
       { timeoutMs: BENCHMARK_TIMEOUT_MS },
@@ -341,7 +343,7 @@ export class NeuralClient {
   }
 
   benchmark({ cases, batchSizes, warmup = 2, reps = 5, model }) {
-    if (model) this._assertModel(model);
+    this._assertModel(model);
     return this.request(
       { action: "benchmark", cases, batchSizes, warmup, reps, model },
       { timeoutMs: BENCHMARK_TIMEOUT_MS },

@@ -12,6 +12,12 @@
 //     --provider webgpu --require-webgpu
 //   node ... --corrupt reorder   # deterministic negative check
 //
+// Corruption runs exit 1 when the deliberate corruption was detected (as
+// intended) and exit 3 when it was NOT detected or rejected with the wrong
+// error classification. ``rejection`` records the exact boundary, expected code
+// and observed code for request-identity corruption, so a nonzero exit is never
+// accepted on its own.
+//
 // CLI acceptance semantics:
 //   --require-webgpu        require an obtained adapter, a WebGPU-requested
 //                           session and successful numerical inference. Session
@@ -64,6 +70,7 @@ const CORRUPTIONS = new Set([
   "request-ruleset",
   "request-size",
   "request-model-worker",
+  "request-model-batch",
   "request-model-batch-worker",
 ]);
 const SINGLE_CORRUPTIONS = new Set([
@@ -77,13 +84,26 @@ const SINGLE_CORRUPTIONS = new Set([
   "model",
   "position",
 ]);
-const REQUEST_CORRUPTIONS = new Set([
-  "request-model",
-  "request-ruleset",
-  "request-size",
-  "request-model-worker",
-  "request-model-batch-worker",
-]);
+// Request-identity corruption kinds each target exactly one execution
+// boundary, so a batch-only kind can never fail the preceding single-position
+// assertion and leave the intended boundary unexercised.
+const IDENTITY_BOUNDARIES = {
+  "request-model": "single-client",
+  "request-ruleset": "single-client",
+  "request-size": "single-client",
+  "request-model-worker": "single-worker",
+  "request-model-batch": "batch-client",
+  "request-model-batch-worker": "batch-worker",
+};
+const IDENTITY_ERROR_CODES = {
+  "request-model": "MODEL_IDENTITY_MISMATCH",
+  "request-ruleset": "RULESET_MISMATCH",
+  "request-size": "BOARD_SIZE_MISMATCH",
+  "request-model-worker": "MODEL_IDENTITY_MISMATCH",
+  "request-model-batch": "MODEL_IDENTITY_MISMATCH",
+  "request-model-batch-worker": "MODEL_IDENTITY_MISMATCH",
+};
+const REQUEST_CORRUPTIONS = new Set(Object.keys(IDENTITY_BOUNDARIES));
 const BATCH_CORRUPTIONS = new Set([
   "batch-count",
   "missing-result",
@@ -93,11 +113,6 @@ const BATCH_CORRUPTIONS = new Set([
   "wrong-index",
   "reorder",
   "position",
-  "request-model",
-  "request-ruleset",
-  "request-size",
-  "request-model-worker",
-  "request-model-batch-worker",
 ]);
 
 function usageError(message) {
@@ -145,6 +160,8 @@ const report = {
   ort_version: null,
   requested_provider: provider,
   simulated_corruption: corruption,
+  mode: corruption === null ? "parity" : "corruption",
+  rejection: null,
   failures: [],
   notes: [],
 };
@@ -268,6 +285,84 @@ try {
     };
     if (!capturedModel.sha256 || !capturedModel.ruleset || !Number.isInteger(capturedModel.size))
       fail("loaded model did not return a complete identity");
+
+    if (IDENTITY_BOUNDARIES[corruption]) {
+      // Identity corruptions are asserted at one exact boundary with an exact
+      // expected error classification; the control request proves that the same
+      // boundary succeeds with the correct identity.
+      const boundary = IDENTITY_BOUNDARIES[corruption];
+      const batch = boundary.startsWith("batch");
+      const viaWorker = boundary.endsWith("worker");
+      const expectedCode = IDENTITY_ERROR_CODES[corruption];
+      const selected = Array.from(
+        { length: 2 },
+        (_, index) => nonTerminal[index % nonTerminal.length],
+      );
+      const attempt = async (model) =>
+        page.evaluate(
+          async (payload) => {
+            try {
+              const client = window.neural.client;
+              if (payload.batch) {
+                const request = {
+                  action: "inferMany",
+                  cases: payload.cases.map((entry) => ({
+                    planes: entry.planes,
+                    legal: entry.legal,
+                    request_id: entry.position,
+                    position_digest: entry.position_digest,
+                  })),
+                  model: payload.model,
+                };
+                if (payload.viaWorker) await client.request(request, { timeoutMs: 30000 });
+                else await client.inferMany(request);
+              } else {
+                const entry = payload.cases[0];
+                const request = {
+                  action: "infer",
+                  planes: entry.planes,
+                  size: payload.model.size,
+                  legal: entry.legal,
+                  ruleset: payload.model.ruleset,
+                  request_id: entry.position,
+                  position_digest: entry.position_digest,
+                  model: payload.model,
+                };
+                if (payload.viaWorker) await client.request(request, { timeoutMs: 30000 });
+                else await client.infer(request);
+              }
+              return { rejected: false, code: null };
+            } catch (error) {
+              return { rejected: true, code: error?.code ?? null, message: String(error?.message ?? error) };
+            }
+          },
+          { batch, viaWorker, cases: selected, model },
+        );
+      try {
+        const bad = await attempt(corruptRequestModel(capturedModel, corruption));
+        const control = await attempt(capturedModel);
+        report.rejection = {
+          corruption,
+          boundary,
+          expected_code: expectedCode,
+          observed_code: bad.code,
+          rejected: bad.rejected,
+          control_accepted: control.rejected === false,
+        };
+        if (!bad.rejected) fail(`${corruption}: corrupted identity was accepted at ${boundary}`);
+        else if (bad.code !== expectedCode)
+          fail(
+            `${corruption}: ${boundary} rejected with ${bad.code}, expected ${expectedCode}`,
+          );
+        if (control.rejected)
+          fail(
+            `${corruption}: control request with the correct identity failed at ${boundary}: ${control.code}`,
+          );
+      } catch (error) {
+        fail(`identity corruption harness failure: ${error?.message ?? error}`);
+      }
+    }
+
     const observedOutputs = [];
     for (const entry of reference.cases) {
       if (entry.terminal) {
@@ -279,21 +374,9 @@ try {
         });
         continue;
       }
-      const requestModel =
-        REQUEST_CORRUPTIONS.has(corruption) && observedOutputs.length === 0
-          ? corruptRequestModel(capturedModel, corruption)
-          : capturedModel;
-      const workerPath = corruption === "request-model-worker" && observedOutputs.length === 0;
       const observed = await page.evaluate(
-        (payload) =>
-          payload.workerPath
-            ? window.neural.client.request(
-                { action: "infer", ...payload.request },
-                { timeoutMs: 30000 },
-              )
-            : window.neural.client.infer(payload.request),
+        (payload) => window.neural.client.infer(payload.request),
         {
-          workerPath,
           request: {
             planes: entry.planes,
             size: capturedModel.size,
@@ -301,7 +384,7 @@ try {
             ruleset: capturedModel.ruleset,
             request_id: entry.position,
             position_digest: entry.position_digest,
-            model: requestModel,
+            model: capturedModel,
           },
         },
       );
@@ -342,17 +425,9 @@ try {
       );
       let many;
       try {
-        const workerPath = corruption === "request-model-batch-worker" && batch === 2;
         many = await page.evaluate(
-          (payload) =>
-            payload.workerPath
-              ? window.neural.client.request(
-                  { action: "inferMany", ...payload.request },
-                  { timeoutMs: 30000 },
-                )
-              : window.neural.client.inferMany(payload.request),
+          (payload) => window.neural.client.inferMany(payload.request),
           {
-            workerPath,
             request: {
               cases: selected.map((entry) => ({
                 planes: entry.planes,
@@ -360,10 +435,7 @@ try {
                 request_id: entry.position,
                 position_digest: entry.position_digest,
               })),
-              model:
-                REQUEST_CORRUPTIONS.has(corruption) && batch === 2
-                  ? corruptRequestModel(capturedModel, corruption)
-                  : capturedModel,
+              model: capturedModel,
             },
           },
         );
@@ -436,6 +508,28 @@ try {
 }
 
 report.ok = report.failures.length === 0;
+// A corruption run intentionally exits 1 when detection succeeded. The exit code
+// is only meaningful together with the recorded verdict/rejection: request
+// identity corruptions must be rejected with the exact expected code at the
+// intended boundary, and every other corruption must be caught by validation.
+let exitCode = report.ok ? 0 : 1;
+if (corruption !== null) {
+  const identityBoundary = corruption in IDENTITY_BOUNDARIES;
+  const detected = identityBoundary
+    ? Boolean(
+        report.rejection &&
+          report.rejection.rejected &&
+          report.rejection.observed_code === report.rejection.expected_code &&
+          report.rejection.control_accepted &&
+          report.rejection.boundary === IDENTITY_BOUNDARIES[corruption],
+      )
+    : report.failures.length > 0;
+  report.corruption_detected = detected;
+  report.verdict = detected ? "corruption-detected" : "corruption-not-detected";
+  exitCode = detected ? 1 : 3;
+} else {
+  report.verdict = report.ok ? "pass" : "fail";
+}
 if (output) {
   await mkdir(dirname(resolve(output)), { recursive: true });
   await writeFile(resolve(output), JSON.stringify(report, null, 2) + "\n");
@@ -447,6 +541,8 @@ console.log(
       provider: report.observed_summary?.execution_placement ?? null,
       gpu_execution_verified: report.observed_summary?.gpu_execution_verified ?? false,
       simulated_corruption: report.simulated_corruption,
+      verdict: report.verdict,
+      rejection: report.rejection,
       cases: report.comparison?.cases ?? 0,
       worst_logit_max_abs_error: report.comparison?.worst_logit_max_abs_error ?? null,
       worst_postprocess_abs_error: report.comparison?.worst_postprocess_abs_error ?? null,
@@ -457,7 +553,7 @@ console.log(
     2,
   ),
 );
-process.exit(report.ok ? 0 : 1);
+process.exit(exitCode);
 
 function observedOutput(observed) {
   // Copy only fields actually returned by the worker; never substitute expected
@@ -502,12 +598,7 @@ function batchedOutput(row, many) {
 }
 
 function corruptRequestModel(model, kind) {
-  if (
-    kind === "request-model" ||
-    kind === "request-model-worker" ||
-    kind === "request-model-batch-worker"
-  )
-    return { ...model, sha256: "0".repeat(64) };
+  if (kind.startsWith("request-model")) return { ...model, sha256: "0".repeat(64) };
   if (kind === "request-ruleset") return { ...model, ruleset: "tablut", size: 9 };
   if (kind === "request-size") return { ...model, size: model.size === 7 ? 9 : 7 };
   return model;
