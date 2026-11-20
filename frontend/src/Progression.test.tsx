@@ -61,7 +61,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('preserves shared achievement data across Dashboard/Portrait Hall cadence changes', async () => {
+it('preserves shared achievement data across Great Hall/Hall of Renown cadence changes', async () => {
   vi.useFakeTimers();
   vi.mocked(api).mockResolvedValue(snapshot(30, true) as never);
   const view = render(
@@ -75,7 +75,7 @@ it('preserves shared achievement data across Dashboard/Portrait Hall cadence cha
   expect(screen.getByTestId('probe')).toHaveTextContent('ready:30');
   expect(api).toHaveBeenCalledTimes(1);
 
-  // Enter Portrait Hall: the cadence turns on but the snapshot must survive.
+  // Enter Hall of Renown: the cadence turns on but the snapshot must survive.
   view.rerender(
     <ProgressionProvider owner="archer" intervalMs={PROGRESSION_POLL_MS}>
       <Probe />
@@ -84,7 +84,7 @@ it('preserves shared achievement data across Dashboard/Portrait Hall cadence cha
   expect(screen.getByTestId('probe')).toHaveTextContent('ready:30');
   expect(api).toHaveBeenCalledTimes(1);
 
-  // Return to the Dashboard: turning the cadence off does not reload either.
+  // Return to the Great Hall: turning the cadence off does not reload either.
   view.rerender(
     <ProgressionProvider owner="archer" intervalMs={0}>
       <Probe />

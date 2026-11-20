@@ -1,0 +1,12 @@
+{
+  "baseline": {
+    "rows": 1000,
+    "options": 1001,
+    "descendants": 8027
+  },
+  "candidate": {
+    "rows": 20,
+    "options": 21,
+    "descendants": 191
+  }
+}

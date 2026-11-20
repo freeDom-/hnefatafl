@@ -41,8 +41,8 @@ it('redirects / to the Dashboard account setup without mounting play/analysis', 
   render(<App />);
   expect(location.pathname).toBe('/dashboard');
   expect(location.search).toBe('');
-  await screen.findByRole('heading', { name: 'Dashboard' });
-  expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
+  await screen.findByRole('heading', { name: 'The Great Hall' });
+  expect(screen.getByRole('button', { name: 'Battlefield' })).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Online' })).toBeNull();
   expect(fetcher.mock.calls.some(([url]) => /\/api\/games\/|analytics|analysis/.test(url))).toBe(
     false,
@@ -60,7 +60,7 @@ it('keeps the authenticated lobby listing at /online without losing query or mou
   expect(location.pathname).toBe('/online');
   expect(location.search).toContain('mine=true');
   await screen.findByText('No games on this page.');
-  expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Battlefield' })).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Online' })).toBeNull();
   expect(fetcher.mock.calls.some(([url]) => /\/api\/games\/|analytics|analysis/.test(url))).toBe(
     false,

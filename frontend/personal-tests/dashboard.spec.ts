@@ -49,7 +49,7 @@ test('default landing, shared latest three and exact review survive filtering an
 }) => {
   await login(page);
   await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await expect(primaryNavigation(page).locator('[data-destination="play"]')).toBeVisible();
   await expect(primaryNavigation(page).locator('[data-destination="online"]')).toHaveCount(0);
   await expect(page.getByText('Local players')).toHaveCount(0);
@@ -108,7 +108,7 @@ test('normal and admin Hall authorization, filters, own-only Dashboard and activ
   const state = await snapshot(request);
   for (const name of ['PersonalObserver', 'PersonalKeeper', 'PersonalOdin']) {
     await login(page, name);
-    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
     const personal = await (await context.request.get('/api/history/games?dashboard=true')).json();
     if (name === 'PersonalOdin')
       expect(personal.games.map((g: { id: string }) => g.id)).toEqual([state.ids.admin_account]);
@@ -238,7 +238,7 @@ test('starts account single-player from Dashboard and reconnects at its dedicate
   await page.reload();
   await expect(page.getByRole('grid')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(path);
-  const back = page.getByRole('link', { name: 'Back to dashboard', exact: true });
+  const back = page.getByRole('link', { name: 'Back to the Great Hall', exact: true });
   if (await back.isVisible()) await back.click();
   else await openDestination(page, 'dashboard');
   const game = await (await context.request.get('/api' + path)).json();
@@ -602,7 +602,7 @@ test('dashboard standing cards read the real ruleset statistics and link to the 
   await expect(cards.filter({ hasText: 'Unlocked portraits' })).toBeVisible();
   await expect(cards.getByText('Average game length')).toHaveCount(0);
   // The dashboard keeps the reference sections and the compact record strip.
-  await expect(page.getByRole('heading', { name: 'Recorded games', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recent Battles', exact: true })).toBeVisible();
   await expect(page.locator('.record-strip-item').first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.locator('.dashboard-stat-grid').screenshot({

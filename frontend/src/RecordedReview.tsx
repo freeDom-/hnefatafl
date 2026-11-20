@@ -6,7 +6,8 @@ import { useReplayPlayback } from './useReplayPlayback';
 import { useOnlinePoll } from './useOnlinePoll';
 import { useI18n } from './i18n';
 import { accountAttribution } from './accountIdentity';
-import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
+import AgentAnalysis from './AgentAnalysis';
+import { useGameAnalysis } from './useGameAnalysis';
 import { AnalyticsSettingsPanel } from './AdvisorSelect';
 import type { AIProfile, Game, GameMove, Model, PlayerConfig, Side } from './types';
 import type { OnlinePosition, OnlineReplay } from './onlineTypes';
@@ -279,7 +280,7 @@ export default function RecordedReview({
   }
 
   const back = backTo ?? (personal ? '/dashboard' : '/archive');
-  const backLabel = personal ? 'Back to dashboard' : 'Back to Hall of records';
+  const backLabel = personal ? 'Back to the Great Hall' : 'Back to Hall of records';
   const reviewRows = [
     {
       label: t('Lifecycle'),

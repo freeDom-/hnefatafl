@@ -8,7 +8,7 @@ Commands assume the repository root unless a different directory is shown.
 
 - [Repository introduction and quick start](../README.md)
 - [Online lobby, multiplayer controls, clocks and replay](ONLINE_PLAY.md)
-- [Personal dashboard, statistics and read-only history](DASHBOARD.md)
+- [The Great Hall, statistics and read-only history](DASHBOARD.md)
 - [Gameplay: ruleset comparison, controls, replay and persistence](GAMEPLAY.md)
 - [Profiles, records, model suggestions, language and appearance](PERSONALIZATION.md)
 - [Account menu, private profile details, password changes and leaderboard sharing](PROFILE.md)
@@ -76,14 +76,17 @@ Commands assume the repository root unless a different directory is shown.
 - [Current Arena Phase 0–4 completeness and remaining dependencies](designs/arena-current-completeness.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
+- [Workshop presentation and bounded rendering](validation/workshop-consolidation.md)
 - [Player tournament Arena and settlement validation](validation/player-tournaments-arena.md)
 - [Scheduled starts, creator permissions and themed calendar validation](validation/player-tournament-scheduling.md)
 - [Tournament final review, compact popup and two-game creation validation](validation/player-tournament-refinement.md)
+- [Disposable backend read workload](validation/backend-read-baseline.md)
 - [Dashboard polling policy and measurement](validation/dashboard-polling.md)
 - [Current-engine browser analysis feasibility](validation/browser-analysis-prototype.md)
 - [Browser neural execution and CSP feasibility](validation/browser-neural-feasibility.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
+- [Frontend feature splitting and initial bundle evidence](validation/frontend-feature-splitting.md)
 - [Arena theme completion and visual checks](validation/arena-theme-completion.md)
 
 ## Online foundations and offline feasibility

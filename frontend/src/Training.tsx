@@ -5,6 +5,8 @@ import { suggestVikingName } from './vikingNames';
 import RecordsConfirm from './RecordsConfirm';
 import StudyDeletionDialog from './StudyDeletionDialog';
 import { useAuth } from './Auth';
+import { surfaceLink } from './surfaceNavigation';
+import { workspaceDestinations } from './workspaceNavigation';
 import './features.css';
 import './workshopManagement.css';
 import { getLocale, t, useI18n } from './i18n';
@@ -49,6 +51,7 @@ import {
   jobReportIdentityChanged,
 } from './trainingDashboardData';
 import './trainingDashboard.css';
+import './workshopConsolidation.css';
 
 interface ModelUsage {
   model_id: string;
@@ -89,6 +92,9 @@ export default function Training({
 }) {
   const { locale } = useI18n();
   const { account } = useAuth();
+  const comparisonDestination = workspaceDestinations('workshop', account?.permissions ?? []).find(
+    (destination) => destination.id === 'tournaments',
+  );
   const [creationOpen, setCreationOpen] = useState<boolean | null>(null);
   const [modelsOpen, setModelsOpen] = useState<boolean | null>(null);
   const [workersOpen, setWorkersOpen] = useState(false);
@@ -932,17 +938,27 @@ export default function Training({
     : defaultJobTab;
   return (
     <div className="training-workshop">
-      <section className="page-toolbar workshop-intro">
+      <section className="page-toolbar workshop-intro arena-surface">
         <PageHeading title={t('The AI workshop.')} />
+        <div className="workshop-heading">
+          <p className="arena-kicker">{t('AI WORKSHOP')}</p>
+          <h2 className="arena-hero-headline">{t('Build, test and refine.')}</h2>
+          <p>
+            {t(
+              'Create a strategist, follow its learning and compare the results. Your models and checkpoints stay under your control.',
+            )}
+          </p>
+        </div>
         <div className="workshop-global" aria-label={t('Workshop summary')}>
           <span>
             <strong>{hardwareName.toUpperCase()}</strong> {device.cuda_devices?.join(' · ')}
           </span>
           <span>
-            <strong>{running}</strong> {t('active jobs')}
+            <strong>{running}</strong> {t(running === 1 ? 'active job' : 'active jobs')}
           </span>
           <span>
-            <strong>{models.length}</strong> {t('registered models')}
+            <strong>{models.length}</strong>{' '}
+            {t(models.length === 1 ? 'registered model' : 'registered models')}
           </span>
           <button
             className="button secondary small"
@@ -967,6 +983,38 @@ export default function Training({
           </button>
         </div>
       </section>
+      <nav className="workshop-task-nav" aria-label={t('Workshop tasks')}>
+        <button
+          className="button secondary"
+          onClick={() => {
+            setCreationOpen(true);
+            requestAnimationFrame(() => trainingForm.current?.querySelector('button')?.focus());
+            trainingForm.current?.scrollIntoView?.({ block: 'start' });
+          }}
+        >
+          {t('Train or tune')}
+        </button>
+        <button
+          className="button secondary"
+          onClick={() => {
+            monitoring.current?.scrollIntoView?.({ block: 'start' });
+            monitoring.current?.focus();
+          }}
+        >
+          {t('Monitor jobs')}
+        </button>
+        <a className="button secondary" href="#model-collection" onClick={surfaceLink}>
+          {t('Model collection')}
+        </a>
+        <a className="button secondary" href="#workshop-workers" onClick={surfaceLink}>
+          {t('Remote workers')}
+        </a>
+        {comparisonDestination && (
+          <a className="button secondary" href={comparisonDestination.href} onClick={surfaceLink}>
+            {t('AI comparisons')}
+          </a>
+        )}
+      </nav>
       {notice && (
         <div className="notice" role="status">
           {notice}

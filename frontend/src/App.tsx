@@ -1,29 +1,22 @@
 import { ArenaShell, SHELL_MAIN_ID, WorkshopShell } from './ArenaShell';
-import NewGame from './NewGame';
-import { ProgressionProvider } from './Progression';
-import { PROGRESSION_POLL_MS } from './useAchievementNotifications';
 import { localizedRules } from './locales/rules-de';
 import { t, useI18n } from './i18n';
+import { ProgressionProvider } from './Progression';
+import { PROGRESSION_POLL_MS } from './useAchievementNotifications';
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
-import ReactMarkdown from 'react-markdown';
 import Board, { coordinate } from './Board';
 import { api, errorMessage } from './api';
 import { notify } from './notifications';
 import type { AIProfile, Game, Ruleset, Side } from './types';
-import Archive from './Archive';
-import Training from './Training';
-import Tournaments from './Tournaments';
-import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
-import { AnalyticsSettingsPanel } from './AdvisorSelect';
+import { useGameAnalysis } from './useGameAnalysis';
+import { deferredFeature } from './deferredFeature';
 import Rune, { participantName } from './Rune';
 import { accountAttribution } from './accountIdentity';
 
-import Online from './Online';
 import Modal from './Modal';
+import NewGame from './NewGame';
 import PersonalDashboard from './PersonalDashboard';
-import StatisticsPage from './StatisticsPage';
 import Leaderboard from './Leaderboard';
-import ProfilePage from './ProfilePage';
 import ActiveGameSwitcher from './ActiveGameSwitcher';
 import { useAuth } from './Auth';
 import { canonicalLocation, navigate } from './navigation';
@@ -37,9 +30,21 @@ import Battlefield from './Battlefield';
 import { sideGlyph } from './sideGlyph';
 import { usePlayHistory } from './usePlayHistory';
 import { useModelCatalogue } from './useModelCatalogue';
-import PlayLanding from './PlayLanding';
+import { useNewGameSetup } from './useNewGameSetup';
 import { PlayTabsProvider } from './PlayTabs';
 
+const ReactMarkdown = deferredFeature(() => import('react-markdown'));
+const Archive = deferredFeature(() => import('./Archive'));
+const Training = deferredFeature(() => import('./Training'));
+const Tournaments = deferredFeature(() => import('./Tournaments'));
+const Online = deferredFeature(() => import('./Online'));
+const StatisticsPage = deferredFeature(() => import('./StatisticsPage'));
+const ProfilePage = deferredFeature(() => import('./ProfilePage'));
+const PlayLanding = deferredFeature(() => import('./PlayLanding'));
+const AgentAnalysis = deferredFeature(() => import('./AgentAnalysis'));
+const AnalyticsSettingsPanel = deferredFeature(() =>
+  import('./AdvisorSelect').then((module) => ({ default: module.AnalyticsSettingsPanel })),
+);
 // Route-level code splits keep the gallery and tournament calendar off unrelated pages.
 const PortraitHall = lazy(() => import('./PortraitHall'));
 const PlayerTournaments = lazy(() => import('./PlayerTournaments'));
@@ -113,7 +118,16 @@ export default function App() {
   const reviewingRef = playHistory.cursorRef;
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [newOpen, setNewOpen] = useState(false);
+  const {
+    open: newOpen,
+    start: startSetup,
+    cancel: cancelSetup,
+    owns: setupOwns,
+    session: setupSession,
+  } = useNewGameSetup();
+  // The generation that opened the current dialog. A creation completion is
+  // bound to it rather than to whichever dialog owns the latest generation.
+  const activeSetupSession = newOpen ? setupSession() : 0;
   const [rulesOpen, setRulesOpen] = useState(false);
   const [aiRetryDelay, setAiRetryDelay] = useState(900);
   const [initializing, setInitializing] = useState(true);
@@ -145,14 +159,32 @@ export default function App() {
     return rules;
   }, [refreshModels]);
   const startSinglePlayer = useCallback(() => {
-    void Promise.all([api<Ruleset[]>('/rulesets'), api<AIProfile[]>('/ai/profiles')])
-      .then(([rules, ais]) => {
+    const route = canonicalLocation();
+    startSetup(
+      async (signal) => {
+        const [rules, ais] = await Promise.all([
+          api<Ruleset[]>('/rulesets', undefined, undefined, signal),
+          api<AIProfile[]>('/ai/profiles', undefined, undefined, signal),
+        ]);
+        // Do not publish options or open a stale setup dialog if the user moved
+        // elsewhere while the options were loading. The hook publishes them
+        // only after it verifies this operation still owns the generation.
+        if (route !== canonicalLocation()) return null;
+        return { rulesets: rules, profiles: ais };
+      },
+      ({ rulesets: rules, profiles: ais }) => {
         setRulesets(rules);
         setProfiles(ais);
-        setNewOpen(true);
-      })
-      .catch((e) => reportError(e));
-  }, [reportError]);
+      },
+      reportError,
+    );
+  }, [startSetup, reportError]);
+  // Any route or account change invalidates a pending setup operation and closes
+  // the dialog it owned, including Browser Back/Forward. This is what stops an
+  // obsolete response from reopening a dialog after navigating away and back.
+  useEffect(() => {
+    cancelSetup();
+  }, [path, account?.id, cancelSetup]);
   useEffect(() => {
     if (
       tab === 'dashboard' &&
@@ -555,7 +587,7 @@ export default function App() {
                         )}
                       </p>
                       <button className="button primary" onClick={() => navigate('/dashboard')}>
-                        {t('Back to dashboard')}
+                        {t('Back to the Great Hall')}
                         <span aria-hidden="true">↗</span>
                       </button>
                       <div className="variant-pills">
@@ -741,14 +773,20 @@ export default function App() {
                   (rule) => rule.id === new URLSearchParams(location.search).get('ruleset'),
                 )?.id ?? game?.ruleset
               }
-              onClose={() => setNewOpen(false)}
+              // Guard the form's own side effects (preferences, notifications)
+              // by the operation that opened this dialog.
+              isCurrentOperation={() => setupOwns(activeSetupSession)}
+              onClose={cancelSetup}
               onCreated={(next) => {
+                // Bind the completion to the setup operation that opened this
+                // dialog, not to whichever dialog owns the latest generation.
+                if (!setupOwns(activeSetupSession)) return;
+                cancelSetup();
                 currentGame.current = next;
                 loadedRoute.current = next.id;
                 setGame(next);
                 setSelected(null);
                 setAiRetryDelay(900);
-                setNewOpen(false);
                 setInitializing(false);
                 navigate(`/games/${next.id}`);
               }}
@@ -773,5 +811,3 @@ export default function App() {
 }
 
 export { default as Modal } from './Modal';
-
-export { default as NewGame } from './NewGame';

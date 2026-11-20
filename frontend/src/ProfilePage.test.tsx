@@ -512,7 +512,7 @@ it('shows the server-confirmed selected portrait and keeps the gallery link', as
     '/assets/arena-v2/assets/portraits/raven-seer.webp',
   );
   expect(
-    within(portraitSection()).getByRole('link', { name: 'Open Portrait Hall' }),
+    within(portraitSection()).getByRole('link', { name: 'Open Hall of Renown' }),
   ).toHaveAttribute('href', '/portraits');
 });
 

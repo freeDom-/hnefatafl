@@ -87,7 +87,9 @@ for (const appearance of appearances) {
     for (const viewport of viewports) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: 'The Great Hall', exact: true }),
+      ).toBeVisible();
       const root = page.locator('html');
       if (appearance.id === 'legacy')
         await expect(root).toHaveAttribute('data-ui-theme', 'kings-table');
@@ -196,7 +198,7 @@ for (const appearance of appearances) {
     await seedRecentRecords(page);
     await seedReferenceStandings(page);
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
     await expect(page.locator('.dashboard-layout')).toBeVisible();
     await expect(page.locator('.arena-hero-empty')).toBeVisible();
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());

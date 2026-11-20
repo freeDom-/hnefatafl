@@ -16,7 +16,7 @@ export function useProgression(): ProgressionValue {
 
 /**
  * Owns the one account-scoped `/personal/achievements` read so the notification
- * hook, the Dashboard and the Portrait Hall never fetch it independently. A
+ * hook, the Great Hall and the Hall of Renown never fetch it independently. A
  * signed-out tree receives an inert value, and a new account mounts a fresh
  * session keyed by owner, which aborts the previous account's in-flight read.
  */

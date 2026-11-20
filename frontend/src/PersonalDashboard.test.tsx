@@ -403,6 +403,9 @@ it('renders the reference layout with real standing cards, records and leaderboa
   const start = vi.fn();
   render(<Dashboard onNewSingle={start} />);
   const link = await screen.findByRole('link', { name: /Open review: .*Archer vs Keeper/ });
+  expect(screen.getByRole('heading', { name: 'The Great Hall' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Call to Battle' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Recent Battles' })).toBeVisible();
   expect(link).toHaveAttribute('href', `/archive?review=online&selected=${row.id}`);
   expect(link.closest('.record-strip-item')).toBe(link);
   expect(link.closest('ul')).toHaveClass('record-strip');
@@ -606,9 +609,9 @@ it('translates dashboard actions in German', async () => {
   setLanguage('de', false);
   render(<Dashboard />);
   await waitFor(() => expect(fetcher.mock.calls.length).toBeGreaterThan(3));
-  expect(screen.getByRole('heading', { name: 'Übersicht' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Die große Halle' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Kriegerprofil' })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Partien, die dich brauchen' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Ruf zur Schlacht' })).toBeVisible();
 });
 
 it.each(['en', 'de'] as const)(

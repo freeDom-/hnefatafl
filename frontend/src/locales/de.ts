@@ -1,4 +1,26 @@
 const translations: Record<string, string> = {
+  'AI WORKSHOP': 'KI-WERKSTATT',
+  'Build, test and refine.': 'Entwickeln, testen und verfeinern.',
+  'Create a strategist, follow its learning and compare the results. Your models and checkpoints stay under your control.':
+    'Erschaffe einen Strategen, verfolge seinen Lernfortschritt und vergleiche die Ergebnisse. Deine Modelle und Prüfpunkte bleiben unter deiner Kontrolle.',
+  'Workshop tasks': 'Aufgaben in der Werkstatt',
+  'Train or tune': 'Trainieren oder optimieren',
+  'Monitor jobs': 'Aufträge beobachten',
+  'AI comparisons': 'KI-Vergleiche',
+  'AI COMPARISONS': 'KI-VERGLEICHE',
+  'Measure your strategists.': 'Prüfe deine Strategen.',
+  'Compare computer opponents with repeatable matches. These benchmarks are separate from human player tournaments.':
+    'Vergleiche Computergegner in wiederholbaren Partien. Diese Leistungstests sind von Turnieren für menschliche Spieler getrennt.',
+  'Return to the AI workshop': 'Zurück zur KI-Werkstatt',
+  'Show selected job': 'Ausgewählten Auftrag anzeigen',
+  'Outside current page': 'Außerhalb der aktuellen Seite',
+  'Training job pages': 'Seiten der Trainingsaufträge',
+  'Previous job page': 'Vorherige Auftragsseite',
+  'Next job page': 'Nächste Auftragsseite',
+  'Page {current} of {total}': 'Seite {current} von {total}',
+  'Showing {first}–{last}': 'Angezeigt: {first}–{last}',
+  'active job': 'aktiver Auftrag',
+  'registered model': 'registriertes Modell',
   'Open calendar': 'Kalender öffnen',
   'Enter a time in HH:MM format.': 'Gib eine Uhrzeit im Format HH:MM ein.',
   'A full tournament must wait for its planned start. An administrator may override it.':
@@ -259,7 +281,6 @@ const translations: Record<string, string> = {
   'Retry to load the latest application files.':
     'Lade die Seite erneut, um die aktuellen Anwendungsdateien zu laden.',
   'Your saga, your portrait': 'Deine Saga, dein Porträt',
-  'Portrait hall': 'Porträthalle',
   'Earn Viking portraits through your games. Achievements unlock automatically from official results.':
     'Verdiene Wikingerporträts durch deine Spiele. Errungenschaften werden anhand offizieller Ergebnisse automatisch freigeschaltet.',
   'Portraits unlocked: {count} / {total}': 'Freigeschaltete Porträts: {count} / {total}',
@@ -278,6 +299,7 @@ const translations: Record<string, string> = {
   'Keep playing to complete this achievement.':
     'Spiele weiter, um diese Errungenschaft zu erfüllen.',
   Achievements: 'Errungenschaften',
+  'Deeds of Valor': 'Heldentaten',
   'Earned achievements remain unlocked, even if a later result correction changes current progress.':
     'Verdiente Errungenschaften bleiben freigeschaltet, auch wenn eine spätere Ergebniskorrektur den aktuellen Fortschritt verändert.',
   'Achievements unlocked: {count}': 'Errungenschaften freigeschaltet: {count}',
@@ -320,7 +342,7 @@ const translations: Record<string, string> = {
   'Trial of Steel': 'Prüfung des Stahls',
   'Beat a computer opponent in a finished single-player game.':
     'Besiege einen Computergegner in einem abgeschlossenen Einzelspiel.',
-  'Open Portrait Hall': 'Porträthalle öffnen',
+  'Open Hall of Renown': 'Halle des Ruhms öffnen',
   'Selected portrait': 'Ausgewähltes Porträt',
   'Loading your portrait…': 'Dein Porträt wird geladen…',
   'Selected portrait unavailable.': 'Ausgewähltes Porträt nicht verfügbar.',

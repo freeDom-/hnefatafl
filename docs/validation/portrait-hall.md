@@ -2,7 +2,7 @@
 
 Adds the authenticated `/portraits` gallery to the four-theme Arena. It uses the
 existing portrait/achievement authority; no schema, achievement, XP, currency or
-new art is introduced. [Progression](../PROGRESSION.md#portrait-hall-and-player-artwork)
+new art is introduced. [Progression](../PROGRESSION.md#hall-of-renown-and-player-artwork)
 explains server confirmation and permanent awards.
 
 The gallery shows selected, unlocked, ready-to-claim and locked portraits, actual

@@ -37,20 +37,16 @@ need their recorded evidence reviewed in the final combined release acceptance.
 - [ ] Inventory third-party code/fonts/art/runtime redistribution obligations and
   include notices; preserve original generated-art provenance. If Pyodide/ONNX
   runtimes ship, review the exact pinned package/distribution licenses too.
-- [ ] Resolve material development-toolchain advisories with tested upgrades.
-  Production-only npm audits report **zero runtime findings**, but the current
-  development graph has one high-severity advisory (GHSA-fc5q-39xc-vjpf,
-  picomatch through 4.0.7) with no patched release. GitHub still reviews it as
-  high while Snyk revoked its entry and NVD is awaiting analysis; it is
-  build/test-only and not present in the deployed bundle. The required `security`
-  CI job enforces a time-limited, owner-approved risk acceptance that expires on
-  2026-12-17 (or the next dependency refresh); the record pins the reviewed
-  versions/range, requires a repository-hosted approval reference and rejects
-  severity, package-set or version changes. Remove it when upstream ships a fix.
-  The durable approval is the owner comment on PR #95 dated 2026-11-18. The
-  advisory itself remains unresolved. See
-  [the dependency record](validation/test-toolchain-security.md#picomatch-redos-advisory-ghsa-fc5q-39xc-vjpf-2026-11-17).
-  No blind force upgrade, ignore list or downgrade; rerun tests and audit after
+- [ ] Keep dependency audit results current through release. On 2026-11-18 both
+  full and production-only lockfile audits reported **zero findings**, and GitHub
+  withdrew GHSA-fc5q-39xc-vjpf (picomatch through 4.0.7). The development-only
+  risk acceptance was removed as unused; the active exception list is empty and
+  requires no owner approval metadata while no risk is accepted. The historical
+  approval (PR #95 owner comment, 2026-11-18) and exposure assessment remain in
+  [the dependency record](validation/test-toolchain-security.md#withdrawal-and-empty-exception-state-2026-11-18).
+  The fail-closed `security` job is unchanged and any returning or new finding
+  requires remediation or separate owner review. No dependency version, ignore
+  list, audit threshold or lockfile entry changed; rerun tests and audit after
   lockfile changes.
 - [ ] Enable enforced main-branch merge gates: add required status checks
   `security`, `python`, `node22` and `browser` to the active ruleset (currently no

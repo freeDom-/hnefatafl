@@ -20,8 +20,8 @@ const catalog: PortraitCatalog = {
   default_portrait_id: 'shieldbearer',
   items: [
     { id: 'shieldbearer', name: 'Shieldbearer', unlock_achievement_id: null },
-    { id: 'iron-helm', name: 'Iron Helm', unlock_achievement_id: 'defender-wins-10' },
     { id: 'shieldmaiden', name: 'Shieldmaiden', unlock_achievement_id: 'rated-wins-10' },
+    { id: 'iron-helm', name: 'Iron Helm', unlock_achievement_id: 'defender-wins-10' },
     { id: 'skald', name: 'Skald', unlock_achievement_id: 'tablut-wins-10' },
   ],
 };
@@ -86,7 +86,7 @@ function Hall({ intervalMs }: { intervalMs?: number } = {}) {
 }
 const card = (name: string) => screen.getByRole('heading', { name }).closest('li')!;
 
-it('uses automatic awards and permanent portrait entitlements, preserving catalog difficulty order', async () => {
+it('uses automatic awards and permanent portrait entitlements, preserving the server catalog order', async () => {
   render(<Hall />);
   await screen.findByRole('heading', { name: 'Shieldbearer' });
   expect(card('Shieldbearer')).toHaveAttribute('data-portrait-state', 'selected');
@@ -98,11 +98,11 @@ it('uses automatic awards and permanent portrait entitlements, preserving catalo
     within(screen.getByRole('list', { name: 'Portrait collection' }))
       .getAllByRole('heading')
       .map((x) => x.textContent),
-  ).toEqual(['Shieldbearer', 'Iron Helm', 'Shieldmaiden', 'Skald']);
+  ).toEqual(['Shieldbearer', 'Shieldmaiden', 'Iron Helm', 'Skald']);
   expect(screen.queryByRole('button', { name: /claim|collect/i })).not.toBeInTheDocument();
   expect(vi.mocked(api).mock.calls.every(([, body, method]) => !body && !method)).toBe(true);
 });
-it('groups families and places the score under Achievements with the next unachieved target', async () => {
+it('groups families and places the score under Deeds of Valor with the next unachieved target', async () => {
   render(<Hall />);
   const family = (await screen.findByRole('heading', { name: 'Rated online victories' })).closest(
     'li',
@@ -111,7 +111,7 @@ it('groups families and places the score under Achievements with the next unachi
   expect(within(family).getByText('Next milestone: 25 · 40 points')).toBeVisible();
   expect(within(family).getByText('Earned tier: 3 / 9 · threshold 10')).toBeVisible();
   expect(document.querySelectorAll('.portrait-achievement-list > li')).toHaveLength(3);
-  const section = screen.getByRole('heading', { name: 'Achievements' }).closest('section')!;
+  const section = screen.getByRole('heading', { name: 'Deeds of Valor' }).closest('section')!;
   expect(
     within(section).getByRole('progressbar', { name: 'Achievement Score — 70 / 2,280 points' }),
   ).toHaveAttribute('value', '70');
@@ -222,6 +222,8 @@ it('shows a localized zero score and automatic tier labels in German', async () 
   setLanguage('de');
   render(<Hall />);
   await screen.findByText('Errungenschaftspunkte — 0 / 2.280 Punkte');
+  expect(screen.getByRole('heading', { name: 'Halle des Ruhms' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Heldentaten' })).toBeVisible();
   expect(screen.getByText('0% abgeschlossen · 0 / 27 Meilensteine verdient')).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Gewertete Online-Siege' })).toBeVisible();
 });
