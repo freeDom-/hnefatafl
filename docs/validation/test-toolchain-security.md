@@ -163,9 +163,10 @@ picomatch code.
 
 ### Conflicting database status
 
-The sources disagree, so the current status is **disputed but not withdrawn**:
+The sources disagreed at that time, so the status recorded then was **disputed
+but not withdrawn**:
 
-| Source | Current status |
+| Source | Status recorded on 2026-11-17 |
 | --- | --- |
 | GitHub Advisory GHSA-fc5q-39xc-vjpf | **Reviewed, high severity, not withdrawn**, no first patched version. Last reviewed 2026-11-17 after the Snyk revocation. |
 | NVD CVE-2026-112366 | **Awaiting Analysis**; the published CVSS vectors are secondary (VulnCheck) at 7.5/8.7, CISA SSVC says exploitation none, and NVD has not added a disputed tag. |

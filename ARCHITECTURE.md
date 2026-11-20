@@ -9,16 +9,22 @@ and the [historical release index](docs/README.md#rulesets-release-history-and-h
 ## Arena completion status
 
 The [post-PR #84 audit](docs/designs/arena-completion.md) is a historical snapshot.
-At that baseline, Portrait Hall, signed-out spectator UI and human tournament UI
+At that baseline, Hall of Renown, signed-out spectator UI and human tournament UI
 were missing, tournament settlement was manually invoked and leagues were not
-implemented; schema is 18. Later work ships separately: Portrait Hall and portrait
-selection originated in PR #86, automatic progression is delivered in PR #94, the
-signed-out public spectator frontend is delivered in PR #87, and PR #90 supplies
-the human tournament UI, durable settlement and indexed scheduled starts, creator
+implemented; that snapshot's schema was 18. Later work is merged separately: Hall
+of Renown and portrait selection originate in PR #86, automatic progression in PR
+#94, the signed-out public spectator frontend in PR #87, and PR #90 supplies the
+human tournament UI, durable settlement, indexed scheduled starts, creator
 ownership and quotas, shared online clocks, and sequential/parallel matches.
-Leagues, Workshop consolidation and local-analysis research remain separate
-workstreams. See the [current Arena contracts](docs/designs/arena-v2-contracts.md)
-and [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
+Workshop consolidation is merged in PR #92, deferred feature loading and bundle
+budgets in PR #93, and the disposable backend read benchmark in PR #97 with
+benchmark hardening in PR #105. Leagues remain a draft implementation in PR #99.
+Browser analysis is a merged isolated prototype (#89) plus merged Phase 1 research
+(#104); it is not a production analysis executor. The canonical migration
+head on current `main` is schema 21. See the
+[current completeness matrix](docs/designs/arena-current-completeness.md),
+[current Arena contracts](docs/designs/arena-v2-contracts.md) and
+[release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
 remove obsolete formats after a tested development-data recovery path; it must not
 silently delete games, jobs, checkpoints or model files.
 
@@ -216,9 +222,12 @@ inside the same write transaction, and derives advancement from the authoritativ
 online result revision. A corrected or voided result marks the affected match
 `disputed` instead of silently rewriting advancement; an administrator `rebuild`
 re-derives the whole bracket from the authoritative games and unlinks legs whose
-participants no longer match. This branch carries both schema 17 (progression:
-achievement/portrait catalogs, awards, entitlements and the selected portrait),
-schema 18 (player tournaments) and schema 20 (account-scoped replay-analysis receipts).
+participants no longer match. The canonical migration chain carries schema 17
+(progression: achievement/portrait catalogs, awards, entitlements and the selected
+portrait), schema 18 (player tournaments), schema 19 (tournament queue and planned
+dates), schema 20 (account-scoped replay-analysis receipts) and schema 21
+(automatic award reconciliation). Draft PR #99 proposes schema 22 on its own
+branch; that number is not reserved on `main`.
 See [Player tournaments](docs/PLAYER_TOURNAMENTS.md).
 
 ## Training execution and inference
