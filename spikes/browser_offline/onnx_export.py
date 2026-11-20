@@ -45,7 +45,7 @@ for path in (str(SPIKE), str(ROOT)):
 
 from fixtures import jarl_positions  # noqa: E402
 from hnefatafl.engine import State, legal_moves  # noqa: E402
-from hnefatafl.models import encode_state, load_checkpoint  # noqa: E402
+from hnefatafl.models import encode_state, load_checkpoint, weights_fingerprint  # noqa: E402
 
 # FP32 parity tolerances. Chosen from the observed native PyTorch/ORT error and
 # kept loose enough to accommodate different fused kernels while still catching
@@ -66,7 +66,7 @@ NEAR_TIE_ATOL = 1e-4
 REQUIRED_KINDS = ("opening", "midgame", "endgame", "tactical", "repetition", "terminal")
 OUTPUT_NAMES = ("policy_logits", "defender_value")
 SIDECAR_ARTIFACT = "hnefatafl-policy-value-onnx"
-SIDECAR_SCHEMA = 1
+SIDECAR_SCHEMA = 2
 # Guardrails for the experimental environment.
 MAX_MODEL_BYTES = 64 * 1024 * 1024
 MAX_REFERENCE_BYTES = 16 * 1024 * 1024
@@ -240,7 +240,16 @@ def export_graph(source: Path, staging: Path, opset: int) -> dict:
         "value_perspective": "defenders",
         "legal_policy_masking": "softmax over legal action indices only",
         "graph_input_output_dims": dims,
-        "source": {"name": source.name, "sha256": digest(source), "bytes": source.stat().st_size},
+        # Bind the exported graph to the exact source weights, not only the
+        # checkpoint file bytes: a re-saved checkpoint with different weights must
+        # never be accepted as the source of this export.
+        "source": {
+            "name": source.name,
+            "sha256": digest(source),
+            "bytes": source.stat().st_size,
+            "weights_sha256": weights_fingerprint(model),
+            "encoder_version": "six-plane-v1",
+        },
         "onnx": {"sha256": digest(target), "bytes": target.stat().st_size, "opset": opset},
         "exporter": {
             "torch": package_version("torch"),
@@ -525,6 +534,8 @@ def run(args) -> int:
             "ruleset": sidecar["ruleset"],
             "reference_sha256": sidecar["reference"]["sha256"],
             "sidecar_sha256": sidecar_digest,
+            "source_weights_sha256": sidecar["source"]["weights_sha256"],
+            "checkpoint_sha256": sidecar["source"]["sha256"],
             "generated": datetime.now(timezone.utc).isoformat(),
         }
         if args.no_parity:

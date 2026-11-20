@@ -26,18 +26,19 @@ async function sha256Hex(buffer) {
 }
 
 async function fetchVerified(path, expected) {
+  // A missing digest is a hard failure: mandatory executable sources are never
+  // imported unverified.
+  self.__searchAssets.validateDigest(expected, path);
   const response = await fetch(path);
   if (!response.ok) throw new Error(`Cannot load ${path}: HTTP ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (expected) {
-    const digest = await sha256Hex(bytes);
-    if (digest !== expected)
-      throw new Error(`Staged source digest mismatch for ${path}`);
-  }
+  const digest = await sha256Hex(bytes);
+  self.__searchAssets.assertFetchedDigest(expected, digest, path);
   return bytes;
 }
 
 const ready = (async () => {
+  importScripts("./search-assets.js");
   importScripts("./runtime/pyodide.js");
   runtime = await loadPyodide({ indexURL: "./runtime/" });
   if (runtime.version !== "0.27.7") throw new Error("Expected Pyodide 0.27.7");
@@ -45,27 +46,28 @@ const ready = (async () => {
   if (!response.ok)
     throw new Error(`Cannot load search-assets.json: HTTP ${response.status}`);
   const assets = await response.json();
-  if (assets.schema !== 1) throw new Error("Unsupported search asset manifest schema");
-  const inventory = new Map(
-    (assets.inventory ?? []).map((entry) => [entry.path, entry.sha256]),
-  );
+  const validation = self.__searchAssets.validateSearchManifest(assets);
   runtime.FS.mkdirTree("/home/pyodide/hnefatafl");
-  for (const name of assets.python_modules) {
+  for (const name of validation.modules) {
     if (!MODULE.test(name)) throw new Error(`Invalid staged module name: ${name}`);
     const path = `python/hnefatafl/${name}`;
     runtime.FS.writeFile(
       `/home/pyodide/hnefatafl/${name}`,
-      await fetchVerified(`./${path}`, inventory.get(path)),
+      await fetchVerified(`./${path}`, self.__searchAssets.requiredDigest(validation, path)),
     );
   }
-  for (const name of assets.root_modules ?? []) {
+  for (const name of validation.roots) {
     if (!ROOT_MODULE.test(name)) throw new Error(`Invalid staged root module: ${name}`);
     runtime.FS.writeFile(
       `/home/pyodide/${name}`,
-      await fetchVerified(`./${name}`, inventory.get(name)),
+      await fetchVerified(`./${name}`, self.__searchAssets.requiredDigest(validation, name)),
     );
   }
-  const bridge = await fetchVerified("./search_bridge.py", inventory.get("search_bridge.py"));
+  const bridgePath = "search_bridge.py";
+  const bridge = await fetchVerified(
+    `./${bridgePath}`,
+    self.__searchAssets.requiredDigest(validation, bridgePath),
+  );
   runtime.runPython(new TextDecoder().decode(bridge));
   const meta = JSON.parse(
     runtime.runPython(

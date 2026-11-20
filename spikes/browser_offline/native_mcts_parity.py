@@ -39,7 +39,7 @@ for path in (str(SPIKE), str(ROOT)):
         sys.path.insert(0, path)
 
 from fixtures import jarl_positions  # noqa: E402
-from hnefatafl.engine import State, legal_moves  # noqa: E402
+from hnefatafl.engine import RULESETS, State, legal_moves  # noqa: E402
 from hnefatafl.mcts_driver import (  # noqa: E402
     DRIVER_VERSION,
     SEARCH_ALGORITHM,
@@ -57,6 +57,7 @@ from mcts_vectors import (  # noqa: E402
 
 SETTINGS = {"iterations": 128, "time_limit": 10.0, "seed": 7, "exploration": 1.4}
 TERMINAL_KINDS = {"terminal"}
+RULESET_SIZES = {name: rules.size for name, rules in RULESETS.items()}
 
 
 def digest_json(value: Any) -> str:
@@ -91,6 +92,46 @@ def engine_identity() -> dict:
         "encoder_version": encoding.ENCODER_VERSION,
         "search_algorithm": SEARCH_ALGORITHM,
     }
+
+
+def load_model_artifacts(export_dir: Path, checkpoint: Path | None = None) -> dict:
+    """Validate the exported artifact and bind it to the actual source weights.
+
+    Reuses the staging validator for the complete digest chain, ONNX graph
+    contract and validated marker, then requires the source-weight fingerprint so
+    an unrelated checkpoint with the same architecture can never stand in for the
+    exported model.
+    """
+    import prepare_neural
+    from hnefatafl.models import load_checkpoint, weights_fingerprint
+
+    export = prepare_neural.validate_export_dir(export_dir, allow_unvalidated=False)
+    sidecar = export["sidecar"]
+    if sidecar.get("schema") != 2:
+        raise SystemExit(
+            "The export has no source-weight fingerprint (sidecar schema "
+            f"{sidecar.get('schema')!r}); re-export it with the current exporter"
+        )
+    source = sidecar.get("source") or {}
+    expected_fingerprint = source.get("weights_sha256")
+    if not isinstance(expected_fingerprint, str) or len(expected_fingerprint) != 64:
+        raise SystemExit("The export does not record a source weight fingerprint")
+    if source.get("encoder_version") != "six-plane-v1":
+        raise SystemExit("The export does not record the expected encoder version")
+    loaded = None
+    if checkpoint is not None:
+        loaded, metadata = load_checkpoint(checkpoint.resolve(), device="cpu")
+        if metadata.get("ruleset", sidecar["ruleset"]) != sidecar["ruleset"]:
+            raise SystemExit("Checkpoint ruleset does not match the exported model")
+        fingerprint = weights_fingerprint(loaded)
+        if fingerprint != expected_fingerprint:
+            raise SystemExit(
+                "Checkpoint weights do not match the exported model: "
+                f"{fingerprint} != {expected_fingerprint}"
+            )
+        if dict(loaded.config) != dict(sidecar["model_config"]):
+            raise SystemExit("Checkpoint architecture does not match the exported model")
+    return {**export, "checkpoint_model": loaded, "weights_sha256": expected_fingerprint}
 
 
 def legal_softmax(logits: list[float], legal: list[int]) -> list[float]:
@@ -139,19 +180,28 @@ def onnx_evaluator(export_dir: Path) -> tuple[Callable[[State], tuple[list[float
 
 
 def torch_evaluator(
-    checkpoint: Path, export_dir: Path
+    checkpoint: Path,
+    export_dir: Path,
+    *,
+    model=None,
+    weights_sha256: str | None = None,
 ) -> tuple[Callable[[State], tuple[list[float], float]], dict]:
     import torch
 
     from hnefatafl.engine import RULESETS
     from hnefatafl.models import encode_state, load_checkpoint, weights_fingerprint
 
-    model, metadata = load_checkpoint(checkpoint, device="cpu")
+    if model is None:
+        model, metadata = load_checkpoint(checkpoint, device="cpu")
+    else:
+        metadata = {"ruleset": model.ruleset}
     model.eval()
     sidecar = json.loads((export_dir / "model.json").read_text())
     ruleset = sidecar["ruleset"]
     digest = sha256_file(export_dir / "model.onnx")
     fingerprint = weights_fingerprint(model)
+    if weights_sha256 is not None and fingerprint != weights_sha256:
+        raise SystemExit("Checkpoint weights do not match the exported model")
 
     def evaluate(state: State) -> tuple[list[float], float]:
         with torch.inference_mode():
@@ -171,8 +221,14 @@ def torch_evaluator(
     }
 
 
-def select_positions(rulesets: list[str], limit: int | None) -> list[dict]:
-    selected = [case for case in jarl_positions() if case["ruleset"] in rulesets]
+def select_positions(
+    rulesets: list[str], limit: int | None, kinds: list[str] | None = None
+) -> list[dict]:
+    selected = [
+        case
+        for case in jarl_positions()
+        if case["ruleset"] in rulesets and (kinds is None or case["kind"] in kinds)
+    ]
     if limit is None:
         return selected
     grouped: dict[str, int] = {}
@@ -228,6 +284,11 @@ def main() -> None:
     parser.add_argument("--positions", type=Path, help="Custom serialized position list")
     parser.add_argument("--rulesets", default="brandubh,tablut,copenhagen")
     parser.add_argument("--limit", type=int, help="Maximum positions per ruleset")
+    parser.add_argument(
+        "--kinds",
+        default=None,
+        help="Comma-separated position kinds from fixtures.jarl_positions",
+    )
     parser.add_argument("--iterations", type=int, default=SETTINGS["iterations"])
     parser.add_argument("--time-limit", type=float, default=SETTINGS["time_limit"])
     parser.add_argument("--seed", type=int, default=SETTINGS["seed"])
@@ -254,11 +315,16 @@ def main() -> None:
     unknown = [name for name in rulesets if name not in {"brandubh", "tablut", "copenhagen"}]
     if unknown:
         parser.error(f"Unsupported ruleset(s): {unknown}")
+    kinds = [name.strip() for name in args.kinds.split(",") if name.strip()] if args.kinds else None
     if args.positions:
         cases = json.loads(args.positions.read_text())
-        cases = [case for case in cases if case["ruleset"] in rulesets]
+        cases = [
+            case
+            for case in cases
+            if case["ruleset"] in rulesets and (kinds is None or case["kind"] in kinds)
+        ]
     else:
-        cases = select_positions(rulesets, args.limit)
+        cases = select_positions(rulesets, args.limit, kinds)
 
     model = None
     model_meta: dict | None = None
@@ -272,12 +338,34 @@ def main() -> None:
         if args.model_export is None:
             parser.error("--model-export is required for a model-backed run")
         export_dir = args.model_export.resolve()
+        if evaluator_name == "torch" and args.checkpoint is None:
+            parser.error("--checkpoint is required for the torch evaluator")
+        artifacts = load_model_artifacts(
+            export_dir,
+            args.checkpoint.resolve() if args.checkpoint is not None else None,
+        )
+        mismatched = [
+            case["name"]
+            for case in cases
+            if case["ruleset"] != artifacts["ruleset"]
+            or RULESET_SIZES[case["ruleset"]] != artifacts["size"]
+        ]
+        if mismatched:
+            parser.error(
+                "The selected positions are not covered by the exported model: "
+                + ", ".join(mismatched[:5])
+            )
         if evaluator_name == "onnx":
             evaluator, model_meta = onnx_evaluator(export_dir)
         else:
-            if args.checkpoint is None:
-                parser.error("--checkpoint is required for the torch evaluator")
-            evaluator, model_meta = torch_evaluator(args.checkpoint.resolve(), export_dir)
+            evaluator, model_meta = torch_evaluator(
+                args.checkpoint.resolve(),
+                export_dir,
+                model=artifacts["checkpoint_model"],
+                weights_sha256=artifacts["weights_sha256"],
+            )
+        model_meta["weights_sha256"] = artifacts["weights_sha256"]
+        model_meta["validated"] = artifacts["validated"]
     environment = {
         "runtime": f"cpython-{sys.version.split()[0]}",
         "platform": sys.platform,
@@ -293,10 +381,15 @@ def main() -> None:
                 "size": state.size,
             }
         else:
+            if state.ruleset != model_meta["ruleset"]:
+                failures.append(
+                    f"{case['name']}: position ruleset differs from the validated model"
+                )
+                continue
             case_model = {
                 "sha256": model_meta["onnx_sha256"],
-                "ruleset": state.ruleset,
-                "size": state.size,
+                "ruleset": model_meta["ruleset"],
+                "size": model_meta["size"],
             }
         if level == "a" and state.ruleset not in {"brandubh", "tablut", "copenhagen"}:
             failures.append(f"{case['name']}: unsupported ruleset")
@@ -337,6 +430,16 @@ def main() -> None:
             key: settings[key] for key in ("iterations", "time_limit", "seed", "exploration")
         },
         "workload_digest": workload_digest,
+        "workload": {
+            "source": "fixtures.jarl_positions",
+            "selection": {
+                "source": "fixtures.jarl_positions",
+                "rulesets": rulesets,
+                "kinds": kinds,
+                "limit": args.limit,
+            },
+            "positions": [case["name"] for case in cases],
+        },
         "positions": [
             {
                 "name": case["name"],

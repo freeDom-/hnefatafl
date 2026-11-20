@@ -72,7 +72,11 @@ WASM_ONLY = {
     "ort-wasm-simd-threaded.jsep.mjs",
     "ort-wasm-simd-threaded.jsep.wasm",
 }
-SIDECAR_SCHEMA = 1
+SIDECAR_SCHEMA = 2
+# Schema 1 exports (Phase 1 revision <= 5) carry no source-weight fingerprint and
+# are still accepted for Phase 1 reproduction; schema 2 is required for new
+# checkpoint-bound validation.
+SUPPORTED_SIDECAR_SCHEMAS = (1, 2)
 SIDECAR_ARTIFACT = "hnefatafl-policy-value-onnx"
 MANIFEST_SCHEMA = 3
 MAX_MODEL_BYTES = 64 * 1024 * 1024
@@ -93,7 +97,7 @@ def validate_sidecar(sidecar: dict) -> tuple[str, int]:
     """Validate the declared architecture, ruleset, shapes and semantics."""
     if not isinstance(sidecar, dict):
         raise SystemExit("model.json must be a JSON object")
-    if sidecar.get("schema") != SIDECAR_SCHEMA:
+    if sidecar.get("schema") not in SUPPORTED_SIDECAR_SCHEMAS:
         raise SystemExit(f"Unsupported sidecar schema: {sidecar.get('schema')!r}")
     if sidecar.get("artifact") != SIDECAR_ARTIFACT:
         raise SystemExit(f"Unsupported artifact type: {sidecar.get('artifact')!r}")
@@ -119,6 +123,15 @@ def validate_sidecar(sidecar: dict) -> tuple[str, int]:
     if type(blocks) is not int or not 0 <= blocks <= 8:
         raise SystemExit("model_config blocks must be an integer in 0..8")
     source_input = sidecar.get("input") or {}
+    source_metadata = sidecar.get("source")
+    if sidecar.get("schema") == 2:
+        if not isinstance(source_metadata, dict):
+            raise SystemExit("Schema-2 sidecar is missing source model metadata")
+        fingerprint = source_metadata.get("weights_sha256")
+        if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+            raise SystemExit("Schema-2 sidecar requires a source weight fingerprint")
+        if source_metadata.get("encoder_version") != "six-plane-v1":
+            raise SystemExit("Source metadata must record the six-plane-v1 encoder")
     if source_input.get("name") != "planes" or source_input.get("encoding") != "six-plane-v1":
         raise SystemExit("Model input must be the six-plane 'planes' tensor")
     if source_input.get("shape") != ["batch", 6, size, size]:
@@ -311,6 +324,11 @@ def validate_export_dir(model_dir: Path, allow_unvalidated: bool) -> dict:
             raise SystemExit("Export manifest model size does not match")
         if manifest.get("ruleset") != ruleset:
             raise SystemExit("Export manifest ruleset does not match the sidecar")
+        source_metadata = sidecar.get("source") or {}
+        if manifest.get("source_weights_sha256") != source_metadata.get("weights_sha256"):
+            raise SystemExit("Export manifest source-weight fingerprint does not match")
+        if manifest.get("checkpoint_sha256") != source_metadata.get("sha256"):
+            raise SystemExit("Export manifest checkpoint digest does not match")
     if marker is not None and marker.get("ruleset") != ruleset:
         raise SystemExit("VALIDATED.json ruleset does not match the sidecar")
 
@@ -489,6 +507,7 @@ def main() -> None:
         "analysis-client.js",
         "worker.js",
         "search-worker.js",
+        "search-assets.js",
         "search-client.js",
         "bridge.py",
         "jarl_benchmark.py",

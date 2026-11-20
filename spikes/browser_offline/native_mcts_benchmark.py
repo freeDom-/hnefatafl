@@ -168,14 +168,24 @@ def main() -> None:
         parser.error("the selected rulesets have no benchmark positions")
 
     started = time.perf_counter()
+    if args.evaluator == "torch" and args.checkpoint is None:
+        parser.error("--checkpoint is required for the torch evaluator")
+    artifacts = native_mcts_parity.load_model_artifacts(
+        export_dir, args.checkpoint.resolve() if args.checkpoint is not None else None
+    )
+    if artifacts["ruleset"] not in rulesets:
+        parser.error(f"The exported model ruleset {artifacts['ruleset']} is not in --rulesets")
     if args.evaluator == "onnx":
         evaluator, model_meta = native_mcts_parity.onnx_evaluator(export_dir)
     else:
-        if args.checkpoint is None:
-            parser.error("--checkpoint is required for the torch evaluator")
         evaluator, model_meta = native_mcts_parity.torch_evaluator(
-            args.checkpoint.resolve(), export_dir
+            args.checkpoint.resolve(),
+            export_dir,
+            model=artifacts["checkpoint_model"],
+            weights_sha256=artifacts["weights_sha256"],
         )
+    model_meta["weights_sha256"] = artifacts["weights_sha256"]
+    model_meta["validated"] = artifacts["validated"]
     model_load_ms = (time.perf_counter() - started) * 1000.0
     model_sha = model_meta["onnx_sha256"]
     workload_digest = mcts_benchmark.digest_workload(
@@ -244,8 +254,21 @@ def main() -> None:
         "engine_identity": native_mcts_parity.engine_identity(),
         "workload_digest": workload_digest,
         "workload": {
-            "rulesets": rulesets,
-            "kinds": list(preset["kinds"]),
+            "selection": {
+                "source": "fixtures.jarl_positions",
+                "rulesets": rulesets,
+                "kinds": list(preset["kinds"]),
+                "limit": None,
+            },
+            "positions": [
+                {
+                    "name": entry["name"],
+                    "ruleset": entry["ruleset"],
+                    "kind": entry["kind"],
+                    "state": entry["state"],
+                }
+                for entry in positions
+            ],
             "cases": cases,
             "seed": args.seed,
             "exploration": args.exploration,
