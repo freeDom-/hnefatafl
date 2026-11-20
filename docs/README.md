@@ -66,14 +66,14 @@ Commands assume the repository root unless a different directory is shown.
 ## Architecture, development and testing
 
 - [Current architecture and module boundaries](../ARCHITECTURE.md)
-- [Arena completion audit, verified feature matrix and PR dependencies](designs/arena-completion.md)
+- [Current Arena Phase 0–4 completeness, roadmap and remaining dependencies](designs/arena-current-completeness.md): primary roadmap reference
 - [Initial public release readiness and outstanding gates](RELEASE_READINESS.md)
+- [Historical post-PR #84 Arena completion audit and baseline matrix](designs/arena-completion.md): historical snapshot, not current status
 - [Arena v2 contracts, feature preservation inventory and integration plan](designs/arena-v2-contracts.md)
 - [Shared frontend notification layer, migrated surfaces and exceptions](NOTIFICATIONS.md)
 - [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)
 - [Frontend test-toolchain security update](validation/test-toolchain-security.md)
 - [Watch Hall production CSS regression and browser validation](validation/public-watch-production.md)
-- [Current Arena Phase 0–4 completeness and remaining dependencies](designs/arena-current-completeness.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
 - [Workshop presentation and bounded rendering](validation/workshop-consolidation.md)

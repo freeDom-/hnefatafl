@@ -7,11 +7,13 @@ dependencies and acceptance gates, **not a claim that the missing features ship*
 
 ## Post-audit delivery status
 
-This report preserves the historical post-#84 baseline. Its matrix is not a current
-release inventory. See the [current completeness matrix](arena-current-completeness.md)
-for merged Portrait Hall/automatic achievements, public spectators, human tournament
-UI/settlement, polling, local-analysis feasibility, and remaining open workstreams.
-Historical counts below are not recast as fresh validation.
+This report preserves the historical post-#84 baseline. Its matrix and performance
+numbers are not a current release inventory. See the
+[current completeness matrix](arena-current-completeness.md) for merged Hall of
+Renown/automatic achievements, public spectators, human tournament UI/settlement,
+polling, Workshop consolidation, bundle budgets, the backend read benchmark and the
+remaining open workstreams (including draft league PR #99 and open browser-analysis
+PR #104). Historical counts below are not recast as fresh validation.
 
 ## Audit method and phase terminology
 
@@ -202,7 +204,11 @@ playing strength. Document later changes with a policy version.
   Queue matching/contributions use constraints and `BEGIN IMMEDIATE`; indexed
   bounded workers avoid recurring global scans.
 
-## Measured performance baseline and gates
+## Measured performance baseline and gates (historical)
+
+> The numbers in this section belong to the post-#84 baseline. Current build
+> budgets, branch measurements and their provenance are in the
+> [current completeness matrix](arena-current-completeness.md#performance-evidence-and-budgets).
 
 Fresh production build at this baseline passed. Main JavaScript is **1,013,700
 bytes**, Python gzip **308,928 bytes** (Vite rounded gzip 310.10 KB); CSS **176,657
