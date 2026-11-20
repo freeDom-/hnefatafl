@@ -423,6 +423,108 @@ await check("worker creation after an obsolete operation was cancelled", async (
   client.terminate();
 });
 
+await check("a request prepared for model A cannot execute against model B", async () => {
+  globalThis.Worker = FakeWorker;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Map(),
+    arrayBuffer: async () => new Uint8Array(8).buffer,
+  });
+  const client = new NeuralClient();
+  client.digestFn = async () => "a".repeat(64);
+  const loadA = client.load("./model.onnx", {
+    provider: "wasm",
+    size: 7,
+    ruleset: "brandubh",
+    expectedSha256: "a".repeat(64),
+  });
+  await sleep(5);
+  client.worker.respond(0, {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    execution_placement: "wasm",
+    gpu_execution_verified: false,
+  });
+  await loadA;
+  const identityA = client.modelIdentity();
+  client.digestFn = async () => "b".repeat(64);
+  const loadB = client.load("./model.onnx", {
+    provider: "wasm",
+    size: 7,
+    ruleset: "brandubh",
+    expectedSha256: "b".repeat(64),
+  });
+  await sleep(5);
+  client.worker.respond(1, {
+    model_sha256: "b".repeat(64),
+    model_ruleset: "brandubh",
+    execution_placement: "wasm",
+    gpu_execution_verified: false,
+  });
+  await loadB;
+  assert.equal(client.modelIdentity().sha256, "b".repeat(64));
+  const posted = client.worker.messages.length;
+  const planes = new Array(6 * 7 * 7).fill(0);
+  await assert.rejects(
+    async () =>
+      client.infer({
+        planes,
+        size: 7,
+        legal: [0],
+        ruleset: "brandubh",
+        request_id: "p0",
+        position_digest: "c".repeat(64),
+        model: identityA,
+      }),
+    (error) => error.code === "MODEL_IDENTITY_MISMATCH",
+  );
+  assert.equal(client.worker.messages.length, posted, "stale identity must not reach the worker");
+  const request = client.infer({
+    planes,
+    size: 7,
+    legal: [0],
+    ruleset: "brandubh",
+    request_id: "p0",
+    position_digest: "c".repeat(64),
+    model: client.modelIdentity(),
+  });
+  await sleep(5);
+  client.worker.respond(client.worker.messages.length - 1, {
+    request_id: "p0",
+    position_digest: "c".repeat(64),
+    model_sha256: "b".repeat(64),
+    legal: [0],
+    legal_probabilities: [1],
+    policy_logits: [0],
+    value: 0,
+    policy_shape: [1, 2401],
+    value_shape: [1],
+    policy_dtype: "float32",
+    value_dtype: "float32",
+  });
+  await request;
+  client.terminate();
+});
+await check("an incompatible batched request identity is rejected", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+    provider: "wasm",
+  };
+  await assert.rejects(
+    async () =>
+      client.inferMany({
+        cases: [{ planes: [], legal: [0] }],
+        model: { sha256: "a".repeat(64), ruleset: "tablut", size: 9 },
+      }),
+    (error) => error.code === "RULESET_MISMATCH" || error.code === "BOARD_SIZE_MISMATCH",
+  );
+  client.terminate();
+});
+
 const failures = results.filter((row) => !row.ok);
 console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
 if (failures.length) {

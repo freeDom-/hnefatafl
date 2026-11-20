@@ -189,6 +189,13 @@ try {
   );
 
   if (report.load) {
+    const capturedModel = {
+      sha256: report.load.model_sha256,
+      ruleset: report.load.model_ruleset,
+      size: report.load.size,
+    };
+    if (!capturedModel.sha256 || !capturedModel.ruleset || !Number.isInteger(capturedModel.size))
+      report.failures.push("loaded model did not return a complete identity");
     const cases = await page.evaluate(async () => {
       const { assets: staged } = await window.neural.assets();
       const vectors = await (await fetch("./" + staged.model.reference)).json();
@@ -205,21 +212,17 @@ try {
     report.reference_positions = reference.cases.filter((entry) => !entry.terminal).length;
 
     const first = await page.evaluate(
-      (payload) =>
-        window.neural.client.infer(
-          payload.planes,
-          payload.size,
-          payload.legal,
-          payload.ruleset,
-          { request_id: payload.request_id, position_digest: payload.position_digest },
-        ),
+      (payload) => window.neural.client.infer(payload.request),
       {
-        planes: nonTerminal(reference)[0].planes,
-        size: assets.model.size,
-        legal: nonTerminal(reference)[0].legal,
-        ruleset: assets.model.ruleset,
-        request_id: nonTerminal(reference)[0].position,
-        position_digest: nonTerminal(reference)[0].position_digest,
+        request: {
+          planes: nonTerminal(reference)[0].planes,
+          size: capturedModel.size,
+          legal: nonTerminal(reference)[0].legal,
+          ruleset: capturedModel.ruleset,
+          request_id: nonTerminal(reference)[0].position,
+          position_digest: nonTerminal(reference)[0].position_digest,
+          model: capturedModel,
+        },
       },
     );
     report.first_inference = {
@@ -236,21 +239,17 @@ try {
     const warm = [];
     for (let index = 0; index < reps; index += 1) {
       const value = await page.evaluate(
-        (payload) =>
-          window.neural.client.infer(
-            payload.planes,
-            payload.size,
-            payload.legal,
-            payload.ruleset,
-            { request_id: payload.request_id, position_digest: payload.position_digest },
-          ),
+        (payload) => window.neural.client.infer(payload.request),
         {
-          planes: nonTerminal(reference)[0].planes,
-          size: assets.model.size,
-          legal: nonTerminal(reference)[0].legal,
-          ruleset: assets.model.ruleset,
-          request_id: nonTerminal(reference)[0].position,
-          position_digest: nonTerminal(reference)[0].position_digest,
+          request: {
+            planes: nonTerminal(reference)[0].planes,
+            size: capturedModel.size,
+            legal: nonTerminal(reference)[0].legal,
+            ruleset: capturedModel.ruleset,
+            request_id: nonTerminal(reference)[0].position,
+            position_digest: nonTerminal(reference)[0].position_digest,
+            model: capturedModel,
+          },
         },
       );
       warm.push({
@@ -268,12 +267,16 @@ try {
 
     try {
       report.benchmark = await page.evaluate(
-        (payload) =>
-          window.neural.client.benchmark(payload.cases, payload.batchSizes, {
-            warmup: payload.warmup,
-            reps: payload.reps,
-          }),
-        { cases, batchSizes, warmup, reps },
+        (payload) => window.neural.client.benchmark(payload.request),
+        {
+          request: {
+            cases,
+            batchSizes,
+            warmup,
+            reps,
+            model: capturedModel,
+          },
+        },
       );
     } catch (error) {
       report.failures.push(`batched benchmark failed: ${error?.message ?? error}`);
@@ -286,13 +289,18 @@ try {
       let many;
       try {
         many = await page.evaluate(
-          (payload) => window.neural.client.inferMany(payload.cases),
-          { cases: filled.map(({ planes, legal, request_id, position_digest }) => ({
-              planes,
-              legal,
-              request_id,
-              position_digest,
-            })) },
+          (payload) => window.neural.client.inferMany(payload.request),
+          {
+            request: {
+              cases: filled.map(({ planes, legal, request_id, position_digest }) => ({
+                planes,
+                legal,
+                request_id,
+                position_digest,
+              })),
+              model: capturedModel,
+            },
+          },
         );
       } catch (error) {
         report.failures.push(`inferMany batch ${batch} failed: ${error?.message ?? error}`);
@@ -306,21 +314,17 @@ try {
       for (const entry of filled) {
         singles.push(
           await page.evaluate(
-            (payload) =>
-              window.neural.client.infer(
-                payload.planes,
-                payload.size,
-                payload.legal,
-                payload.ruleset,
-                { request_id: payload.request_id, position_digest: payload.position_digest },
-              ),
+            (payload) => window.neural.client.infer(payload.request),
             {
-              planes: entry.planes,
-              size: assets.model.size,
-              legal: entry.legal,
-              ruleset: assets.model.ruleset,
-              request_id: entry.request_id,
-              position_digest: entry.position_digest,
+              request: {
+                planes: entry.planes,
+                size: capturedModel.size,
+                legal: entry.legal,
+                ruleset: capturedModel.ruleset,
+                request_id: entry.request_id,
+                position_digest: entry.position_digest,
+                model: capturedModel,
+              },
             },
           ),
         );
@@ -363,15 +367,18 @@ try {
       // Measured inside the worker so this is inference throughput rather than
       // per-call postMessage/serialization overhead.
       const measurement = await page.evaluate(
-        (payload) => window.neural.client.sustained(payload.cases, payload.iterations),
+        (payload) => window.neural.client.sustained(payload.request),
         {
-          cases: sustainedCases.map(({ planes, legal, request_id, position_digest }) => ({
-            planes,
-            legal,
-            request_id,
-            position_digest,
-          })),
-          iterations: sustained,
+          request: {
+            cases: sustainedCases.map(({ planes, legal, request_id, position_digest }) => ({
+              planes,
+              legal,
+              request_id,
+              position_digest,
+            })),
+            iterations: sustained,
+            model: capturedModel,
+          },
         },
       );
       const after = await page.evaluate(() =>

@@ -24,6 +24,7 @@ const MAX_MODEL_BYTES = 64 * 1024 * 1024;
 const SIZE_RULESETS = { brandubh: 7, tablut: 9, copenhagen: 11 };
 
 importScripts("./neural-tensors.js");
+importScripts("./neural-identity.js");
 
 let ortLib = null;
 let ortBundle = null;
@@ -187,7 +188,9 @@ async function loadModel(request) {
   if (!["wasm", "webgpu"].includes(provider))
     throw named("UNSUPPORTED_PROVIDER", `Unsupported provider: ${provider}`);
   if (!Number.isInteger(size) || size < 5 || size > 15) throw named("INPUT_INVALID", "Invalid board size");
-  if (ruleset && SIZE_RULESETS[ruleset] !== size)
+  if (typeof ruleset !== "string" || !(ruleset in SIZE_RULESETS))
+    throw named("ARTIFACT_RULESET_MISMATCH", "A supported ruleset identity is required");
+  if (SIZE_RULESETS[ruleset] !== size)
     throw named("ARTIFACT_RULESET_MISMATCH", `Ruleset ${ruleset} does not match board size ${size}`);
   if (!expectedSha256 || !/^[0-9a-f]{64}$/.test(expectedSha256))
     throw named("ARTIFACT_NO_DIGEST", "A staged model SHA-256 is required");
@@ -288,8 +291,22 @@ function buildInputTensor(cases, size) {
   return new ortLib.Tensor("float32", data, [cases.length, 6, size, size]);
 }
 
-async function runBatch(cases, size, { requireIdentity = true } = {}) {
+function activeModelIdentity() {
+  if (!model) return null;
+  return {
+    modelSha256: model.modelSha256,
+    ruleset: model.ruleset,
+    size: model.size,
+  };
+}
+
+async function runBatch(cases, size, { requireIdentity = true, expectedModel = null } = {}) {
   if (!session || !model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
+  if (expectedModel !== null) {
+    // Bind the request to the exact model it was prepared for before touching
+    // inputs; a delayed request must never execute against another session.
+    self.__neuralIdentity.validateModelIdentity(expectedModel, activeModelIdentity());
+  }
   if (model.size !== size)
     throw named("ARTIFACT_RULESET_MISMATCH", "Requested board size differs from the model");
   if (!Array.isArray(cases) || cases.length === 0)
@@ -372,13 +389,18 @@ async function runBatch(cases, size, { requireIdentity = true } = {}) {
 }
 
 async function inferSingle(request) {
-  const { planes, legal, ruleset, request_id, position_digest } = request;
+  const { planes, legal, ruleset, size, request_id, position_digest, model: expectedModel } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
-  if (ruleset && model.ruleset && ruleset !== model.ruleset)
-    throw named("ARTIFACT_RULESET_MISMATCH", `Ruleset ${ruleset} does not match the model`);
+  if (expectedModel === undefined || expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+  if (size !== model.size)
+    throw named("BOARD_SIZE_MISMATCH", `Requested size ${size} does not match the model`);
+  if (ruleset !== model.ruleset)
+    throw named("RULESET_MISMATCH", `Requested ruleset ${ruleset} does not match the model`);
   const result = await runBatch(
     [{ planes, legal, request_id, position_digest }],
     model.size,
+    { expectedModel },
   );
   const single = {
     ...result,
@@ -397,9 +419,11 @@ async function inferSingle(request) {
 }
 
 async function inferMany(request) {
-  const { cases } = request;
+  const { cases, model: expectedModel } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
-  const result = await runBatch(cases, model.size);
+  if (expectedModel === undefined || expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+  const result = await runBatch(cases, model.size, { expectedModel });
   return {
     ...result,
     per_position_ms: result.run_ms / result.batch,
@@ -421,14 +445,16 @@ async function benchmark(request) {
   const cases = request.cases;
   if (!Array.isArray(cases) || !cases.length)
     throw named("INPUT_INVALID", "distinct benchmark cases are required");
+  const expectedModel = request.model ?? null;
   const rows = [];
   for (const batch of batchSizes) {
     const filled = Array.from({ length: batch }, (_, index) => cases[index % cases.length]);
-    for (let index = 0; index < warmup; index += 1) await runBatch(filled, model.size, { requireIdentity: false });
+    for (let index = 0; index < warmup; index += 1)
+      await runBatch(filled, model.size, { requireIdentity: false, expectedModel });
     const times = [];
     for (let index = 0; index < reps; index += 1) {
       const started = performance.now();
-      await runBatch(filled, model.size, { requireIdentity: false });
+      await runBatch(filled, model.size, { requireIdentity: false, expectedModel });
       times.push(performance.now() - started);
     }
     rows.push({
@@ -457,9 +483,10 @@ async function sustained(request) {
   if (!Array.isArray(cases) || !cases.length) throw named("INPUT_INVALID", "cases are required");
   if (!Number.isInteger(iterations) || iterations < 1 || iterations > 10000)
     throw named("INPUT_INVALID", "iterations must be 1..10000");
+  const expectedModel = request.model ?? null;
   const started = performance.now();
   for (let index = 0; index < iterations; index += 1)
-    await runBatch(cases, model.size, { requireIdentity: false });
+    await runBatch(cases, model.size, { requireIdentity: false, expectedModel });
   const elapsed = performance.now() - started;
   return {
     iterations,

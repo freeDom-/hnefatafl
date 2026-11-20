@@ -60,6 +60,11 @@ const CORRUPTIONS = new Set([
   "wrong-index",
   "reorder",
   "position",
+  "request-model",
+  "request-ruleset",
+  "request-size",
+  "request-model-worker",
+  "request-model-batch-worker",
 ]);
 const SINGLE_CORRUPTIONS = new Set([
   "logit",
@@ -72,6 +77,13 @@ const SINGLE_CORRUPTIONS = new Set([
   "model",
   "position",
 ]);
+const REQUEST_CORRUPTIONS = new Set([
+  "request-model",
+  "request-ruleset",
+  "request-size",
+  "request-model-worker",
+  "request-model-batch-worker",
+]);
 const BATCH_CORRUPTIONS = new Set([
   "batch-count",
   "missing-result",
@@ -81,6 +93,11 @@ const BATCH_CORRUPTIONS = new Set([
   "wrong-index",
   "reorder",
   "position",
+  "request-model",
+  "request-ruleset",
+  "request-size",
+  "request-model-worker",
+  "request-model-batch-worker",
 ]);
 
 function usageError(message) {
@@ -243,6 +260,14 @@ try {
   }
 
   if (load) {
+    // Capture the exact model identity when the workload is prepared.
+    const capturedModel = {
+      sha256: load.model_sha256,
+      ruleset: load.model_ruleset,
+      size: load.size,
+    };
+    if (!capturedModel.sha256 || !capturedModel.ruleset || !Number.isInteger(capturedModel.size))
+      fail("loaded model did not return a complete identity");
     const observedOutputs = [];
     for (const entry of reference.cases) {
       if (entry.terminal) {
@@ -254,22 +279,30 @@ try {
         });
         continue;
       }
+      const requestModel =
+        REQUEST_CORRUPTIONS.has(corruption) && observedOutputs.length === 0
+          ? corruptRequestModel(capturedModel, corruption)
+          : capturedModel;
+      const workerPath = corruption === "request-model-worker" && observedOutputs.length === 0;
       const observed = await page.evaluate(
         (payload) =>
-          window.neural.client.infer(
-            payload.planes,
-            payload.size,
-            payload.legal,
-            payload.ruleset,
-            { request_id: payload.request_id, position_digest: payload.position_digest },
-          ),
+          payload.workerPath
+            ? window.neural.client.request(
+                { action: "infer", ...payload.request },
+                { timeoutMs: 30000 },
+              )
+            : window.neural.client.infer(payload.request),
         {
-          planes: entry.planes,
-          size: assets.model.size,
-          legal: entry.legal,
-          ruleset: assets.model.ruleset,
-          request_id: entry.position,
-          position_digest: entry.position_digest,
+          workerPath,
+          request: {
+            planes: entry.planes,
+            size: capturedModel.size,
+            legal: entry.legal,
+            ruleset: capturedModel.ruleset,
+            request_id: entry.position,
+            position_digest: entry.position_digest,
+            model: requestModel,
+          },
         },
       );
       if (SINGLE_CORRUPTIONS.has(corruption) && observedOutputs.length === 0)
@@ -309,15 +342,29 @@ try {
       );
       let many;
       try {
+        const workerPath = corruption === "request-model-batch-worker" && batch === 2;
         many = await page.evaluate(
-          (payload) => window.neural.client.inferMany(payload.cases),
+          (payload) =>
+            payload.workerPath
+              ? window.neural.client.request(
+                  { action: "inferMany", ...payload.request },
+                  { timeoutMs: 30000 },
+                )
+              : window.neural.client.inferMany(payload.request),
           {
-            cases: selected.map((entry) => ({
-              planes: entry.planes,
-              legal: entry.legal,
-              request_id: entry.position,
-              position_digest: entry.position_digest,
-            })),
+            workerPath,
+            request: {
+              cases: selected.map((entry) => ({
+                planes: entry.planes,
+                legal: entry.legal,
+                request_id: entry.position,
+                position_digest: entry.position_digest,
+              })),
+              model:
+                REQUEST_CORRUPTIONS.has(corruption) && batch === 2
+                  ? corruptRequestModel(capturedModel, corruption)
+                  : capturedModel,
+            },
           },
         );
       } catch (error) {
@@ -452,6 +499,18 @@ function batchedOutput(row, many) {
     legal_probabilities: row.legal_probabilities,
     illegal_mass_raw: row.illegal_mass_raw,
   };
+}
+
+function corruptRequestModel(model, kind) {
+  if (
+    kind === "request-model" ||
+    kind === "request-model-worker" ||
+    kind === "request-model-batch-worker"
+  )
+    return { ...model, sha256: "0".repeat(64) };
+  if (kind === "request-ruleset") return { ...model, ruleset: "tablut", size: 9 };
+  if (kind === "request-size") return { ...model, size: model.size === 7 ? 9 : 7 };
+  return model;
 }
 
 function corruptSingle(observed, kind) {

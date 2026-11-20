@@ -32,6 +32,7 @@ const MAX_MODEL_BYTES = 64 * 1024 * 1024;
 function named(name, message) {
   const error = new Error(message);
   error.name = name;
+  error.code = name;
   return error;
 }
 
@@ -283,7 +284,34 @@ export class NeuralClient {
     }
   }
 
-  infer(planes, size, legal, ruleset, identity = {}) {
+  // Capture the immutable identity of the currently loaded model. Callers must
+  // capture this when preparing a workload, not when submitting it.
+  modelIdentity() {
+    if (!this.model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
+    return {
+      sha256: this.model.model_sha256,
+      ruleset: this.model.model_ruleset,
+      size: this.model.size,
+    };
+  }
+
+  _assertModel(expected) {
+    if (!expected || typeof expected !== "object")
+      throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+    const active = this.modelIdentity();
+    if (expected.sha256 !== active.sha256)
+      throw named(
+        "MODEL_IDENTITY_MISMATCH",
+        `Requested model ${expected.sha256} does not match active model ${active.sha256}`,
+      );
+    if (expected.ruleset !== active.ruleset)
+      throw named("RULESET_MISMATCH", "Requested ruleset does not match the active model");
+    if (expected.size !== active.size)
+      throw named("BOARD_SIZE_MISMATCH", "Requested board size does not match the active model");
+  }
+
+  infer({ planes, size, legal, ruleset, request_id: requestId, position_digest: positionDigest, model }) {
+    this._assertModel(model);
     return this.request(
       {
         action: "infer",
@@ -291,27 +319,31 @@ export class NeuralClient {
         size,
         legal,
         ruleset,
-        request_id: identity.request_id,
-        position_digest: identity.position_digest,
+        request_id: requestId,
+        position_digest: positionDigest,
+        model,
       },
       { timeoutMs: INFER_TIMEOUT_MS },
     );
   }
 
-  inferMany(cases) {
-    return this.request({ action: "inferMany", cases }, { timeoutMs: INFER_TIMEOUT_MS });
+  inferMany({ cases, model }) {
+    this._assertModel(model);
+    return this.request({ action: "inferMany", cases, model }, { timeoutMs: INFER_TIMEOUT_MS });
   }
 
-  sustained(cases, iterations) {
+  sustained({ cases, iterations, model }) {
+    if (model) this._assertModel(model);
     return this.request(
-      { action: "sustained", cases, iterations },
+      { action: "sustained", cases, iterations, model },
       { timeoutMs: BENCHMARK_TIMEOUT_MS },
     );
   }
 
-  benchmark(cases, batchSizes, { warmup = 2, reps = 5 } = {}) {
+  benchmark({ cases, batchSizes, warmup = 2, reps = 5, model }) {
+    if (model) this._assertModel(model);
     return this.request(
-      { action: "benchmark", cases, batchSizes, warmup, reps },
+      { action: "benchmark", cases, batchSizes, warmup, reps, model },
       { timeoutMs: BENCHMARK_TIMEOUT_MS },
     );
   }
