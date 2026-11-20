@@ -155,8 +155,8 @@ registration and online admission default off. Automatic timeout losses and rati
 updates are enabled by default; operators can explicitly pause finalization during maintenance or recovery. See
 [online operations](docs/ONLINE.md) and [registration](docs/REGISTRATION.md).
 Use the production HTTPS/proxy configuration before public exposure. Offline play,
-league seasons and automated league queues, distributed self-play and PostgreSQL migration
-tools are not implemented. Installation requires a published stable release with
+league seasons with automated queue matchmaking, distributed self-play and PostgreSQL
+migration tools are not part of the released application. Installation requires a published stable release with
 a verified asset.
 
 CPU workflows are verified. CUDA/MPS execution, GPU throughput and target-host
