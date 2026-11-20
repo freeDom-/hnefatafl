@@ -192,8 +192,12 @@ entitlements are append-only and unique. Existing origin, CSRF, bounded-body and
 deployment-freeze protection applies to the underlying game/analysis/selection
 mutations. Tournament startup reconciliation also respects that freeze: expected
 deployment-gate contention is deferred to the existing background worker rather
-than opening a second write path or bypassing the gate. See
-[portraits and achievements](PROGRESSION.md).
+than opening a second write path or bypassing the gate. The corrected updater also
+refuses known-incompatible `0.41.0` rollback/interrupted-recovery targets before
+service stop, data restore or symlink replacement; it never weakens the gate or
+data-authority checks to force a downgrade. See
+[portraits and achievements](PROGRESSION.md) and
+[deployment recovery](DEPLOYMENT.md#rollback-and-recovery).
 
 ## Coverage and explicit exceptions
 

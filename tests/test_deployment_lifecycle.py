@@ -188,17 +188,21 @@ def test_live_fresh_install_starts_and_probes_while_gate_is_held(lifecycle):
         assert c.execute("SELECT COUNT(*) FROM accounts WHERE role='ADMIN'").fetchone()[0] == 1
 
 
-def test_live_schema20_update_start_probe_commit_and_restart(lifecycle):
-    admin, old = bootstrap(lifecycle, schema=20)
+def test_live_fast_in_process_update_start_probe_commit_and_restart(lifecycle):
+    # Fast lifecycle simulation: every release directory executes the current
+    # checkout. Authentic schema-20/historical-release coverage lives in
+    # tests/test_deployment_cross_version.py and uses real subprocesses.
+    admin, old = bootstrap(lifecycle, schema=None)
     target = lifecycle.release("0.41.1")
     lifecycle.deploy(target)
     assert lifecycle.current.resolve() == target
     assert json.loads(lifecycle.state.read_text())["version"] == "0.41.1"
     with sqlite3.connect(lifecycle.data / "hnefatafl.sqlite3") as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == 21
-        assert c.execute("SELECT username FROM accounts WHERE id=?", (admin["id"],)).fetchone()[
-            0
-        ] == ("Odin")
+        assert (
+            c.execute("SELECT username FROM accounts WHERE id=?", (admin["id"],)).fetchone()[0]
+            == "Odin"
+        )
     assert (lifecycle.data / "models/weights").read_bytes() == b"retained-model"
     # Ordinary restart of the committed schema-21 installation must also start,
     # synchronously reconcile with no deployment lock and pass readiness.
@@ -209,7 +213,7 @@ def test_live_schema20_update_start_probe_commit_and_restart(lifecycle):
 
 
 def test_live_failed_activation_restores_previous_release_and_data(lifecycle):
-    _, old = bootstrap(lifecycle, version="0.41.0")
+    _, old = bootstrap(lifecycle, version="0.40.0")
     target = lifecycle.release("0.41.1")
     lifecycle.fail_probe_version = "0.41.1"
     with pytest.raises(ReadinessError, match="synthetic target readiness failure"):
@@ -221,7 +225,7 @@ def test_live_failed_activation_restores_previous_release_and_data(lifecycle):
 
 
 def test_live_interrupted_activation_explicit_recovery(lifecycle):
-    _, old = bootstrap(lifecycle, version="0.41.0")
+    _, old = bootstrap(lifecycle, version="0.40.0")
     backup = lifecycle.snapshot()
     target = lifecycle.release("0.41.1")
     lifecycle.activate(target)
@@ -235,5 +239,5 @@ def test_live_interrupted_activation_explicit_recovery(lifecycle):
     finally:
         lifecycle.stop_application()
     assert lifecycle.current.resolve() == old
-    assert json.loads(lifecycle.state.read_text())["version"] == "0.41.0"
+    assert json.loads(lifecycle.state.read_text())["version"] == "0.40.0"
     assert (lifecycle.data / "models/weights").read_bytes() == b"retained-model"

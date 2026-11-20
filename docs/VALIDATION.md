@@ -10,18 +10,38 @@ starts a real FastAPI lifespan while a real exclusive `.deployment-gate` flock i
 held, for both empty and populated tournament databases. It verifies health and
 authenticated reads, anonymous rejection, 503 mutation blocking, no reconciliation
 writes under the gate, automatic recovery after release, idempotent repeated
-recovery, restart/shutdown while deferred, due scheduled starts, and genuine
-database-error propagation. Disposable updater integration exercises fresh
-installation, schema-20 activation/probe/commit, schema-21 restart, failed
-activation rollback and explicit interrupted recovery with the real application
-lifespan and data snapshot/restore path. Readiness diagnostics cover connection
-refusal, timeout, unexpected status, invalid health bodies, transient recovery,
-successful rollback and failed rollback without leaking response bodies.
+recovery, restart/shutdown while deferred, due scheduled starts, full
+account/online/tournament worker startup, partial-startup cleanup and genuine
+database-error propagation. Fast in-process updater integration exercises fresh
+installation, ordinary restart, failed activation rollback and explicit
+interrupted recovery with the real lifespan and snapshot/restore path; these are
+labeled simulations because each release directory executes the current checkout.
+
+Genuine cross-version tests fetch pinned `0.40.0` updater/application, `0.41.0`
+application and schema-20 historical commit objects from the trusted origin (never
+committed source copies), verify their commit IDs, generate an authentic schema-20
+database with historical code, and launch real Uvicorn subprocesses. They verify
+the old updater's exclusive lock, activation/probe/commit of the corrected app,
+authentic schema 20→21 migration and preservation of representative accounts,
+models, jobs, checkpoints, games and online/tournament records. A separate genuine
+test reproduces historical `0.41.0` startup failure under the exclusive gate.
+Rollback-policy tests prove `0.41.0` is rejected before service stop/data/symlink
+changes for explicit rollback, interrupted recovery and automatic recovery, while
+`0.40.0` and corrected releases remain supported. Readiness diagnostics cover
+connection refusal, timeout, truncated responses, HTTP protocol errors,
+unexpected status, invalid health bodies, transient recovery, release/phase
+identification, malformed metadata, successful rollback and failed rollback
+without leaking response bodies.
 
 `make deployment-check` is mandatory in the Python CI job before the full backend
-suite. Exact local/CI counts and any target-host exceptions are recorded in the
-release pull request; the tests use disposable data and do not exercise real
-systemd, proxying or a live Proxmox update.
+suite. A dedicated CI job builds the frontend, runs `scripts/fetch_historical_refs.py`
+and executes the cross-version suite with the real updater/application processes.
+Local focused results for this preparation: deployment/lifecycle **57 passed**,
+cross-version **2 passed**, player-tournament/security **149 passed**; Ruff,
+format, mypy, documentation and the production frontend build passed. Exact CI
+counts and any target-host exceptions are recorded in the release pull request;
+the tests use disposable data and do not exercise real systemd, proxying or a live
+Proxmox update.
 
 ## Arena v2 delivery, player tournaments, automatic progression and public spectators (`0.41.0` preparation)
 

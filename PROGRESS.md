@@ -24,14 +24,26 @@ retries once after the updater commits. Unexpected failures remain incomplete,
 retries are bounded/shutdown-aware and normal startup is still synchronous. The
 lifespan now also cleans up partially started workers.
 
-Readiness failures report sanitized phase/target, probe category, last HTTP status,
-transport classification, attempts/elapsed time, allowlisted systemd state/exit,
+Readiness failures report sanitized original/current/recovery release identities,
+failure phase, probe and transport category (including truncated responses and HTTP
+protocol errors), attempts/elapsed time, allowlisted systemd state/exit,
 automatic-recovery outcome and journal/transaction locations. New mandatory
-`make deployment-check` coverage uses a real lifespan under a real exclusive flock,
-plus disposable updater integration for fresh install, schema-20 update, schema-21
-restart, failed activation/rollback and interrupted recovery. No schema change is
-included; target-host systemd/Proxmox validation remains outstanding. See the
-[0.41.1 release notes](docs/releases/0.41.1.md).
+`make deployment-check` coverage uses a real lifespan under a real exclusive flock
+with empty/populated tournament data and the full account/online/tournament worker
+lifecycle, plus disposable updater integration for fresh install, restart, failed
+activation/rollback and interrupted recovery.
+
+Genuine cross-version coverage extracts pinned `0.40.0` updater/application and
+schema-20 historical code from the trusted origin, builds an authentic schema-20
+database with that code, and runs the old updater against a corrected Uvicorn
+release under the real lock. It preserves representative accounts, models, jobs,
+checkpoints, games and online/tournament records through schema 21. Historical
+`0.41.0` is explicitly treated as an unsafe rollback target: explicit rollback,
+interrupted recovery and automatic recovery reject it before service stop, data
+restore or symlink switch, while ordinary `0.40.0` and corrected releases remain
+supported. Enhanced diagnostics and policy apply only once the corrected updater
+runs. No schema change is included; target-host systemd/Proxmox validation remains
+outstanding. See the [0.41.1 release notes](docs/releases/0.41.1.md).
 
 ## Persistent Champion-aware HyperController (unreleased)
 

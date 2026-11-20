@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 import pytest
 
+from hnefatafl.account_mail import AccountSettings
 from hnefatafl.auth import COOKIE, Auth, SecuritySettings, digest
 from hnefatafl.engine import State, apply_move, legal_moves
 from hnefatafl.online_settings import OnlineSettings
@@ -110,8 +111,8 @@ def client(rig):
     return build
 
 
-def authenticated_client(rig, name=ADMIN):
-    result = TestClient(rig.app)
+def authenticated_client(rig, name=ADMIN, app=None):
+    result = TestClient(app or rig.app)
     result.cookies.set(COOKIE, rig.tokens[name])
     result.headers.update(
         {
@@ -2764,3 +2765,107 @@ def test_due_scheduled_start_stays_blocked_during_deployment(rig):
         gate.close()
     assert worker.start_due() == 1
     assert rig.core.detail(rig.admin, tournament["id"])["status"] == "running"
+
+
+class NullMail:
+    def send(self, recipient, purpose, link):
+        raise AssertionError("No email should be sent by lifecycle tests")
+
+
+def full_background_app(rig, monkeypatch, *, failure=None):
+    from hnefatafl.player_tournament_settlement import TournamentSettlement
+
+    if failure is not None:
+        monkeypatch.setattr(TournamentSettlement, "recover", failure)
+    settings = AccountSettings(
+        enabled=True,
+        public_origin="http://127.0.0.1:8000",
+        sender="mail@example.test",
+        smtp_host="fake.invalid",
+    )
+    return create_app(
+        rig.store.path.parent,
+        account_settings=settings,
+        mail_transport=NullMail(),
+        account_background=True,
+        online_settings=POLICY,
+        online_clock=rig.clock,
+        online_background=True,
+    )
+
+
+def worker_threads(app):
+    return {
+        name: getattr(getattr(app.state, name, None), "thread", None)
+        for name in ("registration", "online", "tournament_settlement")
+    }
+
+
+def assert_workers_stopped(threads):
+    assert all(thread is None or not thread.is_alive() for thread in threads.values())
+    names = {"account-mail", "online-expiry", "player-tournament-settlement"}
+    assert not [thread for thread in threading.enumerate() if thread.name in names]
+
+
+def test_full_background_lifecycle_defers_recovery_and_shuts_down_cleanly(
+    background_rig, tmp_path, monkeypatch
+):
+    rig = background_rig
+    tournament = tournament_with_entrants(rig, PLAYERS[:4], capacity=4, match_legs=2)
+    rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    match = ready_matches(rig, tournament["id"])[0]
+    force_match(rig, match, match["participants"]["a"]["account_id"])
+    with rig.store.connection() as c:
+        c.execute("DELETE FROM player_tournament_settlement_queue")
+    app = full_background_app(rig, monkeypatch)
+    worker = app.state.tournament_settlement
+    gate = app.state.auth.gate_path.open("rb")
+    fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    client = authenticated_client(rig, app=app)
+    try:
+        with client:
+            threads = worker_threads(app)
+            assert all(thread is not None and thread.is_alive() for thread in threads.values())
+            assert not worker.recovered
+            fcntl.flock(gate, fcntl.LOCK_UN)
+            assert wait_until(lambda: worker.recovered)
+            assert wait_until(lambda: _automatic_settlements(rig) == 1)
+            assert client.post("/api/games", json={}).status_code == 201
+    finally:
+        fcntl.flock(gate, fcntl.LOCK_UN)
+        gate.close()
+    assert_workers_stopped(worker_threads(app))
+
+
+def test_startup_failure_cleans_up_already_started_workers(background_rig, monkeypatch):
+    import sqlite3 as sqlite
+
+    def fail_recovery(_worker):
+        raise sqlite.OperationalError("private startup payload")
+
+    app = full_background_app(background_rig, monkeypatch, failure=fail_recovery)
+    with pytest.raises(sqlite.OperationalError, match="private startup payload"):
+        with TestClient(app):
+            pass
+    threads = worker_threads(app)
+    assert threads["tournament_settlement"] is None
+    assert threads["registration"] is not None and not threads["registration"].is_alive()
+    assert threads["online"] is not None and not threads["online"].is_alive()
+    assert_workers_stopped(threads)
+
+
+def test_shutdown_while_reconciliation_is_deferred_stops_all_workers(background_rig, monkeypatch):
+    app = full_background_app(background_rig, monkeypatch)
+    worker = app.state.tournament_settlement
+    gate = app.state.auth.gate_path.open("rb")
+    fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        with authenticated_client(background_rig, app=app):
+            assert all(
+                thread is not None and thread.is_alive() for thread in worker_threads(app).values()
+            )
+            assert not worker.recovered
+    finally:
+        fcntl.flock(gate, fcntl.LOCK_UN)
+        gate.close()
+    assert_workers_stopped(worker_threads(app))

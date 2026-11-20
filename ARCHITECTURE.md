@@ -833,7 +833,9 @@ survive restart with bounded backoff. Startup reconciliation is synchronous when
 the shared deployment gate is free; expected exclusive-gate contention during an
 updater activation is deferred to this same worker, which retries once after the
 lock is released. Genuine errors are not treated as deployment contention.
-Sequential return games are seated only after game one's terminal state, using the
-normal online lifecycle and clocks.
+Historical `0.41.0` remains an unsafe rollback target because it predates this
+split; the corrected updater rejects it before service stop, snapshot restore or
+release replacement. Sequential return games are seated only after game one's
+terminal state, using the normal online lifecycle and clocks.
 Published capabilities never grant global administrative authority. See
 [player tournaments](docs/PLAYER_TOURNAMENTS.md) for limits, migration and recovery.

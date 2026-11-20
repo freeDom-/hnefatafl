@@ -66,8 +66,11 @@ Replace X.Y.Z consistently. Packaging refuses dirty checkouts and includes only
 clean committed source, excluding runtime data, dependencies and secrets. GitHub's
 asset API must report its SHA-256 digest; the updater verifies it before extraction.
 The release must include authentication, lockfiles, security tests, frontend and
-systemd template. A tag alone is insufficient. Neither installer nor updater
-publishes a release.
+systemd template. Deployment-related releases must also pass the dedicated
+`deployment-cross-version` Verify job, which builds the frontend, fetches the
+pinned historical `0.40.0`/`0.41.0`/schema-20 Git objects and runs the genuine
+old-updater/target-application subprocess suite. A tag alone is insufficient.
+Neither installer nor updater publishes a release.
 
 Alternatively, after pushing the annotated tag, publish through the manually
 triggered [release workflow](../.github/workflows/release.yml):

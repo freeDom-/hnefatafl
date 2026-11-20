@@ -4,7 +4,7 @@ export npm_config_cache ?= $(CURDIR)/.cache/npm
 export OMP_NUM_THREADS ?= 2
 export MKL_NUM_THREADS ?= 2
 
-.PHONY: install foundation test lint format typecheck build check serve docs deployment-check
+.PHONY: install foundation test lint format typecheck build check serve docs deployment-check historical-refs deployment-cross-version
 install:
 	uv sync --frozen --extra train --extra dev
 	npm --prefix frontend ci
@@ -43,7 +43,16 @@ check: docs lint typecheck test build
 # explicit in CI.
 deployment-check:
 	$(PYTHON) -m pytest tests/test_deployment.py tests/test_deployment_lifecycle.py -q
-	$(PYTHON) -m pytest tests/test_player_tournaments.py -q -k 'startup_survives_exclusive_deployment_gate or recovery_defers_only or recovery_propagates_unexpected or shutdown_while_recovery_is_deferred or due_scheduled_start_stays_blocked'
+	$(PYTHON) -m pytest tests/test_player_tournaments.py -q -k 'startup_survives_exclusive_deployment_gate or recovery_defers_only or recovery_propagates_unexpected or shutdown_while_recovery_is_deferred or due_scheduled_start_stays_blocked or full_background_lifecycle or startup_failure_cleans or shutdown_while_reconciliation_is_deferred_stops_all'
+
+# Pinned historical sources are fetched into local refs, never committed.
+historical-refs:
+	$(PYTHON) scripts/fetch_historical_refs.py
+
+# Genuine old-updater/target-app subprocess test. Requires a built frontend and
+# the pinned historical refs; CI runs this in a dedicated job.
+deployment-cross-version:
+	HNEFATAFL_CROSS_VERSION_REQUIRED=1 $(PYTHON) -m pytest tests/test_deployment_cross_version.py -q
 
 serve:
 	$(PYTHON) -m uvicorn hnefatafl.server:app --host 0.0.0.0 --port 8000

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -43,10 +44,23 @@ READINESS_ATTEMPTS = 30
 READINESS_TIMEOUT_SECONDS = 3
 READINESS_INTERVAL_SECONDS = 1
 READINESS_BODY_LIMIT = 64 * 1024
+# 0.41.0 cannot start while the updater holds the exclusive deployment gate:
+# its lifespan takes the shared tournament-reconciliation lock. A rollback to
+# that immutable release would reproduce the original production failure.
+INCOMPATIBLE_ROLLBACK_RELEASES = {
+    "0.41.0": (
+        "0.41.0 startup reconciliation takes the shared deployment gate while "
+        "the updater holds it exclusively, so the service cannot become ready"
+    )
+}
 
 
 class ReadinessError(ValueError):
     """Sanitized readiness failure suitable for operator-facing output."""
+
+
+class DeploymentStepError(ValueError):
+    """Sanitized deployment/recovery failure that identifies the failed step."""
 
 
 def version_key(tag: str) -> tuple[int, ...]:
@@ -546,31 +560,64 @@ class Deployment:
         """HTTP transport seam for disposable integration tests."""
         return urllib.request.urlopen(request, timeout=timeout)
 
-    def _transaction_context(self) -> tuple[str, str]:
-        phase, version = "unknown", "unknown"
+    @staticmethod
+    def release_version(path: Path | None) -> str:
+        """Best-effort sanitized version for an installed release directory."""
+        if path is None:
+            return "none"
+        try:
+            metadata = json.loads((Path(path) / ".release.json").read_text())
+            candidate = metadata.get("version") if isinstance(metadata, dict) else None
+            if isinstance(candidate, str) and VERSION.fullmatch(candidate):
+                return candidate
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        return "unknown"
+
+    def _deployment_diagnostics(self) -> dict[str, str]:
+        """Best-effort journal/release context; never raises into a failure path."""
+        phase, target, previous = "unknown", "unknown", "unknown"
         try:
             transaction = json.loads(self.journal.read_text())
             if isinstance(transaction, dict):
                 candidate = transaction.get("phase")
                 if isinstance(candidate, str) and re.fullmatch(r"[a-z][a-z-]{0,31}", candidate):
                     phase = candidate
-                target = transaction.get("target")
-                if isinstance(target, str):
-                    metadata = json.loads((Path(target) / ".release.json").read_text())
-                    candidate = metadata.get("version")
-                    if isinstance(candidate, str) and VERSION.fullmatch(candidate):
-                        version = candidate
-        except (OSError, ValueError, TypeError):
+                candidate = transaction.get("target")
+                if isinstance(candidate, str):
+                    target = self.release_version(Path(candidate))
+                candidate = transaction.get("previous")
+                if isinstance(candidate, str):
+                    previous = self.release_version(Path(candidate))
+        except (OSError, ValueError, TypeError, AttributeError):
             pass
-        if version == "unknown":
-            try:
-                installed = json.loads(self.state.read_text())
-                candidate = installed.get("version")
-                if isinstance(candidate, str) and VERSION.fullmatch(candidate):
-                    version = candidate
-            except (OSError, ValueError, TypeError, AttributeError):
-                pass
-        return phase, version
+        installed = "unknown"
+        try:
+            state = json.loads(self.state.read_text())
+            candidate = state.get("version") if isinstance(state, dict) else None
+            if isinstance(candidate, str) and VERSION.fullmatch(candidate):
+                installed = candidate
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        current = "none"
+        try:
+            current = (
+                self.release_version(self.current.resolve())
+                if self.current.is_symlink()
+                else "none"
+            )
+        except (OSError, RuntimeError):
+            current = "unknown"
+        return {
+            "phase": phase,
+            "target": target,
+            "previous": previous,
+            "current": current,
+            "installed": installed,
+            "recovery_target": getattr(self, "_diagnostic_recovery_target", None) or "none",
+            "failure_phase": getattr(self, "_diagnostic_failure_phase", None)
+            or "readiness verification",
+        }
 
     def service_status(self) -> str:
         """Allowlisted systemd state for diagnostics; never arbitrary unit output."""
@@ -614,15 +661,21 @@ class Deployment:
         elapsed: float,
         status: int | None = None,
     ) -> ReadinessError:
-        phase, version = self._transaction_context()
+        context = self._deployment_diagnostics()
         status_text = "none" if status is None else str(status)
         return ReadinessError(
             f"Service readiness failed during {probe} probe. "
-            f"Deployment phase: {phase}; target version: {version}. "
+            f"Failure phase: {context['failure_phase']}. "
+            f"Deployment phase: {context['phase']}. "
+            f"Original target: {context['target']}; "
+            f"previous release: {context['previous']}; "
+            f"currently probed release: {context['current']}; "
+            f"recovery target: {context['recovery_target']}; "
+            f"installed release: {context['installed']}. "
             f"Probe category: {category}; last HTTP status: {status_text}. "
             f"Attempts: {attempts}; elapsed: {elapsed:.1f}s. "
             f"Service state: {self.service_status()}. "
-            "Automatic recovery: pending. "
+            "Automatic recovery: not evaluated by this readiness probe. "
             f"Inspect: journalctl -u hnefatafl -n 200 --no-pager; "
             f"transaction journal: {self.journal}."
         )
@@ -663,6 +716,10 @@ class Deployment:
                     return
             except ReadinessError:
                 pass
+            except http.client.IncompleteRead:
+                category, status = "truncated_response", None
+            except http.client.HTTPException:
+                category, status = "http_protocol_error", None
             except urllib.error.HTTPError as error:
                 category, status = "http_status", int(error.code)
             except urllib.error.URLError as error:
@@ -729,6 +786,20 @@ class Deployment:
                         )
             except ReadinessError:
                 raise
+            except http.client.IncompleteRead:
+                raise self._readiness_error(
+                    "authenticated",
+                    "truncated_response",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
+            except http.client.HTTPException:
+                raise self._readiness_error(
+                    "authenticated",
+                    "http_protocol_error",
+                    attempts=1,
+                    elapsed=time.monotonic() - started,
+                ) from None
             except urllib.error.HTTPError as error:
                 raise self._readiness_error(
                     "authenticated",
@@ -765,6 +836,20 @@ class Deployment:
         try:
             with self.fetch_url(request, timeout=10) as response:
                 status = int(getattr(response, "status", 200))
+        except http.client.IncompleteRead:
+            raise self._readiness_error(
+                "anonymous rejection",
+                "truncated_response",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
+        except http.client.HTTPException:
+            raise self._readiness_error(
+                "anonymous rejection",
+                "http_protocol_error",
+                attempts=1,
+                elapsed=time.monotonic() - started,
+            ) from None
         except urllib.error.HTTPError as error:
             if int(error.code) == 401:
                 return
@@ -829,11 +914,27 @@ class Deployment:
                 c.execute("DELETE FROM sessions WHERE token_hash=?", (hashed,))
                 c.commit()
 
+    def _ensure_rollback_target_supported(self, path: Path, *, action: str) -> None:
+        version = self.release_version(path)
+        reason = INCOMPATIBLE_ROLLBACK_RELEASES.get(version)
+        if reason is None:
+            return
+        raise ValueError(
+            f"Refusing {action} to unsupported release {version}: {reason}. "
+            "No snapshot restore, release switch or service start was attempted; "
+            "the current release symlink and persistent data were left unchanged. "
+            f"Inspect journalctl -u hnefatafl and {self.journal}; use a corrected "
+            "0.41.1 or later release, or perform a reviewed manual recovery. "
+            "Do not run older code against migrated data."
+        )
+
     def deploy(self, target: Path, *, initialize=False):
         with self.write_gate():
             return self._deploy_locked(target, initialize=initialize)
 
     def _deploy_locked(self, target: Path, *, initialize=False):
+        self._diagnostic_failure_phase = None
+        self._diagnostic_recovery_target = None
         if active_jobs(self.data):
             raise ValueError(
                 "Active/queued training or tournament jobs exist. Cancel/finish jobs and pause remote workers first."
@@ -848,16 +949,28 @@ class Deployment:
             "backup": None,
         }
         self.record(transaction)
-        if old or self.unit_file.exists():
-            self.service("stop")
+        deployment_step = "stopping current service"
         try:
+            if old or self.unit_file.exists():
+                self.service("stop")
+        except BaseException as error:
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise
+            raise DeploymentStepError(
+                f"Deployment failed during {deployment_step} ({type(error).__name__}). "
+                f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+            ) from error
+        try:
+            deployment_step = "post-stop activity check"
             if active_jobs(self.data):
                 raise ValueError(
                     "New job activity detected during shutdown; update refused, retained state preserved"
                 )
+            deployment_step = "pre-deployment snapshot"
             transaction["backup"] = str(self.snapshot())
             transaction["phase"] = "migrating"
             self.record(transaction)
+            deployment_step = "database migration"
             self.run(
                 [
                     target / ".venv/bin/python",
@@ -870,6 +983,7 @@ class Deployment:
                 cwd=target,
                 user=True,
             )
+            deployment_step = "initial administrator provisioning"
             if initialize:
                 self.run(
                     [
@@ -883,16 +997,22 @@ class Deployment:
                     cwd=target,
                     user=False,
                 )
+            deployment_step = "release activation"
             self.activate(target)
             shutil.copyfile(
                 target / "deployment/hnefatafl.service",
                 self.unit_file,
             )
+            deployment_step = "service unit update"
             self.run(["systemctl", "daemon-reload"])
             transaction["phase"] = "activated"
             self.record(transaction)
+            deployment_step = "service startup"
             self.service("start")
+            deployment_step = "readiness verification"
+            self._diagnostic_failure_phase = "readiness verification"
             self.probe()
+            deployment_step = "commit"
             transaction["phase"] = "committed"
             atomic_json(
                 self.state, {**json.loads((target / ".release.json").read_text()), **transaction}
@@ -900,22 +1020,37 @@ class Deployment:
             self.record(transaction)
             print("Release ready: " + str(target))
         except BaseException as error:
+            recovery_step = "stopping failed target service"
+            self._diagnostic_recovery_target = self.release_version(old) if old else "none"
+            self._diagnostic_failure_phase = f"{deployment_step}; automatic recovery"
             try:
                 if old or self.unit_file.exists():
                     self.service("stop")
+                recovery_step = "unsupported rollback policy check"
+                if old:
+                    self._ensure_rollback_target_supported(old, action="automatic recovery")
+                recovery_step = "snapshot restoration"
                 if transaction["backup"]:
                     self.restore(Path(transaction["backup"]))
                 if old:
+                    recovery_step = "previous release activation"
                     self.activate(old)
                     shutil.copyfile(
                         old / "deployment/hnefatafl.service",
                         self.unit_file,
                     )
                     self.run(["systemctl", "daemon-reload"])
+                    recovery_step = "previous release service startup"
                     self.service("start")
+                    recovery_step = "previous release readiness verification"
+                    self._diagnostic_failure_phase = (
+                        "readiness verification during automatic recovery"
+                    )
                     self.probe()
                 elif self.current.is_symlink():
+                    recovery_step = "release symlink cleanup"
                     self.current.unlink()
+                recovery_step = "installed state restoration"
                 if old_state is not None:
                     atomic_json(self.state, old_state)
                 else:
@@ -926,12 +1061,25 @@ class Deployment:
                 if isinstance(error, ReadinessError):
                     detail = (
                         str(recovery_error)
-                        if isinstance(recovery_error, ReadinessError)
-                        else "previous-release readiness verification failed"
+                        if isinstance(recovery_error, ValueError)
+                        else f"{type(recovery_error).__name__} during {recovery_step}"
                     )
                     raise ReadinessError(
-                        f"{error} Automatic recovery: failed. {detail}"
+                        f"{error} Automatic recovery: failed during {recovery_step}. {detail}"
                     ) from recovery_error
+                if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                    raise
+                detail = (
+                    str(recovery_error)
+                    if isinstance(recovery_error, ValueError)
+                    else f"{type(recovery_error).__name__}"
+                )
+                raise DeploymentStepError(
+                    f"Deployment failed during {deployment_step} ({type(error).__name__}); "
+                    f"automatic recovery failed during {recovery_step}. {detail}. "
+                    f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+                ) from recovery_error
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise
             if isinstance(error, ReadinessError):
                 if old:
@@ -943,13 +1091,22 @@ class Deployment:
                     f"{error} Automatic recovery: not applicable; "
                     "initial installation has no previous release and remains stopped."
                 ) from error
-            raise
+            if old:
+                outcome = "automatic recovery succeeded; previous release restored and verified"
+            else:
+                outcome = "automatic recovery not applicable; initial installation remains stopped"
+            raise DeploymentStepError(
+                f"Deployment failed during {deployment_step} ({type(error).__name__}); "
+                f"{outcome}. Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+            ) from error
 
     def recover(self, *, rollback=False):
         with self.write_gate():
             return self._recover_locked(rollback=rollback)
 
     def _recover_locked(self, *, rollback=False):
+        self._diagnostic_failure_phase = None
+        self._diagnostic_recovery_target = None
         source = self.state if rollback else self.journal
         transaction = json.loads(source.read_text())
         if not rollback and transaction.get("phase") in {"committed", "recovered"}:
@@ -958,34 +1115,59 @@ class Deployment:
         previous, backup = transaction.get("previous"), transaction.get("backup")
         if rollback and not previous:
             raise ValueError("No previous release to roll back to")
+        if previous:
+            self._diagnostic_recovery_target = self.release_version(Path(previous))
+            self._ensure_rollback_target_supported(
+                Path(previous), action="rollback" if rollback else "interrupted recovery"
+            )
         if active_jobs(self.data):
             raise ValueError("Finish/cancel training and tournaments before recovery")
-        self.service("stop")
-        if backup:
-            self.restore(Path(backup))
-        if previous:
-            self.activate(Path(previous))
-            shutil.copyfile(
-                Path(previous) / "deployment/hnefatafl.service",
-                self.unit_file,
-            )
-            self.run(["systemctl", "daemon-reload"])
-            self.service("start")
-            self.probe()
-        elif self.current.is_symlink():
-            self.current.unlink()
-        self.record({"phase": "recovered"})
-        if previous:
-            atomic_json(
-                self.state,
-                {
-                    **json.loads((Path(previous) / ".release.json").read_text()),
-                    "previous": None,
-                    "backup": None,
-                },
-            )
-        else:
-            self.state.unlink(missing_ok=True)
+        recovery_step = "stopping current service"
+        try:
+            self.service("stop")
+            if backup:
+                recovery_step = "snapshot restoration"
+                self.restore(Path(backup))
+            if previous:
+                recovery_step = "previous release activation"
+                self.activate(Path(previous))
+                shutil.copyfile(
+                    Path(previous) / "deployment/hnefatafl.service",
+                    self.unit_file,
+                )
+                self.run(["systemctl", "daemon-reload"])
+                recovery_step = "previous release service startup"
+                self.service("start")
+                recovery_step = "previous release readiness verification"
+                self._diagnostic_failure_phase = "readiness verification during " + (
+                    "rollback" if rollback else "interrupted recovery"
+                )
+                self.probe()
+            elif self.current.is_symlink():
+                recovery_step = "release symlink cleanup"
+                self.current.unlink()
+            recovery_step = "installed state restoration"
+            self.record({"phase": "recovered"})
+            if previous:
+                atomic_json(
+                    self.state,
+                    {
+                        **json.loads((Path(previous) / ".release.json").read_text()),
+                        "previous": None,
+                        "backup": None,
+                    },
+                )
+            else:
+                self.state.unlink(missing_ok=True)
+        except BaseException as error:
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise
+            if isinstance(error, ReadinessError):
+                raise
+            raise DeploymentStepError(
+                f"Recovery failed during {recovery_step} ({type(error).__name__}). "
+                f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
+            ) from error
 
 
 def protected_json(path: Path):
