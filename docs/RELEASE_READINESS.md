@@ -5,7 +5,7 @@ release-preparation report, not a release, tag, version-bump or deployment
 authorization.
 
 Reviewed source: merged `main`
-`17d381927835c726a412d445a39d403098502e3f` (2026-11-20, PR #93 merge). The
+`1b4c4ae5c213fb5ece096db7d2d5b216847b703a` (2026-11-20, PR #105 merge). The
 checklist originates from the historical post-PR #84 audit baseline
 `2579a86b82ed1eca91f39e7d8064196597e873ed` (2026-11-15).
 [Current completeness and dependency graph](designs/arena-current-completeness.md) ·
@@ -21,8 +21,8 @@ release evidence are not relabelled as fresh combined validation.
 
 | State | Scope |
 | --- | --- |
-| Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
-| Implemented on open branches | Browser analysis Phase 1A full-strength Jarl and Phase 1B trained smoke-model ONNX/WASM parity in PR #104; disposable-benchmark mountinfo follow-up in PR #105 |
+| Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
+| Implemented on open branches | Browser analysis Phase 1A full-strength Jarl and Phase 1B trained smoke-model ONNX/WASM parity in PR #104 revision 5; integration work is not merged |
 | In development | League seasons, queue and authoritative result accounting in draft PR #99 (proposed schema 22, partial backend, no UI, failing checks at review) |
 | Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; distribution license and third-party notices |
 | Deferred | Browser-neural production integration is optional for the initial public release; durable UTC login/activity-day streaks remain excluded |
@@ -77,9 +77,15 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
   permission matrix, including account switches and late requests.
 - [ ] CSRF, origin, body-size, session-expiry and account-freeze controls retained
   for every mutation; optimistic version guards preserved.
-- [ ] Live online and public pages provide no active-game analysis, advice,
-  mutation controls or private categories. Shared server authority remains the only
-  official result source.
+- [ ] Live online gameplay exposes no analysis, move suggestions, win
+  probabilities, legal-move assistance or other unauthorized assistance.
+  Authenticated participants retain authorized gameplay mutations, including
+  submitting a move and conceding, through the existing permission, CSRF and
+  optimistic version checks. Only the seated player whose turn it is may act.
+- [ ] Public spectator surfaces remain strictly read-only: no private game
+  categories, mutation controls, POST/PATCH/DELETE routes or analysis. Account
+  isolation, authorization boundaries and the shared authoritative result services
+  remain mandatory for online play and spectators.
 - [ ] Public profile redaction and safe portrait IDs verified; no
   account-controlled asset paths, email, full birth dates, CSRF tokens or private
   moderation notes leak.
@@ -137,7 +143,8 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
 
 The existing evidence does not cover these gates. PR #97 measures 936 warm loopback
 GETs from eight accounts at concurrency 1/4/8 (p95 9.74/31.69/59.36 ms) on a small
-seeded fixture. It does not cover mixed writes, league workloads, bounded
+seeded fixture; #105 later merged benchmark-only mountinfo hardening without a new
+measurement. It does not cover mixed writes, league workloads, bounded
 concurrent analysis, realistic data volumes, WAN/TLS or deployment capacity.
 PR #93 measures the initial production bundle (JS 569,155 raw / 181,828 gzip bytes
 at `ab3ac68`; CSS 114,187 / 23,803) and enforces a 200,000 gzip-byte JavaScript
@@ -153,13 +160,15 @@ is a primary target; browser-neural production integration remains optional for 
 initial public release.
 
 - Existing evidence: an isolated current-engine Pyodide worker (#89), plus open
-  PR #104's partially validated Jarl comparison and smoke-model ONNX/WASM inference.
+  PR #104 revision 5's partially validated Jarl comparison and smoke-model
+  ONNX/WASM inference. Neural MCTS is not implemented but Phase 2 is ready to begin
+  from the validated WASM inference boundary.
 - Not established: competitive trained weights for all rulesets, real
   numerical parity for those weights, browser neural MCTS, completed-search
   strength, CPU/memory/startup/physical-device benchmarks, production CSP/runtime
   packaging/licensing, frontend execution modes and final rollout acceptance.
-- The dedicated roadmap and revision-3 evidence live on open PR #104
-  ([roadmap](https://github.com/freeDom-/hnefatafl/blob/535331fe186bafad0082149877e0bc3681414df8/docs/designs/browser-analysis-roadmap.md),
+- The dedicated roadmap and revision-5 evidence live on open PR #104
+  ([roadmap](https://github.com/freeDom-/hnefatafl/blob/1f03202e66878048ed76cdad30409f8989a20c73/docs/designs/browser-analysis-roadmap.md),
   [PR](https://github.com/freeDom-/hnefatafl/pull/104)); local records are the
   [classical prototype](validation/browser-analysis-prototype.md) and
   [neural feasibility](validation/browser-neural-feasibility.md).

@@ -1,7 +1,7 @@
 # Current Arena completeness and roadmap
 
 Source snapshot: merged `main`
-`17d381927835c726a412d445a39d403098502e3f` (2026-11-20, PR #93 merge),
+`1b4c4ae5c213fb5ece096db7d2d5b216847b703a` (2026-11-20, PR #105 merge),
 reviewed 2026-11-20. This is the primary current roadmap. It supplements the
 [original post-PR #84 audit](arena-completion.md), whose baseline matrix and
 historical test counts remain unchanged and historical. Source review is not a new
@@ -28,7 +28,7 @@ not release-accepted because its feature merged.
 | --- | --- |
 | Functional | **Merged** on `main`; **Open PR** implemented for review; **Draft** in development; **Partial** some required behavior exists; **Missing** no implementation; **Deferred** deliberately excluded |
 | UI exposure | **Exposed** through the production shell; **None** no production surface; **Planned** reserved only |
-| Validation | **Verified** with the named evidence scope; **Partial** some gates met; **Not validated** no acceptance evidence; **Historical only** earlier evidence that is not current |
+| Validation | **Verified** with the named evidence scope; **Partial** some gates met; **Not validated** no acceptance evidence; **Not started** no implementation work begun; **Historical only** earlier evidence that is not current |
 
 A green PR matrix is evidence for that PR revision, not combined-main acceptance.
 Final visual, regression, capacity, recovery, security and deployment acceptance
@@ -59,11 +59,11 @@ remains outstanding for every shipped feature.
 | 4 | Tournament scheduling and sequential/simultaneous two-game modes | Merged (#90) | Exposed | Verified | Scheduled full starts, early start when eligible, restart recovery |
 | 4 | League policy, seasons, standings, queue, results and UI | Draft (#99) | None | Not validated | Proposed schema 22 and partial backend on a draft branch; not merged production functionality. Security and Python jobs were failing at review |
 | Cross | Classical browser analysis feasibility | Merged (#89) | None | Verified as isolated prototype | Pyodide worker, differential fixtures, search and cancellation; no production entry or live advice |
-| Cross | Full-strength Jarl classical analysis | Open PR (#104) | None | Partial | Production-equivalent Jarl in the isolated browser worker; physical devices and some Copenhagen depth-5 cases remain open |
-| Cross | Trained-model export and numerical inference parity | Open PR (#104) | None | Partial | Smoke-model ONNX export, native parity and browser WASM parity; competitive trained weights and physical WebGPU blocked |
-| Cross | Browser neural MCTS | Missing | None | Not started | Primary roadmap target, not implemented; inference boundary only prepared in PR #104 |
+| Cross | Full-strength Jarl classical analysis | Open PR (#104, revision 5) | None | Partial | Production-equivalent Jarl in the isolated browser worker; physical devices and some Copenhagen depth-5 cases remain open |
+| Cross | Trained-model export and numerical inference parity | Open PR (#104, revision 5) | None | Partial | Smoke-model ONNX export, native parity and browser WASM parity; competitive trained weights and physical WebGPU blocked |
+| Cross | Browser neural MCTS | Missing | None | Not started | Primary roadmap target, not implemented. PR #104's validated WASM inference boundary is ready for Phase 2; no MCTS engine or strength claim exists |
 | Cross | Production analysis execution modes (`auto`/`local`/`server`/`disabled`) | Missing | Planned | Not validated | No production local/neural executor; explicit integration-or-deferral decision required |
-| Cross | Compatibility cleanup and canonical schema | Partial | None | Not validated | Canonical head on `main` is schema 21; PR #99 proposes schema 22 on its branch. Data inventory and verified recovery precede any destructive cleanup |
+| Cross | Compatibility cleanup and canonical schema | Partial | None | Not validated | Canonical head on `main` is schema 21; PR #99 proposes schema 22 on its branch. League completion and data inventory with verified recovery precede any destructive cleanup |
 | Cross | Final combined release, deployment and recovery acceptance | Missing | None | Not performed | No combined release-candidate QA, capacity, backup/restore or deployment drill |
 | Cross | Owner-selected distribution license and third-party notices | Missing | None | Not started | No root LICENSE; owner decision and notice inventory remain required |
 
@@ -78,8 +78,8 @@ production feature. The program is not complete or release-accepted.
 
 | State | Scope |
 | --- | --- |
-| Implemented and merged | Hall of Renown (`/portraits`)/portrait selection and automatic achievements (#86, #94, #101); signed-out discovery/live/replay (#82, #87); human tournament UI, durable settlement and scheduling (#90); Dashboard polling (#91); Workshop consolidation (#92); bundle splitting and budgets (#93); backend read benchmark (#97); Norse terminology and portrait order (#101); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
-| Implemented on open branches | Browser analysis Phase 1A (Jarl) and Phase 1B (trained smoke-model ONNX/WASM parity) in PR #104; benchmark mountinfo follow-up in PR #105 |
+| Implemented and merged | Hall of Renown (`/portraits`)/portrait selection and automatic achievements (#86, #94, #101); signed-out discovery/live/replay (#82, #87); human tournament UI, durable settlement and scheduling (#90); Dashboard polling (#91); Workshop consolidation (#92); bundle splitting and budgets (#93); backend read benchmark (#97, benchmark hardening #105); Norse terminology and portrait order (#101); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
+| Implemented on open branches | Browser analysis Phase 1A (Jarl) and Phase 1B (trained smoke-model ONNX/WASM parity) in PR #104, revision 5; integration work is not merged |
 | In development | League seasons, queue and authoritative accounting in draft PR #99 (proposed schema 22, partial backend, no UI, failing checks at review) |
 | Missing | Merged league functionality/UI; production classical/neural analysis executor; neural MCTS; combined capacity, recovery and deployment evidence; license and third-party notices |
 | Deferred | Browser-neural production integration is optional for the initial release; login/activity streaks stay excluded |
@@ -90,8 +90,7 @@ production feature. The program is not complete or release-accepted.
 | PR | State | Head / merge revision | Evidence and remaining work |
 | --- | --- | --- | --- |
 | #99 | Draft, open | `ac5fb6f` on `feat/league-arena` | Schema 22 proposal, league policy/service/migrations and tests; no frontend. Run `44363101788` failed security and Python at review; do not describe as merged or accepted |
-| #104 | Open | `535331f` on `feat/browser-analysis-phase1` | Phase 1A/1B implementation and revision-3 evidence; integrates reviewed `main` `17d3819`; run `44696065034` passed security, python, node22 and browser. Competitive weights, physical WebGPU/devices, neural MCTS and production integration remain open |
-| #105 | Open | `f9e008a` on `fix/benchmark-mountinfo-read` | Follow-up hardening of the disposable benchmark's cgroup mountinfo parsing; run `44693560872` green; benchmark-only, no production query or schema change |
+| #104 | Open | `1f03202` on `feat/browser-analysis-phase1` | Revision-5 Phase 1A/1B implementation; integrates merged `main` `1b4c4ae`. Run `44715192141`: security, python and node22 green; browser still running at this snapshot. Phase 1A/1B remain partially validated. Competitive weights, physical WebGPU/devices, neural MCTS and production integration remain open |
 
 Merged-PR provenance (pull-request runs verified green at review):
 
@@ -111,10 +110,12 @@ Merged-PR provenance (pull-request runs verified green at review):
 | #101 | `b630273` | `44451495521` |
 | #102 | `711978e` | `44424088052` |
 | #103 | `86a90eb` | `44488081403` |
+| #105 | `1b4c4ae` | `44693560872` |
 
 These are per-PR results, not a combined-main suite. Status corrections: PR #96
-was closed without merging and superseded by #100/#102. PR #93 and #97 are merged,
-not open. Re-verify every PR state before acting on this table.
+was closed without merging and superseded by #100/#102. PR #93, #97 and #105 are
+merged, not open. PR #104 advances independently; re-verify every PR state before
+acting on this table.
 
 ## Security status
 
@@ -156,16 +157,16 @@ optional for the initial public release. Phase status:
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Browser engine feasibility | Completed prototype (#89, isolated; not production) |
-| 1A | Full-strength Jarl and native/browser comparison | Partially validated on PR #104 |
-| 1B | Trained-model ONNX export and browser inference | Partially validated on PR #104 (smoke model; competitive weights and physical WebGPU blocked) |
-| 2 | Browser-side neural MCTS | Not started; inference boundary prepared |
+| 1A | Full-strength Jarl and native/browser comparison | Partially validated on PR #104, revision 5 |
+| 1B | Trained-model ONNX export and browser inference | Partially validated on PR #104, revision 5 (smoke model; competitive weights and physical WebGPU blocked) |
+| 2 | Browser-side neural MCTS | Not implemented; ready to begin using the validated WASM inference boundary |
 | 3 | Search optimization, strength evaluation and physical devices | Not started |
 | 4 | Production security, packaging, CSP and licensing | Not started |
 | 5 | Frontend execution-mode integration | Not started |
 | 6 | Final acceptance and controlled rollout | Not started |
 
-The dedicated roadmap and its revision-3 evidence are carried by open PR #104
-(not yet on `main`): [browser-analysis-roadmap.md](https://github.com/freeDom-/hnefatafl/blob/535331fe186bafad0082149877e0bc3681414df8/docs/designs/browser-analysis-roadmap.md)
+The dedicated roadmap and its revision-5 evidence are carried by open PR #104
+(not yet on `main`): [browser-analysis-roadmap.md](https://github.com/freeDom-/hnefatafl/blob/1f03202e66878048ed76cdad30409f8989a20c73/docs/designs/browser-analysis-roadmap.md)
 and [PR #104](https://github.com/freeDom-/hnefatafl/pull/104). Current local
 records are [classical prototype validation](../validation/browser-analysis-prototype.md)
 and [neural feasibility](../validation/browser-neural-feasibility.md).
@@ -173,12 +174,13 @@ and [neural feasibility](../validation/browser-neural-feasibility.md).
 Remaining gates, none of which the current prototype satisfies: competitive
 trained weights for all three rulesets; real export and numerical policy/value
 parity; browser neural inference across WASM and a genuinely available WebGPU
-adapter; neural MCTS execution; completed-search strength, CPU, memory, startup
-and physical-device benchmarks; production CSP, runtime packaging and license
-notices; normalized `auto`/`local`/`server`/`disabled` frontend integration; and
-final regression and rollout acceptance. Server authority, game permissions,
-private-model access and the restriction on assistance in live online games are
-unchanged.
+adapter; neural MCTS execution and strength; completed-search strength, CPU,
+memory, startup and physical-device benchmarks; production CSP, runtime packaging
+and license notices; normalized `auto`/`local`/`server`/`disabled` frontend
+integration; and final regression and rollout acceptance. Readiness to begin
+Phase 2 is not an MCTS implementation or strength claim. Server authority, game
+permissions, private-model access and the restriction on assistance in live
+online games are unchanged.
 
 ## Performance evidence and budgets
 
@@ -190,11 +192,11 @@ fresh evidence, and reduced bundle size is not page-load latency or capacity.
 | Historical initial bundle | `2579a86` (PR #84 baseline) | JS 1,015,562 raw / 309,626 gzip bytes; CSS 176,657 raw / 32,599 gzip | [Historical audit](arena-completion.md#measured-performance-baseline-and-gates-historical) and PR #93 validation |
 | Historical Dashboard polling | PR #91 baseline record (descriptive, no verified build fingerprint) | 61 empty / 69 active hero / 71 simulated hidden requests per minute | [Polling validation](../validation/dashboard-polling.md) |
 | Latest clean branch bundle | `ab3ac68` (PR #93, fingerprint `9cf07db7…a7695`) | JS 569,155 raw / 181,828 gzip bytes; CSS 114,187 raw / 23,803 gzip | [Feature-splitting validation](../validation/frontend-feature-splitting.md#integrated-main-and-final-bundle-evidence) |
-| Actual merged main | `17d3819` | No new bundle measurement was run for this review. The merged frontend tree is identical to `ab3ac68` (`git diff` empty), so the branch measurement describes those files but is not relabelled a merged-main run | This review; PR #93 merge commit |
+| Actual merged main | `1b4c4ae` (frontend unchanged since `17d3819`) | No new bundle measurement was run for this review. The frontend tree is identical to `ab3ac68` (`git diff` empty), so the branch measurement describes those files but is not relabelled a merged-main run | This review; PR #93 and #105 merge commits |
 | Latest clean branch polling | `00e5917` (PR #91) | 11.00 empty / 23.00 active / 0 hidden requests per context per minute, zero steady failures | [Polling validation](../validation/dashboard-polling.md#final-integrated-measurement) |
 | Latest corrected backend read | `c5e7066` (PR #97, merged `07d7438`) | 936/936 HTTP 200 warm loopback GETs; p95 9.74 / 31.69 / 59.36 ms at concurrency 1/4/8 | [Backend read validation](../validation/backend-read-baseline.md#corrected-measured-baseline) |
 | Proposed targets | Post-#84 audit | ≤180 KB gzip initial JavaScript; ≤12 visible Dashboard requests/minute; zero periodic hidden requests; ≤2 s online participant updates; seconds-accurate clocks | Targets, not achieved acceptance results |
-| Enforced build budgets | `main` `17d3819` | JS 600,000 raw / 200,000 gzip bytes; CSS 150,000 raw / 35,000 gzip bytes, gzip level 9 per asset | `frontend/scripts/check-bundle-budget.mjs`; PR #93 |
+| Enforced build budgets | `main` `1b4c4ae` | JS 600,000 raw / 200,000 gzip bytes; CSS 150,000 raw / 35,000 gzip bytes, gzip level 9 per asset | `frontend/scripts/check-bundle-budget.mjs`; PR #93 |
 | Production network and capacity | Not measured | No WAN, TLS, mixed-write, league, analysis-admission or realistic-volume capacity result | Outstanding |
 
 The original target was written as "180 KB gzip". The enforced budget is
@@ -207,60 +209,83 @@ bytes over it. This document keeps the original target visible rather than
 silently relaxing it.
 
 The disposable backend read benchmark remains limited to its workload: warm
-loopback GETs from eight verified accounts against a small seeded fixture. Mixed
-authoritative writes, bounded concurrent analysis, league workloads, realistic
-data volumes and deployment capacity remain separate acceptance requirements.
+loopback GETs from eight verified accounts against a small seeded fixture. PR #105
+later merged benchmark-only mountinfo hardening without producing a new performance
+measurement, so the corrected `c5e7066` run remains the latest recorded baseline.
+Mixed authoritative writes, bounded concurrent analysis, league workloads,
+realistic data volumes and deployment capacity remain separate acceptance
+requirements.
 
 ## Remaining dependency graph
 
 ```mermaid
 flowchart TD
-  M[Merged main 17d3819<br/>player surfaces human tournaments Hall of Renown]
+  M[Merged main 1b4c4ae<br/>player surfaces human tournaments Hall of Renown]
   W[Workshop consolidation merged 92]
   AUD[Dependency audit correction merged 100 and 102]
   B[Bundle splitting and budgets merged 93]
-  R[Disposable backend read benchmark merged 97]
+  R[Disposable backend read benchmark merged 97 and hardened 105]
   M --> W
   M --> AUD
   M --> B
   M --> R
-  M --> L[League PR 99 draft<br/>schema 22 proposal and partial backend]
-  L --> LU[League completion and UI]
-  L --> SC[Final canonical schema cleanup]
+
+  M --> L[League implementation PR 99 draft<br/>schema 22 proposal and partial backend]
+  L --> LU[League implementation complete and accepted]
+  LU --> SC[Final canonical schema cleanup]
   M --> DI[Data inventory backup and verified restore]
   DI --> SC
+
   LU --> QA[Final integration and regression QA]
   SC --> QA
+
   M --> BX[Browser analysis PR 104<br/>Jarl 1A and neural inference 1B]
   BX --> BJ[Full-strength Jarl browser benchmarks]
-  BX --> NM[Neural MCTS research]
-  BJ --> AD{Production analysis integration or deferral decision}
-  NM --> AD
-  AD --> AX[Any shipped analysis executor final QA]
+  BX --> NM[Neural MCTS research optional for initial release]
+  BJ --> AD{Browser analysis production decision}
+  AD --> SHIP[Ship classical browser executor]
+  AD --> DEFER[Defer browser analysis from initial release]
+  SHIP --> AX[Shipped executor integration security performance and regression acceptance]
   AX --> QA
+  DEFER --> QA
+  NM --> LATER[Optional later neural release scope]
+
   B --> P1[Remaining bundle page-load and network latency evidence]
   R --> P2[Remaining mixed-write analysis league and capacity workload evidence]
-  P1 --> PERF[Combined performance measurement on the actual release candidate]
-  P2 --> PERF
-  M --> SEC[Security validation before public release]
-  M --> DEP[Backup restoration and deployment evidence]
-  M --> LIC[Owner-selected license and third-party notices]
-  QA --> REL[Release readiness recommendation]
-  PERF --> REL
+  P1 --> QA
+  P2 --> QA
+
+  QA --> CAND[Actual release candidate after included changes integrate]
+  CAND --> PERF[Combined performance measurement]
+  CAND --> SEC[Fresh security validation before public release]
+  CAND --> DEP[Backup restoration and deployment evidence]
+  PERF --> REL[Release readiness recommendation]
   SEC --> REL
   DEP --> REL
-  LIC --> REL
+  LIC[Owner-selected license and third-party notices] --> REL
   REL --> OWN[Explicit owner authorization]
 ```
 
+League implementation completion, not draft PR #99's existence, gates final
+canonical schema cleanup; the data inventory and verified backup/restore gate it
+independently. Browser analysis has two explicit production paths: ship a
+classical executor only after its own integration, security, performance and
+regression acceptance, or defer browser analysis from the initial release.
+Neural MCTS research remains a primary target but is optional for a server-only or
+classical-only initial release. Remaining bundle/network and backend workload
+evidence feeds final QA. Combined performance, fresh security, recovery and
+deployment gates apply to the actual candidate after every included change is
+integrated, not to an earlier branch snapshot. Licensing, third-party notices and
+explicit owner authorization remain release gates.
+
 Work already owned by a PR is not duplicated: #99 owns league schema/backend
-work, #104 owns browser analysis, and #105 owns the benchmark mountinfo follow-up.
-Optional browser-neural production scope is distinct from mandatory acceptance
-for any functionality that is included in the release.
+work and #104 owns browser analysis. The merged benchmark hardening in #105 is not
+reassigned. Optional browser-neural production scope is distinct from mandatory
+acceptance for any functionality that is included in the release.
 
 ## Migration and data guards
 
-The canonical migration head on `main` `17d3819` is **schema 21**. PR #99 proposes
+The canonical migration head on `main` `1b4c4ae` is **schema 21**. PR #99 proposes
 schema 22 on its own branch; that number is not reserved on `main` and must be
 re-checked after any merge. Do not allocate a migration number from an older
 document. League completion precedes final canonical schema cleanup, and a data
