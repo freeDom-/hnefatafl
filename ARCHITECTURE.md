@@ -17,9 +17,10 @@ of Renown and portrait selection originate in PR #86, automatic progression in P
 human tournament UI, durable settlement, indexed scheduled starts, creator
 ownership and quotas, shared online clocks, and sequential/parallel matches.
 Workshop consolidation is merged in PR #92, deferred feature loading and bundle
-budgets in PR #93, and the disposable backend read benchmark in PR #97. Leagues
-remain a draft implementation in PR #99, and browser analysis is a merged
-isolated prototype (#89) plus open Phase 1 work (#104). The canonical migration
+budgets in PR #93, and the disposable backend read benchmark in PR #97 with
+benchmark hardening in PR #105. Leagues remain a draft implementation in PR #99.
+Browser analysis is a merged isolated prototype (#89) plus merged Phase 1 research
+(#104); it is not a production analysis executor. The canonical migration
 head on current `main` is schema 21. See the
 [current completeness matrix](docs/designs/arena-current-completeness.md),
 [current Arena contracts](docs/designs/arena-v2-contracts.md) and

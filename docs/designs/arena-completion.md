@@ -12,8 +12,9 @@ numbers are not a current release inventory. See the
 [current completeness matrix](arena-current-completeness.md) for merged Hall of
 Renown/automatic achievements, public spectators, human tournament UI/settlement,
 polling, Workshop consolidation, bundle budgets, the backend read benchmark and the
-remaining open workstreams (including draft league PR #99 and open browser-analysis
-PR #104). Historical counts below are not recast as fresh validation.
+remaining open workstreams (including draft league PR #99 and merged Phase 1
+browser-analysis research #104, which is not a production executor). Historical
+counts below are not recast as fresh validation.
 
 ## Audit method and phase terminology
 

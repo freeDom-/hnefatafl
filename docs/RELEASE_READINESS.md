@@ -5,9 +5,11 @@ release-preparation report, not a release, tag, version-bump or deployment
 authorization.
 
 Reviewed source: merged `main`
-`1b4c4ae5c213fb5ece096db7d2d5b216847b703a` (2026-11-20, PR #105 merge). The
-checklist originates from the historical post-PR #84 audit baseline
-`2579a86b82ed1eca91f39e7d8064196597e873ed` (2026-11-15).
+`feb28f4c337b9ea7702b1611bdfa525251ad1618` (2026-11-20, PR #106 merge of
+release 0.41.0). The checklist originates from the historical post-PR #84 audit
+baseline `2579a86b82ed1eca91f39e7d8064196597e873ed` (2026-11-15). The merged
+0.41.0 milestone is a release artifact, not evidence of initial public deployment
+readiness, and this checklist does not authorize deployment.
 [Current completeness and dependency graph](designs/arena-current-completeness.md) ·
 [Historical audit](designs/arena-completion.md) · [Deployment](DEPLOYMENT.md) ·
 [Security](SECURITY.md) · [Release procedure](RELEASING.md)
@@ -21,8 +23,8 @@ release evidence are not relabelled as fresh combined validation.
 
 | State | Scope |
 | --- | --- |
-| Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
-| Implemented on open branches | Browser analysis Phase 1A full-strength Jarl and Phase 1B trained smoke-model ONNX/WASM parity in PR #104 revision 5; integration work is not merged |
+| Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1 research ([#104](validation/browser-analysis-phase1.md), partially validated); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
+| Implemented on open branches | None at this snapshot. Browser-analysis Phase 1A/1B (#104) and benchmark hardening (#105) merged during this review |
 | In development | League seasons, queue and authoritative result accounting in draft PR #99 (proposed schema 22, partial backend, no UI, failing checks at review) |
 | Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; distribution license and third-party notices |
 | Deferred | Browser-neural production integration is optional for the initial public release; durable UTC login/activity-day streaks remain excluded |
@@ -159,7 +161,7 @@ alpha-beta analysis and a genuinely trained neural network with MCTS. Neural MCT
 is a primary target; browser-neural production integration remains optional for the
 initial public release.
 
-- Existing evidence: an isolated current-engine Pyodide worker (#89), plus open
+- Existing evidence: an isolated current-engine Pyodide worker (#89), plus merged
   PR #104 revision 5's partially validated Jarl comparison and smoke-model
   ONNX/WASM inference. Neural MCTS is not implemented but Phase 2 is ready to begin
   from the validated WASM inference boundary.
@@ -167,9 +169,9 @@ initial public release.
   numerical parity for those weights, browser neural MCTS, completed-search
   strength, CPU/memory/startup/physical-device benchmarks, production CSP/runtime
   packaging/licensing, frontend execution modes and final rollout acceptance.
-- The dedicated roadmap and revision-5 evidence live on open PR #104
-  ([roadmap](https://github.com/freeDom-/hnefatafl/blob/1f03202e66878048ed76cdad30409f8989a20c73/docs/designs/browser-analysis-roadmap.md),
-  [PR](https://github.com/freeDom-/hnefatafl/pull/104)); local records are the
+- The dedicated [browser analysis roadmap](designs/browser-analysis-roadmap.md) and
+  revision-5 evidence are merged in PR #104. Current records are
+  [Phase 1 validation](validation/browser-analysis-phase1.md), the
   [classical prototype](validation/browser-analysis-prototype.md) and
   [neural feasibility](validation/browser-neural-feasibility.md).
 - Server authority, game permissions, private-model access and the restriction on
@@ -178,13 +180,16 @@ initial public release.
 
 ## Decision
 
-Do not announce public readiness. Merged features are substantial, but leagues are
-not merged, production analysis has no integration or explicit deferral decision,
-neural MCTS is not implemented, and combined performance, recovery, security,
-accessibility and deployment acceptance has not been performed. The 2026-11-18
-audits are dated observations, not permanent clearance. The owner still must choose
-a distribution license and authorize public release.
+Do not announce initial public deployment readiness. The merged 0.41.0 milestone
+delivers substantial player functionality, but leagues are not merged, production
+analysis has no integration or explicit deferral decision, and combined
+performance, recovery, security, accessibility and deployment acceptance has not
+been performed. Neural MCTS is a primary but unimplemented roadmap target; it need
+not block a server-only or classical-only release if browser analysis is explicitly
+deferred. The 2026-11-18 audits are dated observations, not permanent clearance.
+The owner must still choose a distribution license and authorize deployment.
 
 Re-evaluate this checklist on the actual release candidate after the remaining
-focused PRs. The owner makes the merge and release decisions. No tag, version bump,
-release asset or automatic deployment is part of this record.
+focused PRs. The owner makes deployment decisions for the merged milestone or any
+later candidate. This record performs and authorizes no tag, version bump, release
+asset or automatic deployment.
