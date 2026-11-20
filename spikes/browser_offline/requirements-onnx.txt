@@ -1,0 +1,14 @@
+# Optional experimental exporter/runtime environment for Phase 1B.
+#
+# These are NOT application dependencies and must never be added to the eager
+# frontend bundle or the production server image. Install them into a disposable
+# development environment that already provides the project's ``train`` extra
+# (PyTorch CPU) and the project itself:
+#
+#   uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
+#
+# Versions are pinned to the set validated by this phase. Re-pin deliberately and
+# re-run ``onnx_export.py`` parity before upgrading.
+onnx==1.23.2
+onnxscript==0.7.2
+onnxruntime==1.32.0

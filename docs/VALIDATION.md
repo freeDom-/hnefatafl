@@ -2,6 +2,26 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Arena v2 delivery, player tournaments, automatic progression and public spectators (`0.41.0` preparation)
+
+The [0.41.0 release notes](releases/0.41.0.md#validation) identify integration
+coverage for the 29 pull requests merged since `0.40.0`. Coverage includes the
+four-theme responsive Arena, persisted Local 1v1, human double-elimination
+tournaments with durable start/settlement workers, signed-out public discovery
+and replay, automatic tiered achievements with schema-21 reconciliation, rating
+history and streaks, Workshop consolidation, frontend feature splitting and
+polling reductions, fail-closed dependency auditing, and disposable backend and
+progression benchmarks. The online schema advances 15 → 21; account schema 9,
+checkpoint tensor format 1 and job-archive schema 3 are unchanged.
+
+Release preparation records its exact local checks and release-PR Verify result
+separately from the feature-PR integration evidence. Successful release-PR and
+exact merged-main Verify remain required before tagging and stable publication.
+The milestone is not a `1.0` public-readiness declaration: leagues, production
+browser/neural analysis, licensing, physical-device/Safari and CUDA/MPS coverage,
+production capacity and target-host deployment remain outstanding. Historical
+evidence below is unchanged.
+
 ## Persistent Champion adaptation, learning metrics and analytics budgets (`0.40.0` preparation)
 
 The [0.40.0 release notes](releases/0.40.0.md#validation) identify integration

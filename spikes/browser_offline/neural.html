@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hnefatafl neural inference spike</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1rem;
+        max-width: 72rem;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 0.75rem;
+        overflow: auto;
+        max-height: 30rem;
+      }
+      .row {
+        margin: 0.5rem 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      label {
+        margin-right: 0.25rem;
+      }
+      [aria-live="polite"] {
+        min-height: 1.5rem;
+      }
+      .state {
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Neural inference spike</h1>
+    <p>
+      Experimental ORT Web inference for an exported policy/value model. This page
+      is isolated from the production application and downloads no production
+      dependency. Cancel is always available while a job is running.
+    </p>
+    <div class="row">
+      <label>
+        Provider
+        <select id="provider">
+          <option value="wasm">wasm (single-threaded)</option>
+          <option value="webgpu">webgpu</option>
+        </select>
+      </label>
+      <button id="capabilities">Capabilities</button>
+      <button id="load">Load model</button>
+      <button id="infer">Infer</button>
+      <button id="inferMany">Infer distinct batch</button>
+      <button id="benchmark">Benchmark batches</button>
+      <button id="cancel">Cancel</button>
+    </div>
+    <p aria-live="polite">
+      State: <span id="state" class="state">idle</span>
+      <span id="status"></span>
+    </p>
+    <pre id="output" aria-live="polite"></pre>
+    <script type="module">
+      import { NeuralClient } from "./neural-client.js";
+      const client = new NeuralClient();
+      const status = document.querySelector("#status");
+      const output = document.querySelector("#output");
+      const providerSelect = document.querySelector("#provider");
+      const controls = document.querySelectorAll("button");
+      let assets = null;
+      let inputs = null;
+      let assetsPromise = null;
+      let inputsPromise = null;
+      let active = null;
+
+      function setState(state, text = "") {
+        document.querySelector("#state").textContent = state;
+        status.textContent = text;
+      }
+      function setBusy(busy) {
+        for (const button of controls) if (button.id !== "cancel") button.disabled = busy;
+        providerSelect.disabled = busy;
+      }
+      function show(value) {
+        output.textContent = JSON.stringify(value, null, 2);
+      }
+      function ensureCurrent(token) {
+        if (active !== token) throw new DOMException("Operation superseded", "AbortError");
+      }
+      async function run(action) {
+        if (active) return undefined;
+        const token = Symbol("run");
+        active = token;
+        setBusy(true);
+        setState("running");
+        try {
+          const value = await action(token);
+          if (active !== token) return undefined;
+          setState("completed");
+          return value;
+        } catch (error) {
+          if (active !== token) return undefined;
+          const kind = error?.name ?? "Error";
+          setState(
+            kind === "AbortError" ? "cancelled" : kind === "TimeoutError" ? "timed out" : "failed",
+            error?.message ?? String(error),
+          );
+          if (kind !== "AbortError") show({ name: kind, message: error?.message ?? String(error) });
+          return undefined;
+        } finally {
+          if (active === token) {
+            active = null;
+            setBusy(false);
+          }
+        }
+      }
+      // Shared fetches may be cached, but a cancelled operation must not resume
+      // when a shared fetch completes: the token is checked after every await.
+      async function ensureAssets(token) {
+        if (!assetsPromise)
+          assetsPromise = fetch("./neural-assets.json")
+            .then((response) => response.json())
+            .catch((error) => {
+              assetsPromise = null;
+              throw error;
+            });
+        if (!inputsPromise)
+          inputsPromise = fetch("./model/reference.json")
+            .then((response) => response.json())
+            .catch((error) => {
+              inputsPromise = null;
+              throw error;
+            });
+        const [loadedAssets, loadedInputs] = await Promise.all([assetsPromise, inputsPromise]);
+        ensureCurrent(token);
+        assets = loadedAssets;
+        inputs = loadedInputs;
+        return { assets, inputs };
+      }
+      function identityOf(loaded) {
+        const identity = {
+          sha256: loaded.model_sha256,
+          ruleset: loaded.model_ruleset,
+          size: loaded.size,
+        };
+        if (!identity.sha256 || !identity.ruleset || !Number.isInteger(identity.size))
+          throw new Error("Loaded model did not return a complete identity");
+        return identity;
+      }
+      // Internal load used inside an operation already owned by run(). It never
+      // calls run(), and it re-checks ownership after every asynchronous step.
+      async function ensureLoaded(token, { force = false } = {}) {
+        await ensureAssets(token);
+        ensureCurrent(token);
+        const provider = providerSelect.value;
+        if (!force && client.model && client.model.provider === provider) return client.model;
+        setState("loading", `Loading ${provider}…`);
+        const value = await client.load("./" + assets.model.file, {
+          provider,
+          size: assets.model.size,
+          ruleset: assets.model.ruleset,
+          expectedSha256: assets.model.sha256,
+        });
+        ensureCurrent(token);
+        setState("running", `Loaded with ${value.execution_placement}`);
+        return value;
+      }
+      function casesForBatch(count) {
+        const cases = inputs.cases.filter((entry) => !entry.terminal);
+        return Array.from({ length: count }, (_, index) => {
+          const entry = cases[index % cases.length];
+          return {
+            planes: entry.planes,
+            legal: entry.legal,
+            request_id: entry.position,
+            position_digest: entry.position_digest,
+          };
+        });
+      }
+      const api = {
+        client,
+        capabilities: () =>
+          run(async () => {
+            const value = await client.capabilities();
+            show(value);
+            setState(
+              "idle",
+              value.webGPUAdapter ? "WebGPU adapter available" : "no WebGPU adapter",
+            );
+            return value;
+          }),
+        load: (providerOverride) =>
+          run(async (token) => {
+            if (providerOverride) providerSelect.value = providerOverride;
+            const value = await ensureLoaded(token, { force: true });
+            show(value);
+            setState("idle", `loaded with ${value.execution_placement}`);
+            return value;
+          }),
+        infer: () =>
+          run(async (token) => {
+            const loaded = await ensureLoaded(token);
+            const model = identityOf(loaded);
+            const entry = inputs.cases.find((candidate) => !candidate.terminal);
+            const value = await client.infer({
+              planes: entry.planes,
+              size: model.size,
+              legal: entry.legal,
+              ruleset: model.ruleset,
+              request_id: entry.position,
+              position_digest: entry.position_digest,
+              model,
+            });
+            ensureCurrent(token);
+            show({
+              provider_requested: value.provider_requested,
+              execution_placement: value.execution_placement,
+              model_sha256: value.model_sha256,
+              model_ruleset: value.model_ruleset,
+              run_ms: value.run_ms,
+              value: value.value,
+              legal_count: value.legal.length,
+              legal_probability_sum: value.legal_probabilities.reduce((a, b) => a + b, 0),
+              illegal_mass_raw: value.illegal_mass_raw,
+            });
+            return value;
+          }),
+        inferMany: (batch = 8) =>
+          run(async (token) => {
+            const loaded = await ensureLoaded(token);
+            const model = identityOf(loaded);
+            const value = await client.inferMany({ cases: casesForBatch(batch), model });
+            ensureCurrent(token);
+            show({
+              provider_requested: value.provider_requested,
+              execution_placement: value.execution_placement,
+              model_ruleset: value.model_ruleset,
+              batch: value.batch,
+              results_count: value.results.length,
+              run_ms: value.run_ms,
+              per_position_ms: value.per_position_ms,
+              sums: value.results.map((row) =>
+                row.legal_probabilities.reduce((a, b) => a + b, 0),
+              ),
+            });
+            return value;
+          }),
+        benchmark: (batchSizes = [1, 2, 4, 8, 16, 32], reps = 5) =>
+          run(async (token) => {
+            const loaded = await ensureLoaded(token);
+            const model = identityOf(loaded);
+            const value = await client.benchmark({
+              cases: casesForBatch(32),
+              batchSizes,
+              warmup: 2,
+              reps,
+              model,
+            });
+            ensureCurrent(token);
+            show(value);
+            return value;
+          }),
+        cancel: () => {
+          // Clear ownership first so a late asset/load completion cannot publish.
+          active = null;
+          client.terminate("Cancelled by user");
+          setBusy(false);
+          setState("cancelled", "cancelled by user");
+        },
+        exportReport: () => output.textContent ?? "",
+        assets: () => {
+          if (!assets || !inputs) throw new Error("Assets are not loaded");
+          return { assets, inputs };
+        },
+        setState,
+        show,
+      };
+      window.neural = api;
+      providerSelect.addEventListener("change", () => {
+        if (active) return setState("running", "provider change ignored during active operation");
+        if (client.model && client.model.provider !== providerSelect.value) {
+          setState("idle", "provider changed; reload required (Infer/Load will reload)");
+        }
+      });
+      for (const [id, action] of Object.entries({
+        capabilities: api.capabilities,
+        load: () => api.load(),
+        infer: api.infer,
+        inferMany: () => api.inferMany(8),
+        benchmark: () => api.benchmark(),
+        cancel: api.cancel,
+      })) {
+        document.querySelector(`#${id}`).onclick = () => {
+          Promise.resolve(action()).catch((error) =>
+            setState("failed", error?.message ?? String(error)),
+          );
+        };
+      }
+      window.addEventListener("pagehide", () => client.dispose());
+      // Warm the shared asset promises without granting any operation ownership.
+      assetsPromise = fetch("./neural-assets.json").then((response) => response.json());
+      inputsPromise = fetch("./model/reference.json").then((response) => response.json());
+      api.ready = Promise.all([assetsPromise, inputsPromise]).then(
+        ([loadedAssets, loadedInputs]) => {
+          assets = loadedAssets;
+          inputs = loadedInputs;
+          return true;
+        },
+      );
+      window.neural = api;
+    </script>
+  </body>
+</html>

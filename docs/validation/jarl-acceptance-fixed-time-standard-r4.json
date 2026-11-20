@@ -1,0 +1,1571 @@
+{
+  "mode": "fixed_time",
+  "fixed_work": false,
+  "workload_digest": "26d16c0db487e76f8db716c4fd549b73db6aeaf0a5beb18739508bbf30e61143",
+  "expected_cases": 42,
+  "compared_cases": 42,
+  "execution_valid_cases": 42,
+  "parity_cases": 16,
+  "parity_established": 16,
+  "acceptance_cases": 42,
+  "acceptance_complete": true,
+  "acceptance_ok_cases": 18,
+  "unresolved": [
+    {
+      "position": "brandubh-midgame",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "brandubh-midgame",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 4
+    },
+    {
+      "position": "brandubh-opening",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "brandubh-opening",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 4
+    },
+    {
+      "position": "brandubh-repetition",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 4
+    },
+    {
+      "position": "brandubh-repetition",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 4
+    },
+    {
+      "position": "copenhagen-endgame",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "asymmetric completion",
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "copenhagen-endgame",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "asymmetric completion",
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "copenhagen-king-escape",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "asymmetric completion",
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 4
+    },
+    {
+      "position": "copenhagen-king-escape",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "asymmetric completion",
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 4
+    },
+    {
+      "position": "copenhagen-midgame",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 3",
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2
+    },
+    {
+      "position": "copenhagen-midgame",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 3",
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2
+    },
+    {
+      "position": "copenhagen-opening",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 3",
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2
+    },
+    {
+      "position": "copenhagen-opening",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 3",
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2
+    },
+    {
+      "position": "copenhagen-repetition",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 3",
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2
+    },
+    {
+      "position": "copenhagen-repetition",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 3",
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2
+    },
+    {
+      "position": "copenhagen-tactical",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "copenhagen-tactical",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "tablut-midgame",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "tablut-midgame",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "tablut-opening",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "tablut-opening",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "tablut-repetition",
+      "config": "standard",
+      "repetition": 0,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    },
+    {
+      "position": "tablut-repetition",
+      "config": "standard",
+      "repetition": 1,
+      "reason": "limited at depth 4",
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3
+    }
+  ],
+  "status_counts": {
+    "expected": {
+      "completed": 16,
+      "deadline_limited": 20,
+      "terminal": 6
+    },
+    "actual": {
+      "completed": 12,
+      "deadline_limited": 24,
+      "terminal": 6
+    }
+  },
+  "equal_work_latency_ratio_median": 2.0933848698333195,
+  "equal_work_latency_ratio_samples": 16,
+  "equal_work_nodes_per_second": 4478.831951632728,
+  "equal_work_actual_nodes_per_second": 2313.2864477785506,
+  "rows": [
+    {
+      "position": "brandubh-endgame",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 1339,
+      "actual_nodes": 1339,
+      "expected_evaluations": 2320,
+      "actual_evaluations": 2320,
+      "expected_elapsed_ms": 196.48735807277262,
+      "actual_elapsed_ms": 456.2000000000026,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.321777871485456
+    },
+    {
+      "position": "brandubh-endgame",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 1339,
+      "actual_nodes": 1339,
+      "expected_evaluations": 2320,
+      "actual_evaluations": 2320,
+      "expected_elapsed_ms": 195.94654790125787,
+      "actual_elapsed_ms": 441.80000000000064,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.254696521740379
+    },
+    {
+      "position": "brandubh-king-escape",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 337,
+      "actual_nodes": 337,
+      "expected_evaluations": 1197,
+      "actual_evaluations": 1197,
+      "expected_elapsed_ms": 79.8045857809484,
+      "actual_elapsed_ms": 155.29999999999688,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 1.9460034593284157
+    },
+    {
+      "position": "brandubh-king-escape",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 337,
+      "actual_nodes": 337,
+      "expected_evaluations": 1197,
+      "actual_evaluations": 1197,
+      "expected_elapsed_ms": 78.25885410420597,
+      "actual_elapsed_ms": 181.89999999999884,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.3243376367073942
+    },
+    {
+      "position": "brandubh-midgame",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 3641,
+      "actual_nodes": 176,
+      "expected_evaluations": 9431,
+      "actual_evaluations": 3010,
+      "expected_elapsed_ms": 2000.2544729504734,
+      "actual_elapsed_ms": 2000.7000000000019,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "brandubh-midgame",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 4,
+      "expected_nodes": 3641,
+      "actual_nodes": 3641,
+      "expected_evaluations": 9431,
+      "actual_evaluations": 9431,
+      "expected_elapsed_ms": 2000.1653081271797,
+      "actual_elapsed_ms": 2000.1999999999925,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 4
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 4
+      },
+      "latency_ratio": 1.0000173445028127
+    },
+    {
+      "position": "brandubh-opening",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 2782,
+      "actual_nodes": 146,
+      "expected_evaluations": 7793,
+      "actual_evaluations": 2219,
+      "expected_elapsed_ms": 2000.1651109196246,
+      "actual_elapsed_ms": 2013.5000000000005,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "brandubh-opening",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 4,
+      "expected_nodes": 2782,
+      "actual_nodes": 2782,
+      "expected_evaluations": 7793,
+      "actual_evaluations": 7793,
+      "expected_elapsed_ms": 2000.1781971659511,
+      "actual_elapsed_ms": 2000.2000000000066,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 4
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 4
+      },
+      "latency_ratio": 1.0000109004458135
+    },
+    {
+      "position": "brandubh-repetition",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 4,
+      "expected_nodes": 2520,
+      "actual_nodes": 2520,
+      "expected_evaluations": 7233,
+      "actual_evaluations": 7233,
+      "expected_elapsed_ms": 2000.1602498814464,
+      "actual_elapsed_ms": 2000.3999999999992,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 4
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 4
+      },
+      "latency_ratio": 1.000119865455064
+    },
+    {
+      "position": "brandubh-repetition",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 4,
+      "expected_nodes": 2520,
+      "actual_nodes": 2520,
+      "expected_evaluations": 7233,
+      "actual_evaluations": 7233,
+      "expected_elapsed_ms": 2000.1666489988565,
+      "actual_elapsed_ms": 2000.2999999999956,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 4
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 4
+      },
+      "latency_ratio": 1.0000666699453298
+    },
+    {
+      "position": "brandubh-tactical",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 2551,
+      "actual_nodes": 2551,
+      "expected_evaluations": 4545,
+      "actual_evaluations": 4545,
+      "expected_elapsed_ms": 415.6021939124912,
+      "actual_elapsed_ms": 918.7999999999975,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.210767925333568
+    },
+    {
+      "position": "brandubh-tactical",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 2551,
+      "actual_nodes": 2551,
+      "expected_evaluations": 4545,
+      "actual_evaluations": 4545,
+      "expected_elapsed_ms": 386.0919149592519,
+      "actual_elapsed_ms": 970.3999999999979,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.5133911444439696
+    },
+    {
+      "position": "brandubh-terminal",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 0,
+      "expected_status": "terminal",
+      "actual_status": "terminal",
+      "terminal": true,
+      "configured_depth": 5,
+      "expected_completed_depth": null,
+      "actual_completed_depth": null,
+      "expected_nodes": null,
+      "actual_nodes": null,
+      "expected_evaluations": null,
+      "actual_evaluations": null,
+      "expected_elapsed_ms": 0.0011920928955078125,
+      "actual_elapsed_ms": 0,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": null
+    },
+    {
+      "position": "brandubh-terminal",
+      "config": "standard",
+      "ruleset": "brandubh",
+      "repetition": 1,
+      "expected_status": "terminal",
+      "actual_status": "terminal",
+      "terminal": true,
+      "configured_depth": 5,
+      "expected_completed_depth": null,
+      "actual_completed_depth": null,
+      "expected_nodes": null,
+      "actual_nodes": null,
+      "expected_evaluations": null,
+      "actual_evaluations": null,
+      "expected_elapsed_ms": 0.0011760275810956955,
+      "actual_elapsed_ms": 0,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": null
+    },
+    {
+      "position": "copenhagen-endgame",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 3,
+      "expected_nodes": 4573,
+      "actual_nodes": 157,
+      "expected_evaluations": 7953,
+      "actual_evaluations": 2307,
+      "expected_elapsed_ms": 1849.1725099738687,
+      "actual_elapsed_ms": 2000.5999999999985,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-endgame",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 3,
+      "expected_nodes": 4573,
+      "actual_nodes": 157,
+      "expected_evaluations": 7953,
+      "actual_evaluations": 2307,
+      "expected_elapsed_ms": 1841.0739230457693,
+      "actual_elapsed_ms": 2000.6000000000058,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-king-escape",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 4,
+      "expected_nodes": 1116,
+      "actual_nodes": 420,
+      "expected_evaluations": 7150,
+      "actual_evaluations": 740,
+      "expected_elapsed_ms": 1144.187968922779,
+      "actual_elapsed_ms": 2000.3999999999992,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-king-escape",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 4,
+      "expected_nodes": 1116,
+      "actual_nodes": 420,
+      "expected_evaluations": 7150,
+      "actual_evaluations": 740,
+      "expected_elapsed_ms": 1261.7637130897492,
+      "actual_elapsed_ms": 2000.5000000000023,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-midgame",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2,
+      "expected_nodes": 461,
+      "actual_nodes": 115,
+      "expected_evaluations": 14653,
+      "actual_evaluations": 403,
+      "expected_elapsed_ms": 2000.4821040201932,
+      "actual_elapsed_ms": 2000.6999999999948,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-midgame",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2,
+      "expected_nodes": 461,
+      "actual_nodes": 115,
+      "expected_evaluations": 14653,
+      "actual_evaluations": 403,
+      "expected_elapsed_ms": 2000.4684240557253,
+      "actual_elapsed_ms": 2000.5000000000023,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-opening",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2,
+      "expected_nodes": 465,
+      "actual_nodes": 116,
+      "expected_evaluations": 14707,
+      "actual_evaluations": 446,
+      "expected_elapsed_ms": 2000.3922688774765,
+      "actual_elapsed_ms": 2000.3999999999992,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-opening",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2,
+      "expected_nodes": 465,
+      "actual_nodes": 116,
+      "expected_evaluations": 14707,
+      "actual_evaluations": 446,
+      "expected_elapsed_ms": 2000.4637269303203,
+      "actual_elapsed_ms": 2000.5000000000023,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-repetition",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2,
+      "expected_nodes": 345,
+      "actual_nodes": 115,
+      "expected_evaluations": 14009,
+      "actual_evaluations": 232,
+      "expected_elapsed_ms": 2000.397298950702,
+      "actual_elapsed_ms": 2000.7999999999981,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-repetition",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 3,
+      "actual_completed_depth": 2,
+      "expected_nodes": 345,
+      "actual_nodes": 115,
+      "expected_evaluations": 14009,
+      "actual_evaluations": 232,
+      "expected_elapsed_ms": 2000.4446941893548,
+      "actual_elapsed_ms": 2000.700000000009,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-tactical",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 2554,
+      "actual_nodes": 244,
+      "expected_evaluations": 10436,
+      "actual_evaluations": 4565,
+      "expected_elapsed_ms": 2000.234761973843,
+      "actual_elapsed_ms": 2000.5000000000023,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-tactical",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 2554,
+      "actual_nodes": 244,
+      "expected_evaluations": 10436,
+      "actual_evaluations": 4565,
+      "expected_elapsed_ms": 2000.2961389254779,
+      "actual_elapsed_ms": 2000.2999999999956,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "copenhagen-terminal",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 0,
+      "expected_status": "terminal",
+      "actual_status": "terminal",
+      "terminal": true,
+      "configured_depth": 5,
+      "expected_completed_depth": null,
+      "actual_completed_depth": null,
+      "expected_nodes": null,
+      "actual_nodes": null,
+      "expected_evaluations": null,
+      "actual_evaluations": null,
+      "expected_elapsed_ms": 0.0016209669411182404,
+      "actual_elapsed_ms": 0,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": null
+    },
+    {
+      "position": "copenhagen-terminal",
+      "config": "standard",
+      "ruleset": "copenhagen",
+      "repetition": 1,
+      "expected_status": "terminal",
+      "actual_status": "terminal",
+      "terminal": true,
+      "configured_depth": 5,
+      "expected_completed_depth": null,
+      "actual_completed_depth": null,
+      "expected_nodes": null,
+      "actual_nodes": null,
+      "expected_evaluations": null,
+      "actual_evaluations": null,
+      "expected_elapsed_ms": 0.0013438984751701355,
+      "actual_elapsed_ms": 0,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": null
+    },
+    {
+      "position": "tablut-endgame",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 1119,
+      "actual_nodes": 1119,
+      "expected_evaluations": 2071,
+      "actual_evaluations": 2071,
+      "expected_elapsed_ms": 240.57056405581534,
+      "actual_elapsed_ms": 414.6000000000001,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 1.723402867791455
+    },
+    {
+      "position": "tablut-endgame",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 1119,
+      "actual_nodes": 1119,
+      "expected_evaluations": 2071,
+      "actual_evaluations": 2071,
+      "expected_elapsed_ms": 214.13828106597066,
+      "actual_elapsed_ms": 414.6999999999963,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 1.9365990888487499
+    },
+    {
+      "position": "tablut-king-escape",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 298,
+      "actual_nodes": 298,
+      "expected_evaluations": 1594,
+      "actual_evaluations": 1594,
+      "expected_elapsed_ms": 75.41195792146027,
+      "actual_elapsed_ms": 157.60000000000218,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.08985423988247
+    },
+    {
+      "position": "tablut-king-escape",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 298,
+      "actual_nodes": 298,
+      "expected_evaluations": 1594,
+      "actual_evaluations": 1594,
+      "expected_elapsed_ms": 74.20422998256981,
+      "actual_elapsed_ms": 155.59999999999974,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.0969154997841684
+    },
+    {
+      "position": "tablut-midgame",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 3564,
+      "actual_nodes": 323,
+      "expected_evaluations": 22995,
+      "actual_evaluations": 3544,
+      "expected_elapsed_ms": 2000.2095480449498,
+      "actual_elapsed_ms": 2000.300000000003,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "tablut-midgame",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 3564,
+      "actual_nodes": 323,
+      "expected_evaluations": 22995,
+      "actual_evaluations": 3544,
+      "expected_elapsed_ms": 2000.35813706927,
+      "actual_elapsed_ms": 2000.300000000003,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "tablut-opening",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 4207,
+      "actual_nodes": 354,
+      "expected_evaluations": 25230,
+      "actual_evaluations": 5037,
+      "expected_elapsed_ms": 2000.2330420538783,
+      "actual_elapsed_ms": 2000.6000000000022,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "tablut-opening",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 4207,
+      "actual_nodes": 354,
+      "expected_evaluations": 25230,
+      "actual_evaluations": 5037,
+      "expected_elapsed_ms": 2000.2066588494927,
+      "actual_elapsed_ms": 2000.3999999999992,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "tablut-repetition",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 0,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 4269,
+      "actual_nodes": 571,
+      "expected_evaluations": 26063,
+      "actual_evaluations": 7351,
+      "expected_elapsed_ms": 2000.2755380701274,
+      "actual_elapsed_ms": 2000.300000000003,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "tablut-repetition",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 1,
+      "expected_status": "deadline_limited",
+      "actual_status": "deadline_limited",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 4,
+      "actual_completed_depth": 3,
+      "expected_nodes": 4269,
+      "actual_nodes": 571,
+      "expected_evaluations": 26063,
+      "actual_evaluations": 7351,
+      "expected_elapsed_ms": 2000.2446200232953,
+      "actual_elapsed_ms": 2000.2999999999956,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": true,
+      "parity_applicable": false,
+      "parity_detail": {
+        "reason": "different completed depth"
+      },
+      "equal_work": false,
+      "work_detail": {
+        "reason": "different completed depth"
+      }
+    },
+    {
+      "position": "tablut-tactical",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 0,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 1669,
+      "actual_nodes": 1669,
+      "expected_evaluations": 3153,
+      "actual_evaluations": 3153,
+      "expected_elapsed_ms": 303.6040219012648,
+      "actual_elapsed_ms": 672.9999999999948,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.2167031773342627
+    },
+    {
+      "position": "tablut-tactical",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 1,
+      "expected_status": "completed",
+      "actual_status": "completed",
+      "terminal": false,
+      "configured_depth": 5,
+      "expected_completed_depth": 5,
+      "actual_completed_depth": 5,
+      "expected_nodes": 1669,
+      "actual_nodes": 1669,
+      "expected_evaluations": 3153,
+      "actual_evaluations": 3153,
+      "expected_elapsed_ms": 296.32686683908105,
+      "actual_elapsed_ms": 679.4000000000011,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": false,
+      "parity_applicable": true,
+      "parity_detail": {
+        "completed_depth": 5
+      },
+      "move_match": true,
+      "value_match": true,
+      "depth_match": true,
+      "equal_work": true,
+      "work_detail": {
+        "counters": {
+          "nodes": true,
+          "evaluations": true
+        },
+        "completed_depth": 5
+      },
+      "latency_ratio": 2.2927384453767607
+    },
+    {
+      "position": "tablut-terminal",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 0,
+      "expected_status": "terminal",
+      "actual_status": "terminal",
+      "terminal": true,
+      "configured_depth": 5,
+      "expected_completed_depth": null,
+      "actual_completed_depth": null,
+      "expected_nodes": null,
+      "actual_nodes": null,
+      "expected_evaluations": null,
+      "actual_evaluations": null,
+      "expected_elapsed_ms": 0.0011238735169172287,
+      "actual_elapsed_ms": 0,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": null
+    },
+    {
+      "position": "tablut-terminal",
+      "config": "standard",
+      "ruleset": "tablut",
+      "repetition": 1,
+      "expected_status": "terminal",
+      "actual_status": "terminal",
+      "terminal": true,
+      "configured_depth": 5,
+      "expected_completed_depth": null,
+      "actual_completed_depth": null,
+      "expected_nodes": null,
+      "actual_nodes": null,
+      "expected_evaluations": null,
+      "actual_evaluations": null,
+      "expected_elapsed_ms": 0.0011639203876256943,
+      "actual_elapsed_ms": 0.10000000000331966,
+      "execution_valid": true,
+      "problems": [],
+      "acceptance_incomplete": null
+    }
+  ],
+  "failures": [],
+  "warnings": [
+    "brandubh-midgame/standard/brandubh/rep0: fixed-time results are not comparable (different completed depth)",
+    "brandubh-opening/standard/brandubh/rep0: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-endgame/standard/copenhagen/rep0: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-endgame/standard/copenhagen/rep1: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-king-escape/standard/copenhagen/rep0: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-king-escape/standard/copenhagen/rep1: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-midgame/standard/copenhagen/rep0: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-midgame/standard/copenhagen/rep1: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-opening/standard/copenhagen/rep0: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-opening/standard/copenhagen/rep1: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-repetition/standard/copenhagen/rep0: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-repetition/standard/copenhagen/rep1: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-tactical/standard/copenhagen/rep0: fixed-time results are not comparable (different completed depth)",
+    "copenhagen-tactical/standard/copenhagen/rep1: fixed-time results are not comparable (different completed depth)",
+    "tablut-midgame/standard/tablut/rep0: fixed-time results are not comparable (different completed depth)",
+    "tablut-midgame/standard/tablut/rep1: fixed-time results are not comparable (different completed depth)",
+    "tablut-opening/standard/tablut/rep0: fixed-time results are not comparable (different completed depth)",
+    "tablut-opening/standard/tablut/rep1: fixed-time results are not comparable (different completed depth)",
+    "tablut-repetition/standard/tablut/rep0: fixed-time results are not comparable (different completed depth)",
+    "tablut-repetition/standard/tablut/rep1: fixed-time results are not comparable (different completed depth)"
+  ],
+  "ok": true
+}

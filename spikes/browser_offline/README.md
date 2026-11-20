@@ -4,6 +4,11 @@
 [Validation](../../docs/validation/online-phase0.md) ·
 [Measured browser evidence](../../docs/validation/browser-offline-phase0.json)
 
+> Phase 1 (full-strength Jarl and trained-model browser inference) builds on this
+> prototype. See the
+> [browser-side analysis roadmap](../../docs/designs/browser-analysis-roadmap.md) and
+> [Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
+
 Isolated static experiment: unchanged Python engine and baseline AI in a Pyodide
 worker. No production routes, account bypass, application build changes, database,
 new production dependency or downloaded models. Reusing Python proved feasible;
@@ -19,6 +24,95 @@ cache, bounded scheduling and termination-based cancellation. See the
 for fresh measurements, native/browser differential tests and production gates.
 The Phase 0 measurements and limitations below describe the original baseline-only
 experiment; they are retained as historical evidence, not new validation.
+
+### Phase 1: full-strength Jarl and neural inference
+
+The worker exposes the production-equivalent Jarl preset (depth 5, 2 s, Shield
+maiden, optimized search) and named benchmark workloads
+(quick/interactive/standard/deep/extended) through a shared `jarl_benchmark.py`
+runner used identically by native CPython and Pyodide. `jarl_compare.py` is the
+single comparison implementation behind both the browser verifier and the
+standalone comparator.
+
+Corrected contract (revision 3):
+
+- Every measured **repetition** is validated: record keys include the repetition
+  index, duplicates are rejected, and expected coverage is derived independently
+  from the workload cases × configurations × declared repetitions. Both reports
+  omitting the same position, empty reports and mismatched repetition counts fail.
+- Record-level position hash, ruleset, mode, seed and effective-settings digest
+  must match the workload. The settings digest is numeric-normalised so it
+  survives the Python/JavaScript JSON boundary.
+- **Execution validity**, **parity at equal completed work** and **acceptance
+  completion** are reported separately. A finite value, a legal workload move and
+  the correct defender-relative terminal value are mandatory; parity is compared
+  only when completed depth, interruption state and available node/evaluation
+  counters agree. Asymmetric or limited cases are listed as unresolved acceptance
+  targets, not regressions.
+- Fixed-time differences remain informational; terminal, unsupported, failed and
+  non-equivalent cases are excluded from equal-work latency ratios.
+- Each benchmark case is an independently bounded request (75 s), so a later
+  failure cannot discard earlier records. Ordinary analysis keeps a 5 s watchdog;
+  a legitimate cooperative deadline up to 10 s derives a watchdog up to 20 s.
+
+```sh
+.venv/bin/python spikes/browser_offline/native_jarl_benchmark.py \
+  --mode fixed_work --suite quick --warmup 1 --repetitions 2 --output /tmp/jarl-native.json
+.venv/bin/python spikes/browser_offline/prepare.py --output /tmp/hnefatafl-analysis
+node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
+  --mode fixed_work --suite quick --warmup 1 --reps 2 \
+  --native /tmp/jarl-native.json --output /tmp/jarl-browser.json
+.venv/bin/python spikes/browser_offline/compare_jarl_benchmarks.py \
+  /tmp/jarl-native.json /tmp/jarl-browser.json --output /tmp/jarl-comparison.json
+```
+
+The neural side stages a *validated* export only: the ONNX graph, metadata,
+reference vectors and parity report are bound by digests, and a forced replacement
+invalidates the old marker before publishing. Browser parity validates the complete
+inference response the runtime actually returned (model/ruleset and request/position
+identity, logits, value, legal indices/order, probabilities, shapes, dtypes) and
+independently verifies batch count, result count, per-result index and position
+association. Missing response fields fail; deliberate corruption kinds must fail.
+
+Inference requests are bound to the exact model they were prepared for: callers
+capture `client.modelIdentity()` (digest, ruleset, size) when preparing a workload,
+and both the client and worker reject a stale or mismatched identity before
+execution. Loading requires a supported ruleset, and batch requests carry model
+metadata once at batch level. Reference vectors are written as compact JSON so
+Copenhagen remains within the unchanged 16 MiB experimental budget.
+
+```sh
+uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
+.venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/model-export
+.venv/bin/python spikes/browser_offline/prepare_neural.py \
+  --model-dir /tmp/model-export --output /tmp/neural-spike
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --output /tmp/neural-parity-wasm.json
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --corrupt reorder --output /tmp/neural-corrupt.json   # must fail
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --corrupt request-model-worker --output /tmp/neural-identity.json
+node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
+  --provider wasm --sustained 200 --output /tmp/neural-wasm.json
+node spikes/browser_offline/test_neural_ui.mjs /tmp/neural-spike \
+  --output /tmp/neural-ui.json
+node spikes/browser_offline/test_neural_identity.mjs
+node spikes/browser_offline/test_neural_tensors.mjs
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider webgpu --require-webgpu
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider webgpu --require-gpu-execution   # fails without a placement API
+node spikes/browser_offline/test_browser_lifecycle.mjs
+```
+
+`--require-webgpu` requires an obtained adapter, a created session, a successful
+inference and an observed placement of `webgpu-session-verified` (WebGPU providers
+only). A session created for WebGPU without observable per-node placement is
+reported as `webgpu-session-unverified`; a mixed list is `webgpu-mixed`; WASM-only
+is `cpu-fallback`. No WASM fallback is ever labelled GPU.
+
+See the [roadmap](../../docs/designs/browser-analysis-roadmap.md) and
+[Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
 
 ### Lifecycle and scheduling corrections
 
@@ -168,6 +262,91 @@ It displays a runtime-loading error while the UI response control still works.
   moves for each ruleset, a UI click while a synthetic 500 ms Python loop is still
   busy in the worker, and the full fixture/gameplay sequence after offline reload.
   It blocks nonlocal requests and asserts no application API requests occur.
+
+### Physical-device validation (owner hardware)
+
+Privately supplied trained weights must stay local. Do **not** bind a file server
+to `0.0.0.0` or open a LAN HTTP address: that can expose the model artifacts and
+does not provide the secure context required by WebGPU and Web Crypto.
+
+#### WSL to a native Windows browser (safe loopback)
+
+```sh
+# 1. Export and stage in WSL (private checkpoint stays local).
+.venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/model-export
+.venv/bin/python spikes/browser_offline/prepare_neural.py \
+  --model-dir /tmp/model-export --output /tmp/neural-spike
+# 2. Loopback only. WSL2 normally forwards http://localhost:8765 to Windows.
+.venv/bin/python -m http.server 8765 --bind 127.0.0.1 --directory /tmp/neural-spike
+```
+
+Open `http://localhost:8765/neural.html` in Windows Chrome/Edge and verify in the
+DevTools console:
+
+```js
+window.isSecureContext          // must be true
+!!crypto.subtle                 // must be true
+navigator.gpu                   // may be undefined on unsupported browsers
+await navigator.gpu?.requestAdapter()   // null/undefined means no GPU adapter
+```
+
+If Windows localhost forwarding is unavailable, use an SSH tunnel or trusted
+HTTPS. Do not disable browser security.
+
+```powershell
+# From Windows, tunnel the WSL loopback port and open http://localhost:8765.
+ssh -N -L 8765:127.0.0.1:8765 <wsl-user>@<wsl-host>
+```
+
+For a non-loopback origin, serve through a reverse proxy with a certificate the
+Windows browser already trusts (for example a local development CA). HTTP over a
+LAN address is not a valid WebGPU/Web Crypto test.
+
+#### Native Windows automated parity and benchmark
+
+Copy the staged directory to a Windows-accessible path (for example
+`C:\work\neural-spike`). Use a Windows checkout of this repository, Node.js 22+,
+and either the Playwright Chromium or an installed Chrome/Edge.
+
+```powershell
+cd C:\path\to\hnefatafl
+npm --prefix frontend ci
+npx --prefix frontend playwright install chromium   # or use installed Chrome below
+
+# Resolve the Windows Python interpreter explicitly (no Unix .venv path).
+$env:SPIKE_PYTHON = (Get-Command py -ErrorAction SilentlyContinue).Source
+if (-not $env:SPIKE_PYTHON) { $env:SPIKE_PYTHON = (Get-Command python).Source }
+$env:SPIKE_CHROMIUM = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+# Edge alternative:
+# $env:SPIKE_CHROMIUM = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+
+node spikes\browser_offline\neural_parity.mjs C:\work\neural-spike `
+  --provider wasm --output C:\work\parity-wasm.json
+node spikes\browser_offline\neural_parity.mjs C:\work\neural-spike `
+  --provider webgpu --require-webgpu --output C:\work\parity-webgpu.json
+node spikes\browser_offline\neural_benchmark.mjs C:\work\neural-spike `
+  --provider webgpu --require-webgpu --output C:\work\bench-webgpu.json
+node spikes\browser_offline\test_neural_ui.mjs C:\work\neural-spike `
+  --output C:\work\ui.json
+```
+
+`--require-webgpu` requires a WebGPU-requested session and successful numerical
+inference. It does **not** claim per-operator GPU execution.
+`--require-gpu-execution` requires independently verified actual GPU execution;
+the pinned ORT Web build exposes no per-operator placement API, so it currently
+fails explicitly even on GPU hardware. Report `execution_placement` verbatim.
+
+#### Firefox, Safari and physical mobile
+
+The automated harness launches Chromium only. `--provider wasm` selects the
+execution provider; it does **not** run the harness on Firefox or Safari.
+
+- Firefox/Safari: open the loopback (or trusted HTTPS) page manually, choose
+  `wasm`, and use Capabilities → Load → Infer / Infer distinct batch /
+  Benchmark. Copy the `#output` JSON as evidence, or run the harness with
+  `SPIKE_CHROMIUM` pointed at a Chromium-based browser only.
+- Physical mobile: use trusted HTTPS or a secure tunnel to the loopback origin;
+  do not expose the model directory over plain LAN HTTP.
 
 ## Actual environment and measurements
 

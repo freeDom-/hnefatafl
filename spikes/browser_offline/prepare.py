@@ -13,7 +13,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from fixtures import search_vectors, vectors  # noqa: E402
+from fixtures import jarl_positions, search_vectors, vectors  # noqa: E402
 
 VERSION = "0.27.7"
 ASSETS = (
@@ -57,13 +57,22 @@ def main() -> None:
     if output == ROOT or (ROOT in output.parents and not output.is_relative_to(ROOT / "work")):
         parser.error("Stage inside work/ or outside the repository")
     output.mkdir(parents=True, exist_ok=True)
-    for name in ("index.html", "app.js", "worker.js", "analysis-client.js", "bridge.py", "sw.js"):
+    for name in (
+        "index.html",
+        "app.js",
+        "worker.js",
+        "analysis-client.js",
+        "bridge.py",
+        "jarl_benchmark.py",
+        "sw.js",
+    ):
         shutil.copyfile(Path(__file__).parent / name, output / name)
     package = output / "python/hnefatafl"
     package.mkdir(parents=True, exist_ok=True)
     for name in SOURCE_MODULES:
         shutil.copyfile(ROOT / "hnefatafl" / name, package / name)
     (output / "fixtures.json").write_text(json.dumps(vectors(), separators=(",", ":")))
+    (output / "jarl-positions.json").write_text(json.dumps(jarl_positions(), separators=(",", ":")))
     (output / "search-fixtures.json").write_text(
         json.dumps(search_vectors(), separators=(",", ":"))
     )
@@ -87,8 +96,10 @@ def main() -> None:
         "worker.js",
         "analysis-client.js",
         "bridge.py",
+        "jarl_benchmark.py",
         "sw.js",
         "fixtures.json",
+        "jarl-positions.json",
         "search-fixtures.json",
         *(f"python/hnefatafl/{name}" for name in SOURCE_MODULES),
     ]
@@ -120,6 +131,7 @@ def main() -> None:
     manifest = {
         "pyodide": VERSION,
         "python_modules": list(SOURCE_MODULES),
+        "root_modules": ["bridge.py", "jarl_benchmark.py"],
         "runtime_included": not args.shell_only,
         "bundle_id": bundle,
         "files": files + ["assets.json"],

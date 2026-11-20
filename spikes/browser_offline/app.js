@@ -136,6 +136,15 @@ const api = {
   },
   memory: () => client.info,
   cacheSize: () => client.cache.size,
+  jarlPositions: () => fetch("./jarl-positions.json").then((r) => r.json()),
+  jarlPlan: () => client.jarlPlan(),
+  jarlIdentity: (positions, configs, options) =>
+    client.jarlIdentity(positions, configs, options),
+  jarlBenchmark: (positions, configs, options) =>
+    client.jarlBenchmark(positions, configs, options),
+  jarlCase: (position, config, options) =>
+    client.jarlCase(position, config, options),
+  dispose: () => client.dispose(),
   raw: request,
   handleError,
   move: (move) => {
