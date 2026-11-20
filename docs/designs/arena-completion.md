@@ -7,15 +7,14 @@ dependencies and acceptance gates, **not a claim that the missing features ship*
 
 ## Post-audit delivery status
 
-This report is the historical post-#84 baseline and its matrix statuses are not
-rewritten as later work lands. After the audit, **Portrait Hall, achievement
-claiming and selection are delivered by PR #86**, which adds the authenticated
-`/portraits` route on the existing authority without schema changes, and the
-signed-out public spectator frontend is delivered by PR #87. The human
-tournament backend (schema 18) already existed at the baseline; automatic
-tournament settlement and the tournament UI, leagues, Workshop consolidation and
-local-analysis research remain separate workstreams. Do not read a matrix row
-below as current status without this note.
+This report preserves the historical post-#84 baseline. Its matrix and performance
+numbers are not a current release inventory. See the
+[current completeness matrix](arena-current-completeness.md) for merged Hall of
+Renown/automatic achievements, public spectators, human tournament UI/settlement,
+polling, Workshop consolidation, bundle budgets, the backend read benchmark and the
+remaining open workstreams (including draft league PR #99 and merged Phase 1
+browser-analysis research #104, which is not a production executor). Historical
+counts below are not recast as fresh validation.
 
 ## Audit method and phase terminology
 
@@ -206,7 +205,11 @@ playing strength. Document later changes with a policy version.
   Queue matching/contributions use constraints and `BEGIN IMMEDIATE`; indexed
   bounded workers avoid recurring global scans.
 
-## Measured performance baseline and gates
+## Measured performance baseline and gates (historical)
+
+> The numbers in this section belong to the post-#84 baseline. Current build
+> budgets, branch measurements and their provenance are in the
+> [current completeness matrix](arena-current-completeness.md#performance-evidence-and-budgets).
 
 Fresh production build at this baseline passed. Main JavaScript is **1,013,700
 bytes**, Python gzip **308,928 bytes** (Vite rounded gzip 310.10 KB); CSS **176,657
