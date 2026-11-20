@@ -1088,3 +1088,63 @@ successful release-PR and exact merged-main CI before an annotated tag and stabl
 publication. See [0.40.0 release notes](docs/releases/0.40.0.md) for complete
 scope, compatibility, measurements and installation. Historical release records
 remain unchanged.
+
+## Arena v2 delivery, player tournaments, automatic progression and public spectators (`0.41.0` preparation)
+
+Release preparation starts from merged `main` at `1b4c4ae`, covering every change
+since published `0.40.0`: 29 pull requests, #73–#95, #97, #100–#103 and #105,
+including their review fixes. Python/npm metadata and both lockfiles move together
+to `0.41.0` on `release/0.41.0`.
+
+The authenticated Arena now uses one responsive shell and four complete themes
+(The King's Table, Iron & Ash, Saga Hall and Classic Table), with idempotent
+browser-local appearance migration, independent board/token/scale preferences,
+original local artwork, accessible contrast and approved Norse destination names.
+Same-device Local 1v1 is persisted in a distinct non-Elo category with two human
+seats, owner-only mutations and replay, and no AI or advisor work. Play unifies
+online, local and vs-AI modes with history-safe resume, while Hall of records
+discovery adds category-scoped lifecycle filters, live badges, server-side ruleset
+filters and local replay.
+
+Human double-elimination player tournaments have their own schema, route and UI,
+real casual online legs, sequential or simultaneous two-game matches, byes, grand
+final reset, deterministic tie rules, audited moderation and creator quotas. A
+durable server worker starts scheduled UTC tournaments and settles committed
+brackets after restart without a browser. Signed-out `/watch` discovery, live
+viewing and completed replay are read-only, online-only, privacy-filtered,
+rate-limited and disabled by one deployment switch; live games expose no moves or
+analysis.
+
+Portrait catalog 2 and achievement catalog 3 provide 12 portraits and 77
+milestones worth 6,290 points. Automatic awards run inside authoritative result
+and successful-analysis transactions, survive corrections and retries, and
+schema 21 reconciles historical records once while grandfathering entitlements.
+The Hall of Renown shows permanent tiers, progress, next goals, score and
+selection. Rating history, rated streaks, a Local 1v1 statistics tab and a richer
+leaderboard consume the existing authoritative ledger without changing Elo policy.
+
+Frontend feature splitting, shared-stylesheet recovery, a bounded Workshop job
+navigator, reduced Dashboard polling with hidden-tab suspension, progression
+streak fast paths and invested public/backend benchmarks reduce measured loading,
+request and render work within their recorded component scopes. Dependency-audit
+governance is fail-closed, development Vitest is updated, CI has a Node 22.12 job,
+and current full and production-only audits report zero findings with no active
+exception.
+
+The online database schema advances **15 → 21**; account schema **9**, checkpoint
+tensor format **1**, job-archive schema **3**, training configuration and worker
+capabilities are unchanged. The upgrade is additive but forward-only: back up
+with stopped writers, deploy backend/frontend together, retain matching `0.40.0`
+code, and require matching schemas for restore. New tournament clients must send
+`match_mode`; the manual achievement-confirmation API is removed; public discovery
+is enabled by default and can be disabled with
+`HNEFATAFL_PUBLIC_ONLINE_ENABLED=false`. Workers must match `0.41.0` exactly.
+
+Leagues, production browser/neural analysis, a public distribution license,
+physical-device/Safari coverage, CUDA/MPS execution, production capacity and
+target-host deployment remain outside this release. `0.41.0` is a stable milestone
+preview, not a `1.0` public-readiness declaration. Release preparation records
+local checks separately and requires successful release-PR and exact merged-main
+Verify before an annotated tag and stable publication. See
+[0.41.0 release notes](docs/releases/0.41.0.md) for complete scope, compatibility,
+measurements and installation. Historical release records remain unchanged.

@@ -124,6 +124,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.41.0](releases/0.41.0.md) | Arena v2 four-theme shell, Local 1v1, human player tournaments, automatic portraits and achievements, public spectator Arena, and frontend/backend performance work |
 | [0.40.0](releases/0.40.0.md) | Persistent Champion-aware HyperController, selectable learning metrics with portable parameter history, and configurable neural analytics budgets |
 | [0.39.0](releases/0.39.0.md) | Schedule-Free AdamW, tournament role analytics and legal openings, evaluation-series fitting |
 | [0.38.0](releases/0.38.0.md) | Account profiles, automatic optional-field publication and current player identities |
