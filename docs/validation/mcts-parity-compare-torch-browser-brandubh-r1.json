@@ -1,0 +1,151 @@
+{
+  "kind": "mcts-parity-comparison",
+  "schema": 1,
+  "level": "b",
+  "native_runtime": "native-cpython",
+  "browser_runtime": "browser-pyodide",
+  "failures": [],
+  "notes": [],
+  "cases": [
+    {
+      "name": "brandubh-opening",
+      "ok": true,
+      "source": "neural_search",
+      "value": -0.41828784078825265,
+      "best_move": {
+        "source": 26,
+        "target": 12
+      },
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "native_best_move": {
+        "source": 26,
+        "target": 12
+      },
+      "value_delta": 9.546056389808655e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0
+    },
+    {
+      "name": "brandubh-midgame",
+      "ok": true,
+      "source": "neural_search",
+      "value": -0.41831355809699744,
+      "best_move": {
+        "source": 10,
+        "target": 13
+      },
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "native_best_move": {
+        "source": 10,
+        "target": 13
+      },
+      "value_delta": 9.778887033462524e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0
+    },
+    {
+      "name": "brandubh-endgame",
+      "ok": true,
+      "source": "neural_search",
+      "value": -0.4190002408577129,
+      "best_move": {
+        "source": 3,
+        "target": 10
+      },
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "native_best_move": {
+        "source": 3,
+        "target": 10
+      },
+      "value_delta": 1.0244548320770264e-08,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0
+    },
+    {
+      "name": "brandubh-tactical",
+      "ok": true,
+      "source": "neural_search",
+      "value": -0.41329657181631774,
+      "best_move": {
+        "source": 14,
+        "target": 35
+      },
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "native_best_move": {
+        "source": 14,
+        "target": 35
+      },
+      "value_delta": 7.566995918750763e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0
+    },
+    {
+      "name": "brandubh-king-escape",
+      "ok": true,
+      "source": "neural_search",
+      "value": 1,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "completed_simulations": 0,
+      "best_move_match": true,
+      "native_best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value_delta": 0.0,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0
+    },
+    {
+      "name": "brandubh-terminal",
+      "ok": true,
+      "source": "terminal",
+      "value": 1,
+      "best_move": null,
+      "completed_simulations": 0,
+      "best_move_match": true,
+      "native_best_move": null,
+      "value_delta": 0.0,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0
+    },
+    {
+      "name": "brandubh-repetition",
+      "ok": true,
+      "source": "neural_search",
+      "value": -0.41828784078825265,
+      "best_move": {
+        "source": 26,
+        "target": 12
+      },
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "native_best_move": {
+        "source": 26,
+        "target": 12
+      },
+      "value_delta": 9.546056389808655e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0
+    }
+  ],
+  "authoritative": false,
+  "best_move_matches": 7,
+  "positions": 7,
+  "divergent_cases": [],
+  "best_move_parity": true,
+  "ok": true
+}

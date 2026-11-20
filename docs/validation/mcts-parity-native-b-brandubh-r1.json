@@ -1,0 +1,1412 @@
+{
+  "kind": "mcts-parity",
+  "schema": 1,
+  "level": "b",
+  "runtime": "native-cpython",
+  "generated": "2026-11-20T16:24:20Z",
+  "environment": {
+    "runtime": "cpython-3.11.18",
+    "platform": "linux"
+  },
+  "engine_identity": {
+    "modules": [
+      "hnefatafl.engine",
+      "hnefatafl.ai",
+      "hnefatafl.encoding",
+      "hnefatafl.mcts_driver",
+      "hnefatafl.shield_maiden",
+      "hnefatafl.symmetry"
+    ],
+    "sha256": "1af7e188ec8c9fcb0eaa5d8ea04436034742b87df7d8186670e8c013985f4044",
+    "driver_version": 1,
+    "encoder_version": "six-plane-v1",
+    "search_algorithm": "neural-mcts-puct-v1"
+  },
+  "evaluator": "onnx",
+  "model_meta": {
+    "onnx_sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+    "ruleset": "brandubh",
+    "size": 7,
+    "evaluator": "onnxruntime-cpu",
+    "providers": [
+      "CPUExecutionProvider"
+    ]
+  },
+  "model": null,
+  "settings": {
+    "iterations": 256,
+    "time_limit": 10.0,
+    "seed": 7,
+    "exploration": 1.4
+  },
+  "workload_digest": "0fab56f951cd5a88ffecff762930ff57165a11f07680864ab846ba8e6d8d8dd5",
+  "positions": [
+    {
+      "name": "brandubh-opening",
+      "ruleset": "brandubh",
+      "kind": "opening",
+      "state": {
+        "ruleset": "brandubh",
+        "board": [
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "D",
+          ".",
+          ".",
+          ".",
+          "A",
+          "A",
+          "D",
+          "K",
+          "D",
+          "A",
+          "A",
+          ".",
+          ".",
+          ".",
+          "D",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          "."
+        ],
+        "turn": "attackers",
+        "ply": 0,
+        "winner": null,
+        "reason": null,
+        "history": [
+          "attackers:...A......A......D...AADKDAA...D......A......A..."
+        ]
+      }
+    },
+    {
+      "name": "brandubh-midgame",
+      "ruleset": "brandubh",
+      "kind": "midgame",
+      "state": {
+        "ruleset": "brandubh",
+        "board": [
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "D",
+          "A",
+          "A",
+          "D",
+          "K",
+          "D",
+          "A",
+          "A",
+          ".",
+          ".",
+          ".",
+          "D",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          "."
+        ],
+        "turn": "attackers",
+        "ply": 6,
+        "winner": null,
+        "reason": null,
+        "history": [
+          "attackers:...A......A......D...AADKDAA...D......A......A...",
+          "defenders:..A.......A......D...AADKDAA...D......A......A...",
+          "attackers:..A.......A....D.....AADKDAA...D......A......A...",
+          "defenders:.A........A....D.....AADKDAA...D......A......A...",
+          "attackers:.A........A......D...AADKDAA...D......A......A...",
+          "defenders:....A.....A......D...AADKDAA...D......A......A...",
+          "attackers:....A.....A.........DAADKDAA...D......A......A..."
+        ]
+      }
+    },
+    {
+      "name": "brandubh-endgame",
+      "ruleset": "brandubh",
+      "kind": "endgame",
+      "state": {
+        "ruleset": "brandubh",
+        "board": [
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "D",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          "D",
+          "K",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          "."
+        ],
+        "turn": "attackers",
+        "ply": 0,
+        "winner": null,
+        "reason": null,
+        "history": []
+      }
+    },
+    {
+      "name": "brandubh-tactical",
+      "ruleset": "brandubh",
+      "kind": "tactical",
+      "state": {
+        "ruleset": "brandubh",
+        "board": [
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "D",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          "D",
+          ".",
+          "D",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "K",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "."
+        ],
+        "turn": "attackers",
+        "ply": 0,
+        "winner": null,
+        "reason": null,
+        "history": []
+      }
+    },
+    {
+      "name": "brandubh-king-escape",
+      "ruleset": "brandubh",
+      "kind": "king-escape",
+      "state": {
+        "ruleset": "brandubh",
+        "board": [
+          ".",
+          ".",
+          "K",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "."
+        ],
+        "turn": "defenders",
+        "ply": 0,
+        "winner": null,
+        "reason": null,
+        "history": []
+      }
+    },
+    {
+      "name": "brandubh-terminal",
+      "ruleset": "brandubh",
+      "kind": "terminal",
+      "state": {
+        "ruleset": "brandubh",
+        "board": [
+          "K",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "."
+        ],
+        "turn": "attackers",
+        "ply": 1,
+        "winner": "defenders",
+        "reason": "king_escaped",
+        "history": [
+          "defenders:..K.............................A................",
+          "attackers:K...............................A................"
+        ]
+      }
+    },
+    {
+      "name": "brandubh-repetition",
+      "ruleset": "brandubh",
+      "kind": "repetition",
+      "state": {
+        "ruleset": "brandubh",
+        "board": [
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "D",
+          ".",
+          ".",
+          ".",
+          "A",
+          "A",
+          "D",
+          "K",
+          "D",
+          "A",
+          "A",
+          ".",
+          ".",
+          ".",
+          "D",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          ".",
+          "A",
+          ".",
+          ".",
+          "."
+        ],
+        "turn": "attackers",
+        "ply": 0,
+        "winner": null,
+        "reason": null,
+        "history": [
+          "defenders:..A.......A......D...AADKDAA...D......A......A...",
+          "defenders:..A.......A......D...AADKDAA...D......A......A..."
+        ]
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "brandubh-opening",
+      "ruleset": "brandubh",
+      "kind": "opening",
+      "terminal": false,
+      "elapsed_ms": 138.61032400018303,
+      "ok": true,
+      "kind_event": "complete",
+      "analysis": {
+        "value": -0.41828784078825265,
+        "source": "neural_search",
+        "best_move": {
+          "source": 26,
+          "target": 12
+        },
+        "simulations": 256
+      },
+      "search": {
+        "version": 1,
+        "protocol": 1,
+        "driver_version": 1,
+        "algorithm": "neural-mcts-puct-v1",
+        "encoder_version": "six-plane-v1",
+        "position_identity": "42e4addeacba1591446a7ac662edd0e3114c8b73aa3487975fae40da3b553fcb",
+        "ruleset": "brandubh",
+        "size": 7,
+        "model": {
+          "sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+          "ruleset": "brandubh",
+          "size": 7
+        },
+        "provider": null,
+        "seed": 7,
+        "exploration": 1.4,
+        "neural_requests": 257,
+        "completed": true,
+        "authoritative": false,
+        "requested_simulations": 256,
+        "completed_simulations": 256,
+        "root_value": -0.4190117418766022,
+        "search_value": -0.41828784078825265,
+        "best_move": {
+          "source": 26,
+          "target": 12
+        },
+        "root_visits": [
+          {
+            "source": 26,
+            "target": 12,
+            "visits": 31,
+            "share": 0.12109375
+          },
+          {
+            "source": 21,
+            "target": 35,
+            "visits": 23,
+            "share": 0.08984375
+          },
+          {
+            "source": 38,
+            "target": 41,
+            "visits": 22,
+            "share": 0.0859375
+          },
+          {
+            "source": 10,
+            "target": 12,
+            "visits": 20,
+            "share": 0.078125
+          },
+          {
+            "source": 22,
+            "target": 29,
+            "visits": 19,
+            "share": 0.07421875
+          },
+          {
+            "source": 27,
+            "target": 41,
+            "visits": 19,
+            "share": 0.07421875
+          },
+          {
+            "source": 21,
+            "target": 7,
+            "visits": 16,
+            "share": 0.0625
+          },
+          {
+            "source": 22,
+            "target": 36,
+            "visits": 16,
+            "share": 0.0625
+          },
+          {
+            "source": 21,
+            "target": 14,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 26,
+            "target": 40,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 27,
+            "target": 13,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 3,
+            "target": 5,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 26,
+            "target": 5,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 26,
+            "target": 47,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 10,
+            "target": 7,
+            "visits": 10,
+            "share": 0.0390625
+          },
+          {
+            "source": 10,
+            "target": 9,
+            "visits": 5,
+            "share": 0.01953125
+          }
+        ],
+        "prediction_reuses": 116,
+        "inference_cache_hits": 0,
+        "deadline_cutoff": false,
+        "completion_reason": "simulations",
+        "immediate_win_shortcuts": 0,
+        "temperature": 0.0,
+        "dirichlet_fraction": 0.0,
+        "root_children": 16,
+        "trace_length": 257,
+        "trace_sha256": "ae59566d0d47dafbc061e4f8cfb2cf77a22cf028f6c3264195495d6991e4a841"
+      },
+      "path": "42e4addeacba1591446a7ac662edd0e3114c8b73aa3487975fae40da3b553fcb"
+    },
+    {
+      "name": "brandubh-midgame",
+      "ruleset": "brandubh",
+      "kind": "midgame",
+      "terminal": false,
+      "elapsed_ms": 87.0132840000224,
+      "ok": true,
+      "kind_event": "complete",
+      "analysis": {
+        "value": -0.41831355821341276,
+        "source": "neural_search",
+        "best_move": {
+          "source": 10,
+          "target": 13
+        },
+        "simulations": 256
+      },
+      "search": {
+        "version": 1,
+        "protocol": 1,
+        "driver_version": 1,
+        "algorithm": "neural-mcts-puct-v1",
+        "encoder_version": "six-plane-v1",
+        "position_identity": "f2e1baeeb86db4a75372264a6eee802fb8c59ae468a61ecbccf2dbb0b46797f5",
+        "ruleset": "brandubh",
+        "size": 7,
+        "model": {
+          "sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+          "ruleset": "brandubh",
+          "size": 7
+        },
+        "provider": null,
+        "seed": 7,
+        "exploration": 1.4,
+        "neural_requests": 257,
+        "completed": true,
+        "authoritative": false,
+        "requested_simulations": 256,
+        "completed_simulations": 256,
+        "root_value": -0.4189208745956421,
+        "search_value": -0.41831355821341276,
+        "best_move": {
+          "source": 10,
+          "target": 13
+        },
+        "root_visits": [
+          {
+            "source": 10,
+            "target": 13,
+            "visits": 32,
+            "share": 0.125
+          },
+          {
+            "source": 21,
+            "target": 35,
+            "visits": 24,
+            "share": 0.09375
+          },
+          {
+            "source": 10,
+            "target": 11,
+            "visits": 23,
+            "share": 0.08984375
+          },
+          {
+            "source": 26,
+            "target": 12,
+            "visits": 21,
+            "share": 0.08203125
+          },
+          {
+            "source": 10,
+            "target": 7,
+            "visits": 20,
+            "share": 0.078125
+          },
+          {
+            "source": 22,
+            "target": 36,
+            "visits": 17,
+            "share": 0.06640625
+          },
+          {
+            "source": 10,
+            "target": 17,
+            "visits": 15,
+            "share": 0.05859375
+          },
+          {
+            "source": 26,
+            "target": 5,
+            "visits": 14,
+            "share": 0.0546875
+          },
+          {
+            "source": 10,
+            "target": 9,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 22,
+            "target": 1,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 26,
+            "target": 47,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 22,
+            "target": 15,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 38,
+            "target": 40,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 26,
+            "target": 19,
+            "visits": 11,
+            "share": 0.04296875
+          },
+          {
+            "source": 4,
+            "target": 1,
+            "visits": 9,
+            "share": 0.03515625
+          },
+          {
+            "source": 4,
+            "target": 2,
+            "visits": 7,
+            "share": 0.02734375
+          }
+        ],
+        "prediction_reuses": 123,
+        "inference_cache_hits": 0,
+        "deadline_cutoff": false,
+        "completion_reason": "simulations",
+        "immediate_win_shortcuts": 0,
+        "temperature": 0.0,
+        "dirichlet_fraction": 0.0,
+        "root_children": 16,
+        "trace_length": 257,
+        "trace_sha256": "116b633920077d8b38a6310f576f746a8ea8dc46faa389c263d3fdd0eb817be4"
+      },
+      "path": "f2e1baeeb86db4a75372264a6eee802fb8c59ae468a61ecbccf2dbb0b46797f5"
+    },
+    {
+      "name": "brandubh-endgame",
+      "ruleset": "brandubh",
+      "kind": "endgame",
+      "terminal": false,
+      "elapsed_ms": 71.61499100038782,
+      "ok": true,
+      "kind_event": "complete",
+      "analysis": {
+        "value": -0.41900024306960404,
+        "source": "neural_search",
+        "best_move": {
+          "source": 3,
+          "target": 10
+        },
+        "simulations": 256
+      },
+      "search": {
+        "version": 1,
+        "protocol": 1,
+        "driver_version": 1,
+        "algorithm": "neural-mcts-puct-v1",
+        "encoder_version": "six-plane-v1",
+        "position_identity": "efb20cfb34277c9cb951e70c2535e2f4bc162d499b98aecf6843d2fbad2c4ee1",
+        "ruleset": "brandubh",
+        "size": 7,
+        "model": {
+          "sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+          "ruleset": "brandubh",
+          "size": 7
+        },
+        "provider": null,
+        "seed": 7,
+        "exploration": 1.4,
+        "neural_requests": 257,
+        "completed": true,
+        "authoritative": false,
+        "requested_simulations": 256,
+        "completed_simulations": 256,
+        "root_value": -0.42055240273475647,
+        "search_value": -0.41900024306960404,
+        "best_move": {
+          "source": 3,
+          "target": 10
+        },
+        "root_visits": [
+          {
+            "source": 3,
+            "target": 10,
+            "visits": 33,
+            "share": 0.12890625
+          },
+          {
+            "source": 21,
+            "target": 35,
+            "visits": 26,
+            "share": 0.1015625
+          },
+          {
+            "source": 21,
+            "target": 22,
+            "visits": 20,
+            "share": 0.078125
+          },
+          {
+            "source": 21,
+            "target": 28,
+            "visits": 19,
+            "share": 0.07421875
+          },
+          {
+            "source": 21,
+            "target": 7,
+            "visits": 18,
+            "share": 0.0703125
+          },
+          {
+            "source": 3,
+            "target": 4,
+            "visits": 16,
+            "share": 0.0625
+          },
+          {
+            "source": 45,
+            "target": 46,
+            "visits": 15,
+            "share": 0.05859375
+          },
+          {
+            "source": 21,
+            "target": 14,
+            "visits": 14,
+            "share": 0.0546875
+          },
+          {
+            "source": 45,
+            "target": 31,
+            "visits": 14,
+            "share": 0.0546875
+          },
+          {
+            "source": 45,
+            "target": 38,
+            "visits": 14,
+            "share": 0.0546875
+          },
+          {
+            "source": 3,
+            "target": 1,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 3,
+            "target": 5,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 45,
+            "target": 43,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 45,
+            "target": 47,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 3,
+            "target": 2,
+            "visits": 9,
+            "share": 0.03515625
+          },
+          {
+            "source": 45,
+            "target": 44,
+            "visits": 9,
+            "share": 0.03515625
+          }
+        ],
+        "prediction_reuses": 117,
+        "inference_cache_hits": 0,
+        "deadline_cutoff": false,
+        "completion_reason": "simulations",
+        "immediate_win_shortcuts": 0,
+        "temperature": 0.0,
+        "dirichlet_fraction": 0.0,
+        "root_children": 16,
+        "trace_length": 257,
+        "trace_sha256": "10a10e550fa435c5edd3d1098572e7748c61ece9bbb6c630ecec46c92f2a8924"
+      },
+      "path": "efb20cfb34277c9cb951e70c2535e2f4bc162d499b98aecf6843d2fbad2c4ee1"
+    },
+    {
+      "name": "brandubh-tactical",
+      "ruleset": "brandubh",
+      "kind": "tactical",
+      "terminal": false,
+      "elapsed_ms": 76.36913599981199,
+      "ok": true,
+      "kind_event": "complete",
+      "analysis": {
+        "value": -0.4132965700700879,
+        "source": "neural_search",
+        "best_move": {
+          "source": 14,
+          "target": 35
+        },
+        "simulations": 256
+      },
+      "search": {
+        "version": 1,
+        "protocol": 1,
+        "driver_version": 1,
+        "algorithm": "neural-mcts-puct-v1",
+        "encoder_version": "six-plane-v1",
+        "position_identity": "379eb0389a070401c869c328be88725b4fec9e8cf9cea8704fe07ea735b4aecf",
+        "ruleset": "brandubh",
+        "size": 7,
+        "model": {
+          "sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+          "ruleset": "brandubh",
+          "size": 7
+        },
+        "provider": null,
+        "seed": 7,
+        "exploration": 1.4,
+        "neural_requests": 256,
+        "completed": true,
+        "authoritative": false,
+        "requested_simulations": 256,
+        "completed_simulations": 256,
+        "root_value": -0.42008501291275024,
+        "search_value": -0.4132965700700879,
+        "best_move": {
+          "source": 14,
+          "target": 35
+        },
+        "root_visits": [
+          {
+            "source": 14,
+            "target": 35,
+            "visits": 26,
+            "share": 0.1015625
+          },
+          {
+            "source": 37,
+            "target": 35,
+            "visits": 24,
+            "share": 0.09375
+          },
+          {
+            "source": 37,
+            "target": 41,
+            "visits": 23,
+            "share": 0.08984375
+          },
+          {
+            "source": 14,
+            "target": 21,
+            "visits": 21,
+            "share": 0.08203125
+          },
+          {
+            "source": 37,
+            "target": 16,
+            "visits": 18,
+            "share": 0.0703125
+          },
+          {
+            "source": 37,
+            "target": 44,
+            "visits": 18,
+            "share": 0.0703125
+          },
+          {
+            "source": 14,
+            "target": 28,
+            "visits": 17,
+            "share": 0.06640625
+          },
+          {
+            "source": 14,
+            "target": 7,
+            "visits": 15,
+            "share": 0.05859375
+          },
+          {
+            "source": 37,
+            "target": 23,
+            "visits": 14,
+            "share": 0.0546875
+          },
+          {
+            "source": 37,
+            "target": 38,
+            "visits": 14,
+            "share": 0.0546875
+          },
+          {
+            "source": 37,
+            "target": 30,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 18,
+            "target": 20,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 37,
+            "target": 36,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 18,
+            "target": 4,
+            "visits": 11,
+            "share": 0.04296875
+          },
+          {
+            "source": 2,
+            "target": 4,
+            "visits": 9,
+            "share": 0.03515625
+          },
+          {
+            "source": 18,
+            "target": 11,
+            "visits": 9,
+            "share": 0.03515625
+          }
+        ],
+        "prediction_reuses": 121,
+        "inference_cache_hits": 0,
+        "deadline_cutoff": false,
+        "completion_reason": "simulations",
+        "immediate_win_shortcuts": 0,
+        "temperature": 0.0,
+        "dirichlet_fraction": 0.0,
+        "root_children": 16,
+        "trace_length": 256,
+        "trace_sha256": "6607b095a9d98f79022a58f3eb55f64aad56a4fe8471dbfb3dd6c4b354bfe57f"
+      },
+      "path": "379eb0389a070401c869c328be88725b4fec9e8cf9cea8704fe07ea735b4aecf"
+    },
+    {
+      "name": "brandubh-king-escape",
+      "ruleset": "brandubh",
+      "kind": "king-escape",
+      "terminal": false,
+      "elapsed_ms": 0.5185909994906979,
+      "ok": true,
+      "kind_event": "complete",
+      "analysis": {
+        "value": 1.0,
+        "source": "neural_search",
+        "best_move": {
+          "source": 2,
+          "target": 0
+        },
+        "simulations": 0
+      },
+      "search": {
+        "version": 1,
+        "protocol": 1,
+        "driver_version": 1,
+        "algorithm": "neural-mcts-puct-v1",
+        "encoder_version": "six-plane-v1",
+        "position_identity": "b9db0bdf242456d1badb4482ed189419e37eec10b4a5aacb85143ac21bf632dc",
+        "ruleset": "brandubh",
+        "size": 7,
+        "model": {
+          "sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+          "ruleset": "brandubh",
+          "size": 7
+        },
+        "provider": null,
+        "seed": 7,
+        "exploration": 1.4,
+        "neural_requests": 1,
+        "completed": true,
+        "authoritative": false,
+        "requested_simulations": 256,
+        "completed_simulations": 0,
+        "root_value": -0.41804853081703186,
+        "search_value": 1.0,
+        "best_move": {
+          "source": 2,
+          "target": 0
+        },
+        "root_visits": [
+          {
+            "source": 2,
+            "target": 0,
+            "visits": 0,
+            "share": 1.0
+          }
+        ],
+        "prediction_reuses": 0,
+        "inference_cache_hits": 0,
+        "deadline_cutoff": false,
+        "completion_reason": "immediate_win",
+        "immediate_win_shortcuts": 1,
+        "temperature": 0.0,
+        "dirichlet_fraction": 0.0,
+        "root_children": 1,
+        "trace_length": 1,
+        "trace_sha256": "b647068a71739e3035aa8e64149a7ae66debccc5d7e6b263ccd22bf3428f7ff2"
+      },
+      "path": "b9db0bdf242456d1badb4482ed189419e37eec10b4a5aacb85143ac21bf632dc"
+    },
+    {
+      "name": "brandubh-terminal",
+      "ruleset": "brandubh",
+      "kind": "terminal",
+      "terminal": true,
+      "elapsed_ms": 0.05725800019718008,
+      "ok": true,
+      "kind_event": "complete",
+      "analysis": {
+        "value": 1.0,
+        "source": "terminal",
+        "best_move": null
+      },
+      "search": {
+        "version": 1,
+        "protocol": 1,
+        "driver_version": 1,
+        "algorithm": "neural-mcts-puct-v1",
+        "encoder_version": "six-plane-v1",
+        "position_identity": "ca8471132e3e90371353f2664af90684a3b61caf5fc346d13d382635b65c3d0b",
+        "ruleset": "brandubh",
+        "size": 7,
+        "model": {
+          "sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+          "ruleset": "brandubh",
+          "size": 7
+        },
+        "provider": null,
+        "seed": 7,
+        "exploration": 1.4,
+        "neural_requests": 0,
+        "completed": true,
+        "authoritative": false,
+        "requested_simulations": 256,
+        "completed_simulations": 0,
+        "root_value": null,
+        "search_value": null,
+        "best_move": null,
+        "root_visits": [],
+        "prediction_reuses": 0,
+        "inference_cache_hits": 0,
+        "deadline_cutoff": false,
+        "completion_reason": "terminal",
+        "immediate_win_shortcuts": 0,
+        "temperature": 0.0,
+        "dirichlet_fraction": 0.0,
+        "root_children": 0,
+        "trace_length": 0,
+        "trace_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "path": "ca8471132e3e90371353f2664af90684a3b61caf5fc346d13d382635b65c3d0b"
+    },
+    {
+      "name": "brandubh-repetition",
+      "ruleset": "brandubh",
+      "kind": "repetition",
+      "terminal": false,
+      "elapsed_ms": 80.09296999989601,
+      "ok": true,
+      "kind_event": "complete",
+      "analysis": {
+        "value": -0.41828784078825265,
+        "source": "neural_search",
+        "best_move": {
+          "source": 26,
+          "target": 12
+        },
+        "simulations": 256
+      },
+      "search": {
+        "version": 1,
+        "protocol": 1,
+        "driver_version": 1,
+        "algorithm": "neural-mcts-puct-v1",
+        "encoder_version": "six-plane-v1",
+        "position_identity": "ef599a56b1caf8c49a3ebf8f52bd6755afe81f9b8b9692a187fd181dfef656cd",
+        "ruleset": "brandubh",
+        "size": 7,
+        "model": {
+          "sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+          "ruleset": "brandubh",
+          "size": 7
+        },
+        "provider": null,
+        "seed": 7,
+        "exploration": 1.4,
+        "neural_requests": 257,
+        "completed": true,
+        "authoritative": false,
+        "requested_simulations": 256,
+        "completed_simulations": 256,
+        "root_value": -0.4190117418766022,
+        "search_value": -0.41828784078825265,
+        "best_move": {
+          "source": 26,
+          "target": 12
+        },
+        "root_visits": [
+          {
+            "source": 26,
+            "target": 12,
+            "visits": 31,
+            "share": 0.12109375
+          },
+          {
+            "source": 21,
+            "target": 35,
+            "visits": 23,
+            "share": 0.08984375
+          },
+          {
+            "source": 38,
+            "target": 41,
+            "visits": 22,
+            "share": 0.0859375
+          },
+          {
+            "source": 10,
+            "target": 12,
+            "visits": 20,
+            "share": 0.078125
+          },
+          {
+            "source": 22,
+            "target": 29,
+            "visits": 19,
+            "share": 0.07421875
+          },
+          {
+            "source": 27,
+            "target": 41,
+            "visits": 19,
+            "share": 0.07421875
+          },
+          {
+            "source": 21,
+            "target": 7,
+            "visits": 16,
+            "share": 0.0625
+          },
+          {
+            "source": 22,
+            "target": 36,
+            "visits": 16,
+            "share": 0.0625
+          },
+          {
+            "source": 21,
+            "target": 14,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 26,
+            "target": 40,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 27,
+            "target": 13,
+            "visits": 13,
+            "share": 0.05078125
+          },
+          {
+            "source": 3,
+            "target": 5,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 26,
+            "target": 5,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 26,
+            "target": 47,
+            "visits": 12,
+            "share": 0.046875
+          },
+          {
+            "source": 10,
+            "target": 7,
+            "visits": 10,
+            "share": 0.0390625
+          },
+          {
+            "source": 10,
+            "target": 9,
+            "visits": 5,
+            "share": 0.01953125
+          }
+        ],
+        "prediction_reuses": 116,
+        "inference_cache_hits": 0,
+        "deadline_cutoff": false,
+        "completion_reason": "simulations",
+        "immediate_win_shortcuts": 0,
+        "temperature": 0.0,
+        "dirichlet_fraction": 0.0,
+        "root_children": 16,
+        "trace_length": 257,
+        "trace_sha256": "ae59566d0d47dafbc061e4f8cfb2cf77a22cf028f6c3264195495d6991e4a841"
+      },
+      "path": "ef599a56b1caf8c49a3ebf8f52bd6755afe81f9b8b9692a187fd181dfef656cd"
+    }
+  ],
+  "failures": [],
+  "authoritative": false,
+  "ok": true
+}

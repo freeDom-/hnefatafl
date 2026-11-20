@@ -84,6 +84,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Current-engine browser analysis feasibility](validation/browser-analysis-prototype.md)
 - [Browser neural execution and CSP feasibility](validation/browser-neural-feasibility.md)
 - [Browser analysis Phase 1 validation (Jarl and neural inference)](validation/browser-analysis-phase1.md)
+- [Browser analysis Phase 2 validation (browser-side neural MCTS)](validation/browser-analysis-phase2.md)
 - [Browser-side analysis roadmap](designs/browser-analysis-roadmap.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
