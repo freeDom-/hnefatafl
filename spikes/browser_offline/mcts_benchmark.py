@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import statistics
 import sys
 from pathlib import Path
@@ -128,14 +129,244 @@ def case_key(record: dict) -> tuple:
     )
 
 
+def _is_int(value) -> bool:
+    return type(value) is int
+
+
+def _is_number(value) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
+
+
+def _finite(value) -> bool:
+    return _is_number(value) and math.isfinite(float(value))
+
+
+def _hex64(value) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def selection_position_names(selection) -> list[str]:
+    """Re-derive benchmark positions from the recorded fixture selection."""
+    if not isinstance(selection, dict):
+        raise ValueError("workload has no selection definition")
+    if selection.get("source") != "fixtures.jarl_positions":
+        raise ValueError("workload selection source is unsupported")
+    from fixtures import jarl_positions
+
+    rulesets = selection.get("rulesets")
+    if not isinstance(rulesets, list) or not rulesets:
+        raise ValueError("workload selection has no rulesets")
+    kinds = selection.get("kinds")
+    if kinds is not None and not isinstance(kinds, list):
+        raise ValueError("workload selection has invalid kinds")
+    return [
+        case["name"]
+        for case in jarl_positions()
+        if case["ruleset"] in rulesets and (kinds is None or case["kind"] in kinds)
+    ]
+
+
+def expected_keys(report: dict) -> list[tuple]:
+    """Independently derive every measured record key from the workload."""
+    workload = report.get("workload")
+    if not isinstance(workload, dict):
+        raise ValueError("report has no workload definition")
+    positions = workload.get("positions")
+    if not isinstance(positions, list) or not positions:
+        raise ValueError("workload has no positions")
+    try:
+        expected_names = selection_position_names(workload.get("selection"))
+    except ValueError as error:
+        raise ValueError(str(error)) from None
+    if [entry.get("name") for entry in positions] != expected_names:
+        raise ValueError("workload positions do not match the recorded fixture selection")
+    names = []
+    for entry in positions:
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            raise ValueError("workload position entry is malformed")
+        names.append(entry["name"])
+    if len(set(names)) != len(names):
+        raise ValueError("workload position names are not unique")
+    cases = workload.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("workload has no cases")
+    repetitions = workload.get("repetitions")
+    if not _is_int(repetitions) or repetitions < 1:
+        raise ValueError("workload repetitions must be a positive integer")
+    keys = []
+    for position in positions:
+        for case in cases:
+            mode = case.get("mode")
+            budget = case.get("budget")
+            if mode not in MODES:
+                raise ValueError(f"unsupported benchmark mode {mode!r}")
+            if mode == "fixed_simulations":
+                if not _is_int(budget) or budget < 1:
+                    raise ValueError("fixed-simulation budget must be a positive integer")
+            elif not _finite(budget) or budget <= 0:
+                raise ValueError("fixed-time budget must be a positive number")
+            for repetition in range(repetitions):
+                keys.append((position["ruleset"], position["name"], mode, budget, repetition))
+    return keys
+
+
+def _validate_record(record: dict, workload: dict, position_rulesets: dict) -> list[str]:
+    failures: list[str] = []
+    name = record.get("position")
+    mode = record.get("mode")
+    budget = record.get("budget")
+    position = position_rulesets.get(name)
+    if position is None:
+        return [f"{name}: result does not belong to a workload position"]
+    if record.get("ruleset") != position:
+        failures.append(f"{name}: result ruleset does not match the workload position")
+    settings = settings_for(
+        mode, budget, seed=workload.get("seed"), exploration=workload.get("exploration")
+    )
+    requested = settings["iterations"]
+    if record.get("requested_simulations") != requested:
+        failures.append(f"{name}/{mode}/{budget}: requested simulations were redefined")
+    completed = record.get("completed_simulations")
+    if not _is_int(completed) or completed < 0:
+        failures.append(
+            f"{name}/{mode}/{budget}: completed simulations must be a non-negative integer"
+        )
+        completed = None
+    if completed is not None and completed > requested:
+        failures.append(f"{name}/{mode}/{budget}: completed simulations exceed the budget")
+    elapsed = record.get("elapsed_ms")
+    if not _finite(elapsed) or elapsed <= 0:
+        failures.append(f"{name}/{mode}/{budget}: elapsed time must be finite and positive")
+    reason = record.get("completion_reason")
+    if reason not in (
+        "simulations",
+        "deadline",
+        "immediate_win",
+        "terminal",
+        "insufficient_budget",
+    ):
+        failures.append(f"{name}/{mode}/{budget}: unexpected completion reason {reason!r}")
+    if not isinstance(record.get("deadline_cutoff"), bool):
+        failures.append(f"{name}/{mode}/{budget}: deadline_cutoff must be a boolean")
+    for field in ("neural_requests", "prediction_reuses", "root_children"):
+        if not _is_int(record.get(field)) or record[field] < 0:
+            failures.append(f"{name}/{mode}/{budget}: {field} must be a non-negative integer")
+    if mode == "fixed_simulations":
+        if reason == "immediate_win":
+            if completed not in (None, 0):
+                failures.append(f"{name}: immediate win claimed completed simulations")
+        elif completed != requested:
+            failures.append(
+                f"{name}/{mode}/{budget}: fixed-work search completed {completed} of {requested}"
+            )
+        if record.get("deadline_cutoff"):
+            failures.append(f"{name}/{mode}/{budget}: fixed-work search was deadline limited")
+    return failures
+
+
+def validate_report(report: dict, side: str) -> dict:
+    """Validate one benchmark report and every raw measured record."""
+    failures: list[str] = []
+
+    def fail(message: str) -> None:
+        failures.append(f"{side}: {message}")
+
+    if not isinstance(report, dict):
+        return {"failures": [f"{side}: report is not an object"]}
+    if report.get("kind") != "mcts-benchmark":
+        fail("kind is not mcts-benchmark")
+    if report.get("schema") != 1:
+        fail(f"unsupported schema {report.get('schema')!r}")
+    if not isinstance(report.get("runtime"), str) or not report["runtime"]:
+        fail("runtime is missing")
+    identity = report.get("engine_identity")
+    if not isinstance(identity, dict) or not _hex64(identity.get("sha256")):
+        fail("engine source identity is missing or malformed")
+    if not _hex64(report.get("workload_digest")):
+        fail("workload digest is missing or malformed")
+    workload = report.get("workload")
+    if not isinstance(workload, dict):
+        fail("workload definition is missing")
+        workload = {}
+    model = report.get("model")
+    if not isinstance(model, dict) or not _hex64(model.get("onnx_sha256")):
+        fail("model identity is missing or malformed")
+    report_failures = report.get("failures")
+    if not isinstance(report_failures, list) or any(
+        not isinstance(item, str) for item in report_failures
+    ):
+        fail("failures must be a list of strings")
+    elif report_failures:
+        fail("the report itself records failures")
+    try:
+        keys = expected_keys(report)
+    except ValueError as error:
+        fail(str(error))
+        keys = []
+    position_rulesets = {}
+    for entry in workload.get("positions") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+            position_rulesets[entry["name"]] = entry.get("ruleset")
+    expected = set(keys)
+    records = report.get("records")
+    if not isinstance(records, list):
+        fail("records must be a list")
+        records = []
+    seen = set()
+    for record in records:
+        if not isinstance(record, dict):
+            fail("record is not an object")
+            continue
+        key = (
+            record.get("ruleset"),
+            record.get("position"),
+            record.get("mode"),
+            record.get("budget"),
+            record.get("repetition"),
+        )
+        if key in seen:
+            fail(
+                f"{record.get('position')}/{record.get('mode')}/{record.get('budget')}: duplicate measured repetition"
+            )
+            continue
+        seen.add(key)
+        if key not in expected:
+            fail(
+                f"{record.get('position')}/{record.get('mode')}/{record.get('budget')}: unexpected measured record"
+            )
+            continue
+        if record.get("ok") is not True:
+            fail(
+                f"{record.get('position')}/{record.get('mode')}/{record.get('budget')}: repetition failed"
+            )
+            continue
+        failures.extend(
+            f"{side}: {failure}"
+            for failure in _validate_record(record, workload, position_rulesets)
+        )
+    missing = sorted(expected - seen)
+    if missing:
+        fail(f"{len(missing)} expected measured repetition(s) are missing")
+    return {
+        "failures": failures,
+        "records": records,
+        "workload": workload,
+        "model": model,
+        "identity": identity.get("sha256") if isinstance(identity, dict) else None,
+    }
+
+
 def summarize(records: list[dict]) -> dict:
-    """Aggregate measured records without inventing missing metrics."""
+    """Aggregate validated records; failures are reported, never hidden."""
     groups: dict[tuple, list[dict]] = {}
     for record in records:
         groups.setdefault(case_key(record), []).append(record)
     rows = []
     for key, entries in sorted(groups.items()):
-        runtime = entries[0].get("runtime")
         valid = [entry for entry in entries if entry.get("ok")]
         completed = [entry["completed_simulations"] for entry in valid]
         elapsed = [entry["elapsed_ms"] for entry in valid]
@@ -149,9 +380,10 @@ def summarize(records: list[dict]) -> dict:
             "position": key[1],
             "mode": key[2],
             "budget": key[3],
-            "runtime": runtime,
+            "runtime": entries[0].get("runtime"),
             "repetitions": len(entries),
             "valid_repetitions": len(valid),
+            "failed_repetitions": len(entries) - len(valid),
             "requested_simulations": entries[0].get("requested_simulations"),
             "completed_median": statistics.median(completed) if completed else None,
             "completed_min": min(completed) if completed else None,
@@ -174,100 +406,163 @@ def summarize(records: list[dict]) -> dict:
             else None,
         }
         for field in (
-            "neural_wait_ms_median",
-            "python_action_ms_median",
-            "traversal_ms_median",
-            "encode_ms_median",
-            "legal_generation_ms_median",
-            "unattributed_ms_median",
-            "inference_ms_median",
-            "deadline_overshoot_ms_median",
+            "neural_wait_ms",
+            "python_action_ms",
+            "traversal_ms",
+            "encode_ms",
+            "legal_generation_ms",
+            "unattributed_ms",
+            "inference_ms",
+            "deadline_overshoot_ms",
         ):
             values = [entry[field] for entry in valid if entry.get(field) is not None]
             row[field] = statistics.median(values) if values else None
         rows.append(row)
-    completed_pairs = [
-        (row["budget"], row["completed_median"])
-        for row in rows
-        if row["mode"] == "fixed_simulations"
-    ]
     return {
         "rows": rows,
+        "valid_records": sum(len(group) for group in groups.values())
+        - sum(len(group) - len([e for e in group if e.get("ok")]) for group in groups.values()),
+        "failed_records": sum(
+            1 for group in groups.values() for entry in group if not entry.get("ok")
+        ),
         "fixed_simulations_complete": all(
-            row["completed_median"] == row["requested_simulations"]
+            row["valid_repetitions"] == row["repetitions"]
+            and row["completed_median"] == row["requested_simulations"]
             for row in rows
             if row["mode"] == "fixed_simulations"
         ),
-        "fixed_simulations_cases": len(completed_pairs),
     }
 
 
 def compare_reports(native: dict, browser: dict) -> dict:
-    """Compare fixed-work equal-work results and report fixed-time separately."""
-    failures: list[str] = []
+    """Validate raw measured records, then compare equal-work results."""
+    native_validation = validate_report(native, "native")
+    browser_validation = validate_report(browser, "browser")
+    failures = list(native_validation["failures"]) + list(browser_validation["failures"])
     notes: list[str] = []
-    summary_native = native.get("summary") or summarize(native.get("records", []))
-    summary_browser = browser.get("summary") or summarize(browser.get("records", []))
-    native_rows = {case_key(row): row for row in summary_native["rows"]}
-    browser_rows = {case_key(row): row for row in summary_browser["rows"]}
-    missing = sorted(set(native_rows) - set(browser_rows))
-    extra = sorted(set(browser_rows) - set(native_rows))
-    if missing:
-        failures.append(f"browser report is missing {len(missing)} workload case(s)")
-    if extra:
-        failures.append(f"browser report has {len(extra)} unexpected workload case(s)")
-    if native.get("engine_identity", {}).get("sha256") != browser.get("engine_identity", {}).get(
-        "sha256"
-    ):
+    if native_validation.get("identity") != browser_validation.get("identity"):
         failures.append("engine source identity differs between the runs")
     if native.get("workload_digest") != browser.get("workload_digest"):
         failures.append("workload digest differs between the runs")
+    native_workload = native_validation.get("workload") or {}
+    browser_workload = browser_validation.get("workload") or {}
+    for field in (
+        "positions",
+        "cases",
+        "seed",
+        "exploration",
+        "repetitions",
+        "warmup",
+        "selection",
+    ):
+        if native_workload.get(field) != browser_workload.get(field):
+            failures.append(f"workload {field} differs between the runs")
+    native_model = (native_validation.get("model") or {}).get("onnx_sha256")
+    browser_model = (browser_validation.get("model") or {}).get("onnx_sha256")
+    if native_model != browser_model:
+        failures.append("model digest differs between the runs")
+    native_records = native_validation.get("records") or []
+    browser_records = browser_validation.get("records") or []
+    native_summary = summarize(native_records)
+    browser_summary = summarize(browser_records)
     rows = []
-    for key in sorted(set(native_rows) & set(browser_rows)):
-        left, right = native_rows[key], browser_rows[key]
+    equal_work = 0
+    for key in sorted(
+        {case_key(record) for record in native_records}
+        | {case_key(record) for record in browser_records}
+    ):
+        left = [record for record in native_records if case_key(record) == key and record.get("ok")]
+        right = [
+            record for record in browser_records if case_key(record) == key and record.get("ok")
+        ]
         entry = {
             "ruleset": key[0],
             "position": key[1],
             "mode": key[2],
             "budget": key[3],
-            "native_completed_median": left["completed_median"],
-            "browser_completed_median": right["completed_median"],
-            "native_sps": left["simulations_per_second"],
-            "browser_sps": right["simulations_per_second"],
-            "equal_work": left["completed_median"] == right["completed_median"],
+            "native_repetitions": len(left),
+            "browser_repetitions": len(right),
         }
-        if (
-            entry["equal_work"]
-            and left["simulations_per_second"]
-            and right["simulations_per_second"]
-        ):
-            entry["browser_to_native_ratio"] = (
-                right["simulations_per_second"] / left["simulations_per_second"]
+        if not left or not right:
+            entry["ok"] = False
+            rows.append(entry)
+            continue
+        same_work = all(
+            record["completed_simulations"] == left[0]["completed_simulations"]
+            and record["neural_requests"] == left[0]["neural_requests"]
+            for record in right
+        ) and all(
+            record["completed_simulations"] == left[0]["completed_simulations"]
+            and record["neural_requests"] == left[0]["neural_requests"]
+            for record in left
+        )
+        entry["equal_work"] = same_work
+        entry["native_completed"] = statistics.median(
+            record["completed_simulations"] for record in left
+        )
+        entry["browser_completed"] = statistics.median(
+            record["completed_simulations"] for record in right
+        )
+        entry["native_sps"] = statistics.median(
+            record["completed_simulations"] / (record["elapsed_ms"] / 1000.0) for record in left
+        )
+        entry["browser_sps"] = statistics.median(
+            record["completed_simulations"] / (record["elapsed_ms"] / 1000.0) for record in right
+        )
+        entry["native_latency_ms"] = statistics.median(record["elapsed_ms"] for record in left)
+        entry["browser_latency_ms"] = statistics.median(record["elapsed_ms"] for record in right)
+        entry["completion_reasons"] = sorted(
+            {record["completion_reason"] for record in left + right}
+        )
+        if same_work:
+            equal_work += 1
+            if entry["native_sps"] and entry["browser_sps"]:
+                entry["browser_to_native_ratio"] = entry["browser_sps"] / entry["native_sps"]
+            if key[2] == "fixed_time":
+                notes.append(f"{key[1]}/{key[3]}s: equal completed work in a fixed-time case")
+        elif key[2] == "fixed_time":
+            notes.append(
+                f"{key[1]}/{key[3]}s: fixed-time runs completed different work "
+                f"({entry['native_completed']} vs {entry['browser_completed']}); "
+                "no throughput ratio is reported"
             )
         rows.append(entry)
-    equal = [row for row in rows if row["equal_work"] and row.get("browser_to_native_ratio")]
-    ratios = [row["browser_to_native_ratio"] for row in equal]
-    if not equal:
-        notes.append("no equal-work cases; no throughput ratio is reported")
-    fixed_work_incomplete = [
-        row
-        for row in summary_browser["rows"]
-        if row["mode"] == "fixed_simulations"
-        and row["completed_median"] != row["requested_simulations"]
+    ratios = [
+        row["browser_to_native_ratio"]
+        for row in rows
+        if row.get("equal_work") and row.get("browser_to_native_ratio") is not None
     ]
-    for row in fixed_work_incomplete:
-        failures.append(
-            f"{row['ruleset']}/{row['position']}/{row['budget']}: browser completed "
-            f"{row['completed_median']} of {row['requested_simulations']} simulations"
-        )
+    fixed_work_incomplete = [
+        failure for failure in failures if "fixed-work search completed" in failure
+    ]
     report = {
         "kind": "mcts-benchmark-comparison",
-        "schema": 1,
+        "schema": 2,
         "failures": failures,
         "notes": notes,
-        "cases": rows,
-        "equal_work_cases": len(equal),
-        "median_browser_to_native_ratio": statistics.median(ratios) if ratios else None,
+        "execution_validity": {
+            "native": not native_validation["failures"],
+            "browser": not browser_validation["failures"],
+            "native_records": native_summary["valid_records"],
+            "browser_records": browser_summary["valid_records"],
+            "failed_records": native_summary["failed_records"] + browser_summary["failed_records"],
+        },
+        "workload_completion": {
+            "native_fixed_work_complete": native_summary["fixed_simulations_complete"]
+            and not any("native" in failure for failure in fixed_work_incomplete),
+            "browser_fixed_work_complete": browser_summary["fixed_simulations_complete"]
+            and not any("browser" in failure for failure in fixed_work_incomplete),
+        },
+        "performance": {
+            "equal_work_cases": equal_work,
+            "cases": rows,
+            "median_browser_to_native_ratio": statistics.median(ratios) if ratios else None,
+            "note": (
+                "Equal completed simulations and neural evaluations are required "
+                "before a latency or throughput ratio is reported."
+            ),
+        },
+        "summary": {"native": native_summary, "browser": browser_summary},
         "aspirational_target": {
             "simulations": 1024,
             "seconds": 2.0,
@@ -276,7 +571,8 @@ def compare_reports(native: dict, browser: dict) -> dict:
         },
         "authoritative": False,
     }
-    report["ok"] = not failures
+    report["acceptance"] = not failures
+    report["ok"] = report["acceptance"]
     return report
 
 
@@ -297,16 +593,16 @@ def main() -> None:
         json.dumps(
             {
                 "ok": report["ok"],
-                "equal_work_cases": report["equal_work_cases"],
-                "median_browser_to_native_ratio": report["median_browser_to_native_ratio"],
+                "equal_work_cases": report["performance"]["equal_work_cases"],
+                "median_browser_to_native_ratio": report["performance"][
+                    "median_browser_to_native_ratio"
+                ],
                 "failures": report["failures"],
                 "notes": report["notes"],
             },
             indent=2,
         )
     )
-    for row in report["cases"]:
-        print(json.dumps(row, sort_keys=True))
     sys.exit(0 if report["ok"] else 1)
 
 

@@ -139,8 +139,18 @@ try {
   );
   if (!positions.length) throw new Error("no benchmark positions for the staged model ruleset");
   report.workload = {
-    rulesets: [assets.model.ruleset],
-    kinds: preset.kinds,
+    selection: {
+      source: "fixtures.jarl_positions",
+      rulesets: [assets.model.ruleset],
+      kinds: preset.kinds,
+      limit: null,
+    },
+    positions: positions.map((entry) => ({
+      name: entry.name,
+      ruleset: entry.ruleset,
+      kind: entry.kind,
+      state: entry.state,
+    })),
     cases,
     seed,
     exploration,
@@ -194,7 +204,7 @@ try {
     async (requestedProvider) => {
       const started = performance.now();
       const info = await window.neural.coordinator.infoAction();
-      const { assets: staged } = await window.neural.assets();
+      const staged = await window.neural.meta();
       const load = await window.neural.client.load("./" + staged.model.file, {
         provider: requestedProvider,
         size: staged.model.size,
@@ -260,6 +270,21 @@ try {
   report.workload_digest = workload.digest;
   if (nativePath) {
     const native = JSON.parse(await readFile(resolve(nativePath), "utf8"));
+    if (!native.workload?.selection)
+      fail("native benchmark report has no reproducible workload selection");
+    else {
+      const expected = native.workload.positions;
+      if (
+        JSON.stringify(expected.map((entry) => entry.name)) !==
+        JSON.stringify(report.workload.positions.map((entry) => entry.name))
+      )
+        fail("native benchmark positions do not match the staged selection");
+      if (JSON.stringify(native.workload.selection) !== JSON.stringify(report.workload.selection))
+        fail("native benchmark selection differs from the browser selection");
+      // Adopt the native workload definition so the comparator validates one
+      // canonical matrix (positions, settings and repetitions).
+      report.workload = native.workload;
+    }
     report.workload_check = {
       native_digest: native.workload_digest,
       matches: native.workload_digest === workload.digest,
@@ -408,8 +433,9 @@ try {
       report.comparison = await readFile(comparisonPath, "utf8")
         .then((text) => JSON.parse(text))
         .catch(() => ({ failures: ["comparator produced no report"] }));
-    if (comparison.code !== 0)
-      fail(...((report.comparison?.failures ?? ["benchmark comparison failed"]).slice(0, 5)));
+    report.comparison_failures =
+      comparison.code === 0 ? [] : (report.comparison?.failures ?? ["benchmark comparison failed"]);
+    report.comparison_ok = comparison.code === 0;
   }
 
   report.page_errors = pageErrors;
@@ -424,7 +450,8 @@ try {
   if (server) await new Promise((done) => server.close(done));
 }
 
-report.ok = report.failures.length === 0;
+report.ok =
+  report.failures.length === 0 && report.comparison_ok !== false;
 if (output) {
   await mkdir(dirname(resolve(output)), { recursive: true });
   await writeFile(resolve(output), JSON.stringify(report, null, 2) + "\n");
@@ -437,8 +464,10 @@ console.log(
       records: report.records.length,
       workload_digest_matches: report.workload_check?.matches ?? null,
       median_simulations_per_second: report.throughput?.median_simulations_per_second ?? null,
-      equal_work_cases: report.comparison?.equal_work_cases ?? null,
-      median_browser_to_native_ratio: report.comparison?.median_browser_to_native_ratio ?? null,
+      acceptance: report.comparison?.acceptance ?? null,
+      equal_work_cases: report.comparison?.performance?.equal_work_cases ?? null,
+      median_browser_to_native_ratio:
+        report.comparison?.performance?.median_browser_to_native_ratio ?? null,
       failures: report.failures,
     },
     null,

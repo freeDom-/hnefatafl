@@ -102,6 +102,7 @@ try {
   report.workload_digest = native.workload_digest;
   report.positions = native.positions;
   report.settings = native.settings;
+  report.workload = native.workload;
   if (native.level === "b" && assets.model.sha256 !== native.model_meta?.onnx_sha256)
     throw new Error("staged model digest differs from the native reference model");
   if (native.level === "b" && !assets.model.validated)
@@ -167,6 +168,30 @@ try {
     return info.python.engine_identity;
   });
   report.engine_identity = identity;
+  // Independently reproduce the declared selection from the staged fixtures so a
+  // report cannot silently omit an expected position.
+  const selection = native.workload?.selection;
+  if (!selection || selection.source !== "fixtures.jarl_positions")
+    throw new Error("native report has no reproducible workload selection");
+  const stagedPositions = JSON.parse(
+    await readFile(resolve(root, "mcts-positions.json"), "utf8"),
+  );
+  const selected = [];
+  const counted = {};
+  for (const entry of stagedPositions) {
+    if (!selection.rulesets.includes(entry.ruleset)) continue;
+    if (selection.kinds && !selection.kinds.includes(entry.kind)) continue;
+    if (selection.limit) {
+      counted[entry.ruleset] = counted[entry.ruleset] ?? 0;
+      if (counted[entry.ruleset] >= selection.limit) continue;
+      counted[entry.ruleset] += 1;
+    }
+    selected.push(entry);
+  }
+  const expectedNames = selected.map((entry) => entry.name);
+  const nativeNames = native.positions.map((entry) => entry.name);
+  if (JSON.stringify(expectedNames) !== JSON.stringify(nativeNames))
+    fail("native workload selection does not match the staged position fixtures");
   const settings = report.settings;
   const workload = await page.evaluate(
     async (payload) => {
@@ -203,7 +228,7 @@ try {
   if (report.level === "b") {
     const load = await page.evaluate(
       async (requestedProvider) => {
-        const { assets: staged } = await window.neural.assets();
+        const staged = await window.neural.meta();
         return window.neural.client.load("./" + staged.model.file, {
           provider: requestedProvider,
           size: staged.model.size,
@@ -307,9 +332,9 @@ try {
     .then((text) => JSON.parse(text))
     .catch(() => ({ failures: [`comparator produced no report: ${comparison.stderr.slice(-400)}`] }));
   report.comparison_exit_code = comparison.code;
-  if (comparison.code !== 0) {
-    fail(...(report.comparison.failures ?? ["parity comparison failed"]));
-  }
+  report.comparison_failures =
+    comparison.code === 0 ? [] : (report.comparison.failures ?? ["parity comparison failed"]);
+  report.comparison_ok = comparison.code === 0;
 
   report.page_errors = pageErrors;
   report.external_requests = external;
@@ -323,7 +348,8 @@ try {
   if (server) await new Promise((done) => server.close(done));
 }
 
-report.ok = report.failures.length === 0;
+report.ok =
+  report.failures.length === 0 && report.comparison_ok !== false;
 if (output) {
   await mkdir(dirname(resolve(output)), { recursive: true });
   await writeFile(resolve(output), JSON.stringify(report, null, 2) + "\n");
@@ -336,10 +362,14 @@ console.log(
       provider: report.load?.execution_placement ?? null,
       positions: report.results.length,
       workload_digest_matches: report.workload_check?.matches ?? false,
-      parity: report.comparison?.parity ?? report.comparison?.best_move_parity ?? null,
-      exact_cases: report.comparison?.exact_cases ?? null,
-      best_move_matches: report.comparison?.best_move_matches ?? null,
-      failures: report.failures,
+      acceptance: report.comparison?.acceptance ?? null,
+      execution_validity: report.comparison?.execution_validity?.ok ?? null,
+      deterministic_parity: report.comparison?.deterministic_parity?.ok ?? null,
+      exact_cases: report.comparison?.deterministic_parity?.exact_cases ?? null,
+      best_move_parity: report.comparison?.numerical_comparison?.best_move_parity ?? null,
+      best_move_matches: report.comparison?.numerical_comparison?.best_move_matches ?? null,
+      workload_complete: report.comparison?.workload_completion?.complete ?? null,
+      failures: [...report.failures, ...(report.comparison_failures ?? [])],
       notes: report.comparison?.notes ?? [],
     },
     null,

@@ -105,19 +105,24 @@ def drive(
     configuration = validate_search_settings(settings)
     identity = validate_model_identity(model)
     search = NeuralSearch(position, configuration, identity, trace=trace)
-    event = search.start()
-    while event["kind"] == "evaluate":
-        requested = validate_state(event["request"]["position"])
-        priors, value = evaluator(requested)
-        event = search.resume(
-            {
-                "request_index": event["request"]["request_index"],
-                "legal": event["request"]["legal"],
-                "priors": priors,
-                "value": value,
-            }
-        )
-    return event
+    try:
+        event = search.start()
+        while event["kind"] == "evaluate":
+            requested = validate_state(event["request"]["position"])
+            priors, value = evaluator(requested)
+            event = search.resume(
+                {
+                    "request_index": event["request"]["request_index"],
+                    "legal": event["request"]["legal"],
+                    "priors": priors,
+                    "value": value,
+                }
+            )
+        return event
+    finally:
+        # Release the generator on success, cancellation, an evaluator failure or
+        # any unexpected error; close() is idempotent and keeps a final summary.
+        search.close()
 
 
 def run_search(
