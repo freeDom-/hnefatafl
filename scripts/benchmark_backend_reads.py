@@ -444,14 +444,23 @@ def decode_mountinfo_path(value: str) -> str:
     return "".join(result)
 
 
+# A mountinfo record has at least six mandatory fields before the optional ones
+# and the `` - `` separator (mount ID, parent ID, major:minor, root, mount
+# point, mount options) and three mandatory fields after it (filesystem type,
+# mount source, super options).
+MOUNTINFO_MIN_LEADING_FIELDS = 6
+MOUNTINFO_MIN_TRAILING_FIELDS = 3
+
+
 def mountinfo_records(text: str) -> tuple[list[tuple[list[str], list[str]]], list[int]]:
     """Usable records plus the numbers of non-empty lines that could not be parsed.
 
     Records are split only on the ASCII newline and fields only on the ASCII
     space, so a path containing NBSP or U+2028 stays one field. A record needs
-    the `` - `` separator, at least five pre-separator fields and a non-empty
-    mount point. Callers decide whether an unparsed line is fatal: storage
-    safety fails closed, optional telemetry skips it.
+    the mandatory `` - `` separator, six leading fields, three trailing fields
+    and an absolute mount point; anything else is structurally incomplete.
+    Callers decide whether an unparsed line is fatal: storage safety fails
+    closed, optional telemetry skips it.
     """
     records: list[tuple[list[str], list[str]]] = []
     malformed: list[int] = []
@@ -463,8 +472,13 @@ def mountinfo_records(text: str) -> tuple[list[tuple[list[str], list[str]]], lis
             malformed.append(number)
             continue
         fields = before.split(MOUNTINFO_FIELD_SEPARATOR)
-        if len(fields) >= 5 and fields[4]:
-            records.append((fields, after.split(MOUNTINFO_FIELD_SEPARATOR)))
+        trailing = after.split(MOUNTINFO_FIELD_SEPARATOR)
+        if (
+            len(fields) >= MOUNTINFO_MIN_LEADING_FIELDS
+            and len(trailing) >= MOUNTINFO_MIN_TRAILING_FIELDS
+            and fields[4].startswith("/")
+        ):
+            records.append((fields, trailing))
         else:
             malformed.append(number)
     return records, malformed
@@ -494,17 +508,19 @@ def parse_mountinfo(text: str) -> list[Path]:
 
 
 def _mountinfo_text(path: Path | None = None) -> str | None:
-    """Raw mountinfo contents, or None when unreadable.
+    """Raw mountinfo contents, or None when unreadable or undecodable.
 
     ``newline=""`` disables universal-newline translation, so a literal carriage
     return inside a mount path is preserved instead of becoming a record
-    separator.
+    separator. A read or decode failure returns ``None``: storage safety then
+    fails closed through ``MountInfoUnavailable``, while optional telemetry
+    simply reports unavailable metadata.
     """
     target = path if path is not None else Path("/proc/self/mountinfo")
     try:
         with open(target, encoding="utf-8", newline="") as handle:
             return handle.read()
-    except OSError:
+    except (OSError, UnicodeError):
         return None
 
 
@@ -929,10 +945,14 @@ def parse_cgroup_mount(text: str) -> CgroupMount | None:
 
 
 def cgroup_v2_mount() -> CgroupMount | None:
-    """Resolve the cgroup2 mount root and point from /proc/self/mountinfo."""
-    try:
-        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
-    except OSError:
+    """Resolve the cgroup2 mount root and point from /proc/self/mountinfo.
+
+    Reuses the shared reader so a literal carriage return in a mount path is
+    preserved, and treats unreadable or undecodable mount information as
+    unavailable metadata rather than an error.
+    """
+    text = _mountinfo_text()
+    if text is None:
         return None
     return parse_cgroup_mount(text)
 

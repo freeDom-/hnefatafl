@@ -85,11 +85,14 @@ rejected before any application import, not only a different-device mount. The
 same check runs again before recursive cleanup: if a nested mount is present, or
 if mount information cannot be read, resolved or parsed reliably, the fixture is
 retained and a cleanup failure is reported rather than deleting the mounted
-contents. A table with no usable record, or with even one non-empty unparsed
-record, is not fully reliable — the unparsed line could be the mount inside the
-fixture — so it is never treated as an empty boundary set. Optional cgroup
-telemetry instead skips malformed records and reports unavailable metadata.
-Nothing is ever unmounted automatically, and ordinary symbolic
+contents. A record must have the mandatory ` - ` separator, six leading fields,
+three trailing fields and an absolute mount point; a table with no usable
+record, or with even one non-empty structurally incomplete record, is not fully
+reliable — the unparsed line could be the mount inside the fixture — so it is
+never treated as an empty boundary set. Optional cgroup telemetry reuses the
+same reader and instead skips malformed records and reports unavailable
+metadata, including when the file cannot be read or decoded. Nothing is ever
+unmounted automatically, and ordinary symbolic
 links inside the fixture are still removed without following their targets. This
 is a proportionate guard for an optional local Linux benchmark, not a defence
 against arbitrary hostile concurrent same-user filesystem manipulation. The
