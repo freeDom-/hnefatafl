@@ -87,6 +87,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Browser-side analysis roadmap](designs/browser-analysis-roadmap.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
+- [Frontend feature splitting and initial bundle evidence](validation/frontend-feature-splitting.md)
 - [Arena theme completion and visual checks](validation/arena-theme-completion.md)
 
 ## Online foundations and offline feasibility

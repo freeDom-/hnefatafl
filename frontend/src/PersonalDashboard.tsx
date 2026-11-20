@@ -22,7 +22,7 @@ import {
   type RecordedGame,
   type RecordedPage,
 } from './RecordedGames';
-import RecordedReview from './RecordedReview';
+import { deferredFeature } from './deferredFeature';
 import Leaderboard, { readStoredRuleset } from './Leaderboard';
 import Board, { type BoardView } from './Board';
 import LocalGameDialog from './LocalGameDialog';
@@ -35,6 +35,8 @@ import type { PortraitCatalog } from './portraitTypes';
 import { useProgression } from './Progression';
 import Portrait from './Portrait';
 import './personalDashboard.css';
+
+const RecordedReview = deferredFeature(() => import('./RecordedReview'));
 
 /** The active game's authoritative state, discriminated by its API source. */
 type ActiveBoard = { kind: 'online'; game: OnlineGame } | { kind: 'single'; game: Game };

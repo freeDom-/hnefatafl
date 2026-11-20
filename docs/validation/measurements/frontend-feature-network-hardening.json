@@ -1,0 +1,255 @@
+{
+  "sourceHead": "ab3ac68f16c5ff0640e12b7b42ee9720d6833beb",
+  "build": {
+    "schema": 1,
+    "revision": "ab3ac68f16c5ff0640e12b7b42ee9720d6833beb",
+    "dirty": false,
+    "git": true,
+    "fingerprint": "9cf07db7c20e0d32e8ce8874c665d3f1a4434ac539d41a7a63b50785ce4a7695",
+    "builtAt": "2026-11-19T18:39:40.420Z"
+  },
+  "measuredAt": "2026-11-19T18:40:07.176Z",
+  "browser": "156.0.8078.4",
+  "node": "v22.23.4",
+  "fixture": "Production static assets; read-only mocked account/dashboard/workshop API responses. Network graph proof, not backend capacity evidence.",
+  "initialWindow": {
+    "readiness": "Dashboard left its loading state and the manifest graph responded",
+    "settleMs": 750,
+    "limitation": "A bounded observation window cannot prove that an arbitrarily future scheduled import never occurs."
+  },
+  "manifest": {
+    "authenticatedEntry": "assets/AuthenticatedArena-Dz385qpr.js",
+    "publicEntry": "assets/PublicArena-BO8UYKu5.js",
+    "expectedInitialScripts": [
+      "assets/AuthenticatedArena-Dz385qpr.js",
+      "assets/appearance-init.js",
+      "assets/arenaTopBar-Bc5mEXx9.js",
+      "assets/index-D39nItuF.js"
+    ],
+    "expectedInitialStyles": [
+      "assets/AuthenticatedArena-DqAtxU54.css",
+      "assets/arenaTopBar-qCqN8ppL.css",
+      "assets/index-DmWrC0Xt.css"
+    ]
+  },
+  "initialFiles": [
+    "assets/AuthenticatedArena-Dz385qpr.js",
+    "assets/appearance-init.js",
+    "assets/arenaTopBar-Bc5mEXx9.js",
+    "assets/index-D39nItuF.js"
+  ],
+  "initialCssFiles": [
+    "assets/AuthenticatedArena-DqAtxU54.css",
+    "assets/arenaTopBar-qCqN8ppL.css",
+    "assets/index-DmWrC0Xt.css"
+  ],
+  "initialRequests": [
+    "assets/AuthenticatedArena-DqAtxU54.css",
+    "assets/AuthenticatedArena-Dz385qpr.js",
+    "assets/appearance-init.js",
+    "assets/arenaTopBar-Bc5mEXx9.js",
+    "assets/arenaTopBar-qCqN8ppL.css",
+    "assets/index-D39nItuF.js",
+    "assets/index-DmWrC0Xt.css"
+  ],
+  "initialFailed": [],
+  "initialInventory": [
+    {
+      "file": "assets/AuthenticatedArena-Dz385qpr.js",
+      "raw": 105468,
+      "gzip_level9": 32719
+    },
+    {
+      "file": "assets/appearance-init.js",
+      "raw": 1862,
+      "gzip_level9": 698
+    },
+    {
+      "file": "assets/arenaTopBar-Bc5mEXx9.js",
+      "raw": 5560,
+      "gzip_level9": 2323
+    },
+    {
+      "file": "assets/index-D39nItuF.js",
+      "raw": 456265,
+      "gzip_level9": 146088
+    }
+  ],
+  "initialCssInventory": [
+    {
+      "file": "assets/AuthenticatedArena-DqAtxU54.css",
+      "raw": 37455,
+      "gzip_level9": 7494
+    },
+    {
+      "file": "assets/arenaTopBar-qCqN8ppL.css",
+      "raw": 2435,
+      "gzip_level9": 839
+    },
+    {
+      "file": "assets/index-DmWrC0Xt.css",
+      "raw": 74297,
+      "gzip_level9": 15470
+    }
+  ],
+  "initialRaw": 569155,
+  "initialGzipLevel9": 181828,
+  "initialCssRaw": 114187,
+  "initialCssGzipLevel9": 23803,
+  "observedResponses": {
+    "assets/AuthenticatedArena-DqAtxU54.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/AuthenticatedArena-Dz385qpr.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/FieldTooltip-C9kLejxK.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/Training-CBmYcF5U.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/Training-D9Kg61qj.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/appearance-init.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/arenaTopBar-Bc5mEXx9.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/arenaTopBar-qCqN8ppL.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/index-D39nItuF.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/index-DmWrC0Xt.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/modelLabel-Bk66__qw.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/sortRulesets-B3wontTU.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/sortRulesets-BMELa7Sl.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/workshopConsolidation-CHTcSIYR.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/workshopConsolidation-D1HA2N_Q.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    }
+  },
+  "forbiddenModules": [],
+  "deferredFeaturesAbsentInitially": [
+    "src/Training.tsx",
+    "src/Tournaments.tsx",
+    "src/RecordedReview.tsx",
+    "src/AgentAnalysis.tsx",
+    "src/AdvisorSelect.tsx",
+    "src/NewGameForm.tsx",
+    "src/AgentConfigFields.tsx",
+    "src/StatisticsPage.tsx",
+    "src/ProfilePage.tsx",
+    "src/Online.tsx",
+    "src/PortraitHall.tsx",
+    "src/PlayerTournaments.tsx",
+    "node_modules/react-markdown/"
+  ],
+  "afterTrainingFiles": [
+    "assets/AuthenticatedArena-Dz385qpr.js",
+    "assets/FieldTooltip-C9kLejxK.js",
+    "assets/Training-D9Kg61qj.js",
+    "assets/appearance-init.js",
+    "assets/arenaTopBar-Bc5mEXx9.js",
+    "assets/index-D39nItuF.js",
+    "assets/modelLabel-Bk66__qw.js",
+    "assets/sortRulesets-B3wontTU.js",
+    "assets/workshopConsolidation-D1HA2N_Q.js"
+  ],
+  "recovery": {
+    "newGameForm": {
+      "feature": "assets/NewGameForm-C9eqNs9n.js",
+      "firstAttempt": "aborted",
+      "recoveredThrough": "Retry"
+    },
+    "transitiveDependency": {
+      "feature": "assets/workshopConsolidation-D1HA2N_Q.js",
+      "firstAttempt": "aborted",
+      "recoveredThrough": "Retry"
+    },
+    "deferredStylesheet": {
+      "feature": "assets/Training-CBmYcF5U.css",
+      "firstAttempt": "aborted",
+      "recoveredThrough": "Reload application",
+      "recoveredComputedDisplay": "flex"
+    },
+    "stylesheetReloadRequired": {
+      "feature": "assets/Training-CBmYcF5U.css",
+      "retryOffered": false,
+      "featureMounted": false,
+      "retainedErrorPanel": true,
+      "recoveredThrough": "Reload application"
+    },
+    "stylesheetNavigation": {
+      "feature": "assets/Training-CBmYcF5U.css",
+      "mountedAfterReturn": false,
+      "retainedErrorPanel": true
+    },
+    "missingHashedAsset": {
+      "feature": "assets/NewGameForm-C9eqNs9n.js",
+      "retriedWhileMissing": true,
+      "recoveredThrough": "Reload application"
+    },
+    "sharedStylesheet": {
+      "feature": "assets/analysis-Csx_b9uQ.css",
+      "blockedImporters": [
+        "Archive",
+        "RecordedReview"
+      ],
+      "unrelatedFeatureBlocked": true,
+      "recoveredThrough": "Reload application",
+      "recoveredResponse": {
+        "status": 200,
+        "contentType": "text/css"
+      },
+      "recoveredComputedPadding": "22.4px"
+    },
+    "concurrentSharedStylesheetSuccess": {
+      "feature": "assets/analysis-Csx_b9uQ.css",
+      "pendingWhileJsResolved": true,
+      "mountedWhilePending": false,
+      "recoveredComputedPadding": "22.4px"
+    },
+    "concurrentSharedStylesheetFailure": {
+      "feature": "assets/analysis-Csx_b9uQ.css",
+      "mountedWhilePending": false,
+      "mountedAfterFailure": false,
+      "retainedErrorPanel": true
+    }
+  },
+  "publicEntryIsolation": {
+    "authenticatedEntry": "assets/AuthenticatedArena-Dz385qpr.js",
+    "publicEntry": "assets/PublicArena-BO8UYKu5.js",
+    "authenticatedGraphIncludesPublicEntry": false,
+    "publicGraphIncludesAuthenticatedEntry": false
+  }
+}
