@@ -1,0 +1,53 @@
+{
+  "sourceHead": "64819d6ebd16d61f46f8873676b994c1c91bbb4a",
+  "build": {
+    "schema": 1,
+    "revision": "64819d6ebd16d61f46f8873676b994c1c91bbb4a",
+    "dirty": false,
+    "git": true,
+    "fingerprint": "94149970e6ae2b85f5d9e261ecc8436d7f869e2104eb11420cc73657c047cef1",
+    "builtAt": "2026-11-15T21:22:00.898Z"
+  },
+  "measuredAt": "2026-11-15T21:22:14.681Z",
+  "browser": "156.0.8078.4",
+  "node": "v24.22.2",
+  "fixture": "Production static assets; read-only mocked account/dashboard/workshop API responses. Network graph proof, not backend capacity evidence.",
+  "initialFiles": [
+    "/assets/appearance-init.js",
+    "/assets/index-Dv_GaMpr.js"
+  ],
+  "initialInventory": [
+    {
+      "file": "/assets/appearance-init.js",
+      "raw": 1862,
+      "gzip_level9": 698
+    },
+    {
+      "file": "/assets/index-Dv_GaMpr.js",
+      "raw": 535529,
+      "gzip_level9": 169578
+    }
+  ],
+  "initialRaw": 537391,
+  "initialGzipLevel9": 170276,
+  "afterTrainingFiles": [
+    "/assets/appearance-init.js",
+    "/assets/index-Dv_GaMpr.js",
+    "/assets/Training-D5L-SvOL.js",
+    "/assets/ConfigImportButton-OL3Ig9bQ.js",
+    "/assets/FieldTooltip-B_eWPdLK.js",
+    "/assets/sortRulesets-BVSxvNEW.js",
+    "/assets/modelLabel-CbXaY7Ig.js"
+  ],
+  "deferredFeaturesAbsentInitially": [
+    "Training",
+    "Tournaments",
+    "RecordedReview",
+    "AgentAnalysis",
+    "AdvisorSelect",
+    "NewGame",
+    "StatisticsPage",
+    "ProfilePage",
+    "Online"
+  ]
+}

@@ -767,6 +767,44 @@ on one UTC date per leaderboard response (February 29 advances March 1 in common
 years). The compact table, ranking calculations, game records and permission
 inventory are unchanged. See [account profile](docs/PROFILE.md).
 
+## Frontend feature loading
+
+The authenticated shell and live board remain immediately available. Workshop,
+AI tournaments, model-bearing setup, online management, profile/statistics,
+recorded review, Markdown rules and rich analysis load on first use.
+`deferredFeature` shares code-loading promises only; account data and component
+state remain owned by each mounted component. Failed imports offer retry and
+reload, and unmounted loaders cannot commit late state. Vite's preload state is
+document-wide and a shared deferred stylesheet such as `analysis-*.css` is
+imported by several features, so the loader tracks every stylesheet link added by
+a deferred import until it settles and only lets a module enter the cache once no
+stylesheet is pending; a concurrent import can therefore not mount while a shared
+stylesheet is still loading. A failed stylesheet is recorded document-wide, the
+panel states that a reload is required, and only an explicit Reload re-requests
+the failed link. The conservative policy blocks every deferred feature until
+reload because dependency ownership is not reliably available to the client.
+JavaScript and component-render failures keep Retry. This avoids coupling feature
+readiness to paused gameplay clocks. The canonical `useGameAnalysis` hook remains
+independent of the deferred analysis presentation.
+
+The New Game dialog keeps its shared modal shell eager and defers only the form,
+so close, Escape, focus management and cancellation work while the form loads or
+fails. `useNewGameSetup` owns the asynchronous setup with a generation counter
+and abort controller: fetched options publish only through an owned commit, only
+the newest operation may open the dialog, and cancelling, navigating, switching
+account, logging out or unmounting invalidates it and aborts the pending request.
+A game-creation completion is bound to the session that opened its dialog, so a
+late completion cannot affect a newer dialog, while the committed server game
+stays in the account's history.
+
+Production builds enforce budgets across the complete transitive eager manifest
+graph, including the first-paint appearance script. The production probe compares
+actual first-load JavaScript and CSS with that manifest graph, checks
+public/authenticated entry isolation and verifies Retry and Reload recovery
+against real hashed chunks. A build-only module ownership map lets the probe
+reject a prohibited feature folded into an eager shared chunk even without its
+filename prefix. See the
+[measurement scope and validation](docs/validation/frontend-feature-splitting.md).
 
 ## Human tournament scheduling and compatibility
 

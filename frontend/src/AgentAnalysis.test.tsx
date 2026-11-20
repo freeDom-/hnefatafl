@@ -8,7 +8,8 @@ import {
   fireEvent,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import AgentAnalysis, { useGameAnalysis } from './AgentAnalysis';
+import AgentAnalysis from './AgentAnalysis';
+import { useGameAnalysis } from './useGameAnalysis';
 import { advisorOptions, AnalyticsSettingsPanel } from './AdvisorSelect';
 import { defaultAnalyticsSettings } from './analysisTypes';
 import type { AIProfile, Game, Model } from './types';

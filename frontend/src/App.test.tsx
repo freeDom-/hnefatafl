@@ -308,7 +308,7 @@ describe('game flow', () => {
     await act(async () => {
       navigate('/dashboard?setup=single-player');
     });
-    fireEvent.click(screen.getByRole('button', { name: /To the table/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /To the table/ }));
     await screen.findByRole('gridcell', { name: 'c3, attacker' });
     await act(async () =>
       finish({ ok: true, json: async () => ({ ...initial, version: 1 }) } as Response),

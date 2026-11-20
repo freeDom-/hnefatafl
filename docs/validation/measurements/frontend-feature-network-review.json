@@ -1,0 +1,179 @@
+{
+  "sourceHead": "59dddffbb988015ecac76cbb86f73dbde85943f6",
+  "build": {
+    "schema": 1,
+    "revision": "59dddffbb988015ecac76cbb86f73dbde85943f6",
+    "dirty": false,
+    "git": true,
+    "fingerprint": "9ff0760cf6d1b348534719b159879e20830ae5d7c2c75fd3d64574bc3699ae29",
+    "builtAt": "2026-11-19T01:36:00.798Z"
+  },
+  "measuredAt": "2026-11-19T01:36:02.826Z",
+  "browser": "156.0.8078.4",
+  "node": "v22.23.4",
+  "fixture": "Production static assets; read-only mocked account/dashboard/workshop API responses. Network graph proof, not backend capacity evidence.",
+  "manifest": {
+    "authenticatedEntry": "assets/AuthenticatedArena-kIrf_zfY.js",
+    "publicEntry": "assets/PublicArena-DRofhv6k.js",
+    "expectedInitialScripts": [
+      "assets/AuthenticatedArena-kIrf_zfY.js",
+      "assets/appearance-init.js",
+      "assets/arenaTopBar-BnUHpWhc.js",
+      "assets/index-DXRpPWBa.js"
+    ],
+    "expectedInitialStyles": [
+      "assets/AuthenticatedArena-DqAtxU54.css",
+      "assets/arenaTopBar-qCqN8ppL.css",
+      "assets/index-DmWrC0Xt.css"
+    ]
+  },
+  "initialFiles": [
+    "assets/AuthenticatedArena-kIrf_zfY.js",
+    "assets/appearance-init.js",
+    "assets/arenaTopBar-BnUHpWhc.js",
+    "assets/index-DXRpPWBa.js"
+  ],
+  "initialCssFiles": [
+    "assets/AuthenticatedArena-DqAtxU54.css",
+    "assets/arenaTopBar-qCqN8ppL.css",
+    "assets/index-DmWrC0Xt.css"
+  ],
+  "initialInventory": [
+    {
+      "file": "assets/AuthenticatedArena-kIrf_zfY.js",
+      "raw": 103504,
+      "gzip_level9": 32030
+    },
+    {
+      "file": "assets/appearance-init.js",
+      "raw": 1862,
+      "gzip_level9": 698
+    },
+    {
+      "file": "assets/arenaTopBar-BnUHpWhc.js",
+      "raw": 5560,
+      "gzip_level9": 2324
+    },
+    {
+      "file": "assets/index-DXRpPWBa.js",
+      "raw": 454711,
+      "gzip_level9": 145481
+    }
+  ],
+  "initialCssInventory": [
+    {
+      "file": "assets/AuthenticatedArena-DqAtxU54.css",
+      "raw": 37455,
+      "gzip_level9": 7494
+    },
+    {
+      "file": "assets/arenaTopBar-qCqN8ppL.css",
+      "raw": 2435,
+      "gzip_level9": 839
+    },
+    {
+      "file": "assets/index-DmWrC0Xt.css",
+      "raw": 74297,
+      "gzip_level9": 15470
+    }
+  ],
+  "initialRaw": 565637,
+  "initialGzipLevel9": 180533,
+  "initialCssRaw": 114187,
+  "initialCssGzipLevel9": 23803,
+  "observedResponses": {
+    "assets/AuthenticatedArena-DqAtxU54.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/AuthenticatedArena-kIrf_zfY.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/ConfigImportButton-DBtqSgMh.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/ConfigImportButton-iMGAJTIr.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/FieldTooltip-BpCFrOA5.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/Training-CBmYcF5U.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/Training-CwyuP-Nw.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/appearance-init.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/arenaTopBar-BnUHpWhc.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/arenaTopBar-qCqN8ppL.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/index-DXRpPWBa.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/index-DmWrC0Xt.css": {
+      "status": 200,
+      "contentType": "text/css"
+    },
+    "assets/modelLabel-aMFsjvtr.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/sortRulesets-3y9ClRgF.js": {
+      "status": 200,
+      "contentType": "text/javascript"
+    },
+    "assets/sortRulesets-BMELa7Sl.css": {
+      "status": 200,
+      "contentType": "text/css"
+    }
+  },
+  "deferredFeaturesAbsentInitially": [
+    "Training",
+    "Tournaments",
+    "RecordedReview",
+    "AgentAnalysis",
+    "AdvisorSelect",
+    "NewGameForm",
+    "StatisticsPage",
+    "ProfilePage",
+    "Online"
+  ],
+  "afterTrainingFiles": [
+    "assets/AuthenticatedArena-kIrf_zfY.js",
+    "assets/ConfigImportButton-iMGAJTIr.js",
+    "assets/FieldTooltip-BpCFrOA5.js",
+    "assets/Training-CwyuP-Nw.js",
+    "assets/appearance-init.js",
+    "assets/arenaTopBar-BnUHpWhc.js",
+    "assets/index-DXRpPWBa.js",
+    "assets/modelLabel-aMFsjvtr.js",
+    "assets/sortRulesets-3y9ClRgF.js"
+  ],
+  "recovery": {
+    "feature": "assets/NewGameForm-BVMj2EjB.js",
+    "firstAttempt": "aborted",
+    "recoveredThrough": "Retry"
+  },
+  "publicEntryIsolation": {
+    "authenticatedEntry": "assets/AuthenticatedArena-kIrf_zfY.js",
+    "publicEntry": "assets/PublicArena-DRofhv6k.js",
+    "authenticatedGraphIncludesPublicEntry": false,
+    "publicGraphIncludesAuthenticatedEntry": false
+  }
+}
