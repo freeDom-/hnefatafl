@@ -1186,11 +1186,125 @@ def test_parse_mountinfo_rejects_empty_or_unusable_contents():
     with pytest.raises(bench.MountInfoUnavailable, match="empty or unusable"):
         bench.parse_mountinfo("\n\n")
     # Records without the mandatory " - " separator and trailing fields.
-    with pytest.raises(bench.MountInfoUnavailable, match="empty or unusable"):
+    with pytest.raises(bench.MountInfoUnavailable, match="malformed"):
         bench.parse_mountinfo("36 35 98:0 / /tmp rw")
     # Too few pre-separator fields.
-    with pytest.raises(bench.MountInfoUnavailable, match="empty or unusable"):
+    with pytest.raises(bench.MountInfoUnavailable, match="malformed"):
         bench.parse_mountinfo("36 35 /tmp rw - ext4 /dev/sda1 rw")
+
+
+def test_parse_mountinfo_rejects_partially_malformed_table():
+    # A valid record plus a malformed one: the unparsed line could be the mount
+    # inside the fixture, so the table is not fully reliable.
+    text = _mountinfo_line(Path("/")) + "\nbroken record without separator\n"
+    with pytest.raises(bench.MountInfoUnavailable, match="1 malformed record.*line\\(s\\) 2"):
+        bench.parse_mountinfo(text)
+
+
+def test_parse_mountinfo_accepts_mixed_valid_records():
+    text = "\n".join(_mountinfo_line(point) for point in (Path("/"), Path("/tmp"), Path("/proc")))
+    assert bench.parse_mountinfo(text) == [Path("/"), Path("/tmp"), Path("/proc")]
+
+
+def test_parse_mountinfo_rejects_record_missing_mount_options():
+    # Five leading fields: no mount-options field before the separator.
+    incomplete = "36 35 98:0 / /tmp - ext4 /dev/sda1 rw"
+    with pytest.raises(bench.MountInfoUnavailable, match="no usable record"):
+        bench.parse_mountinfo(incomplete)
+    text = _mountinfo_line(Path("/")) + "\n" + incomplete
+    with pytest.raises(bench.MountInfoUnavailable, match="1 malformed record"):
+        bench.parse_mountinfo(text)
+
+
+def test_parse_mountinfo_rejects_record_missing_trailing_fields():
+    trailing_two = "36 35 98:0 / /tmp rw,noatime - ext4 /dev/sda1"
+    trailing_one = "36 35 98:0 / /tmp rw,noatime - ext4"
+    for incomplete in (trailing_two, trailing_one):
+        with pytest.raises(bench.MountInfoUnavailable, match="no usable record"):
+            bench.parse_mountinfo(incomplete)
+        text = _mountinfo_line(Path("/")) + "\n" + incomplete
+        with pytest.raises(bench.MountInfoUnavailable, match="1 malformed record"):
+            bench.parse_mountinfo(text)
+
+
+def test_parse_mountinfo_rejects_relative_mount_point():
+    relative = "36 35 98:0 / tmp rw,noatime - ext4 /dev/sda1 rw"
+    with pytest.raises(bench.MountInfoUnavailable, match="no usable record"):
+        bench.parse_mountinfo(relative)
+
+
+def test_parse_mountinfo_accepts_optional_fields():
+    # Optional per-mount fields may appear between the mount options and " - ".
+    text = "36 35 98:0 / /tmp rw,noatime shared:12 master:3 - ext4 /dev/sda1 rw"
+    assert bench.parse_mountinfo(text) == [Path("/tmp")]
+
+
+def test_parse_mountinfo_mixed_incomplete_records_are_malformed():
+    text = "\n".join(
+        (
+            _mountinfo_line(Path("/")),
+            "36 35 98:0 / /mnt/a - ext4 /dev/sda1 rw",
+            _mountinfo_line(Path("/tmp")),
+            "36 35 98:0 / /mnt/b rw - ext4",
+        )
+    )
+    with pytest.raises(bench.MountInfoUnavailable, match="2 malformed record.*line\\(s\\) 2, 4"):
+        bench.parse_mountinfo(text)
+
+
+def test_cgroup_v2_mount_entry_point_preserves_carriage_returns(tmp_path, monkeypatch):
+    # Exercise the real cgroup entry point rather than the reader/parser alone.
+    source = tmp_path / "mountinfo"
+    source.write_bytes(b"36 35 98:0 / /sys/cgroup\rleaf rw - cgroup2 cgroup rw\n")
+    reader = bench._mountinfo_text
+    monkeypatch.setattr(bench, "_mountinfo_text", lambda path=None: reader(source))
+    mount = bench.cgroup_v2_mount()
+    assert mount is not None
+    assert mount.point == Path("/sys/cgroup\rleaf")
+
+
+def test_cgroup_v2_mount_returns_none_when_mountinfo_unavailable(monkeypatch):
+    monkeypatch.setattr(bench, "_mountinfo_text", lambda path=None: None)
+    assert bench.cgroup_v2_mount() is None
+
+
+def test_cgroup_v2_mount_returns_none_for_undecodable_mountinfo(tmp_path, monkeypatch):
+    source = tmp_path / "mountinfo"
+    source.write_bytes(b"36 35 98:0 / /sys/fs/cgroup\xff rw - cgroup2 cgroup rw\n")
+    reader = bench._mountinfo_text
+    assert reader(source) is None
+    monkeypatch.setattr(bench, "_mountinfo_text", lambda path=None: reader(source))
+    assert bench.cgroup_v2_mount() is None
+
+
+def test_parse_mountinfo_preserves_literal_carriage_return_in_path():
+    point = "/tmp/carry\rreturn"
+    points = bench.parse_mountinfo(_mountinfo_line(point))
+    assert points == [Path(point)]
+    assert "\r" in str(points[0])
+
+
+def test_mountinfo_text_preserves_literal_carriage_returns(tmp_path):
+    raw = (_mountinfo_line(Path("/tmp/carry\rreturn")) + "\n").encode("utf-8")
+    source = tmp_path / "mountinfo"
+    source.write_bytes(raw)
+    text = bench._mountinfo_text(source)
+    assert text is not None
+    # Universal newlines would have translated \r to \n and split the record.
+    assert "\r" in text
+    assert len(text.split("\n")) == 2
+    assert bench.parse_mountinfo(text) == [Path("/tmp/carry\rreturn")]
+
+
+def test_mountinfo_text_preserves_crlf_bytes(tmp_path):
+    source = tmp_path / "mountinfo"
+    source.write_bytes(b"record\r\n")
+    text = bench._mountinfo_text(source)
+    assert text == "record\r\n"
+
+
+def test_mountinfo_text_returns_none_when_unreadable(tmp_path):
+    assert bench._mountinfo_text(tmp_path / "missing") is None
 
 
 def test_mount_points_fails_closed_on_unusable_contents(tmp_path, monkeypatch):
@@ -1225,6 +1339,30 @@ def test_cleanup_refuses_unusable_mount_table_and_retains_contents(tmp_path, mon
     monkeypatch.setattr(bench, "_mount_points", unusable)
     assert cleanup_fixture_directory(fixture) is False
     assert (fixture.path / bench.MARKER_NAME).is_file()
+
+
+def test_cleanup_refuses_partially_malformed_mount_table(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    payload = fixture.path / "jobs"
+    payload.mkdir()
+    keep = payload / "keep.txt"
+    keep.write_text("keep", encoding="utf-8")
+    malformed = _mountinfo_line(Path("/")) + "\nmalformed record"
+
+    def unreliable():
+        return bench.parse_mountinfo(malformed)
+
+    monkeypatch.setattr(bench, "_mount_points", unreliable)
+    assert cleanup_fixture_directory(fixture) is False
+    assert keep.read_text(encoding="utf-8") == "keep"
+
+
+def test_validate_fixture_storage_refuses_partially_malformed_table(tmp_path, monkeypatch):
+    fixture = create_fixture_directory(tmp_path)
+    malformed = _mountinfo_line(Path("/")) + "\nmalformed record"
+    monkeypatch.setattr(bench, "_mount_points", lambda: bench.parse_mountinfo(malformed))
+    with pytest.raises(bench.MountInfoUnavailable, match="malformed"):
+        validate_fixture_directory(fixture.path, require_config=False)
 
 
 def test_fixture_mount_boundaries_detects_mount_beneath_path_with_spaces(tmp_path):
@@ -1306,6 +1444,25 @@ def test_parse_cgroup_mount_keeps_unicode_space_in_one_field():
 def test_parse_cgroup_mount_returns_none_for_unusable_contents():
     assert bench.parse_cgroup_mount("") is None
     assert bench.parse_cgroup_mount("not a mountinfo record") is None
+
+
+def test_parse_cgroup_mount_skips_malformed_records():
+    # Optional telemetry stays non-fatal: a malformed record is skipped and the
+    # valid cgroup2 record is still found.
+    text = "malformed record\n" + "36 35 98:0 / /sys/fs/cgroup rw,noatime - cgroup2 cgroup rw\n"
+    mount = bench.parse_cgroup_mount(text)
+    assert mount is not None
+    assert mount.point == Path("/sys/fs/cgroup")
+
+
+def test_cgroup_mount_preserves_literal_carriage_return(tmp_path):
+    source = tmp_path / "mountinfo"
+    source.write_bytes(b"36 35 98:0 / /sys/cgroup\rleaf rw - cgroup2 cgroup rw\n")
+    text = bench._mountinfo_text(source)
+    assert text is not None
+    mount = bench.parse_cgroup_mount(text)
+    assert mount is not None
+    assert mount.point == Path("/sys/cgroup\rleaf")
 
 
 # ---------------------------------------------------------------------------
