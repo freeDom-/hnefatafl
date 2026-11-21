@@ -780,6 +780,19 @@ def test_parity_comparator_independently_recomputes_workload_identity(parity_bas
     ), report["failures"]
 
 
+def test_parity_comparator_rejects_an_unsupported_deterministic_evaluator(parity_base):
+    native = _parity_report(parity_base)
+    browser = _parity_report(parity_base)
+    for report in (native, browser):
+        report["model_meta"]["evaluator"] = "deterministic-other"
+    comparison = _comparison(native, browser)
+    assert comparison["acceptance"] is False
+    assert any(
+        "deterministic evaluator version is unsupported" in failure
+        for failure in comparison["failures"]
+    ), comparison["failures"]
+
+
 def _level_b_reports(parity_base: dict) -> tuple[dict, dict]:
     from hnefatafl.engine import State
     from hnefatafl.mcts_driver import position_identity, validate_search_settings

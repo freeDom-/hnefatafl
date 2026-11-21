@@ -50,7 +50,7 @@ from hnefatafl.mcts_driver import (  # noqa: E402
     position_identity,
     validate_search_settings,
 )
-from mcts_vectors import workload_identity  # noqa: E402
+from mcts_vectors import EVALUATOR_VERSION, workload_identity  # noqa: E402
 
 SCHEMA = 1
 COMPARISON_SCHEMA = 4
@@ -240,6 +240,8 @@ def _validate_report(
     elif report.get("level") == "a":
         if not isinstance(model_meta, dict) or model_meta.get("evaluator") is None:
             fail("deterministic report lacks evaluator metadata")
+        elif model_meta.get("evaluator") != EVALUATOR_VERSION:
+            fail("deterministic evaluator version is unsupported")
         if isinstance(settings, dict) and settings["iterations"] > 0:
             pass
     results: dict[str, dict] = {}
