@@ -95,6 +95,12 @@ export class NeuralClient {
     this.download = null;
     this.loading = null;
     this.sequenceLoad = 0;
+    // Set while a cancelled inference is being drained; a replacement inference
+    // must not be admitted against a worker that may still be executing it.
+    this.draining = null;
+    // Experimental test seam (browser lifecycle tests only): ask the worker to
+    // delay a genuine inference completion by a bounded amount.
+    this.testInferenceDelayMs = null;
     // Injectable digest seam so cancellation during verification can be tested
     // deterministically. Production always uses crypto.subtle SHA-256.
     this.digestFn = sha256Hex;
@@ -108,10 +114,36 @@ export class NeuralClient {
     worker.onmessage = ({ data }) => {
       if (this.worker !== worker || this.generation !== generation) return;
       const pending = this.pending;
-      if (!pending || pending.id !== data.id) return;
+      if (!pending || pending.id !== data.id) {
+        // A cancelled request may still be executing; its completion frees the
+        // worker for the next request but its result is ignored.
+        if (this.abandoned && this.abandoned.id === data.id) {
+          const abandoned = this.abandoned;
+          this.abandoned = null;
+          abandoned.abandonedOutcome = data.error
+            ? { failed: true, code: data.code ?? null, message: data.error }
+            : { failed: false, code: null, message: null };
+          if (
+            data.error &&
+            (data.code === "RESOURCE_CLEANUP_FAILED" ||
+              data.code === "SESSION_RELEASE_FAILED")
+          ) {
+            // The worker may be unhealthy; never retain a session whose cleanup
+            // failed. abort() also resolves the drain wait.
+            const error = new Error(data.error);
+            error.code = data.code;
+            abandoned.finished?.();
+            this.abort(error);
+            return;
+          }
+          abandoned.finished?.();
+        }
+        return;
+      }
       clearTimeout(pending.timer);
       this.pending = null;
       this.busy = false;
+      pending.finished?.();
       if (data.error) {
         const error = new Error(data.error);
         if (data.code) error.code = data.code;
@@ -148,7 +180,18 @@ export class NeuralClient {
     this.pending = null;
     if (pending) {
       clearTimeout(pending.timer);
+      pending.finished?.();
       pending.reject(error);
+    }
+    if (this.abandoned) {
+      const abandoned = this.abandoned;
+      abandoned.abandonedOutcome = {
+        failed: true,
+        code: error?.code ?? "WorkerError",
+        message: error?.message ?? String(error),
+      };
+      this.abandoned = null;
+      abandoned.finished?.();
     }
     this._cancelDownload(error);
   }
@@ -173,10 +216,14 @@ export class NeuralClient {
 
   // Explicit teardown for page lifecycle; releases worker and session resources.
   dispose() {
+    this.draining = null;
+    this.abandoned = null;
     this.terminate("Neural inference disposed");
   }
 
   async request(request, { timeoutMs = INFER_TIMEOUT_MS } = {}) {
+    if (this.draining)
+      throw named("WorkerError", "A cancelled neural request is still draining");
     if (!this.worker) this._spawn();
     if (this.busy) throw named("WorkerError", "A neural job is already running");
     const worker = this.worker;
@@ -189,7 +236,9 @@ export class NeuralClient {
         if (this.generation !== generation || this.worker !== worker) return;
         this.abort(named("TimeoutError", "Neural job exceeded its hard deadline"));
       }, timeoutMs);
-      this.pending = { id, resolve, reject, timer };
+      const pending = { id, resolve, reject, timer };
+      pending.finished = () => {};
+      this.pending = pending;
       try {
         worker.postMessage({ id, request });
       } catch (error) {
@@ -200,6 +249,87 @@ export class NeuralClient {
 
   capabilities() {
     return this.request({ action: "capabilities" }, { timeoutMs: 15000 });
+  }
+
+  // Cancel one in-flight inference without losing a healthy session when it can
+  // drain within ``drainMs``. The rejected request settles immediately for the
+  // caller; only the worker drain is awaited. If the worker does not drain, it
+  // is terminated and the session must be reloaded.
+  async cancelRequest({ reason = "Neural request cancelled", drainMs = 1500 } = {}) {
+    if (this.draining) return this.draining;
+    const pending = this.pending;
+    if (!pending) {
+      return {
+        state: "idle",
+        sessionRetained: this.model !== null,
+        workerRetained: this.worker !== null,
+      };
+    }
+    const worker = this.worker;
+    const generation = this.generation;
+    const finished = new Promise((resolve) => {
+      pending.finished = resolve;
+    });
+    clearTimeout(pending.timer);
+    this.pending = null;
+    this.busy = false;
+    this.abandoned = pending;
+    pending.reject(named("AbortError", reason));
+    // `finished` resolves only when the worker actually returns or is replaced;
+    // it must not resolve just because the caller stopped waiting.
+    this.draining = (async () => {
+      let timer = null;
+      const drained = await Promise.race([
+        finished.then(() => true),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(false), drainMs);
+        }),
+      ]);
+      clearTimeout(timer);
+      const abandoned = pending;
+      this.abandoned = null;
+      const outcome = abandoned.abandonedOutcome ?? null;
+      if (!drained) {
+        this.abort(named("TimeoutError", "The neural worker did not drain the cancelled request"));
+        return {
+          state: "terminated",
+          sessionRetained: false,
+          workerRetained: false,
+          outcome: "timeout",
+          errorCode: "DRAIN_TIMEOUT",
+        };
+      }
+      if (this.worker !== worker || this.generation !== generation)
+        return {
+          state: "terminated",
+          sessionRetained: false,
+          workerRetained: false,
+          outcome: outcome?.failed ? "failed" : "aborted",
+          errorCode: outcome?.code ?? null,
+        };
+      return {
+        state: "drained",
+        sessionRetained: this.model !== null,
+        workerRetained: true,
+        outcome: outcome?.failed ? "failed" : "completed",
+        errorCode: outcome?.code ?? null,
+      };
+    })().finally(() => {
+      this.draining = null;
+    });
+    return this.draining;
+  }
+
+  // UI-level cancellation: abort an owned model download/initialization or a
+  // single inference. A healthy session is retained when only inference drains.
+  async cancelWork({ reason = "Cancelled by user", drainMs = 1500 } = {}) {
+    if (this.loading !== null || this.download) {
+      // A model operation is owned by the caller; terminate so it cannot publish
+      // a session after cancellation.
+      this.terminate(reason);
+      return { state: "load-aborted", sessionRetained: false, workerRetained: false };
+    }
+    return this.cancelRequest({ reason, drainMs });
   }
 
   // Bounded, cancellable model download that verifies the staged digest. The
@@ -312,6 +442,10 @@ export class NeuralClient {
 
   infer({ planes, size, legal, ruleset, request_id: requestId, position_digest: positionDigest, model }) {
     this._assertModel(model);
+    const testDelay =
+      Number.isInteger(this.testInferenceDelayMs) && this.testInferenceDelayMs > 0
+        ? { test_delay_ms: this.testInferenceDelayMs }
+        : {};
     return this.request(
       {
         action: "infer",
@@ -322,6 +456,7 @@ export class NeuralClient {
         request_id: requestId,
         position_digest: positionDigest,
         model,
+        ...testDelay,
       },
       { timeoutMs: INFER_TIMEOUT_MS },
     );
@@ -332,8 +467,10 @@ export class NeuralClient {
     return this.request({ action: "inferMany", cases, model }, { timeoutMs: INFER_TIMEOUT_MS });
   }
 
+  // Every workload must name the exact model it was prepared for. A missing or
+  // stale identity is rejected before any request reaches the worker.
   sustained({ cases, iterations, model }) {
-    if (model) this._assertModel(model);
+    this._assertModel(model);
     return this.request(
       { action: "sustained", cases, iterations, model },
       { timeoutMs: BENCHMARK_TIMEOUT_MS },
@@ -341,7 +478,7 @@ export class NeuralClient {
   }
 
   benchmark({ cases, batchSizes, warmup = 2, reps = 5, model }) {
-    if (model) this._assertModel(model);
+    this._assertModel(model);
     return this.request(
       { action: "benchmark", cases, batchSizes, warmup, reps, model },
       { timeoutMs: BENCHMARK_TIMEOUT_MS },

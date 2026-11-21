@@ -57,8 +57,10 @@ try {
   report.browser = browser.version();
   context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const external = [];
+  const requested = [];
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
+    requested.push(url.pathname);
     if (url.origin !== origin) {
       external.push(url.href);
       return route.abort();
@@ -70,6 +72,7 @@ try {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => errors.push(String(error)));
+    const startIndex = requested.length;
     if (setup) await setup(page);
     await page.goto(origin + "/neural.html");
     if (waitReady) {
@@ -81,7 +84,7 @@ try {
       // intentionally still in flight so cancellation can be observed.
       await page.waitForFunction(() => window.neural, null, { timeout: 30000 });
     }
-    return { page, errors };
+    return { page, errors, startIndex, requested };
   }
   async function state(page) {
     return page.textContent("#state");
@@ -337,6 +340,204 @@ try {
       const message = await page.textContent("#status");
       assert.match(message, /adapter|WebGPU|unsupported|provider/i);
     }
+    await page.close();
+  });
+
+  await record("Worker rejects benchmark and sustained without a model identity", async () => {
+    const { page, errors } = await freshPage();
+    const result = await page.evaluate(async () => {
+      const client = window.neural.client;
+      const { assets: staged } = await window.neural.assets();
+      const loaded = await client.load("./" + staged.model.file, {
+        provider: "wasm",
+        size: staged.model.size,
+        ruleset: staged.model.ruleset,
+        expectedSha256: staged.model.sha256,
+      });
+      const cases = [
+        {
+          planes: [0, 1],
+          legal: [0],
+          request_id: "control",
+          position_digest: "c".repeat(64),
+        },
+      ];
+      const codes = {};
+      for (const action of ["benchmark", "sustained"]) {
+        const request =
+          action === "benchmark"
+            ? { action, cases, batchSizes: [1], model: null }
+            : { action, cases, iterations: 1, model: null };
+        try {
+          await client.request(request, { timeoutMs: 30000 });
+          codes[action] = "accepted";
+        } catch (error) {
+          codes[action] = error?.code ?? error?.name ?? "unknown";
+        }
+      }
+      return { codes, loaded: !!loaded.model_sha256 };
+    });
+    assert.equal(result.loaded, true);
+    assert.equal(result.codes.benchmark, "MODEL_IDENTITY_REQUIRED");
+    assert.equal(result.codes.sustained, "MODEL_IDENTITY_REQUIRED");
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Manifest failure on first use is retryable without a reload", async () => {
+    let failed = false;
+    const { page, errors, startIndex, requested } = await freshPage(
+      async (page) => {
+        await page.route("**/neural-assets.json", async (route) => {
+          if (!failed) {
+            failed = true;
+            return route.fulfill({ status: 500, body: "unavailable" });
+          }
+          return route.continue();
+        });
+      },
+      { waitReady: false },
+    );
+    assert.equal(
+      requested.slice(startIndex).some((path) => path.includes("neural-assets.json")),
+      false,
+      "nothing neural may be fetched before an operation asks for it",
+    );
+    await page.click("#infer");
+    await waitState(page, "failed", 60000);
+    assert.match(await page.textContent("#status"), /500|Cannot load/i);
+    await page.click("#infer");
+    await waitState(page, "completed", 60000);
+    assert.match(await page.textContent("#output"), /"model_sha256"/);
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Reference-vector failure on first use is retryable", async () => {
+    let failed = false;
+    const { page, errors, startIndex, requested } = await freshPage(
+      async (page) => {
+        await page.route("**/model/reference.json", async (route) => {
+          if (!failed) {
+            failed = true;
+            return route.fulfill({ status: 503, body: "later" });
+          }
+          return route.continue();
+        });
+      },
+      { waitReady: false },
+    );
+    assert.equal(
+      requested.slice(startIndex).some((path) => path.includes("reference.json")),
+      false,
+      "reference vectors must not load before a raw inference operation",
+    );
+    await page.click("#infer");
+    await waitState(page, "failed", 60000);
+    await page.click("#infer");
+    await waitState(page, "completed", 60000);
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Malformed asset JSON is rejected and retried", async () => {
+    let failed = false;
+    const { page } = await freshPage(
+      async (page) => {
+        await page.route("**/neural-assets.json", async (route) => {
+          if (!failed) {
+            failed = true;
+            return route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: "{not json",
+            });
+          }
+          return route.continue();
+        });
+      },
+      { waitReady: false },
+    );
+    await page.click("#infer");
+    await waitState(page, "failed", 60000);
+    assert.match(await page.textContent("#status"), /JSON/i);
+    await page.click("#infer");
+    await waitState(page, "completed", 60000);
+    await page.close();
+  });
+
+  await record("pagehide invalidates ownership and prevents worker creation", async () => {
+    let delayed = true;
+    const { page, errors } = await freshPage(
+      async (page) => {
+        await page.route("**/neural-assets.json", async (route) => {
+          if (delayed) {
+            delayed = false;
+            await delay(800);
+          }
+          await route.continue();
+        });
+      },
+      { waitReady: false },
+    );
+    await page.click("#infer");
+    await page.waitForTimeout(100);
+    await page.evaluate(() => window.neural.shutdown("test pagehide"));
+    await delay(1000);
+    assert.equal(await state(page), "cancelled");
+    const internals = await page.evaluate(() => ({
+      worker: window.neural.client.worker !== null,
+      model: window.neural.client.model !== null,
+      spawns: window.neural.diagnostics().workerSpawns,
+    }));
+    assert.deepEqual(internals, { worker: false, model: false, spawns: 0 });
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("pagehide during model loading does not publish a model", async () => {
+    let delayed = false;
+    const { page } = await freshPage(async (page) => {
+      await page.route("**/model/model.onnx", async (route) => {
+        if (!delayed) {
+          delayed = true;
+          await delay(900);
+        }
+        await route.continue();
+      });
+    });
+    await page.click("#infer");
+    await waitState(page, "loading", 30000);
+    await page.evaluate(() => window.neural.shutdown("test pagehide during load"));
+    await delay(1200);
+    const internals = await page.evaluate(() => ({
+      model: window.neural.client.model !== null,
+      worker: window.neural.client.worker !== null,
+    }));
+    assert.deepEqual(internals, { model: false, worker: false });
+    await page.close();
+  });
+
+  await record("Pageshow restoration permits a new operation", async () => {
+    const { page } = await freshPage();
+    await page.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })),
+    );
+    await page.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
+    );
+    await page.click("#infer");
+    await waitState(page, "completed", 60000);
+    await page.close();
+  });
+
+  await record("Navigation away and back recovers without a reload", async () => {
+    const { page } = await freshPage();
+    await page.goto("about:blank");
+    await page.goBack();
+    await page.waitForFunction(() => window.neural, null, { timeout: 30000 });
+    await page.click("#infer");
+    await waitState(page, "completed", 60000);
     await page.close();
   });
 

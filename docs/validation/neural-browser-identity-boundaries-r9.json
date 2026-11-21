@@ -1,0 +1,67 @@
+{
+  "kind": "browser-neural-identity-boundary-evidence",
+  "schema": 9,
+  "generated": "2026-11-21T08:46:22Z",
+  "browser": "156.0.8078.4",
+  "model": {
+    "sha256": "512ae93b9900f918438510b089b59ca21701decc5149d17ab277ca67aa8e6f2c",
+    "bytes": 46924,
+    "gzip_bytes": 6929,
+    "validated": true,
+    "ruleset": "brandubh",
+    "reference_sha256": "c0c70206800659e76ef9842ef516cbb6221a441360bc213bf168e510003d3587"
+  },
+  "cases": [
+    {
+      "boundary": "batch-worker",
+      "expected_code": "MODEL_IDENTITY_MISMATCH",
+      "observed_code": "MODEL_IDENTITY_MISMATCH",
+      "rejected": true,
+      "control_accepted": true,
+      "corruption": "request-model-batch-worker",
+      "corruption_detected": true,
+      "failures": []
+    },
+    {
+      "boundary": "batch-client",
+      "expected_code": "MODEL_IDENTITY_MISMATCH",
+      "observed_code": "MODEL_IDENTITY_MISMATCH",
+      "rejected": true,
+      "control_accepted": true,
+      "corruption": "request-model-batch",
+      "corruption_detected": true,
+      "failures": []
+    },
+    {
+      "boundary": "single-worker",
+      "expected_code": "MODEL_IDENTITY_MISMATCH",
+      "observed_code": "MODEL_IDENTITY_MISMATCH",
+      "rejected": true,
+      "control_accepted": true,
+      "corruption": "request-model-worker",
+      "corruption_detected": true,
+      "failures": []
+    },
+    {
+      "boundary": "single-client",
+      "expected_code": "MODEL_IDENTITY_MISMATCH",
+      "observed_code": "MODEL_IDENTITY_MISMATCH",
+      "rejected": true,
+      "control_accepted": true,
+      "corruption": "request-model",
+      "corruption_detected": true,
+      "failures": []
+    }
+  ],
+  "all_detected": true,
+  "reveals": [
+    "single-position client identity rejection",
+    "single-position worker identity rejection",
+    "batched client identity rejection",
+    "batched worker identity rejection"
+  ],
+  "notes": [
+    "Each corruption targets exactly one execution boundary; no batch-specific corruption is applied during single-position validation.",
+    "Corruption runs exit 1 when the intended rejection was observed and 3 when it was not."
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "kind": "browser-neural-identity-boundary-evidence",
+  "schema": 6,
+  "generated": "2026-11-20T16:09:18Z",
+  "browser": "156.0.8078.4",
+  "model": {
+    "sha256": "155ad43c32caabb6fb778b571b2d4e29303da6683e8fbe2e10f7cca39beb6ea2",
+    "bytes": 46904,
+    "gzip_bytes": 6926,
+    "validated": true,
+    "ruleset": "brandubh",
+    "reference_sha256": "45a2ddf8817c013456a5261792f67ac444f980eb6f0ce93ee63cbd014639677f"
+  },
+  "cases": [
+    {
+      "corruption": "request-model-batch-worker",
+      "boundary": "batch-worker",
+      "expected_code": "MODEL_IDENTITY_MISMATCH",
+      "observed_code": "MODEL_IDENTITY_MISMATCH",
+      "rejected": true,
+      "control_accepted": true,
+      "corruption_detected": true,
+      "failures": [],
+      "simulated_corruption": "request-model-batch-worker",
+      "provider": "wasm",
+      "engine_ok": true
+    },
+    {
+      "corruption": "request-model-batch",
+      "boundary": "batch-client",
+      "expected_code": "MODEL_IDENTITY_MISMATCH",
+      "observed_code": "MODEL_IDENTITY_MISMATCH",
+      "rejected": true,
+      "control_accepted": true,
+      "corruption_detected": true,
+      "failures": [],
+      "simulated_corruption": "request-model-batch",
+      "provider": "wasm",
+      "engine_ok": true
+    },
+    {
+      "corruption": "request-model-worker",
+      "boundary": "single-worker",
+      "expected_code": "MODEL_IDENTITY_MISMATCH",
+      "observed_code": "MODEL_IDENTITY_MISMATCH",
+      "rejected": true,
+      "control_accepted": true,
+      "corruption_detected": true,
+      "failures": [],
+      "simulated_corruption": "request-model-worker",
+      "provider": "wasm",
+      "engine_ok": true
+    },
+    {
+      "corruption": "request-model",
+      "boundary": "single-client",
+      "expected_code": "MODEL_IDENTITY_MISMATCH",
+      "observed_code": "MODEL_IDENTITY_MISMATCH",
+      "rejected": true,
+      "control_accepted": true,
+      "corruption_detected": true,
+      "failures": [],
+      "simulated_corruption": "request-model",
+      "provider": "wasm",
+      "engine_ok": true
+    }
+  ],
+  "all_detected": true,
+  "reveals": [
+    "single-position client identity rejection",
+    "single-position worker identity rejection",
+    "batched client identity rejection",
+    "batched worker identity rejection"
+  ],
+  "notes": [
+    "Each corruption targets exactly one execution boundary; no batch-specific corruption is applied during single-position validation.",
+    "Corruption runs exit 1 when the intended rejection was observed and 3 when it was not."
+  ]
+}

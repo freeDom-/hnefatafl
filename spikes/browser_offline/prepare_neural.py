@@ -39,6 +39,22 @@ for path in (str(SPIKE), str(ROOT)):
 from hnefatafl.engine import RULESETS  # noqa: E402
 from hnefatafl.models import ARCHITECTURE  # noqa: E402
 
+from prepare import ASSETS as PYODIDE_ASSETS  # noqa: E402
+from prepare import RUNTIME_SHA256 as PYODIDE_SHA256  # noqa: E402
+from prepare import SOURCE_MODULES as CLASSICAL_MODULES  # noqa: E402
+from prepare import VERSION as PYODIDE_VERSION  # noqa: E402
+
+# The search worker runs the unchanged engine plus the shared encoder and the
+# cooperative driver; it never loads PyTorch or model tensors.
+SEARCH_SOURCE_MODULES = CLASSICAL_MODULES + ("encoding.py", "mcts_driver.py")
+SEARCH_ROOT_MODULES = (
+    "search_bridge.py",
+    "mcts_vectors.py",
+    "mcts_benchmark.py",
+    "mcts_workload.py",
+)
+SEARCH_ASSETS_SCHEMA = 1
+
 ORT_VERSION = "1.22.0"
 ORT_BASE = f"https://cdn.jsdelivr.net/npm/onnxruntime-web@{ORT_VERSION}/dist"
 # Digest-verified pinned assets. The jsep bundle is only needed for WebGPU.
@@ -50,12 +66,22 @@ ORT_ASSETS = {
     "ort-wasm-simd-threaded.jsep.mjs": "1cbcba8f2c769c1eecbab66a1b1e55ef11704515bf4306373e3db3c37cf6dcd8",
     "ort-wasm-simd-threaded.jsep.wasm": "b45970d0632383a057c27ca5b660b216f8e00c17cf8db9f6207b5e4abc839368",
 }
+# The pinned `ort.min.js` build is the all-in-one bundle and resolves the jsep
+# kernels dynamically even for a WASM-only session, so `--wasm-only` skips only
+# the WebGPU entry bundle. Omitting the jsep kernels makes session creation fail
+# with "no available backend found".
 WASM_ONLY = {
     "ort.min.js",
     "ort-wasm-simd-threaded.mjs",
     "ort-wasm-simd-threaded.wasm",
+    "ort-wasm-simd-threaded.jsep.mjs",
+    "ort-wasm-simd-threaded.jsep.wasm",
 }
-SIDECAR_SCHEMA = 1
+SIDECAR_SCHEMA = 2
+# Schema 1 exports (Phase 1 revision <= 5) carry no source-weight fingerprint and
+# are still accepted for Phase 1 reproduction; schema 2 is required for new
+# checkpoint-bound validation.
+SUPPORTED_SIDECAR_SCHEMAS = (1, 2)
 SIDECAR_ARTIFACT = "hnefatafl-policy-value-onnx"
 MANIFEST_SCHEMA = 3
 MAX_MODEL_BYTES = 64 * 1024 * 1024
@@ -76,7 +102,7 @@ def validate_sidecar(sidecar: dict) -> tuple[str, int]:
     """Validate the declared architecture, ruleset, shapes and semantics."""
     if not isinstance(sidecar, dict):
         raise SystemExit("model.json must be a JSON object")
-    if sidecar.get("schema") != SIDECAR_SCHEMA:
+    if sidecar.get("schema") not in SUPPORTED_SIDECAR_SCHEMAS:
         raise SystemExit(f"Unsupported sidecar schema: {sidecar.get('schema')!r}")
     if sidecar.get("artifact") != SIDECAR_ARTIFACT:
         raise SystemExit(f"Unsupported artifact type: {sidecar.get('artifact')!r}")
@@ -102,6 +128,15 @@ def validate_sidecar(sidecar: dict) -> tuple[str, int]:
     if type(blocks) is not int or not 0 <= blocks <= 8:
         raise SystemExit("model_config blocks must be an integer in 0..8")
     source_input = sidecar.get("input") or {}
+    source_metadata = sidecar.get("source")
+    if sidecar.get("schema") == 2:
+        if not isinstance(source_metadata, dict):
+            raise SystemExit("Schema-2 sidecar is missing source model metadata")
+        fingerprint = source_metadata.get("weights_sha256")
+        if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+            raise SystemExit("Schema-2 sidecar requires a source weight fingerprint")
+        if source_metadata.get("encoder_version") != "six-plane-v1":
+            raise SystemExit("Source metadata must record the six-plane-v1 encoder")
     if source_input.get("name") != "planes" or source_input.get("encoding") != "six-plane-v1":
         raise SystemExit("Model input must be the six-plane 'planes' tensor")
     if source_input.get("shape") != ["batch", 6, size, size]:
@@ -294,6 +329,11 @@ def validate_export_dir(model_dir: Path, allow_unvalidated: bool) -> dict:
             raise SystemExit("Export manifest model size does not match")
         if manifest.get("ruleset") != ruleset:
             raise SystemExit("Export manifest ruleset does not match the sidecar")
+        source_metadata = sidecar.get("source") or {}
+        if manifest.get("source_weights_sha256") != source_metadata.get("weights_sha256"):
+            raise SystemExit("Export manifest source-weight fingerprint does not match")
+        if manifest.get("checkpoint_sha256") != source_metadata.get("sha256"):
+            raise SystemExit("Export manifest checkpoint digest does not match")
     if marker is not None and marker.get("ruleset") != ruleset:
         raise SystemExit("VALIDATED.json ruleset does not match the sidecar")
 
@@ -348,12 +388,104 @@ def validate_export_dir(model_dir: Path, allow_unvalidated: bool) -> dict:
     }
 
 
+def stage_search_runtime(output: Path, runtime_dir: Path | None) -> dict:
+    """Stage the Pyodide engine and the cooperative search workers."""
+    from fixtures import jarl_positions
+
+    runtime = output / "runtime"
+    runtime.mkdir(exist_ok=True)
+    runtime_inventory = []
+    for name in PYODIDE_ASSETS:
+        target = runtime / name
+        if runtime_dir:
+            shutil.copyfile(runtime_dir / name, target)
+        else:
+            url = f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/{name}"
+            print(f"Downloading {url}", flush=True)
+            with urllib.request.urlopen(url, timeout=60) as response:
+                target.write_bytes(response.read())
+        digest = sha256(target)
+        if digest != PYODIDE_SHA256[name]:
+            raise SystemExit(f"Pinned Pyodide digest mismatch: {name}")
+        runtime_inventory.append(
+            {
+                "path": f"runtime/{name}",
+                "bytes": target.stat().st_size,
+                "gzip_bytes": gzip_size(target),
+                "sha256": digest,
+            }
+        )
+    package = output / "python/hnefatafl"
+    package.mkdir(parents=True, exist_ok=True)
+    inventory = []
+    for name in SEARCH_SOURCE_MODULES:
+        shutil.copyfile(ROOT / "hnefatafl" / name, package / name)
+    staged = [f"python/hnefatafl/{name}" for name in SEARCH_SOURCE_MODULES]
+    staged += list(SEARCH_ROOT_MODULES)
+    for path in staged:
+        target = output / path
+        data = target.read_bytes()
+        inventory.append(
+            {
+                "path": path,
+                "bytes": len(data),
+                "gzip_bytes": gzip_size(target),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        )
+    raw = sum(entry["bytes"] for entry in inventory) + sum(
+        entry["bytes"] for entry in runtime_inventory
+    )
+    bundle = hashlib.sha256(
+        json.dumps([entry["sha256"] for entry in inventory], sort_keys=True).encode()
+    ).hexdigest()[:16]
+    manifest = {
+        "schema": SEARCH_ASSETS_SCHEMA,
+        "pyodide": PYODIDE_VERSION,
+        "python_modules": list(SEARCH_SOURCE_MODULES),
+        "root_modules": list(SEARCH_ROOT_MODULES),
+        "runtime_included": True,
+        "bundle_id": bundle,
+        "runtime_inventory": runtime_inventory,
+        "inventory": inventory,
+    }
+    (output / "search-assets.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    # The classical analysis worker (Jarl) loads its own small manifest and the
+    # shared benchmark module; it never touches the neural runtime.
+    (output / "assets.json").write_text(
+        json.dumps(
+            {
+                "python_modules": list(SEARCH_SOURCE_MODULES),
+                "root_modules": ["jarl_benchmark.py"],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    (output / "mcts-positions.json").write_text(json.dumps(jarl_positions(), separators=(",", ":")))
+    (output / "fixtures.json").write_text(json.dumps(_fixtures_vectors(), separators=(",", ":")))
+    return {"bundle_id": bundle, "raw_bytes": raw, "inventory": inventory}
+
+
+def _fixtures_vectors() -> list[dict]:
+    from fixtures import vectors
+
+    return vectors()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--ort-dir", type=Path, help="Previously downloaded ORT assets")
-    parser.add_argument("--wasm-only", action="store_true", help="Skip the WebGPU jsep bundle")
+    parser.add_argument(
+        "--runtime-dir", type=Path, help="Previously downloaded, trusted Pyodide runtime"
+    )
+    parser.add_argument(
+        "--wasm-only",
+        action="store_true",
+        help="Skip the WebGPU entry bundle (jsep kernels are still staged for the all-in-one WASM bundle)",
+    )
     parser.add_argument(
         "--allow-unvalidated",
         action="store_true",
@@ -377,6 +509,17 @@ def main() -> None:
         "neural-identity.js",
         "neural.html",
         "neural-client.js",
+        "analysis-client.js",
+        "worker.js",
+        "search-worker.js",
+        "search-assets.js",
+        "search-client.js",
+        "bridge.py",
+        "jarl_benchmark.py",
+        "search_bridge.py",
+        "mcts_vectors.py",
+        "mcts_benchmark.py",
+        "mcts_workload.py",
     ):
         shutil.copyfile(SPIKE / name, output / name)
     (output / "model").mkdir(exist_ok=True)
@@ -431,6 +574,17 @@ def main() -> None:
         "sidecar": sidecar,
         "ort_inventory": ort_inventory,
     }
+
+    # Stage the Pyodide search runtime so the same page can run Jarl and the
+    # browser neural MCTS driver against the unchanged Python engine.
+    search = stage_search_runtime(output, args.runtime_dir)
+    assets["search"] = {
+        "manifest": "search-assets.json",
+        "bundle_id": search["bundle_id"],
+        "pyodide": PYODIDE_VERSION,
+        "python_modules": list(SEARCH_SOURCE_MODULES),
+        "root_modules": list(SEARCH_ROOT_MODULES),
+    }
     (output / "neural-assets.json").write_text(json.dumps(assets, indent=2) + "\n")
     print(
         json.dumps(
@@ -440,6 +594,7 @@ def main() -> None:
                 "model_gzip_bytes": assets["model"]["gzip_bytes"],
                 "validated": export["validated"],
                 "providers": assets["providers_staged"],
+                "search_runtime_bytes": search["raw_bytes"],
             }
         )
     )

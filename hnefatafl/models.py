@@ -24,10 +24,10 @@ import torch
 from torch import nn
 
 from .engine import State
+from .encoding import BOARD_SIZES, encode_planes
 
 FORMAT_VERSION = 1
 ARCHITECTURE = "tafl-policy-value-v1"
-BOARD_SIZES = {"brandubh": 7, "tablut": 9, "copenhagen": 11}
 MAX_CHECKPOINT_BYTES = 128 * 1024 * 1024
 _MODEL_ID = re.compile(r"[0-9a-f]{24}\Z")
 
@@ -89,26 +89,21 @@ def device_info() -> dict[str, Any]:
 
 
 def encode_state(state: State) -> torch.Tensor:
-    """Encode A, D, K, defender turn, throne and corners as six float planes."""
-    size = state.size
-    if state.ruleset not in BOARD_SIZES or size != BOARD_SIZES[state.ruleset]:
-        raise ValueError("Unsupported ruleset or incompatible board dimensions")
-    if len(state.board) != size * size or any(piece not in ".ADK" for piece in state.board):
-        raise ValueError("Invalid board encoding")
-    encoded = torch.zeros((6, size, size), dtype=torch.float32)
-    for index, piece in enumerate(state.board):
-        if piece in "ADK":
-            encoded["ADK".index(piece), index // size, index % size] = 1.0
-    if state.turn == "defenders":
-        encoded[3].fill_(1.0)
-    elif state.turn != "attackers":
-        raise ValueError("Invalid side to move")
-    encoded[4, size // 2, size // 2] = 1.0
-    # Tablut escapes on any edge and does not use restricted corner squares.
-    if state.ruleset != "tablut":
-        for row, column in ((0, 0), (0, size - 1), (size - 1, 0), (size - 1, size - 1)):
-            encoded[5, row, column] = 1.0
-    return encoded
+    """Encode the six shared input planes as a float tensor.
+
+    The byte-plane encoder in :mod:`hnefatafl.encoding` is the single source of
+    truth used by both native inference and the browser search worker; this
+    wrapper only materialises it as the FP32 tensor the native network expects.
+    """
+    planes = encode_planes(state)
+    # A zero-copy uint8 view followed by the FP32 conversion is substantially
+    # faster than building the tensor element by element, and it keeps the shared
+    # byte-plane encoder as the only source of truth.
+    return (
+        torch.frombuffer(bytearray(planes), dtype=torch.uint8)
+        .reshape(6, state.size, state.size)
+        .to(torch.float32)
+    )
 
 
 class _ResidualBlock(nn.Module):

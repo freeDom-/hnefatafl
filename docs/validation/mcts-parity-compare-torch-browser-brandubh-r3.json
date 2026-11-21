@@ -1,0 +1,149 @@
+{
+  "kind": "mcts-parity-comparison",
+  "schema": 3,
+  "level": "b",
+  "native_runtime": "native-cpython",
+  "browser_runtime": "browser-pyodide",
+  "failures": [],
+  "notes": [],
+  "execution_validity": {
+    "ok": true,
+    "positions": 7,
+    "case_failures": []
+  },
+  "deterministic_parity": {
+    "required": false,
+    "exact_cases": 0,
+    "positions": 7,
+    "ok": null
+  },
+  "numerical_comparison": {
+    "required": true,
+    "positions": 7,
+    "best_move_matches": 7,
+    "divergent_cases": [],
+    "max_value_delta": 1.0244548320770264e-08,
+    "max_visit_total_variation": 0.0,
+    "best_move_parity": true,
+    "strict_gate": false
+  },
+  "workload": {
+    "valid": true,
+    "source": {
+      "kind": "fixtures",
+      "version": 1,
+      "fixtures": "fixtures.jarl_positions"
+    },
+    "expected_cases": 7,
+    "positions_sha256": "7a51ea747cf6a529a8224cc8ff073858f85ae97903f788741a6a0572a000b43a",
+    "custom_file_verified": false
+  },
+  "workload_completion": {
+    "requested_simulations": 256,
+    "incomplete_cases": [],
+    "deadline_limited_cases": [],
+    "complete": true
+  },
+  "performance_comparability": {
+    "equal_work_cases": 5,
+    "positions": 7,
+    "comparable": false,
+    "note": "Equal completed simulations and neural requests are required before a latency or throughput comparison is meaningful."
+  },
+  "cases": [
+    {
+      "name": "brandubh-opening",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "value_delta": 9.546056389808655e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    },
+    {
+      "name": "brandubh-midgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "value_delta": 9.778887033462524e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    },
+    {
+      "name": "brandubh-endgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "value_delta": 1.0244548320770264e-08,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    },
+    {
+      "name": "brandubh-tactical",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "value_delta": 7.566995918750763e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    },
+    {
+      "name": "brandubh-king-escape",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "immediate_win",
+      "completed_simulations": 0,
+      "best_move_match": true,
+      "value_delta": 0.0,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": false
+    },
+    {
+      "name": "brandubh-terminal",
+      "ok": true,
+      "terminal": true,
+      "completion_reason": "terminal",
+      "completed_simulations": 0,
+      "best_move_match": true,
+      "value_delta": 0.0,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": false
+    },
+    {
+      "name": "brandubh-repetition",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 256,
+      "best_move_match": true,
+      "value_delta": 9.546056389808655e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    }
+  ],
+  "authoritative": false,
+  "acceptance": true,
+  "ok": true
+}

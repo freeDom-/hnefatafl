@@ -270,6 +270,16 @@ async function releaseQuietly(target) {
   }
 }
 
+async function testDelay(request) {
+  // Experimental test seam: deliberately delay completion of a real inference so
+  // browser cancellation/drain behaviour can be exercised deterministically.
+  const delay = request?.test_delay_ms;
+  if (delay === undefined || delay === null) return;
+  if (!Number.isInteger(delay) || delay < 0 || delay > 5000)
+    throw named("INPUT_INVALID", "test_delay_ms must be an integer in 0..5000");
+  if (delay > 0) await new Promise((done) => setTimeout(done, delay));
+}
+
 function assertRequestId(value, label = "request_id") {
   if (typeof value !== "string" || !value || value.length > 128)
     throw named("INPUT_INVALID", `${label} must be a non-empty string of at most 128 characters`);
@@ -302,11 +312,12 @@ function activeModelIdentity() {
 
 async function runBatch(cases, size, { requireIdentity = true, expectedModel = null } = {}) {
   if (!session || !model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
-  if (expectedModel !== null) {
-    // Bind the request to the exact model it was prepared for before touching
-    // inputs; a delayed request must never execute against another session.
-    self.__neuralIdentity.validateModelIdentity(expectedModel, activeModelIdentity());
-  }
+  // Every workload — inference, batching, benchmarking and sustained runs —
+  // must name the exact model it was prepared for. Validate before touching
+  // inputs so a delayed request can never execute against another session.
+  if (expectedModel === undefined || expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+  self.__neuralIdentity.validateModelIdentity(expectedModel, activeModelIdentity());
   if (model.size !== size)
     throw named("ARTIFACT_RULESET_MISMATCH", "Requested board size differs from the model");
   if (!Array.isArray(cases) || cases.length === 0)
@@ -389,6 +400,7 @@ async function runBatch(cases, size, { requireIdentity = true, expectedModel = n
 }
 
 async function inferSingle(request) {
+  await testDelay(request);
   const { planes, legal, ruleset, size, request_id, position_digest, model: expectedModel } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (expectedModel === undefined || expectedModel === null)
@@ -419,6 +431,7 @@ async function inferSingle(request) {
 }
 
 async function inferMany(request) {
+  await testDelay(request);
   const { cases, model: expectedModel } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (expectedModel === undefined || expectedModel === null)
@@ -446,6 +459,8 @@ async function benchmark(request) {
   if (!Array.isArray(cases) || !cases.length)
     throw named("INPUT_INVALID", "distinct benchmark cases are required");
   const expectedModel = request.model ?? null;
+  if (expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "benchmark requires the expected model identity");
   const rows = [];
   for (const batch of batchSizes) {
     const filled = Array.from({ length: batch }, (_, index) => cases[index % cases.length]);
@@ -484,6 +499,8 @@ async function sustained(request) {
   if (!Number.isInteger(iterations) || iterations < 1 || iterations > 10000)
     throw named("INPUT_INVALID", "iterations must be 1..10000");
   const expectedModel = request.model ?? null;
+  if (expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "sustained requires the expected model identity");
   const started = performance.now();
   for (let index = 0; index < iterations; index += 1)
     await runBatch(cases, model.size, { requireIdentity: false, expectedModel });
