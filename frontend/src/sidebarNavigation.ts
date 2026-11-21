@@ -10,6 +10,7 @@ export type SidebarItem =
 export const ARENA_SIDEBAR_ITEMS: SidebarItem[] = [
   { kind: 'destination', id: 'dashboard', label: 'The Great Hall', href: '/dashboard' },
   { kind: 'destination', id: 'play', label: 'Battlefield', href: '/play' },
+  { kind: 'destination', id: 'online', label: 'Online Play', href: '/online' },
   { kind: 'destination', id: 'statistics', label: 'Statistics', href: '/statistics' },
   {
     kind: 'group',

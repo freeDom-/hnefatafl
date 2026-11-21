@@ -59,6 +59,7 @@ it('keeps Arena and Workshop destinations in separate workspace navigations', ()
   expect(headerLabels()).toEqual([
     'The Great Hall',
     'Battlefield',
+    'Online Play',
     'Statistics',
     'Leaderboard',
     'Hall of records',
@@ -107,7 +108,14 @@ it('uses the compact Workshop navigation instead of the Arena one on mobile', ()
   expect(within(bottomNav()).queryByRole('link', { name: 'Great Hall' })).toBeNull();
 
   shell(player, 'arena', 'dashboard');
-  expect(bottomLabels()).toEqual(['Great Hall', 'Battlefield', 'Stats', 'Trials', 'Replays']);
+  expect(bottomLabels()).toEqual([
+    'Great Hall',
+    'Battlefield',
+    'Online',
+    'Stats',
+    'Trials',
+    'Replays',
+  ]);
   expect(within(bottomNav()).queryByRole('link', { name: 'Training' })).toBeNull();
 });
 
@@ -137,6 +145,17 @@ it('keeps the compact navigation outside the gameplay region so it cannot cover 
   expect(nav.previousElementSibling).toBe(main);
 });
 
+it('keeps Online Play available independently of games and tournament permissions', () => {
+  for (const account of [player, trainer, tester, keeper]) {
+    shell(account, 'arena', 'dashboard');
+    expect(within(headerNav()).getByRole('button', { name: 'Online Play' })).toBeVisible();
+    expect(within(bottomNav()).getByRole('link', { name: 'Online' })).toHaveAttribute(
+      'href',
+      '/online',
+    );
+  }
+});
+
 it('marks the active destination in both navigations, including workshop section anchors', () => {
   history.replaceState(null, '', '/play');
   shell(player, 'arena', 'play');
@@ -149,6 +168,20 @@ it('marks the active destination in both navigations, including workshop section
     'page',
   );
   expect(within(bottomNav()).getByRole('link', { name: 'Great Hall' })).not.toHaveAttribute(
+    'aria-current',
+  );
+
+  history.replaceState(null, '', '/online?section=mine');
+  shell(player, 'arena', 'online');
+  expect(within(headerNav()).getByRole('button', { name: 'Online Play' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  expect(within(bottomNav()).getByRole('link', { name: 'Online' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  expect(within(headerNav()).getByRole('button', { name: 'Battlefield' })).not.toHaveAttribute(
     'aria-current',
   );
 
@@ -185,6 +218,7 @@ it('keeps the preserved routes reachable from the header navigation', () => {
   for (const [label, path] of [
     ['The Great Hall', '/dashboard'],
     ['Battlefield', '/play'],
+    ['Online Play', '/online'],
     ['Statistics', '/statistics'],
     ['Leaderboard', '/leaderboard'],
     ['Hall of records', '/archive'],
@@ -212,6 +246,7 @@ it('localizes the Arena and Workshop navigation', () => {
   expect(headerLabels()).toEqual([
     'Die große Halle',
     'Schlachtfeld',
+    'Online spielen',
     'Statistik',
     'Rangliste',
     'Halle der Aufzeichnungen',
@@ -219,6 +254,7 @@ it('localizes the Arena and Workshop navigation', () => {
   expect(bottomLabels('Mobile Navigation')).toEqual([
     'Große Halle',
     'Schlachtfeld',
+    'Online',
     'Statistik',
     'Wettstreit',
     'Wiederholungen',
@@ -240,6 +276,7 @@ it('uses the approved Norse labels in the desktop Arena rail', () => {
     '/dashboard',
   );
   expect(within(nav).getByRole('link', { name: 'Battlefield' })).toHaveAttribute('href', '/play');
+  expect(within(nav).getByRole('link', { name: 'Online Play' })).toHaveAttribute('href', '/online');
   expect(within(nav).getByRole('button', { name: 'Trials of Valor' })).toBeVisible();
   expect(within(nav).getByRole('link', { name: 'Leaderboard' })).toBeVisible();
   expect(within(nav).getByRole('link', { name: 'Player tournaments' })).toBeVisible();
@@ -268,6 +305,7 @@ it('uses the approved Norse labels in the desktop Arena rail', () => {
   const german = screen.getByRole('navigation', { name: 'Hauptnavigation' });
   expect(within(german).getByRole('link', { name: 'Die große Halle' })).toBeVisible();
   expect(within(german).getByRole('link', { name: 'Schlachtfeld' })).toBeVisible();
+  expect(within(german).getByRole('link', { name: 'Online spielen' })).toBeVisible();
   expect(within(german).getByRole('button', { name: 'Prüfungen des Mutes' })).toBeVisible();
   expect(within(german).getByRole('link', { name: 'Halle des Ruhms' })).toBeVisible();
 });

@@ -14,6 +14,7 @@ it('keeps the frozen Arena destinations and their canonical routes', () => {
   expect(ARENA_DESTINATIONS.map(({ id, label, href }) => ({ id, label, href }))).toEqual([
     { id: 'dashboard', label: 'The Great Hall', href: '/dashboard' },
     { id: 'play', label: 'Battlefield', href: '/play' },
+    { id: 'online', label: 'Online Play', href: '/online' },
     { id: 'statistics', label: 'Statistics', href: '/statistics' },
     { id: 'leaderboard', label: 'Leaderboard', href: '/leaderboard' },
     { id: 'archive', label: 'Hall of records', href: '/archive' },
@@ -57,6 +58,7 @@ it('selects the accessible Workshop entry for every permission combination', () 
 
 it('resolves the active destination from the route and from workshop section anchors', () => {
   expect(activeDestination('arena', 'play', '')).toBe('play');
+  expect(activeDestination('arena', 'online', '')).toBe('online');
   expect(activeDestination('arena', 'profile', '')).toBeUndefined();
   expect(activeDestination('workshop', 'training', '')).toBe('training');
   expect(activeDestination('workshop', 'training', '#model-collection')).toBe('model-collection');
@@ -79,6 +81,7 @@ it('keeps every destination inside the same-origin route allowlist', () => {
   for (const destination of [...ARENA_DESTINATIONS, ...WORKSHOP_DESTINATIONS]) {
     expect(safeDestination(destination.href)).toBe(destination.href);
   }
+  expect(safeDestination('/online?section=mine')).toBe('/online?section=mine');
   expect(safeDestination('/games/owned-id')).toBe('/games/owned-id');
   expect(safeDestination('/online/games/online-' + 'a'.repeat(32))).toBe(
     '/online/games/online-' + 'a'.repeat(32),
@@ -87,5 +90,5 @@ it('keeps every destination inside the same-origin route allowlist', () => {
 it('highlights human competition without adding Workshop permissions or crowding mobile navigation', () => {
   expect(activeDestination('arena', 'player-tournaments', '#bracket')).toBe('player-tournaments');
   expect(activeDestination('workshop', 'player-tournaments', '')).toBeUndefined();
-  expect(workspaceDestinations('arena', ['play'])).toHaveLength(5);
+  expect(workspaceDestinations('arena', ['play'])).toHaveLength(6);
 });

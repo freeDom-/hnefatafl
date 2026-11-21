@@ -24,6 +24,7 @@ const translations: Record<string, string> = {
   'AI Workshop': 'KI-Werkstatt',
   'THE WAR TABLE': 'DER KRIEGSTISCH',
   'The Great Hall': 'Die große Halle',
+  'Online Play': 'Online spielen',
   'Trials of Valor': 'Prüfungen des Mutes',
   'Hall of Renown': 'Halle des Ruhms',
   Tournaments: 'Turniere',

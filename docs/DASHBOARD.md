@@ -7,14 +7,17 @@ The Great Hall (`/dashboard`) is the authenticated landing and default post-logi
 `/` redirects there, retaining search parameters and fragments; the authenticated
 lobby listing keeps its own `/online` route, and the legacy
 `/dashboard?setup=online` deep link redirects to `/play` with the online creation
-dialog open. Main navigation contains
-The Great Hall, Battlefield, Statistics, Leaderboard, Hall of records and the authorized
-workshop/tournament controls.
+dialog open. Main navigation contains The Great Hall, Battlefield, Online Play,
+Statistics, Trials of Valor (Leaderboard, Player tournaments and Leagues), Hall of
+records, Hall of Renown and the authorized workshop/tournament controls. Online
+Play always opens `/online`; it does not depend on active games, running
+tournaments or waiting lobby games.
 Every surface here requires an authenticated session.
 
 **Battlefield** (`/play`) opens the last selected unfinished game when it is still in the
-signed-in account's current games; otherwise it opens another unfinished game.
-With no running games, it links to the `/online` lobby listing for finding
+signed-in account's current games; otherwise it opens another unfinished game. This
+automatic resume is intentionally unchanged by the separate Online Play destination.
+With no running games, Battlefield links to the `/online` lobby listing for finding
 opponents and offers the New online game/New local 1v1 game/New single-player game
 buttons and dialogs.
 The remembered game is checked against current server-owned lists and cleared on

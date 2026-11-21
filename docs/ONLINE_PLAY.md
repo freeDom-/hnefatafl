@@ -3,14 +3,18 @@
 [Documentation index](README.md) · [Rules and board controls](GAMEPLAY.md) ·
 [Online operations](ONLINE.md) · [Phase 3 evidence](validation/online-phase3.md)
 
-Online play requires a signed-in account. Open **New online game** on Battlefield, or the
-authenticated lobby listing at `/online`. The old `/dashboard?setup=online` entry
-redirects to Battlefield with the online creation dialog open. Admission is disabled by
-default; the lobby explains when the
-operator has disabled new games or your account is not eligible. Creating/joining
-requires the backend's current active/verified/play eligibility. An existing seat
-can keep playing after verification is removed, while its account/session remains
-valid. Play, joining and mutation remain authenticated. A separate additive
+Online play requires a signed-in account. **Online Play** in the main Arena
+navigation always opens the authenticated lobby listing at `/online`, whether or
+not the account has active games, tournaments are running or the lobby has waiting
+games. It never auto-resumes a game, so `/online` stays directly reachable
+alongside **Battlefield** (`/play`). Open **New online game** on Battlefield or in
+the lobby to create a game. The old `/dashboard?setup=online` entry redirects to
+Battlefield with the online creation dialog open. Admission is disabled by
+default; the lobby explains when the operator has disabled new games or your
+account is not eligible. Creating/joining requires the backend's current
+active/verified/play eligibility. An existing seat can keep playing after
+verification is removed, while its account/session remains valid. Play, joining
+and mutation remain authenticated. A separate additive
 [public read-only namespace](PUBLIC_ONLINE.md) lets signed-out visitors browse
 online games and completed replays; it never exposes single-player or local
 records and never generates analysis.

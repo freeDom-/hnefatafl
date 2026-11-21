@@ -45,7 +45,7 @@ remains outstanding for every shipped feature.
 | 0 | Shared engine, authoritative results, ownership and permission boundaries | Merged | Exposed | Verified | Existing Python engine and authoritative HTTP/database services; no second gameplay authority |
 | 0 | Current architecture and Arena contracts | Merged | None | Verified | Reconciled contracts; historical audit retained separately |
 | 1 | Four themes, original artwork, first paint and interface scale | Merged (#84) | Exposed | Verified in PR #84 scope | Shared catalog and tokens preserved by later PRs; combined cross-route QA pending |
-| 1 | Persistent desktop navigation, mobile shell and EN/DE shell | Merged | Exposed | Verified in browser suites | The Great Hall, Battlefield, Trials of Valor, Hall of Renown, Hall of records; combined QA pending |
+| 1 | Persistent desktop navigation, mobile shell and EN/DE shell | Merged | Exposed | Verified in browser suites | The Great Hall, Battlefield, Online Play, Trials of Valor, Hall of Renown, Hall of records; combined QA pending |
 | 2 | Single-player, private local 1v1, replay and distinct statistics | Merged (#74, #81) | Exposed | Verified | Existing shared authority and category ownership |
 | 2 | Online modes, clocks, optimistic version guards and Elo history | Merged | Exposed | Verified | Authoritative online core and applied rating ledger |
 | 2 | Public online read-only APIs | Merged (#82) | Exposed (#87) | Verified | Discovery, live and completed replay without Auth initialization |

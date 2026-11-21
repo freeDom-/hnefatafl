@@ -51,7 +51,9 @@ test('default landing, shared latest three and exact review survive filtering an
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await expect(primaryNavigation(page).locator('[data-destination="play"]')).toBeVisible();
-  await expect(primaryNavigation(page).locator('[data-destination="online"]')).toHaveCount(0);
+  const online = primaryNavigation(page).locator('[data-destination="online"]');
+  await expect(online).toBeVisible();
+  await expect(online).toHaveAttribute('href', '/online');
   await expect(page.getByText('Local players')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible();
   // The reference layout is the dashboard's primary structure.
