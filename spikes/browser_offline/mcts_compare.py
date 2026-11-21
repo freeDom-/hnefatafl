@@ -50,9 +50,10 @@ from hnefatafl.mcts_driver import (  # noqa: E402
     position_identity,
     validate_search_settings,
 )
+from mcts_vectors import workload_identity  # noqa: E402
 
 SCHEMA = 1
-COMPARISON_SCHEMA = 3
+COMPARISON_SCHEMA = 4
 TERMINAL_VALUES = {"defenders": 1.0, "attackers": -1.0, "draw": 0.0}
 LEVELS = ("a", "b")
 SETTING_FIELDS = ("iterations", "time_limit", "seed", "exploration")
@@ -86,6 +87,17 @@ def _hex64(value) -> bool:
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value)
     )
+
+
+COUNTER_FIELDS = (
+    "requested_simulations",
+    "completed_simulations",
+    "neural_requests",
+    "prediction_reuses",
+    "immediate_win_shortcuts",
+    "root_children",
+    "inference_cache_hits",
+)
 
 
 def _settings(raw) -> dict:
@@ -202,6 +214,24 @@ def _validate_report(
         if expected != [entry.get("name") for entry in raw_positions]:
             fail("position coverage does not match the validated workload")
     model_meta = report.get("model_meta")
+    expected_workload_identity = None
+    if workload_info is not None and isinstance(settings, dict):
+        evaluator = report.get("evaluator")
+        model_digest = (
+            model_meta.get("onnx_sha256")
+            if report.get("level") == "b" and isinstance(model_meta, dict)
+            else None
+        )
+        if isinstance(evaluator, str) and evaluator:
+            expected_workload_identity = workload_identity(
+                report.get("level"),
+                evaluator,
+                validate_search_settings(settings),
+                workload_info["positions"],
+                model_digest,
+            )
+            if report.get("workload_digest") != expected_workload_identity:
+                fail("workload digest does not match the independently recomputed identity")
     if report.get("level") == "b":
         if not isinstance(model_meta, dict) or not _hex64(model_meta.get("onnx_sha256")):
             fail("model-backed report lacks a valid ONNX model digest")
@@ -245,6 +275,8 @@ def _validate_report(
         "model_meta": model_meta,
         "level": report.get("level"),
         "workload": workload_info,
+        "workload_identity": expected_workload_identity,
+        "workload_digest": report.get("workload_digest"),
     }
 
 
@@ -284,15 +316,22 @@ def _validate_search(
     ):
         fail("analysis best_move is malformed")
         best_move = None
-    for field in (
-        "requested_simulations",
-        "completed_simulations",
-        "neural_requests",
-        "prediction_reuses",
-        "immediate_win_shortcuts",
-    ):
-        if not _is_int(search.get(field)):
+    for field in COUNTER_FIELDS:
+        counter = search.get(field)
+        if counter is None and field in ("root_children", "inference_cache_hits"):
             fail(f"search.{field} must be an integer")
+        elif not _is_int(counter):
+            fail(f"search.{field} must be an integer")
+        elif counter < 0:
+            fail(f"search.{field} must be a non-negative integer")
+    analysis_simulations = analysis.get("simulations")
+    if analysis_simulations is not None and (
+        not _is_int(analysis_simulations) or analysis_simulations < 0
+    ):
+        fail("analysis.simulations must be a non-negative integer")
+    trace_length = search.get("trace_length")
+    if trace_length is not None and (not _is_int(trace_length) or trace_length < 0):
+        fail("search.trace_length must be a non-negative integer")
     for field in ("root_value", "search_value"):
         field_value = search.get(field)
         if field_value is not None and (
@@ -540,6 +579,16 @@ def compare(
         failures.append("engine source identity differs between the reports")
     if native.get("workload_digest") != browser.get("workload_digest"):
         failures.append("workload digest differs between the reports")
+    native_identity = native_validation.get("workload_identity")
+    browser_identity = browser_validation.get("workload_identity")
+    if native_identity is None or browser_identity is None:
+        failures.append("a workload identity could not be independently recomputed")
+    elif native_identity != browser_identity:
+        failures.append("independently recomputed workload identities differ")
+    elif native_identity != native.get("workload_digest"):
+        failures.append("native workload digest does not match its recomputed identity")
+    elif browser_identity != browser.get("workload_digest"):
+        failures.append("browser workload digest does not match its recomputed identity")
     native_settings = native_validation.get("settings")
     browser_settings = browser_validation.get("settings")
     if native_settings != browser_settings:
@@ -802,6 +851,14 @@ def compare(
             "source": native_workload["source"] if native_workload else None,
             "expected_cases": len(expected_names),
             "positions_sha256": (native_workload["positions_sha256"] if native_workload else None),
+            "recomputed_identity": native_identity,
+            "browser_recomputed_identity": browser_identity,
+            "identity_verified": (
+                native_identity is not None
+                and native_identity == browser_identity
+                and native_identity == native.get("workload_digest")
+                and browser_identity == browser.get("workload_digest")
+            ),
             "custom_file_verified": (
                 bool(custom_positions and custom_file_digest) if native_workload else None
             ),
@@ -854,6 +911,9 @@ def failure_report(kind: str, message: str, *, level: str | None = None) -> dict
             "source": None,
             "expected_cases": 0,
             "positions_sha256": None,
+            "recomputed_identity": None,
+            "browser_recomputed_identity": None,
+            "identity_verified": False,
             "custom_file_verified": None,
         },
         "completion_classes": {},

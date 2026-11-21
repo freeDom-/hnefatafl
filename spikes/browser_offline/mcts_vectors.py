@@ -153,8 +153,13 @@ def workload_identity(
         # Level B identifies the numerical model by its ONNX digest; the native
         # PyTorch/ONNX and browser providers must share one workload identity.
         "evaluator": evaluator if level == "a" else None,
+        # Normalise the Python/JavaScript JSON numeric boundary: `10` and `10.0`
+        # describe the same validated setting and must not change the identity.
         "settings": {
-            key: settings[key] for key in ("iterations", "time_limit", "seed", "exploration")
+            "iterations": int(settings["iterations"]),
+            "time_limit": float(settings["time_limit"]),
+            "seed": int(settings["seed"]),
+            "exploration": float(settings["exploration"]),
         },
         "positions": [entry["state"] if "state" in entry else entry for entry in positions],
         "model_onnx_sha256": model_onnx_sha256,
