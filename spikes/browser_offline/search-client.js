@@ -123,6 +123,12 @@ export class NeuralSearchCoordinator {
     this.generation = 0;
     this.active = null;
     this.info = null;
+    // All outstanding cancellation/drain work. A new admission inherits the whole
+    // barrier instead of only waiting for the immediately previous search.
+    this.cleanupBarrier = Promise.resolve();
+    // Set when a superseded search's cancellation acknowledgement failed after a
+    // newer admission took ownership. The newer owner replaces the worker itself.
+    this.workerUnhealthy = false;
     // A disposed coordinator is permanently retired: no later call may spawn a
     // replacement worker after page teardown. Callers that want a usable
     // coordinator after a lifecycle reset must create a new instance.
@@ -218,6 +224,7 @@ export class NeuralSearchCoordinator {
     this.worker = null;
     this.boot = null;
     this.info = null;
+    this.workerUnhealthy = false;
     try {
       worker?.terminate();
     } catch {
@@ -318,8 +325,10 @@ export class NeuralSearchCoordinator {
     clearTimeout(search.watchdog);
     // Stop the search loop immediately, including during initialization.
     search.rejectCancel?.(search.error);
+    // A pending request may belong to an older search's own cleanup; only the
+    // owner's pending request may be rejected here.
     const pending = this.pending;
-    if (pending) {
+    if (pending && pending.owner === search) {
       this._settlePending(pending);
       pending.reject(search.error);
     }
@@ -334,7 +343,7 @@ export class NeuralSearchCoordinator {
         try {
           const envelope = await this._request(
             { action: "cancel", search_id: search.searchId },
-            { timeoutMs: CANCEL_ACK_TIMEOUT_MS, abortOnTimeout: false },
+            { timeoutMs: CANCEL_ACK_TIMEOUT_MS, abortOnTimeout: false, owner: search },
           );
           const event = envelope.event;
           if (event.search_id !== search.searchId) {
@@ -344,25 +353,41 @@ export class NeuralSearchCoordinator {
           released.context = event.released ?? null;
         } catch (cancelError) {
           if (this.generation === search.generation && this.worker) {
-            // Bounded final recovery. Never poison a newer admission that already
-            // owns the worker: replace the worker instead of aborting the active
-            // search record.
             const failure = named(
               "WorkerError",
               "Search worker did not acknowledge cancellation",
             );
-            if (this.active === search) this.abort(failure);
-            else this._replaceWorker(failure);
+            if (this.active === search) {
+              this.abort(failure);
+            } else {
+              // A newer search owns the worker; never terminate it from older
+              // cleanup. The owner performs bounded replacement itself.
+              this.workerUnhealthy = true;
+            }
           }
         }
       }
       if (search.inferencePending) {
-        released.inference = await this._releaseInference(search, reason);
+        try {
+          released.inference = await this._releaseInference(search, reason);
+        } catch (inferenceError) {
+          // A failed drain must not reject the cancellation contract or block a
+          // newer admission; recovery is reported as part of the acknowledgement.
+          released.inference = {
+            state: "failed",
+            sessionRetained: false,
+            error: String(inferenceError?.message ?? inferenceError),
+          };
+        }
       }
       search.timings.cancellation_ms = performance.now() - started;
       search.phase = "cancelled";
       return { cancelled: true, released };
     })();
+    const priorBarrier = this.cleanupBarrier;
+    this.cleanupBarrier = Promise.allSettled([priorBarrier, search.cancelPromise]).then(
+      () => {},
+    );
     return search.cancelPromise;
   }
 
@@ -379,7 +404,7 @@ export class NeuralSearchCoordinator {
     }
   }
 
-  async _request(payload, { timeoutMs, abortOnTimeout = true }) {
+  async _request(payload, { timeoutMs, abortOnTimeout = true, owner = null }) {
     await this.load();
     if (this.pending) throw named("WorkerError", "A search message is already in flight");
     const worker = this.worker;
@@ -405,7 +430,7 @@ export class NeuralSearchCoordinator {
         this._settlePending(outstanding);
         outstanding.reject(error);
       }, timeoutMs);
-      const pending = { id, resolve, reject, timer };
+      const pending = { id, resolve, reject, timer, owner };
       pending.finished = () => {};
       this.pending = pending;
       try {
@@ -473,7 +498,9 @@ export class NeuralSearchCoordinator {
   }) {
     if (this.disposed) throw named("AbortError", "Search coordinator disposed");
     const configuration = normalizeSearchSettings(settings);
-    const expectedModel = model ?? (this.neural ? this.neural.modelIdentity() : null);
+    // The immutable identity is captured when the workload is prepared. Never
+    // substitute whatever model happens to be loaded now.
+    const expectedModel = model;
     if (!expectedModel)
       throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
     if (!this.neural) throw named("MODEL_NOT_LOADED", "Neural inference is unavailable");
@@ -502,10 +529,26 @@ export class NeuralSearchCoordinator {
         await this._cancelSearch(previous, "Superseded by a newer search");
         this._assertOwner(search);
       }
+      // Recover an unresponsive worker left by older cleanup only when this
+      // admission owns the current worker.
+      if (this.workerUnhealthy && this._owner(search)) this._replaceWorker(
+        named("WorkerError", "Replacing an unhealthy search worker"),
+      );
       // Cancel during cold initialization must be effective immediately, so the
       // shared boot promise is raced against this search's cancellation signal.
       await Promise.race([this.load(), search.cancelSignal]);
       this._assertOwner(search);
+      // Inherit every outstanding cleanup dependency, not just the immediately
+      // previous search's cancellation.
+      await Promise.race([this.cleanupBarrier, search.cancelSignal]);
+      this._assertOwner(search);
+      if (this.workerUnhealthy && this._owner(search)) {
+        // Older cleanup reported an unresponsive worker while this admission was
+        // booting; replace it now that the owner has no in-flight boot promise.
+        this._replaceWorker(named("WorkerError", "Replacing an unhealthy search worker"));
+        await Promise.race([this.load(), search.cancelSignal]);
+        this._assertOwner(search);
+      }
       if (search.generation !== this.generation) {
         // A previous search's failed cancellation may have replaced the shared
         // worker before this search submitted anything. The fresh worker is now
@@ -606,7 +649,7 @@ export class NeuralSearchCoordinator {
       Math.max(MIN_STEP_TIMEOUT_MS, Math.ceil(remaining)),
     );
     const started = performance.now();
-    const envelope = await this._request(payload, { timeoutMs });
+    const envelope = await this._request(payload, { timeoutMs, owner: search });
     const elapsed = performance.now() - started;
     search.timings.steps += 1;
     search.timings.step_ms += elapsed;

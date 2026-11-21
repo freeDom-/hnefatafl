@@ -88,22 +88,31 @@ class FakeSearchWorker {
     this.startGate = null;
     this.resumeGate = null;
     this.startSearchId = null;
+    this.cancelGate = null;
+    this.cancelError = null;
   }
   postMessage(message) {
     this.messages.push(message);
     const payload = JSON.parse(message.payload);
     if (payload.action === "cancel") {
+      if (this.cancelError) {
+        const failure = this.cancelError;
+        setTimeout(
+          () => this.respondError(message.id, failure.code, failure.message),
+          0,
+        );
+        return;
+      }
       if (!this.cancelAcks) return;
-      setTimeout(
-        () =>
-          this.respond(message.id, {
-            kind: "cancelled",
-            search_id: payload.search_id,
-            cancelled: true,
-            released: { search_context: true, python_generator: true },
-          }),
-        0,
-      );
+      const ack = () =>
+        this.respond(message.id, {
+          kind: "cancelled",
+          search_id: payload.search_id,
+          cancelled: true,
+          released: { search_context: true, python_generator: true },
+        });
+      if (this.cancelGate) this.cancelGate.then(ack);
+      else setTimeout(ack, 0);
       return;
     }
     if (payload.action === "parity" || payload.action === "info") return;
@@ -154,21 +163,25 @@ class FakeNeural {
     this.response = null;
     this.cancels = [];
     this.drainState = "drained";
+    this.cancelGate = null;
   }
   modelIdentity() {
     return MODEL;
   }
   cancelRequest({ reason, drainMs }) {
     this.cancels.push({ reason, drainMs });
-    return Promise.resolve({
+    const result = {
       state: this.drainState,
       sessionRetained: this.drainState === "drained",
       workerRetained: this.drainState === "drained",
-    });
+    };
+    if (this.cancelGate) return this.cancelGate.then(() => result);
+    return Promise.resolve(result);
   }
   infer(request) {
     this.calls.push(request);
-    if (this.response) return this.response(request);
+    const custom = this.response ? this.response(request) : null;
+    if (custom) return custom;
     return Promise.resolve({
       request_id: request.request_id,
       position_digest: request.position_digest,
@@ -800,6 +813,192 @@ await check("a newer search survives a failed cancellation of the previous one",
   assert.equal(worker.terminated, true, "the unresponsive old worker is replaced");
   assert.notEqual(coordinator.worker, null);
   if (release) release(new Promise(() => {}));
+  coordinator.dispose();
+});
+
+function defer() {
+  let resolve;
+  let reject;
+  const promise = new Promise((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+function startMessages(worker) {
+  return worker.messages
+    .map((message) => JSON.parse(message.payload))
+    .filter((payload) => payload.action === "start");
+}
+
+await check("cascading admissions inherit all outstanding cleanup", async () => {
+  const { coordinator, neural, worker } = await bootCoordinator();
+  let blocked = true;
+  neural.response = () => {
+    if (!blocked) return null;
+    blocked = false;
+    return new Promise(() => {});
+  };
+  const ack = defer();
+  const drain = defer();
+  worker.cancelGate = ack.promise;
+  neural.cancelGate = drain.promise;
+  const first = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  await sleep(10);
+  const firstRejected = assert.rejects(first, (error) => error.name === "AbortError");
+  const second = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  const secondRejected = assert.rejects(second, (error) => error.name === "AbortError");
+  await sleep(5);
+  const third = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  await sleep(20);
+  // The final owner has not started while A's acknowledgement and drain are
+  // still outstanding, and B's cancellation did not disturb A's request.
+  assert.equal(startMessages(worker).length, 1, "only the first search has started");
+  ack.resolve();
+  await sleep(20);
+  assert.equal(neural.cancels.length, 1, "only the owner's inference is drained");
+  assert.equal(startMessages(worker).length, 1, "the final owner waits for the drain");
+  drain.resolve();
+  const result = await third;
+  await firstRejected;
+  await secondRejected;
+  assert.equal(result.search.completed_simulations, 8);
+  assert.equal(coordinator.active, null);
+  coordinator.dispose();
+});
+
+await check("a delayed cancellation acknowledgement delays, then permits, the next search", async () => {
+  const { coordinator, neural, worker } = await bootCoordinator();
+  let blocked = true;
+  neural.response = () => {
+    if (!blocked) return null;
+    blocked = false;
+    return new Promise(() => {});
+  };
+  const ack = defer();
+  worker.cancelGate = ack.promise;
+  const first = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  await sleep(10);
+  const firstRejected = assert.rejects(first, (error) => error.name === "AbortError");
+  const second = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  await sleep(20);
+  assert.equal(startMessages(worker).length, 1);
+  ack.resolve();
+  const result = await second;
+  await firstRejected;
+  assert.equal(result.search.completed_simulations, 8);
+  coordinator.dispose();
+});
+
+await check("cancellation acknowledgement failure recovers on a fresh worker", async () => {
+  const { coordinator, neural, worker } = await bootCoordinator();
+  const workerCount = workers.length;
+  let blocked = true;
+  neural.response = () => {
+    if (!blocked) return null;
+    blocked = false;
+    return new Promise(() => {});
+  };
+  worker.cancelError = { code: "WORKER_BUSY", message: "cancel rejected" };
+  const first = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  await sleep(10);
+  const firstRejected = assert.rejects(first, (error) => error.name === "AbortError");
+  const second = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  const secondRejected = assert.rejects(second, (error) => error.name === "AbortError");
+  await sleep(5);
+  const third = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  // The final owner replaces the unhealthy worker before submitting work.
+  for (let attempt = 0; attempt < 50 && workers.length === workerCount; attempt += 1)
+    await sleep(5);
+  assert.equal(workers.length, workerCount + 1, "a fresh worker is created");
+  assert.equal(worker.terminated, true, "the unhealthy worker is terminated");
+  workers.at(-1).ready();
+  const result = await third;
+  await firstRejected;
+  await secondRejected;
+  assert.equal(result.search.completed_simulations, 8);
+  coordinator.dispose();
+});
+
+await check("a failed inference drain does not block chained cleanup", async () => {
+  const { coordinator, neural } = await bootCoordinator();
+  let blocked = true;
+  neural.response = () => {
+    if (!blocked) return null;
+    blocked = false;
+    return new Promise(() => {});
+  };
+  neural.cancelRequest = () => Promise.reject(new Error("drain failed"));
+  const first = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  await sleep(10);
+  const firstRejected = assert.rejects(first, (error) => error.name === "AbortError");
+  const second = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  const secondRejected = assert.rejects(second, (error) => error.name === "AbortError");
+  const third = coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5 },
+    model: MODEL,
+  });
+  const result = await third;
+  await firstRejected;
+  await secondRejected;
+  assert.equal(result.search.completed_simulations, 8);
+  coordinator.dispose();
+});
+
+await check("a neural search must supply the prepared model identity explicitly", async () => {
+  const { coordinator, worker } = await bootCoordinator();
+  const posted = worker.messages.length;
+  await assert.rejects(
+    async () =>
+      coordinator.search({
+        state: STATE,
+        settings: { iterations: 8, time_limit: 5 },
+      }),
+    (error) => error.code === "MODEL_IDENTITY_REQUIRED",
+  );
+  assert.equal(worker.messages.length, posted, "no request may reach the worker");
   coordinator.dispose();
 });
 
