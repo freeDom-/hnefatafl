@@ -142,8 +142,12 @@ unchanged.
 `test_search_path_parity.mjs` collects raw observations only; the shared Python
 validator (`path_parity.py`, using the real engine for move legality) owns
 acceptance. Every case has an independent failure list and `case.ok`; `report.ok`
-requires coverage and every case to pass. Execution errors are recorded separately
-from validation failures, and the CLI exits nonzero on any failure.
+requires coverage, every case, the collector's `raw_ok`, and well-formed
+`harness_failures` to pass. Collector failures are preserved separately from
+per-case validation failures, successful cases are never discarded when an
+independent browser error occurs, and the CLI exits nonzero on any failure.
+Malformed nested full/compact/search/analysis/coordinator/model/provider/settings
+fields produce structured failed cases instead of exceptions.
 
 The runner executes the same real coordinator and neural worker twice per
 position with only `coordinator.compactInference` changed. It requires
@@ -159,8 +163,14 @@ cover all supported rulesets; a single-model run requires that model's
 opening/tactical/repetition/terminal categories and Brandubh immediate win.
 Unexpectedly empty or reduced workloads fail with synthetic failed cases. Negative
 regression tests cover illegal/missing moves, altered model/position identity,
-altered visits, wrong completed work, wrong deadline reporting, missing expected
-positions/categories and a single failing case among passing cases.
+altered visits, wrong completed work, invalid fixed-time accounting, wrong
+deadline reporting, malformed nested reports, collector failures, missing
+expected positions/categories and a single failing case among passing cases.
+
+Fixed-time accounting is checked per runtime: integer completed work within
+`0..requested`, `analysis.simulations` agreement, root-visit consistency,
+completion-reason/deadline metadata, terminal/immediate exceptions, and timing
+presence. Full and compact may complete different valid amounts of work.
 
 ### 3.2 Serialized-state allocation
 
@@ -233,7 +243,8 @@ Only the controlled within-revision comparison is used as optimization evidence.
 | Tensor compact/full extraction | exact legal-probability parity |
 | Full-logit vs legal-only search paths (fixed work) | 13/13 exact across Brandubh/Tablut/Copenhagen + 5/5 32×2 |
 | Full-logit vs legal-only search paths (fixed time) | 13/13 valid deadline/legal/identity cases |
-| Search-path per-case negative validation | 18 synthetic tests: illegal/missing move, identity, visits, work, deadline, missing case/category, single failure |
+| Search-path per-case negative validation | 57 synthetic tests: illegal/missing move, identity, visits, work, deadline, malformed nesting, collector failures, missing case/category, single failure |
+| Actual-browser collector error after cases | nonzero exit; all cases pass but `collector_ok=false` and report rejected |
 | Normal-page direct test actions | 5/5 rejected; ordinary inference still completes |
 | Dedicated test worker | delayed inference, healthy drain, unresponsive replacement and generation ownership pass |
 
@@ -314,11 +325,12 @@ node spikes/browser_offline/test_neural_tensors.mjs
   [compact](mcts-benchmark-copenhagen-compact-phase3a.json) /
   [full](mcts-benchmark-copenhagen-full-phase3a.json)
 - [32×2 synthetic](mcts-benchmark-brandubh-32x2-phase3a.json)
-- Search-path parity (final per-case validator): [fixed work, three rulesets](mcts-search-path-parity-fixed-final-phase3a.json),
-  [32×2](mcts-search-path-parity-32x2-final-phase3a.json), fixed-time
-  [Brandubh](mcts-search-path-parity-time-brandubh-final-phase3a.json),
-  [Tablut](mcts-search-path-parity-time-tablut-final-phase3a.json),
-  [Copenhagen](mcts-search-path-parity-time-copenhagen-final-phase3a.json)
+- Search-path parity (acceptance hardening): [fixed work, three rulesets](mcts-search-path-parity-fixed-acceptance-phase3a.json),
+  [32×2](mcts-search-path-parity-32x2-acceptance-phase3a.json), fixed-time
+  [Brandubh](mcts-search-path-parity-time-brandubh-acceptance-phase3a.json),
+  [Tablut](mcts-search-path-parity-time-tablut-acceptance-phase3a.json),
+  [Copenhagen](mcts-search-path-parity-time-copenhagen-acceptance-phase3a.json);
+  [rejected collector error](mcts-search-path-parity-collector-error-acceptance-phase3a.json)
 - Serialized-state cleanup: [before](mcts-benchmark-state-allocation-before-phase3a.json) /
   [after](mcts-benchmark-state-allocation-after-phase3a.json) (difference below noise)
 - Parity: [native A](mcts-parity-native-a-phase3a.json) /
