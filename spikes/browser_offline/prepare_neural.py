@@ -47,7 +47,12 @@ from prepare import VERSION as PYODIDE_VERSION  # noqa: E402
 # The search worker runs the unchanged engine plus the shared encoder and the
 # cooperative driver; it never loads PyTorch or model tensors.
 SEARCH_SOURCE_MODULES = CLASSICAL_MODULES + ("encoding.py", "mcts_driver.py")
-SEARCH_ROOT_MODULES = ("search_bridge.py", "mcts_vectors.py", "mcts_benchmark.py")
+SEARCH_ROOT_MODULES = (
+    "search_bridge.py",
+    "mcts_vectors.py",
+    "mcts_benchmark.py",
+    "mcts_workload.py",
+)
 SEARCH_ASSETS_SCHEMA = 1
 
 ORT_VERSION = "1.22.0"
@@ -514,6 +519,7 @@ def main() -> None:
         "search_bridge.py",
         "mcts_vectors.py",
         "mcts_benchmark.py",
+        "mcts_workload.py",
     ):
         shutil.copyfile(SPIKE / name, output / name)
     (output / "model").mkdir(exist_ok=True)

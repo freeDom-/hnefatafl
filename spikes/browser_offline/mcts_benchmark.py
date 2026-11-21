@@ -26,6 +26,7 @@ for path in (str(SPIKE), str(ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+import mcts_workload  # noqa: E402
 from hnefatafl.mcts_driver import MAX_SIMULATIONS  # noqa: E402
 
 SIMULATION_BUDGETS = (128, 256, 512, 1024, 2048, 4096)
@@ -149,41 +150,16 @@ def _hex64(value) -> bool:
     )
 
 
-def selection_position_names(selection) -> list[str]:
-    """Re-derive benchmark positions from the recorded fixture selection."""
-    if not isinstance(selection, dict):
-        raise ValueError("workload has no selection definition")
-    if selection.get("source") != "fixtures.jarl_positions":
-        raise ValueError("workload selection source is unsupported")
-    from fixtures import jarl_positions
-
-    rulesets = selection.get("rulesets")
-    if not isinstance(rulesets, list) or not rulesets:
-        raise ValueError("workload selection has no rulesets")
-    kinds = selection.get("kinds")
-    if kinds is not None and not isinstance(kinds, list):
-        raise ValueError("workload selection has invalid kinds")
-    return [
-        case["name"]
-        for case in jarl_positions()
-        if case["ruleset"] in rulesets and (kinds is None or case["kind"] in kinds)
-    ]
-
-
 def expected_keys(report: dict) -> list[tuple]:
     """Independently derive every measured record key from the workload."""
     workload = report.get("workload")
     if not isinstance(workload, dict):
         raise ValueError("report has no workload definition")
-    positions = workload.get("positions")
-    if not isinstance(positions, list) or not positions:
-        raise ValueError("workload has no positions")
     try:
-        expected_names = selection_position_names(workload.get("selection"))
+        validated = mcts_workload.validate_workload(workload)
     except ValueError as error:
         raise ValueError(str(error)) from None
-    if [entry.get("name") for entry in positions] != expected_names:
-        raise ValueError("workload positions do not match the recorded fixture selection")
+    positions = validated["positions"]
     names = []
     for entry in positions:
         if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):

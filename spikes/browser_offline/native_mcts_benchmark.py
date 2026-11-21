@@ -25,6 +25,7 @@ for path in (str(SPIKE), str(ROOT)):
         sys.path.insert(0, path)
 
 import mcts_benchmark  # noqa: E402
+import mcts_workload  # noqa: E402
 import mcts_vectors  # noqa: E402
 import native_mcts_parity  # noqa: E402
 from hnefatafl.engine import State  # noqa: E402
@@ -163,7 +164,8 @@ def main() -> None:
     )
     modes = list(mcts_benchmark.MODES) if args.mode == "both" else [args.mode]
     cases = mcts_benchmark.cases_for(modes, simulations, time_budgets)
-    positions = mcts_benchmark.select_positions(rulesets, tuple(preset["kinds"]))
+    workload = mcts_workload.build_fixtures_workload(rulesets, list(preset["kinds"]), None)
+    positions = workload["positions"]
     if not positions:
         parser.error("the selected rulesets have no benchmark positions")
 
@@ -254,21 +256,7 @@ def main() -> None:
         "engine_identity": native_mcts_parity.engine_identity(),
         "workload_digest": workload_digest,
         "workload": {
-            "selection": {
-                "source": "fixtures.jarl_positions",
-                "rulesets": rulesets,
-                "kinds": list(preset["kinds"]),
-                "limit": None,
-            },
-            "positions": [
-                {
-                    "name": entry["name"],
-                    "ruleset": entry["ruleset"],
-                    "kind": entry["kind"],
-                    "state": entry["state"],
-                }
-                for entry in positions
-            ],
+            **workload,
             "cases": cases,
             "seed": args.seed,
             "exploration": args.exploration,

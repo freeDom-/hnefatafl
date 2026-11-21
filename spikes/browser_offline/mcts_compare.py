@@ -41,11 +41,19 @@ for path in (str(SPIKE), str(ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from fixtures import jarl_positions  # noqa: E402
+import mcts_workload  # noqa: E402
 from hnefatafl.engine import RULESETS, Move, State, apply_move, legal_moves  # noqa: E402
+from hnefatafl.encoding import ENCODER_VERSION  # noqa: E402
+from hnefatafl.mcts_driver import (  # noqa: E402
+    DRIVER_VERSION,
+    SEARCH_ALGORITHM,
+    position_identity,
+    validate_search_settings,
+)
 
 SCHEMA = 1
-COMPARISON_SCHEMA = 2
+COMPARISON_SCHEMA = 3
+TERMINAL_VALUES = {"defenders": 1.0, "attackers": -1.0, "draw": 0.0}
 LEVELS = ("a", "b")
 SETTING_FIELDS = ("iterations", "time_limit", "seed", "exploration")
 COMPLETION_REASONS = {
@@ -95,49 +103,16 @@ def _settings(raw) -> dict:
     return dict(settings)
 
 
+def _workload_for(report: dict, file_positions: list[dict] | None) -> dict:
+    return mcts_workload.validate_workload(report.get("workload"), file_positions=file_positions)
+
+
 def expected_position_names(report: dict) -> list[str]:
-    """Re-derive the expected position coverage from the recorded selection."""
-    workload = report.get("workload")
-    if not isinstance(workload, dict):
-        raise ValueError("report has no workload definition")
-    selection = workload.get("selection")
-    if not isinstance(selection, dict):
-        raise ValueError("report workload has no selection definition")
-    if selection.get("source") != "fixtures.jarl_positions":
-        raise ValueError("report workload selection source is unsupported")
-    rulesets = selection.get("rulesets")
-    if (
-        not isinstance(rulesets, list)
-        or not rulesets
-        or any(name not in RULESETS for name in rulesets)
-    ):
-        raise ValueError("report workload selection has invalid rulesets")
-    kinds = selection.get("kinds")
-    if kinds is not None and (
-        not isinstance(kinds, list) or not kinds or any(not isinstance(k, str) for k in kinds)
-    ):
-        raise ValueError("report workload selection has invalid kinds")
-    limit = selection.get("limit")
-    if limit is not None and (not _is_int(limit) or limit < 1):
-        raise ValueError("report workload selection has an invalid limit")
-    selected = [
-        case
-        for case in jarl_positions()
-        if case["ruleset"] in rulesets and (kinds is None or case["kind"] in kinds)
-    ]
-    if limit is not None:
-        counted: dict[str, int] = {}
-        limited = []
-        for case in selected:
-            if counted.get(case["ruleset"], 0) >= limit:
-                continue
-            counted[case["ruleset"]] = counted.get(case["ruleset"], 0) + 1
-            limited.append(case)
-        selected = limited
-    return [case["name"] for case in selected]
+    """Validate the declared workload and return its expected case names."""
+    return _workload_for(report, None)["expected_names"]
 
 
-def _validate_report(report: dict, side: str) -> dict:
+def _validate_report(report: dict, side: str, file_positions: list[dict] | None = None) -> dict:
     failures: list[str] = []
 
     def fail(message: str) -> None:
@@ -156,6 +131,11 @@ def _validate_report(report: dict, side: str) -> dict:
         fail("engine source identity is missing or malformed")
     if not _hex64(report.get("workload_digest")):
         fail("workload digest is missing or malformed")
+    workload_info = None
+    try:
+        workload_info = _workload_for(report, file_positions)
+    except ValueError as error:
+        fail(f"invalid workload definition: {error}")
     if not isinstance(report.get("evaluator"), str) or not report["evaluator"]:
         fail("evaluator name is missing")
     workflow_failures = report.get("failures")
@@ -170,11 +150,7 @@ def _validate_report(report: dict, side: str) -> dict:
         settings = _settings(report.get("settings"))
     except ValueError as error:
         fail(str(error))
-    expected: list[str] = []
-    try:
-        expected = expected_position_names(report)
-    except ValueError as error:
-        fail(str(error))
+    expected: list[str] = workload_info["expected_names"] if workload_info is not None else []
     positions: dict[str, dict] = {}
     raw_positions = report.get("positions")
     if not isinstance(raw_positions, list) or not raw_positions:
@@ -203,8 +179,11 @@ def _validate_report(report: dict, side: str) -> dict:
             fail(f"{name}: ruleset does not match the serialized position")
             continue
         positions[name] = {"entry": entry, "state": state}
-    if expected and [entry.get("name") for entry in raw_positions] != expected:
-        fail("position coverage does not match the recorded workload selection")
+    if workload_info is not None:
+        if raw_positions != workload_info["positions"]:
+            fail("report positions do not match the validated workload")
+        if expected != [entry.get("name") for entry in raw_positions]:
+            fail("position coverage does not match the validated workload")
     model_meta = report.get("model_meta")
     if report.get("level") == "b":
         if not isinstance(model_meta, dict) or not _hex64(model_meta.get("onnx_sha256")):
@@ -248,6 +227,7 @@ def _validate_report(report: dict, side: str) -> dict:
         "settings": settings,
         "model_meta": model_meta,
         "level": report.get("level"),
+        "workload": workload_info,
     }
 
 
@@ -399,10 +379,19 @@ def _validate_search(
             fail("terminal position was not classified terminal")
         if best_move is not None:
             fail("terminal position reported a best move")
+        if visits:
+            fail("terminal position reported a root visit distribution")
         if completed != 0 or search.get("neural_requests") != 0:
             fail("terminal position requested inference or reported work")
         if reason not in ("terminal", "immediate_win"):
             fail("terminal position has an inconsistent completion reason")
+        expected_value = TERMINAL_VALUES.get(state.winner)
+        if _finite(value) and expected_value is not None:
+            if float(value) != expected_value:
+                fail(
+                    f"terminal {state.winner} value {value!r} is not the canonical "
+                    f"{expected_value!r}"
+                )
     else:
         if analysis.get("source") != "neural_search":
             fail("non-terminal position was not classified as a neural search")
@@ -410,6 +399,22 @@ def _validate_search(
             best_move["source"], best_move["target"]
         ) not in legal_moves(state):
             fail("best_move is not legal in the root position")
+        if best_move is None:
+            fail("a successful non-terminal search reported no best move")
+        elif completed > 0 or reason == "immediate_win":
+            shares = {
+                (row.get("source"), row.get("target")): float(row.get("share", 0.0))
+                for row in visits
+                if isinstance(row, dict)
+                and _is_int(row.get("source"))
+                and _is_int(row.get("target"))
+                and _finite(row.get("share"))
+            }
+            key = (best_move["source"], best_move["target"])
+            if key not in shares:
+                fail("best move is absent from the root visit distribution")
+            elif shares and shares[key] != max(shares.values()):
+                fail("best move does not have the maximum root visit share")
         if reason == "immediate_win":
             if completed != 0:
                 fail("immediate win must not claim completed simulations")
@@ -430,6 +435,27 @@ def _validate_search(
                 fail("deadline-limited search did not record the cutoff")
         elif reason in ("simulations",):
             fail("reported full budget but completed fewer simulations")
+    # Recompute the exact search-position identity from the full state, effective
+    # settings and model identity recorded by the report.
+    search_model = search.get("model")
+    try:
+        effective = validate_search_settings(settings)
+        if not isinstance(search_model, dict):
+            raise ValueError("search model identity is missing")
+        expected_identity = position_identity(state, effective, search_model)
+    except (ValueError, KeyError, TypeError) as error:
+        fail(f"cannot recompute the expected position identity: {error}")
+    else:
+        if search.get("position_identity") != expected_identity:
+            fail("recorded position identity does not match the recomputed identity")
+        if record.get("path") is not None and record.get("path") != expected_identity:
+            fail("record position association does not match the recomputed identity")
+        if (
+            search.get("algorithm") != SEARCH_ALGORITHM
+            or search.get("driver_version") != DRIVER_VERSION
+            or search.get("encoder_version") != ENCODER_VERSION
+        ):
+            fail("search algorithm/driver/encoder identity is inconsistent")
     return failures
 
 
@@ -456,9 +482,15 @@ def _payload(record: dict) -> dict:
     return {"analysis": record.get("analysis"), "search": search}
 
 
-def compare(native: dict, browser: dict, *, require_best_move: bool) -> dict:
-    native_validation = _validate_report(native, "native")
-    browser_validation = _validate_report(browser, "browser")
+def compare(
+    native: dict,
+    browser: dict,
+    *,
+    require_best_move: bool,
+    custom_positions: list[dict] | None = None,
+) -> dict:
+    native_validation = _validate_report(native, "native", custom_positions)
+    browser_validation = _validate_report(browser, "browser", custom_positions)
     failures: list[str] = list(native_validation["failures"]) + list(browser_validation["failures"])
     notes: list[str] = []
     level = native.get("level")
@@ -476,6 +508,19 @@ def compare(native: dict, browser: dict, *, require_best_move: bool) -> dict:
     browser_settings = browser_validation.get("settings")
     if native_settings != browser_settings:
         failures.append("effective settings differ between the reports")
+    native_workload = native_validation.get("workload")
+    browser_workload = browser_validation.get("workload")
+    if native_workload is not None and browser_workload is not None:
+        if native_workload["source"] != browser_workload["source"]:
+            failures.append("workload source differs between the reports")
+        if native_workload["expected_names"] != browser_workload["expected_names"]:
+            failures.append("workload expected names differ between the reports")
+        if native_workload["positions_sha256"] != browser_workload["positions_sha256"]:
+            failures.append("workload position digest differs between the reports")
+        if native_workload["positions"] != browser_workload["positions"]:
+            failures.append("workload positions or repetition history differ")
+    elif native_workload is None or browser_workload is None:
+        failures.append("a workload definition could not be validated")
     native_positions = native_validation["positions"]
     browser_positions = browser_validation["positions"]
     if set(native_positions) != set(browser_positions):
@@ -501,7 +546,8 @@ def compare(native: dict, browser: dict, *, require_best_move: bool) -> dict:
     equal_work = 0
     max_value_delta = 0.0
     max_visit_tv = 0.0
-    for name in expected_position_names(native) if native.get("workload") else []:
+    expected_names = native_workload["expected_names"] if native_workload is not None else []
+    for name in expected_names:
         left = native_validation["results"].get(name)
         right = browser_validation["results"].get(name)
         entry = {"name": name}
@@ -671,6 +717,13 @@ def compare(native: dict, browser: dict, *, require_best_move: bool) -> dict:
         },
         "deterministic_parity": deterministic,
         "numerical_comparison": numerical,
+        "workload": {
+            "valid": native_workload is not None and browser_workload is not None,
+            "source": native_workload["source"] if native_workload else None,
+            "expected_cases": len(expected_names),
+            "positions_sha256": (native_workload["positions_sha256"] if native_workload else None),
+            "custom_file_verified": bool(custom_positions) if native_workload else None,
+        },
         "workload_completion": workload_completion,
         "performance_comparability": performance,
         "cases": records,
@@ -687,12 +740,35 @@ def main() -> None:
     parser.add_argument("browser", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--require-best-move-parity", action="store_true")
-    args = parser.parse_args()
-    report = compare(
-        json.loads(args.native.read_text()),
-        json.loads(args.browser.read_text()),
-        require_best_move=args.require_best_move_parity,
+    parser.add_argument(
+        "--positions-file",
+        type=Path,
+        help="Original custom position file; verifies the declared custom workload",
     )
+    args = parser.parse_args()
+    custom_positions = None
+    if args.positions_file is not None:
+        _, custom_positions_file = mcts_workload.load_custom_positions(args.positions_file)
+        del custom_positions_file
+        custom_positions = mcts_workload.normalize_positions(
+            json.loads(args.positions_file.read_text())
+        )
+    try:
+        report = compare(
+            json.loads(args.native.read_text()),
+            json.loads(args.browser.read_text()),
+            require_best_move=args.require_best_move_parity,
+            custom_positions=custom_positions,
+        )
+    except Exception as error:  # noqa: BLE001 - structured failure, never a traceback
+        report = {
+            "kind": "mcts-parity-comparison",
+            "schema": COMPARISON_SCHEMA,
+            "failures": [f"comparison failed: {type(error).__name__}: {error}"],
+            "notes": [],
+            "acceptance": False,
+            "ok": False,
+        }
     text = json.dumps(report, indent=2) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

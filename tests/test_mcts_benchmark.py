@@ -20,6 +20,7 @@ if str(SPIKE) not in sys.path:
     sys.path.insert(0, str(SPIKE))
 
 import mcts_benchmark  # noqa: E402
+import mcts_workload  # noqa: E402
 from argparse import Namespace  # noqa: E402
 import mcts_compare  # noqa: E402
 
@@ -93,7 +94,7 @@ def test_parity_comparator_requires_matching_workload_and_coverage(tmp_path):
     failures = " ".join(report["failures"])
     assert "workload digest differs" in failures
     assert "position coverage differs" in failures
-    assert "position coverage does not match the recorded workload selection" in failures
+    assert "position coverage does not match the validated workload" in failures
     assert "missing result on one runtime" in failures
 
 
@@ -134,30 +135,13 @@ def test_benchmark_digest_normalises_json_numeric_types():
 
 
 def _benchmark_payload() -> dict:
-    from fixtures import jarl_positions
-
-    position = next(case for case in jarl_positions() if case["name"] == "brandubh-opening")
-    return {
-        "selection": {
-            "source": "fixtures.jarl_positions",
-            "rulesets": ["brandubh"],
-            "kinds": ["opening"],
-            "limit": None,
-        },
-        "positions": [
-            {
-                "name": position["name"],
-                "ruleset": position["ruleset"],
-                "kind": position["kind"],
-                "state": position["state"],
-            }
-        ],
-        "cases": [{"mode": "fixed_simulations", "budget": 128}],
-        "seed": 7,
-        "exploration": 1.4,
-        "repetitions": 1,
-        "warmup": 1,
-    }
+    workload = mcts_workload.build_fixtures_workload(["brandubh"], ["opening"], None)
+    workload["cases"] = [{"mode": "fixed_simulations", "budget": 128}]
+    workload["seed"] = 7
+    workload["exploration"] = 1.4
+    workload["repetitions"] = 1
+    workload["warmup"] = 1
+    return workload
 
 
 def _benchmark_report(
@@ -253,12 +237,15 @@ def test_benchmark_comparator_detects_a_case_omitted_from_both_reports():
     native = _benchmark_report("native-cpython", completed=128, sps=1000.0, digest="d" * 64)
     browser = _benchmark_report("browser-pyodide", completed=128, sps=250.0, digest="d" * 64)
     for report in (native, browser):
-        # Both runtimes claim the same truncated workload.
+        # Both runtimes claim the same empty workload; the built-in source still
+        # defines the complete canonical fixture set.
         report["workload"]["positions"] = []
+        report["workload"]["expected_names"] = []
+        report["workload"]["positions_sha256"] = mcts_workload.positions_sha256([])
         report["records"] = []
     comparison = mcts_benchmark.compare_reports(native, browser)
     assert comparison["ok"] is False
-    assert any("workload has no positions" in f for f in comparison["failures"])
+    assert any("non-empty list" in f for f in comparison["failures"])
 
 
 def test_benchmark_comparator_keeps_fixed_time_comparisons_informative():
@@ -419,7 +406,7 @@ def _comparison(first: dict, second: dict, *, require_best_move: bool = False) -
         ),
         (
             lambda r: r.pop("workload"),
-            "report has no workload definition",
+            "invalid workload definition",
         ),
         (
             lambda r: r["results"][0]["search"].update(requested_simulations=8),
@@ -500,7 +487,7 @@ def test_parity_comparator_detects_a_case_omitted_from_both_reports(parity_base)
     comparison = _comparison(first, second)
     assert comparison["acceptance"] is False
     assert any(
-        "does not match the recorded workload selection" in failure
+        "report positions do not match the validated workload" in failure
         for failure in comparison["failures"]
     )
 
@@ -508,12 +495,22 @@ def test_parity_comparator_detects_a_case_omitted_from_both_reports(parity_base)
 def test_level_b_divergence_is_reported_but_not_a_correctness_failure(parity_base):
     native = _parity_report(parity_base)
     browser = _parity_report(parity_base)
+    from hnefatafl.engine import State
+    from hnefatafl.mcts_driver import position_identity, validate_search_settings
+
     for report in (native, browser):
         report["level"] = "b"
         report["model_meta"] = {"onnx_sha256": "a" * 64, "validated": True}
         report["evaluator"] = "onnx"
+        settings = validate_search_settings(report["settings"])
+        states = {entry["name"]: State.from_dict(entry["state"]) for entry in report["positions"]}
         for record in report["results"]:
             record["search"]["model"]["sha256"] = "a" * 64
+            identity = position_identity(
+                states[record["name"]], settings, record["search"]["model"]
+            )
+            record["search"]["position_identity"] = identity
+            record["path"] = identity
     # A numerical provider may choose a different (legal) best move; measured.
     record = next(
         r

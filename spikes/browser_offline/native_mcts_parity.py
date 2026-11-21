@@ -38,7 +38,6 @@ for path in (str(SPIKE), str(ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from fixtures import jarl_positions  # noqa: E402
 from hnefatafl.engine import RULESETS, State, legal_moves  # noqa: E402
 from hnefatafl.mcts_driver import (  # noqa: E402
     DRIVER_VERSION,
@@ -46,6 +45,7 @@ from hnefatafl.mcts_driver import (  # noqa: E402
     position_identity,
     validate_search_settings,
 )
+import mcts_workload  # noqa: E402
 from mcts_vectors import (  # noqa: E402
     EVALUATOR_VERSION,
     EVALUATOR_MODEL_SHA256,
@@ -221,27 +221,6 @@ def torch_evaluator(
     }
 
 
-def select_positions(
-    rulesets: list[str], limit: int | None, kinds: list[str] | None = None
-) -> list[dict]:
-    selected = [
-        case
-        for case in jarl_positions()
-        if case["ruleset"] in rulesets and (kinds is None or case["kind"] in kinds)
-    ]
-    if limit is None:
-        return selected
-    grouped: dict[str, int] = {}
-    result = []
-    for case in selected:
-        count = grouped.get(case["ruleset"], 0)
-        if count >= limit:
-            continue
-        grouped[case["ruleset"]] = count + 1
-        result.append(case)
-    return result
-
-
 def run_case(
     case: dict, settings: dict, evaluator, model: dict, *, include_trace: bool = False
 ) -> dict:
@@ -317,14 +296,17 @@ def main() -> None:
         parser.error(f"Unsupported ruleset(s): {unknown}")
     kinds = [name.strip() for name in args.kinds.split(",") if name.strip()] if args.kinds else None
     if args.positions:
-        cases = json.loads(args.positions.read_text())
-        cases = [
-            case
-            for case in cases
-            if case["ruleset"] in rulesets and (kinds is None or case["kind"] in kinds)
-        ]
+        if kinds is not None:
+            parser.error("--kinds is not applicable to a custom position file")
+        custom, custom_digest = mcts_workload.load_custom_positions(args.positions)
+        outside = [entry["name"] for entry in custom if entry["ruleset"] not in rulesets]
+        if outside:
+            parser.error("--rulesets excludes custom positions: " + ", ".join(outside[:5]))
+        workload = mcts_workload.build_custom_workload(custom, custom_digest)
+        cases = workload["positions"]
     else:
-        cases = select_positions(rulesets, args.limit, kinds)
+        workload = mcts_workload.build_fixtures_workload(rulesets, kinds, args.limit)
+        cases = workload["positions"]
 
     model = None
     model_meta: dict | None = None
@@ -430,16 +412,7 @@ def main() -> None:
             key: settings[key] for key in ("iterations", "time_limit", "seed", "exploration")
         },
         "workload_digest": workload_digest,
-        "workload": {
-            "source": "fixtures.jarl_positions",
-            "selection": {
-                "source": "fixtures.jarl_positions",
-                "rulesets": rulesets,
-                "kinds": kinds,
-                "limit": args.limit,
-            },
-            "positions": [case["name"] for case in cases],
-        },
+        "workload": workload,
         "positions": [
             {
                 "name": case["name"],

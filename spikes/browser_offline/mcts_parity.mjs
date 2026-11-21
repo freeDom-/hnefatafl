@@ -30,6 +30,7 @@ const option = (name, fallback) => {
 };
 const flag = (name) => argv.includes(`--${name}`);
 const nativePath = option("native", null);
+const positionsFile = option("positions-file", null);
 const output = option("output", null);
 const provider = option("provider", "wasm");
 const requireBestMove = flag("require-best-move-parity");
@@ -168,30 +169,66 @@ try {
     return info.python.engine_identity;
   });
   report.engine_identity = identity;
-  // Independently reproduce the declared selection from the staged fixtures so a
-  // report cannot silently omit an expected position.
-  const selection = native.workload?.selection;
-  if (!selection || selection.source !== "fixtures.jarl_positions")
-    throw new Error("native report has no reproducible workload selection");
-  const stagedPositions = JSON.parse(
-    await readFile(resolve(root, "mcts-positions.json"), "utf8"),
-  );
-  const selected = [];
-  const counted = {};
-  for (const entry of stagedPositions) {
-    if (!selection.rulesets.includes(entry.ruleset)) continue;
-    if (selection.kinds && !selection.kinds.includes(entry.kind)) continue;
-    if (selection.limit) {
-      counted[entry.ruleset] = counted[entry.ruleset] ?? 0;
-      if (counted[entry.ruleset] >= selection.limit) continue;
-      counted[entry.ruleset] += 1;
-    }
-    selected.push(entry);
-  }
-  const expectedNames = selected.map((entry) => entry.name);
+  // Independently validate the declared workload source: built-in fixtures are
+  // reconstructed from the staged fixture file; custom workloads require and are
+  // verified against the original serialized position file.
+  const workloadSource = native.workload?.source;
+  if (!workloadSource || !["fixtures", "custom"].includes(workloadSource.kind))
+    throw new Error("native report has no supported workload source");
   const nativeNames = native.positions.map((entry) => entry.name);
-  if (JSON.stringify(expectedNames) !== JSON.stringify(nativeNames))
-    fail("native workload selection does not match the staged position fixtures");
+  const samePositions = (left, right) =>
+    JSON.stringify(left) === JSON.stringify(right);
+  if (workloadSource.kind === "fixtures") {
+    const selection = native.workload.selection;
+    if (!selection || selection.source !== "fixtures.jarl_positions")
+      throw new Error("native fixture workload has no reproducible selection");
+    const stagedPositions = JSON.parse(
+      await readFile(resolve(root, "mcts-positions.json"), "utf8"),
+    );
+    const selected = [];
+    const counted = {};
+    for (const entry of stagedPositions) {
+      if (!selection.rulesets.includes(entry.ruleset)) continue;
+      if (selection.kinds && !selection.kinds.includes(entry.kind)) continue;
+      if (selection.limit) {
+        counted[entry.ruleset] = counted[entry.ruleset] ?? 0;
+        if (counted[entry.ruleset] >= selection.limit) continue;
+        counted[entry.ruleset] += 1;
+      }
+      selected.push(entry);
+    }
+    if (JSON.stringify(selected.map((entry) => entry.name)) !== JSON.stringify(nativeNames))
+      fail("native workload selection does not match the staged position fixtures");
+    const projected = selected.map((entry) => ({
+      name: entry.name,
+      ruleset: entry.ruleset,
+      kind: entry.kind,
+      state: entry.state,
+    }));
+    if (!samePositions(projected, native.positions))
+      fail("native fixture positions or repetition histories differ from the staged fixtures");
+    if (!samePositions(native.workload.expected_names, nativeNames))
+      fail("native workload expected names do not match its positions");
+  } else {
+    if (!positionsFile)
+      throw new Error("a custom workload requires --positions-file for verification");
+    const raw = await readFile(resolve(positionsFile));
+    const { createHash } = await import("node:crypto");
+    const digest = createHash("sha256").update(raw).digest("hex");
+    if (workloadSource.file_sha256 && workloadSource.file_sha256 !== digest)
+      fail("custom position file digest does not match the native report");
+    const filePositions = JSON.parse(raw.toString("utf8"));
+    const normalized = filePositions.map((entry) => ({
+      name: entry.name,
+      ruleset: entry.ruleset ?? entry.state?.ruleset,
+      kind: entry.kind ?? "custom",
+      state: entry.state,
+    }));
+    if (!samePositions(normalized, native.positions))
+      fail("native custom positions differ from the supplied position file");
+    if (!samePositions(native.workload.expected_names, nativeNames))
+      fail("custom workload expected names do not match its positions");
+  }
   const settings = report.settings;
   const workload = await page.evaluate(
     async (payload) => {
@@ -327,6 +364,7 @@ try {
   const comparisonPath = browserReportPath.replace(/\.json$/, "-comparison.json");
   const args = [resolve(import.meta.dirname, "mcts_compare.py"), resolve(nativePath), browserReportPath, "--output", comparisonPath];
   if (requireBestMove) args.push("--require-best-move-parity");
+  if (positionsFile) args.push("--positions-file", resolve(positionsFile));
   const comparison = await runProcess(python, args);
   report.comparison = await readFile(comparisonPath, "utf8")
     .then((text) => JSON.parse(text))

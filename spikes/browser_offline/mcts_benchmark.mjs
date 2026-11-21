@@ -9,6 +9,7 @@
 //   node spikes/browser_offline/mcts_benchmark.mjs /tmp/neural-spike \
 //     --provider wasm --extended --simulations 128,256,512,1024 \
 //     --native /tmp/mcts-native.json --output /tmp/mcts-browser.json
+import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, extname, resolve, sep } from "node:path";
@@ -98,6 +99,24 @@ function runProcess(command, args) {
   });
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJson(value[key])]),
+    );
+  return value;
+}
+
+function positionsDigest(positions) {
+  const payload = positions.map((entry) => [entry.name, entry.state]);
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalJson(payload)))
+    .digest("hex");
+}
+
 function settingsFor(mode, budget) {
   return mode === "fixed_simulations"
     ? { iterations: budget, time_limit: 10, seed, exploration }
@@ -138,19 +157,29 @@ try {
     (entry) => entry.ruleset === assets.model.ruleset && preset.kinds.includes(entry.kind),
   );
   if (!positions.length) throw new Error("no benchmark positions for the staged model ruleset");
+  const normalizedPositions = positions.map((entry) => ({
+    name: entry.name,
+    ruleset: entry.ruleset,
+    kind: entry.kind,
+    state: entry.state,
+  }));
   report.workload = {
+    schema: 1,
+    source: {
+      kind: "fixtures",
+      version: 1,
+      fixtures: "fixtures.jarl_positions",
+    },
     selection: {
       source: "fixtures.jarl_positions",
+      version: 1,
       rulesets: [assets.model.ruleset],
       kinds: preset.kinds,
       limit: null,
     },
-    positions: positions.map((entry) => ({
-      name: entry.name,
-      ruleset: entry.ruleset,
-      kind: entry.kind,
-      state: entry.state,
-    })),
+    positions: normalizedPositions,
+    expected_names: normalizedPositions.map((entry) => entry.name),
+    positions_sha256: positionsDigest(normalizedPositions),
     cases,
     seed,
     exploration,
