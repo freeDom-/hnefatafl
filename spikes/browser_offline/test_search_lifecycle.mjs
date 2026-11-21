@@ -302,6 +302,49 @@ await check("a sequential search drives one evaluation per pending request", asy
   coordinator.dispose();
 });
 
+await check("compact legal-only inference carries base64 planes and no logits", async () => {
+  const neural = new FakeNeural();
+  neural.calls = [];
+  neural.compactCalls = [];
+  neural.infer = () => {
+    throw new Error("the compact path must not decode planes in the coordinator");
+  };
+  neural.inferCompact = (request) => {
+    neural.compactCalls.push(request);
+    return Promise.resolve({
+      request_id: request.request_id,
+      position_digest: request.position_digest,
+      model_sha256: MODEL.sha256,
+      model_ruleset: MODEL.ruleset,
+      legal: request.legal,
+      legal_probabilities: request.legal.map(() => 1 / request.legal.length),
+      value: 0.25,
+      provider_requested: "wasm",
+      execution_placement: "wasm",
+      gpu_execution_verified: false,
+      payload_mode: "legal-only",
+      tensor_prepare_ms: 1,
+      run_ms: 2,
+    });
+  };
+  const { coordinator } = await bootCoordinator(neural);
+  const result = await coordinator.search({
+    state: STATE,
+    settings: { iterations: 8, time_limit: 5, seed: 7 },
+    model: MODEL,
+  });
+  assert.equal(neural.calls.length, 0);
+  assert.equal(neural.compactCalls.length, 1);
+  const call = neural.compactCalls[0];
+  assert.equal(typeof call.planes_base64, "string");
+  assert.equal(call.planes, undefined);
+  assert.equal(call.request_id, `${result.search.search_id}:0`);
+  assert.equal(result.search.coordinator.inference_payload_mode, "legal-only");
+  assert.equal(result.search.coordinator.response_policy_values, 0);
+  assert.equal(result.search.completed_simulations, 8);
+  coordinator.dispose();
+});
+
 await check("inference response association and order are enforced", async () => {
   const { coordinator, neural, worker } = await bootCoordinator();
   neural.response = (request) => ({

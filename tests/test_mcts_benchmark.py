@@ -111,6 +111,40 @@ def test_parity_comparator_rejects_illegal_best_moves(tmp_path):
     assert report["execution_validity"]["ok"] is False
 
 
+def test_workload_identity_normalises_python_javascript_numeric_types():
+    from mcts_vectors import workload_identity
+
+    positions = [
+        {
+            "name": "p",
+            "ruleset": "brandubh",
+            "kind": "opening",
+            "state": mcts_vectors_state(),
+        }
+    ]
+    first = workload_identity(
+        "a",
+        "deterministic",
+        {"iterations": 128, "time_limit": 10, "seed": 7, "exploration": 1.4},
+        positions,
+        None,
+    )
+    second = workload_identity(
+        "a",
+        "deterministic",
+        {"iterations": 128, "time_limit": 10.0, "seed": 7, "exploration": 1.4},
+        positions,
+        None,
+    )
+    assert first == second
+
+
+def mcts_vectors_state() -> dict:
+    from hnefatafl.engine import new_game
+
+    return new_game("brandubh").to_dict()
+
+
 def test_benchmark_digest_normalises_json_numeric_types():
     positions = [{"state": {"ruleset": "brandubh", "board": [], "turn": "attackers"}}]
     cases = [
@@ -497,12 +531,16 @@ def test_level_b_divergence_is_reported_but_not_a_correctness_failure(parity_bas
     browser = _parity_report(parity_base)
     from hnefatafl.engine import State
     from hnefatafl.mcts_driver import position_identity, validate_search_settings
+    from mcts_vectors import workload_identity
 
     for report in (native, browser):
         report["level"] = "b"
         report["model_meta"] = {"onnx_sha256": "a" * 64, "validated": True}
         report["evaluator"] = "onnx"
         settings = validate_search_settings(report["settings"])
+        report["workload_digest"] = workload_identity(
+            "b", "onnx", settings, report["workload"]["positions"], "a" * 64
+        )
         states = {entry["name"]: State.from_dict(entry["state"]) for entry in report["positions"]}
         for record in report["results"]:
             record["search"]["model"]["sha256"] = "a" * 64
@@ -690,3 +728,170 @@ def test_terminal_and_immediate_win_are_legitimate_fixed_work_exceptions(tmp_pat
         if row.get("equal_work")
     }
     assert "immediate-attacker-win" not in equal_names
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda native, browser: native.update(workload_digest="0" * 64),
+        lambda native, browser: browser.update(workload_digest="0" * 64),
+        lambda native, browser: (
+            native.update(workload_digest="0" * 64),
+            browser.update(workload_digest="0" * 64),
+        ),
+        lambda native, browser: (
+            native["settings"].update(exploration=0.5),
+            browser["settings"].update(exploration=0.5),
+        ),
+        lambda native, browser: (
+            native["workload"]["positions"][0]["state"]["board"].__setitem__(0, "A"),
+            browser["workload"]["positions"][0]["state"]["board"].__setitem__(0, "A"),
+        ),
+        lambda native, browser: (
+            native["workload"]["positions"][0]["state"]["history"].append(
+                "defenders:" + "".join(native["workload"]["positions"][0]["state"]["board"])
+            ),
+            browser["workload"]["positions"][0]["state"]["history"].append(
+                "defenders:" + "".join(browser["workload"]["positions"][0]["state"]["board"])
+            ),
+        ),
+        lambda native, browser: (
+            native.update(level="b", evaluator="onnx", model_meta={"onnx_sha256": "a" * 64}),
+            browser.update(level="b", evaluator="onnx", model_meta={"onnx_sha256": "a" * 64}),
+        ),
+        lambda native, browser: (
+            native.update(evaluator="deterministic-other"),
+            browser.update(evaluator="deterministic-other"),
+        ),
+    ],
+)
+def test_parity_comparator_independently_recomputes_workload_identity(parity_base, mutation):
+    native = _parity_report(parity_base)
+    browser = _parity_report(parity_base)
+    mutation(native, browser)
+    report = _comparison(native, browser)
+    assert report["acceptance"] is False
+    assert report["workload"]["identity_verified"] is False
+    assert any(
+        "workload digest does not match" in failure
+        or "independently recomputed workload identities differ" in failure
+        or "could not be independently recomputed" in failure
+        for failure in report["failures"]
+    ), report["failures"]
+
+
+def test_parity_comparator_rejects_an_unsupported_deterministic_evaluator(parity_base):
+    native = _parity_report(parity_base)
+    browser = _parity_report(parity_base)
+    for report in (native, browser):
+        report["model_meta"]["evaluator"] = "deterministic-other"
+    comparison = _comparison(native, browser)
+    assert comparison["acceptance"] is False
+    assert any(
+        "deterministic evaluator version is unsupported" in failure
+        for failure in comparison["failures"]
+    ), comparison["failures"]
+
+
+def _level_b_reports(parity_base: dict) -> tuple[dict, dict]:
+    from hnefatafl.engine import State
+    from hnefatafl.mcts_driver import position_identity, validate_search_settings
+    from mcts_vectors import workload_identity
+
+    native = _parity_report(parity_base)
+    browser = _parity_report(parity_base)
+    for report in (native, browser):
+        report["level"] = "b"
+        report["model_meta"] = {"onnx_sha256": "a" * 64, "validated": True}
+        report["evaluator"] = "onnx"
+        settings = validate_search_settings(report["settings"])
+        report["workload_digest"] = workload_identity(
+            "b", "onnx", settings, report["workload"]["positions"], "a" * 64
+        )
+        states = {entry["name"]: State.from_dict(entry["state"]) for entry in report["positions"]}
+        for record in report["results"]:
+            record["search"]["model"]["sha256"] = "a" * 64
+            identity = position_identity(
+                states[record["name"]], settings, record["search"]["model"]
+            )
+            record["search"]["position_identity"] = identity
+            record["path"] = identity
+    return native, browser
+
+
+def test_level_b_workload_identity_uses_the_exported_model_digest(parity_base):
+    native, browser = _level_b_reports(parity_base)
+    report = _comparison(native, browser)
+    assert report["workload"]["identity_verified"] is True
+    assert report["acceptance"] is True, report["failures"]
+    browser["model_meta"]["onnx_sha256"] = "b" * 64
+    report = _comparison(native, browser)
+    assert report["acceptance"] is False
+    assert any("model digest differs" in failure for failure in report["failures"])
+    assert any("workload digest does not match" in failure for failure in report["failures"])
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "requested_simulations",
+        "completed_simulations",
+        "neural_requests",
+        "prediction_reuses",
+        "immediate_win_shortcuts",
+        "root_children",
+        "inference_cache_hits",
+        "trace_length",
+    ],
+)
+def test_parity_comparator_rejects_negative_diagnostic_counters(parity_base, field):
+    native = _parity_report(parity_base)
+    browser = _parity_report(parity_base)
+    record = next(
+        item
+        for item in browser["results"]
+        if (item.get("search") or {}).get("completion_reason") == "simulations"
+    )
+    record["search"][field] = -1
+    report = _comparison(native, browser)
+    assert report["acceptance"] is False
+    assert any(
+        f"search.{field} must be a non-negative integer" in failure
+        for failure in report["failures"]
+    ), report["failures"]
+
+
+def test_parity_comparator_rejects_negative_counters_in_level_b(parity_base):
+    native, browser = _level_b_reports(parity_base)
+    record = next(
+        item
+        for item in browser["results"]
+        if (item.get("search") or {}).get("completion_reason") == "simulations"
+    )
+    record["search"]["prediction_reuses"] = -1
+    report = _comparison(native, browser)
+    assert report["acceptance"] is False
+    assert any(
+        "search.prediction_reuses must be a non-negative integer" in failure
+        for failure in report["failures"]
+    ), report["failures"]
+
+
+def test_parity_comparator_accepts_zero_counters_on_terminal_positions(parity_base):
+    native = _parity_report(parity_base)
+    browser = _parity_report(parity_base)
+    terminal = next(
+        item
+        for item in browser["results"]
+        if (item.get("search") or {}).get("completion_reason") == "terminal"
+    )
+    for field in (
+        "neural_requests",
+        "prediction_reuses",
+        "immediate_win_shortcuts",
+        "root_children",
+        "inference_cache_hits",
+    ):
+        terminal["search"][field] = 0
+    report = _comparison(native, browser)
+    assert report["acceptance"] is True, report["failures"]

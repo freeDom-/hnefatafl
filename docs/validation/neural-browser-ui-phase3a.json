@@ -1,0 +1,95 @@
+{
+  "kind": "browser-neural-ui",
+  "generated": "2026-11-21T11:50:40.792Z",
+  "checks": [
+    {
+      "name": "Infer works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Distinct batch inference works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Benchmark works from a clean initial state",
+      "ok": true
+    },
+    {
+      "name": "Controls disable during an active operation",
+      "ok": true
+    },
+    {
+      "name": "Cancellation invalidates stale results and reports cancelled",
+      "ok": true
+    },
+    {
+      "name": "Cancellation during manifest loading does not initialize a worker",
+      "ok": true
+    },
+    {
+      "name": "Cancellation during reference loading does not publish a model",
+      "ok": true
+    },
+    {
+      "name": "Replacement operation after cancellation completes",
+      "ok": true
+    },
+    {
+      "name": "Obsolete asset completion cannot overwrite a newer operation",
+      "ok": true
+    },
+    {
+      "name": "Deterministic provider failure recovers on WASM",
+      "ok": true
+    },
+    {
+      "name": "WebGPU provider load reports a legitimate outcome",
+      "ok": true
+    },
+    {
+      "name": "Worker rejects benchmark and sustained without a model identity",
+      "ok": true
+    },
+    {
+      "name": "Manifest failure on first use is retryable without a reload",
+      "ok": true
+    },
+    {
+      "name": "Reference-vector failure on first use is retryable",
+      "ok": true
+    },
+    {
+      "name": "Malformed asset JSON is rejected and retried",
+      "ok": true
+    },
+    {
+      "name": "pagehide invalidates ownership and prevents worker creation",
+      "ok": true
+    },
+    {
+      "name": "pagehide during model loading does not publish a model",
+      "ok": true
+    },
+    {
+      "name": "Pageshow restoration permits a new operation",
+      "ok": true
+    },
+    {
+      "name": "The inference delay hook is unavailable on the normal page",
+      "ok": true
+    },
+    {
+      "name": "Compact inference rejects malformed encoded planes",
+      "ok": true
+    },
+    {
+      "name": "Navigation away and back recovers without a reload",
+      "ok": true
+    }
+  ],
+  "failures": [],
+  "browser": "156.0.8078.4",
+  "webgpu_outcome": "failed",
+  "external_requests": [],
+  "ok": true
+}

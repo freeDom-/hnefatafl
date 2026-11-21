@@ -531,6 +531,78 @@ try {
     await page.close();
   });
 
+  await record("The inference delay hook is unavailable on the normal page", async () => {
+    const { page } = await freshPage();
+    const result = await page.evaluate(async () => {
+      const client = window.neural.client;
+      let setter = null;
+      try {
+        client.setTestInferenceDelay(25);
+      } catch (error) {
+        setter = error.code;
+      }
+      // Even a hand-built request cannot enable delay in the worker.
+      let injected = null;
+      try {
+        await client.request(
+          {
+            action: "infer",
+            planes: new Array(294).fill(0),
+            size: 7,
+            legal: [0, 1],
+            ruleset: "brandubh",
+            request_id: "test-only",
+            position_digest: "a".repeat(64),
+            model: { sha256: "b".repeat(64), ruleset: "brandubh", size: 7 },
+            test_delay_ms: 10,
+          },
+          { timeoutMs: 5000 },
+        );
+      } catch (error) {
+        injected = error.code ?? error.name;
+      }
+      return { testHooks: client.testHooks, setter, injected };
+    });
+    assert.equal(result.testHooks, false);
+    assert.equal(result.setter, "TEST_HOOKS_DISABLED");
+    assert.equal(result.injected, "TEST_HOOKS_DISABLED");
+    await page.close();
+  });
+
+  await record("Compact inference rejects malformed encoded planes", async () => {
+    const { page } = await freshPage();
+    await page.click("#load");
+    await waitState(page, "completed", 180000);
+    const result = await page.evaluate(async () => {
+      const client = window.neural.client;
+      const model = client.modelIdentity();
+      const cases = [
+        { planes_base64: "AAAA", legal: [0, 1] },
+        { planes_base64: btoa("x".repeat(294)), legal: [0, 1] },
+        { planes: new Array(294).fill(0), planes_base64: "AA==", legal: [0, 1] },
+      ];
+      const errors = [];
+      for (const entry of cases) {
+        try {
+          await client.inferCompact({
+            ...entry,
+            size: model.size,
+            ruleset: model.ruleset,
+            request_id: "malformed",
+            position_digest: "a".repeat(64),
+            model,
+          });
+          errors.push(null);
+        } catch (error) {
+          errors.push(error.code ?? error.name);
+        }
+      }
+      return errors;
+    });
+    assert.deepEqual(result, ["INPUT_INVALID", "INPUT_INVALID", "INPUT_INVALID"]);
+    await page.close();
+  });
+
   await record("Navigation away and back recovers without a reload", async () => {
     const { page } = await freshPage();
     await page.goto("about:blank");

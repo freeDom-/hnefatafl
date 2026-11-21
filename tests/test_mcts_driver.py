@@ -391,9 +391,11 @@ def test_bridge_round_trip_and_state_lifecycle():
     event = start["event"]
     while event["kind"] == "evaluate":
         request = event["request"]
-        assert request["position_digest"] == event["request"]["position_digest"]
-        requested = State.from_dict(request["position"])
-        priors, value = mcts_vectors.evaluate(requested)
+        # The browser coordinator consumes encoded planes and legal association,
+        # not a duplicate serialized board/history payload.
+        assert "position" not in request
+        assert len(request["planes"]) > 0
+        priors = [1.0 / len(request["legal"])] * len(request["legal"])
         event = bridge(
             {
                 "action": "resume",
@@ -401,7 +403,7 @@ def test_bridge_round_trip_and_state_lifecycle():
                 "request_index": request["request_index"],
                 "legal": request["legal"],
                 "priors": priors,
-                "value": value,
+                "value": 0.0,
             }
         )["event"]
     assert event["kind"] == "complete"

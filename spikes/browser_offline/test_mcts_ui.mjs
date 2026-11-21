@@ -74,6 +74,12 @@ try {
     return route.continue();
   });
 
+  // Explicit test-only runtime configuration. It is never a URL/query option and
+  // is not part of the analysis UI; the normal page leaves test hooks disabled.
+  await context.addInitScript(() => {
+    window.__NEURAL_TEST_HOOKS__ = true;
+  });
+
   async function freshPage(setup = null, { waitPositions = true } = {}) {
     const page = await context.newPage();
     const errors = [];
@@ -227,6 +233,8 @@ try {
     assert.equal(result.search.completion_reason, "simulations");
     assert.equal(result.search.model.sha256, report.model.sha256);
     assert.equal(result.search.provider.requested, "wasm");
+    assert.equal(result.search.coordinator.inference_payload_mode, "legal-only");
+    assert.equal(result.search.coordinator.response_policy_values, 0);
     assert.ok(result.search.root_visits.length > 0);
     assert.ok(result.analysis.best_move);
     assert.ok(result.analysis.value >= -1 && result.analysis.value <= 1);
@@ -236,12 +244,14 @@ try {
       rate: document.querySelector("#analysis-rate").textContent,
       duration: document.querySelector("#analysis-duration").textContent,
       verification: document.querySelector("#analysis-provider-info").textContent,
+      payload: document.querySelector("#analysis-payload").textContent,
       completion: document.querySelector("#analysis-completion").textContent,
     }));
     assert.equal(displayed.completed, "128");
     assert.match(displayed.rate, /\/s$/);
     assert.match(displayed.duration, /ms$/);
     assert.match(displayed.verification, /wasm/);
+    assert.match(displayed.payload, /legal-only \(0 logits\)/);
     assert.equal(displayed.completion, "simulations");
     assert.equal(errors.length, 0, errors.join("; "));
     await page.close();
@@ -626,10 +636,10 @@ try {
     // Deterministic control point: the first leaf inference never settles.
     await page.evaluate(() => {
       const client = window.neural.client;
-      const real = client.infer.bind(client);
+      const real = client.inferCompact.bind(client);
       let first = true;
       window.__inferBlocked = false;
-      client.infer = (request) => {
+      client.inferCompact = (request) => {
         if (!first) return real(request);
         first = false;
         window.__inferBlocked = true;
@@ -781,10 +791,10 @@ try {
     // competition check is deterministic rather than timing-dependent.
     await page.evaluate(() => {
       const client = window.neural.client;
-      const real = client.infer.bind(client);
+      const real = client.inferCompact.bind(client);
       let first = true;
       window.__inferBlocked = false;
-      client.infer = (request) => {
+      client.inferCompact = (request) => {
         if (!first) return real(request);
         first = false;
         window.__inferBlocked = true;
@@ -967,19 +977,23 @@ try {
       analysis.setBudget({ simulations: 128, time: 5 });
     }, report.model.ruleset);
     await page.evaluate(() => {
-      window.neural.client.testInferenceDelayMs = 1000;
+      window.neural.client.setTestInferenceDelay(1000);
     });
     const started = page.evaluate(() => window.neural.analysis.start());
-    await page.waitForFunction(() => window.neural.client.pending !== null, null, {
-      timeout: 120000,
-    });
+    await page.waitForFunction(
+      () =>
+        window.neural.client.testHooksConfigured === true &&
+        window.neural.client.pending !== null,
+      null,
+      { timeout: 120000 },
+    );
     const before = await page.evaluate(() => ({
       model: window.neural.client.model?.model_sha256 ?? null,
       generation: window.neural.coordinator.generation,
     }));
     await page.click("#analysis-cancel");
     await page.evaluate(() => {
-      window.neural.client.testInferenceDelayMs = null;
+      window.neural.client.setTestInferenceDelay(null);
     });
     const replacement = page.evaluate(() => window.neural.analysis.start());
     await Promise.all([started, replacement]);
@@ -1007,19 +1021,23 @@ try {
       analysis.setBudget({ simulations: 128, time: 5 });
     }, report.model.ruleset);
     await page.evaluate(() => {
-      window.neural.client.testInferenceDelayMs = 5000;
+      window.neural.client.setTestInferenceDelay(5000);
     });
     const started = page.evaluate(() => window.neural.analysis.start());
-    await page.waitForFunction(() => window.neural.client.pending !== null, null, {
-      timeout: 120000,
-    });
+    await page.waitForFunction(
+      () =>
+        window.neural.client.testHooksConfigured === true &&
+        window.neural.client.pending !== null,
+      null,
+      { timeout: 120000 },
+    );
     const before = await page.evaluate(() => ({
       generation: window.neural.client.generation,
       model: window.neural.client.model?.model_sha256 ?? null,
     }));
     await page.click("#analysis-cancel");
     await page.evaluate(() => {
-      window.neural.client.testInferenceDelayMs = null;
+      window.neural.client.setTestInferenceDelay(null);
     });
     const replacement = page.evaluate(() => window.neural.analysis.start());
     await Promise.all([started, replacement]);
