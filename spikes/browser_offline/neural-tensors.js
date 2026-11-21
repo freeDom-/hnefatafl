@@ -50,6 +50,22 @@
     return exponentials.map((value) => value / total);
   }
 
+  // Compact legal-only extraction. MCTS consumes normalized legal probabilities
+  // and a value, never the full policy row. Reading directly from the output
+  // tensor avoids allocating and transferring policy_logits (65,536 values for
+  // Brandubh) on every simulation.
+  function legalSoftmaxAt(data, offset, legal) {
+    const values = legal.map((index) => data[offset + index]);
+    if (values.some((value) => !Number.isFinite(value)))
+      throw invalid("Policy logits contain a non-finite value");
+    const maximum = Math.max(...values);
+    const exponentials = values.map((value) => Math.exp(value - maximum));
+    const total = exponentials.reduce((sum, value) => sum + value, 0);
+    if (!Number.isFinite(total) || total <= 0)
+      throw invalid("Legal softmax normaliser is not finite and positive");
+    return exponentials.map((value) => value / total);
+  }
+
   function illegalMass(logits, legal) {
     const maximum = Math.max(...logits);
     const exponentials = logits.map((value) => Math.exp(value - maximum));
@@ -61,19 +77,28 @@
     return sum / total;
   }
 
-  function extractResults(output, batch, size, cases) {
+  function extractResults(output, batch, size, cases, { includeLogits = true } = {}) {
     const { policy, value } = validateOutputs(output, batch, size);
     const row = size ** 4;
     const results = cases.map((entry, batchIndex) => {
-      const logits = Array.from(policy.data.subarray(batchIndex * row, (batchIndex + 1) * row));
       const legal = entry.legal;
-      return {
+      const base = {
         index: batchIndex,
         request_id: entry.request_id,
         position_digest: entry.position_digest,
-        policy_logits: logits,
         value: value.data[batchIndex],
         legal,
+      };
+      if (!includeLogits) {
+        return {
+          ...base,
+          legal_probabilities: legalSoftmaxAt(policy.data, batchIndex * row, legal),
+        };
+      }
+      const logits = Array.from(policy.data.subarray(batchIndex * row, (batchIndex + 1) * row));
+      return {
+        ...base,
+        policy_logits: logits,
         legal_probabilities: legalSoftmax(logits, legal),
         illegal_mass_raw: illegalMass(logits, legal),
       };
@@ -101,7 +126,14 @@
     return errors;
   }
 
-  const api = { validateOutputs, extractResults, disposeTensors, legalSoftmax, illegalMass };
+  const api = {
+    validateOutputs,
+    extractResults,
+    disposeTensors,
+    legalSoftmax,
+    legalSoftmaxAt,
+    illegalMass,
+  };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.__neuralTensors = api;
 })(typeof self !== "undefined" ? self : typeof globalThis !== "undefined" ? globalThis : null);

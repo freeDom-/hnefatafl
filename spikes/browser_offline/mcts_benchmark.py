@@ -31,7 +31,7 @@ from hnefatafl.mcts_driver import MAX_SIMULATIONS  # noqa: E402
 
 SIMULATION_BUDGETS = (128, 256, 512, 1024, 2048, 4096)
 TIME_BUDGETS = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
-POSITION_KINDS = ("opening", "midgame", "endgame", "tactical")
+POSITION_KINDS = ("opening", "midgame", "endgame", "tactical", "repetition")
 MODES = ("fixed_simulations", "fixed_time")
 # A bounded quick workload for development; the extended matrix is for owner
 # hardware and must be selected explicitly.
@@ -389,6 +389,10 @@ def summarize(records: list[dict]) -> dict:
             "legal_generation_ms",
             "unattributed_ms",
             "inference_ms",
+            "policy_extract_ms",
+            "serialize_ms",
+            "parse_ms",
+            "response_bytes",
             "deadline_overshoot_ms",
         ):
             values = [entry[field] for entry in valid if entry.get(field) is not None]

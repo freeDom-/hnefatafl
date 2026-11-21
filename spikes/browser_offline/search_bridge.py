@@ -134,6 +134,9 @@ def _start(request: dict, started: float) -> dict:
         model,
         provider=provider,
         trace=trace,
+        # The coordinator validates the encoded planes/legal association and
+        # never consumes a duplicate serialized board/history payload.
+        include_position=False,
     )
     _searches[search_id] = search
     try:

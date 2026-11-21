@@ -30,6 +30,10 @@ const quick = flag("quick");
 const extended = flag("extended");
 const mobile = flag("mobile");
 const requireWebGPU = flag("require-webgpu");
+// Inference payload transport A/B: the legal-only path is the default MCTS
+// transport; full-logits preserves the Phase 2 reference for controlled
+// comparison and numerical inspection.
+const payloadMode = option("payload-mode", "compact");
 const seed = Number(option("seed", "7"));
 const exploration = Number(option("exploration", "1.4"));
 const python = process.env.SPIKE_PYTHON || resolve(import.meta.dirname, "../../.venv/bin/python");
@@ -44,7 +48,7 @@ const QUICK_PRESET = {
   warmup: 1,
 };
 const EXTENDED_PRESET = {
-  kinds: ["opening", "midgame", "endgame", "tactical"],
+  kinds: ["opening", "midgame", "endgame", "tactical", "repetition"],
   simulations: SIMULATION_BUDGETS,
   time_budgets: TIME_BUDGETS,
   repetitions: 3,
@@ -52,6 +56,10 @@ const EXTENDED_PRESET = {
 };
 if (!["wasm", "webgpu"].includes(provider)) {
   console.error("mcts_benchmark: --provider must be wasm or webgpu");
+  process.exit(2);
+}
+if (!["compact", "full"].includes(payloadMode)) {
+  console.error("mcts_benchmark: --payload-mode must be compact or full");
   process.exit(2);
 }
 
@@ -71,6 +79,7 @@ const report = {
   generated: new Date().toISOString(),
   browser: null,
   requested_provider: provider,
+  inference_payload_mode: payloadMode,
   engine_identity: null,
   workload_digest: null,
   workload: null,
@@ -152,6 +161,12 @@ try {
     const budgets = mode === "fixed_simulations" ? simulations : timeBudgets;
     for (const budget of budgets) cases.push({ mode, budget });
   }
+  const repetitions = Number(option("repetitions", String(preset.repetitions)));
+  const warmup = Number(option("warmup", String(preset.warmup)));
+  if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 20)
+    throw new Error("--repetitions must be an integer in 1..20");
+  if (!Number.isInteger(warmup) || warmup < 0 || warmup > 20)
+    throw new Error("--warmup must be an integer in 0..20");
   const positionsRaw = JSON.parse(await readFile(resolve(root, "mcts-positions.json"), "utf8"));
   const positions = positionsRaw.filter(
     (entry) => entry.ruleset === assets.model.ruleset && preset.kinds.includes(entry.kind),
@@ -183,8 +198,8 @@ try {
     cases,
     seed,
     exploration,
-    repetitions: preset.repetitions,
-    warmup: preset.warmup,
+    repetitions,
+    warmup,
   };
 
   server = createServer(async (request, response) => {
@@ -357,13 +372,20 @@ try {
     const started = Date.now();
     try {
       const result = await page.evaluate(
-        async (payload) =>
-          window.neural.coordinator.search({
+        async (payload) => {
+          window.neural.coordinator.compactInference = payload.compact;
+          return window.neural.coordinator.search({
             state: payload.state,
             settings: payload.settings,
             model: payload.model,
-          }),
-        { state: position.state, settings, model: capturedModel },
+          });
+        },
+        {
+          state: position.state,
+          settings,
+          model: capturedModel,
+          compact: payloadMode === "compact",
+        },
       );
       const elapsed = Date.now() - started;
       const search = result.search;
@@ -389,11 +411,18 @@ try {
       record.unattributed_ms = coordinator.unattributed_ms;
       record.tensor_prepare_ms = coordinator.tensor_prepare_ms;
       record.inference_execution_ms = coordinator.inference_execution_ms;
+      record.policy_extract_ms = coordinator.policy_extract_ms;
+      record.serialize_ms = coordinator.serialize_ms;
+      record.parse_ms = coordinator.parse_ms;
+      record.request_bytes = coordinator.request_bytes;
+      record.response_bytes = coordinator.response_bytes;
       record.encode_ms = timing.encoding_ms ?? null;
       record.legal_generation_ms = timing.legal_generation_ms ?? null;
       record.state_validation_ms = timing.validation_ms ?? null;
       record.traversal_ms = Math.max(0, (coordinator.python_action_ms ?? 0) - workerMs);
       record.inferences = coordinator.inferences;
+      record.inference_payload_mode = coordinator.inference_payload_mode;
+      record.response_policy_values = coordinator.response_policy_values;
       record.peak_pending_inferences = 1; // sequential driver: never more than one
       record.deadline_overshoot_ms =
         mode === "fixed_time" ? Math.max(0, elapsed - budget * 1000) : 0;
@@ -415,14 +444,14 @@ try {
   for (const position of positions) {
     for (const item of cases) {
       const settings = settingsFor(item.mode, item.budget);
-      for (let warmup = 0; warmup < preset.warmup; warmup += 1)
+      for (let index = 0; index < warmup; index += 1)
         await runSearch(position, settings, {
           warm: true,
-          repetition: -(warmup + 1),
+          repetition: -(index + 1),
           mode: item.mode,
           budget: item.budget,
         });
-      for (let repetition = 0; repetition < preset.repetitions; repetition += 1)
+      for (let repetition = 0; repetition < repetitions; repetition += 1)
         report.records.push(
           await runSearch(position, settings, {
             warm: true,
