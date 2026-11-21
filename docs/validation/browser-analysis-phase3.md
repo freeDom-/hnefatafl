@@ -139,8 +139,14 @@ unchanged.
 
 ### 3.1 End-to-end search path parity
 
-`test_search_path_parity.mjs` runs the same real coordinator and neural worker
-twice per position with only `coordinator.compactInference` changed. It requires
+`test_search_path_parity.mjs` collects raw observations only; the shared Python
+validator (`path_parity.py`, using the real engine for move legality) owns
+acceptance. Every case has an independent failure list and `case.ok`; `report.ok`
+requires coverage and every case to pass. Execution errors are recorded separately
+from validation failures, and the CLI exits nonzero on any failure.
+
+The runner executes the same real coordinator and neural worker twice per
+position with only `coordinator.compactInference` changed. It requires
 the same best move, defender-relative value (within 1e-12), completed simulations,
 root visit distribution, neural request count, prediction reuse count, completion
 reason, terminal/immediate-win outcome, model identity and position identity; the
@@ -148,10 +154,13 @@ entire result payload must be identical after removing timing/transport fields.
 Fixed-time runs verify valid completed work, deadline consistency, legal moves,
 identity and payload mode without requiring equal trees.
 
-Coverage: Brandubh opening/tactical/repetition/terminal/immediate-win, Tablut and
-Copenhagen opening/tactical/repetition/terminal, plus a 32×2 synthetic Brandubh
-architecture. All fixed-work cases pass; fixed-time cases report differing
-completed work but valid deadlines and legal results.
+Coverage is derived from the declared workload: a complete three-model run must
+cover all supported rulesets; a single-model run requires that model's
+opening/tactical/repetition/terminal categories and Brandubh immediate win.
+Unexpectedly empty or reduced workloads fail with synthetic failed cases. Negative
+regression tests cover illegal/missing moves, altered model/position identity,
+altered visits, wrong completed work, wrong deadline reporting, missing expected
+positions/categories and a single failing case among passing cases.
 
 ### 3.2 Serialized-state allocation
 
@@ -224,6 +233,7 @@ Only the controlled within-revision comparison is used as optimization evidence.
 | Tensor compact/full extraction | exact legal-probability parity |
 | Full-logit vs legal-only search paths (fixed work) | 13/13 exact across Brandubh/Tablut/Copenhagen + 5/5 32×2 |
 | Full-logit vs legal-only search paths (fixed time) | 13/13 valid deadline/legal/identity cases |
+| Search-path per-case negative validation | 18 synthetic tests: illegal/missing move, identity, visits, work, deadline, missing case/category, single failure |
 | Normal-page direct test actions | 5/5 rejected; ordinary inference still completes |
 | Dedicated test worker | delayed inference, healthy drain, unresponsive replacement and generation ownership pass |
 
@@ -304,11 +314,11 @@ node spikes/browser_offline/test_neural_tensors.mjs
   [compact](mcts-benchmark-copenhagen-compact-phase3a.json) /
   [full](mcts-benchmark-copenhagen-full-phase3a.json)
 - [32×2 synthetic](mcts-benchmark-brandubh-32x2-phase3a.json)
-- Search-path parity: [fixed work, three rulesets](mcts-search-path-parity-fixed-phase3a.json),
-  [32×2](mcts-search-path-parity-32x2-phase3a.json), fixed-time
-  [Brandubh](mcts-search-path-parity-time-brandubh-phase3a.json),
-  [Tablut](mcts-search-path-parity-time-tablut-phase3a.json),
-  [Copenhagen](mcts-search-path-parity-time-copenhagen-phase3a.json)
+- Search-path parity (final per-case validator): [fixed work, three rulesets](mcts-search-path-parity-fixed-final-phase3a.json),
+  [32×2](mcts-search-path-parity-32x2-final-phase3a.json), fixed-time
+  [Brandubh](mcts-search-path-parity-time-brandubh-final-phase3a.json),
+  [Tablut](mcts-search-path-parity-time-tablut-final-phase3a.json),
+  [Copenhagen](mcts-search-path-parity-time-copenhagen-final-phase3a.json)
 - Serialized-state cleanup: [before](mcts-benchmark-state-allocation-before-phase3a.json) /
   [after](mcts-benchmark-state-allocation-after-phase3a.json) (difference below noise)
 - Parity: [native A](mcts-parity-native-a-phase3a.json) /

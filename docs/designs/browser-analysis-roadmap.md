@@ -42,6 +42,11 @@ Implementation completion is not acceptance. A passing unit test does not
 establish browser compatibility, runtime performance, trained-model strength or
 production readiness.
 
+Phase 3 external acceptance gates remain outstanding: competitive trained
+checkpoints, physical WebGPU execution, physical desktop/mobile browser
+compatibility, sustained memory measurements and playing-strength tournaments.
+Phase 3 is not complete.
+
 ## Phase status
 
 | Phase | Scope | Previous status | Current status | Validation evidence | Remaining work / blockers |
@@ -50,7 +55,10 @@ production readiness.
 | 1A | Full-strength Jarl | In progress | Partially validated | [Phase 1 validation](../validation/browser-analysis-phase1.md), `jarl-*-r3/r4.json` | Physical devices, Copenhagen depth-5 budget (Phase 3) |
 | 1B | ONNX export and browser neural inference | In progress | Partially validated | [Phase 1 validation](../validation/browser-analysis-phase1.md), `neural-*-r3/r4/r5/r6`, `neural-*-r8/r9.json` | Competitive weights, physical WebGPU |
 | 2 | Browser-side neural MCTS | Not started (inference boundary prepared) | **Revision 4: implementation and software validation complete; external gates open** | [Phase 2 validation](../validation/browser-analysis-phase2.md), `mcts-*-r1/r2/r3/r4.json`, `*-r8/r9.json` | Competitive trained-model validation, physical WebGPU/mobile, sustained memory, playing strength |
-| 3 | Optimization and strength evaluation | Not started | Not started (inputs measured) | Phase 2 benchmark timing breakdown | Per-step boundary and transport optimization, strength tournaments, batched leaves |
+| 3 | Optimization and strength evaluation | Not started | **In progress** | [Phase 3 validation](../validation/browser-analysis-phase3.md) | Phase 3B/3C outstanding; external gates below |
+| 3A | Validation, profiling and initial transport optimization | Not started | **Implementation and software validation complete** | [Phase 3 validation](../validation/browser-analysis-phase3.md), `*-phase3a.json` | Competitive-model/device strength gates remain external |
+| 3B | Caching and batching | Not started | Not started | — | Direct worker channel, bounded inference cache, independent/single-tree batching, subtree reuse, sustained memory |
+| 3C | Competitive strength and stability | Not started | Not started | — | Competitive checkpoints, tournaments, verified WebGPU, physical desktop/mobile, playing strength |
 | 4 | Production security and runtime integration | Not started | Not started | — | CSP, model distribution, offline storage, memory budgets |
 | 5 | Production frontend integration | Not started | Not started | — | Deferred feature boundary, bundle budgets, design tokens |
 | 6 | Final acceptance and controlled rollout | Not started | Not started | — | All external gates |
