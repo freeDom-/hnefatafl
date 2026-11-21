@@ -802,3 +802,142 @@ and Safari/Firefox, sustained process-memory stability and playing strength rema
 external acceptance gates. They are not satisfied by revision 3. Frozen native
 MCTS reference failures still reproduce identically on pristine `main` (verified by
 extraction) and remain documented, not skipped.
+
+---
+
+# Revision 4 — focused final corrections
+
+Revision 4 integrates `origin/main` `8a11ee6` (release 0.41.1, deployment fixture
+timing) and closes the last review findings on `56b77a8`. No architecture,
+batching, production integration or search-semantics change was made.
+
+## Corrections delivered
+
+1. **Fresh-page analysis initialization.** The experimental interface initializes
+   the small shared position dataset itself and populates the initial ruleset.
+   Start Analysis stays disabled until a valid position exists; loading and failure
+   states are explicit; a `Reload positions` control retries a failed download.
+   Refreshes preserve the current selection and stale responses cannot overwrite a
+   newer dataset (request generations). Admission captures the exact position,
+   ruleset, agent, provider and settings after initialization, with selectors
+   disabled by ownership. Neural model weights, ORT, reference vectors and workers
+   remain lazy, and Jarl still runs with every neural-only asset unavailable.
+2. **Independent fixed-work completion for both runtimes.** Each result is
+   classified per runtime as complete, terminal, immediate-win, deadline-limited,
+   incomplete or inconsistent. Fixed-work acceptance requires the native **and**
+   browser workloads to complete (terminal/immediate-win excepted), reports native
+   and browser incomplete/deadline cases separately, and keeps overall acceptance
+   and workload-completion status consistent. Unequal fixed-time work remains an
+   informative comparison, never an equal-work measurement.
+3. **Cascading supersession ownership.** Pending worker requests and cancellation
+   acknowledgements are bound to their search owner; only the owning search's
+   pending request may be rejected. A cleanup barrier accumulates all outstanding
+   cancellation/drain dependencies, so a newest admission waits for every older
+   cleanup rather than only the previous search. An unhealthy worker is replaced by
+   its newer owner (never terminated by older cleanup), with bounded recovery when
+   acknowledgements fail. The implicit `model` fallback in `search()` was removed:
+   every neural search must supply the identity captured at workload preparation.
+4. **Real pending-inference browser coverage.** A bounded experimental test seam
+   (`test_delay_ms`, 0–5000 ms) delays a genuine worker inference. Browser tests
+   cancel with a real request outstanding and immediately restart: a healthy drain
+   retains the model session/worker, while an unresponsive inference is replaced
+   before the replacement runs; obsolete results/errors cannot affect it.
+5. **Exception-safe parity CLI.** Input loading, JSON parsing, custom-file loading
+   and comparison are all protected. Every failure produces a complete structured
+   report (input/workload/execution classification, `acceptance: false`,
+   `workload_completion.complete: false`) and a useful nonzero exit without a second
+   traceback; malformed input exits 2, comparison failures exit 1.
+6. **Complete custom-workload source verification.** Custom sources now distinguish
+   file-backed (`custom`, mandatory exact file SHA-256) from intentionally embedded
+   (`embedded`, no file provenance). Source schema version and digest format are
+   validated; the comparator receives and verifies the original file digest; the
+   browser harness requires and verifies the declared digest and compares
+   semantically equivalent JSON without depending on property order. Ordered
+   position identifiers, normalized position-content digests and full state/history
+   remain distinct concepts.
+
+## Revision-4 validation evidence
+
+| Gate | Result |
+| --- | --- |
+| Level A (21 built-in positions, all rulesets) | 21/21 exact; workload complete; acceptance true |
+| Custom Level A (3 owner-style positions incl. repetition history) | 3/3 exact; `custom` v1 with verified file digest; acceptance true |
+| Level B Brandubh 256 / Tablut 128 / Copenhagen 128 | 7/7 best moves each; workload complete; acceptance true |
+| Browser WASM vs native PyTorch (Brandubh 256) | 7/7; acceptance true |
+| Fixed-work completion tests (both complete, either incomplete, both, deadline-limited, terminal/immediate-win, unequal fixed-time) | pass |
+| Semantic/corruption tests (terminal values, best-move consistency, identity/history/model) | pass |
+| Workload tests (file/embedded sources, wrong/missing/malformed digest, version, property order, both-omitted, empty) | pass |
+| CLI failure tests (malformed JSON, missing file, non-object, malformed metadata, unexpected exception) | structured nonzero, no traceback |
+| Search coordinator lifecycle (cascading admissions, delayed ack/drain, ack failure, drain failure, missing model identity) | 29/29 |
+| Neural client lifecycle (incl. abandoned outcomes) | 38/38 |
+| Staged-source integrity | 21/21 |
+| Analysis UI (fresh-page Jarl/neural via normal controls, ruleset/non-default position, initial data failure recovery, selection preservation, real pending-inference cancellation/restart, bfcache/navigation) | 30/30 |
+| Phase 1 inference parity / UI / identity boundaries at this revision | 39 cases + batches / 19/19 / 4/4 exact |
+
+## Revision-4 browser measurements (tiny smoke fixture only)
+
+| Workload | Browser sims/s | Native sims/s | Equal-work ratio |
+| --- | ---: | ---: | ---: |
+| Brandubh 128 + 256 | 423.0 | 3,285.7 | 0.134 |
+| Brandubh 512 + 1,024 | 556.6 | 3,102.3 | 0.181 |
+| Tablut 128 | 324.7 | 2,042.0 | 0.158 |
+| Copenhagen 128 | 222.4 | 922.3 | 0.243 |
+
+1,024 fixed simulations complete in 1.74–1.94 s (527–590 simulations/s) for the
+smoke fixture. Fixed-time medians: 390 (Brandubh 0.5/1 s), 1,390 (2/5 s), 187
+(Tablut), 126 (Copenhagen); overshoot median 8–13 ms, max 15 ms. Timing shares at
+512–1,024 simulations: 36.1 % step boundary, 37.7 % neural wait, 25.2 % Python
+search, 0.5 % unattributed. These small single-repetition differences versus
+revision 3 are uncontrolled noise and are not claimed as a speedup or regression.
+
+## Revision-4 evidence files
+
+- Parity: [Level A native](mcts-parity-native-a-r4.json) /
+  [browser](mcts-parity-browser-a-r4.json); custom
+  [native](mcts-parity-native-a-custom-r4.json) /
+  [browser](mcts-parity-browser-a-custom-r4.json); brandubh
+  [native ONNX](mcts-parity-native-b-brandubh-r4.json) /
+  [browser](mcts-parity-browser-b-brandubh-r4.json) /
+  [native PyTorch](mcts-parity-native-b-brandubh-torch-r4.json) /
+  [comparison](mcts-parity-compare-torch-browser-brandubh-r4.json); tablut
+  [native](mcts-parity-native-b-tablut-r4.json) /
+  [browser](mcts-parity-browser-b-tablut-r4.json); copenhagen
+  [native](mcts-parity-native-b-copenhagen-r4.json) /
+  [browser](mcts-parity-browser-b-copenhagen-r4.json)
+- Benchmarks: [native quick](mcts-benchmark-native-quick-r4.json) /
+  [browser quick](mcts-benchmark-browser-quick-r4.json) ·
+  [native strong](mcts-benchmark-native-strong-r4.json) /
+  [browser strong](mcts-benchmark-browser-strong-r4.json) · tablut
+  [native](mcts-benchmark-native-tablut-r4.json) /
+  [browser](mcts-benchmark-browser-tablut-r4.json) · copenhagen
+  [native](mcts-benchmark-native-copenhagen-r4.json) /
+  [browser](mcts-benchmark-browser-copenhagen-r4.json)
+- Lifecycle/UI: [analysis UI](mcts-browser-ui-r4.json) ·
+  [search coordinator](mcts-search-lifecycle-r4.txt) ·
+  [neural client](neural-client-lifecycle-r4.txt) ·
+  [staged-source integrity](search-assets-integrity-r4.txt)
+- Phase 1 re-verification: [inference parity](neural-browser-parity-wasm-r9.json) ·
+  [inference benchmark](neural-browser-wasm-benchmark-r9.json) ·
+  [inference UI](neural-browser-ui-r9.json) ·
+  [identity boundaries](neural-browser-identity-boundaries-r9.json)
+- Revisions 1–3 evidence is unchanged; the revision-2 encoding benchmark remains
+  current because the encoder source did not change.
+
+## Revision-4 reproduction additions
+
+```sh
+# Fresh-page UI, cascading cleanup, pending inference and CLI failure gates
+SPIKE_NEURAL_DIR=/tmp/neural-spike .venv/bin/python -m pytest \
+  tests/test_browser_mcts_validation.py tests/test_browser_neural_ui.py -q
+node spikes/browser_offline/test_search_lifecycle.mjs
+node spikes/browser_offline/test_browser_lifecycle.mjs
+.venv/bin/python -m pytest tests/test_mcts_workload.py tests/test_mcts_benchmark.py
+```
+
+## Remaining external gates (unchanged)
+
+Competitive trained models, physical WebGPU execution, physical desktop/mobile and
+Safari/Firefox, sustained process-memory stability and playing strength remain
+external acceptance gates. Revision 4 does not claim them. Frozen native MCTS
+reference failures still reproduce identically on pristine `main` and remain
+documented, not skipped.
