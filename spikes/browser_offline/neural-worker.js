@@ -29,10 +29,9 @@ importScripts("./neural-identity.js");
 let ortLib = null;
 let ortBundle = null;
 let session = null;
-// Deliberately disabled until a test-only client configures it. Normal inference
-// actions reject test_delay_ms, and the test action is unavailable otherwise.
-let testHooksEnabled = false;
-let configuredTestHooks = false;
+// Test hooks are supplied by a separate worker entry point. This normal worker
+// never imports the test adapter, so the capability is absent rather than gated
+// by a JavaScript/client flag.
 let model = null;
 
 function named(name, message) {
@@ -298,32 +297,19 @@ async function releaseQuietly(target) {
   }
 }
 
-async function testDelay(request) {
-  // Test-only seam: deliberately delay completion of a real inference so browser
-  // cancellation/drain behaviour can be exercised deterministically. The worker
-  // refuses the hook unless a test-only client configured it explicitly.
-  if (!testHooksEnabled)
-    throw named("TEST_HOOKS_DISABLED", "Inference delay is unavailable outside lifecycle tests");
-  const delay = request?.test_delay_ms;
-  if (delay === undefined || delay === null) return;
-  if (!Number.isInteger(delay) || delay < 0 || delay > 5000)
-    throw named("INPUT_INVALID", "test_delay_ms must be an integer in 0..5000");
-  if (delay > 0) await new Promise((done) => setTimeout(done, delay));
-}
-
 function rejectTestHook(request) {
   if (request && Object.prototype.hasOwnProperty.call(request, "test_delay_ms"))
     throw named("TEST_HOOKS_DISABLED", "test_delay_ms is not accepted by an inference request");
 }
 
-function configureTestHooks(request) {
-  if (configuredTestHooks)
-    throw named("INPUT_INVALID", "Test hooks may be configured only once per worker");
-  if (request?.enabled !== true)
-    throw named("INPUT_INVALID", "Test hooks must be enabled explicitly");
-  testHooksEnabled = true;
-  configuredTestHooks = true;
-  return { test_hooks: true };
+async function handleTestAction(request) {
+  // This branch exists only for the dedicated test worker, which installs an
+  // adapter before/after importing this core. A normal worker has no adapter and
+  // therefore no activatable delay capability.
+  const adapter = self.__neuralTestAdapter;
+  if (!adapter || typeof adapter.handle !== "function")
+    throw named("TEST_HOOKS_DISABLED", "Test inference hooks are unavailable");
+  return adapter.handle(request);
 }
 
 function assertRequestId(value, label = "request_id") {
@@ -540,18 +526,6 @@ async function inferCompact(request) {
   };
 }
 
-async function inferForTest(request) {
-  await testDelay(request);
-  const { test_delay_ms: _delay, ...inference } = request;
-  return inferSingle(inference);
-}
-
-async function inferCompactForTest(request) {
-  await testDelay(request);
-  const { test_delay_ms: _delay, ...inference } = request;
-  return inferCompact(inference);
-}
-
 async function benchmark(request) {
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   const batchSizes = request.batchSizes;
@@ -631,6 +605,12 @@ async function release(request) {
   return { released, memory: memorySnapshot() };
 }
 
+self.__neuralWorkerInternals = {
+  inferSingle,
+  inferCompact,
+  runBatch,
+};
+
 onmessage = async ({ data: { id, request } }) => {
   try {
     let value;
@@ -638,10 +618,13 @@ onmessage = async ({ data: { id, request } }) => {
     else if (request.action === "load") value = await loadModel(request);
     else if (request.action === "infer") value = await inferSingle(request);
     else if (request.action === "inferCompact") value = await inferCompact(request);
-    else if (request.action === "inferTestonly") value = await inferForTest(request);
-    else if (request.action === "inferCompactTestonly")
-      value = await inferCompactForTest(request);
-    else if (request.action === "configureTestHooks") value = configureTestHooks(request);
+    else if (request.action === "test") value = await handleTestAction(request);
+    else if (
+      request.action === "configureTestHooks" ||
+      request.action === "inferTestonly" ||
+      request.action === "inferCompactTestonly"
+    )
+      throw named("TEST_HOOKS_DISABLED", "Test inference hooks are unavailable");
     else if (request.action === "inferMany") value = await inferMany(request);
     else if (request.action === "benchmark") value = await benchmark(request);
     else if (request.action === "sustained") value = await sustained(request);

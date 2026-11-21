@@ -84,7 +84,7 @@ async function readBodyBounded(response, maxBytes) {
 }
 
 export class NeuralClient {
-  constructor({ testHooks = false } = {}) {
+  constructor({ testHooks = false, workerUrl = null } = {}) {
     this.worker = null;
     this.workerProvider = null;
     this.pending = null;
@@ -102,6 +102,9 @@ export class NeuralClient {
     // clients do not enable the worker's delay hook, and inference requests never
     // carry an arbitrary delay field.
     this.testHooks = testHooks === true;
+    // A dedicated test worker entry point is required for delayed inference.
+    // Normal deployments never stage that file.
+    this.workerUrl = workerUrl;
     this.testInferenceDelayMs = null;
     this.testHooksConfigured = false;
     this.testHooksGeneration = null;
@@ -112,7 +115,7 @@ export class NeuralClient {
 
   _spawn() {
     if (typeof Worker === "undefined") throw new Error("Web Workers are unsupported");
-    const worker = new Worker(new URL("./neural-worker.js", import.meta.url));
+    const worker = new Worker(this.workerUrl ?? new URL("./neural-worker.js", import.meta.url));
     const generation = this.generation;
     this.worker = worker;
     worker.onmessage = ({ data }) => {
@@ -456,11 +459,14 @@ export class NeuralClient {
   }
 
   async _ensureTestHooks() {
-    if (!this.testHooks)
-      throw named("TEST_HOOKS_DISABLED", "Inference delay is unavailable outside lifecycle tests");
+    if (!this.testHooks || !this.workerUrl)
+      throw named(
+        "TEST_HOOKS_DISABLED",
+        "Delayed inference requires the dedicated test worker entry point",
+      );
     if (this.testHooksConfigured && this.testHooksGeneration === this.generation) return;
     await this.request(
-      { action: "configureTestHooks", enabled: true },
+      { action: "test", test_action: "configure", enabled: true },
       { timeoutMs: 5000 },
     );
     this.testHooksConfigured = true;
@@ -481,12 +487,13 @@ export class NeuralClient {
     let testDelay = null;
     if (this.testHooks && Number.isInteger(this.testInferenceDelayMs) && this.testInferenceDelayMs > 0) {
       await this._ensureTestHooks();
-      action = "inferTestonly";
+      action = "test";
       testDelay = this.testInferenceDelayMs;
     }
     return this.request(
       {
         action,
+        ...(testDelay === null ? {} : { test_action: "infer", test_delay_ms: testDelay }),
         planes,
         size,
         legal,
@@ -494,7 +501,6 @@ export class NeuralClient {
         request_id: requestId,
         position_digest: positionDigest,
         model,
-        ...(testDelay === null ? {} : { test_delay_ms: testDelay }),
       },
       { timeoutMs: INFER_TIMEOUT_MS },
     );
@@ -523,12 +529,15 @@ export class NeuralClient {
       this.testInferenceDelayMs > 0
     ) {
       await this._ensureTestHooks();
-      action = "inferCompactTestonly";
+      action = "test";
       testDelay = this.testInferenceDelayMs;
     }
     return this.request(
       {
         action,
+        ...(testDelay === null
+          ? {}
+          : { test_action: "infer_compact", test_delay_ms: testDelay }),
         ...(planesBase64 === null ? { planes } : { planes_base64: planesBase64 }),
         size,
         legal,
@@ -536,7 +545,6 @@ export class NeuralClient {
         request_id: requestId,
         position_digest: positionDigest,
         model,
-        ...(testDelay === null ? {} : { test_delay_ms: testDelay }),
       },
       { timeoutMs: INFER_TIMEOUT_MS },
     );

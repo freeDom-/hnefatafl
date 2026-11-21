@@ -541,31 +541,45 @@ try {
       } catch (error) {
         setter = error.code;
       }
-      // Even a hand-built request cannot enable delay in the worker.
-      let injected = null;
-      try {
-        await client.request(
-          {
-            action: "infer",
-            planes: new Array(294).fill(0),
-            size: 7,
-            legal: [0, 1],
-            ruleset: "brandubh",
-            request_id: "test-only",
-            position_digest: "a".repeat(64),
-            model: { sha256: "b".repeat(64), ruleset: "brandubh", size: 7 },
-            test_delay_ms: 10,
-          },
-          { timeoutMs: 5000 },
-        );
-      } catch (error) {
-        injected = error.code ?? error.name;
+      const rejected = [];
+      for (const request of [
+        {
+          action: "infer",
+          planes: new Array(294).fill(0),
+          size: 7,
+          legal: [0, 1],
+          ruleset: "brandubh",
+          request_id: "test-only",
+          position_digest: "a".repeat(64),
+          model: { sha256: "b".repeat(64), ruleset: "brandubh", size: 7 },
+          test_delay_ms: 10,
+        },
+        { action: "test", test_action: "configure", enabled: true },
+        { action: "configureTestHooks", enabled: true },
+        { action: "inferTestonly", test_delay_ms: 10 },
+        { action: "inferCompactTestonly", test_delay_ms: 10 },
+      ]) {
+        try {
+          await client.request(request, { timeoutMs: 5000 });
+          rejected.push(null);
+        } catch (error) {
+          rejected.push(error.code ?? error.name);
+        }
       }
-      return { testHooks: client.testHooks, setter, injected };
+      return {
+        testHooks: client.testHooks,
+        workerUrl: client.workerUrl,
+        setter,
+        rejected,
+      };
     });
     assert.equal(result.testHooks, false);
+    assert.equal(result.workerUrl, null);
     assert.equal(result.setter, "TEST_HOOKS_DISABLED");
-    assert.equal(result.injected, "TEST_HOOKS_DISABLED");
+    assert.deepEqual(result.rejected, Array(5).fill("TEST_HOOKS_DISABLED"));
+    // The normal worker remains fully operational after rejected test actions.
+    await page.click("#infer");
+    await waitState(page, "completed", 180000);
     await page.close();
   });
 

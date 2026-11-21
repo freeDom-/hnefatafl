@@ -791,7 +791,10 @@ await check("the inference delay hook is unavailable to a normal client", async 
 });
 await check("test hooks require explicit configuration before a delayed inference", async () => {
   globalThis.Worker = FakeWorker;
-  const client = new NeuralClient({ testHooks: true });
+  const client = new NeuralClient({
+    testHooks: true,
+    workerUrl: "/neural-worker-test.js",
+  });
   client.setTestInferenceDelay(25);
   client.model = {
     model_sha256: "a".repeat(64),
@@ -809,11 +812,13 @@ await check("test hooks require explicit configuration before a delayed inferenc
   });
   await sleep(5);
   const worker = client.worker;
-  assert.equal(worker.messages[0].request.action, "configureTestHooks");
+  assert.equal(worker.messages[0].request.action, "test");
+  assert.equal(worker.messages[0].request.test_action, "configure");
   assert.equal(worker.messages[0].request.enabled, true);
   worker.respond(0, { test_hooks: true });
   await sleep(5);
-  assert.equal(worker.messages[1].request.action, "inferTestonly");
+  assert.equal(worker.messages[1].request.action, "test");
+  assert.equal(worker.messages[1].request.test_action, "infer");
   assert.equal(worker.messages[1].request.test_delay_ms, 25);
   worker.respond(1, { ok: true });
   await pending;
@@ -835,6 +840,39 @@ await check("ordinary inference rejects an injected delay field", async () => {
   const worker = client.worker;
   worker.respond(0, null, "test_delay_ms is not accepted", "TEST_HOOKS_DISABLED");
   await assert.rejects(pending, (error) => error.code === "TEST_HOOKS_DISABLED");
+  client.terminate();
+});
+await check("a normal client cannot activate any test-worker action", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  for (const action of [
+    "configureTestHooks",
+    "inferTestonly",
+    "inferCompactTestonly",
+  ]) {
+    const pending = client.request({ action }, { timeoutMs: 1000 });
+    await sleep(2);
+    client.worker.respond(client.worker.messages.length - 1, null, "unavailable", "TEST_HOOKS_DISABLED");
+    await assert.rejects(pending, (error) => error.code === "TEST_HOOKS_DISABLED");
+  }
+  // Ordinary inference still works after the rejected attempts.
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+  };
+  const pending = client.infer({
+    planes: new Array(294).fill(0),
+    size: 7,
+    legal: [0, 1],
+    ruleset: "brandubh",
+    request_id: "normal-after-test",
+    position_digest: "b".repeat(64),
+    model: { sha256: "a".repeat(64), ruleset: "brandubh", size: 7 },
+  });
+  await sleep(5);
+  client.worker.respond(client.worker.messages.length - 1, { ok: true });
+  assert.deepEqual(await pending, { ok: true });
   client.terminate();
 });
 

@@ -45,11 +45,15 @@ try {
   };
   server = createServer(async (request, response) => {
     try {
-      let path = resolve(
-        root,
-        "." + decodeURIComponent(new URL(request.url, "http://localhost").pathname),
-      );
-      if (path !== root && !path.startsWith(root + sep)) throw new Error("outside root");
+      const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+      // The dedicated test worker is served from the source tree only by this
+      // harness; prepare_neural.py never stages it for the normal page.
+      const testWorker = pathname === "/neural-worker-test.js";
+      let path = testWorker
+        ? resolve(import.meta.dirname, "neural-worker-test.js")
+        : resolve(root, "." + pathname);
+      if (!testWorker && path !== root && !path.startsWith(root + sep))
+        throw new Error("outside root");
       if ((await stat(path)).isDirectory()) path = resolve(path, "index.html");
       response.setHeader("Content-Type", mime[extname(path)] || "application/octet-stream");
       response.end(await readFile(path));
@@ -78,6 +82,7 @@ try {
   // is not part of the analysis UI; the normal page leaves test hooks disabled.
   await context.addInitScript(() => {
     window.__NEURAL_TEST_HOOKS__ = true;
+    window.__NEURAL_TEST_WORKER_URL__ = "/neural-worker-test.js";
   });
 
   async function freshPage(setup = null, { waitPositions = true } = {}) {

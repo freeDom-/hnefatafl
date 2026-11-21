@@ -179,10 +179,14 @@
       let coordinator;
       let jarl;
       function createRuntime() {
-        // The delay hook exists only in the explicitly injected browser-test
-        // runtime; the normal experimental page never enables it.
+        // The delay hook exists only in the dedicated test worker entry point,
+        // which is injected by the browser-test harness and never staged for the
+        // normal experimental page.
+        const testWorkerUrl = globalThis.__NEURAL_TEST_WORKER_URL__ ?? null;
         client = new NeuralClient({
-          testHooks: globalThis.__NEURAL_TEST_HOOKS__ === true,
+          testHooks:
+            globalThis.__NEURAL_TEST_HOOKS__ === true && typeof testWorkerUrl === "string",
+          workerUrl: typeof testWorkerUrl === "string" ? testWorkerUrl : null,
         });
         // Browser neural MCTS: the coordinator owns the Pyodide search worker and
         // relays each dependent leaf evaluation to the neural inference worker.
