@@ -23,6 +23,7 @@ for path in (str(SPIKE), str(SPIKE.parents[1])):
 import path_parity  # noqa: E402
 from fixtures import jarl_positions  # noqa: E402
 from hnefatafl.engine import State, legal_moves  # noqa: E402
+from hnefatafl.mcts_driver import position_identity, validate_search_settings  # noqa: E402
 
 MODEL = {"sha256": "a" * 64, "ruleset": "brandubh", "size": 7}
 
@@ -89,12 +90,14 @@ def _case(entry: dict, *, fixed_time: bool = False) -> dict:
         else {"iterations": 64, "time_limit": 10, "seed": 7, "exploration": 1.4}
     )
 
+    identity = position_identity(state, validate_search_settings(settings), MODEL)
+
     def result(mode: str) -> dict:
         search = {
             "algorithm": "neural-mcts-puct-v1",
             "encoder_version": "six-plane-v1",
             "driver_version": 1,
-            "position_identity": "b" * 64,
+            "position_identity": identity,
             "ruleset": "brandubh",
             "size": 7,
             "model": dict(MODEL),

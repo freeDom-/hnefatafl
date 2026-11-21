@@ -159,6 +159,7 @@ try {
     report.models.push({
       ruleset: model.ruleset,
       size: model.size,
+      sha256: model.sha256,
       onnx_sha256: model.sha256,
       provider_requested: load.provider_requested,
       execution_placement: load.execution_placement,

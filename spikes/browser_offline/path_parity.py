@@ -22,6 +22,7 @@ for path in (str(SPIKE), str(ROOT)):
         sys.path.insert(0, path)
 
 from hnefatafl.engine import RULESETS, Move, State, legal_moves  # noqa: E402
+from hnefatafl.mcts_driver import position_identity, validate_search_settings  # noqa: E402
 
 SCHEMA = 1
 REQUIRED_CATEGORIES = ("opening", "tactical", "repetition", "terminal")
@@ -190,7 +191,7 @@ def _validate_fixed_time(case: dict, failures: list[str]) -> None:
             failures.append(f"{label}: search timing is implausibly short")
 
 
-def _case_failures(case: dict) -> tuple[list[str], str | None]:
+def _case_failures(case: dict, expected_model: dict | None) -> tuple[list[str], str | None]:
     failures: list[str] = []
     execution_error = case.get("execution_error")
     if execution_error is not None:
@@ -203,6 +204,20 @@ def _case_failures(case: dict) -> tuple[list[str], str | None]:
     except (ValueError, KeyError, TypeError) as error:
         return failures, f"invalid case state: {error}"
     _validate_common(case, failures)
+    search = case["full"].get("search") or {}
+    if expected_model is not None:
+        model = search.get("model") or {}
+        for field in ("sha256", "ruleset", "size"):
+            if model.get(field) != expected_model.get(field):
+                failures.append(f"model {field} does not match the declared model")
+    try:
+        settings = validate_search_settings(case.get("settings") or {})
+        expected_position = position_identity(state, settings, search.get("model"))
+    except (ValueError, KeyError, TypeError) as error:
+        failures.append(f"cannot recompute position identity: {error}")
+    else:
+        if search.get("position_identity") != expected_position:
+            failures.append("position identity does not match the recomputed identity")
     _validate_legality(case, failures, state)
     if case.get("mode") == "fixed_simulations":
         _validate_fixed_work(case, failures)
@@ -298,11 +313,16 @@ def validate_report(report: dict) -> dict:
     if not isinstance(cases, list) or not cases:
         failures.append("report has no measured cases")
         cases = []
+    models = {
+        entry.get("ruleset"): entry
+        for entry in report.get("models") or []
+        if isinstance(entry, dict)
+    }
     for case in cases:
         if not isinstance(case, dict):
             failures.append("case entry is not an object")
             continue
-        case_failures, execution_error = _case_failures(case)
+        case_failures, execution_error = _case_failures(case, models.get(case.get("ruleset")))
         case["failures"] = case_failures
         case["execution_error"] = execution_error
         case["ok"] = execution_error is None and not case_failures
