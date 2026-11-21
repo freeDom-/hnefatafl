@@ -64,3 +64,32 @@ def test_full_and_compact_search_paths_produce_equivalent_results(tmp_path):
             continue
         assert case["full"]["search"]["coordinator"]["inference_payload_mode"] == "full-logits"
         assert case["compact"]["search"]["coordinator"]["inference_payload_mode"] == "legal-only"
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+@pytest.mark.skipif(not any(STAGES), reason="neural staging directories are not configured")
+def test_browser_collector_error_after_cases_is_not_accepted(tmp_path):
+    root = next(root for root in STAGES if root)
+    output = tmp_path / "path-parity-error.json"
+    result = subprocess.run(
+        [
+            NODE,
+            str(SPIKE / "test_search_path_parity.mjs"),
+            root,
+            "--provider",
+            "wasm",
+            "--inject-page-error",
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    report = json.loads(output.read_text())
+    assert report["ok"] is False
+    assert report["collector_ok"] is False
+    assert report["cases_ok"] is True
+    assert all(case["ok"] for case in report["cases"])
+    assert any("injected page error after final case" in failure for failure in report["failures"])

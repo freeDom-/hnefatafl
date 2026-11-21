@@ -35,6 +35,7 @@ const provider = option("provider", "wasm");
 const output = option("output", null);
 const simulations = Number(option("simulations", "64"));
 const fixedTime = flag("fixed-time");
+const injectPageError = flag("inject-page-error");
 const python = process.env.SPIKE_PYTHON || resolve(import.meta.dirname, "../../.venv/bin/python");
 const mime = {
   ".js": "text/javascript",
@@ -114,8 +115,10 @@ const servers = [];
 try {
   browser = await chromium.launch({ executablePath: process.env.SPIKE_CHROMIUM || undefined });
   report.browser = browser.version();
+  let rootIndex = 0;
   for (const argument of roots) {
     const root = resolve(argument);
+    rootIndex += 1;
     const assets = JSON.parse(await readFile(resolve(root, "neural-assets.json"), "utf8"));
     const server = createServer(async (request, response) => {
       try {
@@ -223,6 +226,14 @@ try {
       }
       caseReport.ok = false; // Provisional; path_parity.py owns acceptance.
       report.cases.push(caseReport);
+    }
+    if (injectPageError && rootIndex === roots.length) {
+      await page.evaluate(() => {
+        setTimeout(() => {
+          throw new Error("injected page error after final case");
+        }, 0);
+      });
+      await sleep(100);
     }
     if (pageErrors.length) failures.push(`${model.ruleset}: page errors: ${pageErrors.join("; ")}`);
     await page.close();

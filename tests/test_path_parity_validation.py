@@ -166,6 +166,7 @@ def _report(*, fixed_time: bool = False) -> dict:
         ],
         "cases": cases,
         "harness_failures": [],
+        "raw_ok": True,
     }
 
 
@@ -349,3 +350,203 @@ def test_cli_missing_position_and_category_exit_nonzero(tmp_path):
     assert any(
         case["execution_error"] == "missing required category" for case in validated["cases"]
     )
+
+
+def _fixed_time_case(report: dict) -> dict:
+    return next(
+        case
+        for case in report["cases"]
+        if not case["terminal"] and case["position"] != "brandubh-immediate-win"
+    )
+
+
+def _set_completed(case: dict, completed: int) -> None:
+    for label in ("full", "compact"):
+        result = case[label]
+        result["search"]["completed_simulations"] = completed
+        result["analysis"]["simulations"] = completed
+        if result["search"]["root_visits"]:
+            result["search"]["root_visits"][0]["visits"] = max(0, completed)
+            result["search"]["root_visits"][0]["share"] = 1.0
+
+
+def test_valid_fixed_time_deadline_budget_and_different_work():
+    report = _report(fixed_time=True)
+    report["mode"] = "fixed_time"
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is True, validated["failures"]
+
+    # Completing the requested simulation budget before the deadline is valid.
+    report = _report(fixed_time=True)
+    report["mode"] = "fixed_time"
+    case = _fixed_time_case(report)
+    _set_completed(case, case["settings"]["iterations"])
+    case["full"]["search"].update(deadline_cutoff=False, completion_reason="simulations")
+    case["compact"]["search"].update(deadline_cutoff=False, completion_reason="simulations")
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is True, validated["failures"]
+
+    # Fixed time may complete different valid amounts of work on each path.
+    report = _report(fixed_time=True)
+    report["mode"] = "fixed_time"
+    case = _fixed_time_case(report)
+    _set_completed(case, 32)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is True, validated["failures"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda case: _set_completed(case, case["settings"]["iterations"] + 1),
+        lambda case: _set_completed(case, -1),
+        lambda case: case["compact"]["analysis"].update(simulations=63),
+        lambda case: case["compact"]["search"]["root_visits"][0].update(visits=1),
+        lambda case: case["compact"]["search"].update(
+            deadline_cutoff=False, completion_reason="simulations"
+        ),
+        lambda case: case["compact"]["search"].update(deadline_cutoff=None),
+        lambda case: case["compact"]["search"].pop("deadline_cutoff"),
+        lambda case: _set_completed(case, 4097),
+    ],
+)
+def test_fixed_time_accounting_rejects_impossible_reports(mutation):
+    report = _report(fixed_time=True)
+    report["mode"] = "fixed_time"
+    case = _fixed_time_case(report)
+    mutation(case)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert case["failures"] or case["execution_error"]
+
+
+def test_fixed_time_terminal_and_immediate_shortcuts_remain_valid():
+    report = _report(fixed_time=True)
+    report["mode"] = "fixed_time"
+    validated = path_parity.validate_report(report)
+    terminal = next(case for case in validated["cases"] if case["terminal"])
+    immediate = next(
+        case for case in validated["cases"] if case["position"] == "brandubh-immediate-win"
+    )
+    assert terminal["ok"] is True
+    assert immediate["ok"] is True
+    assert terminal["full"]["search"]["completed_simulations"] == 0
+    assert immediate["full"]["search"]["immediate_win_shortcuts"] == 1
+
+
+def _set_path(report: dict, path: tuple, value) -> None:
+    target = report
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+
+
+@pytest.mark.parametrize(
+    "path,value",
+    [
+        (("schema",), 2),
+        (("harness_failures",), "not-a-list"),
+        (("raw_ok",), "yes"),
+        (("models",), [None]),
+        (("models",), "not-a-list"),
+        (("expected_rulesets",), "brandubh"),
+        (("expected_cases",), "not-a-list"),
+        (("roots",), [1]),
+        (("cases",), ["not-a-case"]),
+        (("cases", 0, "full"), None),
+        (("cases", 0, "compact"), []),
+        (("cases", 0, "full", "search"), None),
+        (("cases", 0, "full", "analysis"), []),
+        (("cases", 0, "full", "search", "coordinator"), "invalid"),
+        (("cases", 0, "full", "search", "model"), []),
+        (("cases", 0, "full", "search", "provider"), []),
+        (("cases", 0, "settings"), "invalid"),
+        (("cases", 0, "state"), []),
+    ],
+)
+def test_malformed_nested_reports_fail_safely(tmp_path, path, value):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    _set_path(report, path, value)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert validated["failures"]
+    code, cli_report = _run_cli(tmp_path, report)
+    assert code != 0
+    assert cli_report["ok"] is False
+    assert cli_report["failures"]
+
+
+def _collector_report(failures: list, raw_ok) -> dict:
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    report["harness_failures"] = failures
+    report["raw_ok"] = raw_ok
+    return report
+
+
+def test_collector_failures_prevent_acceptance_without_discarding_cases():
+    report = _collector_report(["pageerror: uncaught after all searches"], False)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert validated["collector_ok"] is False
+    assert validated["collector_failures"] == [
+        "browser collector reported raw_ok=false",
+        "pageerror: uncaught after all searches",
+    ]
+    assert all(case["ok"] is True for case in validated["cases"])
+    assert any(
+        "pageerror: uncaught after all searches" in failure for failure in validated["failures"]
+    )
+
+
+def test_raw_ok_false_without_failure_message_is_rejected():
+    report = _collector_report([], False)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert "browser collector reported raw_ok=false without a failure message" in " ".join(
+        validated["collector_failures"]
+    )
+
+
+def test_harness_failures_with_raw_ok_true_is_rejected():
+    report = _collector_report(["collector: late failure"], True)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert any("raw_ok=true" in failure for failure in validated["collector_failures"])
+
+
+@pytest.mark.parametrize(
+    "failures,raw_ok",
+    [
+        (["late collector failure"], False),
+        ([], False),
+        (["late collector failure"], True),
+        ("not-a-list", False),
+        ([1], False),
+        ([], "true"),
+        ([], None),
+    ],
+)
+def test_collector_failures_exit_nonzero(tmp_path, failures, raw_ok):
+    report = _collector_report(failures, raw_ok)
+    code, validated = _run_cli(tmp_path, report)
+    assert code != 0
+    assert validated["ok"] is False
+    assert validated["failures"]
+    assert all(case["ok"] is True for case in validated["cases"])
+
+
+def test_one_failed_case_does_not_hide_other_successes_or_collector_errors():
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    target = report["cases"][0]
+    target["full"]["analysis"]["value"] = 0.5
+    report["harness_failures"] = ["collector failure after case"]
+    report["raw_ok"] = False
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    failed = [case for case in validated["cases"] if not case["ok"]]
+    assert failed == [target]
+    assert any("collector failure after case" in failure for failure in validated["failures"])
