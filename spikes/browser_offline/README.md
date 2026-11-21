@@ -165,6 +165,11 @@ overwritten); cancellation drains or terminates the owned inference without
 killing newer work; cancellation covers model download/session/worker
 initialization; `pagehide`/`pageshow` restore usable clients; nothing neural is
 fetched for Jarl; every mandatory staged Python source requires a valid digest.
+Revision 3 adds exact terminal/best-move semantics and recomputed position
+identity, a versioned built-in/custom workload contract (`--positions` with
+`--positions-file` verification), interpreted abandoned-inference outcomes, and
+replacement admissions that await bounded cancellation cleanup (immediate restart
+without delays, healthy session reuse, unhealthy-drain replacement).
 
 ```sh
 # Structural smoke checkpoint (not competitive) -> validated ONNX export -> stage
@@ -201,6 +206,13 @@ node spikes/browser_offline/test_search_assets.mjs
 
 # Native encoding comparison against the previous tensor-assignment path
 .venv/bin/python spikes/browser_offline/encoding_benchmark.py --repetitions 5
+
+# Custom owner-style positions (native first, browser consumes the same workload)
+.venv/bin/python spikes/browser_offline/native_mcts_parity.py --level a \
+  --positions /path/to/positions.json --output /tmp/native-custom.json
+node spikes/browser_offline/mcts_parity.mjs /tmp/neural-spike \
+  --native /tmp/native-custom.json --level a --positions-file /path/to/positions.json \
+  --output /tmp/browser-custom.json
 ```
 
 Owner-supplied private checkpoints use the same commands with the export produced
