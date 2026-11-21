@@ -12,17 +12,17 @@ Related: [Phase 2 validation](../validation/browser-analysis-phase2.md) ·
 [isolated spike](../../spikes/browser_offline/README.md) ·
 [documentation index](../README.md).
 
-**Current integration revision:** Phase 2 revision 4, merged with `origin/main`
-`8a11ee6` (release 0.41.1 and deployment fixture timing; no browser-analysis or
-engine semantics changed). Phase 2 executes the existing Python neural MCTS
-generator in the browser through the validated Phase 1B inference boundary.
-Revision 1 established the implementation; revision 2 the ownership/cancellation
-and contract hardening; revision 3 exact terminal/best-move/identity validation, a
-versioned workload contract, abandoned-inference classification and cleanup-aware
-UI admission; revision 4 completes fresh-page position initialization, independent
-native/browser fixed-work completion, cascading supersession ownership, real
-pending-inference browser coverage, exception-safe parity CLI reporting and
-complete custom-source verification. Earlier evidence is preserved unchanged.
+**Current integration revision:** Phase 3A on `main` `c23845f` (Phase 2 merge).
+Phase 2 executes the existing Python neural MCTS generator in the browser through
+the validated Phase 1B inference boundary; its revisions 1–4 are preserved in
+[the Phase 2 report](../validation/browser-analysis-phase2.md). Phase 3A closes
+the remaining Phase 2 findings (independent workload identity, non-negative
+diagnostics, isolated test hooks), adds profiling fields and repeated-workload
+controls, and delivers the first measured optimization: legal-only inference
+transport with base64 planes decoded directly in the inference worker. Phase 3B
+(caching, independent-search and single-tree batching, subtree reuse) and Phase 3C
+(competitive checkpoints, strength tournaments, physical hardware) remain open;
+Phase 3 is not complete.
 
 ## Status definitions
 
@@ -421,23 +421,42 @@ production readiness.
 - **Next:** see Phase 3 priorities below; competitive checkpoints and physical
   hardware run the documented commands unchanged.
 
-## Phase 3 — Optimization and strength evaluation (subsequent PRs)
+## Phase 3 — Optimization and strength evaluation
 
-- **Status:** Not started; Phase 2 supplied the measurements that select its work.
-- **Priorities from measured evidence (in order):** reduce the
-  coordinator/Pyodide per-step boundary (largest single cost); measure a direct
-  search↔inference `MessageChannel` against the coordinator relay (inference
-  dispatch is ~65 % of neural wait for a tiny model); consider independent-search
-  batching that amortises one dispatch across several contexts; only then evaluate
-  single-tree batched leaf selection (virtual loss, reservations, exactly-once
-  backpropagation) with sequential mode retained as the correctness reference.
-- **Scope:** profiling-justified optimizations, persistent worker/ORT session
-  reuse, exact neural-inference and bounded search-result caches with separate
-  identity, batched leaf inference, cooperative cancellation, MCTS subtree reuse.
-- **Strength tournaments:** browser Jarl vs native Jarl; browser neural MCTS vs
-  native neural MCTS; browser neural MCTS vs native Jarl; 256/512 vs 1024; WebGPU
-  vs WASM; batched vs sequential. Balanced roles, paired openings, seeds and
-  statistical uncertainty; fixed-time and fixed-iteration reported separately.
+- **Status:** In progress. **Phase 3A delivered**; 3B and 3C outstanding.
+- **Delivered in 3A (evidence: [Phase 3 report](../validation/browser-analysis-phase3.md)):**
+  - Independent `workload_identity()` recomputation in the comparator, covering
+    settings, ordered states/repetition history, evaluator and ONNX model digest;
+    identical corruption in both reports is rejected.
+  - Non-negative validation for all accumulated diagnostics with valid zeros for
+    terminal/immediate-win cases and no one-request-per-simulation assumption.
+  - Test-only inference delay isolated behind an explicit client adapter and
+    worker configuration; ordinary calls reject the hook and the normal page
+    cannot enable it.
+  - Extended workload kinds/budgets, `--repetitions`, `--warmup` and
+    `--payload-mode compact|full`; profiling fields for serialization, parsing,
+    bytes, policy extraction and unattributed time.
+  - Legal-only MCTS inference: base64 planes decoded directly to `Float32Array`,
+    legal softmax read from the output tensor, no full policy-row transfer, and
+    no duplicate serialized position in browser evaluation events. Full logits
+    remain the parity/benchmark/inspection path.
+  - Controlled Brandubh A/B: +32.6 % (128/256 budgets) and +32.7 % (512/1024);
+    Tablut +22.3 %; Copenhagen +86.9 % on smoke/representative architectures;
+    1,024 Brandubh simulations in 1.50–1.66 s, versus 1.76–2.32 s with full
+    logits. These are not competitive-model or device claims.
+- **Outstanding 3B:** direct search↔inference `MessageChannel` experiment,
+  bounded exact inference cache (must justify benefit over existing prediction
+  reuse), independent-search batching scheduler, single-tree batched leaf
+  selection with virtual loss/reservations/exactly-once backpropagation, subtree
+  reuse, sustained memory/stability profiles.
+- **Outstanding 3C:** competitive 32×2+ trained checkpoints, reproducible
+  fixed-work and fixed-time role-balanced tournaments with uncertainty, WebGPU
+  verified execution, physical desktop/mobile/Safari/Firefox validation.
+- **Constraint:** sequential Python neural MCTS remains the correctness and
+  playing-strength reference; no JavaScript/Rust/C++ search engine.
+- **Aspirational target:** 1,024 simulations within two seconds on capable desktop
+  hardware with a representative trained model. Only the tiny smoke model has
+  reached it; the competitive-model gate is open.
 
 ## Phase 4 — Production security and runtime integration (subsequent PRs)
 
@@ -518,8 +537,23 @@ production readiness.
 | Phase 2 / Tablut | Search, parity and benchmark validated (smoke model) |
 | Phase 2 / Copenhagen | Search, parity and benchmark validated (smoke model) |
 | Phase 2 / sequential neural MCTS | Completed (correctness reference) |
-| Phase 2 / independent search batching | Not implemented (Phase 3 candidate) |
-| Phase 2 / single-tree batching | Deferred to Phase 3 |
+| Phase 2 / independent search batching | Not implemented (Phase 3B candidate) |
+| Phase 2 / single-tree batching | Deferred to Phase 3B |
+| Phase 3A / independent workload identity | Validated (recomputed from level, settings, states/history, evaluator, model) |
+| Phase 3A / diagnostic counters | Validated (non-negative; terminal zeros; Level A and B) |
+| Phase 3A / test-hook isolation | Validated (explicit adapter/configuration; normal page and ordinary requests reject) |
+| Phase 3A / profiling instrumentation | Implemented (boundary, bytes, serialization, parsing, policy extraction, unattributed) |
+| Phase 3A / legal-only inference transport | Validated (exact legal-probability parity; full path retained) |
+| Phase 3A / measured optimization | Validated on smoke/representative architectures (+22–87 %) |
+| Phase 3A / representative 32×2 architecture | Performance measured only; synthetic, not competitive validation |
+| Phase 3B / caching | Not started |
+| Phase 3B / independent-search batching | Not started |
+| Phase 3B / single-tree batching | Not started |
+| Phase 3B / subtree reuse | Not started |
+| Phase 3C / competitive models | Blocked (private checkpoints unavailable) |
+| Phase 3C / playing-strength tournaments | Not started |
+| Phase 3C / physical GPU/mobile | Blocked (hardware unavailable) |
+| Phase 3C / sustained memory stability | Not started |
 | Phase 2 / WASM inference in search | Validated |
 | Phase 2 / WebGPU-requested inference in search | Not validated (no adapter) |
 | Phase 2 / verified physical GPU execution | Blocked (no per-operator diagnostic, no adapter) |
@@ -584,19 +618,21 @@ production readiness.
   six-plane encoding is an inference-input identity only and is never used to
   reuse a completed search result.
 
-## Phase 3 priorities (from measured evidence)
+## Phase 3B/3C remaining priorities (from measured evidence)
 
-1. Reduce the per-step coordinator↔Pyodide boundary cost (JSON serialization and
-   `runPython` dispatch): compact event payloads, fewer crossings per simulation.
-2. Measure a direct search-worker↔inference-worker `MessageChannel` against the
-   coordinator relay; keep per-request timeout, cancellation and identity checks.
-3. Add independent-search batching over several cooperative contexts so one
-   dispatch amortises across positions (benchmarks/replay validation).
-4. Only after that, evaluate single-tree batched leaf selection with virtual loss,
+1. Reduce the remaining ~40 % per-step coordinator↔Pyodide boundary cost: measure
+   a direct search-worker↔inference-worker `MessageChannel` against the relay,
+   keeping per-request timeout, cancellation, identity and ownership checks.
+2. Evaluate bounded exact inference caching against the existing prediction reuse;
+   retain only if repeated-workload measurements justify memory and complexity.
+3. Add independent-search batching over several cooperative contexts; report
+   actual batch distribution, foreground latency and cancellation isolation.
+4. Only then evaluate single-tree batched leaf selection with virtual loss,
    reservations, exactly-once backpropagation and deterministic ordering.
-5. Run the owner commands with competitive checkpoints (32×2 and larger) and
-   record model-backed throughput, memory growth and strength.
-6. Physical-device and WebGPU runs with the documented placement reporting.
+5. Run owner commands with competitive checkpoints (32×2 and larger) for parity,
+   throughput, memory growth and fixed-work/fixed-time role-balanced tournaments.
+6. Physical-device and WebGPU runs with the documented placement reporting, plus
+   sustained memory/stability profiles.
 
 ## Recommended next tasks
 
@@ -720,6 +756,7 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-21 | Phase 3A on merged `main` `c23845f`: independent workload identity recomputation; non-negative diagnostic counters; isolated test-only delay hook; extended/repeatable benchmarks and new boundary/serialization/extraction metrics; legal-only MCTS inference transport with base64 plane decoding and no duplicate browser position. Controlled smoke-model gains +22–87 %; Phase 3B/3C remain outstanding. Fresh Phase 3 r1 evidence. |
 | 2026-11-21 | Phase 2 revision 4, integrated `main` `8a11ee6`: fresh-page analysis-position initialization with retry and selection preservation; independent native/browser fixed-work completion classes; owner-bound pending requests and inherited cleanup barrier for cascading supersession; explicit model identity required; bounded pending-inference test seam with healthy/unhealthy browser coverage; exception-safe parity CLI with structured failure schema; file-backed vs embedded custom workload sources with mandatory digest and property-order-independent comparison. Fresh r4/r9 evidence; r1–r3 preserved. |
 | 2026-11-21 | Phase 2 revision 3 (final PR #108 corrections), integrated `main` `3074790`: exact terminal values and non-terminal best-move/root-visit semantics; recomputed full-position identity; versioned built-in/custom workload sources with exact state/history and file-digest validation; interpreted abandoned-inference outcomes with session invalidation; UI replacement admission awaits bounded cancellation cleanup (immediate restart, healthy reuse, unhealthy-drain replacement). Fresh r3/r8 evidence; r1/r2 preserved. |
 | 2026-11-20 | Phase 2 revision 2 (PR #108 review corrections): ownership reserved before initialization with validated response association; cancellation drains/terminates inference and releases the generator without killing newer work; UI cancellation covers model download/init; bfcache restoration installs usable clients; parity/benchmark comparators independently validate coverage, budgets, semantics and raw repetitions; checkpoint weight fingerprint binds native evaluators to the export; independent production-MCTS reference tests; strict legal-probability contract; exception-safe context cleanup; lazy neural assets; mandatory staged-source digests; shared encoder measured 8.9–15.5× faster. Fresh r2/r7 evidence; r1 preserved. |
