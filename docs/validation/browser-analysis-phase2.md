@@ -661,3 +661,144 @@ Competitive trained-model correctness/throughput/memory, physical WebGPU
 (`--require-webgpu`; per-operator GPU execution still unverifiable), physical
 desktop/mobile and Safari/Firefox behaviour, and playing-strength validation
 remain external acceptance gates. They are not satisfied by revision 2.
+
+---
+
+# Revision 3 — final review corrections
+
+Revision 3 integrates `origin/main` `3074790` and closes the remaining review
+findings on `2d627a3`. The architecture is unchanged: the Python `mcts_context()`
+search runs in the Pyodide worker with the persistent ORT Web inference worker.
+
+## Corrections delivered
+
+1. **Semantic validation of analysis results.** The comparator now requires exact
+   defender-relative terminal values (−1 attacker win, +1 defender win, 0 draw),
+   a best move for every successful non-terminal search, membership of that move
+   in the root visit distribution with the maximum share, consistency between
+   `analysis.best_move`, `search.best_move` and the output, and recomputes the
+   full search-position identity from the serialized state (including repetition
+   history), effective settings, model identity, algorithm/driver version and
+   encoder version. The independent per-record `path` association is checked when
+   present. Terminal positions must report no move, no visits and no inference;
+   immediate wins must keep their shortcut semantics.
+2. **Versioned workload source contract.** Reports declare
+   `workload.schema = 1`, an explicit source (`fixtures` v1 with a validated
+   selection, or `custom` v1 with the position-file digest), the exact ordered
+   positions, `expected_names` and a canonical `positions_sha256`. Built-in
+   workloads are reconstructed from `fixtures.jarl_positions` including exact
+   boards and repetition history; custom files are validated by content and digest,
+   and the browser harness consumes precisely the declared workload. The
+   comparator cross-checks both reports and, for custom workloads, verifies the
+   original `--positions-file`. Malformed workload metadata produces a structured
+   failed comparison (nonzero exit, no traceback).
+3. **Abandoned neural-request errors.** A late response to a cancelled inference
+   is now interpreted: success completes the drain and keeps a healthy session;
+   `RESOURCE_CLEANUP_FAILED`/`SESSION_RELEASE_FAILED` invalidate the session and
+   replace the worker; an ordinary inference error drains with an explicit failure
+   outcome; worker/transport failures and drain timeouts terminate; a late message
+   from an obsolete generation is ignored. `sessionRetained` is only true when
+   cleanup is established.
+4. **UI replacement admission waits for cleanup.** Cancel gives immediate feedback
+   and immediately removes result-publication authority, while the bounded cleanup
+   (search coordinator + neural client drain/termination) is tracked and awaited by
+   the next admission. Raw inference and neural MCTS share one ownership policy
+   (incompatible controls disabled, direct calls fail explicitly); both Cancel
+   controls have clear enabled states. A healthy drain reuses the model session and
+   search worker; an unhealthy drain recreates them. No busy-worker error is
+   exposed and no page reload is needed.
+
+## Revision-3 validation evidence
+
+| Gate | Result |
+| --- | --- |
+| Level A (all rulesets, 21 positions, 128 simulations) | 21/21 exact; workload complete; acceptance true |
+| Level B Brandubh 256 / Tablut 128 / Copenhagen 128 | 7/7 best moves each; acceptance true |
+| Browser WASM vs native PyTorch (Brandubh 256) | 7/7 best moves; acceptance true |
+| Custom-position Level A (3 owner-style positions, incl. repetition history) | 3/3 exact; source `custom` v1 with verified file digest; acceptance true |
+| Semantic negative tests (terminal signs, missing/illegal/inconsistent best move, identity/history/model tampering) | every corruption fails for its intended reason |
+| Workload contract tests (fixtures/custom, duplicates, malformed metadata, missing cases, changed digests) | pass; CLI failure is structured |
+| Neural client checks | 38/38 including abandoned success/cleanup/session-release/generic error/obsolete response |
+| Search coordinator checks | 24/24 |
+| Staged-source integrity | 21/21 |
+| Analysis UI checks | 23/23 including immediate restart after cancelling download, ORT init, cold Pyodide init and a blocked leaf inference, repeated cancel/restart, unhealthy-drain recreation, raw/analysis mutual exclusion and cancel control states |
+| Phase 1 inference UI / parity at this revision | 19/19 / 39 cases + batches 1–32 |
+| Identity-boundary corruption | 4/4 exact codes with accepted controls |
+
+## Revision-3 browser measurements (structural smoke fixture)
+
+| Workload | Browser sims/s | Native sims/s | Equal-work ratio |
+| --- | ---: | ---: | ---: |
+| Brandubh 128 + 256 | 415.6 | 3,032.1 | 0.140 |
+| Brandubh 512 + 1,024 | 518.5 | 3,196.1 | 0.166 |
+| Tablut 128 | 278.6 | 2,071.6 | 0.136 |
+| Copenhagen 128 | 241.8 | 1,064.4 | 0.227 |
+
+1,024 fixed simulations complete in 1.85–1.94 s (528–552 simulations/s) for the
+smoke fixture. Fixed-time medians: Brandubh 405 (0.5/1 s) and 1,825 (2/5 s),
+Tablut 160, Copenhagen 122 completed simulations; deadline overshoot median
+7.5–16.5 ms, max 18 ms. Timing shares at 512–1,024 simulations: 36.5 %
+coordinator step boundary, 37.9 % neural wait (203 ms ORT execution), 25.1 %
+Python search work, 0.6 % unattributed. Cold start: 71 ms page scripts, 3.18 s
+worker + ORT + model. These are tiny-model baselines, not competitive-model or
+physical-device claims.
+
+## Revision-3 evidence files
+
+- Parity: [Level A native](mcts-parity-native-a-r3.json) /
+  [browser](mcts-parity-browser-a-r3.json); custom
+  [native](mcts-parity-native-a-custom-r3.json) /
+  [browser](mcts-parity-browser-a-custom-r3.json); brandubh
+  [native ONNX](mcts-parity-native-b-brandubh-r3.json) /
+  [browser](mcts-parity-browser-b-brandubh-r3.json) /
+  [native PyTorch](mcts-parity-native-b-brandubh-torch-r3.json) /
+  [comparison](mcts-parity-compare-torch-browser-brandubh-r3.json); tablut
+  [native](mcts-parity-native-b-tablut-r3.json) /
+  [browser](mcts-parity-browser-b-tablut-r3.json); copenhagen
+  [native](mcts-parity-native-b-copenhagen-r3.json) /
+  [browser](mcts-parity-browser-b-copenhagen-r3.json)
+- Benchmarks: [native quick](mcts-benchmark-native-quick-r3.json) /
+  [browser quick](mcts-benchmark-browser-quick-r3.json) ·
+  [native strong](mcts-benchmark-native-strong-r3.json) /
+  [browser strong](mcts-benchmark-browser-strong-r3.json) · tablut
+  [native](mcts-benchmark-native-tablut-r3.json) /
+  [browser](mcts-benchmark-browser-tablut-r3.json) · copenhagen
+  [native](mcts-benchmark-native-copenhagen-r3.json) /
+  [browser](mcts-benchmark-browser-copenhagen-r3.json)
+- Lifecycle and UI: [analysis UI](mcts-browser-ui-r3.json) ·
+  [search coordinator](mcts-search-lifecycle-r3.txt) ·
+  [neural client](neural-client-lifecycle-r3.txt) ·
+  [staged-source integrity](search-assets-integrity-r3.txt)
+- Phase 1 re-verification: [inference parity](neural-browser-parity-wasm-r8.json) ·
+  [inference benchmark](neural-browser-wasm-benchmark-r8.json) ·
+  [inference UI](neural-browser-ui-r8.json) ·
+  [identity boundaries](neural-browser-identity-boundaries-r8.json)
+- Revision-1/2 evidence remains unchanged; the encoding benchmark from revision 2
+  (`encoding-native-benchmark-r2.json`) is unchanged because the encoder source did
+  not change.
+
+## Revision-3 reproduction additions
+
+```sh
+# Semantic verification and workload contracts
+.venv/bin/python -m pytest tests/test_mcts_workload.py tests/test_mcts_benchmark.py
+
+# Custom-position parity (native first, then browser, with file verification)
+.venv/bin/python spikes/browser_offline/native_mcts_parity.py --level a \
+  --positions /path/to/positions.json --rulesets brandubh,tablut --output /tmp/native-custom.json
+node spikes/browser_offline/mcts_parity.mjs /tmp/neural-spike \
+  --native /tmp/native-custom.json --level a --positions-file /path/to/positions.json \
+  --output /tmp/browser-custom.json
+
+# Abandoned-inference and immediate-restart lifecycle
+node spikes/browser_offline/test_browser_lifecycle.mjs
+node spikes/browser_offline/test_mcts_ui.mjs /tmp/neural-spike --output /tmp/mcts-ui.json
+```
+
+## Remaining external gates (unchanged)
+
+Competitive trained models, physical WebGPU execution, physical desktop/mobile
+and Safari/Firefox, sustained process-memory stability and playing strength remain
+external acceptance gates. They are not satisfied by revision 3. Frozen native
+MCTS reference failures still reproduce identically on pristine `main` (verified by
+extraction) and remain documented, not skipped.

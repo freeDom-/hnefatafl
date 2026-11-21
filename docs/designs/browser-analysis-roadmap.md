@@ -12,15 +12,16 @@ Related: [Phase 2 validation](../validation/browser-analysis-phase2.md) ·
 [isolated spike](../../spikes/browser_offline/README.md) ·
 [documentation index](../README.md).
 
-**Current integration revision:** Phase 2 revision 2 on a branch merged with
-`origin/main` `0c7b4f0` (documentation and release-readiness changes only). Phase 2
-executes the existing Python neural MCTS generator in the browser through the
-validated Phase 1B inference boundary. Revision 2 is the PR #108 review-correction
-round: search ownership and cancellation across both workers, independent
-production-MCTS reference validation, hardened comparators, checkpoint-bound model
-identity, exception-safe cleanup, a strict legal-probability contract, lazy neural
-assets, bfcache recovery and mandatory staged-source integrity. Revision-1
-evidence is preserved unchanged.
+**Current integration revision:** Phase 2 revision 3, merged with `origin/main`
+`3074790` (deployment, tournament, CI, test-infrastructure and dependency updates;
+no browser-analysis or engine semantics changed). Phase 2 executes the existing
+Python neural MCTS generator in the browser through the validated Phase 1B
+inference boundary. Revision 1 established the implementation, revision 2 the
+ownership/cancellation/contract hardening, and revision 3 the final review
+corrections: exact terminal values and best-move semantics, recomputed position
+identity, a versioned built-in/custom workload contract, interpreted errors from
+abandoned inference requests, and UI replacement admission that waits for bounded
+cleanup. Earlier evidence is preserved unchanged.
 
 ## Status definitions
 
@@ -320,7 +321,32 @@ production readiness.
   - **2.6 Experimental UI:** Jarl and neural MCTS analysis on the existing neural
     page, with lazy neural loading, budgets, progress, cancellation, provider/model
     reporting and result export. Not production frontend integration.
-- **Validation evidence (revision 2, current):**
+- **Validation evidence (revision 3, current):**
+  - Level A: 21/21 exact across all rulesets with validated built-in workload
+    states/history; custom-position workload (3 owner-style positions including
+    repetition history) 3/3 exact with a verified custom-source digest.
+  - Level B (smoke fixtures): Brandubh 7/7 (256), Tablut and Copenhagen 7/7 (128)
+    against native ONNX; Brandubh 7/7 against native PyTorch; max value delta
+    ≤3.7e-9, visit total variation 0.
+  - Semantic validation: exact terminal values (−1/+1/0), required and consistent
+    best moves with maximum root visit share, recomputed full-position identity,
+    and rejection of every tested corruption (sign, missing/illegal/inconsistent
+    move, altered identity/history/model).
+  - Workload contract: fixtures reconstructed with exact states/history; custom
+    files validated by content and digest; both-omitted cases and malformed
+    metadata produce structured failures; browser consumes the declared workload.
+  - Lifecycle: abandoned inference outcomes classified (success, cleanup/session
+    failure, generic error, obsolete generation, drain timeout); 38 neural-client
+    checks, 24 coordinator checks, 23 analysis UI checks including immediate
+    restart without sleeps after cancelling download/ORT init/cold init/blocked
+    leaf inference, repeated cancel/restart, healthy reuse and unhealthy-drain
+    replacement; 21 staged-integrity checks; 39 inference parity cases and 19
+    inference UI checks re-verified; 4 identity boundaries exact.
+  - Benchmarks (smoke fixture): 1,024 fixed simulations in 1.85–1.94 s
+    (528–552 simulations/s); equal-work ratios 0.136–0.227; fixed-time overshoot
+    median 7.5–16.5 ms, max 18 ms; timing shares 36.5 % step boundary, 37.9 %
+    neural wait, 25.1 % Python search work, 0.6 % unattributed.
+- **Validation evidence (revision 2, historical):**
   - Level A: 21/21 positions exact across all three rulesets with identical engine
     source identity, workload digest and fixture-derived coverage; workload
     complete. The comparator independently validates both reports (schema,
@@ -483,13 +509,18 @@ production readiness.
 | Phase 2 / model identity and checkpoint binding | Validated (source-weight fingerprint, same-architecture different-weight rejection) |
 | Phase 2 / search-context cleanup | Validated (all exit paths, registry capacity, final summary) |
 | Phase 2 / independent production MCTS parity | Validated (exact deterministic reference, real-network policy reference) |
+| Phase 2 / custom-position tactical parity | Validated (owner-style positions including repetition history) |
 | Phase 2 / fixed-work benchmark acceptance | Validated (raw-record coverage, completion, duplicates/missing) |
 | Phase 2 / fixed-time benchmark acceptance | Validated (informative unequal-work reporting, no false ratio) |
 | Phase 2 / staged-source integrity | Validated (mandatory digests; 21 negative checks) |
 | Phase 2 / lazy neural asset loading | Validated (Jarl with neural assets unavailable) |
 | Phase 2 / bfcache and navigation restoration | Validated (full neural search after restore) |
 | Phase 2 / native encoding performance | No regression; 8.9–15.5× faster with exact parity |
-| Phase 2 / experimental UI | Validated in the isolated spike (18 checks; position/settings ownership) |
+| Phase 2 / semantic search-result validation | Validated (exact terminal values, best-move consistency, recomputed identity, 10+ negative cases) |
+| Phase 2 / built-in and custom workload contract | Validated (versioned source, state/history reconstruction, file digest, structured failures) |
+| Phase 2 / abandoned inference error handling | Validated (success, cleanup/session failure, generic error, obsolete generation, drain timeout) |
+| Phase 2 / UI replacement admission after cancellation | Validated (23 browser checks; bounded cleanup awaited; immediate restart without sleeps) |
+| Phase 2 / experimental UI | Validated in the isolated spike (23 checks; position/settings ownership) |
 | Phase 2 / production integration | Not started |
 
 ## Open findings and technical debt
@@ -657,4 +688,5 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-21 | Phase 2 revision 3 (final PR #108 corrections), integrated `main` `3074790`: exact terminal values and non-terminal best-move/root-visit semantics; recomputed full-position identity; versioned built-in/custom workload sources with exact state/history and file-digest validation; interpreted abandoned-inference outcomes with session invalidation; UI replacement admission awaits bounded cancellation cleanup (immediate restart, healthy reuse, unhealthy-drain replacement). Fresh r3/r8 evidence; r1/r2 preserved. |
 | 2026-11-20 | Phase 2 revision 2 (PR #108 review corrections): ownership reserved before initialization with validated response association; cancellation drains/terminates inference and releases the generator without killing newer work; UI cancellation covers model download/init; bfcache restoration installs usable clients; parity/benchmark comparators independently validate coverage, budgets, semantics and raw repetitions; checkpoint weight fingerprint binds native evaluators to the export; independent production-MCTS reference tests; strict legal-probability contract; exception-safe context cleanup; lazy neural assets; mandatory staged-source digests; shared encoder measured 8.9–15.5× faster. Fresh r2/r7 evidence; r1 preserved. |
