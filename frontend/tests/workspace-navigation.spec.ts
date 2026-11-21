@@ -34,8 +34,8 @@ function reservedBottomSpace(page: Page) {
 
 test.describe('one primary navigation per viewport', () => {
   for (const viewport of [
-    { name: 'portrait phone', width: 390, height: 844 },
-    { name: 'narrow phone', width: 320, height: 568 },
+    { name: 'portrait phone', width: 390, height: 844, wrap: 'nowrap', reserved: 56 },
+    { name: 'narrow phone', width: 320, height: 568, wrap: 'wrap', reserved: 89 },
   ]) {
     test(`shows only the compact bottom navigation on a ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize(viewport);
@@ -51,6 +51,9 @@ test.describe('one primary navigation per viewport', () => {
       await expect(page.locator(headerNav)).toBeHidden();
       await expect(page.locator(bottomNav)).toBeVisible();
       await expect(primaryNavigation(page)).toHaveCount(1);
+      expect(
+        await page.locator(bottomNav).evaluate((node) => getComputedStyle(node).flexWrap),
+      ).toBe(viewport.wrap);
       // `display: none` (not visibility/opacity) keeps the hidden header
       // navigation out of the tab order.
       expect(
@@ -59,7 +62,7 @@ test.describe('one primary navigation per viewport', () => {
           return document.querySelector('.site-header nav')!.contains(document.activeElement);
         }),
       ).toBe(false);
-      expect(await reservedBottomSpace(page)).toBe(56);
+      expect(await reservedBottomSpace(page)).toBe(viewport.reserved);
     });
   }
 
@@ -452,8 +455,8 @@ function overlapArea(a: NavRect, b: NavRect) {
 /**
  * The compact archive destination keeps its pre-existing German abbreviation
  * "Wiederholungen" (English "Replays"). It is the only destination whose compact
- * name does not fit a 320px control at larger interface scales, and it stays
- * deliberately ellipsised: the accessible name is always the full "Hall of
+ * name does not fit a one-row control at larger interface scales, and it stays
+ * deliberately ellipsised there: the accessible name is always the full "Hall of
  * records" / "Halle der Aufzeichnungen". Every other destination, including the
  * labels this change introduces, must fit. Keyed by `kind:language:destination`.
  */
@@ -639,6 +642,61 @@ async function expectUsableNavigation(
   ).toBe(true);
 }
 
+test('narrow Arena navigation wraps and scales without changing Workshop typography', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === 'mobile', 'Explicit viewport; the matrix runs once.');
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/dashboard');
+  await setNavigationDensity(page, 'default');
+
+  const arena = primaryNavigation(page);
+  await expect(arena.locator('a')).toHaveCount(6);
+  expect(await page.locator(bottomNav).evaluate((node) => getComputedStyle(node).flexWrap)).toBe(
+    'wrap',
+  );
+  const arenaDefault = await compactLabelFontSize(page, 'dashboard');
+
+  await setNavigationDensity(page, 'large');
+  await expectUsableNavigation(page, 'en', 'narrow-arena-large-en', 'compact');
+  const arenaLarge = await compactLabelFontSize(page, 'dashboard');
+  expect(arenaLarge).toBeGreaterThan(arenaDefault);
+  expect(arenaLarge / arenaDefault).toBeCloseTo(1.12, 2);
+
+  // A larger text-only root font must flow through the same rem-based labels.
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '24px';
+  });
+  expect(await compactLabelFontSize(page, 'dashboard')).toBeGreaterThan(arenaLarge);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+    'text resize keeps the page inside the viewport',
+  ).toBe(true);
+
+  await page.goto('/training');
+  await setNavigationDensity(page, 'default');
+  await expect(primaryNavigation(page).locator('a')).toHaveCount(4);
+  expect(await page.locator(bottomNav).evaluate((node) => getComputedStyle(node).flexWrap)).toBe(
+    'nowrap',
+  );
+  expect(await reservedBottomSpace(page)).toBe(56);
+  const workshopDefault = await compactLabelFontSize(page, 'training');
+
+  await setNavigationDensity(page, 'large');
+  const workshopLarge = await compactLabelFontSize(page, 'training');
+  expect(workshopLarge).toBeGreaterThan(workshopDefault);
+  expect(workshopLarge / workshopDefault).toBeCloseTo(1.12, 2);
+  expect(await page.locator(bottomNav).evaluate((node) => getComputedStyle(node).flexWrap)).toBe(
+    'nowrap',
+  );
+  expect(await reservedBottomSpace(page)).toBe(56);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+    'workshop navigation stays inside the viewport',
+  ).toBe(true);
+});
+
 const NAV_THEMES = ['kings-table', 'iron-ash', 'saga-hall', 'classic-table'] as const;
 // The original one-scale-per-theme pairing keeps Default and Compact coverage.
 const NAV_DENSITIES: NavDensity[] = ['default', 'compact', 'large', 'default'];
@@ -664,6 +722,27 @@ async function setNavigationAppearance(page: Page, theme: string, density: NavDe
       localStorage.setItem('hnefatafl-appearance', JSON.stringify({ uiTheme, density: value })),
     { uiTheme: theme, density },
   );
+}
+
+/** Apply a density through the same persisted appearance key the app reads. */
+async function setNavigationDensity(page: Page, density: NavDensity) {
+  await page.evaluate((value) => {
+    const stored = localStorage.getItem('hnefatafl-appearance');
+    const appearance = stored ? JSON.parse(stored) : {};
+    appearance.uiTheme = 'kings-table';
+    appearance.density = value;
+    localStorage.setItem('hnefatafl-appearance', JSON.stringify(appearance));
+  }, density);
+  await page.reload();
+  await expectNavigationAppearance(page, 'kings-table', density);
+  await expect(primaryNavigation(page)).toBeVisible();
+}
+
+/** Rendered compact-navigation font size for one destination label. */
+async function compactLabelFontSize(page: Page, destination: string) {
+  return primaryNavigation(page)
+    .locator(`[data-destination="${destination}"] > span`)
+    .evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
 }
 
 /** The applied theme/density must match the request before geometry is read. */

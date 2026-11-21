@@ -58,7 +58,7 @@
     gap: 2px;
     min-width: 0;
     min-height: var(--bottom-nav-h);
-    padding: 6px 2px;
+    padding: 6px 4px;
     border-top: 2px solid transparent;
     color: var(--ui-copy, #81877a);
     font-size: 0.625rem;
@@ -105,17 +105,39 @@
   }
 }
 
-/* Narrow devices (320–360px) keep six Arena destinations on one row. */
+/* Narrow devices (320–360px) keep the six Arena destinations readable without
+ * capping their font size. Two rows of three keep the 44px targets and let labels
+ * follow the selected interface scale; the Workshop's four destinations keep
+ * their original one-row compact layout. */
 @media (max-width: 380px) {
   .workspace-bottom-nav a {
-    padding: 6px 0;
-    /* Cap the large interface scale here; six labels must stay readable at 320px. */
-    font-size: min(0.5625rem, 9px);
+    padding: 6px 2px;
+    font-size: 0.5625rem;
     letter-spacing: -0.1px;
   }
   .workspace-bottom-nav svg {
     width: 18px;
     height: 18px;
+  }
+  body:has(.workspace-bottom-nav[data-workspace='arena']) {
+    --bottom-nav-h: 89px;
+  }
+  .workspace-bottom-nav[data-workspace='arena'] {
+    flex-wrap: wrap;
+  }
+  .workspace-bottom-nav[data-workspace='arena'] a {
+    flex: 0 0 calc(100% / 3);
+    min-height: 44px;
+    padding: 4px 2px;
+  }
+}
+
+/* The sixth Arena destination needs a little less inline padding than the
+ * four-item Workshop bar to stay on one row on wider phones. */
+@media (min-width: 381px) and (max-width: 760px),
+  (min-width: 381px) and (max-height: 480px) and (pointer: coarse) {
+  .workspace-bottom-nav[data-workspace='arena'] a {
+    padding-inline: 2px;
   }
 }
 

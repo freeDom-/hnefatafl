@@ -65,7 +65,11 @@ function WorkspaceBottomNav({
   if (!destinations.length) return null;
   const active = activeDestination(workspace, current, hash);
   return (
-    <nav className="workspace-bottom-nav" aria-label={t('Mobile navigation')}>
+    <nav
+      className="workspace-bottom-nav"
+      aria-label={t('Mobile navigation')}
+      data-workspace={workspace}
+    >
       {destinations.map((destination) => (
         <a
           key={destination.id}
