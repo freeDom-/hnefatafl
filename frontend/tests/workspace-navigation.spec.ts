@@ -1,6 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import type { Page } from '@playwright/test';
+import onlineFixture from '../src/onlineFixture.testdata.json' with { type: 'json' };
 import { expect, test } from './auth-fixture';
+import { historicalGame } from './historical-fixture';
 import { isCompactShell, openDestination, primaryNavigation } from './play-helpers';
 
 const headerNav = '.site-header nav';
@@ -30,6 +32,27 @@ async function navigationState(page: Page) {
 /** Reserved space below the page content, in CSS pixels. */
 function reservedBottomSpace(page: Page) {
   return page.evaluate(() => parseFloat(getComputedStyle(document.body).paddingBottom));
+}
+
+/** Fixed navigation geometry, its rows and its reserved page clearance. */
+function bottomNavigationMetrics(page: Page) {
+  return page.evaluate(() => {
+    const nav = document.querySelector<HTMLElement>('.workspace-bottom-nav');
+    if (!nav) return null;
+    const rect = nav.getBoundingClientRect();
+    const links = Array.from(nav.querySelectorAll<HTMLElement>('a'));
+    const rowHeights = Array.from(
+      new Set(links.map((link) => Math.round(link.getBoundingClientRect().height * 100) / 100)),
+    );
+    return {
+      height: rect.height,
+      bottom: rect.bottom,
+      reserved: parseFloat(getComputedStyle(document.body).paddingBottom),
+      rows: new Set(links.map((link) => Math.round(link.getBoundingClientRect().top))).size,
+      rowHeights,
+      minTarget: Math.min(...links.map((link) => link.getBoundingClientRect().height)),
+    };
+  });
 }
 
 test.describe('one primary navigation per viewport', () => {
@@ -483,6 +506,20 @@ async function expectUsableNavigation(
   expect(nav.kind, `${context}: expected primary navigation type`).toBe(expectedKind);
   const viewport = page.viewportSize()!;
 
+  if (nav.kind === 'compact') {
+    const metrics = await bottomNavigationMetrics(page);
+    expect(metrics, `${context}: bottom navigation geometry`).not.toBeNull();
+    // The fixed bar and the body clearance use the same responsive row sizing.
+    expect(
+      Math.abs(metrics!.height - metrics!.reserved),
+      `${context}: reserved height matches the real navigation height`,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(metrics!.bottom - viewport.height),
+      `${context}: navigation remains pinned to the viewport bottom`,
+    ).toBeLessThanOrEqual(1);
+  }
+
   // The navigation itself stays inside the viewport and keeps real geometry.
   expect(nav.rect.width, `${context}: nav width`).toBeGreaterThan(0);
   expect(nav.rect.height, `${context}: nav height`).toBeGreaterThan(0);
@@ -642,59 +679,189 @@ async function expectUsableNavigation(
   ).toBe(true);
 }
 
-test('narrow Arena navigation wraps and scales without changing Workshop typography', async ({
+test('compact navigation height tracks text resize and keeps Workshop unchanged', async ({
   page,
 }, info) => {
   test.skip(info.project.name === 'mobile', 'Explicit viewport; the matrix runs once.');
-  test.setTimeout(120000);
-  await page.setViewportSize({ width: 320, height: 568 });
+  test.setTimeout(180000);
+  const compact = APPROVED_LABELS.compact;
+
+  for (const width of [320, 360, 380, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 640 });
+    await page.goto('/dashboard');
+    await setNavigationDensity(page, 'default');
+    for (const rootSize of [16, 24, 32]) {
+      await page.evaluate((size) => {
+        document.documentElement.style.fontSize = `${size}px`;
+      }, rootSize);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      for (const language of ['en', 'de'] as const) {
+        await page.locator('.language-select select').selectOption(language);
+        const context = `${width}px-root-${rootSize}-${language}`;
+        const nav = primaryNavigation(page);
+        await expect(nav.locator('a'), `${context}: all Arena destinations`).toHaveCount(6);
+        const metrics = await bottomNavigationMetrics(page);
+        expect(metrics, `${context}: bottom navigation geometry`).not.toBeNull();
+        expect(
+          Math.abs(metrics!.height - metrics!.reserved),
+          `${context}: navigation and reserved height stay synchronized`,
+        ).toBeLessThanOrEqual(1);
+        expect(metrics!.rows, `${context}: narrow Arena rows`).toBe(width <= 380 ? 2 : 1);
+        expect(
+          metrics!.rowHeights.every((height) => height >= 44),
+          `${context}: navigation row heights`,
+        ).toBe(true);
+        expect(metrics!.minTarget, `${context}: touch target height`).toBeGreaterThanOrEqual(44);
+        for (const [destination, name] of Object.entries(compact[language]))
+          await expect(
+            nav.locator(`[data-destination="${destination}"]`),
+            `${context}: ${destination} accessible name`,
+          ).toHaveAccessibleName(name);
+        await expect(nav.locator('[aria-current="page"]')).toHaveAttribute(
+          'data-destination',
+          'dashboard',
+        );
+      }
+    }
+  }
+
+  await page.setViewportSize({ width: 768, height: 1024 });
   await page.goto('/dashboard');
-  await setNavigationDensity(page, 'default');
-
-  const arena = primaryNavigation(page);
-  await expect(arena.locator('a')).toHaveCount(6);
-  expect(await page.locator(bottomNav).evaluate((node) => getComputedStyle(node).flexWrap)).toBe(
-    'wrap',
-  );
-  const arenaDefault = await compactLabelFontSize(page, 'dashboard');
-
-  await setNavigationDensity(page, 'large');
-  await expectUsableNavigation(page, 'en', 'narrow-arena-large-en', 'compact');
-  const arenaLarge = await compactLabelFontSize(page, 'dashboard');
-  expect(arenaLarge).toBeGreaterThan(arenaDefault);
-  expect(arenaLarge / arenaDefault).toBeCloseTo(1.12, 2);
-
-  // A larger text-only root font must flow through the same rem-based labels.
   await page.evaluate(() => {
-    document.documentElement.style.fontSize = '24px';
+    document.documentElement.style.fontSize = '32px';
   });
-  expect(await compactLabelFontSize(page, 'dashboard')).toBeGreaterThan(arenaLarge);
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
-    'text resize keeps the page inside the viewport',
-  ).toBe(true);
+  await expect(page.locator(bottomNav)).toBeHidden();
+  expect(await reservedBottomSpace(page), 'tablet header navigation reserves no bottom strip').toBe(
+    0,
+  );
+  await expect(primaryNavigation(page)).toBeVisible();
 
+  // Workshop keeps its four-destination one-row layout. Its reserved height is
+  // unchanged at normal text size and still follows enlarged text without overlap.
+  await page.setViewportSize({ width: 320, height: 640 });
   await page.goto('/training');
   await setNavigationDensity(page, 'default');
-  await expect(primaryNavigation(page).locator('a')).toHaveCount(4);
-  expect(await page.locator(bottomNav).evaluate((node) => getComputedStyle(node).flexWrap)).toBe(
-    'nowrap',
+  for (const rootSize of [16, 24, 32]) {
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = `${size}px`;
+    }, rootSize);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    const context = `workshop-320px-root-${rootSize}`;
+    const nav = primaryNavigation(page);
+    await expect(nav.locator('a'), `${context}: Workshop destinations`).toHaveCount(4);
+    const metrics = await bottomNavigationMetrics(page);
+    expect(metrics, `${context}: Workshop navigation geometry`).not.toBeNull();
+    expect(metrics!.rows, `${context}: Workshop stays on one row`).toBe(1);
+    expect(metrics!.rowHeights, `${context}: Workshop row heights`).toHaveLength(1);
+    expect(metrics!.minTarget, `${context}: Workshop touch target height`).toBeGreaterThanOrEqual(
+      44,
+    );
+    expect(
+      Math.abs(metrics!.height - metrics!.reserved),
+      `${context}: Workshop navigation and clearance stay synchronized`,
+    ).toBeLessThanOrEqual(1);
+    if (rootSize === 16)
+      expect(metrics!.reserved, `${context}: unchanged normal clearance`).toBe(56);
+  }
+  const workshopNav = await primaryNavigation(page).boundingBox();
+  expect(workshopNav, 'workshop navigation box').not.toBeNull();
+  expect(workshopNav!.x, 'workshop navigation left edge').toBeGreaterThanOrEqual(-1);
+  expect(workshopNav!.x + workshopNav!.width, 'workshop navigation right edge').toBeLessThanOrEqual(
+    (await page.viewportSize())!.width + 1,
   );
-  expect(await reservedBottomSpace(page)).toBe(56);
-  const workshopDefault = await compactLabelFontSize(page, 'training');
+});
 
-  await setNavigationDensity(page, 'large');
-  const workshopLarge = await compactLabelFontSize(page, 'training');
-  expect(workshopLarge).toBeGreaterThan(workshopDefault);
-  expect(workshopLarge / workshopDefault).toBeCloseTo(1.12, 2);
-  expect(await page.locator(bottomNav).evaluate((node) => getComputedStyle(node).flexWrap)).toBe(
-    'nowrap',
+test('keeps enlarged navigation clear of single-player and online game screens', async ({
+  page,
+  request,
+}, info) => {
+  test.skip(info.project.name === 'mobile', 'Explicit viewport; the matrix runs once.');
+  test.setTimeout(180000);
+  const singleResponse = await historicalGame(request, {
+    data: { ruleset: 'tablut', mode: 'human-human' },
+  });
+  expect(singleResponse.ok()).toBe(true);
+  const single = (await singleResponse.json()) as { id: string };
+  const online = onlineFixture.active as { id: string };
+
+  await page.route('**/api/online/games?*', (route) =>
+    route.fulfill({ json: { games: [], limit: 50, offset: 0, section: 'mine' } }),
   );
-  expect(await reservedBottomSpace(page)).toBe(56);
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
-    'workshop navigation stays inside the viewport',
-  ).toBe(true);
+  await page.route('**/api/online/games/**', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === `/api/online/games/${online.id}`) return route.fulfill({ json: online });
+    return route.continue();
+  });
+  await page.route('**/api/online/availability', (route) =>
+    route.fulfill({ json: { enabled: true, eligible: true } }),
+  );
+
+  for (const [name, path] of [
+    ['single-player', `/games/${single.id}`],
+    ['online', `/online/games/${online.id}`],
+  ] as const) {
+    for (const rootSize of [24, 32]) {
+      await page.setViewportSize({ width: 320, height: 720 });
+      await page.goto(path);
+      await page.evaluate((size) => {
+        document.documentElement.style.fontSize = `${size}px`;
+      }, rootSize);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      await expect(page.getByRole('grid'), `${name}-${rootSize}: board`).toBeVisible();
+      const layout = await page.evaluate(() => {
+        const nav = document.querySelector('.workspace-bottom-nav')!.getBoundingClientRect();
+        const board = document.querySelector('.board')!.getBoundingClientRect();
+        const inspector = document.querySelector('.mobile-inspector')!.getBoundingClientRect();
+        const intersects = (a: DOMRect, b: DOMRect) =>
+          a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        return {
+          navHeight: nav.height,
+          navTop: nav.top,
+          reserved: parseFloat(getComputedStyle(document.body).paddingBottom),
+          boardVisible: board.width > 0 && board.height > 0,
+          boardBottom: board.bottom,
+          inspectorBottom: inspector.bottom,
+          navOverlapsBoard: intersects(nav, board),
+          navOverlapsInspector: intersects(nav, inspector),
+        };
+      });
+      const context = `${name}-320px-root-${rootSize}`;
+      expect(
+        Math.abs(layout.navHeight - layout.reserved),
+        `${context}: navigation and gameplay clearance stay synchronized`,
+      ).toBeLessThanOrEqual(1);
+      expect(layout.boardVisible, `${context}: board remains visible`).toBe(true);
+      expect(layout.navOverlapsBoard, `${context}: navigation does not cover the board`).toBe(
+        false,
+      );
+      expect(
+        layout.navOverlapsInspector,
+        `${context}: navigation does not cover the inspector`,
+      ).toBe(false);
+      expect(layout.boardBottom, `${context}: board ends above the navigation`).toBeLessThanOrEqual(
+        layout.navTop + 1,
+      );
+      expect(
+        layout.inspectorBottom,
+        `${context}: inspector ends above the navigation`,
+      ).toBeLessThanOrEqual(layout.navTop + 1);
+    }
+  }
 });
 
 const NAV_THEMES = ['kings-table', 'iron-ash', 'saga-hall', 'classic-table'] as const;
