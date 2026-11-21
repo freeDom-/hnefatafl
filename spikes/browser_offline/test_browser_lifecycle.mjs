@@ -647,6 +647,118 @@ await check("cancelRequest on an idle client reports session retention", async (
   client.terminate();
 });
 
+async function abandonedScenario(outcomeError, outcomeCode) {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.model = { provider: "wasm", model_sha256: "a".repeat(64) };
+  const pending = client.request({ action: "infer" }, { timeoutMs: 5000 });
+  await sleep(5);
+  const worker = client.worker;
+  const rejected = assert.rejects(pending, (error) => error.name === "AbortError");
+  const draining = client.cancelRequest({ reason: "cancel", drainMs: 500 });
+  worker.respond(0, null, outcomeError, outcomeCode);
+  const outcome = await draining;
+  await rejected;
+  return { client, worker, outcome };
+}
+
+await check("an abandoned request that succeeds drains and retains the session", async () => {
+  const { client, outcome } = await abandonedScenario(undefined, undefined);
+  assert.equal(outcome.state, "drained");
+  assert.equal(outcome.outcome, "completed");
+  assert.equal(outcome.sessionRetained, true);
+  const next = client.request({ action: "infer" }, { timeoutMs: 500 });
+  await sleep(5);
+  client.worker.respond(1, { ok: true });
+  assert.deepEqual(await next, { ok: true });
+  client.terminate();
+});
+await check("an abandoned RESOURCE_CLEANUP_FAILED invalidates the session", async () => {
+  const { client, worker, outcome } = await abandonedScenario(
+    "tensor cleanup failed",
+    "RESOURCE_CLEANUP_FAILED",
+  );
+  assert.equal(outcome.state, "terminated");
+  assert.equal(outcome.sessionRetained, false);
+  assert.equal(outcome.outcome, "failed");
+  assert.equal(outcome.errorCode, "RESOURCE_CLEANUP_FAILED");
+  assert.equal(worker.terminated, true);
+  assert.equal(client.model, null);
+  // Bounded recovery: a fresh worker/session can be loaded and used.
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Map([["content-length", "8"]]),
+    arrayBuffer: async () => new Uint8Array(8).buffer,
+  });
+  client.digestFn = async () => "a".repeat(64);
+  const loading = client.load("./model.onnx", {
+    provider: "wasm",
+    size: 7,
+    ruleset: "brandubh",
+    expectedSha256: "a".repeat(64),
+  });
+  await sleep(5);
+  client.worker.respond(0, {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    execution_placement: "wasm",
+    gpu_execution_verified: false,
+  });
+  await loading;
+  assert.ok(client.model);
+  client.terminate();
+});
+await check("an abandoned SESSION_RELEASE_FAILED invalidates the session", async () => {
+  const { client, outcome } = await abandonedScenario(
+    "session release failed",
+    "SESSION_RELEASE_FAILED",
+  );
+  assert.equal(outcome.state, "terminated");
+  assert.equal(outcome.sessionRetained, false);
+  assert.equal(outcome.errorCode, "SESSION_RELEASE_FAILED");
+  assert.equal(client.model, null);
+  client.terminate();
+});
+await check("an abandoned generic inference error drains and keeps the worker", async () => {
+  const { client, worker, outcome } = await abandonedScenario(
+    "model produced a non-finite logit",
+    "OUTPUT_INVALID",
+  );
+  assert.equal(outcome.state, "drained");
+  assert.equal(outcome.outcome, "failed");
+  assert.equal(outcome.errorCode, "OUTPUT_INVALID");
+  assert.equal(outcome.sessionRetained, true);
+  assert.equal(worker.terminated, false);
+  const next = client.request({ action: "infer" }, { timeoutMs: 500 });
+  await sleep(5);
+  client.worker.respond(1, { ok: true });
+  assert.deepEqual(await next, { ok: true });
+  client.terminate();
+});
+await check("a delayed obsolete-generation response cannot affect a replacement", async () => {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.model = { provider: "wasm" };
+  const pending = client.request({ action: "infer" }, { timeoutMs: 5000 });
+  await sleep(5);
+  const staleWorker = client.worker;
+  const rejected = assert.rejects(pending, (error) => error.name === "AbortError");
+  const outcome = await client.cancelRequest({ reason: "cancel", drainMs: 20 });
+  await rejected;
+  assert.equal(outcome.state, "terminated");
+  const next = client.request({ action: "infer" }, { timeoutMs: 500 });
+  await sleep(5);
+  // A late message from the replaced worker is ignored by the generation guard.
+  assert.ok(client.pending, "the replacement request is still pending");
+  staleWorker.onmessage?.({
+    data: { id: staleWorker.messages[0].id, value: null, error: "late failure" },
+  });
+  assert.ok(client.pending, "a stale response cannot settle the replacement");
+  client.worker.respond(0, { ok: true });
+  assert.deepEqual(await next, { ok: true });
+  client.terminate();
+});
+
 const failures = results.filter((row) => !row.ok);
 console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
 if (failures.length) {

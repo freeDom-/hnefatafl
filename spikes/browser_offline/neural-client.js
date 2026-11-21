@@ -115,8 +115,25 @@ export class NeuralClient {
         // A cancelled request may still be executing; its completion frees the
         // worker for the next request but its result is ignored.
         if (this.abandoned && this.abandoned.id === data.id) {
-          this.abandoned.finished?.();
+          const abandoned = this.abandoned;
           this.abandoned = null;
+          abandoned.abandonedOutcome = data.error
+            ? { failed: true, code: data.code ?? null, message: data.error }
+            : { failed: false, code: null, message: null };
+          if (
+            data.error &&
+            (data.code === "RESOURCE_CLEANUP_FAILED" ||
+              data.code === "SESSION_RELEASE_FAILED")
+          ) {
+            // The worker may be unhealthy; never retain a session whose cleanup
+            // failed. abort() also resolves the drain wait.
+            const error = new Error(data.error);
+            error.code = data.code;
+            abandoned.finished?.();
+            this.abort(error);
+            return;
+          }
+          abandoned.finished?.();
         }
         return;
       }
@@ -164,8 +181,14 @@ export class NeuralClient {
       pending.reject(error);
     }
     if (this.abandoned) {
-      this.abandoned.finished?.();
+      const abandoned = this.abandoned;
+      abandoned.abandonedOutcome = {
+        failed: true,
+        code: error?.code ?? "WorkerError",
+        message: error?.message ?? String(error),
+      };
       this.abandoned = null;
+      abandoned.finished?.();
     }
     this._cancelDownload(error);
   }
@@ -260,17 +283,33 @@ export class NeuralClient {
         }),
       ]);
       clearTimeout(timer);
+      const abandoned = pending;
       this.abandoned = null;
+      const outcome = abandoned.abandonedOutcome ?? null;
       if (!drained) {
         this.abort(named("TimeoutError", "The neural worker did not drain the cancelled request"));
-        return { state: "terminated", sessionRetained: false, workerRetained: false };
+        return {
+          state: "terminated",
+          sessionRetained: false,
+          workerRetained: false,
+          outcome: "timeout",
+          errorCode: "DRAIN_TIMEOUT",
+        };
       }
       if (this.worker !== worker || this.generation !== generation)
-        return { state: "terminated", sessionRetained: false, workerRetained: false };
+        return {
+          state: "terminated",
+          sessionRetained: false,
+          workerRetained: false,
+          outcome: outcome?.failed ? "failed" : "aborted",
+          errorCode: outcome?.code ?? null,
+        };
       return {
         state: "drained",
         sessionRetained: this.model !== null,
         workerRetained: true,
+        outcome: outcome?.failed ? "failed" : "completed",
+        errorCode: outcome?.code ?? null,
       };
     })().finally(() => {
       this.draining = null;
