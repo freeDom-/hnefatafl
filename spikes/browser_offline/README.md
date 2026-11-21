@@ -169,7 +169,11 @@ Revision 3 adds exact terminal/best-move semantics and recomputed position
 identity, a versioned built-in/custom workload contract (`--positions` with
 `--positions-file` verification), interpreted abandoned-inference outcomes, and
 replacement admissions that await bounded cancellation cleanup (immediate restart
-without delays, healthy session reuse, unhealthy-drain replacement).
+without delays, healthy session reuse, unhealthy-drain replacement). Revision 4
+completes fresh-page position initialization/retry, per-runtime fixed-work
+completion validation, owner-bound pending requests with an inherited cleanup
+barrier, real pending-inference cancellation coverage, structured CLI failures and
+file-backed vs intentionally embedded custom sources with mandatory digests.
 
 ```sh
 # Structural smoke checkpoint (not competitive) -> validated ONNX export -> stage
