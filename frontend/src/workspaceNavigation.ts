@@ -19,6 +19,7 @@ export type WorkspaceDestination = {
 export const ARENA_DESTINATIONS: WorkspaceDestination[] = [
   { id: 'dashboard', label: 'The Great Hall', short: 'Great Hall', href: '/dashboard' },
   { id: 'play', label: 'Battlefield', short: 'Battlefield', href: '/play' },
+  { id: 'online', label: 'Online Play', short: 'Online', href: '/online' },
   { id: 'statistics', label: 'Statistics', short: 'Stats', href: '/statistics' },
   { id: 'leaderboard', label: 'Leaderboard', short: 'Trials', href: '/leaderboard' },
   { id: 'archive', label: 'Hall of records', short: 'Replays', href: '/archive' },
