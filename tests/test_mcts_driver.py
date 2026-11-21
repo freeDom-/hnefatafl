@@ -375,6 +375,36 @@ def bridge(payload: dict) -> dict:
     return json.loads(search_bridge.dispatch(json.dumps(payload)))
 
 
+def test_serialized_position_is_materialized_only_when_requested():
+    state = new_game("brandubh")
+    hidden = NeuralSearch(
+        state,
+        validate_search_settings(SETTINGS),
+        model_for(state),
+        include_position=False,
+    )
+    try:
+        event = hidden.start()
+        assert "position" not in event["request"]
+        assert "position" not in hidden._pending
+        assert event["request"]["position_digest"]
+    finally:
+        hidden.close()
+    exposed = NeuralSearch(
+        state,
+        validate_search_settings(SETTINGS),
+        model_for(state),
+        include_position=True,
+    )
+    try:
+        event = exposed.start()
+        assert event["request"]["position"] == state.to_dict()
+        # The serialized copy is an event payload, never retained in pending state.
+        assert "position" not in exposed._pending
+    finally:
+        exposed.close()
+
+
 def test_bridge_round_trip_and_state_lifecycle():
     state = new_game("brandubh")
     start = bridge(

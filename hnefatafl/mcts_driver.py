@@ -463,7 +463,6 @@ class NeuralSearch:
             "moves": moves,
             "legal": legal,
             "digest": digest,
-            "position": state.to_dict(),
         }
         self._last_event_at = time.monotonic()
         request = {
