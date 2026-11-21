@@ -42,7 +42,7 @@ def test_analysis_ui_jarl_and_neural_mcts(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(output.read_text())
     assert report["ok"] is True
-    assert len(report["checks"]) == 18
+    assert len(report["checks"]) == 23
     assert all(check["ok"] for check in report["checks"])
 
 

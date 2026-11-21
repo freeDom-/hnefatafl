@@ -247,6 +247,11 @@
         setBusy(true);
         setState("running");
         try {
+          // A replacement operation waits for the previous cancellation's bounded
+          // cleanup instead of failing on a still-draining worker.
+          await awaitCleanup("analysis");
+          await awaitCleanup("inference");
+          if (active !== token) throw new DOMException("Operation superseded", "AbortError");
           const value = await action(token);
           if (active !== token) return undefined;
           setState("completed");
@@ -401,6 +406,35 @@
       let analysisPositions = null;
       let analysisToken = null;
       let analysisResult = null;
+      // Bounded cleanup owned by a cancelled operation. Replacement admissions
+      // wait for it instead of racing a still-draining worker.
+      let analysisCleanup = null;
+      let inferenceCleanup = null;
+
+      function trackCleanup(kind, promise) {
+        let tracked;
+        tracked = Promise.resolve(promise)
+          .catch(() => ({}))
+          .finally(() => {
+            if (kind === "analysis" && analysisCleanup === tracked)
+              analysisCleanup = null;
+            if (kind === "inference" && inferenceCleanup === tracked)
+              inferenceCleanup = null;
+            syncAnalysisControls();
+          });
+        if (kind === "analysis") analysisCleanup = tracked;
+        else inferenceCleanup = tracked;
+        return tracked;
+      }
+      async function awaitCleanup(kind) {
+        const pending =
+          kind === "analysis"
+            ? analysisCleanup
+            : kind === "inference"
+              ? inferenceCleanup
+              : null;
+        if (pending) await pending;
+      }
 
       function setAnalysisState(state, text = "") {
         document.querySelector("#analysis-state").textContent = state;
@@ -613,6 +647,10 @@
         syncAnalysisControls();
         const started = performance.now();
         try {
+          setAnalysisState("running", "finishing previous cancellation");
+          await awaitCleanup("analysis");
+          await awaitCleanup("inference");
+          ensureAnalysisCurrent(token);
           const positions = await loadAnalysisPositions();
           ensureAnalysisCurrent(token);
           const position = positions.find(
@@ -660,20 +698,19 @@
         return analysisResult;
       }
       function cancelAnalysis(reason = "Cancelled by user") {
-        if (!analysisToken) return Promise.resolve({ cancelled: false });
-        // Clear ownership before cancelling so no late completion can publish.
+        if (!analysisToken) return analysisCleanup ?? Promise.resolve({ cancelled: false });
+        // Immediate user feedback and immediate loss of publication authority.
+        // Cleanup is tracked separately and awaited by the next admission.
         analysisToken = null;
         setAnalysisState("cancelled", "cancelled by user");
         setBusy(false);
         syncAnalysisControls();
-        const jarlResult = (() => {
-          try {
-            jarl.cancel(reason);
-          } catch {
-            // idempotent cancellation
-          }
-        })();
-        return (async () => {
+        try {
+          jarl.cancel(reason);
+        } catch {
+          // idempotent cancellation
+        }
+        const cleanup = (async () => {
           const [search, inference] = await Promise.all([
             coordinator.cancel(reason).catch(() => ({ cancelled: true })),
             client.cancelWork({ reason }).catch(() => ({
@@ -681,8 +718,9 @@
               sessionRetained: false,
             })),
           ]);
-          return { cancelled: true, search, inference, jarl: jarlResult ?? null };
+          return { cancelled: true, search, inference };
         })();
+        return trackCleanup("analysis", cleanup);
       }
       analysisUi.ruleset.addEventListener("change", () => {
         selectAnalysisPositions();
@@ -828,11 +866,16 @@
             return value;
           }),
         cancel: () => {
-          // Clear ownership first so a late asset/load completion cannot publish.
+          if (!active && !inferenceCleanup) return Promise.resolve({ cancelled: false });
+          // Immediate feedback and ownership loss; cleanup is bounded and the
+          // next operation waits for it.
           active = null;
-          client.terminate("Cancelled by user");
           setBusy(false);
           setState("cancelled", "cancelled by user");
+          const cleanup = client
+            .cancelWork({ reason: "Cancelled by user" })
+            .catch(() => ({ state: "failed", sessionRetained: false }));
+          return trackCleanup("inference", cleanup);
         },
         diagnostics: () => ({ ...diagnostics }),
         exportReport: () => output.textContent ?? "",
@@ -877,6 +920,8 @@
         diagnostics.pagehide += 1;
         active = null;
         analysisToken = null;
+        analysisCleanup = null;
+        inferenceCleanup = null;
         try {
           jarl.dispose();
         } catch {
@@ -906,6 +951,8 @@
         active = null;
         analysisToken = null;
         analysisResult = null;
+        analysisCleanup = null;
+        inferenceCleanup = null;
         // The immutable model manifest and analysis positions may be reused; the
         // large numerical reference vectors and every operation are dropped.
         inputs = null;

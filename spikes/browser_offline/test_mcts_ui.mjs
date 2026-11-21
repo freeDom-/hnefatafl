@@ -90,6 +90,14 @@ try {
   async function analysisState(page) {
     return page.textContent("#analysis-state");
   }
+  async function waitState(page, expected, timeout = 60000) {
+    const targets = Array.isArray(expected) ? expected : [expected];
+    await page.waitForFunction(
+      (values) => values.includes(document.querySelector("#state")?.textContent),
+      targets,
+      { timeout },
+    );
+  }
   async function waitAnalysisState(page, expected, timeout = 120000) {
     const targets = Array.isArray(expected) ? expected : [expected];
     await page.waitForFunction(
@@ -421,23 +429,20 @@ try {
     await waitAnalysisState(page, "loading", 120000);
     await page.click("#analysis-cancel");
     assert.equal(await analysisState(page), "cancelled");
-    await started;
-    assert.equal(
-      await page.evaluate(() => window.neural.client.model),
-      null,
-      "a cancelled model download must not publish a session",
-    );
-    await delay(1300);
-    await page.evaluate(() => window.neural.analysis.start());
+    // Restart immediately: admission waits for the bounded cleanup instead of
+    // racing a still-terminating model load.
+    const replacement = page.evaluate(() => window.neural.analysis.start());
+    await Promise.all([started, replacement]);
     await waitAnalysisState(page, "completed", 180000);
     const result = await page.evaluate(() => window.neural.analysis.result());
     assert.equal(result.search.completed_simulations, 128);
+    assert.equal(result.agent, "neural-mcts");
     await page.close();
   });
 
   await record("Cancellation during ORT session initialization recovers", async () => {
     let delayed = true;
-    const { page } = await freshPage(async (page) => {
+    const { page, errors } = await freshPage(async (page) => {
       await page.route("**/ort/ort-wasm-simd-threaded.wasm", async (route) => {
         if (delayed) {
           delayed = false;
@@ -460,12 +465,13 @@ try {
     await waitAnalysisState(page, "completed", 180000);
     const result = await page.evaluate(() => window.neural.analysis.result());
     assert.equal(result.search.completed_simulations, 128);
+    assert.equal(errors.length, 0, errors.join("; "));
     await page.close();
   });
 
   await record("Cancellation during cold search-worker initialization recovers", async () => {
     let delayed = true;
-    const { page } = await freshPage(async (page) => {
+    const { page, errors } = await freshPage(async (page) => {
       await page.route("**/runtime/pyodide.asm.wasm", async (route) => {
         if (delayed) {
           delayed = false;
@@ -489,6 +495,7 @@ try {
     await waitAnalysisState(page, "completed", 180000);
     const result = await page.evaluate(() => window.neural.analysis.result());
     assert.equal(result.search.completed_simulations, 128);
+    assert.equal(errors.length, 0, errors.join("; "));
     await page.close();
   });
 
@@ -597,6 +604,224 @@ try {
     await waitAnalysisState(page, "completed", 120000);
     const result = await page.evaluate(() => window.neural.analysis.result());
     assert.equal(result.position, "brandubh-opening");
+    await page.close();
+  });
+
+  await record("Immediate restart after cancelling a blocked leaf inference", async () => {
+    const { page, errors } = await freshPage();
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 256, time: 5 });
+    }, report.model.ruleset);
+    // Deterministic control point: the first leaf inference never settles.
+    await page.evaluate(() => {
+      const client = window.neural.client;
+      const real = client.infer.bind(client);
+      let first = true;
+      window.__inferBlocked = false;
+      client.infer = (request) => {
+        if (!first) return real(request);
+        first = false;
+        window.__inferBlocked = true;
+        return new Promise(() => {});
+      };
+    });
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await page.waitForFunction(() => window.__inferBlocked === true, null, { timeout: 120000 });
+    const before = await page.evaluate(() => ({
+      generation: window.neural.coordinator.generation,
+      model: window.neural.client.model?.model_sha256 ?? null,
+    }));
+    await page.click("#analysis-cancel");
+    assert.equal(await analysisState(page), "cancelled");
+    const replacement = page.evaluate(() => window.neural.analysis.start());
+    await Promise.all([started, replacement]);
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.search.completed_simulations, 256);
+    const after = await page.evaluate(() => ({
+      generation: window.neural.coordinator.generation,
+      model: window.neural.client.model?.model_sha256 ?? null,
+    }));
+    assert.equal(after.generation, before.generation, "healthy workers are reused");
+    assert.equal(after.model, before.model, "the model session is reused after cancellation");
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Repeated immediate cancellation and restart stays bounded", async () => {
+    const { page, errors } = await freshPage();
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    for (let index = 0; index < 3; index += 1) {
+      await page.evaluate(() => {
+        const analysis = window.neural.analysis;
+        analysis.setBudget({ simulations: 1024, time: 10 });
+      });
+      const started = page.evaluate(() => window.neural.analysis.start());
+      await waitAnalysisState(page, "running", 120000);
+      await page.click("#analysis-cancel");
+      await page.evaluate(() => window.neural.analysis.setBudget({ simulations: 128, time: 5 }));
+      const replacement = page.evaluate(() => window.neural.analysis.start());
+      await Promise.all([started, replacement]);
+      await waitAnalysisState(page, "completed", 180000);
+      const result = await page.evaluate(() => window.neural.analysis.result());
+      assert.equal(result.search.completed_simulations, 128, `cycle ${index}`);
+      assert.equal(await page.isDisabled("#analysis-cancel"), true);
+    }
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Unhealthy drain recreates the worker and session", async () => {
+    const { page, errors } = await freshPage();
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    const before = await page.evaluate(() => {
+      window.neural.client.worker.__drainProbe = "before";
+      return window.neural.coordinator.generation;
+    });
+    // Deterministic control point: cancellation reports an unhealthy worker.
+    await page.evaluate(() => {
+      const client = window.neural.client;
+      const real = client.cancelRequest.bind(client);
+      window.__restoreCancelRequest = () => {
+        client.cancelRequest = real;
+      };
+      client.cancelRequest = async () => {
+        client.terminate("simulated unhealthy drain");
+        return {
+          state: "terminated",
+          sessionRetained: false,
+          workerRetained: false,
+          outcome: "failed",
+          errorCode: "SIMULATED_UNHEALTHY",
+        };
+      };
+      const analysis = window.neural.analysis;
+      analysis.setBudget({ simulations: 1024, time: 10 });
+    });
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "running", 120000);
+    await page.click("#analysis-cancel");
+    await page.evaluate(() => window.__restoreCancelRequest());
+    await page.evaluate(() => window.neural.analysis.setBudget({ simulations: 128, time: 5 }));
+    const replacement = page.evaluate(() => window.neural.analysis.start());
+    await Promise.all([started, replacement]);
+    await waitAnalysisState(page, "completed", 180000);
+    const state = await page.evaluate(() => ({
+      generation: window.neural.coordinator.generation,
+      model: window.neural.client.model?.model_sha256 ?? null,
+      probe: window.neural.client.worker?.__drainProbe ?? null,
+      result: window.neural.analysis.result(),
+    }));
+    assert.equal(
+      state.generation,
+      before,
+      "the healthy search worker is reused",
+    );
+    assert.equal(state.probe, null, "an unhealthy drain replaces the neural worker");
+    assert.equal(state.model, report.model.sha256, "the replacement loads a fresh session");
+    assert.equal(state.result.search.completed_simulations, 128);
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Raw inference and analysis cannot compete for the neural client", async () => {
+    let delayed = true;
+    const { page, errors } = await freshPage(async (page) => {
+      await page.route("**/model/model.onnx", async (route) => {
+        if (delayed) {
+          delayed = false;
+          await delay(1200);
+        }
+        await route.continue();
+      });
+    });
+    // A raw inference owns the neural client.
+    await page.click("#infer");
+    await waitState(page, "loading", 120000);
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    assert.equal(await page.isDisabled("#analysis-start"), true);
+    await page.evaluate(() => window.neural.analysis.start());
+    assert.equal(await analysisState(page), "failed");
+    assert.match(await page.textContent("#analysis-status"), /inference operation is running/i);
+    await page.click("#cancel");
+    await waitState(page, ["cancelled", "completed", "failed"], 120000);
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    // An analysis owns the neural client. Block its first leaf inference so the
+    // competition check is deterministic rather than timing-dependent.
+    await page.evaluate(() => {
+      const client = window.neural.client;
+      const real = client.infer.bind(client);
+      let first = true;
+      window.__inferBlocked = false;
+      client.infer = (request) => {
+        if (!first) return real(request);
+        first = false;
+        window.__inferBlocked = true;
+        return new Promise(() => {});
+      };
+      window.neural.analysis.setBudget({ simulations: 1024, time: 10 });
+    });
+    const analysisStarted = page.evaluate(() => window.neural.analysis.start());
+    await page.waitForFunction(() => window.__inferBlocked === true, null, { timeout: 120000 });
+    // The shared ownership policy disables incompatible raw controls while an
+    // analysis owns the neural client; a direct call still fails explicitly.
+    assert.equal(await page.isDisabled("#infer"), true);
+    assert.equal(await page.isDisabled("#analysis-cancel"), false);
+    await page.click("#analysis-cancel");
+    await analysisStarted;
+    // After bounded cleanup both controls work again.
+    await page.evaluate(() => window.neural.analysis.setBudget({ simulations: 128, time: 5 }));
+    await page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "completed", 180000);
+    await page.click("#infer");
+    await waitState(page, "completed", 120000);
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Cancel controls have clear enabled states", async () => {
+    const { page } = await freshPage();
+    assert.equal(await page.isDisabled("#analysis-cancel"), true);
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 1024, time: 10 });
+    }, report.model.ruleset);
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "running", 120000);
+    assert.equal(await page.isDisabled("#analysis-cancel"), false);
+    await page.click("#analysis-cancel");
+    await started;
+    await page.waitForFunction(
+      () => document.querySelector("#analysis-cancel")?.disabled === true,
+      null,
+      { timeout: 10000 },
+    );
+    assert.equal(await page.isDisabled("#analysis-start"), false);
     await page.close();
   });
 
