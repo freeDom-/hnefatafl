@@ -1,7 +1,7 @@
 {
   "kind": "mcts-search-path-parity",
   "schema": 1,
-  "generated": "2026-11-21T14:34:46.542Z",
+  "generated": "2026-11-21T14:41:23.872Z",
   "browser": "156.0.8078.4",
   "provider": "wasm",
   "fixed_time": true,
@@ -24,8 +24,8 @@
       "terminal": false,
       "mode": "fixed_time",
       "budget": 0.25,
-      "full_simulations": 33,
-      "compact_simulations": 77,
+      "full_simulations": 38,
+      "compact_simulations": 87,
       "full_payload": "full-logits",
       "compact_payload": "legal-only",
       "state": {
@@ -182,8 +182,8 @@
       "terminal": false,
       "mode": "fixed_time",
       "budget": 0.25,
-      "full_simulations": 50,
-      "compact_simulations": 96,
+      "full_simulations": 53,
+      "compact_simulations": 105,
       "full_payload": "full-logits",
       "compact_payload": "legal-only",
       "state": {

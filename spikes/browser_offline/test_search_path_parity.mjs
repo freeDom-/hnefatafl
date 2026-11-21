@@ -252,6 +252,9 @@ try {
             if (!Number.isInteger(completed) || completed < 0)
               fail(`${entry.name}/${label}: invalid completed work`);
             const immediateWin = search.completion_reason === "immediate_win";
+            const elapsed = result.search?.coordinator?.end_to_end_ms;
+            if (!Number.isFinite(elapsed) || elapsed < 0)
+              fail(`${entry.name}/${label}: search timing is missing or invalid`);
             if (!terminal && !immediateWin) {
               if (!search.deadline_cutoff && completed !== settings.iterations)
                 fail(`${entry.name}/${label}: fixed-time run did not report a deadline cutoff`);

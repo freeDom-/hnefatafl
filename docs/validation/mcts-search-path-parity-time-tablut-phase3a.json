@@ -1,7 +1,7 @@
 {
   "kind": "mcts-search-path-parity",
   "schema": 1,
-  "generated": "2026-11-21T14:34:40.851Z",
+  "generated": "2026-11-21T14:41:19.144Z",
   "browser": "156.0.8078.4",
   "provider": "wasm",
   "fixed_time": true,
@@ -24,8 +24,8 @@
       "terminal": false,
       "mode": "fixed_time",
       "budget": 0.25,
-      "full_simulations": 51,
-      "compact_simulations": 95,
+      "full_simulations": 62,
+      "compact_simulations": 98,
       "full_payload": "full-logits",
       "compact_payload": "legal-only",
       "state": {
@@ -142,8 +142,8 @@
       "terminal": false,
       "mode": "fixed_time",
       "budget": 0.25,
-      "full_simulations": 72,
-      "compact_simulations": 106,
+      "full_simulations": 89,
+      "compact_simulations": 119,
       "full_payload": "full-logits",
       "compact_payload": "legal-only",
       "state": {
@@ -371,8 +371,8 @@
       "terminal": false,
       "mode": "fixed_time",
       "budget": 0.25,
-      "full_simulations": 77,
-      "compact_simulations": 116,
+      "full_simulations": 79,
+      "compact_simulations": 103,
       "full_payload": "full-logits",
       "compact_payload": "legal-only",
       "state": {
@@ -470,8 +470,8 @@
         ]
       },
       "full_move": {
-        "source": 31,
-        "target": 30
+        "source": 41,
+        "target": 68
       },
       "compact_move": {
         "source": 41,
