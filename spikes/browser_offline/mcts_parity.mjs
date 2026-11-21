@@ -46,6 +46,21 @@ if (!["wasm", "webgpu"].includes(provider)) {
   process.exit(2);
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJson(value[key])]),
+    );
+  return value;
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
 const mime = {
   ".js": "text/javascript",
   ".mjs": "text/javascript",
@@ -176,8 +191,7 @@ try {
   if (!workloadSource || !["fixtures", "custom"].includes(workloadSource.kind))
     throw new Error("native report has no supported workload source");
   const nativeNames = native.positions.map((entry) => entry.name);
-  const samePositions = (left, right) =>
-    JSON.stringify(left) === JSON.stringify(right);
+  const samePositions = sameJson;
   if (workloadSource.kind === "fixtures") {
     const selection = native.workload.selection;
     if (!selection || selection.source !== "fixtures.jarl_positions")
@@ -197,7 +211,7 @@ try {
       }
       selected.push(entry);
     }
-    if (JSON.stringify(selected.map((entry) => entry.name)) !== JSON.stringify(nativeNames))
+    if (!sameJson(selected.map((entry) => entry.name), nativeNames))
       fail("native workload selection does not match the staged position fixtures");
     const projected = selected.map((entry) => ({
       name: entry.name,
@@ -215,7 +229,9 @@ try {
     const raw = await readFile(resolve(positionsFile));
     const { createHash } = await import("node:crypto");
     const digest = createHash("sha256").update(raw).digest("hex");
-    if (workloadSource.file_sha256 && workloadSource.file_sha256 !== digest)
+    if (typeof workloadSource.file_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(workloadSource.file_sha256))
+      fail("custom workload does not declare a mandatory file digest");
+    else if (workloadSource.file_sha256 !== digest)
       fail("custom position file digest does not match the native report");
     const filePositions = JSON.parse(raw.toString("utf8"));
     const normalized = filePositions.map((entry) => ({

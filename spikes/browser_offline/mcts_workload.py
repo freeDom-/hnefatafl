@@ -20,7 +20,7 @@ from hnefatafl.engine import RULESETS, State
 WORKLOAD_SCHEMA = 1
 FIXTURES_SOURCE = "fixtures.jarl_positions"
 FIXTURES_VERSION = 1
-SOURCES = ("fixtures", "custom")
+SOURCES = ("fixtures", "custom", "embedded")
 
 
 def canonical_json(value: Any) -> str:
@@ -143,12 +143,21 @@ def build_fixtures_workload(
 
 
 def build_custom_workload(raw_positions: Any, file_sha256: str | None = None) -> dict:
+    """Build a file-backed or intentionally embedded custom workload.
+
+    A file-backed source records the mandatory original-file SHA-256. Callers that
+    intentionally embed positions without a file (for example generated fixtures in
+    tests) explicitly declare ``embedded`` instead of pretending file provenance.
+    """
     positions = normalize_positions(raw_positions)
-    source = {"kind": "custom", "version": WORKLOAD_SCHEMA}
-    if file_sha256 is not None:
-        if not isinstance(file_sha256, str) or len(file_sha256) != 64:
-            raise ValueError("custom workload file digest is malformed")
-        source["file_sha256"] = file_sha256
+    if file_sha256 is None:
+        source = {"kind": "embedded", "version": WORKLOAD_SCHEMA}
+    else:
+        source = {
+            "kind": "custom",
+            "version": WORKLOAD_SCHEMA,
+            "file_sha256": _validate_digest(file_sha256, "custom workload file digest"),
+        }
     return {
         "schema": WORKLOAD_SCHEMA,
         "source": source,
@@ -159,7 +168,20 @@ def build_custom_workload(raw_positions: Any, file_sha256: str | None = None) ->
     }
 
 
-def validate_workload(workload: Any, *, file_positions: list[dict] | None = None) -> dict:
+def _validate_digest(value: Any, label: str) -> str:
+    if not isinstance(value, str) or len(value) != 64:
+        raise ValueError(f"{label} is malformed")
+    if any(character not in "0123456789abcdef" for character in value):
+        raise ValueError(f"{label} is malformed")
+    return value
+
+
+def validate_workload(
+    workload: Any,
+    *,
+    file_positions: list[dict] | None = None,
+    file_sha256: str | None = None,
+) -> dict:
     """Validate a declared workload and return its normalized positions.
 
     Built-in workloads are fully reconstructed from the fixture source. Custom
@@ -172,7 +194,7 @@ def validate_workload(workload: Any, *, file_positions: list[dict] | None = None
         raise ValueError(f"unsupported workload schema {workload.get('schema')!r}")
     source = workload.get("source")
     if not isinstance(source, dict) or source.get("kind") not in SOURCES:
-        raise ValueError("workload source kind must be fixtures or custom")
+        raise ValueError("workload source kind must be fixtures, custom or embedded")
     positions = normalize_positions(workload.get("positions"))
     declared_digest = workload.get("positions_sha256")
     actual_digest = positions_sha256(positions)
@@ -200,12 +222,25 @@ def validate_workload(workload: Any, *, file_positions: list[dict] | None = None
     else:
         if workload.get("selection") is not None:
             raise ValueError("custom workload must not declare a fixture selection")
-        if file_positions is not None:
-            expected = normalize_positions(file_positions)
-            if positions != expected:
-                raise ValueError(
-                    "custom workload positions do not match the supplied position file"
-                )
+        if source.get("version") != WORKLOAD_SCHEMA:
+            raise ValueError("custom workload source version does not match")
+        if source["kind"] == "custom":
+            declared = _validate_digest(source.get("file_sha256"), "custom workload file digest")
+            if file_sha256 is not None:
+                _validate_digest(file_sha256, "custom workload file digest")
+                if declared != file_sha256:
+                    raise ValueError("custom workload file digest does not match the supplied file")
+            if file_positions is not None:
+                expected = normalize_positions(file_positions)
+                if positions != expected:
+                    raise ValueError(
+                        "custom workload positions do not match the supplied position file"
+                    )
+        else:
+            if source.get("file_sha256") is not None:
+                raise ValueError("embedded workload must not claim a file digest")
+            if file_positions is not None or file_sha256 is not None:
+                raise ValueError("an embedded workload cannot be verified against a position file")
     return {
         "positions": positions,
         "expected_names": expected_names,

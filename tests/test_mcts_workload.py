@@ -311,7 +311,11 @@ def test_custom_position_parity_requires_the_same_workload(tmp_path):
         "file_sha256": digest,
     }
     comparison = mcts_compare.compare(
-        native, browser, require_best_move=False, custom_positions=loaded
+        native,
+        browser,
+        require_best_move=False,
+        custom_positions=loaded,
+        custom_file_digest=digest,
     )
     assert comparison["acceptance"] is True, comparison["failures"]
     assert comparison["workload"]["custom_file_verified"] is True
@@ -345,7 +349,7 @@ def test_custom_workload_missing_case_is_detected_with_the_source_file(tmp_path)
         )
     )
     native = _native_report(tmp_path, "--positions", str(source), "--rulesets", "brandubh")
-    loaded, _ = mcts_workload.load_custom_positions(source)
+    loaded, file_digest = mcts_workload.load_custom_positions(source)
     truncated = copy.deepcopy(native)
     for report in (native, truncated):
         report["workload"]["positions"] = report["workload"]["positions"][:1]
@@ -356,7 +360,11 @@ def test_custom_workload_missing_case_is_detected_with_the_source_file(tmp_path)
         report["positions"] = report["positions"][:1]
         report["results"] = report["results"][:1]
     comparison = mcts_compare.compare(
-        native, truncated, require_best_move=False, custom_positions=loaded
+        native,
+        truncated,
+        require_best_move=False,
+        custom_positions=loaded,
+        custom_file_digest=file_digest,
     )
     assert comparison["acceptance"] is False
     assert any("supplied position file" in f for f in comparison["failures"])
@@ -387,3 +395,192 @@ def test_comparator_cli_returns_structured_failure_for_malformed_reports(tmp_pat
     report = json.loads(output.read_text())
     assert report["acceptance"] is False
     assert any("invalid workload definition" in f for f in report["failures"])
+
+
+def test_embedded_and_file_backed_custom_sources_are_distinct():
+    state = new_game("brandubh").to_dict()
+    embedded = mcts_workload.build_custom_workload([{"name": "e", "state": state}])
+    assert embedded["source"] == {"kind": "embedded", "version": 1}
+    assert mcts_workload.validate_workload(embedded)["source"]["kind"] == "embedded"
+    with pytest.raises(ValueError, match="cannot be verified"):
+        mcts_workload.validate_workload(embedded, file_positions=[{"name": "e", "state": state}])
+
+    backup = mcts_workload.build_custom_workload([{"name": "e", "state": state}], "d" * 64)
+    assert backup["source"]["kind"] == "custom"
+    assert backup["source"]["file_sha256"] == "d" * 64
+    with pytest.raises(ValueError, match="does not match the supplied file"):
+        mcts_workload.validate_workload(backup, file_sha256="c" * 64)
+    with pytest.raises(ValueError, match="file digest is malformed"):
+        mcts_workload.build_custom_workload([{"name": "e", "state": state}], "not-a-digest")
+
+
+def test_custom_source_version_and_digest_are_validated():
+    state = new_game("brandubh").to_dict()
+    workload = mcts_workload.build_custom_workload([{"name": "e", "state": state}], "d" * 64)
+    broken = copy.deepcopy(workload)
+    broken["source"]["version"] = 99
+    with pytest.raises(ValueError, match="source version"):
+        mcts_workload.validate_workload(broken)
+
+    missing = copy.deepcopy(workload)
+    missing["source"].pop("file_sha256")
+    with pytest.raises(ValueError, match="file digest is malformed"):
+        mcts_workload.validate_workload(missing)
+
+    malformed = copy.deepcopy(workload)
+    malformed["source"]["file_sha256"] = "Z" * 64
+    with pytest.raises(ValueError, match="file digest is malformed"):
+        mcts_workload.validate_workload(malformed)
+
+
+def test_custom_workload_property_order_does_not_change_the_contract(tmp_path):
+    state = new_game("brandubh")
+    ordered = {
+        "ruleset": state.ruleset,
+        "board": list(state.board),
+        "turn": state.turn,
+        "ply": state.ply,
+        "winner": state.winner,
+        "reason": state.reason,
+        "history": list(state.history),
+    }
+    reordered = {key: ordered[key] for key in reversed(list(ordered))}
+    first = tmp_path / "ordered.json"
+    second = tmp_path / "reordered.json"
+    first.write_text(json.dumps([{"name": "same", "kind": "opening", "state": ordered}]))
+    second.write_text(json.dumps([{"name": "same", "kind": "opening", "state": reordered}]))
+    a, digest_a = mcts_workload.load_custom_positions(first)
+    b, digest_b = mcts_workload.load_custom_positions(second)
+    assert a == b
+    assert digest_a != digest_b  # exact source-file digests differ by bytes
+    assert mcts_workload.positions_sha256(a) == mcts_workload.positions_sha256(b)
+    workload = mcts_workload.build_custom_workload(a, digest_a)
+    validated = mcts_workload.validate_workload(workload, file_positions=b, file_sha256=digest_a)
+    assert validated["positions"] == a
+
+
+def _run_cli(tmp_path: Path, native: Path, browser: Path, *extra: str):
+    output = tmp_path / "comparison.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "mcts_compare.py"),
+            str(native),
+            str(browser),
+            "--output",
+            str(output),
+            *extra,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    report = json.loads(output.read_text()) if output.exists() else None
+    return result, report
+
+
+def test_parity_cli_reports_malformed_inputs_without_tracebacks(tmp_path):
+    native = _native_report(tmp_path, "--limit", "1")
+    valid = tmp_path / "native.json"
+    broken_json = tmp_path / "broken.json"
+    broken_json.write_text("{not json")
+    result, report = _run_cli(tmp_path, valid, broken_json)
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+    assert report["error"]["kind"] == "workload"
+    assert report["acceptance"] is False
+    assert report["workload_completion"]["complete"] is False
+
+    missing = tmp_path / "missing.json"
+    result, report = _run_cli(tmp_path, valid, missing)
+    assert result.returncode == 2
+    assert report["error"]["kind"] == "input"
+
+    array = tmp_path / "array.json"
+    array.write_text("[]")
+    result, report = _run_cli(tmp_path, valid, array)
+    assert result.returncode == 2
+    assert report["error"]["kind"] == "workload"
+
+    malformed = copy.deepcopy(native)
+    malformed["workload"]["positions"][0]["state"]["board"] = "not-a-board"
+    bad_positions = tmp_path / "bad-positions.json"
+    bad_positions.write_text(json.dumps(malformed))
+    result, report = _run_cli(tmp_path, valid, bad_positions)
+    assert result.returncode == 1
+    assert any("invalid workload definition" in f for f in report["failures"])
+    assert report["acceptance"] is False
+    assert report["error"] is None
+
+    summary = json.loads(result.stdout)
+    assert summary["ok"] is False
+    assert summary["workload_complete"] is False
+
+
+def test_parity_cli_reports_unexpected_comparison_exceptions(tmp_path, monkeypatch, capsys):
+    _native_report(tmp_path, "--limit", "1")
+    native_path = tmp_path / "native.json"
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("simulated comparison crash")
+
+    monkeypatch.setattr(mcts_compare, "compare", explode)
+    output = tmp_path / "comparison.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mcts_compare.py",
+            str(native_path),
+            str(native_path),
+            "--output",
+            str(output),
+        ],
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        mcts_compare.main()
+    assert exit_info.value.code == 2
+    report = json.loads(output.read_text())
+    assert report["error"]["kind"] == "execution"
+    assert report["acceptance"] is False
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["ok"] is False
+    assert summary["error"]["kind"] == "execution"
+    assert summary["workload_complete"] is False
+
+
+def test_parity_cli_verifies_the_custom_file_digest(tmp_path):
+    source = tmp_path / "custom.json"
+    source.write_text(json.dumps([{"name": "owner", "state": new_game("brandubh").to_dict()}]))
+    native_path = tmp_path / "native.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "native_mcts_parity.py"),
+            "--level",
+            "a",
+            "--iterations",
+            "8",
+            "--positions",
+            str(source),
+            "--rulesets",
+            "brandubh",
+            "--output",
+            str(native_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    good, report = _run_cli(tmp_path, native_path, native_path, "--positions-file", str(source))
+    assert good.returncode == 0, good.stdout + good.stderr
+    assert report["acceptance"] is True
+    assert report["workload"]["custom_file_verified"] is True
+
+    tampered = tmp_path / "tampered.json"
+    tampered.write_text(json.dumps([{"name": "owner", "state": new_game("tablut").to_dict()}]))
+    bad, report = _run_cli(tmp_path, native_path, native_path, "--positions-file", str(tampered))
+    assert bad.returncode == 1
+    assert report["acceptance"] is False
+    assert any("file digest" in f for f in report["failures"])

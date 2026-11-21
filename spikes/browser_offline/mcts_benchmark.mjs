@@ -304,11 +304,14 @@ try {
     else {
       const expected = native.workload.positions;
       if (
-        JSON.stringify(expected.map((entry) => entry.name)) !==
-        JSON.stringify(report.workload.positions.map((entry) => entry.name))
+        JSON.stringify(canonicalJson(expected.map((entry) => entry.name))) !==
+        JSON.stringify(canonicalJson(report.workload.positions.map((entry) => entry.name)))
       )
         fail("native benchmark positions do not match the staged selection");
-      if (JSON.stringify(native.workload.selection) !== JSON.stringify(report.workload.selection))
+      if (
+        JSON.stringify(canonicalJson(native.workload.selection)) !==
+        JSON.stringify(canonicalJson(report.workload.selection))
+      )
         fail("native benchmark selection differs from the browser selection");
       // Adopt the native workload definition so the comparator validates one
       // canonical matrix (positions, settings and repetitions).

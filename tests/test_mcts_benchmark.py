@@ -534,3 +534,159 @@ def test_level_b_divergence_is_reported_but_not_a_correctness_failure(parity_bas
     assert comparison["acceptance"] is True, comparison["failures"]
     strict = _comparison(native, browser, require_best_move=True)
     assert strict["acceptance"] is False
+
+
+def _mutable_completion(report: dict, name: str, **changes) -> None:
+    record = next(item for item in report["results"] if item["name"] == name)
+    record["search"].update(changes)
+    if "completed_simulations" in changes:
+        record["analysis"]["simulations"] = changes["completed_simulations"]
+
+
+def _incomplete_case(report: dict) -> str:
+    return next(
+        record["name"]
+        for record in report["results"]
+        if (record.get("search") or {}).get("completion_reason") == "simulations"
+    )
+
+
+def test_fixed_work_acceptance_requires_both_runtimes_to_complete(parity_base):
+    native = _parity_report(parity_base)
+    browser = _parity_report(parity_base)
+    requested = native["settings"]["iterations"]
+    report = _comparison(native, browser)
+    assert report["acceptance"] is True, report["failures"]
+    assert report["workload_completion"]["native_complete"] is True
+    assert report["workload_completion"]["browser_complete"] is True
+    # Level A reports deterministic parity; equal-work performance comparability
+    # is a level-B/benchmark concern.
+    assert report["performance_comparability"]["equal_work_cases"] is None
+
+    case = _incomplete_case(native)
+    native_incomplete = _parity_report(parity_base)
+    _mutable_completion(
+        native_incomplete,
+        case,
+        completed_simulations=requested - 1,
+        completion_reason="insufficient_budget",
+        deadline_cutoff=False,
+    )
+    report = _comparison(native_incomplete, _parity_report(parity_base))
+    assert report["acceptance"] is False
+    assert report["workload_completion"]["native_complete"] is False
+    assert report["workload_completion"]["browser_complete"] is True
+    assert any("native fixed-work workload did not complete" in f for f in report["failures"])
+
+    browser_incomplete = _parity_report(parity_base)
+    _mutable_completion(
+        browser_incomplete,
+        case,
+        completed_simulations=requested - 1,
+        completion_reason="insufficient_budget",
+        deadline_cutoff=False,
+    )
+    report = _comparison(_parity_report(parity_base), browser_incomplete)
+    assert report["acceptance"] is False
+    assert report["workload_completion"]["native_complete"] is True
+    assert report["workload_completion"]["browser_complete"] is False
+    assert any("browser fixed-work workload did not complete" in f for f in report["failures"])
+
+    both = _parity_report(parity_base)
+    _mutable_completion(
+        both,
+        case,
+        completed_simulations=requested - 1,
+        completion_reason="insufficient_budget",
+        deadline_cutoff=False,
+    )
+    report = _comparison(native_incomplete, both)
+    assert report["acceptance"] is False
+    assert report["workload_completion"]["complete"] is False
+    assert len(report["workload_completion"]["incomplete_cases"]) >= 1
+
+
+def test_native_deadline_limited_fixed_work_is_incomplete(parity_base):
+    browser = _parity_report(parity_base)
+    native = _parity_report(parity_base)
+    requested = native["settings"]["iterations"]
+    case = _incomplete_case(native)
+    _mutable_completion(
+        native,
+        case,
+        completed_simulations=requested - 1,
+        completion_reason="deadline",
+        deadline_cutoff=True,
+    )
+    report = _comparison(native, browser)
+    assert report["acceptance"] is False
+    assert case in report["workload_completion"]["native_deadline_limited_cases"]
+    assert report["workload_completion"]["native_complete"] is False
+    assert any("native fixed-work workload was deadline limited" in f for f in report["failures"])
+
+
+def _custom_report_with_immediate_win(tmp_path: Path) -> dict:
+    from hnefatafl.engine import Move, State, apply_move, legal_moves, new_game
+
+    opening = new_game("brandubh")
+    move = legal_moves(opening)[0]
+    key = apply_move(opening, move).history[-1]
+    repetition = {
+        "name": "terminal-repetition",
+        "kind": "repetition",
+        "state": {
+            **opening.to_dict(),
+            "history": [key, key],
+        },
+    }
+    size = 7
+    board = ["."] * (size * size)
+    board[1] = "K"
+    board[3] = "A"
+    board[3 * size + 3] = "D"
+    board[5 * size + 5] = "A"
+    immediate = {
+        "name": "immediate-attacker-win",
+        "kind": "tactical",
+        "state": State("brandubh", tuple(board), "attackers").to_dict(),
+    }
+    escape_board = ["."] * (size * size)
+    escape_board[2] = "K"
+    escape_board[4 * size + 4] = "A"
+    terminal = apply_move(State("brandubh", tuple(escape_board), "defenders"), Move(2, 0))
+    terminal_case = {
+        "name": "terminal-defender-win",
+        "kind": "terminal",
+        "state": terminal.to_dict(),
+    }
+    positions = tmp_path / "semantic-positions.json"
+    positions.write_text(json.dumps([repetition, immediate, terminal_case], separators=(",", ":")))
+    return _native(
+        tmp_path,
+        "native.json",
+        "--positions",
+        str(positions),
+        "--rulesets",
+        "brandubh",
+    )
+
+
+def test_terminal_and_immediate_win_are_legitimate_fixed_work_exceptions(tmp_path):
+    native = _custom_report_with_immediate_win(tmp_path)
+    browser = copy.deepcopy(native)
+    report = _comparison(native, browser)
+    assert report["acceptance"] is True, report["failures"]
+    classes = report["completion_classes"]
+    assert classes["immediate-attacker-win"] == "immediate_win/immediate_win"
+    assert classes["terminal-defender-win"] == "terminal/terminal"
+    assert classes["terminal-repetition"] in (
+        "complete/complete",
+        "terminal/terminal",
+    )
+    # Immediate-win work is not counted as an equal-work performance measurement.
+    equal_names = {
+        f"{row['position']}"
+        for row in report["performance_comparability"].get("cases", [])
+        if row.get("equal_work")
+    }
+    assert "immediate-attacker-win" not in equal_names

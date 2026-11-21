@@ -103,8 +103,16 @@ def _settings(raw) -> dict:
     return dict(settings)
 
 
-def _workload_for(report: dict, file_positions: list[dict] | None) -> dict:
-    return mcts_workload.validate_workload(report.get("workload"), file_positions=file_positions)
+def _workload_for(
+    report: dict,
+    file_positions: list[dict] | None,
+    file_sha256: str | None = None,
+) -> dict:
+    return mcts_workload.validate_workload(
+        report.get("workload"),
+        file_positions=file_positions,
+        file_sha256=file_sha256,
+    )
 
 
 def expected_position_names(report: dict) -> list[str]:
@@ -112,7 +120,12 @@ def expected_position_names(report: dict) -> list[str]:
     return _workload_for(report, None)["expected_names"]
 
 
-def _validate_report(report: dict, side: str, file_positions: list[dict] | None = None) -> dict:
+def _validate_report(
+    report: dict,
+    side: str,
+    file_positions: list[dict] | None = None,
+    file_sha256: str | None = None,
+) -> dict:
     failures: list[str] = []
 
     def fail(message: str) -> None:
@@ -133,7 +146,11 @@ def _validate_report(report: dict, side: str, file_positions: list[dict] | None 
         fail("workload digest is missing or malformed")
     workload_info = None
     try:
-        workload_info = _workload_for(report, file_positions)
+        workload_info = mcts_workload.validate_workload(
+            report.get("workload"),
+            file_positions=file_positions,
+            file_sha256=file_sha256,
+        )
     except ValueError as error:
         fail(f"invalid workload definition: {error}")
     if not isinstance(report.get("evaluator"), str) or not report["evaluator"]:
@@ -459,6 +476,24 @@ def _validate_search(
     return failures
 
 
+def _completion_class(record: dict, state: State, requested: int) -> str:
+    """Classify fixed-work completion for one runtime independently."""
+    search = record.get("search") or {}
+    reason = search.get("completion_reason")
+    completed = search.get("completed_simulations")
+    if state.winner is not None:
+        return "terminal"
+    if reason == "immediate_win":
+        return "immediate_win"
+    if reason == "deadline" or search.get("deadline_cutoff") is True:
+        return "deadline_limited"
+    if _is_int(completed) and completed == requested and reason in ("simulations", "completed"):
+        return "complete"
+    if _is_int(completed) and completed < requested:
+        return "incomplete"
+    return "inconsistent"
+
+
 def _best_move(record: dict) -> Move | None:
     move = (record.get("analysis") or {}).get("best_move")
     if not isinstance(move, dict):
@@ -488,9 +523,10 @@ def compare(
     *,
     require_best_move: bool,
     custom_positions: list[dict] | None = None,
+    custom_file_digest: str | None = None,
 ) -> dict:
-    native_validation = _validate_report(native, "native", custom_positions)
-    browser_validation = _validate_report(browser, "browser", custom_positions)
+    native_validation = _validate_report(native, "native", custom_positions, custom_file_digest)
+    browser_validation = _validate_report(browser, "browser", custom_positions, custom_file_digest)
     failures: list[str] = list(native_validation["failures"]) + list(browser_validation["failures"])
     notes: list[str] = []
     level = native.get("level")
@@ -541,8 +577,11 @@ def compare(
     exact_cases = 0
     best_move_matches = 0
     divergent: list[str] = []
-    incomplete: list[str] = []
-    deadline_limited: list[str] = []
+    native_incomplete: list[str] = []
+    browser_incomplete: list[str] = []
+    native_deadline: list[str] = []
+    browser_deadline: list[str] = []
+    completion_classes: dict[str, str] = {}
     equal_work = 0
     max_value_delta = 0.0
     max_visit_tv = 0.0
@@ -602,11 +641,24 @@ def compare(
                 "completed_simulations": right_search.get("completed_simulations"),
             }
         )
-        if state.winner is None and right_search.get("completion_reason") != "immediate_win":
-            if right_search.get("completed_simulations") != browser_settings["iterations"]:
-                incomplete.append(name)
-            if right_search.get("completion_reason") == "deadline":
-                deadline_limited.append(name)
+        requested = browser_settings["iterations"]
+        native_class = _completion_class(left, state, requested)
+        browser_class = _completion_class(right, state, requested)
+        completion_classes[name] = f"{native_class}/{browser_class}"
+        entry.update(
+            {
+                "native_completion": native_class,
+                "browser_completion": browser_class,
+            }
+        )
+        if native_class == "deadline_limited":
+            native_deadline.append(name)
+        if browser_class == "deadline_limited":
+            browser_deadline.append(name)
+        if native_class in ("incomplete", "inconsistent"):
+            native_incomplete.append(name)
+        if browser_class in ("incomplete", "inconsistent"):
+            browser_incomplete.append(name)
         if level == "a":
             left_trace = (left.get("search") or {}).get("trace_sha256")
             right_trace = (right.get("search") or {}).get("trace_sha256")
@@ -641,10 +693,13 @@ def compare(
             max_value_delta = max(max_value_delta, delta)
             max_visit_tv = max(max_visit_tv, visits)
             same_work = (
-                left_search.get("completed_simulations")
+                native_class == "complete"
+                and browser_class == "complete"
+                and left_search.get("completed_simulations")
                 == right_search.get("completed_simulations")
                 == browser_settings["iterations"]
-            ) and left_search.get("neural_requests") == right_search.get("neural_requests")
+                and left_search.get("neural_requests") == right_search.get("neural_requests")
+            )
             equal_work += int(same_work)
             entry.update(
                 {
@@ -685,14 +740,38 @@ def compare(
         )
     if deterministic["required"] and not deterministic["ok"]:
         failures.append("deterministic parity is incomplete")
+    native_side_valid = not native_validation["failures"]
+    browser_side_valid = not browser_validation["failures"]
+    native_complete = native_side_valid and not native_incomplete and not native_deadline
+    browser_complete = browser_side_valid and not browser_incomplete and not browser_deadline
     workload_completion = {
         "requested_simulations": (browser_settings or {}).get("iterations"),
-        "incomplete_cases": incomplete,
-        "deadline_limited_cases": deadline_limited,
-        "complete": not incomplete,
+        "native_incomplete_cases": native_incomplete,
+        "browser_incomplete_cases": browser_incomplete,
+        "native_deadline_limited_cases": native_deadline,
+        "browser_deadline_limited_cases": browser_deadline,
+        "incomplete_cases": sorted(set(native_incomplete) | set(browser_incomplete)),
+        "deadline_limited_cases": sorted(set(native_deadline) | set(browser_deadline)),
+        "native_complete": native_complete,
+        "browser_complete": browser_complete,
+        "complete": native_complete and browser_complete,
     }
-    if incomplete:
-        failures.append("fixed-work workload did not complete: " + ", ".join(incomplete[:8]))
+    if native_incomplete:
+        failures.append(
+            "native fixed-work workload did not complete: " + ", ".join(native_incomplete[:8])
+        )
+    if browser_incomplete:
+        failures.append(
+            "browser fixed-work workload did not complete: " + ", ".join(browser_incomplete[:8])
+        )
+    if native_deadline:
+        failures.append(
+            "native fixed-work workload was deadline limited: " + ", ".join(native_deadline[:8])
+        )
+    if browser_deadline:
+        failures.append(
+            "browser fixed-work workload was deadline limited: " + ", ".join(browser_deadline[:8])
+        )
     performance = {
         "equal_work_cases": equal_work if level_b else None,
         "positions": positions,
@@ -710,6 +789,7 @@ def compare(
         "browser_runtime": browser.get("runtime"),
         "failures": failures,
         "notes": notes,
+        "error": None,
         "execution_validity": {
             "ok": execution_valid,
             "positions": positions,
@@ -722,9 +802,12 @@ def compare(
             "source": native_workload["source"] if native_workload else None,
             "expected_cases": len(expected_names),
             "positions_sha256": (native_workload["positions_sha256"] if native_workload else None),
-            "custom_file_verified": bool(custom_positions) if native_workload else None,
+            "custom_file_verified": (
+                bool(custom_positions and custom_file_digest) if native_workload else None
+            ),
         },
         "workload_completion": workload_completion,
+        "completion_classes": completion_classes,
         "performance_comparability": performance,
         "cases": records,
         "authoritative": False,
@@ -732,6 +815,102 @@ def compare(
     report["acceptance"] = not failures
     report["ok"] = report["acceptance"]
     return report
+
+
+def failure_report(kind: str, message: str, *, level: str | None = None) -> dict:
+    """Complete, internally consistent failure report for any input error."""
+    return {
+        "kind": "mcts-parity-comparison",
+        "schema": COMPARISON_SCHEMA,
+        "level": level,
+        "native_runtime": None,
+        "browser_runtime": None,
+        "failures": [f"{kind}: {message}"],
+        "notes": [],
+        "error": {"kind": kind, "message": message},
+        "execution_validity": {
+            "ok": False,
+            "positions": 0,
+            "case_failures": [],
+        },
+        "deterministic_parity": {
+            "required": level == "a",
+            "exact_cases": 0,
+            "positions": 0,
+            "ok": False if level == "a" else None,
+        },
+        "numerical_comparison": {
+            "required": level == "b",
+            "positions": 0,
+            "best_move_matches": None,
+            "divergent_cases": [],
+            "max_value_delta": None,
+            "max_visit_total_variation": None,
+            "best_move_parity": None,
+            "strict_gate": False,
+        },
+        "workload": {
+            "valid": False,
+            "source": None,
+            "expected_cases": 0,
+            "positions_sha256": None,
+            "custom_file_verified": None,
+        },
+        "completion_classes": {},
+        "workload_completion": {
+            "requested_simulations": None,
+            "native_incomplete_cases": [],
+            "browser_incomplete_cases": [],
+            "native_deadline_limited_cases": [],
+            "browser_deadline_limited_cases": [],
+            "incomplete_cases": [],
+            "deadline_limited_cases": [],
+            "native_complete": False,
+            "browser_complete": False,
+            "complete": False,
+        },
+        "performance_comparability": {
+            "equal_work_cases": None,
+            "positions": 0,
+            "comparable": None,
+            "cases": [],
+            "note": "No comparison was performed.",
+        },
+        "cases": [],
+        "acceptance": False,
+        "ok": False,
+        "authoritative": False,
+    }
+
+
+def _summary(report: dict) -> dict:
+    execution = report.get("execution_validity") or {}
+    deterministic = report.get("deterministic_parity") or {}
+    numerical = report.get("numerical_comparison") or {}
+    completion = report.get("workload_completion") or {}
+    performance = report.get("performance_comparability") or {}
+    return {
+        "ok": report.get("ok") is True,
+        "level": report.get("level"),
+        "error": report.get("error"),
+        "execution_valid": execution.get("ok"),
+        "deterministic_parity": deterministic.get("ok"),
+        "best_move_parity": numerical.get("best_move_parity"),
+        "workload_complete": completion.get("complete"),
+        "equal_work_cases": performance.get("equal_work_cases"),
+        "failures": report.get("failures") or [],
+        "notes": report.get("notes") or [],
+    }
+
+
+def _write_report(path: Path, report: dict) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2) + "\n")
+        return True
+    except OSError as error:
+        print(json.dumps({"ok": False, "write_error": str(error)}), file=sys.stderr)
+        return False
 
 
 def main() -> None:
@@ -746,49 +925,42 @@ def main() -> None:
         help="Original custom position file; verifies the declared custom workload",
     )
     args = parser.parse_args()
-    custom_positions = None
-    if args.positions_file is not None:
-        _, custom_positions_file = mcts_workload.load_custom_positions(args.positions_file)
-        del custom_positions_file
-        custom_positions = mcts_workload.normalize_positions(
-            json.loads(args.positions_file.read_text())
-        )
+    level = None
+    report = None
+    exit_code = 1
     try:
+        native = json.loads(args.native.read_text())
+        browser = json.loads(args.browser.read_text())
+        if not isinstance(native, dict) or not isinstance(browser, dict):
+            raise ValueError("both reports must be JSON objects")
+        level = native.get("level")
+        custom_positions = None
+        custom_digest = None
+        if args.positions_file is not None:
+            custom_positions, custom_digest = mcts_workload.load_custom_positions(
+                args.positions_file
+            )
         report = compare(
-            json.loads(args.native.read_text()),
-            json.loads(args.browser.read_text()),
+            native,
+            browser,
             require_best_move=args.require_best_move_parity,
             custom_positions=custom_positions,
+            custom_file_digest=custom_digest,
         )
-    except Exception as error:  # noqa: BLE001 - structured failure, never a traceback
-        report = {
-            "kind": "mcts-parity-comparison",
-            "schema": COMPARISON_SCHEMA,
-            "failures": [f"comparison failed: {type(error).__name__}: {error}"],
-            "notes": [],
-            "acceptance": False,
-            "ok": False,
-        }
-    text = json.dumps(report, indent=2) + "\n"
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(text)
-    print(
-        json.dumps(
-            {
-                "ok": report["ok"],
-                "level": report["level"],
-                "execution_valid": report["execution_validity"]["ok"],
-                "deterministic_parity": report["deterministic_parity"]["ok"],
-                "best_move_parity": report["numerical_comparison"]["best_move_parity"],
-                "workload_complete": report["workload_completion"]["complete"],
-                "failures": report["failures"],
-                "notes": report["notes"],
-            },
-            indent=2,
-        )
-    )
-    sys.exit(0 if report["ok"] else 1)
+        exit_code = 0 if report.get("ok") else 1
+    except (OSError, UnicodeDecodeError) as error:
+        report = failure_report("input", f"cannot read or decode an input file: {error}")
+        exit_code = 2
+    except (json.JSONDecodeError, ValueError, TypeError) as error:
+        report = failure_report("workload", f"malformed comparison input: {error}", level=level)
+        exit_code = 2
+    except Exception as error:  # noqa: BLE001 - never emit a second traceback
+        report = failure_report("execution", f"{type(error).__name__}: {error}", level=level)
+        exit_code = 2
+    if args.output is not None:
+        _write_report(args.output, report)
+    print(json.dumps(_summary(report), indent=2))
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
