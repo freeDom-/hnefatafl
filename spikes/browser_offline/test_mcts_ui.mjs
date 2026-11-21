@@ -74,7 +74,7 @@ try {
     return route.continue();
   });
 
-  async function freshPage(setup = null) {
+  async function freshPage(setup = null, { waitPositions = true } = {}) {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => errors.push(String(error)));
@@ -84,7 +84,15 @@ try {
     await page.waitForFunction(() => window.neural && window.neural.ready, null, {
       timeout: 90000,
     });
-    await page.evaluate(() => window.neural.analysis.loadPositions());
+    if (waitPositions) {
+      // The interface initializes the small shared position dataset itself; the
+      // tests use the public UI, never an internal initialization API.
+      await page.waitForFunction(
+        () => document.querySelectorAll("#analysis-position option").length > 0,
+        null,
+        { timeout: 60000 },
+      );
+    }
     return { page, errors, startIndex, requested };
   }
   async function analysisState(page) {
@@ -822,6 +830,209 @@ try {
       { timeout: 10000 },
     );
     assert.equal(await page.isDisabled("#analysis-start"), false);
+    await page.close();
+  });
+
+  await record("Fresh page Jarl analysis through normal UI controls", async () => {
+    const { page, errors, startIndex, requested } = await freshPage();
+    await page.selectOption("#analysis-ruleset", "brandubh");
+    await page.selectOption("#analysis-agent", "jarl");
+    await page.selectOption("#analysis-time", "1");
+    assert.equal(await page.isDisabled("#analysis-start"), false);
+    await page.click("#analysis-start");
+    await waitAnalysisState(page, "completed", 120000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.agent, "jarl");
+    assert.equal(result.position, "brandubh-opening");
+    assert.ok(result.analysis.best_move);
+    const neuralRequests = requested
+      .slice(startIndex)
+      .filter((path) =>
+        /neural-assets\.json|reference\.json|model\.onnx|\/ort\//.test(path),
+      );
+    assert.deepEqual(neuralRequests, [], "Jarl must not load neural assets");
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Fresh page neural MCTS through normal UI controls", async () => {
+    const { page, errors } = await freshPage();
+    await page.selectOption("#analysis-ruleset", report.model.ruleset);
+    await page.selectOption("#analysis-agent", "neural");
+    await page.selectOption("#analysis-provider", "wasm");
+    await page.selectOption("#analysis-simulations", "128");
+    await page.selectOption("#analysis-time", "5");
+    await page.click("#analysis-start");
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.agent, "neural-mcts");
+    assert.equal(result.search.completed_simulations, 128);
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Another ruleset and non-default position via UI selectors", async () => {
+    const { page, errors } = await freshPage();
+    await page.selectOption("#analysis-ruleset", "tablut");
+    await page.waitForFunction(
+      () =>
+        Array.from(document.querySelectorAll("#analysis-position option")).some(
+          (option) => option.value === "tablut-endgame",
+        ),
+      null,
+      { timeout: 30000 },
+    );
+    await page.selectOption("#analysis-position", "tablut-endgame");
+    await page.selectOption("#analysis-agent", "jarl");
+    await page.selectOption("#analysis-time", "1");
+    await page.click("#analysis-start");
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.position, "tablut-endgame");
+    assert.equal(result.ruleset, "tablut");
+    assert.ok(result.analysis.best_move);
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Initial position-data failure is recoverable through the UI", async () => {
+    let failed = false;
+    const { page, errors } = await freshPage(
+      async (page) => {
+        await page.route("**/mcts-positions.json", async (route) => {
+          if (!failed) {
+            failed = true;
+            return route.fulfill({ status: 503, body: "unavailable" });
+          }
+          return route.continue();
+        });
+      },
+      { waitPositions: false },
+    );
+    await waitAnalysisState(page, "failed", 60000);
+    assert.match(await page.textContent("#analysis-status"), /positions unavailable/i);
+    assert.equal(await page.isDisabled("#analysis-start"), true);
+    await page.click("#analysis-reload");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#analysis-position option").length > 0,
+      null,
+      { timeout: 60000 },
+    );
+    assert.equal(await page.isDisabled("#analysis-start"), false);
+    await page.click("#analysis-start");
+    await waitAnalysisState(page, "completed", 120000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.position, "brandubh-opening");
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Reloading positions preserves the selected position and history", async () => {
+    const { page, errors } = await freshPage();
+    await page.selectOption("#analysis-ruleset", "brandubh");
+    await page.selectOption("#analysis-position", "brandubh-repetition");
+    const before = await page.evaluate(() => ({
+      value: document.querySelector("#analysis-position").value,
+      history: window.neural.analysis
+        .positions()
+        .find((entry) => entry.name === "brandubh-repetition").state.history,
+    }));
+    assert.ok(before.history.length > 0, "the repetition fixture carries history");
+    await page.click("#analysis-reload");
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#analysis-position")?.value === "brandubh-repetition",
+      null,
+      { timeout: 60000 },
+    );
+    await page.selectOption("#analysis-agent", "jarl");
+    await page.selectOption("#analysis-time", "1");
+    await page.click("#analysis-start");
+    await waitAnalysisState(page, "completed", 120000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.position, "brandubh-repetition");
+    assert.equal(result.ruleset, "brandubh");
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Pending real inference drains and a replacement reuses the session", async () => {
+    const { page, errors } = await freshPage();
+    await page.click("#load");
+    await waitState(page, "completed", 180000);
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    await page.evaluate(() => {
+      window.neural.client.testInferenceDelayMs = 1000;
+    });
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await page.waitForFunction(() => window.neural.client.pending !== null, null, {
+      timeout: 120000,
+    });
+    const before = await page.evaluate(() => ({
+      model: window.neural.client.model?.model_sha256 ?? null,
+      generation: window.neural.coordinator.generation,
+    }));
+    await page.click("#analysis-cancel");
+    await page.evaluate(() => {
+      window.neural.client.testInferenceDelayMs = null;
+    });
+    const replacement = page.evaluate(() => window.neural.analysis.start());
+    await Promise.all([started, replacement]);
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.search.completed_simulations, 128);
+    const after = await page.evaluate(() => ({
+      model: window.neural.client.model?.model_sha256 ?? null,
+      generation: window.neural.coordinator.generation,
+    }));
+    assert.equal(after.model, before.model, "a healthy drain retains the session");
+    assert.equal(after.generation, before.generation, "a healthy drain retains the worker");
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("An unresponsive pending inference is replaced before the replacement runs", async () => {
+    const { page, errors } = await freshPage();
+    await page.click("#load");
+    await waitState(page, "completed", 180000);
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5 });
+    }, report.model.ruleset);
+    await page.evaluate(() => {
+      window.neural.client.testInferenceDelayMs = 5000;
+    });
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await page.waitForFunction(() => window.neural.client.pending !== null, null, {
+      timeout: 120000,
+    });
+    const before = await page.evaluate(() => ({
+      generation: window.neural.client.generation,
+      model: window.neural.client.model?.model_sha256 ?? null,
+    }));
+    await page.click("#analysis-cancel");
+    await page.evaluate(() => {
+      window.neural.client.testInferenceDelayMs = null;
+    });
+    const replacement = page.evaluate(() => window.neural.analysis.start());
+    await Promise.all([started, replacement]);
+    await waitAnalysisState(page, "completed", 180000);
+    const after = await page.evaluate(() => ({
+      generation: window.neural.client.generation,
+      model: window.neural.client.model?.model_sha256 ?? null,
+      result: window.neural.analysis.result(),
+    }));
+    assert.ok(after.generation > before.generation, "an unhealthy drain replaces the worker");
+    assert.equal(after.model, report.model.sha256, "the replacement loads a fresh session");
+    assert.equal(after.result.search.completed_simulations, 128);
+    assert.equal(errors.length, 0, errors.join("; "));
     await page.close();
   });
 

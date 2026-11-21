@@ -99,6 +99,7 @@
           Position
           <select id="analysis-position"></select>
         </label>
+        <button id="analysis-reload">Reload positions</button>
         <label>
           Agent
           <select id="analysis-agent">
@@ -400,10 +401,14 @@
         exploration: document.querySelector("#analysis-exploration"),
         seed: document.querySelector("#analysis-seed"),
         start: document.querySelector("#analysis-start"),
+        reload: document.querySelector("#analysis-reload"),
         cancel: document.querySelector("#analysis-cancel"),
         export: document.querySelector("#analysis-export"),
       };
       let analysisPositions = null;
+      let analysisPositionsError = null;
+      let positionsRequestId = 0;
+      let analysisInitToken = null;
       let analysisToken = null;
       let analysisResult = null;
       // Bounded cleanup owned by a cancelled operation. Replacement admissions
@@ -446,17 +451,19 @@
       function syncAnalysisControls() {
         const busy = analysisToken !== null || active !== null;
         const neural = analysisUi.agent.value === "neural";
+        const ready = Boolean(analysisPositions && analysisPositions.length);
         for (const control of [analysisUi.ruleset, analysisUi.position, analysisUi.agent])
-          control.disabled = busy;
+          control.disabled = busy || !ready;
         for (const control of [
           analysisUi.provider,
           analysisUi.simulations,
           analysisUi.exploration,
         ])
           control.disabled = busy || !neural;
-        analysisUi.time.disabled = busy;
-        analysisUi.seed.disabled = busy;
-        analysisUi.start.disabled = busy;
+        analysisUi.time.disabled = busy || !ready;
+        analysisUi.seed.disabled = busy || !ready;
+        analysisUi.start.disabled = busy || !ready;
+        analysisUi.reload.disabled = busy;
         analysisUi.cancel.disabled = analysisToken === null;
         analysisUi.export.disabled = analysisResult === null || busy;
       }
@@ -486,6 +493,7 @@
       }
       async function loadAnalysisPositions() {
         if (!analysisPositions) {
+          const requestId = ++positionsRequestId;
           if (!positionsPromise)
             positionsPromise = resetable(
               () => fetchJson("./mcts-positions.json"),
@@ -493,10 +501,54 @@
                 positionsPromise = null;
               },
             );
-          analysisPositions = await positionsPromise;
+          const data = await positionsPromise;
+          // A newer retry supersedes this response; never let obsolete position
+          // data overwrite the newer selection dataset.
+          if (requestId !== positionsRequestId)
+            return analysisPositions ?? data;
+          analysisPositions = data;
+          analysisPositionsError = null;
           selectAnalysisPositions();
         }
         return analysisPositions;
+      }
+
+      async function initializeAnalysisPositions({ force = false } = {}) {
+        const token = Symbol("positions");
+        analysisInitToken = token;
+        if (force) {
+          analysisPositions = null;
+          positionsPromise = null;
+          positionsRequestId += 1;
+        }
+        if (analysisPositions && analysisPositions.length) {
+          selectAnalysisPositions();
+          analysisPositionsError = null;
+          syncAnalysisControls();
+          return analysisPositions;
+        }
+        setAnalysisState("loading", "loading analysis positions…");
+        analysisUi.start.disabled = true;
+        try {
+          const positions = await loadAnalysisPositions();
+          if (analysisInitToken !== token) return positions;
+          if (!positions || !positions.length)
+            throw new Error("no analysis positions were provided");
+          analysisPositionsError = null;
+          if (analysisToken === null && active === null)
+            setAnalysisState("idle", "");
+          return positions;
+        } catch (error) {
+          if (analysisInitToken !== token) return null;
+          analysisPositionsError = error?.message ?? String(error);
+          setAnalysisState(
+            "failed",
+            `analysis positions unavailable: ${analysisPositionsError}`,
+          );
+          return null;
+        } finally {
+          if (analysisInitToken === token) syncAnalysisControls();
+        }
       }
       function publishAnalysis(result) {
         analysisResult = result;
@@ -629,9 +681,9 @@
         analysisToken = token;
         analysisResult = null;
         setBusy(true);
-        // Capture the exact position and settings at admission. A later selector
-        // change must never redirect a running analysis to another position.
-        const requested = {
+        document.querySelector("#analysis-output").textContent = "";
+        syncAnalysisControls();
+        const capture = () => ({
           ruleset: analysisUi.ruleset.value,
           position: analysisUi.position.value,
           agent: analysisUi.agent.value,
@@ -642,16 +694,25 @@
             seed: Number(analysisUi.seed.value),
             exploration: Number(analysisUi.exploration.value),
           },
-        };
-        document.querySelector("#analysis-output").textContent = "";
-        syncAnalysisControls();
+        });
         const started = performance.now();
         try {
+          // The small shared position dataset is initialized with the interface;
+          // a direct admission before it settles waits for the same retryable
+          // loader (selectors are disabled by ownership from here on).
+          if (!analysisPositions || !analysisPositions.length) {
+            setAnalysisState("running", "loading analysis positions…");
+            await initializeAnalysisPositions();
+            ensureAnalysisCurrent(token);
+          }
+          // Capture the exact position and settings at admission. A later selector
+          // change must never redirect a running analysis to another position.
+          const requested = capture();
           setAnalysisState("running", "finishing previous cancellation");
           await awaitCleanup("analysis");
           await awaitCleanup("inference");
           ensureAnalysisCurrent(token);
-          const positions = await loadAnalysisPositions();
+          const positions = analysisPositions;
           ensureAnalysisCurrent(token);
           const position = positions.find(
             (entry) =>
@@ -727,6 +788,10 @@
         syncAnalysisControls();
       });
       analysisUi.agent.addEventListener("change", syncAnalysisControls);
+      analysisUi.reload.addEventListener("click", () => {
+        if (analysisToken !== null || active !== null) return;
+        initializeAnalysisPositions({ force: true });
+      });
       analysisUi.start.addEventListener("click", () => {
         runAnalysis().catch((error) =>
           setAnalysisState("failed", error?.message ?? String(error)),
@@ -766,6 +831,8 @@
         loadPositions: () => loadAnalysisPositions(),
       };
       syncAnalysisControls();
+      // Initialize only the small shared position dataset; neural assets stay lazy.
+      initializeAnalysisPositions();
 
       const api = {
         get client() {
@@ -958,8 +1025,11 @@
         inputs = null;
         referencePromise = null;
         if (analysisPositions) selectAnalysisPositions();
+        syncAnalysisControls();
         setBusy(false);
         setAnalysisState("idle", "restored");
+        if (!analysisPositions || !analysisPositions.length)
+          initializeAnalysisPositions();
         setState("idle", "restored from the back-forward cache");
         syncAnalysisControls();
       }

@@ -98,6 +98,9 @@ export class NeuralClient {
     // Set while a cancelled inference is being drained; a replacement inference
     // must not be admitted against a worker that may still be executing it.
     this.draining = null;
+    // Experimental test seam (browser lifecycle tests only): ask the worker to
+    // delay a genuine inference completion by a bounded amount.
+    this.testInferenceDelayMs = null;
     // Injectable digest seam so cancellation during verification can be tested
     // deterministically. Production always uses crypto.subtle SHA-256.
     this.digestFn = sha256Hex;
@@ -439,6 +442,10 @@ export class NeuralClient {
 
   infer({ planes, size, legal, ruleset, request_id: requestId, position_digest: positionDigest, model }) {
     this._assertModel(model);
+    const testDelay =
+      Number.isInteger(this.testInferenceDelayMs) && this.testInferenceDelayMs > 0
+        ? { test_delay_ms: this.testInferenceDelayMs }
+        : {};
     return this.request(
       {
         action: "infer",
@@ -449,6 +456,7 @@ export class NeuralClient {
         request_id: requestId,
         position_digest: positionDigest,
         model,
+        ...testDelay,
       },
       { timeoutMs: INFER_TIMEOUT_MS },
     );

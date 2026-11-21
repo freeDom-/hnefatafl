@@ -270,6 +270,16 @@ async function releaseQuietly(target) {
   }
 }
 
+async function testDelay(request) {
+  // Experimental test seam: deliberately delay completion of a real inference so
+  // browser cancellation/drain behaviour can be exercised deterministically.
+  const delay = request?.test_delay_ms;
+  if (delay === undefined || delay === null) return;
+  if (!Number.isInteger(delay) || delay < 0 || delay > 5000)
+    throw named("INPUT_INVALID", "test_delay_ms must be an integer in 0..5000");
+  if (delay > 0) await new Promise((done) => setTimeout(done, delay));
+}
+
 function assertRequestId(value, label = "request_id") {
   if (typeof value !== "string" || !value || value.length > 128)
     throw named("INPUT_INVALID", `${label} must be a non-empty string of at most 128 characters`);
@@ -390,6 +400,7 @@ async function runBatch(cases, size, { requireIdentity = true, expectedModel = n
 }
 
 async function inferSingle(request) {
+  await testDelay(request);
   const { planes, legal, ruleset, size, request_id, position_digest, model: expectedModel } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (expectedModel === undefined || expectedModel === null)
@@ -420,6 +431,7 @@ async function inferSingle(request) {
 }
 
 async function inferMany(request) {
+  await testDelay(request);
   const { cases, model: expectedModel } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (expectedModel === undefined || expectedModel === null)
