@@ -27,7 +27,11 @@ def write_json(path: Path, value: dict) -> None:
 
 
 def current_clock():
-    return datetime(2026, 11, 1, 12, 0, 0, tzinfo=timezone.utc)
+    # Generate the fixture at test time so its 600-second game deadlines are in
+    # the future for the activated release. A fixed historical instant made the
+    # deadline already expired, so the target's one-second expiry sweep could
+    # legitimately advance the tournament and race the historical count checks.
+    return datetime.now(timezone.utc)
 
 
 def create_040(data: Path, manifest_path: Path) -> None:
