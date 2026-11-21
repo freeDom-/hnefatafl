@@ -114,6 +114,7 @@ test('the compact bottom navigation reaches every destination in both workspaces
 
   for (const [destination, path] of [
     ['play', null],
+    ['online', '/online'],
     ['statistics', '/statistics'],
     ['leaderboard', '/leaderboard'],
     ['archive', '/archive'],
@@ -254,6 +255,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
     en: {
       dashboard: 'The Great Hall',
       play: 'Battlefield',
+      online: 'Online Play',
       statistics: 'Statistics',
       leaderboard: 'Leaderboard',
       'player-tournaments': 'Player tournaments',
@@ -263,6 +265,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
     de: {
       dashboard: 'Die große Halle',
       play: 'Schlachtfeld',
+      online: 'Online spielen',
       statistics: 'Statistik',
       leaderboard: 'Rangliste',
       'player-tournaments': 'Spielerturniere',
@@ -274,6 +277,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
     en: {
       dashboard: 'The Great Hall',
       play: 'Battlefield',
+      online: 'Online Play',
       statistics: 'Statistics',
       leaderboard: 'Leaderboard',
       archive: 'Hall of records',
@@ -281,6 +285,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
     de: {
       dashboard: 'Die große Halle',
       play: 'Schlachtfeld',
+      online: 'Online spielen',
       statistics: 'Statistik',
       leaderboard: 'Rangliste',
       archive: 'Halle der Aufzeichnungen',
@@ -290,6 +295,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
     en: {
       dashboard: 'Great Hall',
       play: 'Battlefield',
+      online: 'Online',
       statistics: 'Stats',
       leaderboard: 'Trials',
       archive: 'Replays',
@@ -297,6 +303,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
     de: {
       dashboard: 'Große Halle',
       play: 'Schlachtfeld',
+      online: 'Online',
       statistics: 'Statistik',
       leaderboard: 'Wettstreit',
       archive: 'Wiederholungen',

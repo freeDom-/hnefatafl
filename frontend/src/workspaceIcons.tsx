@@ -15,6 +15,16 @@ export function DestinationIcon({ id }: { id: string }) {
           <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.7" />
           <path d="m10 8.5 6 3.5-6 3.5Z" fill="currentColor" />
         </>
+      ) : id === 'online' ? (
+        <>
+          <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.7" />
+          <path
+            d="M4 12h16M12 4c2.5 2.2 2.5 13.8 0 16M12 4c-2.5 2.2-2.5 13.8 0 16"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </>
       ) : id === 'statistics' ? (
         <path
           d="M5 19V11m5 8V5m5 14v-6m5 6V8"

@@ -58,7 +58,7 @@
     gap: 2px;
     min-width: 0;
     min-height: var(--bottom-nav-h);
-    padding: 6px 4px;
+    padding: 6px 2px;
     border-top: 2px solid transparent;
     color: var(--ui-copy, #81877a);
     font-size: 0.625rem;
@@ -105,11 +105,12 @@
   }
 }
 
-/* Narrow devices (320–360px) keep five Arena destinations on one row. */
+/* Narrow devices (320–360px) keep six Arena destinations on one row. */
 @media (max-width: 380px) {
   .workspace-bottom-nav a {
-    padding: 6px 2px;
-    font-size: 0.5625rem;
+    padding: 6px 0;
+    /* Cap the large interface scale here; six labels must stay readable at 320px. */
+    font-size: min(0.5625rem, 9px);
     letter-spacing: -0.1px;
   }
   .workspace-bottom-nav svg {

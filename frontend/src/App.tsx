@@ -537,7 +537,7 @@ export default function App() {
   );
   const agentAnalysis = game && analysis.show ? <AgentAnalysis game={game} {...analysis} /> : null;
   const workshop = tab === 'training' || tab === 'tournaments';
-  const shellCurrent = tab === 'online' ? 'play' : tab;
+  const shellCurrent = tab;
   const Shell = workshop ? WorkshopShell : ArenaShell;
   // Only the Dashboard observes account-wide result totals and can refresh the
   // shared read from its own polls. Game routes only see the current game, so a
