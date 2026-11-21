@@ -60,7 +60,7 @@ def test_full_and_compact_search_paths_produce_equivalent_results(tmp_path):
                     case["position"],
                     label,
                 )
-        if case["terminal"] or case.get("full_reason") == "immediate_win":
+        if case["terminal"]:
             continue
-        assert case["full_payload"] == "full-logits"
-        assert case["compact_payload"] == "legal-only"
+        assert case["full"]["search"]["coordinator"]["inference_payload_mode"] == "full-logits"
+        assert case["compact"]["search"]["coordinator"]["inference_payload_mode"] == "legal-only"
