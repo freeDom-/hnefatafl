@@ -160,6 +160,7 @@
         <dt>Duration</dt><dd id="analysis-duration">—</dd>
         <dt>Model</dt><dd id="analysis-model">—</dd>
         <dt>Provider</dt><dd id="analysis-provider-info">—</dd>
+        <dt>Inference payload</dt><dd id="analysis-payload">—</dd>
         <dt>Completion</dt><dd id="analysis-completion">—</dd>
       </dl>
       <pre id="analysis-output" aria-live="polite"></pre>
@@ -178,7 +179,11 @@
       let coordinator;
       let jarl;
       function createRuntime() {
-        client = new NeuralClient();
+        // The delay hook exists only in the explicitly injected browser-test
+        // runtime; the normal experimental page never enables it.
+        client = new NeuralClient({
+          testHooks: globalThis.__NEURAL_TEST_HOOKS__ === true,
+        });
         // Browser neural MCTS: the coordinator owns the Pyodide search worker and
         // relays each dependent leaf evaluation to the neural inference worker.
         coordinator = new NeuralSearchCoordinator({ neural: client });
@@ -585,6 +590,12 @@
                 (search.provider.gpu_execution_verified ? " (GPU verified)" : "")
               : "unknown",
           );
+          setText(
+            "#analysis-payload",
+            coordinator.inference_payload_mode
+              ? `${coordinator.inference_payload_mode} (${coordinator.response_policy_values ?? 0} logits)`
+              : "—",
+          );
           setText("#analysis-completion", search.completion_reason ?? "—");
         } else {
           setText("#analysis-simulations-completed", "n/a (alpha-beta)");
@@ -592,6 +603,7 @@
           setText("#analysis-duration", `${Math.round(result.elapsed_ms ?? 0)} ms`);
           setText("#analysis-model", "—");
           setText("#analysis-provider-info", "local Python engine (no model)");
+          setText("#analysis-payload", "n/a (alpha-beta)");
           setText("#analysis-completion", result.analysis?.source ?? "—");
         }
         document.querySelector("#analysis-output").textContent = JSON.stringify(
