@@ -1,7 +1,7 @@
 {
   "kind": "browser-neural-parity",
   "schema": 4,
-  "generated": "2026-11-21T11:40:34.273Z",
+  "generated": "2026-11-21T14:30:39.868Z",
   "browser": "156.0.8078.4",
   "ort_version": "1.22.0",
   "requested_provider": "wasm",
@@ -16,7 +16,7 @@
     "gzip_bytes": 6944,
     "validated": true,
     "ruleset": "brandubh",
-    "reference_sha256": "6727906a8d10801014cfeb008f9ae56cb512006f7b16bed8adb9199d60014da5"
+    "reference_sha256": "2ea096b1543517560fc9baa19d43010e63b6a1ca5ce563944f3d59f036e85f6a"
   },
   "capabilities": {
     "crossOriginIsolated": false,

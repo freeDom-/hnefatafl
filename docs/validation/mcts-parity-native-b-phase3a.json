@@ -3,7 +3,7 @@
   "schema": 1,
   "level": "b",
   "runtime": "native-cpython",
-  "generated": "2026-11-21T11:40:06Z",
+  "generated": "2026-11-21T14:31:10Z",
   "environment": {
     "runtime": "cpython-3.11.18",
     "platform": "linux"
@@ -17,7 +17,7 @@
       "hnefatafl.shield_maiden",
       "hnefatafl.symmetry"
     ],
-    "sha256": "9610c6effa99e3ad8fa63ff3120c3b81928abfd5653a27e3d09fac9086444c94",
+    "sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
     "driver_version": 1,
     "encoder_version": "six-plane-v1",
     "search_algorithm": "neural-mcts-puct-v1"
@@ -1007,7 +1007,7 @@
       "ruleset": "brandubh",
       "kind": "opening",
       "terminal": false,
-      "elapsed_ms": 92.89631400315557,
+      "elapsed_ms": 86.60311299900059,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -1163,7 +1163,7 @@
       "ruleset": "brandubh",
       "kind": "midgame",
       "terminal": false,
-      "elapsed_ms": 88.85018998989835,
+      "elapsed_ms": 82.30415100115351,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -1319,7 +1319,7 @@
       "ruleset": "brandubh",
       "kind": "endgame",
       "terminal": false,
-      "elapsed_ms": 74.35188800445758,
+      "elapsed_ms": 71.7264129925752,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -1475,7 +1475,7 @@
       "ruleset": "brandubh",
       "kind": "tactical",
       "terminal": false,
-      "elapsed_ms": 79.72560300549958,
+      "elapsed_ms": 74.9856809998164,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -1631,7 +1631,7 @@
       "ruleset": "brandubh",
       "kind": "king-escape",
       "terminal": false,
-      "elapsed_ms": 0.576096004806459,
+      "elapsed_ms": 0.5691690021194518,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -1697,7 +1697,7 @@
       "ruleset": "brandubh",
       "kind": "terminal",
       "terminal": true,
-      "elapsed_ms": 0.06618299812544137,
+      "elapsed_ms": 0.06699100777041167,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -1749,7 +1749,7 @@
       "ruleset": "brandubh",
       "kind": "repetition",
       "terminal": false,
-      "elapsed_ms": 84.3752999935532,
+      "elapsed_ms": 82.05267999437638,
       "ok": true,
       "kind_event": "complete",
       "analysis": {

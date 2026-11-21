@@ -3,7 +3,7 @@
   "schema": 1,
   "level": "a",
   "runtime": "native-cpython",
-  "generated": "2026-11-21T11:40:03Z",
+  "generated": "2026-11-21T14:31:08Z",
   "environment": {
     "runtime": "cpython-3.11.18",
     "platform": "linux"
@@ -17,7 +17,7 @@
       "hnefatafl.shield_maiden",
       "hnefatafl.symmetry"
     ],
-    "sha256": "9610c6effa99e3ad8fa63ff3120c3b81928abfd5653a27e3d09fac9086444c94",
+    "sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
     "driver_version": 1,
     "encoder_version": "six-plane-v1",
     "search_algorithm": "neural-mcts-puct-v1"
@@ -4328,7 +4328,7 @@
       "ruleset": "tablut",
       "kind": "opening",
       "terminal": false,
-      "elapsed_ms": 50.76980199373793,
+      "elapsed_ms": 49.83147200255189,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -4460,7 +4460,7 @@
       "ruleset": "tablut",
       "kind": "midgame",
       "terminal": false,
-      "elapsed_ms": 46.058432999416254,
+      "elapsed_ms": 46.33353199460544,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -4592,7 +4592,7 @@
       "ruleset": "tablut",
       "kind": "endgame",
       "terminal": false,
-      "elapsed_ms": 30.574795993743464,
+      "elapsed_ms": 29.860184993594885,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -4724,7 +4724,7 @@
       "ruleset": "tablut",
       "kind": "tactical",
       "terminal": false,
-      "elapsed_ms": 32.28475200012326,
+      "elapsed_ms": 32.491933001438156,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -4856,7 +4856,7 @@
       "ruleset": "tablut",
       "kind": "king-escape",
       "terminal": false,
-      "elapsed_ms": 0.4220240080030635,
+      "elapsed_ms": 0.517452004714869,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -4922,7 +4922,7 @@
       "ruleset": "tablut",
       "kind": "terminal",
       "terminal": true,
-      "elapsed_ms": 0.061408994952216744,
+      "elapsed_ms": 0.06268899596761912,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -4974,7 +4974,7 @@
       "ruleset": "tablut",
       "kind": "repetition",
       "terminal": false,
-      "elapsed_ms": 47.871697999653406,
+      "elapsed_ms": 48.525104008149356,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -5106,7 +5106,7 @@
       "ruleset": "brandubh",
       "kind": "opening",
       "terminal": false,
-      "elapsed_ms": 28.9774090051651,
+      "elapsed_ms": 29.485605002264492,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -5238,7 +5238,7 @@
       "ruleset": "brandubh",
       "kind": "midgame",
       "terminal": false,
-      "elapsed_ms": 31.54430800350383,
+      "elapsed_ms": 30.37886699894443,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -5370,7 +5370,7 @@
       "ruleset": "brandubh",
       "kind": "endgame",
       "terminal": false,
-      "elapsed_ms": 22.92944300279487,
+      "elapsed_ms": 23.045594003633596,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -5502,7 +5502,7 @@
       "ruleset": "brandubh",
       "kind": "tactical",
       "terminal": false,
-      "elapsed_ms": 25.20042499236297,
+      "elapsed_ms": 25.133963994449005,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -5634,7 +5634,7 @@
       "ruleset": "brandubh",
       "kind": "king-escape",
       "terminal": false,
-      "elapsed_ms": 0.3559039905667305,
+      "elapsed_ms": 0.35870900319423527,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -5700,7 +5700,7 @@
       "ruleset": "brandubh",
       "kind": "terminal",
       "terminal": true,
-      "elapsed_ms": 0.055791009799577296,
+      "elapsed_ms": 0.05720600893255323,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -5752,7 +5752,7 @@
       "ruleset": "brandubh",
       "kind": "repetition",
       "terminal": false,
-      "elapsed_ms": 29.431392991682515,
+      "elapsed_ms": 34.15930300252512,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -5884,7 +5884,7 @@
       "ruleset": "copenhagen",
       "kind": "opening",
       "terminal": false,
-      "elapsed_ms": 78.24389899906237,
+      "elapsed_ms": 80.36241900117602,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -6016,7 +6016,7 @@
       "ruleset": "copenhagen",
       "kind": "midgame",
       "terminal": false,
-      "elapsed_ms": 76.37099399289582,
+      "elapsed_ms": 77.58222699339967,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -6148,7 +6148,7 @@
       "ruleset": "copenhagen",
       "kind": "endgame",
       "terminal": false,
-      "elapsed_ms": 46.18477800977416,
+      "elapsed_ms": 46.841838004183955,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -6280,7 +6280,7 @@
       "ruleset": "copenhagen",
       "kind": "tactical",
       "terminal": false,
-      "elapsed_ms": 50.92780099948868,
+      "elapsed_ms": 50.21493200911209,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -6412,7 +6412,7 @@
       "ruleset": "copenhagen",
       "kind": "king-escape",
       "terminal": false,
-      "elapsed_ms": 1.3232369965407997,
+      "elapsed_ms": 1.2500510056270286,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -6478,7 +6478,7 @@
       "ruleset": "copenhagen",
       "kind": "terminal",
       "terminal": true,
-      "elapsed_ms": 0.06676799966953695,
+      "elapsed_ms": 0.05690200487151742,
       "ok": true,
       "kind_event": "complete",
       "analysis": {
@@ -6530,7 +6530,7 @@
       "ruleset": "copenhagen",
       "kind": "repetition",
       "terminal": false,
-      "elapsed_ms": 0.8256589935626835,
+      "elapsed_ms": 0.7691909995628521,
       "ok": true,
       "kind_event": "complete",
       "analysis": {

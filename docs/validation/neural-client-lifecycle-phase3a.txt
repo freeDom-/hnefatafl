@@ -39,5 +39,6 @@ ok   a delayed obsolete-generation response cannot affect a replacement
 ok   the inference delay hook is unavailable to a normal client
 ok   test hooks require explicit configuration before a delayed inference
 ok   ordinary inference rejects an injected delay field
+ok   a normal client cannot activate any test-worker action
 
-41/41 lifecycle checks passed
+42/42 lifecycle checks passed

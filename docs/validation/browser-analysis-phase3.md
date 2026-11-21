@@ -58,23 +58,30 @@ corruption.
 
 ### 1.3 Test-only inference delay isolation
 
-The delay hook is no longer part of the normal inference request path:
+The delay capability is now absent from the normal worker rather than gated by a
+client property or an activatable protocol action:
 
-- `NeuralClient` accepts an explicit `{ testHooks: true }` adapter only; the
-  ordinary experimental page constructs a normal client.
-- The hook must be configured by that client before the worker enables it.
-  Configuration is accepted once per worker generation.
-- Delayed inference uses separate `inferTestonly` / `inferCompactTestonly`
-  actions. Ordinary `infer` and `inferCompact` reject `test_delay_ms`.
-- A normal page cannot call `setTestInferenceDelay`, and a hand-built request
-  with `test_delay_ms` is rejected by the real worker with
+- `neural-worker.js` has no delay implementation, configuration action or
+  generation flag. It rejects `test_delay_ms` in ordinary requests and rejects
+  `configureTestHooks`, `inferTestonly`, `inferCompactTestonly` and the generic
+  `test` action with `TEST_HOOKS_DISABLED`.
+- `neural-worker-test.js` is a separate worker entry point. It imports the normal
+  worker core and installs an in-worker test adapter that owns delay configuration
+  and the bounded delay. `prepare_neural.py` does not stage this file.
+- Browser tests serve that file explicitly from the source tree and select it via
+  an injected test-worker URL; the normal page constructs the normal worker and
+  cannot obtain the file from a staged deployment.
+- A normal `NeuralClient` exposes no delay setter. A test client requires both the
+  explicit adapter and the dedicated worker URL; requests otherwise fail with
   `TEST_HOOKS_DISABLED`.
-- Browser lifecycle tests inject the test flag through an init script, never a
-  URL parameter or analysis-UI control.
+- The test adapter is configured once per worker generation. Cancellation, drain,
+  healthy-session reuse, unresponsive replacement and generation ownership are
+  exercised through the dedicated worker.
+- Tests directly submit every test action through a normal client and verify
+  rejection, then verify ordinary inference still completes.
 
-This is experimental hardening for the eventual Phase 4 boundary: a production
-client will not enable the hook or send the field. Provider/resource limits are
-unchanged.
+This is a build/test-time separation, not a runtime authorization token. Provider
+and resource limits are unchanged.
 
 ## 2. Baseline instrumentation
 
@@ -130,6 +137,35 @@ tensor extraction is tested for exact legal-probability equality. MCTS search
 semantics, seeded traversal, values, legal ordering and model identity are
 unchanged.
 
+### 3.1 End-to-end search path parity
+
+`test_search_path_parity.mjs` runs the same real coordinator and neural worker
+twice per position with only `coordinator.compactInference` changed. It requires
+the same best move, defender-relative value (within 1e-12), completed simulations,
+root visit distribution, neural request count, prediction reuse count, completion
+reason, terminal/immediate-win outcome, model identity and position identity; the
+entire result payload must be identical after removing timing/transport fields.
+Fixed-time runs verify valid completed work, deadline consistency, legal moves,
+identity and payload mode without requiring equal trees.
+
+Coverage: Brandubh opening/tactical/repetition/terminal/immediate-win, Tablut and
+Copenhagen opening/tactical/repetition/terminal, plus a 32×2 synthetic Brandubh
+architecture. All fixed-work cases pass; fixed-time cases report differing
+completed work but valid deadlines and legal results.
+
+### 3.2 Serialized-state allocation
+
+`NeuralSearch._evaluation()` no longer stores `state.to_dict()` in its pending
+request context. The native evaluator path still materializes the serialized
+position in the event when `include_position=True`; the browser path
+(`include_position=False`) materializes nothing. Exact position/neural-input
+digests, repetition history, legal ordering and request/resume association are
+unchanged.
+
+A same-commit quick benchmark with and without the retained allocation measured
+622–663 sims/s. The difference is below run-to-run noise; no speedup is claimed
+for this cleanup.
+
 ## 4. Measured result
 
 Environment: this repository's Proxmox LTS container, Chromium 156.0.8078.4,
@@ -179,13 +215,17 @@ Only the controlled within-revision comparison is used as optimization evidence.
 | Negative counter tests (Level A and B) | rejected; terminal zeros accepted |
 | Comparator CLI failure handling | unchanged structured nonzero reports |
 | Search coordinator lifecycle | 30/30 |
-| Neural client lifecycle (incl. hook isolation) | 41/41 |
+| Neural client lifecycle (incl. hook isolation and direct test-action rejection) | 42/42 |
 | Staged-source integrity | 21/21 |
 | Analysis UI (fresh page, real pending inference, compact payload display) | 30/30 |
 | Neural inference UI incl. normal-page hook rejection and malformed compact input | 21/21 |
 | Inference parity (single + batches) | 39 cases + batches, no failures |
 | Identity-boundary corruptions | 4/4 detected |
 | Tensor compact/full extraction | exact legal-probability parity |
+| Full-logit vs legal-only search paths (fixed work) | 13/13 exact across Brandubh/Tablut/Copenhagen + 5/5 32×2 |
+| Full-logit vs legal-only search paths (fixed time) | 13/13 valid deadline/legal/identity cases |
+| Normal-page direct test actions | 5/5 rejected; ordinary inference still completes |
+| Dedicated test worker | delayed inference, healthy drain, unresponsive replacement and generation ownership pass |
 
 Frozen native MCTS reference tests still fail identically on pristine `main` in
 this environment; they are not weakened or skipped. The full Python suite runs
@@ -197,8 +237,8 @@ in CI on a compatible environment.
 | --- | --- | --- |
 | 3.0 remaining Phase 2 findings | Completed | identity, counters, test-hook isolation |
 | 3.1 controlled baselines/profiling | Completed for smoke/representative architectures | extended matrix, new timing fields |
-| 3.2 coordinator/Pyodide boundary | Partially addressed | duplicate position removed; direct worker channel not implemented; boundary remains ~40 % |
-| 3.3 inference payloads | Completed for MCTS | legal-only transport, base64 planes, full-logit reference retained |
+| 3.2 coordinator/Pyodide boundary | Partially addressed | duplicate position/pending serialization removed; direct worker channel not implemented; boundary remains ~40 % |
+| 3.3 inference payloads | Completed for MCTS | legal-only transport, base64 planes, full-logit reference retained; end-to-end path parity gate |
 | 3.4 inference caching | Not started | must measure benefit against existing prediction reuse |
 | 3.5 independent-search batching | Not started | ORT batch path exists; scheduler not implemented |
 | 3.6 single-tree batched MCTS | Not started | sequential reference retained |
@@ -236,6 +276,12 @@ node spikes/browser_offline/mcts_parity.mjs work/phase3/spike \
 .venv/bin/python spikes/browser_offline/mcts_compare.py \
   work/phase3/native-a.json work/phase3/browser-a.json
 
+# End-to-end full/compact search parity (one or more staged models)
+SPIKE_NEURAL_DIR=work/phase3/spike \
+SPIKE_NEURAL_DIR_TABLUT=work/phase3/spike-tablut \
+SPIKE_NEURAL_DIR_COPENHAGEN=work/phase3/spike-copenhagen \
+  .venv/bin/python -m pytest tests/test_browser_search_path_parity.py -q
+
 # Browser/UI/lifecycle
 node spikes/browser_offline/test_mcts_ui.mjs work/phase3/spike
 node spikes/browser_offline/test_neural_ui.mjs work/phase3/spike
@@ -258,6 +304,13 @@ node spikes/browser_offline/test_neural_tensors.mjs
   [compact](mcts-benchmark-copenhagen-compact-phase3a.json) /
   [full](mcts-benchmark-copenhagen-full-phase3a.json)
 - [32×2 synthetic](mcts-benchmark-brandubh-32x2-phase3a.json)
+- Search-path parity: [fixed work, three rulesets](mcts-search-path-parity-fixed-phase3a.json),
+  [32×2](mcts-search-path-parity-32x2-phase3a.json), fixed-time
+  [Brandubh](mcts-search-path-parity-time-brandubh-phase3a.json),
+  [Tablut](mcts-search-path-parity-time-tablut-phase3a.json),
+  [Copenhagen](mcts-search-path-parity-time-copenhagen-phase3a.json)
+- Serialized-state cleanup: [before](mcts-benchmark-state-allocation-before-phase3a.json) /
+  [after](mcts-benchmark-state-allocation-after-phase3a.json) (difference below noise)
 - Parity: [native A](mcts-parity-native-a-phase3a.json) /
   [browser A](mcts-parity-browser-a-phase3a.json); [native B](mcts-parity-native-b-phase3a.json) /
   [browser B](mcts-parity-browser-b-phase3a.json); [native PyTorch](mcts-parity-native-b-torch-phase3a.json) /

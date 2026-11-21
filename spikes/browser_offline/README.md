@@ -120,10 +120,12 @@ inference worker decodes the search worker's base64 planes directly into a
 legal probabilities, value and request association. Full logits remain available
 through `infer`/parity/benchmark paths; `coordinator.compactInference = false`
 preserves the previous transport for controlled A/B runs. Browser evaluation
-events also omit the duplicate serialized position. The comparator independently
-recomputes the workload identity, all accumulated counters must be non-negative,
-and the inference-delay hook is isolated behind an explicit test adapter and
-worker configuration.
+events also omit the duplicate serialized position, and pending context no longer
+retains the unused serialization. The comparator independently recomputes the
+workload identity, all accumulated counters must be non-negative, and the
+inference-delay capability lives only in the separate `neural-worker-test.js`
+entry point, which normal staging never includes. The normal worker rejects every
+test action, including direct `configureTestHooks`/test-only inference calls.
 
 ```sh
 node spikes/browser_offline/mcts_benchmark.mjs /tmp/neural-spike \
@@ -134,7 +136,10 @@ node spikes/browser_offline/mcts_benchmark.mjs /tmp/neural-spike \
   --repetitions 2 --payload-mode full --output /tmp/full.json
 ```
 
-Phase 3A evidence and limitations are recorded in the
+The dedicated `test_search_path_parity.mjs` gate runs the same browser search
+with full-logit and legal-only inference, requiring exact fixed-work parity and
+valid deadline behavior under fixed time. Phase 3A evidence and limitations are
+recorded in the
 [Phase 3 validation](../../docs/validation/browser-analysis-phase3.md). Phase 3B
 (caching, independent/single-tree batching, subtree reuse) and Phase 3C
 (competitive checkpoints, tournaments, physical hardware) are outstanding.

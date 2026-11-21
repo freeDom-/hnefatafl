@@ -17,9 +17,11 @@ Phase 2 executes the existing Python neural MCTS generator in the browser throug
 the validated Phase 1B inference boundary; its revisions 1–4 are preserved in
 [the Phase 2 report](../validation/browser-analysis-phase2.md). Phase 3A closes
 the remaining Phase 2 findings (independent workload identity, non-negative
-diagnostics, isolated test hooks), adds profiling fields and repeated-workload
-controls, and delivers the first measured optimization: legal-only inference
-transport with base64 planes decoded directly in the inference worker. Phase 3B
+diagnostics, build-time-isolated test hooks), adds profiling fields and
+repeated-workload controls, removes an unused serialized-state allocation, and
+delivers the first measured optimization: legal-only inference transport with
+base64 planes decoded directly in the inference worker, now backed by an
+end-to-end full/compact search parity gate. Phase 3B
 (caching, independent-search and single-tree batching, subtree reuse) and Phase 3C
 (competitive checkpoints, strength tournaments, physical hardware) remain open;
 Phase 3 is not complete.
@@ -423,23 +425,27 @@ production readiness.
 
 ## Phase 3 — Optimization and strength evaluation
 
-- **Status:** In progress. **Phase 3A delivered**; 3B and 3C outstanding.
+- **Status:** In progress. **Phase 3A implementation-validated**; 3B and 3C outstanding.
 - **Delivered in 3A (evidence: [Phase 3 report](../validation/browser-analysis-phase3.md)):**
   - Independent `workload_identity()` recomputation in the comparator, covering
     settings, ordered states/repetition history, evaluator and ONNX model digest;
     identical corruption in both reports is rejected.
   - Non-negative validation for all accumulated diagnostics with valid zeros for
     terminal/immediate-win cases and no one-request-per-simulation assumption.
-  - Test-only inference delay isolated behind an explicit client adapter and
-    worker configuration; ordinary calls reject the hook and the normal page
-    cannot enable it.
+  - Test-only inference delay isolated in a dedicated worker entry point that is
+    never staged; the normal worker has no delay implementation/configuration and
+    rejects every test action, even when called directly. Normal and test-worker
+    lifecycle, cancellation and replacement behavior are covered.
   - Extended workload kinds/budgets, `--repetitions`, `--warmup` and
     `--payload-mode compact|full`; profiling fields for serialization, parsing,
     bytes, policy extraction and unattributed time.
   - Legal-only MCTS inference: base64 planes decoded directly to `Float32Array`,
     legal softmax read from the output tensor, no full policy-row transfer, and
-    no duplicate serialized position in browser evaluation events. Full logits
-    remain the parity/benchmark/inspection path.
+    no duplicate serialized position in browser evaluation events or pending
+    context state. An end-to-end full/compact search parity gate covers all three
+    rulesets, repetition/terminal/immediate-win positions, a 32×2 architecture
+    and fixed-time behavior. Full logits remain the parity/benchmark/inspection
+    path.
   - Controlled Brandubh A/B: +32.6 % (128/256 budgets) and +32.7 % (512/1024);
     Tablut +22.3 %; Copenhagen +86.9 % on smoke/representative architectures;
     1,024 Brandubh simulations in 1.50–1.66 s, versus 1.76–2.32 s with full
@@ -541,10 +547,11 @@ production readiness.
 | Phase 2 / single-tree batching | Deferred to Phase 3B |
 | Phase 3A / independent workload identity | Validated (recomputed from level, settings, states/history, evaluator, model) |
 | Phase 3A / diagnostic counters | Validated (non-negative; terminal zeros; Level A and B) |
-| Phase 3A / test-hook isolation | Validated (explicit adapter/configuration; normal page and ordinary requests reject) |
+| Phase 3A / test-hook isolation | Validated (dedicated test worker; normal worker has no capability; direct test actions rejected) |
 | Phase 3A / profiling instrumentation | Implemented (boundary, bytes, serialization, parsing, policy extraction, unattributed) |
-| Phase 3A / legal-only inference transport | Validated (exact legal-probability parity; full path retained) |
-| Phase 3A / measured optimization | Validated on smoke/representative architectures (+22–87 %) |
+| Phase 3A / legal-only inference transport | Validated (exact legal-probability and end-to-end full/compact search parity; full path retained) |
+| Phase 3A / full vs compact search parity | Validated (13 fixed-work cases across three rulesets, 32×2, 13 fixed-time cases) |
+| Phase 3A / measured optimization | Validated on smoke/representative architectures (+22–87 %); allocation cleanup below noise |
 | Phase 3A / representative 32×2 architecture | Performance measured only; synthetic, not competitive validation |
 | Phase 3B / caching | Not started |
 | Phase 3B / independent-search batching | Not started |
@@ -756,6 +763,7 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-21 | Phase 3A review corrections: delay capability moved to a dedicated non-staged test worker entry point; normal worker rejects direct test actions and ordinary inference stays operational; end-to-end full/compact search parity gate for Brandubh/Tablut/Copenhagen, repetition/terminal/immediate-win, 32×2 and fixed-time behavior; unused serialized-position allocation removed from pending context (impact below noise). Phase 3A implementation-validated; 3B/3C remain outstanding. |
 | 2026-11-21 | Phase 3A on merged `main` `c23845f`: independent workload identity recomputation; non-negative diagnostic counters; isolated test-only delay hook; extended/repeatable benchmarks and new boundary/serialization/extraction metrics; legal-only MCTS inference transport with base64 plane decoding and no duplicate browser position. Controlled smoke-model gains +22–87 %; Phase 3B/3C remain outstanding. Fresh Phase 3 r1 evidence. |
 | 2026-11-21 | Phase 2 revision 4, integrated `main` `8a11ee6`: fresh-page analysis-position initialization with retry and selection preservation; independent native/browser fixed-work completion classes; owner-bound pending requests and inherited cleanup barrier for cascading supersession; explicit model identity required; bounded pending-inference test seam with healthy/unhealthy browser coverage; exception-safe parity CLI with structured failure schema; file-backed vs embedded custom workload sources with mandatory digest and property-order-independent comparison. Fresh r4/r9 evidence; r1–r3 preserved. |
 | 2026-11-21 | Phase 2 revision 3 (final PR #108 corrections), integrated `main` `3074790`: exact terminal values and non-terminal best-move/root-visit semantics; recomputed full-position identity; versioned built-in/custom workload sources with exact state/history and file-digest validation; interpreted abandoned-inference outcomes with session invalidation; UI replacement admission awaits bounded cancellation cleanup (immediate restart, healthy reuse, unhealthy-drain replacement). Fresh r3/r8 evidence; r1/r2 preserved. |
