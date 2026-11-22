@@ -91,7 +91,13 @@ def _move(move: Any) -> Move | None:
 def _validate_legality(case: dict, failures: list[str], state: State) -> None:
     terminal = state.winner is not None
     for label in ("full", "compact"):
-        move_raw = case.get(f"{label}_move")
+        result = case.get(label) if isinstance(case.get(label), dict) else {}
+        analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        move_raw = analysis.get("best_move")
+        if f"{label}_move" not in case:
+            failures.append(f"{label}: mirrored best-move field is missing")
+        elif _canonical(case.get(f"{label}_move")) != _canonical(move_raw):
+            failures.append(f"{label}: mirrored best move disagrees with the search result")
         move = _move(move_raw)
         if terminal:
             if move_raw is not None:
@@ -388,8 +394,10 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
         if not isinstance(entry, dict):
             failures.append(f"model coverage entry {index} must be an object")
             continue
-        if entry.get("ruleset") not in RULESETS:
+        ruleset = entry.get("ruleset")
+        if not isinstance(ruleset, str) or ruleset not in RULESETS:
             failures.append(f"model coverage entry {index} has an unsupported ruleset")
+            continue
         if not _is_int(entry.get("size")) or not 5 <= int(entry["size"]) <= 15:
             failures.append(f"model coverage entry {index} has an invalid size")
         if not _hex64(entry.get("sha256")):
@@ -402,6 +410,9 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
     if not isinstance(expected_rulesets, list) or not expected_rulesets:
         failures.append("expected_rulesets must be a non-empty list")
         expected_rulesets = []
+    elif any(not isinstance(name, str) for name in expected_rulesets):
+        failures.append("expected_rulesets must contain only strings")
+        expected_rulesets = [name for name in expected_rulesets if isinstance(name, str)]
     elif any(name not in RULESETS for name in expected_rulesets):
         failures.append("expected_rulesets contains an unsupported ruleset")
         expected_rulesets = [name for name in expected_rulesets if name in RULESETS]
@@ -425,14 +436,26 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
             not isinstance(entry, dict)
             or not isinstance(entry.get("name"), str)
             or not entry.get("name")
+            or not isinstance(entry.get("ruleset"), str)
             or entry.get("ruleset") not in RULESETS
         ):
             failures.append(f"expected case entry {index} is malformed")
             continue
         valid_expected.append(entry)
     cases = report.get("cases") if isinstance(report.get("cases"), list) else []
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            continue
+        if not isinstance(case.get("ruleset"), str) or case.get("ruleset") not in RULESETS:
+            failures.append(f"case entry {index} has an invalid ruleset identifier")
+        if not isinstance(case.get("position"), str) or not case.get("position"):
+            failures.append(f"case entry {index} has an invalid position identifier")
     actual_names = {
-        (case.get("ruleset"), case.get("position")) for case in cases if isinstance(case, dict)
+        (case.get("ruleset"), case.get("position"))
+        for case in cases
+        if isinstance(case, dict)
+        and isinstance(case.get("ruleset"), str)
+        and isinstance(case.get("position"), str)
     }
     for entry in valid_expected:
         key = (entry.get("ruleset"), entry.get("name"))
@@ -450,7 +473,11 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
                 }
             )
     observed_names = [
-        (case.get("ruleset"), case.get("position")) for case in cases if isinstance(case, dict)
+        (case.get("ruleset"), case.get("position"))
+        for case in cases
+        if isinstance(case, dict)
+        and isinstance(case.get("ruleset"), str)
+        and isinstance(case.get("position"), str)
     ]
     if len(set(observed_names)) != len(observed_names):
         failures.append("measured cases contain duplicate position identifiers")
@@ -553,7 +580,9 @@ def validate_report(report: dict) -> dict:
         if not isinstance(case, dict):
             failures.append("case entry is not an object")
             continue
-        case_failures, execution_error = _case_failures(case, models.get(case.get("ruleset")))
+        ruleset = case.get("ruleset")
+        expected_model = models.get(ruleset) if isinstance(ruleset, str) else None
+        case_failures, execution_error = _case_failures(case, expected_model)
         case["failures"] = case_failures
         case["execution_error"] = execution_error
         case["ok"] = execution_error is None and not case_failures

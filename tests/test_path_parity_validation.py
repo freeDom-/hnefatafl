@@ -550,3 +550,57 @@ def test_one_failed_case_does_not_hide_other_successes_or_collector_errors():
     failed = [case for case in validated["cases"] if not case["ok"]]
     assert failed == [target]
     assert any("collector failure after case" in failure for failure in validated["failures"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda case: case["full"]["analysis"].update(
+            best_move={"source": 99, "target": 99}
+        ),  # mirrored still legal
+        lambda case: case["compact"]["analysis"].update(best_move={"source": 98, "target": 98}),
+        lambda case: case.update(full_move={"source": 97, "target": 97}),
+        lambda case: (
+            case["full"]["analysis"].update(best_move={"source": 96, "target": 96}),
+            case["compact"]["analysis"].update(best_move={"source": 96, "target": 96}),
+            case.update(
+                full_move={"source": 96, "target": 96},
+                compact_move={"source": 96, "target": 96},
+            ),
+        ),
+    ],
+)
+def test_nested_best_moves_are_authoritative(mutation):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    case = _fixed_time_case(report)
+    mutation(case)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert any("best move" in failure for failure in case["failures"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: report["models"][0].update(ruleset=["brandubh"]),
+        lambda report: report.update(expected_rulesets=[["brandubh"]]),
+        lambda report: report["expected_cases"][0].update(name={"bad": "name"}),
+        lambda report: report["expected_cases"][0].update(ruleset=["brandubh"]),
+        lambda report: report["cases"][0].update(ruleset=["brandubh"]),
+        lambda report: report["cases"][0].update(position={"bad": "position"}),
+        lambda report: report["cases"][0].update(position=None),
+    ],
+)
+def test_malformed_coverage_identifiers_fail_without_exceptions(tmp_path, mutation):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    mutation(report)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert validated["failures"]
+    code, cli_report = _run_cli(tmp_path, report)
+    assert code != 0
+    assert cli_report["ok"] is False
+    assert cli_report["failures"]
