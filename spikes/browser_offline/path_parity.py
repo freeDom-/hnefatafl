@@ -230,14 +230,49 @@ def _validate_common(case: dict, failures: list[str]) -> None:
     terminal = case.get("terminal") is True
     full_mode = full_coordinator.get("inference_payload_mode")
     compact_mode = compact_coordinator.get("inference_payload_mode")
-    if terminal:
-        if full_mode is not None or compact_mode is not None:
-            failures.append("terminal search reported an inference payload")
+    expected_modes = case.get("expected_payload_modes")
+    if (
+        not isinstance(expected_modes, dict)
+        or not isinstance(expected_modes.get("full"), str)
+        or not isinstance(expected_modes.get("compact"), str)
+    ):
+        failures.append("expected_payload_modes must be an object with two strings")
     else:
-        if full_mode != "full-logits":
-            failures.append("full path did not report full-logits")
-        if compact_mode != "legal-only":
-            failures.append("compact path did not report legal-only")
+        if terminal:
+            if full_mode is not None or compact_mode is not None:
+                failures.append("terminal search reported an inference payload")
+        else:
+            if full_mode != expected_modes["full"]:
+                failures.append(
+                    f"full path payload mode {full_mode!r} does not match {expected_modes['full']!r}"
+                )
+            if compact_mode != expected_modes["compact"]:
+                failures.append(
+                    f"compact path payload mode {compact_mode!r} does not match {expected_modes['compact']!r}"
+                )
+    expected_transports = case.get("expected_transports")
+    if (
+        not isinstance(expected_transports, dict)
+        or expected_transports.get("full") not in ("relay", "direct")
+        or expected_transports.get("compact")
+        not in (
+            "relay",
+            "direct",
+        )
+    ):
+        failures.append("expected_transports must be {full: relay|direct, compact: relay|direct}")
+    else:
+        for label, search, coordinator in (
+            ("full", full_search, full_coordinator),
+            ("compact", compact_search, compact_coordinator),
+        ):
+            observed = coordinator.get("direct")
+            if not isinstance(observed, bool):
+                failures.append(f"{label} search did not report its transport mode")
+            elif observed != (expected_transports[label] == "direct"):
+                failures.append(
+                    f"{label} observed transport does not match {expected_transports[label]}"
+                )
     full_values = full_coordinator.get("response_policy_values")
     if not _is_int(full_values):
         failures.append("full path has no integer policy-value count")

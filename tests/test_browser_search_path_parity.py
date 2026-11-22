@@ -97,7 +97,7 @@ def test_browser_collector_error_after_cases_is_not_accepted(tmp_path):
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
 @pytest.mark.skipif(not any(STAGES), reason="neural staging directories are not configured")
-def test_direct_worker_transport_preserves_full_compact_parity(tmp_path):
+def test_direct_compact_preserves_relay_compact_parity(tmp_path):
     root = next(root for root in STAGES if root)
     output = tmp_path / "path-parity-direct.json"
     result = subprocess.run(
@@ -107,8 +107,8 @@ def test_direct_worker_transport_preserves_full_compact_parity(tmp_path):
             root,
             "--provider",
             "wasm",
-            "--transport",
-            "direct",
+            "--gate",
+            "direct-relay-compact",
             "--simulations",
             "32",
             "--output",
@@ -121,5 +121,44 @@ def test_direct_worker_transport_preserves_full_compact_parity(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(output.read_text())
     assert report["ok"] is True, report["failures"]
-    assert report["transport"] == "direct"
+    assert report["gate"] == "direct-relay-compact"
+    assert report["requested_transport"] == "direct"
     assert all(case["ok"] for case in report["cases"])
+    for case in report["cases"]:
+        assert case["expected_transports"]["compact"] == "direct"
+        if not case["terminal"]:
+            assert case["compact"]["search"]["coordinator"]["direct"] is True
+            assert case["full"]["search"]["coordinator"]["direct"] is False
+            assert (
+                case["compact"]["search"]["coordinator"]["inference_payload_mode"] == "legal-only"
+            )
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+@pytest.mark.skipif(not any(STAGES), reason="neural staging directories are not configured")
+def test_direct_gate_fails_if_relay_runs_instead(tmp_path):
+    root = next(root for root in STAGES if root)
+    output = tmp_path / "path-parity-forced-relay.json"
+    result = subprocess.run(
+        [
+            NODE,
+            str(SPIKE / "test_search_path_parity.mjs"),
+            root,
+            "--provider",
+            "wasm",
+            "--gate",
+            "direct-relay-compact",
+            "--force-relay",
+            "--simulations",
+            "32",
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    report = json.loads(output.read_text())
+    assert report["ok"] is False
+    assert any("observed transport" in failure for failure in report["failures"])

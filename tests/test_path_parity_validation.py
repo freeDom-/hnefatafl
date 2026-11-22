@@ -117,6 +117,7 @@ def _case(entry: dict, *, fixed_time: bool = False) -> dict:
             "root_visits": copy.deepcopy(root_visits),
             "best_move": copy.deepcopy(best),
             "coordinator": {
+                "direct": mode == "direct",
                 "inference_payload_mode": None
                 if terminal
                 else ("legal-only" if mode == "compact" else "full-logits"),
@@ -148,6 +149,11 @@ def _case(entry: dict, *, fixed_time: bool = False) -> dict:
         "compact": result("compact"),
         "full_move": copy.deepcopy(best),
         "compact_move": copy.deepcopy(best),
+        "expected_transports": {"full": "relay", "compact": "relay"},
+        "expected_payload_modes": {
+            "full": "full-logits",
+            "compact": "legal-only",
+        },
         "ok": False,
     }
 
@@ -639,3 +645,42 @@ def test_cli_rejects_malformed_kind_and_exits_nonzero(tmp_path, value):
     assert code != 0
     assert validated["ok"] is False
     assert validated["failures"]
+
+
+def _direct_relay_case(report: dict) -> dict:
+    case = _fixed_time_case(report)
+    case["expected_transports"] = {"full": "relay", "compact": "direct"}
+    case["expected_payload_modes"] = {"full": "legal-only", "compact": "legal-only"}
+    case["full"]["search"]["coordinator"]["direct"] = False
+    case["full"]["search"]["coordinator"]["inference_payload_mode"] = "legal-only"
+    case["compact"]["search"]["coordinator"]["direct"] = True
+    case["compact"]["search"]["coordinator"]["inference_payload_mode"] = "legal-only"
+    return case
+
+
+def test_direct_compact_versus_relay_compact_parity():
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    _direct_relay_case(report)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is True, validated["failures"]
+
+
+def test_direct_gate_fails_when_relay_runs_and_direct_is_mislabelled():
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    case = _direct_relay_case(report)
+    case["compact"]["search"]["coordinator"]["direct"] = False
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert any("observed transport" in failure for failure in case["failures"])
+
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    case = _direct_relay_case(report)
+    case["compact"]["search"]["coordinator"]["inference_payload_mode"] = "full-logits"
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert any("payload mode" in failure for failure in case["failures"])
