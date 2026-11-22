@@ -735,6 +735,7 @@ export class NeuralSearchCoordinator {
     if (!this.neural || typeof this.neural.attachDirectPort !== "function")
       throw named("WorkerError", "Neural direct inference is unavailable");
     const channel = new MessageChannel();
+    let attached = false;
     try {
       await Promise.race([
         this.neural.attachDirectPort(channel.port2),
@@ -745,6 +746,7 @@ export class NeuralSearchCoordinator {
         this._attachSearchDirect(channel.port1),
         search.cancelSignal,
       ]);
+      attached = true;
       this._assertOwner(search);
       search.directFinal = { resolve: null, reject: null };
       const finalPromise = new Promise((resolve, reject) => {
@@ -769,6 +771,14 @@ export class NeuralSearchCoordinator {
       search.phase = "completed";
       return this._finalize(search, event, configuration);
     } finally {
+      if (attached && typeof this.neural?.detachDirectPort === "function") {
+        try {
+          await this.neural.detachDirectPort();
+        } catch {
+          // Bounded detach; a replacement direct attach will be rejected while
+          // an in-flight inference still owns the channel.
+        }
+      }
       channel.port1.close?.();
       channel.port2.close?.();
       if (search.directFinal) search.directFinal = null;

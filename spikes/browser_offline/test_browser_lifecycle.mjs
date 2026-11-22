@@ -1005,4 +1005,129 @@ await check("a failed batch rejects every independent search", async () => {
   client.terminate();
 });
 
+function within(promise, milliseconds = 500) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("test deadline exceeded")), milliseconds),
+    ),
+  ]);
+}
+
+await check("in-flight batch cancellation settles on batch success", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("s1"));
+  const second = client.inferCompact(compactRequest("s2"));
+  await sleep(10);
+  const cancel = client.cancelRequest({ requestId: "s1", reason: "cancel in flight" });
+  client.worker.respond(0, {
+    results: [batchResult("s1"), batchResult("s2", 0.4)],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 2,
+    tensor_prepare_ms: 1,
+    run_ms: 2,
+    extract_ms: 0,
+  });
+  await assert.rejects(within(first), (error) => error.name === "AbortError");
+  assert.equal((await within(second)).value, 0.4);
+  assert.equal((await within(cancel)).state, "drained");
+  client.terminate();
+});
+await check("in-flight batch cancellation settles on batch failure", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("b1"));
+  const second = client.inferCompact(compactRequest("b2"));
+  await sleep(10);
+  const cancel = client.cancelRequest({ requestId: "b1", reason: "cancel in flight" });
+  client.worker.respond(0, null, "batch failed", "OUTPUT_INVALID");
+  await assert.rejects(within(first), (error) => error.name === "AbortError");
+  await assert.rejects(within(second), (error) => error.code === "OUTPUT_INVALID");
+  assert.equal((await within(cancel)).outcome, "failed");
+  client.terminate();
+});
+await check("worker crash settles queued and in-flight batches", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("w1"));
+  const second = client.inferCompact(compactRequest("w2"));
+  await sleep(10);
+  client.worker.fail("batch worker crashed");
+  await assert.rejects(within(first), (error) => error.name === "WorkerError");
+  await assert.rejects(within(second), (error) => error.name === "WorkerError");
+  assert.equal(client.batchQueue.length, 0);
+  assert.equal(client.batchEntries.size, 0);
+  client.terminate();
+});
+await check("termination and disposal reject outstanding batches", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("t1"));
+  const second = client.inferCompact(compactRequest("t2"));
+  await sleep(10);
+  client.terminate("test termination");
+  await assert.rejects(within(first), (error) => error.name === "AbortError");
+  await assert.rejects(within(second), (error) => error.name === "AbortError");
+  assert.equal(client.batchQueue.length, 0);
+  assert.equal(client.batchEntries.size, 0);
+
+  const replacement = batchingClient();
+  const pending = replacement.inferCompact(compactRequest("d1"));
+  await sleep(10);
+  replacement.dispose();
+  await assert.rejects(within(pending), (error) => error.name === "AbortError");
+});
+await check("timeout/abort rejects outstanding batches exactly once", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("x1"));
+  const second = client.inferCompact(compactRequest("x2"));
+  await sleep(10);
+  const timeout = Object.assign(new Error("test timeout"), {
+    name: "TimeoutError",
+    code: "TimeoutError",
+  });
+  client.abort(timeout);
+  await assert.rejects(within(first), (error) => error.name === "TimeoutError");
+  await assert.rejects(within(second), (error) => error.name === "TimeoutError");
+  assert.equal(client.batchQueue.length, 0);
+  assert.equal(client.batchEntries.size, 0);
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+  };
+  const replacement = client.inferCompact(compactRequest("x3"));
+  await sleep(10);
+  client.worker.respond(0, {
+    results: [batchResult("x3")],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 1,
+    tensor_prepare_ms: 0,
+    run_ms: 1,
+    extract_ms: 0,
+  });
+  assert.equal((await within(replacement)).request_id, "x3");
+  client.terminate();
+});
+
+await check("constructor batching limits are validated", () => {
+  assert.throws(
+    () => new NeuralClient({ batching: true, maxBatch: 0 }),
+    (error) => error.code === "INPUT_INVALID",
+  );
+  assert.throws(
+    () => new NeuralClient({ batching: true, maxQueue: 0 }),
+    (error) => error.code === "INPUT_INVALID",
+  );
+  assert.throws(
+    () => new NeuralClient({ batching: true, batchDelayMs: -1 }),
+    (error) => error.code === "INPUT_INVALID",
+  );
+});
+
 console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);

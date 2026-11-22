@@ -33,7 +33,9 @@ let session = null;
 // never imports the test adapter, so the capability is absent rather than gated
 // by a JavaScript/client flag.
 let model = null;
-let directPort = null;
+let activeDirectPort = null;
+let directInFlight = false;
+let directDetachRequested = false;
 
 // Bounded exact inference cache for legal-only MCTS predictions. It is disabled
 // by default; enabling is explicit and every entry is keyed by model/provider,
@@ -90,7 +92,22 @@ function configureInferenceCache(request) {
   inferenceCache.maxEntries = maxEntries;
   inferenceCache.maxBytes = maxBytes;
   if (!enabled) resetInferenceCache({ keepStats: true });
+  else enforceCacheLimits();
   return cacheStats();
+}
+
+function enforceCacheLimits() {
+  while (
+    inferenceCache.entries.size > inferenceCache.maxEntries ||
+    inferenceCache.bytes > inferenceCache.maxBytes
+  ) {
+    const oldest = inferenceCache.entries.keys().next().value;
+    if (oldest === undefined) break;
+    const removed = inferenceCache.entries.get(oldest);
+    inferenceCache.entries.delete(oldest);
+    inferenceCache.bytes -= removed.bytes;
+    inferenceCache.evictions += 1;
+  }
 }
 
 function planesCacheKey(planes, size) {
@@ -144,17 +161,7 @@ function cacheInsert(key, entry) {
   }
   inferenceCache.entries.set(key, { ...entry, bytes });
   inferenceCache.bytes += bytes;
-  while (
-    inferenceCache.entries.size > inferenceCache.maxEntries ||
-    inferenceCache.bytes > inferenceCache.maxBytes
-  ) {
-    const oldest = inferenceCache.entries.keys().next().value;
-    if (oldest === undefined) break;
-    const removed = inferenceCache.entries.get(oldest);
-    inferenceCache.entries.delete(oldest);
-    inferenceCache.bytes -= removed.bytes;
-    inferenceCache.evictions += 1;
-  }
+  enforceCacheLimits();
 }
 
 function named(name, message) {
@@ -653,19 +660,27 @@ async function inferCompact(request) {
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (expectedModel === undefined || expectedModel === null)
     throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+  self.__neuralIdentity.validateModelIdentity(expectedModel, activeModelIdentity());
   if (size !== model.size)
     throw named("BOARD_SIZE_MISMATCH", `Requested size ${size} does not match the model`);
   if (ruleset !== model.ruleset)
     throw named("RULESET_MISMATCH", `Requested ruleset ${ruleset} does not match the model`);
   if ((planes === undefined) === (planesBase64 === undefined))
     throw named("INPUT_INVALID", "Provide exactly one of planes or planes_base64");
+  assertRequestId(request_id);
+  assertPositionDigest(position_digest);
+  assertLegal(legal, size);
+  // Validate/decode the encoded input before consulting the cache so malformed
+  // input can never bypass validation via a warm hit.
+  const compactPlanes =
+    planesBase64 !== undefined
+      ? decodePlanesBase64(planesBase64, size)
+      : (assertPlanes(planes, size), planes);
+  const canonicalPlanes =
+    planesBase64 !== undefined ? planesBase64 : planesCacheKey(compactPlanes, size);
   const key =
-    inferenceCache.enabled && model
-      ? inferenceCacheKey(
-          model,
-          planesBase64 !== undefined ? planesBase64 : planesCacheKey(planes, size),
-          legal,
-        )
+    inferenceCache.enabled && canonicalPlanes !== null
+      ? inferenceCacheKey(model, canonicalPlanes, legal)
       : null;
   const cached = key ? cacheLookup(key) : null;
   if (cached) {
@@ -692,10 +707,6 @@ async function inferCompact(request) {
       cache_hit: true,
     };
   }
-  const compactPlanes =
-    planesBase64 !== undefined
-      ? decodePlanesBase64(planesBase64, size)
-      : planes;
   const result = await runBatch(
     [{ planes: compactPlanes, legal, request_id, position_digest }],
     model.size,
@@ -808,31 +819,73 @@ self.__neuralWorkerInternals = {
   runBatch,
 };
 
-async function handleDirectRequest(data) {
+async function handleDirectRequest(port, data) {
+  if (directInFlight) {
+    port.postMessage({
+      kind: "infer_error",
+      id: data.id,
+      error: "Another direct inference is already running",
+      code: "DIRECT_BUSY",
+    });
+    return;
+  }
+  directInFlight = true;
   try {
     const value = await inferCompact(data.request);
-    directPort.postMessage({ kind: "infer_result", id: data.id, value });
+    port.postMessage({ kind: "infer_result", id: data.id, value });
   } catch (error) {
-    directPort.postMessage({
+    port.postMessage({
       kind: "infer_error",
       id: data.id,
       error: String(error?.message ?? error),
       code: error?.code ?? null,
     });
+  } finally {
+    directInFlight = false;
+    if (directDetachRequested) {
+      activeDirectPort = null;
+      directDetachRequested = false;
+    }
   }
 }
 
 onmessage = async ({ data }) => {
   if (data.control === "attachDirectPort") {
-    directPort = data.port;
-    directPort.onmessage = ({ data: directData }) => {
-      if (directData?.kind === "infer") void handleDirectRequest(directData);
+    if (activeDirectPort || directInFlight) {
+      postMessage({
+        id: data.id,
+        error: "Another direct channel is already active",
+        code: "DIRECT_BUSY",
+      });
+      return;
+    }
+    activeDirectPort = data.port;
+    const attachedPort = data.port;
+    attachedPort.onmessage = ({ data: directData }) => {
+      if (directData?.kind === "infer") void handleDirectRequest(attachedPort, directData);
     };
     postMessage({ id: data.id, value: { kind: "direct_port_attached" } });
     return;
   }
+  if (data.control === "detachDirectPort") {
+    directDetachRequested = true;
+    if (!directInFlight) {
+      activeDirectPort = null;
+      directDetachRequested = false;
+    }
+    postMessage({
+      id: data.id,
+      value: {
+        kind: "direct_port_detached",
+        pending: Boolean(directInFlight),
+      },
+    });
+    return;
+  }
   const { id, request } = data;
   try {
+    if (directInFlight)
+      throw named("DIRECT_BUSY", "A direct inference is already running");
     let value;
     if (request.action === "capabilities") value = await capabilities();
     else if (request.action === "load") value = await loadModel(request);

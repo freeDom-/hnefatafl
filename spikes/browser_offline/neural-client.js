@@ -83,6 +83,21 @@ async function readBodyBounded(response, maxBytes) {
   return combined.buffer;
 }
 
+function validateBatchLimits(maxBatch, maxQueue) {
+  if (!Number.isInteger(maxBatch) || maxBatch < 1 || maxBatch > 32)
+    throw named("INPUT_INVALID", "maxBatch must be an integer in 1..32");
+  if (!Number.isInteger(maxQueue) || maxQueue < 1 || maxQueue > 256)
+    throw named("INPUT_INVALID", "maxQueue must be an integer in 1..256");
+}
+
+function settleBatchEntry(entry, value, error) {
+  if (entry.settled) return false;
+  entry.settled = true;
+  if (error) entry.reject(error);
+  else entry.resolve(value);
+  return true;
+}
+
 export class NeuralClient {
   constructor({
     testHooks = false,
@@ -120,12 +135,17 @@ export class NeuralClient {
     this.digestFn = sha256Hex;
     // Opt-in bounded batching for independent search contexts sharing this
     // client. Normal foreground analysis keeps the single-request path.
+    validateBatchLimits(maxBatch, maxQueue);
+    if (!Number.isInteger(batchDelayMs) || batchDelayMs < 0 || batchDelayMs > 1000)
+      throw named("INPUT_INVALID", "batchDelayMs must be an integer in 0..1000");
     this.batching = batching === true;
     this.maxBatch = maxBatch;
     this.maxQueue = maxQueue;
     this.batchQueue = [];
     this.batchDraining = null;
     this.batchIds = new Set();
+    this.batchEntries = new Map();
+    this.batchInFlight = null;
     this.batchIgnored = new Set();
     this.batchDelayMs = batchDelayMs;
     this.batchTimer = null;
@@ -139,10 +159,7 @@ export class NeuralClient {
   }
 
   enableBatching({ maxBatch = 4, maxQueue = 16 } = {}) {
-    if (!Number.isInteger(maxBatch) || maxBatch < 1 || maxBatch > 32)
-      throw named("INPUT_INVALID", "maxBatch must be an integer in 1..32");
-    if (!Number.isInteger(maxQueue) || maxQueue < 1 || maxQueue > 256)
-      throw named("INPUT_INVALID", "maxQueue must be an integer in 1..256");
+    validateBatchLimits(maxBatch, maxQueue);
     this.batching = true;
     this.maxBatch = maxBatch;
     this.maxQueue = maxQueue;
@@ -166,7 +183,7 @@ export class NeuralClient {
       return Promise.reject(named("QUEUE_FULL", "Batched inference queue is full"));
     }
     return new Promise((resolve, reject) => {
-      this.batchQueue.push({ payload, resolve, reject });
+      this.batchQueue.push({ payload, resolve, reject, settled: false });
       this.batchStats.requests += 1;
       if (!this.batchDraining && this.batchTimer === null) {
         this.batchTimer = setTimeout(() => {
@@ -192,7 +209,7 @@ export class NeuralClient {
         );
         if (!compatible) {
           const error = named("MODEL_IDENTITY_MISMATCH", "Batch contains incompatible models");
-          for (const entry of batch) entry.reject(error);
+          for (const entry of batch) settleBatchEntry(entry, null, error);
           continue;
         }
         const cases = payloads.map((payload) => ({
@@ -205,6 +222,7 @@ export class NeuralClient {
         }));
         const batchIds = new Set(payloads.map((payload) => payload.request_id));
         this.batchIds = batchIds;
+        for (const entry of batch) this.batchEntries.set(entry.payload.request_id, entry);
         this.batchStats.batches += 1;
         this.batchStats.observed_max_batch = Math.max(
           this.batchStats.observed_max_batch,
@@ -213,36 +231,64 @@ export class NeuralClient {
         this.batchStats.last_batch_sizes.push(batch.length);
         if (this.batchStats.last_batch_sizes.length > 32)
           this.batchStats.last_batch_sizes.shift();
-        let response;
+        let response = null;
+        let batchFailure = null;
         try {
-          response = await this.request(
+          this.batchInFlight = this.request(
             { action: "inferManyCompact", cases, model },
             { timeoutMs: INFER_TIMEOUT_MS },
           );
+          response = await this.batchInFlight;
         } catch (error) {
+          batchFailure = error;
+        } finally {
+          this.batchInFlight = null;
+        }
+        if (batchFailure) {
           for (const entry of batch) {
-            if (this.batchIgnored.delete(entry.payload.request_id)) continue;
-            entry.reject(error);
+            const ignored = this.batchIgnored.delete(entry.payload.request_id);
+            settleBatchEntry(
+              entry,
+              null,
+              ignored
+                ? named("AbortError", "Batched inference was cancelled")
+                : batchFailure,
+            );
+            if (ignored) this.batchStats.rejected += 1;
           }
+          for (const entry of batch) this.batchEntries.delete(entry.payload.request_id);
           this.batchIds = new Set();
           continue;
         }
-        const byId = new Map(
-          (response.results ?? []).map((row) => [row.request_id, row]),
-        );
+        let byId = new Map();
+        try {
+          if (!response || !Array.isArray(response.results))
+            throw named("RESPONSE_MISMATCH", "Batched inference returned no results");
+          byId = new Map(response.results.map((row) => [row?.request_id, row]));
+        } catch (error) {
+          batchFailure = error;
+        }
         for (const entry of batch) {
           const requestId = entry.payload.request_id;
           if (this.batchIgnored.delete(requestId)) {
             this.batchStats.rejected += 1;
-            entry.reject(named("AbortError", "Batched inference was cancelled"));
+            settleBatchEntry(
+              entry,
+              null,
+              named("AbortError", "Batched inference was cancelled"),
+            );
             continue;
           }
           const row = byId.get(requestId);
-          if (!row) {
-            entry.reject(named("RESPONSE_MISMATCH", "Batched response omitted a request"));
+          if (batchFailure || !row) {
+            settleBatchEntry(
+              entry,
+              null,
+              batchFailure ?? named("RESPONSE_MISMATCH", "Batched response omitted a request"),
+            );
             continue;
           }
-          entry.resolve({
+          settleBatchEntry(entry, {
             provider_requested: response.provider_requested,
             execution_placement: response.execution_placement,
             gpu_execution_verified: response.gpu_execution_verified === true,
@@ -264,6 +310,7 @@ export class NeuralClient {
             cache_hit: false,
           });
         }
+        for (const entry of batch) this.batchEntries.delete(entry.payload.request_id);
         this.batchIds = new Set();
       }
     })().finally(() => {
@@ -357,8 +404,12 @@ export class NeuralClient {
     }
     clearTimeout(this.batchTimer);
     this.batchTimer = null;
-    for (const entry of this.batchQueue.splice(0)) entry.reject(error);
+    for (const entry of this.batchQueue.splice(0)) settleBatchEntry(entry, null, error);
+    for (const entry of this.batchEntries.values()) settleBatchEntry(entry, null, error);
+    this.batchEntries.clear();
     this.batchIds = new Set();
+    this.batchIgnored.clear();
+    this.batchInFlight = null;
     if (this.abandoned) {
       const abandoned = this.abandoned;
       abandoned.abandonedOutcome = {
@@ -427,6 +478,26 @@ export class NeuralClient {
     return this.request({ action: "capabilities" }, { timeoutMs: 15000 });
   }
 
+  detachDirectPort({ timeoutMs = 5000 } = {}) {
+    if (!this.worker) return Promise.resolve({ kind: "direct_port_detached", pending: false });
+    const worker = this.worker;
+    const id = ++this.sequence;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        worker.removeEventListener?.("message", onMessage);
+        resolve({ kind: "direct_port_detached", pending: true });
+      }, timeoutMs);
+      const onMessage = ({ data }) => {
+        if (data?.id !== id) return;
+        clearTimeout(timer);
+        worker.removeEventListener?.("message", onMessage);
+        resolve(data.value ?? { kind: "direct_port_detached", pending: false });
+      };
+      worker.addEventListener?.("message", onMessage);
+      worker.postMessage({ control: "detachDirectPort", id });
+    });
+  }
+
   attachDirectPort(port, { timeoutMs = 5000 } = {}) {
     if (!this.worker) throw named("WorkerError", "Neural worker is not loaded");
     const worker = this.worker;
@@ -441,7 +512,11 @@ export class NeuralClient {
         clearTimeout(timer);
         worker.removeEventListener?.("message", onMessage);
         if (data.value?.kind === "direct_port_attached") resolve(data.value);
-        else reject(named("WorkerError", "Neural direct port attachment failed"));
+        else {
+          const error = named("WorkerError", data.error ?? "Neural direct port attachment failed");
+          error.code = data.code ?? "WorkerError";
+          reject(error);
+        }
       };
       worker.addEventListener?.("message", onMessage);
       worker.postMessage({ control: "attachDirectPort", id, port }, [port]);
@@ -473,14 +548,14 @@ export class NeuralClient {
   // caller; only the worker drain is awaited. If the worker does not drain, it
   // is terminated and the session must be reloaded.
   async cancelRequest({ reason = "Neural request cancelled", drainMs = 1500, requestId = null } = {}) {
-    if (this.draining) return this.draining;
     if (this.batching && requestId) {
       const index = this.batchQueue.findIndex(
         (entry) => entry.payload.request_id === requestId,
       );
       if (index >= 0) {
         const [entry] = this.batchQueue.splice(index, 1);
-        entry.reject(named("AbortError", reason));
+        settleBatchEntry(entry, null, named("AbortError", reason));
+        this.batchStats.rejected += 1;
         return {
           state: "drained",
           sessionRetained: this.model !== null,
@@ -489,15 +564,33 @@ export class NeuralClient {
         };
       }
       if (this.batchIds.has(requestId)) {
+        const entry = this.batchEntries.get(requestId);
         this.batchIgnored.add(requestId);
-        return {
-          state: "drained",
-          sessionRetained: this.model !== null,
-          workerRetained: this.worker !== null,
-          outcome: "aborted",
-        };
+        if (entry) settleBatchEntry(entry, null, named("AbortError", reason));
+        this.batchStats.rejected += 1;
+        const worker = this.worker;
+        const generation = this.generation;
+        // Do not report drained until the worker batch that may still be
+        // executing has settled. The result is ignored above and never applied.
+        const completion = this.batchInFlight ?? Promise.resolve();
+        return completion.then(
+          () => ({
+            state: this.worker === worker && this.generation === generation ? "drained" : "terminated",
+            sessionRetained: this.model !== null,
+            workerRetained: this.worker === worker,
+            outcome: "aborted",
+          }),
+          (error) => ({
+            state: this.worker === worker && this.generation === generation ? "drained" : "terminated",
+            sessionRetained: this.model !== null,
+            workerRetained: this.worker === worker,
+            outcome: "failed",
+            errorCode: error?.code ?? null,
+          }),
+        );
       }
     }
+    if (this.draining) return this.draining;
     const pending = this.pending;
     if (!pending) {
       return {

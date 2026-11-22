@@ -649,7 +649,58 @@ try {
       const third = await call(3, "cache-3");
       const fourth = await call(4, "cache-4");
       const hit = await call(4, "cache-hit");
+      const reject = async (overrides) => {
+        try {
+          await client.inferCompact({
+            planes_base64: bytes(4),
+            size: model.size,
+            legal: [0, 1],
+            ruleset: model.ruleset,
+            request_id: "cache-invalid",
+            position_digest: "a".repeat(64),
+            model,
+            ...overrides,
+          });
+          return null;
+        } catch (error) {
+          return error.code ?? error.name;
+        }
+      };
+      const errors = {
+        model: await reject({ model: { ...model, sha256: "b".repeat(64) } }),
+        request: await reject({ request_id: "" }),
+        digest: await reject({ position_digest: "bad" }),
+        legal: await reject({ legal: [9999] }),
+        encoded: await reject({ planes_base64: "AAAA" }),
+      };
+      const entriesBeforeNonbinary = (await client.inferenceCacheStats()).entries;
+      const nonbinaryPlanes = new Array(6 * model.size * model.size).fill(0);
+      nonbinaryPlanes[0] = 2;
+      const nonbinary = await client.inferCompact({
+        planes: nonbinaryPlanes,
+        size: model.size,
+        legal: [0, 1],
+        ruleset: model.ruleset,
+        request_id: "cache-nonbinary",
+        position_digest: "a".repeat(64),
+        model,
+      });
       const before = await client.inferenceCacheStats();
+      const reduced = await client.configureInferenceCache({
+        enabled: true,
+        maxEntries: 1,
+        maxBytes: 1024,
+      });
+      const disabled = await client.configureInferenceCache({
+        enabled: false,
+        maxEntries: 1,
+        maxBytes: 1024,
+      });
+      await client.configureInferenceCache({
+        enabled: true,
+        maxEntries: 2,
+        maxBytes: 1024 * 1024,
+      });
       const staged = await window.neural.meta();
       await client.load("./" + staged.model.file, {
         provider: "wasm",
@@ -658,7 +709,20 @@ try {
         expectedSha256: staged.model.sha256,
       });
       const after = await client.inferenceCacheStats();
-      return { first, second, third, fourth, hit, before, after };
+      return {
+        first,
+        second,
+        third,
+        fourth,
+        hit,
+        errors,
+        nonbinary,
+        entriesBeforeNonbinary,
+        before,
+        reduced,
+        disabled,
+        after,
+      };
     });
     for (const response of [result.first, result.second, result.third, result.fourth, result.hit]) {
       assert.equal(response.legal.length, 2);
@@ -666,9 +730,25 @@ try {
       assert.ok(response.legal_probabilities.every((value) => value >= 0 && value <= 1));
     }
     assert.equal(result.hit.cache_hit, true);
+    assert.equal(result.hit.value, result.fourth.value);
+    assert.deepEqual(result.hit.legal_probabilities, result.fourth.legal_probabilities);
+    assert.deepEqual(result.errors, {
+      model: "MODEL_IDENTITY_MISMATCH",
+      request: "INPUT_INVALID",
+      digest: "INPUT_INVALID",
+      legal: "INPUT_INVALID",
+      encoded: "INPUT_INVALID",
+    });
+    assert.equal(result.nonbinary.cache_hit, false);
+    assert.equal(result.before.entries, result.entriesBeforeNonbinary);
     assert.ok(result.before.hits >= 1);
     assert.ok(result.before.evictions >= 1);
     assert.ok(result.before.entries <= 2);
+    assert.ok(result.reduced.entries <= 1);
+    assert.ok(result.reduced.bytes <= 1024);
+    assert.ok(result.reduced.evictions >= result.before.evictions);
+    assert.equal(result.disabled.entries, 0);
+    assert.equal(result.disabled.bytes, 0);
     assert.equal(result.after.entries, 0);
     assert.equal(result.after.hits, 0);
     await page.close();
