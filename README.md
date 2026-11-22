@@ -6,9 +6,46 @@ from scratch with real self-play learning.
 
 ![Brandubh gameplay with the Wood theme, Carved wood tokens and Old walnut board](docs/screenshots/readme-gameplay.png)
 
-[Documentation](docs/README.md) · [Quick start](#quick-start) · [Training](docs/TRAINING.md) · [Deployment](docs/DEPLOYMENT.md)
+[Documentation](docs/README.md) · [Quick start](#quick-start) · [Training](docs/TRAINING.md) · [Deployment](docs/DEPLOYMENT.md) · [Licensing](#licensing)
 
 <a id="features"></a>
+
+## Licensing
+
+Hnefatafl is **source-available** software licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE), SPDX identifier
+`PolyForm-Noncommercial-1.0.0`. It is **not** OSI-approved open-source software.
+
+The license permits private use, noncommercial self-hosting, noncommercial
+modification and redistribution, and qualifying use by charitable, educational,
+public research, public safety/health, environmental and government
+organizations, as the license defines those terms. Fair-use rights are preserved.
+The summary in this section does not replace the license; the
+[license text](LICENSE) controls, including its definitions and exceptions.
+
+Commercial use not permitted by the license requires separate explicit
+authorization from the relevant rights holders. The project does not offer an
+automatic commercial licensing program or an entitlement to commercial terms.
+Examples that generally require separate authorization include:
+
+- Selling copies of the software.
+- Providing commercial managed hosting.
+- Operating a commercial Hnefatafl platform based on the software.
+- Offering paid subscriptions or premium features using the software.
+- Commercial redistribution.
+- Incorporating the software into commercial products or services.
+
+Use the existing public issue tracker for an initial commercial licensing
+inquiry: <https://github.com/freeDom-/hnefatafl/issues>. Do not post confidential
+information in a public issue.
+
+Third-party components and assets keep their own terms; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Contributor licensing status and
+the proposed non-assignment CLA are in [CONTRIBUTING.md](CONTRIBUTING.md) and
+[the CLA proposal](docs/CONTRIBUTOR_LICENSING.md). The full scope, previous-release
+position, AI-model distinctions and unresolved ownership questions are documented
+in [Licensing](docs/LICENSING.md). Earlier releases contained no root license;
+this change does not retroactively revoke rights or relicense older archives.
 
 ## What you can do
 

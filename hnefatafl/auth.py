@@ -51,11 +51,22 @@ ACCOUNT_ACTIONS = {
     "/api/auth/password-reset/confirm": "confirm",
 }
 ACCOUNT_PAGES = {"/register", "/verify-email", "/forgot-password", "/reset-password"}
-# Signed-out shells load without a session: the login/account pages and the
-# public Watch Hall (`/watch` plus its game and replay children). The frontend
-# entry router owns the remaining `/watch` path shape; the boundary only needs
-# to serve the shell so an anonymous visitor is never redirected to login.
-PUBLIC_SHELL_PAGES = {"/", "/login", "/index.html", "/favicon.svg", "/watch", *ACCOUNT_PAGES}
+# Signed-out shells load without a session: the login/account pages, the
+# public Watch Hall (`/watch` plus its game and replay children) and the fixed
+# legal notices. The frontend entry router owns the remaining `/watch` path
+# shape; the boundary only needs to serve the shell so an anonymous visitor is
+# never redirected to login. Legal files are exact names, never a prefix wildcard.
+PUBLIC_SHELL_PAGES = {
+    "/",
+    "/login",
+    "/index.html",
+    "/favicon.svg",
+    "/watch",
+    "/LICENSE.txt",
+    "/THIRD_PARTY_NOTICES.txt",
+    "/THIRD_PARTY_LICENSES.txt",
+    *ACCOUNT_PAGES,
+}
 PUBLIC_SHELL_PREFIXES = ("/watch/",)
 
 

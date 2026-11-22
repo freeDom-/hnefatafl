@@ -249,9 +249,11 @@ privacy/retention and operational recovery policy require owner validation befor
 enabling signup. These are tested controls, not a claim of immunity.
 
 Browser-local guest play is removed. `/`, `/login`, the registration/verification/
-reset shells and the immutable build assets are the public documents; every other
-page, including an anonymous `GET /guest`, goes through the authenticated shell and
-redirects to `/login?next=%2Fguest`. All documents and APIs
+reset shells, the immutable build assets and the three fixed legal files
+(`/LICENSE.txt`, `/THIRD_PARTY_NOTICES.txt`, `/THIRD_PARTY_LICENSES.txt`) are the
+public documents; every other page, including an anonymous `GET /guest`, goes
+through the authenticated shell and redirects to `/login?next=%2Fguest`. The legal
+files are exact allowlist entries, not a path prefix. All documents and APIs
 share one strict content-security policy; no route receives `wasm-unsafe-eval`.
 
 The Phase 5 history refinement adds read-only `/api/history/games` and

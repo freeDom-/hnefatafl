@@ -1,0 +1,47 @@
+.license-notice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.15rem 0.6rem;
+  font-family: var(--font-ui);
+  font-style: normal;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ui-subtle, #a5a88f);
+}
+
+.license-notice-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.15rem 0.35rem;
+}
+
+.license-notice a {
+  color: inherit;
+  text-underline-offset: 0.18em;
+}
+
+.site-footer .license-notice {
+  flex: 1 1 100%;
+  font-size: 0.6875rem;
+  letter-spacing: 0;
+}
+
+.auth-card .license-notice {
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.public-arena footer .license-notice {
+  color: var(--ui-subtle, #a5a88f);
+}
+
+@media (max-width: 760px) {
+  .site-footer .license-notice,
+  .public-arena .license-notice {
+    font-size: 0.6875rem;
+  }
+}

@@ -33,6 +33,12 @@ are refused. See [release packaging](RELEASING.md#production-updater-assets).
 Neither installer publishes a release. Installation requires an already available
 compatible published stable release; files on `main` alone are insufficient.
 
+The release archive includes `LICENSE`, `THIRD_PARTY_NOTICES.md` and the frontend
+license files. Installation and update do not require license acceptance and do
+not add license keys, remote activation or telemetry. The software remains
+source-available under the PolyForm Noncommercial License 1.0.0; see
+[Licensing](LICENSING.md) and the root [LICENSE](../LICENSE).
+
 ## Proxmox one-line installation
 
 As **root on a Proxmox VE host**, from any working directory:

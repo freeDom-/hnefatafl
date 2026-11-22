@@ -110,6 +110,11 @@ Probe used the current policy literal on a test response; it did not validate a 
 
 ## Upstream documentation and licensing
 
+> Current repository status (2026-11-22): the project now uses the PolyForm
+> Noncommercial License 1.0.0 and maintains third-party notices. The observations
+> below record the earlier browser-neural assessment; they do not describe the
+> current project license. See [project licensing](../LICENSING.md).
+
 Primary sources reviewed2026-11-15:
 - [PyTorch2.14 ONNX documentation](https://docs.pytorch.org/docs/2.14/onnx.html): use an explicitly supported conversion path and required tooling for the installed framework version.
 - [ORT Web overview](https://onnxruntime.ai/docs/tutorials/web/): browser use requires a compatible ONNX model and preprocessing/postprocessing; GPU execution-provider operator coverage is a subset.

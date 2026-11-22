@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { LanguageSelect, useI18n } from './i18n';
+import LicenseNotice from './LicenseNotice';
 import PageHeading from './PageHeading';
 import { validatePassword } from './passwordPolicy';
 
@@ -313,6 +314,7 @@ export default function AccountForms({
           </button>
         )}
         <a href="/watch">{t('Watch public games')}</a>
+        <LicenseNotice />
       </section>
     </main>
   );

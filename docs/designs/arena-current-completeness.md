@@ -285,7 +285,9 @@ included changes; final combined functional, visual, accessibility, regression,
 performance, security, recovery and deployment acceptance then applies to the
 actual integrated release candidate, not to an earlier branch snapshot.
 Licensing, third-party notices and explicit owner authorization remain release
-gates.
+gates. A licensing implementation and the required owner/legal confirmations are
+recorded in [the licensing audit](../LICENSING.md); the proposed contributor terms
+are not active.
 
 Work already owned by a PR is not duplicated: #99 owns league schema/backend
 work. Browser-analysis Phase 1 research (#104) and benchmark hardening (#105) are

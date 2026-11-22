@@ -803,9 +803,10 @@ h1 {
   padding: var(--footer-pad) var(--gutter-x);
   border-top: 1px solid var(--line);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--gap-card);
+  gap: 0.35rem var(--gap-card);
   color: var(--ui-subtle, #a5a88f);
   font-size: 0.5rem;
   letter-spacing: 0.5px;
@@ -1955,7 +1956,7 @@ summary {
     font-size: 0.5625rem;
     letter-spacing: 1.5px;
   }
-  .site-footer > span:last-child {
+  .site-footer > .footer-credit {
     display: none;
   }
   .decorative-rune {

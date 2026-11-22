@@ -264,6 +264,11 @@ const translations: Record<string, string> = {
   'Public navigation': 'Öffentliche Navigation',
   'Three battlefields. Real players. New sagas.': 'Drei Schlachtfelder. Echte Spieler. Neue Sagen.',
   'Join the table': 'Nimm am Tisch Platz',
+  'Source-available under the PolyForm Noncommercial License 1.0.0':
+    'Quelltext verfügbar unter der PolyForm Noncommercial License 1.0.0',
+  'License terms': 'Lizenzbedingungen',
+  'Third-party notices': 'Hinweise zu Drittanbietern',
+  'Commercial licensing': 'Kommerzielle Lizenzierung',
   'Open seat': 'Freier Platz',
   'No official result': 'Kein offizielles Ergebnis',
   '{side} won': '{side} haben gewonnen',

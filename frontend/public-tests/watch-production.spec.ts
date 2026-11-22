@@ -210,6 +210,18 @@ for (const theme of themes) {
       await discoveryLayout(page);
       await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
       await expect(page.locator('html')).toHaveAttribute('lang', language);
+      const license = page.locator('.public-arena .license-notice');
+      await expect(license).toBeVisible();
+      await expect(
+        license.getByRole('link', {
+          name: language === 'de' ? 'Lizenzbedingungen' : 'License terms',
+        }),
+      ).toHaveAttribute('href', '/LICENSE.txt');
+      const licenseText = await page.request.get('/LICENSE.txt');
+      expect(licenseText.status()).toBe(200);
+      expect(await licenseText.text()).toContain('PolyForm Noncommercial License 1.0.0');
+      const notices = await page.request.get('/THIRD_PARTY_NOTICES.txt');
+      expect(notices.status()).toBe(200);
       const colors = await page.locator('.public-intro').evaluate((node) => ({
         text: getComputedStyle(node.querySelector('p:last-child')!).color,
         background: getComputedStyle(node).backgroundColor,
