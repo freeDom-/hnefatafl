@@ -25,9 +25,17 @@
 }
 
 .site-footer .license-notice {
-  flex: 1 1 100%;
+  flex: 0 1 auto;
   font-size: 0.6875rem;
   letter-spacing: 0;
+}
+
+@media (min-width: 1200px) {
+  .site-footer .license-notice,
+  .site-footer .license-notice-links {
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
 }
 
 .auth-card .license-notice {
