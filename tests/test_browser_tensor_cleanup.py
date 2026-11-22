@@ -33,4 +33,4 @@ def test_output_tensors_are_released_on_every_failure_path():
         timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "7/7 tensor-cleanup checks passed" in result.stdout
+    assert "8/8 tensor-cleanup checks passed" in result.stdout

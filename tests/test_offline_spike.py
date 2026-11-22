@@ -51,6 +51,18 @@ def test_staged_shell_has_no_runtime_or_production_dependencies(tmp_path):
         compile(path.read_text(), str(path), "exec")
 
 
+def test_normal_staging_excludes_the_dedicated_test_worker():
+    preparing = (SPIKE / "prepare_neural.py").read_text()
+    normal = (SPIKE / "neural-worker.js").read_text()
+    test_worker = (SPIKE / "neural-worker-test.js").read_text()
+    assert "neural-worker-test.js" not in preparing
+    assert "testHooksEnabled" not in normal
+    assert "async function testDelay" not in normal
+    assert "handleTestAction" in normal
+    assert 'importScripts("./neural-worker.js")' in test_worker
+    assert "__neuralTestAdapter" in test_worker
+
+
 def test_native_bridge_exercises_same_worker_interface():
     namespace = {}
     exec(compile((SPIKE / "bridge.py").read_text(), "bridge.py", "exec"), namespace)

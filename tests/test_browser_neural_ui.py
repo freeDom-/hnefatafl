@@ -38,5 +38,5 @@ def test_standalone_neural_ui_from_clean_state(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads((tmp_path / "ui.json").read_text())
     assert report["ok"] is True
-    assert len(report["checks"]) == 19
+    assert len(report["checks"]) == 21
     assert all(check["ok"] for check in report["checks"])

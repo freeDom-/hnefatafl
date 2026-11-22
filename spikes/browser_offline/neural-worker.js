@@ -29,6 +29,9 @@ importScripts("./neural-identity.js");
 let ortLib = null;
 let ortBundle = null;
 let session = null;
+// Test hooks are supplied by a separate worker entry point. This normal worker
+// never imports the test adapter, so the capability is absent rather than gated
+// by a JavaScript/client flag.
 let model = null;
 
 function named(name, message) {
@@ -161,9 +164,33 @@ function assertFiniteF32(value, label) {
 
 function assertPlanes(planes, size) {
   const expected = INPUT_PLANES * size * size;
-  if (!Array.isArray(planes) || planes.length !== expected)
+  const isArray = Array.isArray(planes);
+  const isArrayBufferView = ArrayBuffer.isView(planes) && !(planes instanceof DataView);
+  if ((!isArray && !isArrayBufferView) || planes.length !== expected)
     throw named("INPUT_INVALID", `Expected ${expected} plane values, received ${planes?.length ?? "none"}`);
   for (const value of planes) assertFiniteF32(value, "Input planes");
+}
+
+function decodePlanesBase64(encoded, size) {
+  if (typeof encoded !== "string" || encoded.length === 0 || encoded.length > 64 * 1024)
+    throw named("INPUT_INVALID", "planes_base64 must be a bounded non-empty string");
+  let binary;
+  try {
+    binary = atob(encoded);
+  } catch {
+    throw named("INPUT_INVALID", "planes_base64 is not valid base64");
+  }
+  const expected = INPUT_PLANES * size * size;
+  if (binary.length !== expected)
+    throw named("INPUT_INVALID", `Expected ${expected} encoded plane bytes, received ${binary.length}`);
+  const planes = new Float32Array(expected);
+  for (let index = 0; index < expected; index += 1) {
+    const value = binary.charCodeAt(index);
+    if (value !== 0 && value !== 1)
+      throw named("INPUT_INVALID", "Encoded binary planes may contain only 0 or 1");
+    planes[index] = value;
+  }
+  return planes;
 }
 
 function assertLegal(legal, size) {
@@ -270,14 +297,19 @@ async function releaseQuietly(target) {
   }
 }
 
-async function testDelay(request) {
-  // Experimental test seam: deliberately delay completion of a real inference so
-  // browser cancellation/drain behaviour can be exercised deterministically.
-  const delay = request?.test_delay_ms;
-  if (delay === undefined || delay === null) return;
-  if (!Number.isInteger(delay) || delay < 0 || delay > 5000)
-    throw named("INPUT_INVALID", "test_delay_ms must be an integer in 0..5000");
-  if (delay > 0) await new Promise((done) => setTimeout(done, delay));
+function rejectTestHook(request) {
+  if (request && Object.prototype.hasOwnProperty.call(request, "test_delay_ms"))
+    throw named("TEST_HOOKS_DISABLED", "test_delay_ms is not accepted by an inference request");
+}
+
+async function handleTestAction(request) {
+  // This branch exists only for the dedicated test worker, which installs an
+  // adapter before/after importing this core. A normal worker has no adapter and
+  // therefore no activatable delay capability.
+  const adapter = self.__neuralTestAdapter;
+  if (!adapter || typeof adapter.handle !== "function")
+    throw named("TEST_HOOKS_DISABLED", "Test inference hooks are unavailable");
+  return adapter.handle(request);
 }
 
 function assertRequestId(value, label = "request_id") {
@@ -310,7 +342,11 @@ function activeModelIdentity() {
   };
 }
 
-async function runBatch(cases, size, { requireIdentity = true, expectedModel = null } = {}) {
+async function runBatch(
+  cases,
+  size,
+  { requireIdentity = true, expectedModel = null, includeLogits = true } = {},
+) {
   if (!session || !model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   // Every workload — inference, batching, benchmarking and sustained runs —
   // must name the exact model it was prepared for. Validate before touching
@@ -365,13 +401,17 @@ async function runBatch(cases, size, { requireIdentity = true, expectedModel = n
   const runMs = performance.now() - runStarted;
 
   let extracted = null;
+  const extractStarted = performance.now();
   if (!failure && output) {
     try {
-      extracted = self.__neuralTensors.extractResults(output, cases.length, size, cases);
+      extracted = self.__neuralTensors.extractResults(output, cases.length, size, cases, {
+        includeLogits,
+      });
     } catch (error) {
       failure = error;
     }
   }
+  const extractMs = performance.now() - extractStarted;
   // Every output tensor must be released even when validation or extraction
   // throws. Cleanup failures mark the worker unhealthy so the client can reset it.
   const cleanup = output ? self.__neuralTensors.disposeTensors(output) : [];
@@ -393,6 +433,7 @@ async function runBatch(cases, size, { requireIdentity = true, expectedModel = n
     model_bytes: model.modelBytes,
     tensor_prepare_ms: prepareMs,
     run_ms: runMs,
+    extract_ms: extractMs,
     batch: cases.length,
     requested_count: cases.length,
     batch_limit: MAX_BATCH,
@@ -400,7 +441,7 @@ async function runBatch(cases, size, { requireIdentity = true, expectedModel = n
 }
 
 async function inferSingle(request) {
-  await testDelay(request);
+  rejectTestHook(request);
   const { planes, legal, ruleset, size, request_id, position_digest, model: expectedModel } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (expectedModel === undefined || expectedModel === null)
@@ -431,7 +472,7 @@ async function inferSingle(request) {
 }
 
 async function inferMany(request) {
-  await testDelay(request);
+  rejectTestHook(request);
   const { cases, model: expectedModel } = request;
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (expectedModel === undefined || expectedModel === null)
@@ -440,6 +481,48 @@ async function inferMany(request) {
   return {
     ...result,
     per_position_ms: result.run_ms / result.batch,
+  };
+}
+
+async function inferCompact(request) {
+  const {
+    planes,
+    planes_base64: planesBase64,
+    legal,
+    ruleset,
+    size,
+    request_id,
+    position_digest,
+    model: expectedModel,
+  } = request;
+  if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
+  if (expectedModel === undefined || expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+  if (size !== model.size)
+    throw named("BOARD_SIZE_MISMATCH", `Requested size ${size} does not match the model`);
+  if (ruleset !== model.ruleset)
+    throw named("RULESET_MISMATCH", `Requested ruleset ${ruleset} does not match the model`);
+  if ((planes === undefined) === (planesBase64 === undefined))
+    throw named("INPUT_INVALID", "Provide exactly one of planes or planes_base64");
+  const compactPlanes =
+    planesBase64 !== undefined
+      ? decodePlanesBase64(planesBase64, size)
+      : planes;
+  const result = await runBatch(
+    [{ planes: compactPlanes, legal, request_id, position_digest }],
+    model.size,
+    { expectedModel, includeLogits: false },
+  );
+  return {
+    ...result,
+    index: 0,
+    request_id: result.results[0].request_id,
+    position_digest: result.results[0].position_digest,
+    value: result.results[0].value,
+    legal: result.results[0].legal,
+    legal_probabilities: result.results[0].legal_probabilities,
+    inference_ms: result.tensor_prepare_ms + result.run_ms + result.extract_ms,
+    payload_mode: "legal-only",
   };
 }
 
@@ -522,12 +605,26 @@ async function release(request) {
   return { released, memory: memorySnapshot() };
 }
 
+self.__neuralWorkerInternals = {
+  inferSingle,
+  inferCompact,
+  runBatch,
+};
+
 onmessage = async ({ data: { id, request } }) => {
   try {
     let value;
     if (request.action === "capabilities") value = await capabilities();
     else if (request.action === "load") value = await loadModel(request);
     else if (request.action === "infer") value = await inferSingle(request);
+    else if (request.action === "inferCompact") value = await inferCompact(request);
+    else if (request.action === "test") value = await handleTestAction(request);
+    else if (
+      request.action === "configureTestHooks" ||
+      request.action === "inferTestonly" ||
+      request.action === "inferCompactTestonly"
+    )
+      throw named("TEST_HOOKS_DISABLED", "Test inference hooks are unavailable");
     else if (request.action === "inferMany") value = await inferMany(request);
     else if (request.action === "benchmark") value = await benchmark(request);
     else if (request.action === "sustained") value = await sustained(request);

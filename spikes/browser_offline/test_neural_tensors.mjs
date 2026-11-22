@@ -49,6 +49,36 @@ await check("valid outputs are extracted and each tensor disposed once", () => {
   assert.equal(value.disposed, 1);
 });
 
+await check("compact extraction has exact legal-probability parity with full logits", () => {
+  const data = Array.from({ length: 16 }, (_, i) => (i % 5) / 7 - 0.2);
+  const casesWithLegal = [
+    { legal: [0, 3, 7, 15], request_id: "p0", position_digest: "a".repeat(64) },
+  ];
+  const full = tensors.extractResults(
+    {
+      policy_logits: fakeTensor({ dims: [1, 16], data }),
+      defender_value: fakeTensor({ dims: [1], data: [0.2] }),
+    },
+    1,
+    2,
+    casesWithLegal,
+  );
+  const compact = tensors.extractResults(
+    {
+      policy_logits: fakeTensor({ dims: [1, 16], data }),
+      defender_value: fakeTensor({ dims: [1], data: [0.2] }),
+    },
+    1,
+    2,
+    casesWithLegal,
+    { includeLogits: false },
+  );
+  assert.deepEqual(compact.results[0].legal_probabilities, full.results[0].legal_probabilities);
+  assert.equal(compact.results[0].value, full.results[0].value);
+  assert.equal("policy_logits" in compact.results[0], false);
+  assert.equal("illegal_mass_raw" in compact.results[0], false);
+});
+
 await check("invalid dimensions throw but every output tensor is still disposed", () => {
   const policy = fakeTensor({ dims: [1, 4], data: Array.from({ length: 16 }, (_, i) => i / 100) });
   const value = fakeTensor({ dims: [1], data: [0.2] });

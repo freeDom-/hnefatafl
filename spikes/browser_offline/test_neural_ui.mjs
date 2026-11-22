@@ -531,6 +531,92 @@ try {
     await page.close();
   });
 
+  await record("The inference delay hook is unavailable on the normal page", async () => {
+    const { page } = await freshPage();
+    const result = await page.evaluate(async () => {
+      const client = window.neural.client;
+      let setter = null;
+      try {
+        client.setTestInferenceDelay(25);
+      } catch (error) {
+        setter = error.code;
+      }
+      const rejected = [];
+      for (const request of [
+        {
+          action: "infer",
+          planes: new Array(294).fill(0),
+          size: 7,
+          legal: [0, 1],
+          ruleset: "brandubh",
+          request_id: "test-only",
+          position_digest: "a".repeat(64),
+          model: { sha256: "b".repeat(64), ruleset: "brandubh", size: 7 },
+          test_delay_ms: 10,
+        },
+        { action: "test", test_action: "configure", enabled: true },
+        { action: "configureTestHooks", enabled: true },
+        { action: "inferTestonly", test_delay_ms: 10 },
+        { action: "inferCompactTestonly", test_delay_ms: 10 },
+      ]) {
+        try {
+          await client.request(request, { timeoutMs: 5000 });
+          rejected.push(null);
+        } catch (error) {
+          rejected.push(error.code ?? error.name);
+        }
+      }
+      return {
+        testHooks: client.testHooks,
+        workerUrl: client.workerUrl,
+        setter,
+        rejected,
+      };
+    });
+    assert.equal(result.testHooks, false);
+    assert.equal(result.workerUrl, null);
+    assert.equal(result.setter, "TEST_HOOKS_DISABLED");
+    assert.deepEqual(result.rejected, Array(5).fill("TEST_HOOKS_DISABLED"));
+    // The normal worker remains fully operational after rejected test actions.
+    await page.click("#infer");
+    await waitState(page, "completed", 180000);
+    await page.close();
+  });
+
+  await record("Compact inference rejects malformed encoded planes", async () => {
+    const { page } = await freshPage();
+    await page.click("#load");
+    await waitState(page, "completed", 180000);
+    const result = await page.evaluate(async () => {
+      const client = window.neural.client;
+      const model = client.modelIdentity();
+      const cases = [
+        { planes_base64: "AAAA", legal: [0, 1] },
+        { planes_base64: btoa("x".repeat(294)), legal: [0, 1] },
+        { planes: new Array(294).fill(0), planes_base64: "AA==", legal: [0, 1] },
+      ];
+      const errors = [];
+      for (const entry of cases) {
+        try {
+          await client.inferCompact({
+            ...entry,
+            size: model.size,
+            ruleset: model.ruleset,
+            request_id: "malformed",
+            position_digest: "a".repeat(64),
+            model,
+          });
+          errors.push(null);
+        } catch (error) {
+          errors.push(error.code ?? error.name);
+        }
+      }
+      return errors;
+    });
+    assert.deepEqual(result, ["INPUT_INVALID", "INPUT_INVALID", "INPUT_INVALID"]);
+    await page.close();
+  });
+
   await record("Navigation away and back recovers without a reload", async () => {
     const { page } = await freshPage();
     await page.goto("about:blank");
