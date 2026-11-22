@@ -26,6 +26,15 @@ from hnefatafl.mcts_driver import position_identity, validate_search_settings  #
 
 SCHEMA = 1
 REQUIRED_CATEGORIES = ("opening", "tactical", "repetition", "terminal")
+KNOWN_CASE_KINDS = {
+    "opening",
+    "midgame",
+    "endgame",
+    "tactical",
+    "repetition",
+    "terminal",
+    "king-escape",
+}
 COMPLETION_REASONS = {
     "simulations",
     "deadline",
@@ -314,7 +323,7 @@ def _validate_fixed_time(case: dict, failures: list[str]) -> None:
         if not isinstance(cutoff, bool):
             failures.append(f"{label}: deadline_cutoff must be a boolean")
         reason = search.get("completion_reason")
-        if reason not in COMPLETION_REASONS:
+        if not isinstance(reason, str) or reason not in COMPLETION_REASONS:
             failures.append(f"{label}: unsupported completion reason {reason!r}")
         special = _validate_terminal_or_immediate(search, analysis, label, terminal, failures)
         if not special:
@@ -482,11 +491,15 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
     if len(set(observed_names)) != len(observed_names):
         failures.append("measured cases contain duplicate position identifiers")
     for ruleset in expected_rulesets:
-        present = {
-            case.get("kind")
-            for case in cases
-            if isinstance(case, dict) and case.get("ruleset") == ruleset
-        }
+        present = set()
+        for case in cases:
+            if not isinstance(case, dict) or case.get("ruleset") != ruleset:
+                continue
+            kind = case.get("kind")
+            if not isinstance(kind, str) or kind not in KNOWN_CASE_KINDS:
+                failures.append(f"case entry {case.get('position')!r} has an invalid position kind")
+                continue
+            present.add(kind)
         for category in REQUIRED_CATEGORIES:
             if category not in present:
                 failures.append(f"{ruleset}: missing required position category {category!r}")

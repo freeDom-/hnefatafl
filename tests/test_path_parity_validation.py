@@ -604,3 +604,38 @@ def test_malformed_coverage_identifiers_fail_without_exceptions(tmp_path, mutati
     assert code != 0
     assert cli_report["ok"] is False
     assert cli_report["failures"]
+
+
+@pytest.mark.parametrize("value", [None, [], {}, True, 3, "unsupported-kind"])
+def test_malformed_case_kind_is_rejected(value):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    report["cases"][0]["kind"] = value
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert validated["failures"]
+    assert any("invalid position kind" in failure for failure in validated["failures"])
+
+
+@pytest.mark.parametrize("value", [None, [], {}, True, 3, "unsupported-reason"])
+def test_malformed_completion_reason_is_rejected(value):
+    report = _report(fixed_time=True)
+    report["mode"] = "fixed_time"
+    case = _fixed_time_case(report)
+    case["full"]["search"]["completion_reason"] = value
+    case["compact"]["search"]["completion_reason"] = value
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert any("unsupported completion reason" in failure for failure in case["failures"])
+
+
+@pytest.mark.parametrize("value", [None, [], {}, True, 3, "unsupported-kind"])
+def test_cli_rejects_malformed_kind_and_exits_nonzero(tmp_path, value):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    report["cases"][0]["kind"] = value
+    code, validated = _run_cli(tmp_path, report)
+    assert code != 0
+    assert validated["ok"] is False
+    assert validated["failures"]
