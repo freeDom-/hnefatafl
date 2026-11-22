@@ -16,7 +16,7 @@ import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
 
 const RULESETS = ["brandubh", "tablut", "copenhagen"];
 const argv = process.argv.slice(2);
-const valueOptions = new Set(["provider", "output", "simulations"]);
+const valueOptions = new Set(["provider", "output", "simulations", "transport"]);
 const roots = [];
 for (let index = 0; index < argv.length; index += 1) {
   const argument = argv[index];
@@ -35,6 +35,7 @@ const provider = option("provider", "wasm");
 const output = option("output", null);
 const simulations = Number(option("simulations", "64"));
 const fixedTime = flag("fixed-time");
+const transport = option("transport", "relay");
 const injectPageError = flag("inject-page-error");
 const python = process.env.SPIKE_PYTHON || resolve(import.meta.dirname, "../../.venv/bin/python");
 const mime = {
@@ -101,6 +102,7 @@ const report = {
   fixed_time: fixedTime,
   mode: fixedTime ? "fixed_time" : "fixed_simulations",
   simulations,
+  transport,
   roots: roots.map((root) => basename(root)),
   expected_rulesets: [],
   models: [],
@@ -189,6 +191,7 @@ try {
       return page.evaluate(
         async (payload) => {
           window.neural.coordinator.compactInference = payload.compact;
+          window.neural.coordinator.directInference = payload.transport === "direct";
           return window.neural.coordinator.search({
             state: payload.state,
             settings: payload.settings,

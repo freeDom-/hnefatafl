@@ -876,8 +876,133 @@ await check("a normal client cannot activate any test-worker action", async () =
   client.terminate();
 });
 
-console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
 if (failures.length) {
   for (const row of failures) console.error(`  - ${row.name}: ${row.error}`);
   process.exit(1);
 }
+
+// ---------- bounded independent-search batching ----------
+function batchingClient(maxBatch = 4, maxQueue = 4) {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient({ batching: true, maxBatch, maxQueue, batchDelayMs: 1 });
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+  };
+  return client;
+}
+
+function compactRequest(id, planes = null) {
+  return {
+    planes: planes ?? new Array(294).fill(0),
+    size: 7,
+    legal: [0, 1],
+    ruleset: "brandubh",
+    request_id: id,
+    position_digest: "b".repeat(64),
+    model: { sha256: "a".repeat(64), ruleset: "brandubh", size: 7 },
+  };
+}
+
+function batchResult(requestId, value = 0.25) {
+  return {
+    index: 0,
+    request_id: requestId,
+    position_digest: "b".repeat(64),
+    value,
+    legal: [0, 1],
+    legal_probabilities: [0.5, 0.5],
+  };
+}
+
+await check("independent inference requests share one bounded batch", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("r1"));
+  const second = client.inferCompact(compactRequest("r2"));
+  await sleep(10);
+  const worker = client.worker;
+  assert.equal(worker.messages.length, 1);
+  const payload = worker.messages[0].request;
+  assert.equal(payload.action, "inferManyCompact");
+  assert.equal(payload.cases.length, 2);
+  worker.respond(0, {
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    gpu_execution_verified: false,
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    results: [batchResult("r2", 0.4), batchResult("r1", 0.2)],
+    tensor_prepare_ms: 1,
+    run_ms: 2,
+    extract_ms: 0,
+    batch: 2,
+  });
+  const [one, two] = await Promise.all([first, second]);
+  assert.equal(one.value, 0.2);
+  assert.equal(two.value, 0.4);
+  assert.equal(one.request_id, "r1");
+  assert.equal(two.request_id, "r2");
+  assert.equal(client.batchStatistics().batches, 1);
+  assert.equal(client.batchStatistics().observed_max_batch, 2);
+  client.terminate();
+});
+await check("batch queue is bounded and rejects overflow", async () => {
+  const client = batchingClient(2, 1);
+  const first = client.inferCompact(compactRequest("q1"));
+  await assert.rejects(
+    () => client.inferCompact(compactRequest("q2")),
+    (error) => error.code === "QUEUE_FULL",
+  );
+  await sleep(10);
+  client.worker.respond(0, {
+    results: [batchResult("q1")],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 1,
+    tensor_prepare_ms: 0,
+    run_ms: 1,
+    extract_ms: 0,
+  });
+  await first;
+  client.terminate();
+});
+await check("queued batched inference can be cancelled by request id", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("c1"));
+  const second = client.inferCompact(compactRequest("c2"));
+  const drained = await client.cancelRequest({ requestId: "c1", reason: "queued cancel" });
+  assert.equal(drained.state, "drained");
+  await assert.rejects(first, (error) => error.name === "AbortError");
+  await sleep(10);
+  client.worker.respond(0, {
+    results: [batchResult("c2")],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 1,
+    tensor_prepare_ms: 0,
+    run_ms: 1,
+    extract_ms: 0,
+  });
+  assert.equal((await second).request_id, "c2");
+  client.terminate();
+});
+await check("a failed batch rejects every independent search", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("f1"));
+  const second = client.inferCompact(compactRequest("f2"));
+  await sleep(10);
+  client.worker.respond(0, null, "batch failed", "OUTPUT_INVALID");
+  await assert.rejects(first, (error) => error.code === "OUTPUT_INVALID");
+  await assert.rejects(second, (error) => error.code === "OUTPUT_INVALID");
+  client.terminate();
+});
+
+console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);

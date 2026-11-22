@@ -144,6 +144,14 @@
           Seed
           <input id="analysis-seed" type="number" min="0" step="1" value="7" />
         </label>
+        <label>
+          <input id="analysis-cache" type="checkbox" />
+          Inference cache
+        </label>
+        <label>
+          <input id="analysis-direct" type="checkbox" />
+          Direct worker transport
+        </label>
         <button id="analysis-start">Start analysis</button>
         <button id="analysis-cancel">Cancel analysis</button>
         <button id="analysis-export">Export result</button>
@@ -161,6 +169,8 @@
         <dt>Model</dt><dd id="analysis-model">—</dd>
         <dt>Provider</dt><dd id="analysis-provider-info">—</dd>
         <dt>Inference payload</dt><dd id="analysis-payload">—</dd>
+        <dt>Inference cache</dt><dd id="analysis-cache-info">—</dd>
+        <dt>Transport</dt><dd id="analysis-transport">—</dd>
         <dt>Completion</dt><dd id="analysis-completion">—</dd>
       </dl>
       <pre id="analysis-output" aria-live="polite"></pre>
@@ -409,6 +419,8 @@
         time: document.querySelector("#analysis-time"),
         exploration: document.querySelector("#analysis-exploration"),
         seed: document.querySelector("#analysis-seed"),
+        cache: document.querySelector("#analysis-cache"),
+        direct: document.querySelector("#analysis-direct"),
         start: document.querySelector("#analysis-start"),
         reload: document.querySelector("#analysis-reload"),
         cancel: document.querySelector("#analysis-cancel"),
@@ -471,6 +483,8 @@
           control.disabled = busy || !neural;
         analysisUi.time.disabled = busy || !ready;
         analysisUi.seed.disabled = busy || !ready;
+        analysisUi.cache.disabled = busy || !neural;
+        analysisUi.direct.disabled = busy || !neural;
         analysisUi.start.disabled = busy || !ready;
         analysisUi.reload.disabled = busy;
         analysisUi.cancel.disabled = analysisToken === null;
@@ -600,6 +614,14 @@
               ? `${coordinator.inference_payload_mode} (${coordinator.response_policy_values ?? 0} logits)`
               : "—",
           );
+          const hits = coordinator.cache_hits ?? 0;
+          const misses = coordinator.cache_misses ?? 0;
+          setText(
+            "#analysis-cache-info",
+            analysisUi.cache.checked
+              ? `${hits} hit(s), ${misses} miss(es)`
+              : "disabled",
+          );
           setText("#analysis-completion", search.completion_reason ?? "—");
         } else {
           setText("#analysis-simulations-completed", "n/a (alpha-beta)");
@@ -608,6 +630,8 @@
           setText("#analysis-model", "—");
           setText("#analysis-provider-info", "local Python engine (no model)");
           setText("#analysis-payload", "n/a (alpha-beta)");
+          setText("#analysis-cache-info", "n/a (alpha-beta)");
+          setText("#analysis-transport", "n/a (alpha-beta)");
           setText("#analysis-completion", result.analysis?.source ?? "—");
         }
         document.querySelector("#analysis-output").textContent = JSON.stringify(
@@ -664,6 +688,11 @@
           });
           ensureAnalysisCurrent(token);
         }
+        await client.configureInferenceCache({
+          enabled: analysisUi.cache.checked,
+          maxEntries: 8192,
+          maxBytes: 64 * 1024 * 1024,
+        });
         const identity = client.modelIdentity();
         if (identity.ruleset !== position.ruleset)
           throw Object.assign(
@@ -673,6 +702,7 @@
             { name: "ProviderError" },
           );
         const searchSettings = normalizeSearchSettings(settings);
+        coordinator.directInference = analysisUi.direct.checked;
         setAnalysisState("running", "cooperative neural MCTS");
         const outcome = await coordinator.search({
           state: position.state,

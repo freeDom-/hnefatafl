@@ -84,7 +84,14 @@ async function readBodyBounded(response, maxBytes) {
 }
 
 export class NeuralClient {
-  constructor({ testHooks = false, workerUrl = null } = {}) {
+  constructor({
+    testHooks = false,
+    workerUrl = null,
+    batching = false,
+    maxBatch = 4,
+    maxQueue = 16,
+    batchDelayMs = 5,
+  } = {}) {
     this.worker = null;
     this.workerProvider = null;
     this.pending = null;
@@ -111,6 +118,164 @@ export class NeuralClient {
     // Injectable digest seam so cancellation during verification can be tested
     // deterministically. Production always uses crypto.subtle SHA-256.
     this.digestFn = sha256Hex;
+    // Opt-in bounded batching for independent search contexts sharing this
+    // client. Normal foreground analysis keeps the single-request path.
+    this.batching = batching === true;
+    this.maxBatch = maxBatch;
+    this.maxQueue = maxQueue;
+    this.batchQueue = [];
+    this.batchDraining = null;
+    this.batchIds = new Set();
+    this.batchIgnored = new Set();
+    this.batchDelayMs = batchDelayMs;
+    this.batchTimer = null;
+    this.batchStats = {
+      requests: 0,
+      batches: 0,
+      observed_max_batch: 0,
+      last_batch_sizes: [],
+      rejected: 0,
+    };
+  }
+
+  enableBatching({ maxBatch = 4, maxQueue = 16 } = {}) {
+    if (!Number.isInteger(maxBatch) || maxBatch < 1 || maxBatch > 32)
+      throw named("INPUT_INVALID", "maxBatch must be an integer in 1..32");
+    if (!Number.isInteger(maxQueue) || maxQueue < 1 || maxQueue > 256)
+      throw named("INPUT_INVALID", "maxQueue must be an integer in 1..256");
+    this.batching = true;
+    this.maxBatch = maxBatch;
+    this.maxQueue = maxQueue;
+    return this.batchStatistics();
+  }
+
+  batchStatistics() {
+    return {
+      enabled: this.batching,
+      max_batch: this.maxBatch,
+      max_queue: this.maxQueue,
+      queued: this.batchQueue.length,
+      in_flight_batch: this.batchIds.size,
+      ...this.batchStats,
+      last_batch_sizes: [...this.batchStats.last_batch_sizes],
+    };
+  }
+
+  _queueInference(payload) {
+    if (this.batchQueue.length >= this.maxQueue) {
+      return Promise.reject(named("QUEUE_FULL", "Batched inference queue is full"));
+    }
+    return new Promise((resolve, reject) => {
+      this.batchQueue.push({ payload, resolve, reject });
+      this.batchStats.requests += 1;
+      if (!this.batchDraining && this.batchTimer === null) {
+        this.batchTimer = setTimeout(() => {
+          this.batchTimer = null;
+          void this._drainBatch();
+        }, this.batchDelayMs);
+      }
+    });
+  }
+
+  async _drainBatch() {
+    if (this.batchDraining) return this.batchDraining;
+    this.batchDraining = (async () => {
+      while (this.batchQueue.length) {
+        const batch = this.batchQueue.splice(0, this.maxBatch);
+        const payloads = batch.map((entry) => entry.payload);
+        const model = payloads[0].model;
+        const compatible = payloads.every(
+          (payload) =>
+            payload.model.sha256 === model.sha256 &&
+            payload.model.ruleset === model.ruleset &&
+            payload.model.size === model.size,
+        );
+        if (!compatible) {
+          const error = named("MODEL_IDENTITY_MISMATCH", "Batch contains incompatible models");
+          for (const entry of batch) entry.reject(error);
+          continue;
+        }
+        const cases = payloads.map((payload) => ({
+          ...(payload.planes_base64 !== undefined
+            ? { planes_base64: payload.planes_base64 }
+            : { planes: payload.planes }),
+          legal: payload.legal,
+          request_id: payload.request_id,
+          position_digest: payload.position_digest,
+        }));
+        const batchIds = new Set(payloads.map((payload) => payload.request_id));
+        this.batchIds = batchIds;
+        this.batchStats.batches += 1;
+        this.batchStats.observed_max_batch = Math.max(
+          this.batchStats.observed_max_batch,
+          batch.length,
+        );
+        this.batchStats.last_batch_sizes.push(batch.length);
+        if (this.batchStats.last_batch_sizes.length > 32)
+          this.batchStats.last_batch_sizes.shift();
+        let response;
+        try {
+          response = await this.request(
+            { action: "inferManyCompact", cases, model },
+            { timeoutMs: INFER_TIMEOUT_MS },
+          );
+        } catch (error) {
+          for (const entry of batch) {
+            if (this.batchIgnored.delete(entry.payload.request_id)) continue;
+            entry.reject(error);
+          }
+          this.batchIds = new Set();
+          continue;
+        }
+        const byId = new Map(
+          (response.results ?? []).map((row) => [row.request_id, row]),
+        );
+        for (const entry of batch) {
+          const requestId = entry.payload.request_id;
+          if (this.batchIgnored.delete(requestId)) {
+            this.batchStats.rejected += 1;
+            entry.reject(named("AbortError", "Batched inference was cancelled"));
+            continue;
+          }
+          const row = byId.get(requestId);
+          if (!row) {
+            entry.reject(named("RESPONSE_MISMATCH", "Batched response omitted a request"));
+            continue;
+          }
+          entry.resolve({
+            provider_requested: response.provider_requested,
+            execution_placement: response.execution_placement,
+            gpu_execution_verified: response.gpu_execution_verified === true,
+            model_sha256: response.model_sha256,
+            model_ruleset: response.model_ruleset,
+            model_bytes: response.model_bytes,
+            index: row.index,
+            request_id: row.request_id,
+            position_digest: row.position_digest,
+            value: row.value,
+            legal: row.legal,
+            legal_probabilities: row.legal_probabilities,
+            tensor_prepare_ms: response.tensor_prepare_ms,
+            run_ms: response.run_ms,
+            extract_ms: response.extract_ms,
+            inference_ms: response.run_ms + response.tensor_prepare_ms + response.extract_ms,
+            batch_size: response.batch,
+            payload_mode: "legal-only",
+            cache_hit: false,
+          });
+        }
+        this.batchIds = new Set();
+      }
+    })().finally(() => {
+      this.batchDraining = null;
+      if (this.batchQueue.length && this.batchTimer === null) {
+        this.batchTimer = setTimeout(() => {
+          this.batchTimer = null;
+          void this._drainBatch();
+        }, this.batchDelayMs);
+      }
+    });
+    return this.batchDraining;
   }
 
   _spawn() {
@@ -190,6 +355,10 @@ export class NeuralClient {
       pending.finished?.();
       pending.reject(error);
     }
+    clearTimeout(this.batchTimer);
+    this.batchTimer = null;
+    for (const entry of this.batchQueue.splice(0)) entry.reject(error);
+    this.batchIds = new Set();
     if (this.abandoned) {
       const abandoned = this.abandoned;
       abandoned.abandonedOutcome = {
@@ -258,12 +427,77 @@ export class NeuralClient {
     return this.request({ action: "capabilities" }, { timeoutMs: 15000 });
   }
 
+  attachDirectPort(port, { timeoutMs = 5000 } = {}) {
+    if (!this.worker) throw named("WorkerError", "Neural worker is not loaded");
+    const worker = this.worker;
+    const id = ++this.sequence;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        worker.removeEventListener?.("message", onMessage);
+        reject(named("TimeoutError", "Neural direct port attachment timed out"));
+      }, timeoutMs);
+      const onMessage = ({ data }) => {
+        if (data?.id !== id) return;
+        clearTimeout(timer);
+        worker.removeEventListener?.("message", onMessage);
+        if (data.value?.kind === "direct_port_attached") resolve(data.value);
+        else reject(named("WorkerError", "Neural direct port attachment failed"));
+      };
+      worker.addEventListener?.("message", onMessage);
+      worker.postMessage({ control: "attachDirectPort", id, port }, [port]);
+    });
+  }
+
+  configureInferenceCache({ enabled, maxEntries = 256, maxBytes = 4 * 1024 * 1024 } = {}) {
+    return this.request(
+      {
+        action: "configureInferenceCache",
+        enabled: enabled === true,
+        max_entries: maxEntries,
+        max_bytes: maxBytes,
+      },
+      { timeoutMs: 5000 },
+    );
+  }
+
+  inferenceCacheStats() {
+    return this.request({ action: "inferenceCacheStats" }, { timeoutMs: 5000 });
+  }
+
+  clearInferenceCache() {
+    return this.request({ action: "clearInferenceCache" }, { timeoutMs: 5000 });
+  }
+
   // Cancel one in-flight inference without losing a healthy session when it can
   // drain within ``drainMs``. The rejected request settles immediately for the
   // caller; only the worker drain is awaited. If the worker does not drain, it
   // is terminated and the session must be reloaded.
-  async cancelRequest({ reason = "Neural request cancelled", drainMs = 1500 } = {}) {
+  async cancelRequest({ reason = "Neural request cancelled", drainMs = 1500, requestId = null } = {}) {
     if (this.draining) return this.draining;
+    if (this.batching && requestId) {
+      const index = this.batchQueue.findIndex(
+        (entry) => entry.payload.request_id === requestId,
+      );
+      if (index >= 0) {
+        const [entry] = this.batchQueue.splice(index, 1);
+        entry.reject(named("AbortError", reason));
+        return {
+          state: "drained",
+          sessionRetained: this.model !== null,
+          workerRetained: this.worker !== null,
+          outcome: "aborted",
+        };
+      }
+      if (this.batchIds.has(requestId)) {
+        this.batchIgnored.add(requestId);
+        return {
+          state: "drained",
+          sessionRetained: this.model !== null,
+          workerRetained: this.worker !== null,
+          outcome: "aborted",
+        };
+      }
+    }
     const pending = this.pending;
     if (!pending) {
       return {
@@ -532,20 +766,27 @@ export class NeuralClient {
       action = "test";
       testDelay = this.testInferenceDelayMs;
     }
+    const payload = {
+      action,
+      ...(testDelay === null
+        ? {}
+        : { test_action: "infer_compact", test_delay_ms: testDelay }),
+      ...(planesBase64 === null ? { planes } : { planes_base64: planesBase64 }),
+      size,
+      legal,
+      ruleset,
+      request_id: requestId,
+      position_digest: positionDigest,
+      model,
+    };
+    if (this.batching && testDelay === null) return this._queueInference(payload);
+    return this.request(payload, { timeoutMs: INFER_TIMEOUT_MS });
+  }
+
+  inferManyCompact({ cases, model }) {
+    this._assertModel(model);
     return this.request(
-      {
-        action,
-        ...(testDelay === null
-          ? {}
-          : { test_action: "infer_compact", test_delay_ms: testDelay }),
-        ...(planesBase64 === null ? { planes } : { planes_base64: planesBase64 }),
-        size,
-        legal,
-        ruleset,
-        request_id: requestId,
-        position_digest: positionDigest,
-        model,
-      },
+      { action: "inferManyCompact", cases, model },
       { timeoutMs: INFER_TIMEOUT_MS },
     );
   }

@@ -617,6 +617,63 @@ try {
     await page.close();
   });
 
+  await record("Bounded inference cache hits, evicts and clears on reload", async () => {
+    const { page } = await freshPage();
+    await page.click("#load");
+    await waitState(page, "completed", 180000);
+    const result = await page.evaluate(async () => {
+      const client = window.neural.client;
+      const model = client.modelIdentity();
+      await client.configureInferenceCache({
+        enabled: true,
+        maxEntries: 2,
+        maxBytes: 1024 * 1024,
+      });
+      const bytes = (variant) => {
+        const data = new Array(6 * model.size * model.size).fill(0);
+        data[variant] = 1;
+        return btoa(String.fromCharCode(...data));
+      };
+      const call = (variant, id) =>
+        client.inferCompact({
+          planes_base64: bytes(variant),
+          size: model.size,
+          legal: [0, 1],
+          ruleset: model.ruleset,
+          request_id: id,
+          position_digest: "a".repeat(64),
+          model,
+        });
+      const first = await call(1, "cache-1");
+      const second = await call(2, "cache-2");
+      const third = await call(3, "cache-3");
+      const fourth = await call(4, "cache-4");
+      const hit = await call(4, "cache-hit");
+      const before = await client.inferenceCacheStats();
+      const staged = await window.neural.meta();
+      await client.load("./" + staged.model.file, {
+        provider: "wasm",
+        size: staged.model.size,
+        ruleset: staged.model.ruleset,
+        expectedSha256: staged.model.sha256,
+      });
+      const after = await client.inferenceCacheStats();
+      return { first, second, third, fourth, hit, before, after };
+    });
+    for (const response of [result.first, result.second, result.third, result.fourth, result.hit]) {
+      assert.equal(response.legal.length, 2);
+      assert.ok(response.value >= -1 && response.value <= 1);
+      assert.ok(response.legal_probabilities.every((value) => value >= 0 && value <= 1));
+    }
+    assert.equal(result.hit.cache_hit, true);
+    assert.ok(result.before.hits >= 1);
+    assert.ok(result.before.evictions >= 1);
+    assert.ok(result.before.entries <= 2);
+    assert.equal(result.after.entries, 0);
+    assert.equal(result.after.hits, 0);
+    await page.close();
+  });
+
   await record("Navigation away and back recovers without a reload", async () => {
     const { page } = await freshPage();
     await page.goto("about:blank");
