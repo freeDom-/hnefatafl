@@ -1,0 +1,48 @@
+ok   wasm provider reports wasm placement
+ok   webgpu without evidence is unverified, not GPU
+ok   webgpu-only evidence is unverified, not proven GPU execution
+ok   webgpu session falling back to wasm is reported as cpu-fallback
+ok   mixed provider lists are mixed, not CPU-only or verified GPU
+ok   providerEvidence reads known session surfaces only
+ok   analysis watchdog covers a legitimate 10 second search
+ok   analysis request rejects a deadline above its ceiling
+ok   classical cancel keeps foreground priority and rejects as AbortError
+ok   classical hard timeout rejects and the next request recovers
+ok   classical dispose rejects active work and clears timers
+ok   neural terminate rejects the active promise with AbortError
+ok   neural hard timeout rejects with TimeoutError and recovers
+ok   obsolete neural timeout cannot abort a replacement worker
+ok   stale worker errors are ignored after replacement
+ok   a failed model load never leaves a model active
+ok   concurrent model downloads are explicitly rejected
+ok   successful load records the model, provider switch recreates
+ok   a failed replacement load clears the previously active model
+ok   release clears the active model
+ok   cancellation during digest verification prevents publication
+ok   competing model loads have deterministic admission
+ok   a failed WASM load does not block a later WebGPU worker
+ok   an oversized response without Content-Length is rejected
+ok   worker creation after an obsolete operation was cancelled
+ok   a request prepared for model A cannot execute against model B
+ok   an incompatible batched request identity is rejected
+ok   benchmark and sustained require an explicit model identity
+ok   a cancelled inference drains and retains a healthy session
+ok   an unresponsive inference is terminated after the drain deadline
+ok   a replacement inference is refused while draining
+ok   cancelWork aborts an owned model load without publishing it
+ok   cancelRequest on an idle client reports session retention
+ok   an abandoned request that succeeds drains and retains the session
+ok   an abandoned RESOURCE_CLEANUP_FAILED invalidates the session
+ok   an abandoned SESSION_RELEASE_FAILED invalidates the session
+ok   an abandoned generic inference error drains and keeps the worker
+ok   a delayed obsolete-generation response cannot affect a replacement
+ok   the inference delay hook is unavailable to a normal client
+ok   test hooks require explicit configuration before a delayed inference
+ok   ordinary inference rejects an injected delay field
+ok   a normal client cannot activate any test-worker action
+ok   independent inference requests share one bounded batch
+ok   batch queue is bounded and rejects overflow
+ok   queued batched inference can be cancelled by request id
+ok   a failed batch rejects every independent search
+
+46/46 lifecycle checks passed

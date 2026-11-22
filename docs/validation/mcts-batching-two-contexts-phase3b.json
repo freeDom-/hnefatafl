@@ -1,0 +1,86 @@
+{
+  "kind": "mcts-independent-batching",
+  "schema": 1,
+  "generated": "2026-11-22T15:45:52.746Z",
+  "browser": "156.0.8078.4",
+  "provider": "wasm",
+  "simulations": 32,
+  "model": {
+    "sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+    "ruleset": "brandubh",
+    "size": 7,
+    "provider_requested": "wasm",
+    "execution_placement": "wasm"
+  },
+  "results": [
+    {
+      "position": "brandubh-opening",
+      "completed": 32,
+      "best_move": {
+        "source": 26,
+        "target": 12
+      },
+      "value": -0.41834926791489124,
+      "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+      "position_identity": "72cfaa4621c2b5a996eb0769202d755ccc6bcbc9a1fc203db3992543283ab005"
+    },
+    {
+      "position": "brandubh-midgame",
+      "completed": 32,
+      "best_move": {
+        "source": 10,
+        "target": 13
+      },
+      "value": -0.41833891440182924,
+      "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+      "position_identity": "02d62adcba126a76e3eaaa13b05c3624ab155ae4377583e9e9ca12f2ebd3fa0c"
+    }
+  ],
+  "batching": {
+    "enabled": true,
+    "max_batch": 4,
+    "max_queue": 8,
+    "queued": 0,
+    "in_flight_batch": 0,
+    "requests": 66,
+    "batches": 33,
+    "observed_max_batch": 2,
+    "last_batch_sizes": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "rejected": 0
+  },
+  "failures": [],
+  "ok": true
+}

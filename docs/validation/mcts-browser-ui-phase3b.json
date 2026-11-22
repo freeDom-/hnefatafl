@@ -1,0 +1,143 @@
+{
+  "kind": "browser-mcts-ui",
+  "generated": "2026-11-22T15:43:26.824Z",
+  "checks": [
+    {
+      "name": "Jarl analysis works without the neural runtime",
+      "ok": true
+    },
+    {
+      "name": "Jarl works when neural-only assets are unavailable",
+      "ok": true
+    },
+    {
+      "name": "Asset loading is lazy and only neural MCTS needs the manifest",
+      "ok": true
+    },
+    {
+      "name": "Neural MCTS analysis completes from a clean state",
+      "ok": true
+    },
+    {
+      "name": "Bounded inference cache reuses repeated position predictions",
+      "ok": true
+    },
+    {
+      "name": "Direct worker transport cancels and restarts cleanly",
+      "ok": true
+    },
+    {
+      "name": "Budget and deadline reporting is meaningful",
+      "ok": true
+    },
+    {
+      "name": "Controls disable during an active analysis",
+      "ok": true
+    },
+    {
+      "name": "Cancel prevents obsolete publication",
+      "ok": true
+    },
+    {
+      "name": "An unsupported ruleset fails explicitly and recovers",
+      "ok": true
+    },
+    {
+      "name": "Repeated searches reuse the model session and workers",
+      "ok": true
+    },
+    {
+      "name": "pagehide during analysis cancels without publication",
+      "ok": true
+    },
+    {
+      "name": "Exported result is machine readable and explicitly experimental",
+      "ok": true
+    },
+    {
+      "name": "Cancellation during model download allows an immediate retry",
+      "ok": true
+    },
+    {
+      "name": "Cancellation during ORT session initialization recovers",
+      "ok": true
+    },
+    {
+      "name": "Cancellation during cold search-worker initialization recovers",
+      "ok": true
+    },
+    {
+      "name": "Back-forward restoration installs a usable runtime",
+      "ok": true
+    },
+    {
+      "name": "Navigation away and back runs a new neural MCTS search",
+      "ok": true
+    },
+    {
+      "name": "Non-default positions are preserved and analyzed exactly",
+      "ok": true
+    },
+    {
+      "name": "A selector change cannot redirect an in-flight analysis",
+      "ok": true
+    },
+    {
+      "name": "Immediate restart after cancelling a blocked leaf inference",
+      "ok": true
+    },
+    {
+      "name": "Repeated immediate cancellation and restart stays bounded",
+      "ok": true
+    },
+    {
+      "name": "Unhealthy drain recreates the worker and session",
+      "ok": true
+    },
+    {
+      "name": "Raw inference and analysis cannot compete for the neural client",
+      "ok": true
+    },
+    {
+      "name": "Cancel controls have clear enabled states",
+      "ok": true
+    },
+    {
+      "name": "Fresh page Jarl analysis through normal UI controls",
+      "ok": true
+    },
+    {
+      "name": "Fresh page neural MCTS through normal UI controls",
+      "ok": true
+    },
+    {
+      "name": "Another ruleset and non-default position via UI selectors",
+      "ok": true
+    },
+    {
+      "name": "Initial position-data failure is recoverable through the UI",
+      "ok": true
+    },
+    {
+      "name": "Reloading positions preserves the selected position and history",
+      "ok": true
+    },
+    {
+      "name": "Pending real inference drains and a replacement reuses the session",
+      "ok": true
+    },
+    {
+      "name": "An unresponsive pending inference is replaced before the replacement runs",
+      "ok": true
+    }
+  ],
+  "failures": [],
+  "model": {
+    "sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+    "ruleset": "brandubh",
+    "size": 7
+  },
+  "browser": "156.0.8078.4",
+  "external_requests": [],
+  "ok": true
+}
