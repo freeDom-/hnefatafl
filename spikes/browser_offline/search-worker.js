@@ -87,6 +87,16 @@ async function directInfer(request, model, searchId) {
 
 async function runDirectSearch(payload) {
   const searchId = payload.search_id;
+  const telemetry = {
+    inferences: 0,
+    cache_hits: 0,
+    cache_misses: 0,
+    neural_wait_ms: 0,
+    tensor_prepare_ms: 0,
+    inference_execution_ms: 0,
+    policy_extract_ms: 0,
+    payload_mode: "legal-only",
+  };
   let event;
   try {
     event = dispatch({
@@ -102,8 +112,33 @@ async function runDirectSearch(payload) {
       if (!directState || directState.searchId !== searchId || directState.cancelled)
         throw Object.assign(new Error("Direct search cancelled"), { code: "CANCELLED" });
       postMessage({ kind: "direct_inference", search_id: searchId, phase: "start" });
+      const inferStarted = performance.now();
       const response = await directInfer(event.request, payload.model, searchId);
-      postMessage({ kind: "direct_inference", search_id: searchId, phase: "end" });
+      telemetry.neural_wait_ms += performance.now() - inferStarted;
+      telemetry.inferences += 1;
+      if (response.cache_hit === true) telemetry.cache_hits += 1;
+      else telemetry.cache_misses += 1;
+      if (Number.isFinite(response.tensor_prepare_ms))
+        telemetry.tensor_prepare_ms += response.tensor_prepare_ms;
+      if (Number.isFinite(response.run_ms)) telemetry.inference_execution_ms += response.run_ms;
+      if (Number.isFinite(response.extract_ms)) telemetry.policy_extract_ms += response.extract_ms;
+      telemetry.provider_requested = response.provider_requested ?? null;
+      telemetry.execution_placement = response.execution_placement ?? null;
+      telemetry.gpu_execution_verified = response.gpu_execution_verified === true;
+      telemetry.model_sha256 = response.model_sha256 ?? null;
+      telemetry.model_ruleset = response.model_ruleset ?? null;
+      postMessage({
+        kind: "direct_inference",
+        search_id: searchId,
+        phase: "end",
+        cache_hit: response.cache_hit === true,
+        payload_mode: response.payload_mode ?? "legal-only",
+        provider_requested: response.provider_requested ?? null,
+        execution_placement: response.execution_placement ?? null,
+        gpu_execution_verified: response.gpu_execution_verified === true,
+        model_sha256: response.model_sha256,
+        model_ruleset: response.model_ruleset,
+      });
       if (!directState || directState.cancelled)
         throw Object.assign(new Error("Direct search cancelled"), { code: "CANCELLED" });
       if (event.progress) postMessage({ kind: "direct_progress", search_id: searchId, progress: event.progress });
@@ -117,15 +152,16 @@ async function runDirectSearch(payload) {
       });
     }
     if (event.kind === "cancelled") {
-      postMessage({ kind: "direct_cancelled", search_id: searchId, event });
+      postMessage({ kind: "direct_cancelled", search_id: searchId, event, telemetry });
     } else {
-      postMessage({ kind: "direct_complete", search_id: searchId, event });
+      postMessage({ kind: "direct_complete", search_id: searchId, event, telemetry });
     }
   } catch (error) {
     postMessage({
       kind: directState?.cancelled ? "direct_cancelled" : "direct_error",
       search_id: searchId,
       error: directErrorMessage(error),
+      telemetry,
       event: error?.code === "CANCELLED" ? { kind: "cancelled", reason: "cancelled" } : null,
     });
   } finally {

@@ -434,9 +434,13 @@ try {
       record.encode_ms = timing.encoding_ms ?? null;
       record.legal_generation_ms = timing.legal_generation_ms ?? null;
       record.state_validation_ms = timing.validation_ms ?? null;
-      record.traversal_ms = Math.max(0, (coordinator.python_action_ms ?? 0) - workerMs);
+      record.traversal_ms =
+        coordinator.python_action_ms === null || coordinator.python_action_ms === undefined
+          ? null
+          : Math.max(0, coordinator.python_action_ms - workerMs);
       record.inferences = coordinator.inferences;
       record.transport = search.coordinator?.direct ? "direct" : transport;
+      record.search_provider = search.provider ?? null;
       record.inference_payload_mode = coordinator.inference_payload_mode;
       record.response_policy_values = coordinator.response_policy_values;
       record.cache_hits = coordinator.cache_hits ?? 0;

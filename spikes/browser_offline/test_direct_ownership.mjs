@@ -114,10 +114,54 @@ try {
     const c5 = new NeuralSearchCoordinator({ neural: client });
     await c5.load();
     const recovered = await c5.search({ state: positions[0].state, settings, model });
+    // Neural attachment succeeds, then search-worker attachment times out. The
+    // neural detach must run before the replacement can attach.
+    const c6 = new NeuralSearchCoordinator({ neural: client });
+    c6.directInference = true;
+    await c6.load();
+    const realAttachSearch = c6._attachSearchDirect.bind(c6);
+    c6._attachSearchDirect = async () =>
+      Object.assign(new Error("search attach timeout"), { name: "TimeoutError" });
+    let attachFailure = null;
+    try {
+      await c6.search({ state: positions[0].state, settings, model });
+    } catch (error) {
+      attachFailure = { name: error.name, code: error.code };
+    }
+    c6._attachSearchDirect = realAttachSearch;
+    const c7 = new NeuralSearchCoordinator({ neural: client });
+    c7.directInference = true;
+    await c7.load();
+    const afterAttachFailure = await c7.search({ state: positions[0].state, settings, model });
+    // Cancel while the neural attachment is still pending (before any search
+    // worker attachment). Cleanup must not leave a stale/blocking channel.
+    const c8 = new NeuralSearchCoordinator({ neural: client });
+    c8.directInference = true;
+    await c8.load();
+    const realAttachNeural = client.attachDirectPort.bind(client);
+    client.attachDirectPort = () => new Promise(() => {});
+    const cancelledSetup = c8.search({ state: positions[0].state, settings, model });
+    await new Promise((done) => setTimeout(done, 30));
+    await c8.cancel("cancel before neural attach");
+    let setupCancel = null;
+    try {
+      await cancelledSetup;
+    } catch (error) {
+      setupCancel = { name: error.name, code: error.code };
+    }
+    client.attachDirectPort = realAttachNeural;
+    const c9 = new NeuralSearchCoordinator({ neural: client });
+    c9.directInference = true;
+    await c9.load();
+    const afterSetupCancel = await c9.search({ state: positions[0].state, settings, model });
     c2.dispose();
     c3.dispose();
     c4.dispose();
     c5.dispose();
+    c6.dispose();
+    c7.dispose();
+    c8.dispose();
+    c9.dispose();
     return {
       firstError,
       secondError,
@@ -125,6 +169,10 @@ try {
       replacement_direct: replacement.search.coordinator.direct,
       fourthError,
       recovered_completed: recovered.search.completed_simulations,
+      attachFailure,
+      after_attach_failure_completed: afterAttachFailure.search.completed_simulations,
+      setupCancel,
+      after_setup_cancel_completed: afterSetupCancel.search.completed_simulations,
     };
   });
   report.checks.push(outcome);
@@ -134,6 +182,10 @@ try {
   assert.equal(outcome.replacement_direct, true);
   assert.ok(outcome.fourthError);
   assert.equal(outcome.recovered_completed, 64);
+  assert.ok(outcome.attachFailure);
+  assert.equal(outcome.after_attach_failure_completed, 64);
+  assert.equal(outcome.setupCancel?.name, "AbortError");
+  assert.equal(outcome.after_setup_cancel_completed, 64);
   if (pageErrors.length) report.failures.push(`page errors: ${pageErrors.join("; ")}`);
 } catch (error) {
   report.failures.push(String(error?.stack ?? error));

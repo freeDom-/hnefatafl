@@ -622,6 +622,10 @@
               ? `${hits} hit(s), ${misses} miss(es)`
               : "disabled",
           );
+          setText(
+            "#analysis-transport",
+            coordinator.direct ? "direct worker channel" : "coordinator relay",
+          );
           setText("#analysis-completion", search.completion_reason ?? "—");
         } else {
           setText("#analysis-simulations-completed", "n/a (alpha-beta)");

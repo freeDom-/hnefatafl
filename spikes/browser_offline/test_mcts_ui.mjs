@@ -323,6 +323,17 @@ try {
     const result = await page.evaluate(() => window.neural.analysis.result());
     assert.equal(result.search.completed_simulations, 128);
     assert.equal(result.search.coordinator.direct, true);
+    assert.equal(result.search.coordinator.inference_payload_mode, "legal-only");
+    assert.equal(result.search.provider.requested, "wasm");
+    assert.ok(result.search.provider.execution_placement);
+    assert.equal(result.search.coordinator.inferences, result.search.neural_requests);
+    assert.ok(result.search.coordinator.neural_wait_ms > 0);
+    assert.equal(result.search.coordinator.step_ms, null);
+    assert.equal(result.search.coordinator.bridge_overhead_ms, null);
+    assert.equal(result.search.coordinator.unattributed_ms, null);
+    assert.ok(result.search.coordinator.cache_hits >= 0);
+    assert.ok(result.search.coordinator.cache_misses >= 0);
+    assert.equal(await page.textContent("#analysis-transport"), "direct worker channel");
     assert.equal(errors.length, 0, errors.join("; "));
     await page.close();
   });

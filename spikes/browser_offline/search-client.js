@@ -171,6 +171,7 @@ export class NeuralSearchCoordinator {
             if (data.phase === "end") search.inferencePending = false;
             return;
           }
+          if (data.telemetry) search.directTelemetry = data.telemetry;
           const { resolve, reject } = search.directFinal;
           search.directFinal = null;
           if (data.kind === "direct_complete") resolve(data.event);
@@ -709,7 +710,7 @@ export class NeuralSearchCoordinator {
     }
   }
 
-  async _attachSearchDirect(port) {
+  async _attachSearchDirect(port, channelId) {
     const worker = this.worker;
     if (!worker) throw named("WorkerError", "Search worker is not loaded");
     return new Promise((resolve, reject) => {
@@ -726,7 +727,7 @@ export class NeuralSearchCoordinator {
         else reject(named("WorkerError", "Search direct port attachment failed"));
       };
       worker.addEventListener?.("message", onMessage);
-      worker.postMessage({ control: "attachDirect", id, port }, [port]);
+      worker.postMessage({ control: "attachDirect", id, channelId, port }, [port]);
     });
   }
 
@@ -735,18 +736,23 @@ export class NeuralSearchCoordinator {
     if (!this.neural || typeof this.neural.attachDirectPort !== "function")
       throw named("WorkerError", "Neural direct inference is unavailable");
     const channel = new MessageChannel();
-    let attached = false;
+    const channelId = search.searchId;
+    let neuralAttempted = false;
+    let neuralAttached = false;
+    let searchAttached = false;
     try {
+      neuralAttempted = true;
       await Promise.race([
-        this.neural.attachDirectPort(channel.port2),
+        this.neural.attachDirectPort(channel.port2, { channelId }),
         search.cancelSignal,
       ]);
+      neuralAttached = true;
       this._assertOwner(search);
       await Promise.race([
-        this._attachSearchDirect(channel.port1),
+        this._attachSearchDirect(channel.port1, channelId),
         search.cancelSignal,
       ]);
-      attached = true;
+      searchAttached = true;
       this._assertOwner(search);
       search.directFinal = { resolve: null, reject: null };
       const finalPromise = new Promise((resolve, reject) => {
@@ -771,17 +777,24 @@ export class NeuralSearchCoordinator {
       search.phase = "completed";
       return this._finalize(search, event, configuration);
     } finally {
-      if (attached && typeof this.neural?.detachDirectPort === "function") {
+      if (neuralAttempted && typeof this.neural?.detachDirectPort === "function") {
         try {
-          await this.neural.detachDirectPort();
+          const detached = await this.neural.detachDirectPort({ channelId });
+          // A pending detach means an in-flight inference still owns the
+          // session. Fail closed rather than leaving a stale channel active.
+          if (detached?.pending === true && !detached?.stale) {
+            this.neural.terminate("Direct attachment cleanup did not complete");
+          }
         } catch {
-          // Bounded detach; a replacement direct attach will be rejected while
-          // an in-flight inference still owns the channel.
+          // If cleanup cannot be acknowledged, invalidate the neural worker so
+          // a stale port can never block/contaminate a subsequent search.
+          this.neural.terminate("Direct attachment cleanup failed");
         }
       }
       channel.port1.close?.();
       channel.port2.close?.();
       if (search.directFinal) search.directFinal = null;
+      search.directTelemetry = null;
     }
   }
 
@@ -908,7 +921,26 @@ export class NeuralSearchCoordinator {
     const searchMetrics = { ...event.search };
     const completed = Number(searchMetrics.completed_simulations) || 0;
     const timings = { ...search.timings };
-    const unattributed = Math.max(0, elapsed - timings.step_ms - timings.neural_wait_ms);
+    const telemetry = search.directTelemetry;
+    if (telemetry) {
+      timings.inferences = telemetry.inferences;
+      timings.cache_hits = telemetry.cache_hits;
+      timings.cache_misses = telemetry.cache_misses;
+      timings.neural_wait_ms = telemetry.neural_wait_ms;
+      timings.tensor_prepare_ms = telemetry.tensor_prepare_ms;
+      timings.inference_execution_ms = telemetry.inference_execution_ms;
+      timings.policy_extract_ms = telemetry.policy_extract_ms;
+      if (search.provider === null && telemetry.inferences > 0) {
+        search.provider = {
+          requested: telemetry.provider_requested ?? null,
+          execution_placement: telemetry.execution_placement ?? null,
+          gpu_execution_verified: telemetry.gpu_execution_verified === true,
+        };
+      }
+    }
+    const unattributed = telemetry
+      ? null
+      : Math.max(0, elapsed - timings.step_ms - timings.neural_wait_ms);
     return {
       analysis: event.analysis,
       search: {
@@ -920,12 +952,14 @@ export class NeuralSearchCoordinator {
           completed_simulations: completed,
           simulations_per_second: completed / (elapsed / 1000),
           steps: timings.steps,
-          step_ms: timings.step_ms,
-          python_action_ms: timings.python_ms,
+          step_ms: telemetry ? null : timings.step_ms,
+          python_action_ms: telemetry ? null : timings.python_ms,
           // Serialization + Pyodide call boundary between the coordinator and
           // the search worker (inside step_ms, outside python_action_ms).
-          bridge_overhead_ms: Math.max(0, timings.step_ms - timings.python_ms),
-          neural_wait_ms: timings.neural_wait_ms,
+          bridge_overhead_ms: telemetry
+            ? null
+            : Math.max(0, timings.step_ms - timings.python_ms),
+          neural_wait_ms: telemetry ? timings.neural_wait_ms : timings.neural_wait_ms,
           unattributed_ms: unattributed,
           inferences: timings.inferences,
           progress_events: timings.progress_events,
@@ -937,8 +971,12 @@ export class NeuralSearchCoordinator {
           parse_ms: timings.parse_ms,
           request_bytes: timings.request_bytes,
           response_bytes: timings.response_bytes,
-          inference_payload_mode: timings.inference_payload_mode,
-          response_policy_values: timings.response_policy_values,
+          inference_payload_mode: telemetry
+            ? telemetry.inferences > 0
+              ? telemetry.payload_mode
+              : null
+            : timings.inference_payload_mode,
+          response_policy_values: telemetry ? 0 : timings.response_policy_values,
           cache_hits: timings.cache_hits,
           cache_misses: timings.cache_misses,
           cancellation_ms: timings.cancellation_ms,

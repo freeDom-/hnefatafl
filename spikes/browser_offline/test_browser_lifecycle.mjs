@@ -1115,6 +1115,55 @@ await check("timeout/abort rejects outstanding batches exactly once", async () =
   client.terminate();
 });
 
+await check("unresponsive shared batch fails closed within drain bound", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("u1"));
+  const second = client.inferCompact(compactRequest("u2"));
+  await sleep(10);
+  const firstSettled = assert.rejects(within(first), (error) => error.name === "AbortError");
+  const secondSettled = assert.rejects(within(second), (error) => error.name === "AbortError");
+  const cancel = client.cancelRequest({
+    requestId: "u1",
+    reason: "bounded drain",
+    drainMs: 30,
+  });
+  const result = await within(cancel, 500);
+  assert.equal(result.state, "terminated");
+  assert.equal(result.errorCode, "DRAIN_TIMEOUT");
+  await firstSettled;
+  await secondSettled;
+  assert.equal(client.worker, null);
+  assert.equal(client.batchQueue.length, 0);
+  assert.equal(client.batchEntries.size, 0);
+});
+await check("repeated cancellation of one batch member is counted once", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("m1"));
+  const second = client.inferCompact(compactRequest("m2"));
+  await sleep(10);
+  const firstSettled = assert.rejects(within(first), (error) => error.name === "AbortError");
+  const one = client.cancelRequest({ requestId: "m1", drainMs: 100 });
+  const two = client.cancelRequest({ requestId: "m1", drainMs: 100 });
+  client.worker.respond(0, {
+    results: [batchResult("m1"), batchResult("m2")],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 2,
+    tensor_prepare_ms: 0,
+    run_ms: 1,
+    extract_ms: 0,
+  });
+  await firstSettled;
+  assert.equal((await within(second)).request_id, "m2");
+  assert.equal((await within(one)).state, "drained");
+  assert.equal((await within(two)).state, "drained");
+  assert.equal(client.batchStatistics().rejected, 1);
+  client.terminate();
+});
+
 await check("constructor batching limits are validated", () => {
   assert.throws(
     () => new NeuralClient({ batching: true, maxBatch: 0 }),

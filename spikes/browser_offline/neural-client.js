@@ -254,7 +254,10 @@ export class NeuralClient {
                 ? named("AbortError", "Batched inference was cancelled")
                 : batchFailure,
             );
-            if (ignored) this.batchStats.rejected += 1;
+            if (ignored && !entry.rejectedAccounted) {
+              entry.rejectedAccounted = true;
+              this.batchStats.rejected += 1;
+            }
           }
           for (const entry of batch) this.batchEntries.delete(entry.payload.request_id);
           this.batchIds = new Set();
@@ -271,7 +274,10 @@ export class NeuralClient {
         for (const entry of batch) {
           const requestId = entry.payload.request_id;
           if (this.batchIgnored.delete(requestId)) {
-            this.batchStats.rejected += 1;
+            if (!entry.rejectedAccounted) {
+              entry.rejectedAccounted = true;
+              this.batchStats.rejected += 1;
+            }
             settleBatchEntry(
               entry,
               null,
@@ -478,7 +484,7 @@ export class NeuralClient {
     return this.request({ action: "capabilities" }, { timeoutMs: 15000 });
   }
 
-  detachDirectPort({ timeoutMs = 5000 } = {}) {
+  detachDirectPort({ channelId, timeoutMs = 5000 } = {}) {
     if (!this.worker) return Promise.resolve({ kind: "direct_port_detached", pending: false });
     const worker = this.worker;
     const id = ++this.sequence;
@@ -494,11 +500,11 @@ export class NeuralClient {
         resolve(data.value ?? { kind: "direct_port_detached", pending: false });
       };
       worker.addEventListener?.("message", onMessage);
-      worker.postMessage({ control: "detachDirectPort", id });
+      worker.postMessage({ control: "detachDirectPort", id, channelId });
     });
   }
 
-  attachDirectPort(port, { timeoutMs = 5000 } = {}) {
+  attachDirectPort(port, { channelId, timeoutMs = 5000 } = {}) {
     if (!this.worker) throw named("WorkerError", "Neural worker is not loaded");
     const worker = this.worker;
     const id = ++this.sequence;
@@ -519,7 +525,7 @@ export class NeuralClient {
         }
       };
       worker.addEventListener?.("message", onMessage);
-      worker.postMessage({ control: "attachDirectPort", id, port }, [port]);
+      worker.postMessage({ control: "attachDirectPort", id, channelId, port }, [port]);
     });
   }
 
@@ -554,8 +560,10 @@ export class NeuralClient {
       );
       if (index >= 0) {
         const [entry] = this.batchQueue.splice(index, 1);
-        settleBatchEntry(entry, null, named("AbortError", reason));
-        this.batchStats.rejected += 1;
+        if (settleBatchEntry(entry, null, named("AbortError", reason))) {
+          entry.rejectedAccounted = true;
+          this.batchStats.rejected += 1;
+        }
         return {
           state: "drained",
           sessionRetained: this.model !== null,
@@ -566,28 +574,45 @@ export class NeuralClient {
       if (this.batchIds.has(requestId)) {
         const entry = this.batchEntries.get(requestId);
         this.batchIgnored.add(requestId);
-        if (entry) settleBatchEntry(entry, null, named("AbortError", reason));
-        this.batchStats.rejected += 1;
+        if (entry && settleBatchEntry(entry, null, named("AbortError", reason))) {
+          entry.rejectedAccounted = true;
+          this.batchStats.rejected += 1;
+        }
         const worker = this.worker;
         const generation = this.generation;
         // Do not report drained until the worker batch that may still be
-        // executing has settled. The result is ignored above and never applied.
-        const completion = this.batchInFlight ?? Promise.resolve();
-        return completion.then(
-          () => ({
-            state: this.worker === worker && this.generation === generation ? "drained" : "terminated",
-            sessionRetained: this.model !== null,
-            workerRetained: this.worker === worker,
-            outcome: "aborted",
-          }),
-          (error) => ({
-            state: this.worker === worker && this.generation === generation ? "drained" : "terminated",
-            sessionRetained: this.model !== null,
-            workerRetained: this.worker === worker,
-            outcome: "failed",
-            errorCode: error?.code ?? null,
-          }),
+        // executing has settled. If it does not settle within drainMs, fail
+        // closed by terminating the worker/session rather than leaving other
+        // contexts suspended on an unhealthy batch.
+        const completion = (this.batchInFlight ?? Promise.resolve()).then(
+          () => ({ timedOut: false, failed: false }),
+          (error) => ({ timedOut: false, failed: true, error }),
         );
+        const timeout = new Promise((resolve) =>
+          setTimeout(() => resolve({ timedOut: true, failed: false }), drainMs),
+        );
+        return Promise.race([completion, timeout]).then((result) => {
+          if (result.timedOut) {
+            this.abort(named("TimeoutError", "Batched inference did not drain in time"));
+            return {
+              state: "terminated",
+              sessionRetained: false,
+              workerRetained: false,
+              outcome: "timeout",
+              errorCode: "DRAIN_TIMEOUT",
+            };
+          }
+          return {
+            state:
+              this.worker === worker && this.generation === generation
+                ? "drained"
+                : "terminated",
+            sessionRetained: this.model !== null,
+            workerRetained: this.worker === worker,
+            outcome: result.failed ? "failed" : "aborted",
+            errorCode: result.failed ? (result.error?.code ?? null) : null,
+          };
+        });
       }
     }
     if (this.draining) return this.draining;

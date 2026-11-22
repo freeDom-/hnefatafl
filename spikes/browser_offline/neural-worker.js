@@ -34,8 +34,10 @@ let session = null;
 // by a JavaScript/client flag.
 let model = null;
 let activeDirectPort = null;
+let activeDirectChannelId = null;
 let directInFlight = false;
 let directDetachRequested = false;
+const staleDirectChannels = new Set();
 
 // Bounded exact inference cache for legal-only MCTS predictions. It is disabled
 // by default; enabling is explicit and every entry is keyed by model/provider,
@@ -844,6 +846,7 @@ async function handleDirectRequest(port, data) {
     directInFlight = false;
     if (directDetachRequested) {
       activeDirectPort = null;
+      activeDirectChannelId = null;
       directDetachRequested = false;
     }
   }
@@ -851,6 +854,14 @@ async function handleDirectRequest(port, data) {
 
 onmessage = async ({ data }) => {
   if (data.control === "attachDirectPort") {
+    if (typeof data.channelId !== "string" || !data.channelId) {
+      postMessage({ id: data.id, error: "direct channel identity is required", code: "INPUT_INVALID" });
+      return;
+    }
+    if (staleDirectChannels.has(data.channelId)) {
+      postMessage({ id: data.id, error: "direct channel was detached", code: "DIRECT_STALE" });
+      return;
+    }
     if (activeDirectPort || directInFlight) {
       postMessage({
         id: data.id,
@@ -860,6 +871,7 @@ onmessage = async ({ data }) => {
       return;
     }
     activeDirectPort = data.port;
+    activeDirectChannelId = data.channelId;
     const attachedPort = data.port;
     attachedPort.onmessage = ({ data: directData }) => {
       if (directData?.kind === "infer") void handleDirectRequest(attachedPort, directData);
@@ -868,9 +880,24 @@ onmessage = async ({ data }) => {
     return;
   }
   if (data.control === "detachDirectPort") {
+    if (typeof data.channelId !== "string" || !data.channelId) {
+      postMessage({ id: data.id, error: "direct channel identity is required", code: "INPUT_INVALID" });
+      return;
+    }
+    staleDirectChannels.add(data.channelId);
+    while (staleDirectChannels.size > 16)
+      staleDirectChannels.delete(staleDirectChannels.values().next().value);
+    if (activeDirectChannelId !== data.channelId) {
+      postMessage({
+        id: data.id,
+        value: { kind: "direct_port_detached", pending: false, stale: true },
+      });
+      return;
+    }
     directDetachRequested = true;
     if (!directInFlight) {
       activeDirectPort = null;
+      activeDirectChannelId = null;
       directDetachRequested = false;
     }
     postMessage({
