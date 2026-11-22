@@ -44,5 +44,11 @@ ok   independent inference requests share one bounded batch
 ok   batch queue is bounded and rejects overflow
 ok   queued batched inference can be cancelled by request id
 ok   a failed batch rejects every independent search
+ok   in-flight batch cancellation settles on batch success
+ok   in-flight batch cancellation settles on batch failure
+ok   worker crash settles queued and in-flight batches
+ok   termination and disposal reject outstanding batches
+ok   timeout/abort rejects outstanding batches exactly once
+ok   constructor batching limits are validated
 
-46/46 lifecycle checks passed
+52/52 lifecycle checks passed

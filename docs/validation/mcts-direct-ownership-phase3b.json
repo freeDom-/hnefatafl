@@ -1,0 +1,26 @@
+{
+  "kind": "mcts-direct-ownership",
+  "schema": 1,
+  "checks": [
+    {
+      "firstError": {
+        "name": "AbortError",
+        "code": "AbortError"
+      },
+      "secondError": {
+        "name": "WorkerError",
+        "code": "DIRECT_BUSY",
+        "message": "Another direct channel is already active"
+      },
+      "replacement_completed": 64,
+      "replacement_direct": true,
+      "fourthError": {
+        "name": "AbortError",
+        "code": "AbortError"
+      },
+      "recovered_completed": 64
+    }
+  ],
+  "failures": [],
+  "ok": true
+}

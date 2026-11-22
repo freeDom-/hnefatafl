@@ -1,17 +1,43 @@
 # Browser-side neural MCTS — Phase 3B validation
 
+Phase 3B review-correction evidence on top of the initial implementation.
 Phase 3B optimization work on merged Phase 3A (`main` `64ec43e`). Phase 3A
 correctness evidence remains authoritative and is not overwritten.
 
-**Status:** Phase **3B.0** and the **3B.2 inference cache** are software
-validated. **3B.1 direct worker communication** is implemented as an opt-in
-experimental transport; the existing relay remains the default because measured
-gain was modest/variable. **3B.3 independent-search batching** is implemented and
-actual-browser validated, but retained opt-in because the smoke/CPU benchmark did
-not show an end-to-end gain. **3B.4 single-tree batching** and **3B.5 subtree
-reuse** are deferred after feasibility analysis. Phase 3B is **in progress**, not
-complete. Phase 3C and all external hardware/competitive-model gates remain
+**Status:** Corrective hardening of PR #115 is complete. Phase **3B.0** and
+**3B.2 inference cache** are software validated. **3B.1 direct worker
+communication** is an opt-in experimental transport; the relay remains the
+default because measured gain was modest/variable. **3B.3 independent-search
+batching** is implemented/actual-browser validated but retained opt-in because
+the smoke/CPU benchmark did not show an end-to-end gain. **3B.4 single-tree
+batching** and **3B.5 subtree reuse** are deferred. Phase 3B remains in progress
+in PR #115 and is **not merged**; Phase 3C/external gates remain outstanding. Phase 3C and all external hardware/competitive-model gates remain
 outstanding.
+
+## 0. Review-correction hardening
+
+- **Batch cancellation:** every admitted request carries a settled-once guard.
+  Queued cancellation rejects immediately; in-flight cancellation rejects the
+  request and returns a drain result only after the worker batch settles. Batch
+  success/failure, worker crash, timeout, termination, disposal and replacement
+  all reject outstanding requests under bounded test deadlines. Constructor batch
+  limits are validated.
+- **Direct ownership:** the inference worker captures one active direct channel
+  and one in-flight direct request. A second channel is rejected with
+  `DIRECT_BUSY` before inference. Responses go to the captured port, detach is
+  deferred until in-flight inference settles, and old replies cannot be routed
+  through a newer channel. Normal inference/model operations are blocked while a
+  direct inference owns the session.
+- **Cache validation:** model identity, request ID, position digest, size,
+  ruleset, legal actions and canonical binary planes are validated before every
+  cache lookup. Warm-cache stale/malformed/nonbinary requests fail or bypass
+  rather than reuse a cached result.
+- **Immediate cache limits:** lowering entry/byte limits during configuration
+  evicts LRU entries immediately with consistent byte/eviction accounting;
+  disabling clears all entries.
+- **Parity identifiers:** case kind and completion reason are type-checked before
+  set membership; malformed case kinds/completion reasons produce structured
+  failures and nonzero CLI exits.
 
 ## 1. Phase 3B.0 — remaining Phase 3A acceptance findings
 
@@ -30,8 +56,10 @@ declared model metadata and case definitions are type-checked before any set or
 dictionary operation. Arrays, objects, nulls and invalid scalars produce
 structured failed cases/reports and nonzero CLI exits rather than exceptions.
 
-Regression tests in `tests/test_path_parity_validation.py` now cover 68 cases,
-including the new authoritative-move and malformed-coverage-identifier mutations.
+Regression tests in `tests/test_path_parity_validation.py` now cover 86 cases,
+including authoritative moves, malformed coverage identifiers and malformed
+case-kind/completion-reason values (null, list, dict, boolean, integer and
+unsupported strings).
 
 ## 2. Phase 3B.1 — direct worker communication
 
@@ -47,9 +75,11 @@ Implemented an optional `MessageChannel` path:
    final-event validation and result publication. The main thread no longer
    relays every leaf payload.
 4. The inference worker still performs the same compact validation, model
-   identity and tensor cleanup. The direct port is bound per search/channel and
-   dropped on cancellation/replacement; late replies cannot resume another
-   context.
+   identity and tensor cleanup. Responses are posted on the exact captured port;
+   a second channel is rejected with `DIRECT_BUSY` while one is active or an
+   inference is in flight. Detach is requested on completion/cancellation and the
+   channel is cleared after any in-flight inference settles, so an old reply can
+   never be routed through a newer channel.
 
 The existing coordinator relay remains the default. `directInference`/the
 experimental UI checkbox selects the direct path. Direct cancellation/restart is
@@ -59,27 +89,31 @@ covered by actual browser tests and direct full/compact parity passes.
 
 | Workload | Relay | Direct | Change |
 | --- | ---: | ---: | ---: |
-| quick 128/256 | 667.7 sims/s | 692.9 sims/s | +3.8 % |
-| strong 512/1,024 | 680.5 sims/s | 715.3 sims/s | +5.1 % |
+| quick 128/256 (final corrected build) | 636.9 sims/s | 614.7 sims/s | -3.5 % |
+| quick 128/256 (earlier corrected runs) | 631.8 / 670.2 sims/s | 566.1 / 623.7 sims/s | -10.4 % / -6.9 % |
 
-The improvement is small and variable; direct mode is retained as an experimental
-option, not made the default. The main-thread step instrumentation is not
-applicable to the direct path (`step_ms` is zero and end-to-end elapsed is
-reported).
+Direct transport did not demonstrate a reproducible gain after ownership
+hardening; the extra in-worker loop/message bookkeeping outweighs removed relay
+work on this CPU/smoke setup. It remains an experimental opt-in only, is not the
+default, and is not claimed as an optimization. The main-thread step
+instrumentation is not applicable to the direct path (`step_ms` is zero and
+end-to-end elapsed is reported).
 
 ## 3. Phase 3B.2 — bounded exact inference cache
 
 Opt-in cache in the inference worker for legal-only MCTS predictions:
 
 - Key: model SHA-256, ruleset, board size, requested/observed provider, encoded
-  planes and ordered legal actions.
+  planes and ordered legal actions. Model identity, request ID, position digest,
+  size, ruleset, legal actions and decoded/canonical binary planes are validated
+  before every lookup; malformed or nonbinary input cannot obtain a cache hit.
 - Values: legal probabilities and defender-relative value.
 - Required matching validated model/provider; cleared on model load/release.
 - Deterministic LRU from `Map` order; bounded entries and estimated bytes.
   UI/benchmark use 8,192 entries / 64 MiB; worker hard caps are 16,384 entries /
   128 MiB.
 - Hit/miss/eviction/entry/byte counters and hit rate; no tensor or PyProxy
-  retention.
+  retention. Lowering limits evicts immediately; disabling clears entries.
 - Disabled by default; enabled explicitly in the experimental UI or benchmark.
   Full-logit and parity paths bypass the cache.
 
@@ -87,11 +121,11 @@ Opt-in cache in the inference worker for legal-only MCTS predictions:
 
 | Workload | Cache disabled | Cache enabled | Change | Hit rate |
 | --- | ---: | ---: | ---: | ---: |
-| quick 128/256 | 598.8 sims/s | 850.7 sims/s | +42.1 % | 81.6 % |
-| strong 512/1,024 | 722.1 sims/s | 900.9 sims/s | +24.8 % | 81.9 % |
+| quick 128/256 | 606.9 sims/s | 739.9 sims/s | +21.9 % | 81.2 % |
+| strong 512/1,024 | 625.7 sims/s | 923.4 sims/s | +47.6 % | 81.9 % |
 
-Cache held 1,854 entries / 2.97 MiB (quick) and 7,946 entries / 12.84 MiB
-(strong) with no evictions in these runs. The benefit is workload-dependent:
+Cache held 1,812 entries / 2.89 MiB (quick) and 7,946 entries / 12.84 MiB
+(strong) with no evictions in these runs. Benefit is workload-dependent. The benefit is workload-dependent:
 repeated positions/analysis reuse gains substantially; a single one-shot search
 does not. It remains opt-in and is not a claim of general speedup.
 
@@ -144,17 +178,18 @@ capacity figures are reported, never substituted for actual process memory.
 
 | Gate | Result |
 | --- | --- |
-| Path parity per-case validator (3B.0) | 68 passed |
+| Path parity per-case validator (3B.0) | 86 passed |
 | Direct full/compact fixed-work parity | 5/5 |
 | Direct full/compact fixed-time validation | 5/5 |
 | Relay full/compact fixed-work/time | 5/5 / 5/5 |
 | Analysis UI (cache, direct, pending inference, navigation) | 32/32 |
-| Neural inference UI (cache eviction/reload, hook isolation) | 22/22 |
-| Neural client lifecycle (incl. batching/cache) | 46/46 |
+| Neural inference UI (cache validation/limits/reload/numerical parity, hook isolation) | 22/22 |
+| Neural client lifecycle (incl. batch cancellation/cache) | 52/52 |
 | Search coordinator lifecycle | 30/30 |
 | Staged asset integrity | 21/21 |
 | Two-context actual-browser batching | pass; 33 batches of 2 |
-| Cache hit/miss/eviction bounds | actual browser + stats |
+| Concurrent direct ownership | second direct context rejected `DIRECT_BUSY`; cancellation/replacement/worker-failure recovery pass |
+| Cache hit/miss/eviction bounds | actual browser + immediate limit reduction |
 | Level A/B model-backed parity | retained from Phase 3A, no search semantics changed |
 
 ## 9. Reproduction
@@ -207,7 +242,8 @@ node spikes/browser_offline/test_mcts_ui.mjs work/p3b/spike
   [batched](mcts-batching-batched-phase3b.json),
   [two contexts](mcts-batching-two-contexts-phase3b.json)
 - Direct parity: [fixed](mcts-parity-direct-fixed-phase3b.json),
-  [fixed time](mcts-parity-direct-time-phase3b.json)
+  [fixed time](mcts-parity-direct-time-phase3b.json),
+  [ownership/cancellation/failure](mcts-direct-ownership-phase3b.json)
 - Relay parity: [fixed](mcts-parity-relay-fixed-phase3b.json),
   [fixed time](mcts-parity-relay-time-phase3b.json)
 - [Analysis UI](mcts-browser-ui-phase3b.json),

@@ -1,10 +1,11 @@
 {
   "kind": "mcts-independent-batching",
   "schema": 1,
-  "generated": "2026-11-22T15:45:52.746Z",
+  "generated": "2026-11-22T19:03:04.399Z",
   "browser": "156.0.8078.4",
   "provider": "wasm",
   "simulations": 32,
+  "mode": "batched",
   "model": {
     "sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
     "ruleset": "brandubh",
@@ -82,5 +83,6 @@
     "rejected": 0
   },
   "failures": [],
+  "elapsed_ms": 346,
   "ok": true
 }
