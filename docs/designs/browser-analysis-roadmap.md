@@ -463,20 +463,21 @@ Phase 3 is not complete.
     logits. These are not competitive-model or device claims.
 - **Phase 3B implemented experimentally in PR #115 (not merged):**
   - Direct search↔inference `MessageChannel` implemented as opt-in; coordinator
-    retains admission/ownership/watchdog/cancellation/final validation. Measured
-    +3.8 % quick and +5.1 % strong on the smoke model, variable, so the relay
-    remains the default.
+    retains admission/ownership/watchdog/cancellation/final validation. Corrected
+    runs vary (latest -5.1 % quick / -1.2 % strong; earlier runs ranged from
+    -10.4 % to +14.1 %), so there is no reproducible gain yet; relay remains the
+    default.
   - Bounded exact legal-only inference cache implemented opt-in (model/provider/
     planes/legal key, LRU, entry/byte/eviction/hit accounting, model invalidation).
-    Repeated-position smoke runs measured +42.1 % quick and +24.8 % strong at
-    ~82 % hit rate; retained opt-in, not a general speedup claim.
+    Corrected repeated-position smoke runs measured +21.9 % quick and +47.6 %
+    strong at ~82 % hit rate; retained opt-in, not a general speedup claim.
   - Bounded independent-search batching scheduler implemented opt-in (batch/
     queue limits, request association, queue overflow/failure/cancellation
     tests). Actual two-context batching works; on CPU smoke it was slower
     (193.7 ms sequential vs 337.1 ms batched), so it is not enabled by default.
   - 3B.0 authoritative nested best-move validation and coverage-identifier
     hardening completed.
-  - Direct transport is opt-in with modest/variable measured gain; the
+  - Direct transport is opt-in with no reproducible measured gain; the
     coordinator relay remains the default.
   - Exact cache is opt-in with workload-dependent repeated-position benefit.
   - Independent batching is implemented and actual-browser validated, but has no

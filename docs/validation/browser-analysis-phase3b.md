@@ -14,6 +14,16 @@ batching** and **3B.5 subtree reuse** are deferred. Phase 3B remains in progress
 in PR #115 and is **not merged**; Phase 3C/external gates remain outstanding. Phase 3C and all external hardware/competitive-model gates remain
 outstanding.
 
+### Superseded evidence
+
+The pre-correction `mcts-parity-direct-fixed-phase3b.json` and
+`mcts-parity-direct-time-phase3b.json` were mislabelled: the runner omitted the
+transport payload, so they actually executed relay mode. They are retained for
+history with `-superseded` names and are **not** direct-transport evidence.
+Corrected gates are:
+`mcts-parity-relay-full-compact-phase3b.json`,
+`mcts-parity-direct-relay-compact-phase3b.json` and their `*-time` variants.
+
 ## 0. Review-correction hardening
 
 - **Batch cancellation:** every admitted request carries a settled-once guard.
@@ -89,11 +99,12 @@ covered by actual browser tests and direct full/compact parity passes.
 
 | Workload | Relay | Direct | Change |
 | --- | ---: | ---: | ---: |
-| quick 128/256 (final corrected build) | 636.9 sims/s | 614.7 sims/s | -3.5 % |
-| quick 128/256 (earlier corrected runs) | 631.8 / 670.2 sims/s | 566.1 / 623.7 sims/s | -10.4 % / -6.9 % |
+| quick 128/256 (latest corrected build) | 692.9 sims/s | 657.5 sims/s | -5.1 % |
+| strong 512/1,024 (latest corrected build) | 666.0 sims/s | 657.8 sims/s | -1.2 % |
+| earlier corrected runs (quick) | 631.8 / 670.2 sims/s | 566.1 / 623.7 sims/s | -10.4 % / -6.9 % |
 
-Direct transport did not demonstrate a reproducible gain after ownership
-hardening; the extra in-worker loop/message bookkeeping outweighs removed relay
+Direct transport did not demonstrate a reproducible gain across corrected runs
+(direction and magnitude vary); the extra in-worker loop/message bookkeeping outweighs removed relay
 work on this CPU/smoke setup. It remains an experimental opt-in only, is not the
 default, and is not claimed as an optimization. The main-thread step
 instrumentation is not applicable to the direct path (`step_ms` is zero and
@@ -178,13 +189,13 @@ capacity figures are reported, never substituted for actual process memory.
 
 | Gate | Result |
 | --- | --- |
-| Path parity per-case validator (3B.0) | 86 passed |
-| Direct full/compact fixed-work parity | 5/5 |
-| Direct full/compact fixed-time validation | 5/5 |
-| Relay full/compact fixed-work/time | 5/5 / 5/5 |
+| Path parity per-case validator (3B.0) | 88 passed |
+| Relay full/compact fixed-work/time (all three rulesets) | 13/13 each |
+| Direct compact vs relay compact fixed-work/time | 13/13 each |
+| Direct ownership partial attach/cancel/failure | pass |
 | Analysis UI (cache, direct, pending inference, navigation) | 32/32 |
 | Neural inference UI (cache validation/limits/reload/numerical parity, hook isolation) | 22/22 |
-| Neural client lifecycle (incl. batch cancellation/cache) | 52/52 |
+| Neural client lifecycle (incl. batch cancellation/cache) | 54/54 |
 | Search coordinator lifecycle | 30/30 |
 | Staged asset integrity | 21/21 |
 | Two-context actual-browser batching | pass; 33 batches of 2 |
@@ -241,11 +252,12 @@ node spikes/browser_offline/test_mcts_ui.mjs work/p3b/spike
 - Batching: [sequential](mcts-batching-sequential-phase3b.json),
   [batched](mcts-batching-batched-phase3b.json),
   [two contexts](mcts-batching-two-contexts-phase3b.json)
-- Direct parity: [fixed](mcts-parity-direct-fixed-phase3b.json),
-  [fixed time](mcts-parity-direct-time-phase3b.json),
+- Parity gates: relay full/compact
+  [fixed](mcts-parity-relay-full-compact-phase3b.json) /
+  [time](mcts-parity-relay-full-compact-time-phase3b.json); direct compact vs
+  relay compact [fixed](mcts-parity-direct-relay-compact-phase3b.json) /
+  [time](mcts-parity-direct-relay-compact-time-phase3b.json);
   [ownership/cancellation/failure](mcts-direct-ownership-phase3b.json)
-- Relay parity: [fixed](mcts-parity-relay-fixed-phase3b.json),
-  [fixed time](mcts-parity-relay-time-phase3b.json)
 - [Analysis UI](mcts-browser-ui-phase3b.json),
   [neural UI](neural-browser-ui-phase3b.json),
   [search lifecycle](mcts-search-lifecycle-phase3b.txt),

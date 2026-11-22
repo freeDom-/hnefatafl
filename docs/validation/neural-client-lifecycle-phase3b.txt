@@ -49,6 +49,12 @@ ok   in-flight batch cancellation settles on batch failure
 ok   worker crash settles queued and in-flight batches
 ok   termination and disposal reject outstanding batches
 ok   timeout/abort rejects outstanding batches exactly once
+FAIL unresponsive shared batch fails closed within drain bound: The validation function is expected to return "true". Received false
+
+Caught error:
+
+TimeoutError: Batched inference did not drain in time
+ok   repeated cancellation of one batch member is counted once
 ok   constructor batching limits are validated
 
-52/52 lifecycle checks passed
+54/54 lifecycle checks passed

@@ -18,7 +18,17 @@
         "name": "AbortError",
         "code": "AbortError"
       },
-      "recovered_completed": 64
+      "recovered_completed": 64,
+      "attachFailure": {
+        "name": "WorkerError",
+        "code": "WorkerError"
+      },
+      "after_attach_failure_completed": 64,
+      "setupCancel": {
+        "name": "AbortError",
+        "code": "AbortError"
+      },
+      "after_setup_cancel_completed": 64
     }
   ],
   "failures": [],

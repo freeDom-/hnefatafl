@@ -1,6 +1,6 @@
 {
   "kind": "browser-mcts-ui",
-  "generated": "2026-11-22T19:00:11.058Z",
+  "generated": "2026-11-22T22:30:02.945Z",
   "checks": [
     {
       "name": "Jarl analysis works without the neural runtime",
