@@ -109,6 +109,7 @@ export class NeuralClient {
   } = {}) {
     this.worker = null;
     this.workerProvider = null;
+    this.directChannel = null;
     this.pending = null;
     this.busy = false;
     this.sequence = 0;
@@ -398,6 +399,7 @@ export class NeuralClient {
     }
     this.worker = null;
     this.workerProvider = null;
+    this.directChannel = null;
     this.busy = false;
     this.model = null;
     this.loading = null;
@@ -497,7 +499,14 @@ export class NeuralClient {
         if (data?.id !== id) return;
         clearTimeout(timer);
         worker.removeEventListener?.("message", onMessage);
-        resolve(data.value ?? { kind: "direct_port_detached", pending: false });
+        const value = data.value ?? { kind: "direct_port_detached", pending: false };
+        if (
+          this.directChannel?.channelId === channelId &&
+          this.directChannel.worker === worker &&
+          value.pending !== true
+        )
+          this.directChannel = null;
+        resolve(value);
       };
       worker.addEventListener?.("message", onMessage);
       worker.postMessage({ control: "detachDirectPort", id, channelId });
@@ -506,7 +515,9 @@ export class NeuralClient {
 
   attachDirectPort(port, { channelId, timeoutMs = 5000 } = {}) {
     if (!this.worker) throw named("WorkerError", "Neural worker is not loaded");
+    if (this.directChannel) throw named("DIRECT_BUSY", "A direct channel already owns the session");
     const worker = this.worker;
+    const generation = this.generation;
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -517,8 +528,14 @@ export class NeuralClient {
         if (data?.id !== id) return;
         clearTimeout(timer);
         worker.removeEventListener?.("message", onMessage);
-        if (data.value?.kind === "direct_port_attached") resolve(data.value);
-        else {
+        if (data.value?.kind === "direct_port_attached") {
+          if (this.worker !== worker || this.generation !== generation) {
+            reject(named("AbortError", "Direct attachment generation changed"));
+            return;
+          }
+          this.directChannel = { channelId, generation, worker };
+          resolve(data.value);
+        } else {
           const error = named("WorkerError", data.error ?? "Neural direct port attachment failed");
           error.code = data.code ?? "WorkerError";
           reject(error);
@@ -747,12 +764,22 @@ export class NeuralClient {
     if (!["wasm", "webgpu"].includes(provider))
       throw named("ProviderError", `Unsupported provider: ${provider}`);
     if (this.loading) throw named("ModelLoadError", "A model load is already in progress");
+    if (
+      this.directChannel &&
+      this.directChannel.worker === this.worker &&
+      this.directChannel.generation === this.generation
+    )
+      throw named("DIRECT_BUSY", "A direct search owns the inference session");
+    if (this.busy || this.batchInFlight || this.batchDraining || this.draining)
+      throw named("SESSION_BUSY", "A neural session operation is already running");
     const token = ++this.sequenceLoad;
     this.loading = token;
     try {
       // A worker that loaded a different ORT bundle cannot serve this provider,
       // even when the previous load failed before publishing a model. Abort
       // before capturing the generation so the new load owns the new worker.
+      if (this.directChannel)
+        throw named("DIRECT_BUSY", "A direct search owns the inference session");
       if (this.worker && this.workerProvider !== provider) {
         this.abort(named("AbortError", "Recreating worker for provider switch"));
         this.loading = token;
@@ -763,13 +790,29 @@ export class NeuralClient {
         throw named("AbortError", "Model load superseded");
       if (!this.worker) this._spawn();
       this.workerProvider = provider;
+      const previousModel = this.model;
+      const worker = this.worker;
       // From here the worker may release the previous session, so the interface
       // must not keep advertising it as active.
       this.model = null;
-      const result = await this.request(
-        { action: "load", buffer, provider, size, ruleset, expectedSha256 },
-        { timeoutMs: LOAD_TIMEOUT_MS },
-      );
+      let result;
+      try {
+        result = await this.request(
+          { action: "load", buffer, provider, size, ruleset, expectedSha256 },
+          { timeoutMs: LOAD_TIMEOUT_MS },
+        );
+      } catch (error) {
+        // A rejected admission did not touch the session: preserve the previous
+        // advertised identity only when the same worker generation is intact.
+        if (
+          previousModel &&
+          (error?.code === "DIRECT_BUSY" || error?.code === "SESSION_BUSY") &&
+          this.worker === worker &&
+          this.generation === generation
+        )
+          this.model = previousModel;
+        throw error;
+      }
       if (this.generation !== generation || this.loading !== token)
         throw named("AbortError", "Model load superseded during session creation");
       this.model = { url: modelUrl, provider, size, ruleset, ...result };

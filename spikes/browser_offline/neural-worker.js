@@ -38,6 +38,9 @@ let activeDirectChannelId = null;
 let directInFlight = false;
 let directDetachRequested = false;
 let pendingDetachPort = null;
+// One ordinary mutating session operation at a time. Reserved synchronously
+// before the operation's first await and released in finally by its own token.
+let sessionOperation = null;
 const staleDirectChannels = new Set();
 const directStats = {
   accepted: 0,
@@ -892,11 +895,19 @@ onmessage = async ({ data }) => {
       postMessage({ id: data.id, error: "direct channel was detached", code: "DIRECT_STALE" });
       return;
     }
-    if (activeDirectPort || directInFlight) {
+    if (activeDirectPort || directInFlight || directDetachRequested) {
       postMessage({
         id: data.id,
         error: "Another direct channel is already active",
         code: "DIRECT_BUSY",
+      });
+      return;
+    }
+    if (sessionOperation) {
+      postMessage({
+        id: data.id,
+        error: `A ${sessionOperation.action} operation is already running`,
+        code: "SESSION_BUSY",
       });
       return;
     }
@@ -944,12 +955,27 @@ onmessage = async ({ data }) => {
     return;
   }
   const { id, request } = data;
+  const readOnly = [
+    "capabilities",
+    "inferenceCacheStats",
+    "directStats",
+    "sessionStats",
+  ].includes(request.action);
+  let operationToken = null;
   try {
-    const readOnly = ["capabilities", "inferenceCacheStats", "directStats"].includes(
-      request.action,
-    );
     if (directSessionOwned() && !readOnly)
       throw named("DIRECT_BUSY", "The inference session is owned by a direct search");
+    if (!readOnly) {
+      if (sessionOperation)
+        throw named(
+          "SESSION_BUSY",
+          `A ${sessionOperation.action} operation is already running`,
+        );
+      // Synchronous reservation before any action can yield. The token prevents
+      // an obsolete operation from releasing a newer owner's lock.
+      operationToken = { action: request.action };
+      sessionOperation = operationToken;
+    }
     let value;
     if (request.action === "capabilities") value = await capabilities();
     else if (request.action === "load") value = await loadModel(request);
@@ -960,6 +986,12 @@ onmessage = async ({ data }) => {
       value = configureInferenceCache(request);
     else if (request.action === "inferenceCacheStats") value = cacheStats();
     else if (request.action === "directStats") value = { ...directStats };
+    else if (request.action === "sessionStats")
+      value = {
+        session_operation: sessionOperation?.action ?? null,
+        direct_owned: directSessionOwned(),
+        direct_in_flight: directInFlight,
+      };
     else if (request.action === "clearInferenceCache") {
       resetInferenceCache();
       value = cacheStats();
@@ -979,5 +1011,7 @@ onmessage = async ({ data }) => {
     postMessage({ id, value });
   } catch (error) {
     postMessage({ id, error: String(error?.message ?? error), code: error?.code ?? null });
+  } finally {
+    if (operationToken && sessionOperation === operationToken) sessionOperation = null;
   }
 };

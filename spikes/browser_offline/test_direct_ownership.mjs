@@ -31,8 +31,13 @@ let browser = null;
 try {
   server = createServer(async (request, response) => {
     try {
-      let path = resolve(root, "." + decodeURIComponent(new URL(request.url, "http://localhost").pathname));
-      if (path !== root && !path.startsWith(root + sep)) throw new Error("outside root");
+      const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+      const testWorker = pathname === "/neural-worker-test.js";
+      let path = testWorker
+        ? resolve(import.meta.dirname, "neural-worker-test.js")
+        : resolve(root, "." + pathname);
+      if (!testWorker && path !== root && !path.startsWith(root + sep))
+        throw new Error("outside root");
       if ((await stat(path)).isDirectory()) path = resolve(path, "index.html");
       response.setHeader("Content-Type", mime[extname(path)] || "application/octet-stream");
       response.end(await readFile(path));
@@ -104,6 +109,7 @@ try {
     } catch (error) {
       fourthError = { name: error.name, code: error.code };
     }
+    const modelAfterTermination = client.model;
     const stagedReload = await window.neural.meta();
     await client.load("./" + stagedReload.model.file, {
       provider: "wasm",
@@ -222,7 +228,10 @@ try {
     const channelB = await attachRaw("raw-channel-b");
     const staleDetach = await client.detachDirectPort({ channelId: "raw-channel-a" });
     const rawSecond = await inferRaw(channelB, "raw-b1");
+    const modelBeforeRejectedLoad = client.modelIdentity();
+    const workerBeforeRejectedLoad = client.worker;
     let modelLoadError = null;
+    let providerSwitchError = null;
     let normalInferError = null;
     let releaseError = null;
     let cacheConfigError = null;
@@ -237,7 +246,18 @@ try {
       modelLoadError = error.code ?? error.name;
     }
     try {
-      client.model = { model_sha256: rawModel.sha256, model_ruleset: rawModel.ruleset, size: rawModel.size };
+      await client.load("./" + stagedReload.model.file, {
+        provider: "webgpu",
+        size: stagedReload.model.size,
+        ruleset: stagedReload.model.ruleset,
+        expectedSha256: stagedReload.model.sha256,
+      });
+    } catch (error) {
+      providerSwitchError = error.code ?? error.name;
+    }
+    const modelAfterRejectedLoad = client.modelIdentity();
+    const workerAfterRejectedLoad = client.worker;
+    try {
       await client.infer({
         planes: new Array(6 * rawModel.size * rawModel.size).fill(0),
         size: rawModel.size,
@@ -262,12 +282,75 @@ try {
     }
     const capabilitiesDuringDirect = await client.capabilities();
     await client.detachDirectPort({ channelId: "raw-channel-b" });
-    await client.load("./" + stagedReload.model.file, {
-      provider: "wasm",
-      size: stagedReload.model.size,
-      ruleset: stagedReload.model.ruleset,
-      expectedSha256: stagedReload.model.sha256,
+    const { NeuralClient } = await import("/neural-client.js");
+    const testClient = new NeuralClient({
+      testHooks: true,
+      workerUrl: "/neural-worker-test.js",
     });
+    let testClientLoadError = null;
+    try {
+      await testClient.load("./" + stagedReload.model.file, {
+        provider: "wasm",
+        size: stagedReload.model.size,
+        ruleset: stagedReload.model.ruleset,
+        expectedSha256: stagedReload.model.sha256,
+      });
+    } catch (error) {
+      testClientLoadError = { name: error.name, code: error.code, message: error.message };
+    }
+    if (testClientLoadError) throw new Error(`test client load failed: ${JSON.stringify(testClientLoadError)}`);
+    const testModel = testClient.modelIdentity();
+    testClient.setTestInferenceDelay(500);
+    const delayedNormal = testClient.infer({
+      planes: new Array(6 * testModel.size * testModel.size).fill(0),
+      size: testModel.size,
+      legal: [0, 1],
+      ruleset: testModel.ruleset,
+      request_id: "delayed-normal",
+      position_digest: "a".repeat(64),
+      model: testModel,
+    });
+    await new Promise((done) => setTimeout(done, 50));
+    let normalAttachError = null;
+    try {
+      const blocked = await (async () => {
+        const channel = new MessageChannel();
+        await testClient.attachDirectPort(channel.port2, { channelId: "during-normal" });
+        return channel;
+      })();
+      await testClient.detachDirectPort({ channelId: "during-normal" });
+      blocked.port1.close?.();
+    } catch (error) {
+      normalAttachError = error.code ?? error.name;
+    }
+    let sustainedError = null;
+    try {
+      await delayedNormal;
+    } catch (error) {
+      sustainedError = error.code ?? error.name;
+    }
+    testClient.setTestInferenceDelay(null);
+    const testChannelAfter = new MessageChannel();
+    await testClient.attachDirectPort(testChannelAfter.port2, {
+      channelId: "after-normal",
+    });
+    await testClient.detachDirectPort({ channelId: "after-normal" });
+    testChannelAfter.port1.close?.();
+    testClient.dispose();
+    const channelAfter = await attachRaw("after-normal");
+    await client.detachDirectPort({ channelId: "after-normal" });
+    channelAfter.port1.close?.();
+    let finalLoadError = null;
+    try {
+      await client.load("./" + stagedReload.model.file, {
+        provider: "wasm",
+        size: stagedReload.model.size,
+        ruleset: stagedReload.model.ruleset,
+        expectedSha256: stagedReload.model.sha256,
+      });
+    } catch (error) {
+      finalLoadError = { name: error.name, code: error.code, message: error.message };
+    }
     const statsAfterRecovery = await client.directStats();
     c2.dispose();
     c3.dispose();
@@ -283,6 +366,7 @@ try {
       replacement_completed: replacement.search.completed_simulations,
       replacement_direct: replacement.search.coordinator.direct,
       fourthError,
+      modelAfterTermination,
       recovered_completed: recovered.search.completed_simulations,
       attachFailure,
       neuralAttachSucceeded,
@@ -293,15 +377,24 @@ try {
       rawFirst: rawFirst.kind,
       rawSecond: rawSecond.kind,
       staleDetach,
+      modelBeforeRejectedLoad,
+      modelAfterRejectedLoad,
+      workerBeforeRejectedLoad,
+      workerAfterRejectedLoad,
+      modelLoadError,
+      providerSwitchError,
       statsBeforeRaw,
       statsAfterFirst,
       statsAfterStale,
-      modelLoadError,
       normalInferError,
       releaseError,
       cacheConfigError,
       capabilitiesDuringDirect: Boolean(capabilitiesDuringDirect),
       statsAfterRecovery,
+      normalAttachError,
+      sustainedError,
+      testClientLoadError,
+      finalLoadError,
     };
   });
   report.checks.push(outcome);
@@ -310,6 +403,7 @@ try {
   assert.equal(outcome.replacement_completed, 64);
   assert.equal(outcome.replacement_direct, true);
   assert.ok(outcome.fourthError);
+  assert.equal(outcome.modelAfterTermination, null);
   assert.equal(outcome.recovered_completed, 64);
   assert.equal(outcome.attachFailure?.name, "TimeoutError");
   assert.equal(outcome.neuralAttachSucceeded, true);
@@ -326,11 +420,17 @@ try {
   );
   assert.equal(outcome.statsAfterStale.accepted, outcome.statsAfterFirst.accepted);
   assert.equal(outcome.modelLoadError, "DIRECT_BUSY");
+  assert.equal(outcome.providerSwitchError, "DIRECT_BUSY");
+  assert.deepEqual(outcome.modelAfterRejectedLoad, outcome.modelBeforeRejectedLoad);
+  assert.equal(outcome.workerAfterRejectedLoad, outcome.workerBeforeRejectedLoad);
   assert.equal(outcome.normalInferError, "DIRECT_BUSY");
   assert.equal(outcome.releaseError, "DIRECT_BUSY");
   assert.equal(outcome.cacheConfigError, "DIRECT_BUSY");
   assert.equal(outcome.capabilitiesDuringDirect, true);
   assert.equal(outcome.statsAfterRecovery.accepted, outcome.statsBeforeRaw.accepted + 2);
+  assert.equal(outcome.normalAttachError, "SESSION_BUSY");
+  assert.equal(outcome.finalLoadError, null);
+  assert.equal(outcome.testClientLoadError, null);
   if (pageErrors.length) report.failures.push(`page errors: ${pageErrors.join("; ")}`);
 } catch (error) {
   report.failures.push(String(error?.stack ?? error));
