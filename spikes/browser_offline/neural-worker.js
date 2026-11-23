@@ -37,7 +37,17 @@ let activeDirectPort = null;
 let activeDirectChannelId = null;
 let directInFlight = false;
 let directDetachRequested = false;
+let pendingDetachPort = null;
 const staleDirectChannels = new Set();
+const directStats = {
+  accepted: 0,
+  stale_rejected: 0,
+  busy_rejected: 0,
+};
+
+function directSessionOwned() {
+  return Boolean(activeDirectPort || activeDirectChannelId || directInFlight || directDetachRequested);
+}
 
 // Bounded exact inference cache for legal-only MCTS predictions. It is disabled
 // by default; enabling is explicit and every entry is keyed by model/provider,
@@ -821,8 +831,23 @@ self.__neuralWorkerInternals = {
   runBatch,
 };
 
-async function handleDirectRequest(port, data) {
+async function handleDirectRequest(port, channelId, data) {
+  if (port !== activeDirectPort || channelId !== activeDirectChannelId) {
+    directStats.stale_rejected += 1;
+    try {
+      port.postMessage({
+        kind: "infer_error",
+        id: data.id,
+        error: "Direct channel is stale or detached",
+        code: "DIRECT_STALE",
+      });
+    } catch {
+      // The old port may already be closed; no work is executed either way.
+    }
+    return;
+  }
   if (directInFlight) {
+    directStats.busy_rejected += 1;
     port.postMessage({
       kind: "infer_error",
       id: data.id,
@@ -831,23 +856,28 @@ async function handleDirectRequest(port, data) {
     });
     return;
   }
+  directStats.accepted += 1;
   directInFlight = true;
   try {
     const value = await inferCompact(data.request);
-    port.postMessage({ kind: "infer_result", id: data.id, value });
+    if (port === activeDirectPort) port.postMessage({ kind: "infer_result", id: data.id, value });
   } catch (error) {
-    port.postMessage({
-      kind: "infer_error",
-      id: data.id,
-      error: String(error?.message ?? error),
-      code: error?.code ?? null,
-    });
+    if (port === activeDirectPort)
+      port.postMessage({
+        kind: "infer_error",
+        id: data.id,
+        error: String(error?.message ?? error),
+        code: error?.code ?? null,
+      });
   } finally {
     directInFlight = false;
     if (directDetachRequested) {
+      const oldPort = pendingDetachPort ?? activeDirectPort;
       activeDirectPort = null;
       activeDirectChannelId = null;
       directDetachRequested = false;
+      pendingDetachPort = null;
+      oldPort?.close?.();
     }
   }
 }
@@ -874,7 +904,8 @@ onmessage = async ({ data }) => {
     activeDirectChannelId = data.channelId;
     const attachedPort = data.port;
     attachedPort.onmessage = ({ data: directData }) => {
-      if (directData?.kind === "infer") void handleDirectRequest(attachedPort, directData);
+      if (directData?.kind === "infer")
+        void handleDirectRequest(attachedPort, data.channelId, directData);
     };
     postMessage({ id: data.id, value: { kind: "direct_port_attached" } });
     return;
@@ -894,12 +925,15 @@ onmessage = async ({ data }) => {
       });
       return;
     }
-    directDetachRequested = true;
-    if (!directInFlight) {
-      activeDirectPort = null;
-      activeDirectChannelId = null;
-      directDetachRequested = false;
+    const detachingPort = activeDirectPort;
+    activeDirectPort = null;
+    activeDirectChannelId = null;
+    if (detachingPort) {
+      detachingPort.onmessage = null;
+      if (!directInFlight) detachingPort.close?.();
+      else pendingDetachPort = detachingPort;
     }
+    directDetachRequested = Boolean(directInFlight);
     postMessage({
       id: data.id,
       value: {
@@ -911,8 +945,11 @@ onmessage = async ({ data }) => {
   }
   const { id, request } = data;
   try {
-    if (directInFlight)
-      throw named("DIRECT_BUSY", "A direct inference is already running");
+    const readOnly = ["capabilities", "inferenceCacheStats", "directStats"].includes(
+      request.action,
+    );
+    if (directSessionOwned() && !readOnly)
+      throw named("DIRECT_BUSY", "The inference session is owned by a direct search");
     let value;
     if (request.action === "capabilities") value = await capabilities();
     else if (request.action === "load") value = await loadModel(request);
@@ -922,6 +959,7 @@ onmessage = async ({ data }) => {
     else if (request.action === "configureInferenceCache")
       value = configureInferenceCache(request);
     else if (request.action === "inferenceCacheStats") value = cacheStats();
+    else if (request.action === "directStats") value = { ...directStats };
     else if (request.action === "clearInferenceCache") {
       resetInferenceCache();
       value = cacheStats();

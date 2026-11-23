@@ -120,15 +120,35 @@ try {
     c6.directInference = true;
     await c6.load();
     const realAttachSearch = c6._attachSearchDirect.bind(c6);
-    c6._attachSearchDirect = async () =>
-      Object.assign(new Error("search attach timeout"), { name: "TimeoutError" });
+    const realAttachNeuralForFailure = client.attachDirectPort.bind(client);
+    const realDetachNeuralForFailure = client.detachDirectPort.bind(client);
+    let neuralAttachSucceeded = false;
+    let neuralDetachAcknowledged = false;
+    client.attachDirectPort = async (...args) => {
+      const result = await realAttachNeuralForFailure(...args);
+      neuralAttachSucceeded = true;
+      return result;
+    };
+    client.detachDirectPort = async (...args) => {
+      const result = await realDetachNeuralForFailure(...args);
+      neuralDetachAcknowledged = Boolean(result);
+      return result;
+    };
+    c6._attachSearchDirect = async () => {
+      const error = new Error("search attach timeout");
+      error.name = "TimeoutError";
+      throw error;
+    };
     let attachFailure = null;
     try {
       await c6.search({ state: positions[0].state, settings, model });
     } catch (error) {
       attachFailure = { name: error.name, code: error.code };
+    } finally {
+      c6._attachSearchDirect = realAttachSearch;
+      client.attachDirectPort = realAttachNeuralForFailure;
+      client.detachDirectPort = realDetachNeuralForFailure;
     }
-    c6._attachSearchDirect = realAttachSearch;
     const c7 = new NeuralSearchCoordinator({ neural: client });
     c7.directInference = true;
     await c7.load();
@@ -148,12 +168,107 @@ try {
       await cancelledSetup;
     } catch (error) {
       setupCancel = { name: error.name, code: error.code };
+    } finally {
+      client.attachDirectPort = realAttachNeural;
     }
-    client.attachDirectPort = realAttachNeural;
     const c9 = new NeuralSearchCoordinator({ neural: client });
     c9.directInference = true;
     await c9.load();
     const afterSetupCancel = await c9.search({ state: positions[0].state, settings, model });
+    const statsBeforeRaw = await client.directStats();
+    const rawModel = client.modelIdentity();
+    const rawPlanes = btoa(String.fromCharCode(...new Array(6 * rawModel.size * rawModel.size).fill(0)));
+    const rawRequest = (id) => ({
+      action: "inferCompact",
+      planes_base64: rawPlanes,
+      size: rawModel.size,
+      legal: [0, 1],
+      ruleset: rawModel.ruleset,
+      request_id: id,
+      position_digest: "a".repeat(64),
+      model: rawModel,
+    });
+    const attachRaw = async (channelId) => {
+      const channel = new MessageChannel();
+      await client.attachDirectPort(channel.port2, { channelId });
+      return channel;
+    };
+    const inferRaw = (channel, id) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("raw direct inference timeout")), 2000);
+        channel.port1.onmessage = ({ data }) => {
+          if (data?.id !== id) return;
+          clearTimeout(timer);
+          resolve(data);
+        };
+        channel.port1.postMessage({ kind: "infer", id, model: rawModel, request: rawRequest(id) });
+      });
+    const channelA = await attachRaw("raw-channel-a");
+    const rawFirst = await inferRaw(channelA, "raw-a1");
+    const statsAfterFirst = await client.directStats();
+    await client.detachDirectPort({ channelId: "raw-channel-a" });
+    try {
+      channelA.port1.postMessage({
+        kind: "infer",
+        id: "raw-a-stale",
+        model: rawModel,
+        request: rawRequest("raw-a-stale"),
+      });
+    } catch {
+      // The stale port may already be closed; it must never execute either way.
+    }
+    await new Promise((done) => setTimeout(done, 100));
+    const statsAfterStale = await client.directStats();
+    const channelB = await attachRaw("raw-channel-b");
+    const staleDetach = await client.detachDirectPort({ channelId: "raw-channel-a" });
+    const rawSecond = await inferRaw(channelB, "raw-b1");
+    let modelLoadError = null;
+    let normalInferError = null;
+    let releaseError = null;
+    let cacheConfigError = null;
+    try {
+      await client.load("./" + stagedReload.model.file, {
+        provider: "wasm",
+        size: stagedReload.model.size,
+        ruleset: stagedReload.model.ruleset,
+        expectedSha256: stagedReload.model.sha256,
+      });
+    } catch (error) {
+      modelLoadError = error.code ?? error.name;
+    }
+    try {
+      client.model = { model_sha256: rawModel.sha256, model_ruleset: rawModel.ruleset, size: rawModel.size };
+      await client.infer({
+        planes: new Array(6 * rawModel.size * rawModel.size).fill(0),
+        size: rawModel.size,
+        legal: [0, 1],
+        ruleset: rawModel.ruleset,
+        request_id: "normal-during-direct",
+        position_digest: "a".repeat(64),
+        model: rawModel,
+      });
+    } catch (error) {
+      normalInferError = error.code ?? error.name;
+    }
+    try {
+      await client.release();
+    } catch (error) {
+      releaseError = error.code ?? error.name;
+    }
+    try {
+      await client.configureInferenceCache({ enabled: true });
+    } catch (error) {
+      cacheConfigError = error.code ?? error.name;
+    }
+    const capabilitiesDuringDirect = await client.capabilities();
+    await client.detachDirectPort({ channelId: "raw-channel-b" });
+    await client.load("./" + stagedReload.model.file, {
+      provider: "wasm",
+      size: stagedReload.model.size,
+      ruleset: stagedReload.model.ruleset,
+      expectedSha256: stagedReload.model.sha256,
+    });
+    const statsAfterRecovery = await client.directStats();
     c2.dispose();
     c3.dispose();
     c4.dispose();
@@ -170,9 +285,23 @@ try {
       fourthError,
       recovered_completed: recovered.search.completed_simulations,
       attachFailure,
+      neuralAttachSucceeded,
+      neuralDetachAcknowledged,
       after_attach_failure_completed: afterAttachFailure.search.completed_simulations,
       setupCancel,
       after_setup_cancel_completed: afterSetupCancel.search.completed_simulations,
+      rawFirst: rawFirst.kind,
+      rawSecond: rawSecond.kind,
+      staleDetach,
+      statsBeforeRaw,
+      statsAfterFirst,
+      statsAfterStale,
+      modelLoadError,
+      normalInferError,
+      releaseError,
+      cacheConfigError,
+      capabilitiesDuringDirect: Boolean(capabilitiesDuringDirect),
+      statsAfterRecovery,
     };
   });
   report.checks.push(outcome);
@@ -182,10 +311,26 @@ try {
   assert.equal(outcome.replacement_direct, true);
   assert.ok(outcome.fourthError);
   assert.equal(outcome.recovered_completed, 64);
-  assert.ok(outcome.attachFailure);
+  assert.equal(outcome.attachFailure?.name, "TimeoutError");
+  assert.equal(outcome.neuralAttachSucceeded, true);
+  assert.equal(outcome.neuralDetachAcknowledged, true);
   assert.equal(outcome.after_attach_failure_completed, 64);
   assert.equal(outcome.setupCancel?.name, "AbortError");
   assert.equal(outcome.after_setup_cancel_completed, 64);
+  assert.equal(outcome.rawFirst, "infer_result");
+  assert.equal(outcome.rawSecond, "infer_result");
+  assert.equal(outcome.staleDetach.stale, true);
+  assert.equal(
+    outcome.statsAfterFirst.accepted,
+    outcome.statsBeforeRaw.accepted + 1,
+  );
+  assert.equal(outcome.statsAfterStale.accepted, outcome.statsAfterFirst.accepted);
+  assert.equal(outcome.modelLoadError, "DIRECT_BUSY");
+  assert.equal(outcome.normalInferError, "DIRECT_BUSY");
+  assert.equal(outcome.releaseError, "DIRECT_BUSY");
+  assert.equal(outcome.cacheConfigError, "DIRECT_BUSY");
+  assert.equal(outcome.capabilitiesDuringDirect, true);
+  assert.equal(outcome.statsAfterRecovery.accepted, outcome.statsBeforeRaw.accepted + 2);
   if (pageErrors.length) report.failures.push(`page errors: ${pageErrors.join("; ")}`);
 } catch (error) {
   report.failures.push(String(error?.stack ?? error));

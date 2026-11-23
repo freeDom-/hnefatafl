@@ -15,7 +15,9 @@
 let runtime = null;
 let info = null;
 let directPort = null;
+let directChannelId = null;
 let directState = null;
+const staleDirectChannels = new Set();
 
 function dispatch(payload) {
   runtime.globals.set("search_request", JSON.stringify(payload));
@@ -169,9 +171,21 @@ async function runDirectSearch(payload) {
   }
 }
 
-function attachDirect(port) {
+function attachDirect(port, channelId) {
+  if (typeof channelId !== "string" || !channelId)
+    throw Object.assign(new Error("direct channel identity is required"), {
+      code: "INPUT_INVALID",
+    });
+  if (staleDirectChannels.has(channelId))
+    throw Object.assign(new Error("direct channel was detached"), { code: "DIRECT_STALE" });
+  if (directPort || directState)
+    throw Object.assign(new Error("Another direct channel is already active"), {
+      code: "DIRECT_BUSY",
+    });
   directPort = port;
+  directChannelId = channelId;
   port.onmessage = ({ data }) => {
+    if (port !== directPort) return;
     const pending = directState?.pending;
     // Late responses after cancellation or a replacement never resume a context.
     if (!pending || data?.id !== pending.requestId) return;
@@ -179,6 +193,26 @@ function attachDirect(port) {
     if (data.kind === "infer_result") pending.resolve(data.value);
     else pending.reject(Object.assign(new Error(data.error), { code: data.code }));
   };
+}
+
+function detachDirect(channelId) {
+  if (typeof channelId !== "string" || !channelId)
+    throw Object.assign(new Error("direct channel identity is required"), {
+      code: "INPUT_INVALID",
+    });
+  staleDirectChannels.add(channelId);
+  while (staleDirectChannels.size > 16)
+    staleDirectChannels.delete(staleDirectChannels.values().next().value);
+  if (directChannelId !== channelId)
+    return { kind: "direct_detached", stale: true };
+  const port = directPort;
+  directPort = null;
+  directChannelId = null;
+  if (port) {
+    port.onmessage = null;
+    port.close?.();
+  }
+  return { kind: "direct_detached", stale: false };
 }
 
 const MODULE = /^[a-z_]+[.]py$/;
@@ -263,14 +297,37 @@ onmessage = async ({ data }) => {
   const { id, payload } = data;
   try {
     if (data.control === "attachDirect") {
-      attachDirect(data.port);
-      postMessage({ id, value: { kind: "direct_attached" } });
+      try {
+        attachDirect(data.port, data.channelId);
+        postMessage({ id, value: { kind: "direct_attached" } });
+      } catch (error) {
+        postMessage({ id, error: String(error.message), code: error.code ?? null });
+      }
+      return;
+    }
+    if (data.control === "detachDirect") {
+      try {
+        postMessage({ id, value: detachDirect(data.channelId) });
+      } catch (error) {
+        postMessage({ id, error: String(error.message), code: error.code ?? null });
+      }
       return;
     }
     await ready;
     if (typeof payload !== "string") throw new Error("Expected a serialized search payload");
     const request = JSON.parse(payload);
     if (request.action === "start_direct") {
+      if (!directPort) {
+        postMessage({
+          id,
+          value: JSON.stringify({
+            ok: false,
+            code: "DIRECT_NOT_ATTACHED",
+            message: "Direct search requires an attached channel",
+          }),
+        });
+        return;
+      }
       if (directState) {
         postMessage({
           id,

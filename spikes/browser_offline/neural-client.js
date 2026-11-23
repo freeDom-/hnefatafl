@@ -545,6 +545,10 @@ export class NeuralClient {
     return this.request({ action: "inferenceCacheStats" }, { timeoutMs: 5000 });
   }
 
+  directStats() {
+    return this.request({ action: "directStats" }, { timeoutMs: 5000 });
+  }
+
   clearInferenceCache() {
     return this.request({ action: "clearInferenceCache" }, { timeoutMs: 5000 });
   }
@@ -588,10 +592,12 @@ export class NeuralClient {
           () => ({ timedOut: false, failed: false }),
           (error) => ({ timedOut: false, failed: true, error }),
         );
-        const timeout = new Promise((resolve) =>
-          setTimeout(() => resolve({ timedOut: true, failed: false }), drainMs),
-        );
+        let timer = null;
+        const timeout = new Promise((resolve) => {
+          timer = setTimeout(() => resolve({ timedOut: true, failed: false }), drainMs);
+        });
         return Promise.race([completion, timeout]).then((result) => {
+          clearTimeout(timer);
           if (result.timedOut) {
             this.abort(named("TimeoutError", "Batched inference did not drain in time"));
             return {

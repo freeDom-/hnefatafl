@@ -731,6 +731,32 @@ export class NeuralSearchCoordinator {
     });
   }
 
+  async _detachSearchDirect(channelId) {
+    const worker = this.worker;
+    if (!worker) return false;
+    return new Promise((resolve) => {
+      const id = ++this.sequence;
+      const timer = setTimeout(() => {
+        worker.removeEventListener?.("message", onMessage);
+        resolve(false);
+      }, 5000);
+      const onMessage = ({ data }) => {
+        if (data?.id !== id) return;
+        clearTimeout(timer);
+        worker.removeEventListener?.("message", onMessage);
+        resolve(data?.value?.kind === "direct_detached");
+      };
+      worker.addEventListener?.("message", onMessage);
+      try {
+        worker.postMessage({ control: "detachDirect", id, channelId });
+      } catch {
+        clearTimeout(timer);
+        worker.removeEventListener?.("message", onMessage);
+        resolve(false);
+      }
+    });
+  }
+
   async _searchDirect(search, payload, configuration) {
     this._assertOwner(search);
     if (!this.neural || typeof this.neural.attachDirectPort !== "function")
@@ -739,6 +765,7 @@ export class NeuralSearchCoordinator {
     const channelId = search.searchId;
     let neuralAttempted = false;
     let neuralAttached = false;
+    let searchAttempted = false;
     let searchAttached = false;
     try {
       neuralAttempted = true;
@@ -748,6 +775,7 @@ export class NeuralSearchCoordinator {
       ]);
       neuralAttached = true;
       this._assertOwner(search);
+      searchAttempted = true;
       await Promise.race([
         this._attachSearchDirect(channel.port1, channelId),
         search.cancelSignal,
@@ -777,6 +805,14 @@ export class NeuralSearchCoordinator {
       search.phase = "completed";
       return this._finalize(search, event, configuration);
     } finally {
+      if (searchAttempted) {
+        try {
+          const detached = await this._detachSearchDirect(channelId);
+          if (!detached) this.workerUnhealthy = true;
+        } catch {
+          this.workerUnhealthy = true;
+        }
+      }
       if (neuralAttempted && typeof this.neural?.detachDirectPort === "function") {
         try {
           const detached = await this.neural.detachDirectPort({ channelId });
