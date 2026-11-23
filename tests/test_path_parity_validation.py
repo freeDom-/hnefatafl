@@ -149,6 +149,7 @@ def _case(entry: dict, *, fixed_time: bool = False) -> dict:
         "compact": result("compact"),
         "full_move": copy.deepcopy(best),
         "compact_move": copy.deepcopy(best),
+        "gate": "relay-full-compact",
         "expected_transports": {"full": "relay", "compact": "relay"},
         "expected_payload_modes": {
             "full": "full-logits",
@@ -164,6 +165,7 @@ def _report(*, fixed_time: bool = False) -> dict:
     return {
         "kind": "mcts-search-path-parity-observations",
         "schema": 1,
+        "gate": "relay-full-compact",
         "roots": ["brandubh"],
         "expected_rulesets": ["brandubh"],
         "models": [{**MODEL, "provider_requested": "wasm", "execution_placement": "wasm"}],
@@ -648,14 +650,21 @@ def test_cli_rejects_malformed_kind_and_exits_nonzero(tmp_path, value):
 
 
 def _direct_relay_case(report: dict) -> dict:
-    case = _fixed_time_case(report)
-    case["expected_transports"] = {"full": "relay", "compact": "direct"}
-    case["expected_payload_modes"] = {"full": "legal-only", "compact": "legal-only"}
-    case["full"]["search"]["coordinator"]["direct"] = False
-    case["full"]["search"]["coordinator"]["inference_payload_mode"] = "legal-only"
-    case["compact"]["search"]["coordinator"]["direct"] = True
-    case["compact"]["search"]["coordinator"]["inference_payload_mode"] = "legal-only"
-    return case
+    report["gate"] = "direct-relay-compact"
+    selected = _fixed_time_case(report)
+    for case in report["cases"]:
+        case["gate"] = "direct-relay-compact"
+        case["expected_transports"] = {"full": "relay", "compact": "direct"}
+        case["expected_payload_modes"] = {"full": "legal-only", "compact": "legal-only"}
+        case["full"]["search"]["coordinator"]["direct"] = False
+        case["full"]["search"]["coordinator"]["inference_payload_mode"] = (
+            None if case["terminal"] else "legal-only"
+        )
+        case["compact"]["search"]["coordinator"]["direct"] = True
+        case["compact"]["search"]["coordinator"]["inference_payload_mode"] = (
+            None if case["terminal"] else "legal-only"
+        )
+    return selected
 
 
 def test_direct_compact_versus_relay_compact_parity():
@@ -684,3 +693,77 @@ def test_direct_gate_fails_when_relay_runs_and_direct_is_mislabelled():
     assert validated["ok"] is False
     assert case["ok"] is False
     assert any("payload mode" in failure for failure in case["failures"])
+
+
+def _canonical_direct_report() -> dict:
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    _direct_relay_case(report)
+    return report
+
+
+def test_direct_gate_observed_relay_relay_is_rejected():
+    report = _canonical_direct_report()
+    for case in report["cases"]:
+        case["compact"]["search"]["coordinator"]["direct"] = False
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert any("observed transport" in failure for failure in validated["failures"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: report["cases"][0].update(
+            expected_transports={"full": "relay", "compact": "relay"}
+        ),
+        lambda report: report["cases"][0].update(
+            expected_payload_modes={"full": "full-logits", "compact": "legal-only"}
+        ),
+        lambda report: report["cases"][0].update(gate="relay-full-compact"),
+        lambda report: report.update(gate="unsupported-gate"),
+        lambda report: report.pop("gate"),
+        lambda report: report.update(gate=["direct-relay-compact"]),
+        lambda report: report.update(gate=None),
+    ],
+)
+def test_canonical_gate_contradictions_are_rejected(mutation):
+    report = _canonical_direct_report()
+    mutation(report)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert validated["failures"]
+
+
+def test_one_corrupted_case_does_not_hide_other_successes():
+    report = _canonical_direct_report()
+    target = report["cases"][0]
+    target["compact"]["search"]["coordinator"]["direct"] = False
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    failed = [case for case in validated["cases"] if not case["ok"]]
+    assert failed == [target]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: report["cases"][0].update(
+            expected_transports={"full": "relay", "compact": "relay"}
+        ),
+        lambda report: report["cases"][0].update(
+            expected_payload_modes={"full": "full-logits", "compact": "legal-only"}
+        ),
+        lambda report: report["cases"][0].update(gate="relay-full-compact"),
+        lambda report: report.update(gate="unsupported-gate"),
+        lambda report: report.pop("gate"),
+        lambda report: report.update(gate=42),
+    ],
+)
+def test_canonical_gate_cli_failures_are_structured(tmp_path, mutation):
+    report = _canonical_direct_report()
+    mutation(report)
+    code, validated = _run_cli(tmp_path, report)
+    assert code != 0
+    assert validated["ok"] is False
+    assert validated["failures"]

@@ -35,6 +35,16 @@ KNOWN_CASE_KINDS = {
     "terminal",
     "king-escape",
 }
+GATE_CONTRACTS = {
+    "relay-full-compact": {
+        "full": {"transport": "relay", "payload": "full-logits"},
+        "compact": {"transport": "relay", "payload": "legal-only"},
+    },
+    "direct-relay-compact": {
+        "full": {"transport": "relay", "payload": "legal-only"},
+        "compact": {"transport": "direct", "payload": "legal-only"},
+    },
+}
 COMPLETION_REASONS = {
     "simulations",
     "deadline",
@@ -195,7 +205,7 @@ def _validate_terminal_or_immediate(
     return False
 
 
-def _validate_common(case: dict, failures: list[str]) -> None:
+def _validate_common(case: dict, failures: list[str], contract: dict | None) -> None:
     full, compact = case.get("full"), case.get("compact")
     if not isinstance(full, dict) or not isinstance(compact, dict):
         failures.append("full and compact results must both be objects")
@@ -230,38 +240,39 @@ def _validate_common(case: dict, failures: list[str]) -> None:
     terminal = case.get("terminal") is True
     full_mode = full_coordinator.get("inference_payload_mode")
     compact_mode = compact_coordinator.get("inference_payload_mode")
-    expected_modes = case.get("expected_payload_modes")
-    if (
-        not isinstance(expected_modes, dict)
-        or not isinstance(expected_modes.get("full"), str)
-        or not isinstance(expected_modes.get("compact"), str)
-    ):
-        failures.append("expected_payload_modes must be an object with two strings")
+    if contract is None:
+        failures.append("no canonical gate contract is available for this case")
+        expected_transports = None
+        expected_modes = None
     else:
+        expected_transports = {
+            "full": contract["full"]["transport"],
+            "compact": contract["compact"]["transport"],
+        }
+        expected_modes = {
+            "full": contract["full"]["payload"],
+            "compact": contract["compact"]["payload"],
+        }
+        duplicated_modes = case.get("expected_payload_modes")
+        if _canonical(duplicated_modes) != _canonical(expected_modes):
+            failures.append("duplicated expected payload modes contradict the canonical gate")
+        duplicated_transports = case.get("expected_transports")
+        if _canonical(duplicated_transports) != _canonical(expected_transports):
+            failures.append("duplicated expected transports contradict the canonical gate")
+    if expected_modes is not None:
         if terminal:
             if full_mode is not None or compact_mode is not None:
                 failures.append("terminal search reported an inference payload")
         else:
             if full_mode != expected_modes["full"]:
                 failures.append(
-                    f"full path payload mode {full_mode!r} does not match {expected_modes['full']!r}"
+                    f"full path payload mode {full_mode!r} does not match canonical {expected_modes['full']!r}"
                 )
             if compact_mode != expected_modes["compact"]:
                 failures.append(
-                    f"compact path payload mode {compact_mode!r} does not match {expected_modes['compact']!r}"
+                    f"compact path payload mode {compact_mode!r} does not match canonical {expected_modes['compact']!r}"
                 )
-    expected_transports = case.get("expected_transports")
-    if (
-        not isinstance(expected_transports, dict)
-        or expected_transports.get("full") not in ("relay", "direct")
-        or expected_transports.get("compact")
-        not in (
-            "relay",
-            "direct",
-        )
-    ):
-        failures.append("expected_transports must be {full: relay|direct, compact: relay|direct}")
-    else:
+    if expected_transports is not None:
         for label, search, coordinator in (
             ("full", full_search, full_coordinator),
             ("compact", compact_search, compact_coordinator),
@@ -271,7 +282,7 @@ def _validate_common(case: dict, failures: list[str]) -> None:
                 failures.append(f"{label} search did not report its transport mode")
             elif observed != (expected_transports[label] == "direct"):
                 failures.append(
-                    f"{label} observed transport does not match {expected_transports[label]}"
+                    f"{label} observed transport does not match canonical {expected_transports[label]}"
                 )
     full_values = full_coordinator.get("response_policy_values")
     if not _is_int(full_values):
@@ -381,7 +392,9 @@ def _validate_fixed_time(case: dict, failures: list[str]) -> None:
             failures.append(f"{label}: search timing is implausibly short")
 
 
-def _case_failures(case: dict, expected_model: dict | None) -> tuple[list[str], str | None]:
+def _case_failures(
+    case: dict, expected_model: dict | None, contract: dict | None
+) -> tuple[list[str], str | None]:
     failures: list[str] = []
     execution_error = case.get("execution_error")
     if execution_error is not None:
@@ -404,7 +417,7 @@ def _case_failures(case: dict, expected_model: dict | None) -> tuple[list[str], 
     except (ValueError, KeyError, TypeError) as error:
         failures.append(f"invalid settings: {error}")
         return failures, None
-    _validate_common(case, failures)
+    _validate_common(case, failures, contract)
     search = full.get("search") if isinstance(full.get("search"), dict) else {}
     if expected_model is not None:
         model = search.get("model") if isinstance(search.get("model"), dict) else {}
@@ -612,6 +625,10 @@ def validate_report(report: dict) -> dict:
         }
     if report.get("schema") != SCHEMA:
         failures.append(f"unsupported report schema {report.get('schema')!r}")
+    gate = report.get("gate")
+    contract = GATE_CONTRACTS.get(gate) if isinstance(gate, str) else None
+    if contract is None:
+        failures.append(f"unsupported or missing parity gate {gate!r}")
     collector = _collector_failures(report, failures)
     failures.extend(f"collector: {message}" for message in collector)
     cases = report.get("cases")
@@ -630,7 +647,12 @@ def validate_report(report: dict) -> dict:
             continue
         ruleset = case.get("ruleset")
         expected_model = models.get(ruleset) if isinstance(ruleset, str) else None
-        case_failures, execution_error = _case_failures(case, expected_model)
+        if not isinstance(case.get("gate"), str) or case.get("gate") != gate:
+            case_gate_failures = ["case gate contradicts the canonical report gate"]
+        else:
+            case_gate_failures = []
+        case_failures, execution_error = _case_failures(case, expected_model, contract)
+        case_failures = case_gate_failures + case_failures
         case["failures"] = case_failures
         case["execution_error"] = execution_error
         case["ok"] = execution_error is None and not case_failures
