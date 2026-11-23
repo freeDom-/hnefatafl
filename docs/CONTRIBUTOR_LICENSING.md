@@ -3,44 +3,50 @@
 [Licensing](LICENSING.md) · [Contributing](../CONTRIBUTING.md) ·
 [Development](DEVELOPMENT.md)
 
-**Status: proposal only. No CLA is active, and no repository enforcement
-setting has been changed.** The project owner must review and explicitly approve
-the legal text and the automation before either is activated. This document is
-not legal advice.
+**Status: deferred proposal only. No CLA is active, and no repository enforcement
+setting has been changed.** The maintainer does not currently intend to
+commercially exploit Hnefatafl. This proposal is not required for ordinary
+noncommercial contributions and grants no additional rights now. It would require
+explicit maintainer approval and legal review before any activation. This document
+is not legal advice.
 
-## Why a DCO alone is not enough
+## Why this proposal is deferred
 
 A Developer Certificate of Origin confirms that a contributor has the right to
 submit a contribution and agrees to the project's inbound license. It does not
-grant the project owner a separate right to relicense the contribution under a
-commercial or proprietary license. The project's stated strategy includes
-separately authorized commercial exploitation, so a DCO alone would leave
-external contributions unusable for that purpose.
+grant broader rights where a separate future agreement might be considered. No
+such broader grant is needed for the current noncommercial project, so ordinary
+contributions do not need a CLA, DCO enforcement or an additional sign-off. This
+proposal is retained only as a documented contingency if the maintainer ever
+decides to seek broader rights.
 
 ## Current state
 
-- No CLA, copyright assignment or sign-off requirement exists.
-- Contributions are currently inbound under the PolyForm Noncommercial License
-  1.0.0 only.
-- The project owner should not promise commercial availability of an external
-  contribution until a suitable CLA is active or the contributor gives explicit
-  written permission.
+- No CLA, copyright assignment, DCO enforcement or sign-off requirement exists.
+- Contributors retain copyright in their own contributions unless they
+  separately agree otherwise.
+- Contributions are inbound under the PolyForm Noncommercial License 1.0.0 only.
+- External commercial exploitation of protected project material remains
+  restricted by that license.
+- Ordinary noncommercial contributions do not require any additional legal
+  agreement.
 
-## Recommended approach: Harmony Individual CLA 1.0, Option Five
+## Deferred option: Harmony Individual CLA 1.0, Option Five
 
-Use the established
+If the maintainer ever explicitly decides to seek broader rights, the documented
+option is the established
 [Harmony Individual Contributor License Agreement 1.0](https://harmonyagreements.org/agreements/)
 rather than drafting a new agreement. It is designed for independent projects,
 does not transfer copyright ownership, and keeps the contributor's own rights to
 use and license the contribution.
 
-Recommended configuration:
+Contingent configuration:
 
 - **Agreement:** Harmony Individual Contributor License Agreement 1.0.
-- **Outbound option:** Option Five, which permits the project owner to license
-  the contribution under any license, including commercial or proprietary
-  terms, while also requiring the contribution to remain available under the
-  license used for the project on the submission date.
+- **Outbound option:** Option Five would permit licensing the contribution under
+  any license, including commercial or proprietary terms, while also requiring
+  the contribution to remain available under the license used for the project on
+  the submission date. This is a deferred contingency, not a current strategy.
 - **Media:** The same inbound/outbound licensing treatment for contributed
   artwork, documentation and other non-software media, unless a contributor
   explicitly contributes under a different compatible license.
@@ -61,7 +67,9 @@ instructions, jurisdiction and optional media licenses. The owner, with legal
 advice if desired, must complete those placeholders before publication. Do not
 commit an unsigned draft as if it were an active agreement.
 
-## Activation plan after owner approval
+## Hypothetical activation plan after explicit owner approval
+
+No activation is planned. If the maintainer later approves activation:
 
 1. Record the approved agreement at a stable path, for example
    `docs/legal/CLA-INDIVIDUAL.md`, with a version identifier and effective date.
@@ -112,16 +120,20 @@ quietly bypasses the check.
 ## Rejected alternatives
 
 - **Copyright assignment:** Unnecessary, contributor-hostile for a community
-  project, and outside the owner's stated preference.
-- **DCO only:** Confirms provenance but does not grant commercial relicensing
-  rights.
+  project, and outside the maintainer's stated preference.
+- **DCO only:** Confirms provenance but does not grant broader rights if a future
+  separate agreement were ever considered. It remains sufficient for ordinary
+  contributions under the current model.
 - **Custom CLA written from scratch:** Adds legal risk and review cost when an
   established template already matches the intended grant.
 - **Automatic commercial licensing program:** The project explicitly does not
-  offer one. The CLA grants the owner rights; it does not create a public
-  commercial entitlement.
+  offer one. If a deferred CLA were ever activated, it would grant the maintainer
+  rights; it would not create a public commercial entitlement.
 
-## Open decisions for the owner
+## Open decisions for the maintainer
+
+The current decision is to keep this proposal deferred. If activation is ever
+considered, the maintainer would still need to:
 
 - Approve the exact agreement version and Option Five outbound terms.
 - Choose the governing jurisdiction and complete the submission instructions.

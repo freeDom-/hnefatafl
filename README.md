@@ -50,8 +50,9 @@ generally require separate authorization include:
 - Incorporating the software into commercial products or services.
 
 Third-party components and assets keep their own terms; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Contributor licensing status and
-the proposed non-assignment CLA are in [CONTRIBUTING.md](CONTRIBUTING.md) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Contributors retain copyright in
+their contributions; no CLA is active and a deferred proposal is documented in
+[CONTRIBUTING.md](CONTRIBUTING.md) and
 [the CLA proposal](docs/CONTRIBUTOR_LICENSING.md). The full scope, previous-release
 position, AI-model distinctions and unresolved ownership questions are documented
 in [Licensing](docs/LICENSING.md). Earlier releases contained no root license;

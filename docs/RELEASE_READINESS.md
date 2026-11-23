@@ -26,7 +26,7 @@ release evidence are not relabelled as fresh combined validation.
 | Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1 research ([#104](validation/browser-analysis-phase1.md), partially validated); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
 | Implemented on open branches | None in the Arena program at this snapshot. Browser-analysis Phase 1A/1B (#104) and benchmark hardening (#105) merged during this review |
 | In development | League seasons, queue and authoritative result accounting in draft PR #99 (proposed schema 22, partial backend, no UI, failing checks at review) |
-| Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; owner/legal confirmation of contributor aliases, generated-artwork terms and the proposed CLA |
+| Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; owner/legal confirmation of contributor aliases and generated-artwork terms |
 | Deferred | Browser-neural production integration is optional for the initial public release; durable UTC login/activity-day streaks remain excluded |
 | Final combined acceptance | **Not performed.** No release candidate has been evaluated as one system across performance, recovery, security, localization, accessibility and deployment |
 
@@ -67,8 +67,10 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
 - [ ] Owner must confirm that the recorded author aliases belong to the same
   rights holder and resolve the generated-artwork provenance questions in the
   [licensing audit](LICENSING.md#open-questions-for-the-project-owner).
-- [ ] Owner must approve or reject the proposed non-assignment Harmony CLA. No
-  CLA or repository enforcement setting is active.
+- [x] No CLA, copyright assignment or DCO enforcement is active. Contributors
+  retain copyright, and a deferred Harmony CLA proposal is documented only as a
+  contingency. Any future activation needs explicit maintainer approval and legal
+  review.
 - [ ] Rerun the full and production-only dependency audits before release. On
   2026-11-18 both reported zero findings and GitHub had withdrawn
   GHSA-fc5q-39xc-vjpf. Withdrawal is not an upstream technical patch; the unused

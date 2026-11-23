@@ -115,6 +115,38 @@ export function resolveRuntimePackages(lock, { isInstalled = () => true } = {}) 
   };
 }
 
+function identityString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/** Compare installed package identity with the resolved lockfile entry. */
+export function packageIdentityProblems(entry, metadata) {
+  const problems = [];
+  const expected = `${entry.name}@${entry.version}`;
+  if (!entry.version) problems.push(`Missing lockfile version for ${entry.path}`);
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    problems.push(`Missing or malformed package metadata at ${entry.path}; expected ${expected}`);
+    return problems;
+  }
+  const actualName = identityString(metadata.name);
+  const actualVersion = identityString(metadata.version);
+  if (!actualName) {
+    problems.push(`Missing package name at ${entry.path}; expected ${expected}`);
+  } else if (actualName !== entry.name) {
+    problems.push(
+      `Package name mismatch at ${entry.path}: expected "${entry.name}", installed "${actualName}"`,
+    );
+  }
+  if (!actualVersion) {
+    problems.push(`Missing package version at ${entry.path}; expected ${expected}`);
+  } else if (actualVersion !== entry.version) {
+    problems.push(
+      `Package version mismatch at ${entry.path}: expected "${entry.version}", installed "${actualVersion}"`,
+    );
+  }
+  return problems;
+}
+
 async function licenseFileNames(packageDirectory) {
   let entries;
   try {
@@ -134,7 +166,12 @@ async function packageDetails(packageEntry, frontendDirectory, problems) {
   try {
     metadata = JSON.parse(await readFile(join(packageDirectory, 'package.json'), 'utf8'));
   } catch {
-    problems.push(`Missing package metadata: ${packageEntry.path}`);
+    problems.push(`Missing or malformed package metadata: ${packageEntry.path}`);
+    return null;
+  }
+  const identityProblems = packageIdentityProblems(packageEntry, metadata);
+  if (identityProblems.length) {
+    problems.push(...identityProblems);
     return null;
   }
   const files = await licenseFileNames(packageDirectory);
@@ -158,8 +195,8 @@ async function packageDetails(packageEntry, frontendDirectory, problems) {
   }
   return {
     ...packageEntry,
-    name: String(metadata.name ?? packageEntry.name),
-    version: String(metadata.version ?? packageEntry.version),
+    name: String(metadata.name),
+    version: String(metadata.version),
     license: license || 'License identifier unavailable',
     repository:
       typeof metadata.repository === 'string'

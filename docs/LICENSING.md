@@ -155,10 +155,15 @@ gallery files.
 
 ## Contributor licensing
 
-No CLA is active. The proposed non-assignment CLA and GitHub automation plan are
-documented in [Contributor licensing](CONTRIBUTOR_LICENSING.md). It must be
-reviewed and explicitly activated by the project owner before external
-contributions can be relied on for commercial relicensing.
+No CLA, copyright assignment or DCO enforcement is active. Contributors retain
+copyright in their own contributions unless they separately agree otherwise.
+Contributions are accepted under the project's inbound PolyForm Noncommercial
+License 1.0.0 terms. The maintainer does not currently intend to commercially
+exploit Hnefatafl, and ordinary noncommercial contributions do not need a CLA or
+additional legal agreement. A deferred, non-binding
+[CLA proposal](CONTRIBUTOR_LICENSING.md) is retained only as a contingency if the
+maintainer ever decides to seek broader rights. It is not active and would
+require explicit maintainer approval and legal review before any use.
 
 ## Open questions for the project owner
 
@@ -170,8 +175,9 @@ contributions can be relied on for commercial relicensing.
    320 px portrait files. If the owner cannot establish sufficient rights in a
    specific generated asset, exclude or replace that asset rather than claiming
    it is licensed.
-3. Approve or reject the proposed CLA. Do not activate a CLA or repository-wide
-   enforcement settings without that approval.
+3. Whether to keep the deferred CLA proposal deferred (the current state) or
+   explicitly activate it later. Do not activate a CLA or repository-wide
+   enforcement settings without maintainer approval and legal review.
 4. Decide how project-owned trained weights, if ever published, will be licensed
    and noticed separately.
 

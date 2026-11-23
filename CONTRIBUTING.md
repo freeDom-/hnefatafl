@@ -30,23 +30,19 @@ respect the project's licensing model and the rights of third parties.
 
 ## Contribution licensing status
 
-There is currently **no active Contributor License Agreement (CLA)** and no
-signed contributor agreement on file. A Developer Certificate of Origin (DCO)
-alone would confirm provenance; it would not give the project owner the broader
-right to commercially license a third-party contribution.
+There is currently **no active Contributor License Agreement (CLA)**, copyright
+assignment or DCO enforcement. Contributors retain copyright in their own
+contributions unless they separately agree otherwise. Do not assume that
+submitting a pull request grants any broader rights than the project's inbound
+PolyForm Noncommercial License 1.0.0 terms.
 
-Until a CLA is approved and activated by the project owner, contributions are
-accepted only under the project's inbound license terms. The project owner
-cannot promise that an external contribution will be usable in a separately
-authorized commercial version. Do not assume that submitting a pull request
-grants commercial relicensing rights.
-
-The project's intended model is that accepted contributions may be incorporated
-into future noncommercial and separately authorized commercial versions. The
-documented proposal for achieving that safely, without requiring contributors to
-transfer ownership, is in
-[Contributor licensing proposal](docs/CONTRIBUTOR_LICENSING.md). That proposal is
-not active and is not a binding agreement.
+The maintainer does not currently intend to commercially exploit Hnefatafl.
+Ordinary noncommercial contributions do not need a CLA or any additional legal
+agreement. A deferred, non-binding
+[CLA proposal](docs/CONTRIBUTOR_LICENSING.md) is retained only as a contingency
+if the maintainer ever decides to seek broader rights. It is not active, grants
+no additional rights now and would require explicit maintainer approval and
+legal review before any activation.
 
 ## What to include in a pull request
 

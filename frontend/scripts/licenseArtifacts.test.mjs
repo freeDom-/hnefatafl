@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   generateThirdPartyLicenses,
+  packageIdentityProblems,
   resolveInstalledPath,
   resolveRuntimePackages,
   writeLicenseArtifacts,
@@ -72,6 +73,46 @@ test('required dependencies must resolve and optional missing packages are repor
   assert.deepEqual(closure.missingOptional, ['platform']);
 });
 
+test('installed package identity must match the lockfile, including scoped and nested packages', () => {
+  const scoped = {
+    path: 'node_modules/@scope/runtime',
+    name: '@scope/runtime',
+    version: '1.2.3',
+    declaredLicense: 'MIT',
+  };
+  assert.deepEqual(
+    packageIdentityProblems(scoped, { name: '@scope/runtime', version: '1.2.3' }),
+    [],
+  );
+  assert.match(
+    packageIdentityProblems(scoped, { name: '@scope/runtime', version: '1.2.2' })[0],
+    /node_modules\/@scope\/runtime: expected "1\.2\.3", installed "1\.2\.2"/,
+  );
+  assert.match(
+    packageIdentityProblems(scoped, { name: '@other/runtime', version: '1.2.3' })[0],
+    /Package name mismatch at node_modules\/@scope\/runtime/,
+  );
+  assert.match(
+    packageIdentityProblems(scoped, { version: '1.2.3' })[0],
+    /Missing package name at node_modules\/@scope\/runtime/,
+  );
+  assert.match(
+    packageIdentityProblems(scoped, { name: '@scope/runtime' })[0],
+    /Missing package version at node_modules\/@scope\/runtime/,
+  );
+
+  const nested = {
+    path: 'node_modules/a/node_modules/b',
+    name: 'b',
+    version: '2.0.0',
+    declaredLicense: 'MIT',
+  };
+  assert.match(
+    packageIdentityProblems(nested, { name: 'b', version: '1.0.0' })[0],
+    /node_modules\/a\/node_modules\/b: expected "2\.0\.0", installed "1\.0\.0"/,
+  );
+});
+
 test('incomplete package metadata and missing license files fail generation loudly', async () => {
   const top = await mkdtemp(join(tmpdir(), 'hnefatafl-license-test-'));
   const frontend = join(top, 'frontend');
@@ -101,6 +142,35 @@ test('incomplete package metadata and missing license files fail generation loud
         /incomplete third-party license inventory/i.test(error.message) &&
         /node_modules\/invalid/.test(error.message) &&
         /node_modules\/missing-license/.test(error.message),
+    );
+  } finally {
+    await rm(top, { recursive: true, force: true });
+  }
+});
+
+test('generation fails on an installed identity mismatch with expected and actual values', async () => {
+  const top = await mkdtemp(join(tmpdir(), 'hnefatafl-license-test-'));
+  const frontend = join(top, 'frontend');
+  try {
+    await mkdir(frontend, { recursive: true });
+    await writeFile(
+      join(frontend, 'package-lock.json'),
+      JSON.stringify(
+        packageLock({
+          '': { dependencies: { package: '2' } },
+          'node_modules/package': { version: '2.0.0', license: 'MIT' },
+        }),
+      ),
+    );
+    await writePackage(frontend, 'node_modules/package', {
+      name: 'package',
+      version: '1.0.0',
+      license: 'MIT',
+    });
+    await assert.rejects(
+      () => generateThirdPartyLicenses({ frontendDirectory: frontend }),
+      (error) =>
+        /node_modules\/package: expected "2\.0\.0", installed "1\.0\.0"/.test(error.message),
     );
   } finally {
     await rm(top, { recursive: true, force: true });
