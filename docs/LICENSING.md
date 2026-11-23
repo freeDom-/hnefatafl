@@ -34,12 +34,11 @@ The audit was performed on 2026-11-22 against the then-current `main` branch.
 - No contributor license agreement, copyright assignment or DCO requirement was
   present in the repository.
 - The GitHub contributors API reported one contributor: `freeDom-`. Commit
-  metadata also contains the names `Peter Palupski`, `Dominik`, `Pi Agent`,
-  `root` and `worker`; the owner-controlled `freeDom-` account authored or
-  merged the history, and the email aliases `palupskipeter@gmail.com` and
-  `dominik.weinrich@posteo.de` appear alongside it. Automated agent and build
-  accounts are not independent rights holders on their face, but the owner must
-  confirm that every author alias belongs to the same rights holder.
+  metadata also contains multiple author identities, including automated agent
+  and build accounts. This audit does not assume that every recorded Git author
+  identity belongs to one legal rights holder; the owner must confirm the
+  ownership mapping before relying on the project license for commercial
+  authorization.
 - No external contributor branch, patch, bundled third-party source tree or
   vendored library was identified. The `spikes/browser_offline` research harness
   references Pyodide/ONNX tooling but fetches development assets into ignored
@@ -85,13 +84,14 @@ government institutions, regardless of funding source, as set out in the license
 Fair-use rights are preserved.
 
 Commercial use outside those terms requires separate explicit authorization from
-the relevant rights holders. The project does not offer an automatic commercial
-licensing program or an entitlement to commercial terms. Examples that generally
-require separate authorization include selling copies, offering commercial
-managed hosting, operating a commercial Hnefatafl platform, charging for
-subscriptions or premium features, commercial redistribution, and embedding the
-software in a commercial product or service. The license's own definitions and
-exceptions control over these examples.
+the relevant rights holders. Hnefatafl does not offer a commercial licensing
+program, sales channel or entitlement to commercial terms, and no authorization
+is offered or implied through GitHub Issues. Examples that generally require
+separate authorization include selling copies, offering commercial managed
+hosting, operating a commercial Hnefatafl platform, charging for subscriptions
+or premium features, commercial redistribution, and embedding the software in a
+commercial product or service. The license's own definitions and exceptions
+control over these examples.
 
 ## Previous releases and retroactivity
 
@@ -144,8 +144,12 @@ gallery files.
 - The production frontend build copies the root license and notices into
   `frontend/dist` and generates `/THIRD_PARTY_LICENSES.txt`.
 - The release packaging script archives the committed clean tree, so the root
-  license, notices, documentation and source are included in
-  `hnefatafl-X.Y.Z.tar.gz`.
+  `LICENSE`, `THIRD_PARTY_NOTICES.md`, documentation and source are included in
+  `hnefatafl-X.Y.Z.tar.gz`. The generated frontend files
+  (`frontend/public/LICENSE.txt`, `THIRD_PARTY_NOTICES.txt` and
+  `THIRD_PARTY_LICENSES.txt`) are Git-ignored build outputs and are not part of
+  that source archive. The frontend prebuild writes them into `frontend/public`;
+  Vite copies them into `frontend/dist` during installation or update.
 - No container image is provided. Remote training workers use the same
   application release and therefore receive the same license files.
 
@@ -158,9 +162,10 @@ contributions can be relied on for commercial relicensing.
 
 ## Open questions for the project owner
 
-1. Confirm that `freeDom-`, `Peter Palupski`, `Dominik` and the recorded email
-   aliases refer to the same rights holder, and confirm the copyright holder
-   identity to use in future notices.
+1. Confirm that every Git author identity and automated account used in project
+   history belongs to the same rights holder, and confirm the copyright holder
+   identity to use in future notices. No personal email address is republished
+   in this documentation.
 2. Confirm the image-generation tool's terms and the provenance of the original
    320 px portrait files. If the owner cannot establish sufficient rights in a
    specific generated asset, exclude or replace that asset rather than claiming
@@ -170,9 +175,12 @@ contributions can be relied on for commercial relicensing.
 4. Decide how project-owned trained weights, if ever published, will be licensed
    and noticed separately.
 
-## Commercial licensing contact
+## Commercial authorization
 
-Use the existing public issue tracker for an initial inquiry:
-<https://github.com/freeDom-/hnefatafl/issues>. Do not include confidential
-information in a public issue; the project owner can arrange a private follow-up.
-No email address, phone number or commercial program is invented here.
+The project does not provide a commercial licensing service, sales channel or
+inquiry process through GitHub Issues. The frontend deliberately has no
+"Commercial licensing" link. Commercial use outside the license's permitted scope
+requires separate authorization from the relevant rights holders; that
+authorization is not offered or implied by this repository, its issue tracker,
+donations or contributor discussions. No email address, phone number or commercial
+program is invented here.

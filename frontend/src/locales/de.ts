@@ -268,7 +268,6 @@ const translations: Record<string, string> = {
     'Quelltext verfügbar unter der PolyForm Noncommercial License 1.0.0',
   'License terms': 'Lizenzbedingungen',
   'Third-party notices': 'Hinweise zu Drittanbietern',
-  'Commercial licensing': 'Kommerzielle Lizenzierung',
   'Support development': 'Entwicklung unterstützen',
   'Support development on Buy Me a Coffee (opens in a new tab)':
     'Die Entwicklung auf Buy Me a Coffee unterstützen (öffnet in einem neuen Tab)',

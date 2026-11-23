@@ -22,17 +22,24 @@ the production browser application by Vite.
 | `react-day-picker` | 9.14.0 | MIT |
 | `react-markdown` | 10.1.0 | MIT |
 
-The complete runtime dependency closure is recorded in
-`frontend/package-lock.json`; the current closure contains MIT-licensed packages
-and the ISC-licensed `@ungap/structured-clone`. No runtime frontend dependency
-uses a copyleft, source-available-only or noncommercial license.
+The production dependency closure is computed from the root runtime dependencies
+through the installed package paths in `frontend/package-lock.json`. Nested
+dependencies with distinct versions are kept distinct. TypeScript type-only
+packages are recorded separately and are not treated as distributed runtime
+code; development-only packages are excluded. The current closure contains
+MIT-licensed packages and the ISC-licensed `@ungap/structured-clone`. No runtime
+frontend dependency uses a copyleft, source-available-only or noncommercial
+license.
 
-At build time, `frontend/scripts/licenseArtifacts.mjs` reads the runtime closure
-from the lockfile, collects each installed package's license files and writes
-them to `frontend/public/THIRD_PARTY_LICENSES.txt`. Vite copies that file into
-the production build, where it is available at `/THIRD_PARTY_LICENSES.txt`.
-The generated file is ignored by Git because it is reproducible from the locked
-dependencies. It is not committed as a stale license-text snapshot.
+At build time, `frontend/scripts/licenseArtifacts.mjs` resolves that closure
+without network access, reads each installed runtime package's metadata and
+license files, and writes them to `frontend/public/THIRD_PARTY_LICENSES.txt`.
+It fails the build if a required package, package metadata, license identifier
+or license text is missing. Vite copies the generated file into the production
+build, where it is available at `/THIRD_PARTY_LICENSES.txt`. Identical license
+texts are listed once with a reference from later packages. The generated file
+is ignored by Git because it is reproducible from the locked dependencies; it is
+not committed as a stale license-text snapshot.
 
 Direct development and test tooling includes MIT, Apache-2.0, ISC, BSD-2-Clause,
 BSD-3-Clause and CC-BY-4.0 material (for example Playwright, TypeScript and
@@ -127,9 +134,9 @@ All identified runtime dependencies use permissive licenses that are compatible
 with distributing the application under the PolyForm Noncommercial License 1.0.0,
 provided their notices are preserved. No runtime dependency requires the project
 to grant broader rights than the project license, and no dependency imposes a
-noncommercial restriction that conflicts with the project's intended commercial
-licensing by the owner. This is a repository-level engineering review, not a legal
-opinion.
+noncommercial restriction that conflicts with the project license or with any
+separate authorization by the relevant rights holders. This is a repository-level
+engineering review, not a legal opinion.
 
 ## Regenerating the bundled notices
 

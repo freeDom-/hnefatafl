@@ -33,11 +33,15 @@ are refused. See [release packaging](RELEASING.md#production-updater-assets).
 Neither installer publishes a release. Installation requires an already available
 compatible published stable release; files on `main` alone are insufficient.
 
-The release archive includes `LICENSE`, `THIRD_PARTY_NOTICES.md` and the frontend
-license files. Installation and update do not require license acceptance and do
-not add license keys, remote activation or telemetry. The software remains
-source-available under the PolyForm Noncommercial License 1.0.0; see
-[Licensing](LICENSING.md) and the root [LICENSE](../LICENSE).
+The committed source archive includes `LICENSE` and `THIRD_PARTY_NOTICES.md`.
+The frontend license files are Git-ignored build outputs, not source-archive
+members: the frontend prebuild writes `LICENSE.txt`, `THIRD_PARTY_NOTICES.txt`
+and the generated `THIRD_PARTY_LICENSES.txt` into `frontend/public`, and Vite
+copies them into `frontend/dist` during the normal build. Installation and update
+do not require license acceptance and do not add license keys, remote activation
+or telemetry. The software remains source-available under the PolyForm
+Noncommercial License 1.0.0; see [Licensing](LICENSING.md) and the root
+[LICENSE](../LICENSE).
 
 ## Proxmox one-line installation
 

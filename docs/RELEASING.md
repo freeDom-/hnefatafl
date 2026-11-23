@@ -62,9 +62,14 @@ gh release create X.Y.Z work/releases/hnefatafl-X.Y.Z.tar.gz \
   --verify-tag --title 'Hnefatafl X.Y.Z' --notes-file docs/releases/X.Y.Z.md
 ```
 
-Replace X.Y.Z consistently. Packaging refuses dirty checkouts and includes only
-clean committed source, excluding runtime data, dependencies and secrets. GitHub's
-asset API must report its SHA-256 digest; the updater verifies it before extraction.
+Replace X.Y.Z consistently. Packaging refuses dirty checkouts and missing committed
+`LICENSE`/`THIRD_PARTY_NOTICES.md`, and includes only clean committed source,
+excluding runtime data, dependencies and secrets. The source archive contains the
+committed license and notice files. Generated frontend license outputs are not
+source-archive members; the frontend prebuild writes them into
+`frontend/public`, and Vite places them in `frontend/dist` during installation or
+update. GitHub's asset API must report its SHA-256 digest; the updater verifies it
+before extraction.
 The release must include authentication, lockfiles, security tests, frontend and
 systemd template. Deployment-related releases must also pass the dedicated
 `deployment-cross-version` Verify job, which builds the frontend, fetches the

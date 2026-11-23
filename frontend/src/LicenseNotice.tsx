@@ -2,8 +2,6 @@ import { useI18n } from './i18n';
 import SupportDevelopmentLink from './SupportDevelopmentLink';
 import './licenseNotice.css';
 
-const COMMERCIAL_LICENSING_URL = 'https://github.com/freeDom-/hnefatafl/issues';
-
 export default function LicenseNotice() {
   const { t } = useI18n();
   return (
@@ -16,10 +14,6 @@ export default function LicenseNotice() {
         <span aria-hidden="true">·</span>
         <a href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener noreferrer">
           {t('Third-party notices')}
-        </a>
-        <span aria-hidden="true">·</span>
-        <a href={COMMERCIAL_LICENSING_URL} target="_blank" rel="noopener noreferrer">
-          {t('Commercial licensing')}
         </a>
         <span aria-hidden="true">·</span>
         <SupportDevelopmentLink />

@@ -32,7 +32,6 @@ hnefatafl = "hnefatafl.cli:main"
 [project.urls]
 Homepage = "https://github.com/freeDom-/hnefatafl"
 Issues = "https://github.com/freeDom-/hnefatafl/issues"
-"Commercial licensing" = "https://github.com/freeDom-/hnefatafl/issues"
 
 [tool.setuptools.packages.find]
 include = ["hnefatafl*"]

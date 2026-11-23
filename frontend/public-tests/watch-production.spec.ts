@@ -226,6 +226,7 @@ for (const theme of themes) {
       await expect(support).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
       await expect(support).toHaveAttribute('target', '_blank');
       await expect(support).toHaveAttribute('rel', 'noopener noreferrer');
+      await expect(page.getByRole('link', { name: /commercial licensing/i })).toHaveCount(0);
       const licenseText = await page.request.get('/LICENSE.txt');
       expect(licenseText.status()).toBe(200);
       expect(await licenseText.text()).toContain('PolyForm Noncommercial License 1.0.0');

@@ -21,16 +21,14 @@ it('names the project license and exposes local terms, notices and a commercial 
     'href',
     '/THIRD_PARTY_NOTICES.txt',
   );
-  expect(screen.getByRole('link', { name: 'Commercial licensing' })).toHaveAttribute(
-    'href',
-    'https://github.com/freeDom-/hnefatafl/issues',
-  );
   const support = screen.getByRole('link', {
     name: 'Support development on Buy Me a Coffee (opens in a new tab)',
   });
   expect(support).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
   expect(support).toHaveAttribute('target', '_blank');
   expect(support).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(screen.queryByRole('link', { name: /commercial licensing/i })).toBeNull();
+  expect(screen.queryByText('Commercial licensing')).toBeNull();
 });
 
 it('uses the existing German translation mechanism', () => {

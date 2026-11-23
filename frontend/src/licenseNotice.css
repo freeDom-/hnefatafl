@@ -30,14 +30,6 @@
   letter-spacing: 0;
 }
 
-@media (min-width: 1200px) {
-  .site-footer .license-notice,
-  .site-footer .license-notice-links {
-    flex-wrap: nowrap;
-    white-space: nowrap;
-  }
-}
-
 .auth-card .license-notice {
   color: var(--muted);
   font-size: 0.6875rem;

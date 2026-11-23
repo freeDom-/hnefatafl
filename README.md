@@ -24,9 +24,10 @@ The summary in this section does not replace the license; the
 [license text](LICENSE) controls, including its definitions and exceptions.
 
 Commercial use not permitted by the license requires separate explicit
-authorization from the relevant rights holders. The project does not offer an
-automatic commercial licensing program or an entitlement to commercial terms.
-Examples that generally require separate authorization include:
+authorization from the relevant rights holders. Hnefatafl does not offer a
+commercial licensing program, sales channel or entitlement to commercial terms;
+no authorization is offered or implied through GitHub Issues. Examples that
+generally require separate authorization include:
 
 - Selling copies of the software.
 - Providing commercial managed hosting.
@@ -34,10 +35,6 @@ Examples that generally require separate authorization include:
 - Offering paid subscriptions or premium features using the software.
 - Commercial redistribution.
 - Incorporating the software into commercial products or services.
-
-Use the existing public issue tracker for an initial commercial licensing
-inquiry: <https://github.com/freeDom-/hnefatafl/issues>. Do not post confidential
-information in a public issue.
 
 Third-party components and assets keep their own terms; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Contributor licensing status and

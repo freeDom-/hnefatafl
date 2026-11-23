@@ -20,6 +20,15 @@ def test_root_license_is_the_unmodified_official_text_with_a_verified_notice():
     assert "<https://polyformproject.org/licenses/noncommercial/1.0.0>" in body
 
 
+def test_licensing_audit_does_not_republish_personal_contact_details():
+    audit = (ROOT / "docs/LICENSING.md").read_text(encoding="utf-8")
+    assert "palupskipeter@gmail.com" not in audit
+    assert "dominik.weinrich@posteo.de" not in audit
+    assert "multiple author identities" in audit
+    assert "does not assume" in audit
+    assert "owner must confirm" in audit
+
+
 def test_python_and_frontend_metadata_use_the_spdx_identifier():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["license"] == "PolyForm-Noncommercial-1.0.0"
@@ -31,13 +40,14 @@ def test_python_and_frontend_metadata_use_the_spdx_identifier():
 
 
 def test_public_licensing_references_are_consistent_and_keep_third_party_notices():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
+    readme = " ".join((ROOT / "README.md").read_text(encoding="utf-8").lower().split())
     assert "source-available" in readme
     assert "polyform noncommercial license 1.0.0" in readme
     assert "osi-approved open-source software" in readme
     assert "**not** osi-approved" in readme
-    assert "commercial licensing" in readme
-    assert "github.com/freedom-/hnefatafl/issues" in readme
+    assert "does not offer a commercial licensing program" in readme
+    assert "requires separate explicit authorization" in readme
+    assert "no authorization is offered or implied through github issues" in readme
 
     notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
     assert "react" in notices
@@ -47,4 +57,5 @@ def test_public_licensing_references_are_consistent_and_keep_third_party_notices
     frontend_notice = (ROOT / "frontend/src/LicenseNotice.tsx").read_text(encoding="utf-8")
     assert 'href="/LICENSE.txt"' in frontend_notice
     assert 'href="/THIRD_PARTY_NOTICES.txt"' in frontend_notice
-    assert "https://github.com/freeDom-/hnefatafl/issues" in frontend_notice
+    assert "Commercial licensing" not in frontend_notice
+    assert "COMMERCIAL_LICENSING_URL" not in frontend_notice

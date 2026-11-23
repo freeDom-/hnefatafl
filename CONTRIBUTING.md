@@ -58,10 +58,9 @@ not active and is not a binding agreement.
 - A description of any ownership, provenance or licensing question that cannot
   be resolved from the repository.
 
-## Commercial licensing inquiries
+## Commercial use
 
-Use the project's existing public issue tracker for an initial commercial
-licensing inquiry:
-<https://github.com/freeDom-/hnefatafl/issues>. Do not post confidential
-information, contracts, credentials or personal data in a public issue. The
-project owner can arrange an appropriate private follow-up.
+The project does not offer a commercial licensing program or sales channel.
+Commercial use outside the permission granted by the project license requires
+separate authorization from the relevant rights holders; no authorization is
+offered or implied through GitHub Issues, contribution discussions or donations.
