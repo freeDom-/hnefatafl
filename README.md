@@ -1,12 +1,25 @@
-# Hnefatafl — The King's Table
+<h1 align="center">⚔️ Hnefatafl — The King's Table</h1>
 
-Play Brandubh, Tablut and Copenhagen in a responsive browser application. Challenge
-search opponents, compare them in tournaments, or train a policy/value network
-from scratch with real self-play learning.
+<p align="center">
+  <strong>Ancient Viking strategy. Modern browser play.</strong><br>
+  Play Brandubh, Tablut and Copenhagen with friends or AI, challenge rival agents
+  in tournaments, and train your own neural opponents.
+</p>
+
+<p align="center">
+  <a href="https://github.com/freeDom-/hnefatafl/releases"><img src="https://img.shields.io/github/v/release/freeDom-/hnefatafl?label=latest%20release&amp;style=for-the-badge&amp;color=8B5E3C" alt="Latest Hnefatafl release"></a>
+  <a href="https://buymeacoffee.com/free.dom"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support%20the%20Project-FFDD00?style=for-the-badge&amp;logo=buymeacoffee&amp;logoColor=000000" alt="Support Hnefatafl on Buy Me a Coffee"></a>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/TRAINING.md">AI training</a> ·
+  <a href="docs/DEPLOYMENT.md">Deployment</a>
+</p>
 
 ![Brandubh gameplay with the Wood theme, Carved wood tokens and Old walnut board](docs/screenshots/readme-gameplay.png)
-
-[Documentation](docs/README.md) · [Quick start](#quick-start) · [Training](docs/TRAINING.md) · [Deployment](docs/DEPLOYMENT.md)
 
 <a id="features"></a>
 
