@@ -33,11 +33,14 @@ Corrected gates are:
   all reject outstanding requests under bounded test deadlines. Constructor batch
   limits are validated.
 - **Direct ownership:** the inference worker captures one active direct channel
-  and one in-flight direct request. A second channel is rejected with
-  `DIRECT_BUSY` before inference. Responses go to the captured port, detach is
-  deferred until in-flight inference settles, and old replies cannot be routed
-  through a newer channel. Normal inference/model operations are blocked while a
-  direct inference owns the session.
+  and owns the shared model session for the entire channel lifetime. A second
+  channel is rejected with `DIRECT_BUSY` before inference. Old-port requests are
+  rejected/ignored and never reach ORT (worker accepted counter proves no
+  execution). Detach removes the handler, closes the port when safe, and defers
+  until in-flight inference settles; old replies cannot use a newer channel.
+  While the channel is active, model load/release/provider replacement, normal
+  and batched inference, and incompatible cache reconfiguration are rejected;
+  read-only capabilities/cache/direct stats remain available.
 - **Cache validation:** model identity, request ID, position digest, size,
   ruleset, legal actions and canonical binary planes are validated before every
   cache lookup. Warm-cache stale/malformed/nonbinary requests fail or bypass
@@ -45,9 +48,11 @@ Corrected gates are:
 - **Immediate cache limits:** lowering entry/byte limits during configuration
   evicts LRU entries immediately with consistent byte/eviction accounting;
   disabling clears all entries.
-- **Parity identifiers:** case kind and completion reason are type-checked before
-  set membership; malformed case kinds/completion reasons produce structured
-  failures and nonzero CLI exits.
+- **Parity identifiers and gates:** the validator derives transport/payload
+  expectations from the canonical top-level gate (`relay-full-compact` or
+  `direct-relay-compact`), rejects missing/unknown/malformed gates, and requires
+  duplicated case fields to match. Case kind and completion reason are
+  type-checked before set membership.
 
 ## 1. Phase 3B.0 — remaining Phase 3A acceptance findings
 
@@ -99,7 +104,7 @@ covered by actual browser tests and direct full/compact parity passes.
 
 | Workload | Relay | Direct | Change |
 | --- | ---: | ---: | ---: |
-| quick 128/256 (latest corrected build) | 692.9 sims/s | 657.5 sims/s | -5.1 % |
+| quick 128/256 (latest corrected build) | 619.9 sims/s | 665.7 sims/s | +7.4 % |
 | strong 512/1,024 (latest corrected build) | 666.0 sims/s | 657.8 sims/s | -1.2 % |
 | earlier corrected runs (quick) | 631.8 / 670.2 sims/s | 566.1 / 623.7 sims/s | -10.4 % / -6.9 % |
 
@@ -189,10 +194,11 @@ capacity figures are reported, never substituted for actual process memory.
 
 | Gate | Result |
 | --- | --- |
-| Path parity per-case validator (3B.0) | 88 passed |
+| Path parity per-case validator (3B.0) | 103 passed |
 | Relay full/compact fixed-work/time (all three rulesets) | 13/13 each |
 | Direct compact vs relay compact fixed-work/time | 13/13 each |
 | Direct ownership partial attach/cancel/failure | pass |
+| Stale direct port/model-session ownership | accepted counter unchanged after stale port; load/infer/release/cache config return DIRECT_BUSY; capabilities allowed; recovery reload works |
 | Analysis UI (cache, direct, pending inference, navigation) | 32/32 |
 | Neural inference UI (cache validation/limits/reload/numerical parity, hook isolation) | 22/22 |
 | Neural client lifecycle (incl. batch cancellation/cache) | 54/54 |

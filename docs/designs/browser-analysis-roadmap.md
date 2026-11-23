@@ -464,7 +464,7 @@ Phase 3 is not complete.
 - **Phase 3B implemented experimentally in PR #115 (not merged):**
   - Direct search↔inference `MessageChannel` implemented as opt-in; coordinator
     retains admission/ownership/watchdog/cancellation/final validation. Corrected
-    runs vary (latest -5.1 % quick / -1.2 % strong; earlier runs ranged from
+    runs vary (latest +7.4 % quick; strong -1.2 %; earlier runs ranged from
     -10.4 % to +14.1 %), so there is no reproducible gain yet; relay remains the
     default.
   - Bounded exact legal-only inference cache implemented opt-in (model/provider/

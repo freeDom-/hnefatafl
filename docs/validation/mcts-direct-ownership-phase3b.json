@@ -20,15 +20,48 @@
       },
       "recovered_completed": 64,
       "attachFailure": {
-        "name": "WorkerError",
-        "code": "WorkerError"
+        "name": "TimeoutError"
       },
+      "neuralAttachSucceeded": true,
+      "neuralDetachAcknowledged": true,
       "after_attach_failure_completed": 64,
       "setupCancel": {
         "name": "AbortError",
         "code": "AbortError"
       },
-      "after_setup_cancel_completed": 64
+      "after_setup_cancel_completed": 64,
+      "rawFirst": "infer_result",
+      "rawSecond": "infer_result",
+      "staleDetach": {
+        "kind": "direct_port_detached",
+        "pending": false,
+        "stale": true
+      },
+      "statsBeforeRaw": {
+        "accepted": 130,
+        "stale_rejected": 0,
+        "busy_rejected": 0
+      },
+      "statsAfterFirst": {
+        "accepted": 131,
+        "stale_rejected": 0,
+        "busy_rejected": 0
+      },
+      "statsAfterStale": {
+        "accepted": 131,
+        "stale_rejected": 0,
+        "busy_rejected": 0
+      },
+      "modelLoadError": "DIRECT_BUSY",
+      "normalInferError": "DIRECT_BUSY",
+      "releaseError": "DIRECT_BUSY",
+      "cacheConfigError": "DIRECT_BUSY",
+      "capabilitiesDuringDirect": true,
+      "statsAfterRecovery": {
+        "accepted": 132,
+        "stale_rejected": 0,
+        "busy_rejected": 0
+      }
     }
   ],
   "failures": [],

@@ -1,7 +1,7 @@
 {
   "kind": "mcts-search-path-parity-observations",
   "schema": 1,
-  "generated": "2026-11-22T22:27:10.863Z",
+  "generated": "2026-11-23T08:52:48.972Z",
   "browser": "156.0.8078.4",
   "provider": "wasm",
   "fixed_time": true,
@@ -187,13 +187,13 @@
       },
       "full": {
         "analysis": {
-          "value": -0.41832344217246836,
+          "value": -0.41833024234934285,
           "source": "neural_search",
           "best_move": {
             "source": 26,
             "target": 12
           },
-          "simulations": 89
+          "simulations": 88
         },
         "search": {
           "version": 1,
@@ -218,20 +218,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 90,
-          "elapsed_ms": 258.50000000000017,
+          "neural_requests": 89,
+          "elapsed_ms": 259.1999999999999,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 10.49999800000223,
-            "encoding_ms": 9.60000100000058,
-            "validation_ms": 2.6999969999998985,
-            "requests": 90
+            "legal_generation_ms": 10.30000500000039,
+            "encoding_ms": 8.999995000000816,
+            "validation_ms": 2.8000029999977194,
+            "requests": 89
           },
           "requested_simulations": 4096,
-          "completed_simulations": 89,
+          "completed_simulations": 88,
           "root_value": -0.4190117418766022,
-          "search_value": -0.41832344217246836,
+          "search_value": -0.41833024234934285,
           "best_move": {
             "source": 26,
             "target": 12
@@ -241,64 +241,64 @@
               "source": 26,
               "target": 12,
               "visits": 17,
-              "share": 0.19101123595505617
+              "share": 0.19318181818181818
             },
             {
               "source": 21,
               "target": 35,
               "visits": 13,
-              "share": 0.14606741573033707
+              "share": 0.14772727272727273
             },
             {
               "source": 27,
               "target": 41,
-              "visits": 11,
-              "share": 0.12359550561797752
+              "visits": 10,
+              "share": 0.11363636363636363
             },
             {
               "source": 21,
               "target": 7,
               "visits": 9,
-              "share": 0.10112359550561797
+              "share": 0.10227272727272728
             },
             {
               "source": 22,
               "target": 36,
               "visits": 9,
-              "share": 0.10112359550561797
+              "share": 0.10227272727272728
             },
             {
               "source": 27,
               "target": 13,
               "visits": 8,
-              "share": 0.0898876404494382
+              "share": 0.09090909090909091
             },
             {
               "source": 26,
               "target": 40,
               "visits": 7,
-              "share": 0.07865168539325842
+              "share": 0.07954545454545454
             },
             {
               "source": 3,
               "target": 5,
               "visits": 6,
-              "share": 0.06741573033707865
+              "share": 0.06818181818181818
             },
             {
               "source": 10,
               "target": 7,
               "visits": 6,
-              "share": 0.06741573033707865
+              "share": 0.06818181818181818
             },
             {
               "source": 10,
               "target": 9,
               "visits": 3,
-              "share": 0.033707865168539325
+              "share": 0.03409090909090909
             }
           ],
-          "prediction_reuses": 41,
+          "prediction_reuses": 40,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -306,30 +306,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 10,
-          "search_id": "s1-0-kxo40m",
+          "search_id": "s1-0-4r2u2v",
           "coordinator": {
-            "end_to_end_ms": 2229.600000023842,
-            "completed_simulations": 89,
-            "simulations_per_second": 39.917473985938415,
-            "steps": 91,
-            "step_ms": 147.6000000834465,
-            "python_action_ms": 65.80000299999992,
-            "bridge_overhead_ms": 81.79999708344658,
-            "neural_wait_ms": 112.29999989271164,
-            "unattributed_ms": 1969.7000000476837,
-            "inferences": 90,
+            "end_to_end_ms": 2359.0999999940395,
+            "completed_simulations": 88,
+            "simulations_per_second": 37.302361069993786,
+            "steps": 90,
+            "step_ms": 149.30000004172325,
+            "python_action_ms": 65.99999599999734,
+            "bridge_overhead_ms": 83.30000404172591,
+            "neural_wait_ms": 110.59999999403954,
+            "unattributed_ms": 2099.1999999582767,
+            "inferences": 89,
             "progress_events": 0,
-            "tensor_prepare_ms": 4.60000005364418,
-            "inference_execution_ms": 47.49999988079071,
-            "policy_extract_ms": 23.100000202655792,
-            "serialize_ms": 2.6999999284744263,
-            "parse_ms": 1.0999999940395355,
-            "request_bytes": 84613,
-            "response_bytes": 82705,
+            "tensor_prepare_ms": 4.499999850988388,
+            "inference_execution_ms": 47.200000047683716,
+            "policy_extract_ms": 24.89999982714653,
+            "serialize_ms": 1.699999988079071,
+            "parse_ms": 1.2000000774860382,
+            "request_bytes": 83874,
+            "response_bytes": 81852,
             "inference_payload_mode": "full-logits",
-            "response_policy_values": 216090,
+            "response_policy_values": 213689,
             "cache_hits": 0,
-            "cache_misses": 90,
+            "cache_misses": 89,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -346,13 +346,13 @@
       },
       "compact": {
         "analysis": {
-          "value": -0.41831877746365287,
+          "value": -0.41831664290539056,
           "source": "neural_search",
           "best_move": {
             "source": 26,
             "target": 12
           },
-          "simulations": 110
+          "simulations": 129
         },
         "search": {
           "version": 1,
@@ -377,20 +377,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 111,
-          "elapsed_ms": 251.50000000000006,
+          "neural_requests": 130,
+          "elapsed_ms": 252.40000000000018,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 13.900005000000437,
-            "encoding_ms": 11.199999999999655,
-            "validation_ms": 2.9000010000008736,
-            "requests": 111
+            "legal_generation_ms": 12.300006000000252,
+            "encoding_ms": 11.999997000000207,
+            "validation_ms": 3.000001999998503,
+            "requests": 130
           },
           "requested_simulations": 4096,
-          "completed_simulations": 110,
+          "completed_simulations": 129,
           "root_value": -0.4190117418766022,
-          "search_value": -0.41831877746365287,
+          "search_value": -0.41831664290539056,
           "best_move": {
             "source": 26,
             "target": 12
@@ -399,102 +399,108 @@
             {
               "source": 26,
               "target": 12,
-              "visits": 20,
-              "share": 0.18181818181818182
+              "visits": 21,
+              "share": 0.16279069767441862
             },
             {
               "source": 21,
               "target": 35,
-              "visits": 15,
-              "share": 0.13636363636363635
-            },
-            {
-              "source": 27,
-              "target": 41,
-              "visits": 12,
-              "share": 0.10909090909090909
+              "visits": 16,
+              "share": 0.12403100775193798
             },
             {
               "source": 10,
               "target": 12,
-              "visits": 10,
-              "share": 0.09090909090909091
+              "visits": 14,
+              "share": 0.10852713178294573
+            },
+            {
+              "source": 27,
+              "target": 41,
+              "visits": 13,
+              "share": 0.10077519379844961
             },
             {
               "source": 21,
               "target": 7,
-              "visits": 10,
-              "share": 0.09090909090909091
+              "visits": 11,
+              "share": 0.08527131782945736
             },
             {
               "source": 22,
               "target": 36,
-              "visits": 10,
-              "share": 0.09090909090909091
+              "visits": 11,
+              "share": 0.08527131782945736
             },
             {
               "source": 27,
               "target": 13,
               "visits": 9,
-              "share": 0.08181818181818182
+              "share": 0.06976744186046512
+            },
+            {
+              "source": 3,
+              "target": 5,
+              "visits": 8,
+              "share": 0.06201550387596899
+            },
+            {
+              "source": 22,
+              "target": 29,
+              "visits": 8,
+              "share": 0.06201550387596899
             },
             {
               "source": 26,
               "target": 40,
               "visits": 8,
-              "share": 0.07272727272727272
-            },
-            {
-              "source": 3,
-              "target": 5,
-              "visits": 7,
-              "share": 0.06363636363636363
+              "share": 0.06201550387596899
             },
             {
               "source": 10,
               "target": 7,
-              "visits": 6,
-              "share": 0.05454545454545454
+              "visits": 7,
+              "share": 0.05426356589147287
             },
             {
               "source": 10,
               "target": 9,
               "visits": 3,
-              "share": 0.02727272727272727
+              "share": 0.023255813953488372
             }
           ],
-          "prediction_reuses": 52,
+          "prediction_reuses": 62,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
           "immediate_win_shortcuts": 0,
           "temperature": 0,
           "dirichlet_fraction": 0,
-          "root_children": 11,
-          "search_id": "s2-0-cibpsc",
+          "root_children": 12,
+          "search_id": "s2-0-sslpka",
           "coordinator": {
-            "end_to_end_ms": 252.89999997615814,
-            "completed_simulations": 110,
-            "simulations_per_second": 434.9545275222227,
-            "steps": 112,
-            "step_ms": 168.60000017285347,
-            "python_action_ms": 69.80000299999888,
-            "bridge_overhead_ms": 98.79999717285459,
-            "neural_wait_ms": 82.89999985694885,
-            "unattributed_ms": 1.3999999463558197,
-            "inferences": 111,
+            "end_to_end_ms": 253.80000001192093,
+            "completed_simulations": 129,
+            "simulations_per_second": 508.27423165461346,
+            "steps": 131,
+            "step_ms": 172.60000002384186,
+            "python_action_ms": 72.69999299999927,
+            "bridge_overhead_ms": 99.90000702384259,
+            "neural_wait_ms": 79,
+            "unattributed_ms": 2.199999988079071,
+            "inferences": 130,
             "progress_events": 0,
-            "tensor_prepare_ms": 1.4999999403953552,
-            "inference_execution_ms": 43.100000113248825,
-            "policy_extract_ms": 1.7999999821186066,
-            "serialize_ms": 2.6000000834465027,
-            "parse_ms": 1.5999999940395355,
-            "request_bytes": 104607,
-            "response_bytes": 101601,
+            "tensor_prepare_ms": 1.4999999701976776,
+            "inference_execution_ms": 43.49999991059303,
+            "policy_extract_ms": 2.299999952316284,
+            "serialize_ms": 2.5000000298023224,
+            "parse_ms": 1.800000011920929,
+            "request_bytes": 122298,
+            "response_bytes": 118595,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
-            "cache_misses": 111,
+            "cache_misses": 130,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -603,13 +609,13 @@
       },
       "full": {
         "analysis": {
-          "value": -0.4188500993084489,
+          "value": -0.41885051131248474,
           "source": "neural_search",
           "best_move": {
             "source": 14,
             "target": 35
           },
-          "simulations": 114
+          "simulations": 116
         },
         "search": {
           "version": 1,
@@ -634,20 +640,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 115,
-          "elapsed_ms": 251.7999999999998,
+          "neural_requests": 117,
+          "elapsed_ms": 251.4999999999996,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 7.8999999999971315,
-            "encoding_ms": 10.600000000000165,
-            "validation_ms": 3.199990999998459,
-            "requests": 115
+            "legal_generation_ms": 8.29999999999842,
+            "encoding_ms": 9.999999999999343,
+            "validation_ms": 2.999998999999587,
+            "requests": 117
           },
           "requested_simulations": 4096,
-          "completed_simulations": 114,
+          "completed_simulations": 116,
           "root_value": -0.42008501291275024,
-          "search_value": -0.4188500993084489,
+          "search_value": -0.41885051131248474,
           "best_move": {
             "source": 14,
             "target": 35
@@ -656,71 +662,71 @@
             {
               "source": 14,
               "target": 35,
-              "visits": 16,
-              "share": 0.14035087719298245
+              "visits": 17,
+              "share": 0.14655172413793102
             },
             {
               "source": 37,
               "target": 35,
               "visits": 15,
-              "share": 0.13157894736842105
+              "share": 0.12931034482758622
             },
             {
               "source": 14,
               "target": 21,
               "visits": 13,
-              "share": 0.11403508771929824
+              "share": 0.11206896551724138
+            },
+            {
+              "source": 14,
+              "target": 28,
+              "visits": 11,
+              "share": 0.09482758620689655
             },
             {
               "source": 37,
               "target": 16,
               "visits": 11,
-              "share": 0.09649122807017543
+              "share": 0.09482758620689655
             },
             {
               "source": 37,
               "target": 44,
               "visits": 11,
-              "share": 0.09649122807017543
+              "share": 0.09482758620689655
             },
             {
               "source": 14,
               "target": 7,
               "visits": 10,
-              "share": 0.08771929824561403
-            },
-            {
-              "source": 14,
-              "target": 28,
-              "visits": 10,
-              "share": 0.08771929824561403
+              "share": 0.08620689655172414
             },
             {
               "source": 18,
               "target": 20,
               "visits": 8,
-              "share": 0.07017543859649122
+              "share": 0.06896551724137931
             },
             {
               "source": 37,
               "target": 36,
               "visits": 8,
-              "share": 0.07017543859649122
+              "share": 0.06896551724137931
             },
             {
               "source": 2,
               "target": 4,
               "visits": 6,
-              "share": 0.05263157894736842
+              "share": 0.05172413793103448
             },
             {
               "source": 18,
               "target": 11,
               "visits": 6,
-              "share": 0.05263157894736842
+              "share": 0.05172413793103448
             }
           ],
-          "prediction_reuses": 55,
+          "prediction_reuses": 56,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -728,30 +734,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 11,
-          "search_id": "s3-0-jccuis",
+          "search_id": "s3-0-l8x0lu",
           "coordinator": {
-            "end_to_end_ms": 253,
-            "completed_simulations": 114,
-            "simulations_per_second": 450.59288537549406,
-            "steps": 116,
-            "step_ms": 149.69999980926514,
-            "python_action_ms": 59.39999999999749,
-            "bridge_overhead_ms": 90.29999980926765,
-            "neural_wait_ms": 102.10000017285347,
-            "unattributed_ms": 1.2000000178813934,
-            "inferences": 115,
+            "end_to_end_ms": 252.69999998807907,
+            "completed_simulations": 116,
+            "simulations_per_second": 459.04234272050735,
+            "steps": 118,
+            "step_ms": 151.50000005960464,
+            "python_action_ms": 58.60000499999887,
+            "bridge_overhead_ms": 92.89999505960577,
+            "neural_wait_ms": 99.3999999165535,
+            "unattributed_ms": 1.800000011920929,
+            "inferences": 117,
             "progress_events": 0,
-            "tensor_prepare_ms": 3.6999999284744263,
-            "inference_execution_ms": 38.29999980330467,
-            "policy_extract_ms": 18.700000017881393,
+            "tensor_prepare_ms": 4.800000041723251,
+            "inference_execution_ms": 35,
+            "policy_extract_ms": 19.799999952316284,
             "serialize_ms": 1.9000000059604645,
-            "parse_ms": 1.0999999642372131,
-            "request_bytes": 91274,
-            "response_bytes": 100630,
+            "parse_ms": 0.9000000357627869,
+            "request_bytes": 92882,
+            "response_bytes": 102346,
             "inference_payload_mode": "full-logits",
-            "response_policy_values": 276115,
+            "response_policy_values": 280917,
             "cache_hits": 0,
-            "cache_misses": 115,
+            "cache_misses": 117,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -768,13 +774,13 @@
       },
       "compact": {
         "analysis": {
-          "value": -0.41881024281183876,
+          "value": -0.41882035787531874,
           "source": "neural_search",
           "best_move": {
             "source": 14,
             "target": 35
           },
-          "simulations": 150
+          "simulations": 151
         },
         "search": {
           "version": 1,
@@ -799,20 +805,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 151,
-          "elapsed_ms": 252.19999999999976,
+          "neural_requests": 152,
+          "elapsed_ms": 251.89999899999992,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 11.000002000002507,
-            "encoding_ms": 11.999996000000568,
-            "validation_ms": 3.6000000000004917,
-            "requests": 151
+            "legal_generation_ms": 10.100005000003964,
+            "encoding_ms": 12.700004999998349,
+            "validation_ms": 2.599994999999744,
+            "requests": 152
           },
           "requested_simulations": 4096,
-          "completed_simulations": 150,
+          "completed_simulations": 151,
           "root_value": -0.42008501291275024,
-          "search_value": -0.41881024281183876,
+          "search_value": -0.41882035787531874,
           "best_move": {
             "source": 14,
             "target": 35
@@ -822,82 +828,82 @@
               "source": 14,
               "target": 35,
               "visits": 19,
-              "share": 0.12666666666666668
+              "share": 0.12582781456953643
             },
             {
               "source": 37,
               "target": 35,
               "visits": 18,
-              "share": 0.12
+              "share": 0.11920529801324503
             },
             {
               "source": 14,
               "target": 21,
               "visits": 16,
-              "share": 0.10666666666666667
+              "share": 0.10596026490066225
             },
             {
               "source": 37,
               "target": 16,
               "visits": 13,
-              "share": 0.08666666666666667
+              "share": 0.08609271523178808
             },
             {
               "source": 37,
               "target": 44,
               "visits": 13,
-              "share": 0.08666666666666667
+              "share": 0.08609271523178808
             },
             {
               "source": 14,
               "target": 28,
               "visits": 12,
-              "share": 0.08
+              "share": 0.07947019867549669
             },
             {
               "source": 14,
               "target": 7,
               "visits": 11,
-              "share": 0.07333333333333333
+              "share": 0.0728476821192053
             },
             {
               "source": 37,
               "target": 30,
               "visits": 10,
-              "share": 0.06666666666666667
+              "share": 0.06622516556291391
             },
             {
               "source": 18,
               "target": 20,
               "visits": 9,
-              "share": 0.06
+              "share": 0.059602649006622516
             },
             {
               "source": 37,
               "target": 36,
               "visits": 9,
-              "share": 0.06
+              "share": 0.059602649006622516
             },
             {
               "source": 2,
               "target": 4,
               "visits": 7,
-              "share": 0.04666666666666667
+              "share": 0.046357615894039736
             },
             {
               "source": 18,
               "target": 11,
               "visits": 7,
-              "share": 0.04666666666666667
+              "share": 0.046357615894039736
             },
             {
               "source": 37,
               "target": 23,
-              "visits": 6,
-              "share": 0.04
+              "visits": 7,
+              "share": 0.046357615894039736
             }
           ],
-          "prediction_reuses": 70,
+          "prediction_reuses": 71,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -905,30 +911,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 13,
-          "search_id": "s4-0-x9nhnl",
+          "search_id": "s4-0-y1w45x",
           "coordinator": {
-            "end_to_end_ms": 253.40000000596046,
-            "completed_simulations": 150,
-            "simulations_per_second": 591.9494869631875,
-            "steps": 152,
-            "step_ms": 173.799999833107,
-            "python_action_ms": 70.80000000000244,
-            "bridge_overhead_ms": 102.99999983310455,
-            "neural_wait_ms": 77.70000022649765,
-            "unattributed_ms": 1.8999999463558197,
-            "inferences": 151,
+            "end_to_end_ms": 253,
+            "completed_simulations": 151,
+            "simulations_per_second": 596.8379446640316,
+            "steps": 153,
+            "step_ms": 169.19999995827675,
+            "python_action_ms": 69.09998800000224,
+            "bridge_overhead_ms": 100.10001195827451,
+            "neural_wait_ms": 81.60000005364418,
+            "unattributed_ms": 2.199999988079071,
+            "inferences": 152,
             "progress_events": 0,
-            "tensor_prepare_ms": 2.0000000596046448,
-            "inference_execution_ms": 42.399999767541885,
-            "policy_extract_ms": 3.1000000834465027,
-            "serialize_ms": 2.4000000059604645,
-            "parse_ms": 1.3999999463558197,
-            "request_bytes": 119220,
-            "response_bytes": 131329,
+            "tensor_prepare_ms": 2.1000000536441803,
+            "inference_execution_ms": 41.300000071525574,
+            "policy_extract_ms": 1.800000011920929,
+            "serialize_ms": 2.6999998688697815,
+            "parse_ms": 1,
+            "request_bytes": 119853,
+            "response_bytes": 132230,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
-            "cache_misses": 151,
+            "cache_misses": 152,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -1064,7 +1070,7 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 0,
-          "elapsed_ms": 0,
+          "elapsed_ms": 0.10000000000021103,
           "completed": true,
           "authoritative": false,
           "timing": {
@@ -1087,26 +1093,26 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 0,
-          "search_id": "s5-0-2k82h3",
+          "search_id": "s5-0-vzubpq",
           "coordinator": {
-            "end_to_end_ms": 1.300000011920929,
+            "end_to_end_ms": 1,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 1,
-            "step_ms": 1.2000000178813934,
-            "python_action_ms": 0.3999989999998732,
-            "bridge_overhead_ms": 0.8000010178815202,
+            "step_ms": 1,
+            "python_action_ms": 0.2000010000000607,
+            "bridge_overhead_ms": 0.7999989999999393,
             "neural_wait_ms": 0,
-            "unattributed_ms": 0.09999999403953552,
+            "unattributed_ms": 0,
             "inferences": 0,
             "progress_events": 0,
             "tensor_prepare_ms": 0,
             "inference_execution_ms": 0,
             "policy_extract_ms": 0,
             "serialize_ms": 0,
-            "parse_ms": 0,
+            "parse_ms": 0.09999999403953552,
             "request_bytes": 730,
-            "response_bytes": 1182,
+            "response_bytes": 1198,
             "inference_payload_mode": null,
             "response_policy_values": 0,
             "cache_hits": 0,
@@ -1151,7 +1157,7 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 0,
-          "elapsed_ms": 0,
+          "elapsed_ms": 0.09999900000012829,
           "completed": true,
           "authoritative": false,
           "timing": {
@@ -1174,15 +1180,15 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 0,
-          "search_id": "s6-0-pja9n3",
+          "search_id": "s6-0-1adm3g",
           "coordinator": {
-            "end_to_end_ms": 1,
+            "end_to_end_ms": 1.199999988079071,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 1,
-            "step_ms": 1,
+            "step_ms": 1.199999988079071,
             "python_action_ms": 0.19999899999989523,
-            "bridge_overhead_ms": 0.8000010000001048,
+            "bridge_overhead_ms": 1.0000009880791758,
             "neural_wait_ms": 0,
             "unattributed_ms": 0,
             "inferences": 0,
@@ -1191,9 +1197,9 @@
             "inference_execution_ms": 0,
             "policy_extract_ms": 0,
             "serialize_ms": 0,
-            "parse_ms": 0,
+            "parse_ms": 0.09999999403953552,
             "request_bytes": 730,
-            "response_bytes": 1183,
+            "response_bytes": 1199,
             "inference_payload_mode": null,
             "response_policy_values": 0,
             "cache_hits": 0,
@@ -1303,13 +1309,13 @@
       },
       "full": {
         "analysis": {
-          "value": -0.41831073867596263,
+          "value": -0.41830833317819704,
           "source": "neural_search",
           "best_move": {
             "source": 26,
             "target": 12
           },
-          "simulations": 123
+          "simulations": 121
         },
         "search": {
           "version": 1,
@@ -1334,20 +1340,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 124,
-          "elapsed_ms": 251.69999899999996,
+          "neural_requests": 122,
+          "elapsed_ms": 251.50000000000006,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 12.400005999999575,
-            "encoding_ms": 10.50000099999826,
-            "validation_ms": 3.8000010000001083,
-            "requests": 124
+            "legal_generation_ms": 10.79999800000131,
+            "encoding_ms": 10.500001999997899,
+            "validation_ms": 3.1000020000018225,
+            "requests": 122
           },
           "requested_simulations": 4096,
-          "completed_simulations": 123,
+          "completed_simulations": 121,
           "root_value": -0.4190117418766022,
-          "search_value": -0.41831073867596263,
+          "search_value": -0.41830833317819704,
           "best_move": {
             "source": 26,
             "target": 12
@@ -1357,107 +1363,101 @@
               "source": 26,
               "target": 12,
               "visits": 21,
-              "share": 0.17073170731707318
+              "share": 0.17355371900826447
             },
             {
               "source": 21,
               "target": 35,
               "visits": 16,
-              "share": 0.13008130081300814
+              "share": 0.1322314049586777
             },
             {
               "source": 10,
               "target": 12,
               "visits": 14,
-              "share": 0.11382113821138211
+              "share": 0.11570247933884298
             },
             {
               "source": 27,
               "target": 41,
               "visits": 13,
-              "share": 0.10569105691056911
+              "share": 0.10743801652892562
             },
             {
               "source": 21,
               "target": 7,
               "visits": 11,
-              "share": 0.08943089430894309
+              "share": 0.09090909090909091
             },
             {
               "source": 22,
               "target": 36,
               "visits": 11,
-              "share": 0.08943089430894309
+              "share": 0.09090909090909091
             },
             {
               "source": 27,
               "target": 13,
               "visits": 9,
-              "share": 0.07317073170731707
+              "share": 0.0743801652892562
             },
             {
               "source": 3,
               "target": 5,
               "visits": 8,
-              "share": 0.06504065040650407
+              "share": 0.06611570247933884
             },
             {
               "source": 26,
               "target": 40,
               "visits": 8,
-              "share": 0.06504065040650407
+              "share": 0.06611570247933884
             },
             {
               "source": 10,
               "target": 7,
               "visits": 7,
-              "share": 0.056910569105691054
+              "share": 0.05785123966942149
             },
             {
               "source": 10,
               "target": 9,
               "visits": 3,
-              "share": 0.024390243902439025
-            },
-            {
-              "source": 22,
-              "target": 29,
-              "visits": 2,
-              "share": 0.016260162601626018
+              "share": 0.024793388429752067
             }
           ],
-          "prediction_reuses": 59,
+          "prediction_reuses": 58,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
           "immediate_win_shortcuts": 0,
           "temperature": 0,
           "dirichlet_fraction": 0,
-          "root_children": 12,
-          "search_id": "s7-0-aikifz",
+          "root_children": 11,
+          "search_id": "s7-0-1cepql",
           "coordinator": {
-            "end_to_end_ms": 252.90000000596046,
-            "completed_simulations": 123,
-            "simulations_per_second": 486.35824435389907,
-            "steps": 125,
-            "step_ms": 152.79999986290932,
-            "python_action_ms": 64.19999900000089,
-            "bridge_overhead_ms": 88.60000086290843,
-            "neural_wait_ms": 98.90000015497208,
-            "unattributed_ms": 1.199999988079071,
-            "inferences": 124,
+            "end_to_end_ms": 252.59999999403954,
+            "completed_simulations": 121,
+            "simulations_per_second": 479.0182106209627,
+            "steps": 123,
+            "step_ms": 153.29999968409538,
+            "python_action_ms": 64.69999800000097,
+            "bridge_overhead_ms": 88.60000168409441,
+            "neural_wait_ms": 96.90000030398369,
+            "unattributed_ms": 2.4000000059604645,
+            "inferences": 122,
             "progress_events": 0,
-            "tensor_prepare_ms": 4.1000001430511475,
-            "inference_execution_ms": 34.400000005960464,
-            "policy_extract_ms": 21.29999989271164,
-            "serialize_ms": 2.8999999463558197,
-            "parse_ms": 1.600000023841858,
-            "request_bytes": 116580,
-            "response_bytes": 113224,
+            "tensor_prepare_ms": 4.400000125169754,
+            "inference_execution_ms": 35.89999985694885,
+            "policy_extract_ms": 20.700000047683716,
+            "serialize_ms": 2.2999999821186066,
+            "parse_ms": 1.199999988079071,
+            "request_bytes": 114709,
+            "response_bytes": 111358,
             "inference_payload_mode": "full-logits",
-            "response_policy_values": 297724,
+            "response_policy_values": 292922,
             "cache_hits": 0,
-            "cache_misses": 124,
+            "cache_misses": 122,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -1474,13 +1474,13 @@
       },
       "compact": {
         "analysis": {
-          "value": -0.41831338023528075,
+          "value": -0.41832780361880917,
           "source": "neural_search",
           "best_move": {
             "source": 26,
             "target": 12
           },
-          "simulations": 156
+          "simulations": 169
         },
         "search": {
           "version": 1,
@@ -1505,20 +1505,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 157,
-          "elapsed_ms": 250.69999900000005,
+          "neural_requests": 170,
+          "elapsed_ms": 251.59999999999982,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 13.699999999999601,
-            "encoding_ms": 12.199998999999906,
-            "validation_ms": 3.599996000001937,
-            "requests": 157
+            "legal_generation_ms": 15.90000500000155,
+            "encoding_ms": 12.099996999997309,
+            "validation_ms": 3.3999969999989332,
+            "requests": 170
           },
           "requested_simulations": 4096,
-          "completed_simulations": 156,
+          "completed_simulations": 169,
           "root_value": -0.4190117418766022,
-          "search_value": -0.41831338023528075,
+          "search_value": -0.41832780361880917,
           "best_move": {
             "source": 26,
             "target": 12
@@ -1527,83 +1527,83 @@
             {
               "source": 26,
               "target": 12,
-              "visits": 23,
-              "share": 0.14743589743589744
+              "visits": 25,
+              "share": 0.14792899408284024
             },
             {
               "source": 21,
               "target": 35,
-              "visits": 17,
-              "share": 0.10897435897435898
+              "visits": 19,
+              "share": 0.11242603550295859
             },
             {
               "source": 10,
               "target": 12,
-              "visits": 15,
-              "share": 0.09615384615384616
+              "visits": 17,
+              "share": 0.10059171597633136
             },
             {
               "source": 22,
               "target": 29,
-              "visits": 14,
-              "share": 0.08974358974358974
+              "visits": 15,
+              "share": 0.08875739644970414
             },
             {
               "source": 27,
               "target": 41,
-              "visits": 14,
-              "share": 0.08974358974358974
+              "visits": 15,
+              "share": 0.08875739644970414
             },
             {
               "source": 21,
               "target": 7,
-              "visits": 12,
+              "visits": 13,
               "share": 0.07692307692307693
             },
             {
               "source": 22,
               "target": 36,
-              "visits": 12,
+              "visits": 13,
               "share": 0.07692307692307693
             },
             {
               "source": 27,
               "target": 13,
+              "visits": 11,
+              "share": 0.0650887573964497
+            },
+            {
+              "source": 26,
+              "target": 5,
               "visits": 10,
-              "share": 0.0641025641025641
+              "share": 0.05917159763313609
+            },
+            {
+              "source": 26,
+              "target": 40,
+              "visits": 10,
+              "share": 0.05917159763313609
             },
             {
               "source": 3,
               "target": 5,
               "visits": 9,
-              "share": 0.057692307692307696
-            },
-            {
-              "source": 26,
-              "target": 5,
-              "visits": 9,
-              "share": 0.057692307692307696
-            },
-            {
-              "source": 26,
-              "target": 40,
-              "visits": 9,
-              "share": 0.057692307692307696
+              "share": 0.05325443786982249
             },
             {
               "source": 10,
               "target": 7,
               "visits": 8,
-              "share": 0.05128205128205128
+              "share": 0.047337278106508875
             },
             {
               "source": 10,
               "target": 9,
               "visits": 4,
-              "share": 0.02564102564102564
+              "share": 0.023668639053254437
             }
           ],
-          "prediction_reuses": 74,
+          "prediction_reuses": 80,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -1611,30 +1611,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 13,
-          "search_id": "s8-0-3e51qe",
+          "search_id": "s8-0-j4vrwk",
           "coordinator": {
-            "end_to_end_ms": 252,
-            "completed_simulations": 156,
-            "simulations_per_second": 619.047619047619,
-            "steps": 158,
-            "step_ms": 176.30000007152557,
-            "python_action_ms": 76.8999880000005,
-            "bridge_overhead_ms": 99.40001207152507,
-            "neural_wait_ms": 73.69999995827675,
-            "unattributed_ms": 1.9999999701976776,
-            "inferences": 157,
+            "end_to_end_ms": 252.7000000178814,
+            "completed_simulations": 169,
+            "simulations_per_second": 668.7772061260044,
+            "steps": 171,
+            "step_ms": 180.10000014305115,
+            "python_action_ms": 81.30000200000339,
+            "bridge_overhead_ms": 98.79999814304776,
+            "neural_wait_ms": 71.19999986886978,
+            "unattributed_ms": 1.4000000059604645,
+            "inferences": 170,
             "progress_events": 0,
-            "tensor_prepare_ms": 2.1999999284744263,
-            "inference_execution_ms": 40.20000010728836,
-            "policy_extract_ms": 2.6999999582767487,
-            "serialize_ms": 3.300000101327896,
-            "parse_ms": 1.1999999582767487,
-            "request_bytes": 146918,
-            "response_bytes": 142622,
+            "tensor_prepare_ms": 2.4999999701976776,
+            "inference_execution_ms": 41.499999940395355,
+            "policy_extract_ms": 2.599999964237213,
+            "serialize_ms": 2.400000035762787,
+            "parse_ms": 1.0999999940395355,
+            "request_bytes": 159379,
+            "response_bytes": 154295,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
-            "cache_misses": 157,
+            "cache_misses": 170,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -1775,12 +1775,12 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 1,
-          "elapsed_ms": 2.0999999999999908,
+          "elapsed_ms": 2.000000000000224,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 0.09999999999976694,
-            "encoding_ms": 0.10000000000021103,
+            "legal_generation_ms": 0,
+            "encoding_ms": 0.19999999999997797,
             "validation_ms": 0,
             "requests": 1
           },
@@ -1808,26 +1808,26 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 1,
-          "search_id": "s9-0-h6a50j",
+          "search_id": "s9-0-nux94j",
           "coordinator": {
-            "end_to_end_ms": 3.199999988079071,
+            "end_to_end_ms": 3.0999999940395355,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 2,
-            "step_ms": 2.300000011920929,
-            "python_action_ms": 0.8999989999995961,
-            "bridge_overhead_ms": 1.4000010119213329,
-            "neural_wait_ms": 0.7999999821186066,
+            "step_ms": 2.2999999821186066,
+            "python_action_ms": 0.7999990000002732,
+            "bridge_overhead_ms": 1.5000009821183333,
+            "neural_wait_ms": 0.7000000178813934,
             "unattributed_ms": 0.09999999403953552,
             "inferences": 1,
             "progress_events": 0,
             "tensor_prepare_ms": 0,
-            "inference_execution_ms": 0.4000000059604645,
+            "inference_execution_ms": 0.19999998807907104,
             "policy_extract_ms": 0.19999998807907104,
             "serialize_ms": 0,
-            "parse_ms": 0,
+            "parse_ms": 0.09999999403953552,
             "request_bytes": 1125,
-            "response_bytes": 2173,
+            "response_bytes": 2156,
             "inference_payload_mode": "full-logits",
             "response_policy_values": 2401,
             "cache_hits": 0,
@@ -1880,11 +1880,11 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 1,
-          "elapsed_ms": 1.6000009999999065,
+          "elapsed_ms": 1.6999999999995907,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 0,
+            "legal_generation_ms": 0.10000000000021103,
             "encoding_ms": 0.09999999999976694,
             "validation_ms": 0,
             "requests": 1
@@ -1913,26 +1913,26 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 1,
-          "search_id": "s10-0-d6muku",
+          "search_id": "s10-0-gtvjik",
           "coordinator": {
-            "end_to_end_ms": 2.699999988079071,
+            "end_to_end_ms": 2.9000000059604645,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 2,
-            "step_ms": 2.199999988079071,
-            "python_action_ms": 0.6999999999997009,
-            "bridge_overhead_ms": 1.4999999880793702,
-            "neural_wait_ms": 0.4000000059604645,
-            "unattributed_ms": 0.09999999403953552,
+            "step_ms": 2.2999999821186066,
+            "python_action_ms": 0.8000020000000774,
+            "bridge_overhead_ms": 1.4999979821185292,
+            "neural_wait_ms": 0.5,
+            "unattributed_ms": 0.10000002384185791,
             "inferences": 1,
             "progress_events": 0,
             "tensor_prepare_ms": 0,
-            "inference_execution_ms": 0.20000001788139343,
-            "policy_extract_ms": 0.09999999403953552,
-            "serialize_ms": 0,
-            "parse_ms": 0,
+            "inference_execution_ms": 0.29999998211860657,
+            "policy_extract_ms": 0,
+            "serialize_ms": 0.09999999403953552,
+            "parse_ms": 0.10000002384185791,
             "request_bytes": 1127,
-            "response_bytes": 2160,
+            "response_bytes": 2175,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
@@ -2079,13 +2079,13 @@
       },
       "full": {
         "analysis": {
-          "value": -0.41785099666293074,
+          "value": -0.4179866441658565,
           "source": "neural_search",
           "best_move": {
             "source": 31,
             "target": 30
           },
-          "simulations": 41
+          "simulations": 56
         },
         "search": {
           "version": 1,
@@ -2110,20 +2110,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 42,
-          "elapsed_ms": 264.30000100000007,
+          "neural_requests": 57,
+          "elapsed_ms": 259.80000000000024,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 10.700000999999126,
-            "encoding_ms": 10.49999800000112,
-            "validation_ms": 2.8999959999977953,
-            "requests": 42
+            "legal_generation_ms": 13.4000000000003,
+            "encoding_ms": 9.200000000000763,
+            "validation_ms": 3.1999999999987594,
+            "requests": 57
           },
           "requested_simulations": 4096,
-          "completed_simulations": 41,
+          "completed_simulations": 56,
           "root_value": -0.416989803314209,
-          "search_value": -0.41785099666293074,
+          "search_value": -0.4179866441658565,
           "best_move": {
             "source": 31,
             "target": 30
@@ -2132,78 +2132,84 @@
             {
               "source": 31,
               "target": 30,
-              "visits": 10,
-              "share": 0.24390243902439024
+              "visits": 12,
+              "share": 0.21428571428571427
             },
             {
               "source": 31,
               "target": 28,
-              "visits": 6,
-              "share": 0.14634146341463414
+              "visits": 7,
+              "share": 0.125
+            },
+            {
+              "source": 38,
+              "target": 47,
+              "visits": 7,
+              "share": 0.125
             },
             {
               "source": 42,
               "target": 24,
-              "visits": 6,
-              "share": 0.14634146341463414
+              "visits": 7,
+              "share": 0.125
             },
             {
               "source": 38,
               "target": 56,
-              "visits": 5,
-              "share": 0.12195121951219512
+              "visits": 6,
+              "share": 0.10714285714285714
             },
             {
               "source": 39,
               "target": 57,
-              "visits": 5,
-              "share": 0.12195121951219512
+              "visits": 6,
+              "share": 0.10714285714285714
             },
             {
               "source": 41,
               "target": 50,
-              "visits": 5,
-              "share": 0.12195121951219512
+              "visits": 6,
+              "share": 0.10714285714285714
             },
             {
               "source": 42,
               "target": 51,
-              "visits": 4,
-              "share": 0.0975609756097561
+              "visits": 5,
+              "share": 0.08928571428571429
             }
           ],
-          "prediction_reuses": 18,
+          "prediction_reuses": 27,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
           "immediate_win_shortcuts": 0,
           "temperature": 0,
           "dirichlet_fraction": 0,
-          "root_children": 7,
-          "search_id": "s1-0-rx8dea",
+          "root_children": 8,
+          "search_id": "s1-0-w4jzn3",
           "coordinator": {
-            "end_to_end_ms": 2934,
-            "completed_simulations": 41,
-            "simulations_per_second": 13.974096796182685,
-            "steps": 43,
-            "step_ms": 135.5999999344349,
-            "python_action_ms": 70.60000000000112,
-            "bridge_overhead_ms": 64.99999993443377,
-            "neural_wait_ms": 131.10000002384186,
-            "unattributed_ms": 2667.3000000417233,
-            "inferences": 42,
+            "end_to_end_ms": 2576.5999999940395,
+            "completed_simulations": 56,
+            "simulations_per_second": 21.73406815187827,
+            "steps": 58,
+            "step_ms": 138.30000004172325,
+            "python_action_ms": 71.49999999999986,
+            "bridge_overhead_ms": 66.8000000417234,
+            "neural_wait_ms": 123.29999995231628,
+            "unattributed_ms": 2315,
+            "inferences": 57,
             "progress_events": 0,
-            "tensor_prepare_ms": 4.299999952316284,
-            "inference_execution_ms": 49.79999998211861,
-            "policy_extract_ms": 35.70000001788139,
-            "serialize_ms": 2.199999988079071,
-            "parse_ms": 0.699999988079071,
-            "request_bytes": 77934,
-            "response_bytes": 59135,
+            "tensor_prepare_ms": 4.799999952316284,
+            "inference_execution_ms": 45.09999996423721,
+            "policy_extract_ms": 38.6000000834465,
+            "serialize_ms": 2.0999999940395355,
+            "parse_ms": 1.6999999582767487,
+            "request_bytes": 107755,
+            "response_bytes": 80149,
             "inference_payload_mode": "full-logits",
-            "response_policy_values": 275562,
+            "response_policy_values": 373977,
             "cache_hits": 0,
-            "cache_misses": 42,
+            "cache_misses": 57,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -2220,13 +2226,13 @@
       },
       "compact": {
         "analysis": {
-          "value": -0.41810135952718963,
+          "value": -0.4181083685473392,
           "source": "neural_search",
           "best_move": {
             "source": 41,
             "target": 68
           },
-          "simulations": 91
+          "simulations": 95
         },
         "search": {
           "version": 1,
@@ -2251,20 +2257,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 92,
-          "elapsed_ms": 252.1,
+          "neural_requests": 96,
+          "elapsed_ms": 253.29999999999987,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 18.600008999997364,
-            "encoding_ms": 10.80000699999939,
-            "validation_ms": 4.000000000000448,
-            "requests": 92
+            "legal_generation_ms": 17.69999999999916,
+            "encoding_ms": 12.099999999999334,
+            "validation_ms": 4.9000000000001265,
+            "requests": 96
           },
           "requested_simulations": 4096,
-          "completed_simulations": 91,
+          "completed_simulations": 95,
           "root_value": -0.416989803314209,
-          "search_value": -0.41810135952718963,
+          "search_value": -0.4181083685473392,
           "best_move": {
             "source": 41,
             "target": 68
@@ -2273,65 +2279,65 @@
             {
               "source": 41,
               "target": 68,
-              "visits": 15,
-              "share": 0.16483516483516483
+              "visits": 16,
+              "share": 0.16842105263157894
             },
             {
               "source": 31,
               "target": 30,
-              "visits": 14,
-              "share": 0.15384615384615385
+              "visits": 15,
+              "share": 0.15789473684210525
             },
             {
               "source": 38,
               "target": 47,
               "visits": 10,
-              "share": 0.10989010989010989
+              "share": 0.10526315789473684
+            },
+            {
+              "source": 42,
+              "target": 24,
+              "visits": 9,
+              "share": 0.09473684210526316
             },
             {
               "source": 31,
               "target": 28,
               "visits": 8,
-              "share": 0.08791208791208792
+              "share": 0.08421052631578947
             },
             {
               "source": 38,
               "target": 56,
               "visits": 8,
-              "share": 0.08791208791208792
+              "share": 0.08421052631578947
             },
             {
               "source": 41,
               "target": 50,
               "visits": 8,
-              "share": 0.08791208791208792
-            },
-            {
-              "source": 42,
-              "target": 24,
-              "visits": 8,
-              "share": 0.08791208791208792
+              "share": 0.08421052631578947
             },
             {
               "source": 22,
               "target": 26,
               "visits": 7,
-              "share": 0.07692307692307693
+              "share": 0.07368421052631578
             },
             {
               "source": 39,
               "target": 57,
               "visits": 7,
-              "share": 0.07692307692307693
+              "share": 0.07368421052631578
             },
             {
               "source": 42,
               "target": 51,
-              "visits": 6,
-              "share": 0.06593406593406594
+              "visits": 7,
+              "share": 0.07368421052631578
             }
           ],
-          "prediction_reuses": 41,
+          "prediction_reuses": 43,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -2339,30 +2345,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 10,
-          "search_id": "s2-0-bexdhz",
+          "search_id": "s2-0-rf83e9",
           "coordinator": {
-            "end_to_end_ms": 253.80000001192093,
-            "completed_simulations": 91,
-            "simulations_per_second": 358.5500393842622,
-            "steps": 93,
-            "step_ms": 176.19999995827675,
-            "python_action_ms": 83.00001099999972,
-            "bridge_overhead_ms": 93.19998895827703,
-            "neural_wait_ms": 76.10000005364418,
-            "unattributed_ms": 1.5,
-            "inferences": 92,
+            "end_to_end_ms": 254.90000000596046,
+            "completed_simulations": 95,
+            "simulations_per_second": 372.69517456955106,
+            "steps": 97,
+            "step_ms": 175.90000009536743,
+            "python_action_ms": 84.00000000000139,
+            "bridge_overhead_ms": 91.90000009536604,
+            "neural_wait_ms": 77.89999988675117,
+            "unattributed_ms": 1.100000023841858,
+            "inferences": 96,
             "progress_events": 0,
-            "tensor_prepare_ms": 2.3000000417232513,
-            "inference_execution_ms": 39.89999994635582,
-            "policy_extract_ms": 3.5999999344348907,
-            "serialize_ms": 3.200000047683716,
-            "parse_ms": 1.100000023841858,
-            "request_bytes": 176955,
-            "response_bytes": 128886,
+            "tensor_prepare_ms": 2.6999999284744263,
+            "inference_execution_ms": 40.50000008940697,
+            "policy_extract_ms": 2.4000000059604645,
+            "serialize_ms": 3.1000000834465027,
+            "parse_ms": 1.2999999821186066,
+            "request_bytes": 185033,
+            "response_bytes": 134448,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
-            "cache_misses": 92,
+            "cache_misses": 96,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -2503,13 +2509,13 @@
       },
       "full": {
         "analysis": {
-          "value": -0.39858338981866837,
+          "value": -0.4009408918095798,
           "source": "neural_search",
           "best_move": {
             "source": 18,
             "target": 9
           },
-          "simulations": 72
+          "simulations": 82
         },
         "search": {
           "version": 1,
@@ -2534,20 +2540,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 72,
-          "elapsed_ms": 251.99999999999977,
+          "neural_requests": 82,
+          "elapsed_ms": 251.4000000000003,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 7.300008000000968,
-            "encoding_ms": 8.00000899999942,
-            "validation_ms": 2.70000499999945,
-            "requests": 72
+            "legal_generation_ms": 8.799999999998587,
+            "encoding_ms": 8.60000000000083,
+            "validation_ms": 2.2999999999990806,
+            "requests": 82
           },
           "requested_simulations": 4096,
-          "completed_simulations": 72,
+          "completed_simulations": 82,
           "root_value": -0.4195041060447693,
-          "search_value": -0.39858338981866837,
+          "search_value": -0.4009408918095798,
           "best_move": {
             "source": 18,
             "target": 9
@@ -2556,90 +2562,96 @@
             {
               "source": 18,
               "target": 9,
-              "visits": 13,
-              "share": 0.18055555555555555
+              "visits": 15,
+              "share": 0.18292682926829268
             },
             {
               "source": 22,
               "target": 31,
-              "visits": 11,
-              "share": 0.1527777777777778
+              "visits": 12,
+              "share": 0.14634146341463414
             },
             {
               "source": 18,
               "target": 45,
-              "visits": 10,
-              "share": 0.1388888888888889
+              "visits": 11,
+              "share": 0.13414634146341464
             },
             {
               "source": 18,
               "target": 54,
-              "visits": 10,
-              "share": 0.1388888888888889
+              "visits": 11,
+              "share": 0.13414634146341464
             },
             {
               "source": 22,
               "target": 25,
-              "visits": 9,
-              "share": 0.125
+              "visits": 10,
+              "share": 0.12195121951219512
             },
             {
               "source": 47,
               "target": 38,
-              "visits": 7,
-              "share": 0.09722222222222222
+              "visits": 8,
+              "share": 0.0975609756097561
             },
             {
               "source": 47,
               "target": 65,
-              "visits": 7,
-              "share": 0.09722222222222222
+              "visits": 8,
+              "share": 0.0975609756097561
             },
             {
               "source": 2,
               "target": 8,
-              "visits": 3,
-              "share": 0.041666666666666664
+              "visits": 4,
+              "share": 0.04878048780487805
             },
             {
               "source": 47,
               "target": 20,
               "visits": 2,
-              "share": 0.027777777777777776
+              "share": 0.024390243902439025
+            },
+            {
+              "source": 2,
+              "target": 7,
+              "visits": 1,
+              "share": 0.012195121951219513
             }
           ],
-          "prediction_reuses": 31,
+          "prediction_reuses": 36,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
           "immediate_win_shortcuts": 0,
           "temperature": 0,
           "dirichlet_fraction": 0,
-          "root_children": 9,
-          "search_id": "s3-0-oqnxgm",
+          "root_children": 10,
+          "search_id": "s3-0-0etyer",
           "coordinator": {
-            "end_to_end_ms": 253.60000002384186,
-            "completed_simulations": 72,
-            "simulations_per_second": 283.91167189759864,
-            "steps": 73,
-            "step_ms": 138.29999989271164,
-            "python_action_ms": 51.00001500000144,
-            "bridge_overhead_ms": 87.2999848927102,
-            "neural_wait_ms": 113.60000017285347,
-            "unattributed_ms": 1.6999999582767487,
-            "inferences": 72,
+            "end_to_end_ms": 252.90000000596046,
+            "completed_simulations": 82,
+            "simulations_per_second": 324.23882956926604,
+            "steps": 83,
+            "step_ms": 135.00000008940697,
+            "python_action_ms": 56.300000000003436,
+            "bridge_overhead_ms": 78.70000008940353,
+            "neural_wait_ms": 116.29999995231628,
+            "unattributed_ms": 1.5999999642372131,
+            "inferences": 82,
             "progress_events": 0,
-            "tensor_prepare_ms": 4.499999940395355,
-            "inference_execution_ms": 29.799999982118607,
-            "policy_extract_ms": 34.19999998807907,
-            "serialize_ms": 1.7999999523162842,
-            "parse_ms": 1.399999976158142,
-            "request_bytes": 86983,
-            "response_bytes": 89240,
+            "tensor_prepare_ms": 5.400000095367432,
+            "inference_execution_ms": 32.80000001192093,
+            "policy_extract_ms": 36.400000005960464,
+            "serialize_ms": 2.0000000596046448,
+            "parse_ms": 1.100000023841858,
+            "request_bytes": 99103,
+            "response_bytes": 101396,
             "inference_payload_mode": "full-logits",
-            "response_policy_values": 472392,
+            "response_policy_values": 538002,
             "cache_hits": 0,
-            "cache_misses": 72,
+            "cache_misses": 82,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -2656,13 +2668,13 @@
       },
       "compact": {
         "analysis": {
-          "value": -0.3917804836669815,
+          "value": -0.3922734615999624,
           "source": "neural_search",
           "best_move": {
             "source": 18,
             "target": 9
           },
-          "simulations": 107
+          "simulations": 109
         },
         "search": {
           "version": 1,
@@ -2687,20 +2699,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 106,
-          "elapsed_ms": 251.70000099999967,
+          "neural_requests": 108,
+          "elapsed_ms": 252.00000000000023,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 11.100003999998442,
-            "encoding_ms": 11.900012000001237,
-            "validation_ms": 3.8000079999997993,
-            "requests": 106
+            "legal_generation_ms": 12.199999999999545,
+            "encoding_ms": 12.200000000000433,
+            "validation_ms": 3.100000000000769,
+            "requests": 108
           },
           "requested_simulations": 4096,
-          "completed_simulations": 107,
+          "completed_simulations": 109,
           "root_value": -0.4195041060447693,
-          "search_value": -0.3917804836669815,
+          "search_value": -0.3922734615999624,
           "best_move": {
             "source": 18,
             "target": 9
@@ -2710,70 +2722,70 @@
               "source": 18,
               "target": 9,
               "visits": 17,
-              "share": 0.1588785046728972
+              "share": 0.1559633027522936
             },
             {
               "source": 22,
               "target": 31,
               "visits": 14,
-              "share": 0.1308411214953271
+              "share": 0.12844036697247707
             },
             {
               "source": 18,
               "target": 45,
               "visits": 13,
-              "share": 0.12149532710280374
+              "share": 0.11926605504587157
             },
             {
               "source": 18,
               "target": 54,
               "visits": 13,
-              "share": 0.12149532710280374
+              "share": 0.11926605504587157
             },
             {
               "source": 22,
               "target": 25,
               "visits": 12,
-              "share": 0.11214953271028037
+              "share": 0.11009174311926606
             },
             {
               "source": 47,
               "target": 65,
               "visits": 10,
-              "share": 0.09345794392523364
+              "share": 0.09174311926605505
+            },
+            {
+              "source": 18,
+              "target": 27,
+              "visits": 9,
+              "share": 0.08256880733944955
             },
             {
               "source": 47,
               "target": 38,
               "visits": 9,
-              "share": 0.08411214953271028
-            },
-            {
-              "source": 18,
-              "target": 27,
-              "visits": 7,
-              "share": 0.06542056074766354
+              "share": 0.08256880733944955
             },
             {
               "source": 2,
               "target": 7,
               "visits": 5,
-              "share": 0.04672897196261682
+              "share": 0.045871559633027525
             },
             {
               "source": 2,
               "target": 8,
               "visits": 5,
-              "share": 0.04672897196261682
+              "share": 0.045871559633027525
             },
             {
               "source": 47,
               "target": 20,
               "visits": 2,
-              "share": 0.018691588785046728
+              "share": 0.01834862385321101
             }
           ],
-          "prediction_reuses": 47,
+          "prediction_reuses": 48,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -2781,30 +2793,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 11,
-          "search_id": "s4-0-kf6ah1",
+          "search_id": "s4-0-jv0nbi",
           "coordinator": {
-            "end_to_end_ms": 253.40000000596046,
-            "completed_simulations": 107,
-            "simulations_per_second": 422.2573007004071,
-            "steps": 107,
-            "step_ms": 165.40000000596046,
-            "python_action_ms": 70.90001699999925,
-            "bridge_overhead_ms": 94.49998300596121,
-            "neural_wait_ms": 86.79999995231628,
-            "unattributed_ms": 1.2000000476837158,
-            "inferences": 106,
+            "end_to_end_ms": 253.59999999403954,
+            "completed_simulations": 109,
+            "simulations_per_second": 429.81072556215247,
+            "steps": 109,
+            "step_ms": 167.70000019669533,
+            "python_action_ms": 71.9999999999997,
+            "bridge_overhead_ms": 95.70000019669563,
+            "neural_wait_ms": 84.09999987483025,
+            "unattributed_ms": 1.7999999225139618,
+            "inferences": 108,
             "progress_events": 0,
-            "tensor_prepare_ms": 2.700000077486038,
-            "inference_execution_ms": 42.49999991059303,
-            "policy_extract_ms": 3.5999999046325684,
-            "serialize_ms": 3.299999952316284,
-            "parse_ms": 1.7999999225139618,
-            "request_bytes": 128597,
-            "response_bytes": 130617,
+            "tensor_prepare_ms": 2.699999988079071,
+            "inference_execution_ms": 43.4000001847744,
+            "policy_extract_ms": 2.8999999463558197,
+            "serialize_ms": 2.9000000059604645,
+            "parse_ms": 1.699999988079071,
+            "request_bytes": 130843,
+            "response_bytes": 132958,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
-            "cache_misses": 106,
+            "cache_misses": 108,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -2972,7 +2984,7 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 0,
-          "elapsed_ms": 0.10000099999984968,
+          "elapsed_ms": 0,
           "completed": true,
           "authoritative": false,
           "timing": {
@@ -2995,17 +3007,17 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 0,
-          "search_id": "s5-0-53byxa",
+          "search_id": "s5-0-6ms73l",
           "coordinator": {
-            "end_to_end_ms": 1.300000011920929,
+            "end_to_end_ms": 1.4000000059604645,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 1,
-            "step_ms": 1.300000011920929,
-            "python_action_ms": 0.30000099999982766,
-            "bridge_overhead_ms": 0.9999990119211013,
+            "step_ms": 1.199999988079071,
+            "python_action_ms": 0.300000000000189,
+            "bridge_overhead_ms": 0.899999988078882,
             "neural_wait_ms": 0,
-            "unattributed_ms": 0,
+            "unattributed_ms": 0.20000001788139343,
             "inferences": 0,
             "progress_events": 0,
             "tensor_prepare_ms": 0,
@@ -3014,7 +3026,7 @@
             "serialize_ms": 0,
             "parse_ms": 0,
             "request_bytes": 918,
-            "response_bytes": 1195,
+            "response_bytes": 1177,
             "inference_payload_mode": null,
             "response_policy_values": 0,
             "cache_hits": 0,
@@ -3059,7 +3071,7 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 0,
-          "elapsed_ms": 0,
+          "elapsed_ms": 0.10000000000021103,
           "completed": true,
           "authoritative": false,
           "timing": {
@@ -3082,26 +3094,26 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 0,
-          "search_id": "s6-0-aygku8",
+          "search_id": "s6-0-cqitxs",
           "coordinator": {
-            "end_to_end_ms": 1.199999988079071,
+            "end_to_end_ms": 1.300000011920929,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 1,
             "step_ms": 1.199999988079071,
-            "python_action_ms": 0.2000010000000607,
-            "bridge_overhead_ms": 0.9999989880790103,
+            "python_action_ms": 0.300000000000189,
+            "bridge_overhead_ms": 0.899999988078882,
             "neural_wait_ms": 0,
-            "unattributed_ms": 0,
+            "unattributed_ms": 0.10000002384185791,
             "inferences": 0,
             "progress_events": 0,
             "tensor_prepare_ms": 0,
             "inference_execution_ms": 0,
             "policy_extract_ms": 0,
-            "serialize_ms": 0.09999999403953552,
+            "serialize_ms": 0,
             "parse_ms": 0,
             "request_bytes": 918,
-            "response_bytes": 1178,
+            "response_bytes": 1193,
             "inference_payload_mode": null,
             "response_policy_values": 0,
             "cache_hits": 0,
@@ -3243,13 +3255,13 @@
       },
       "full": {
         "analysis": {
-          "value": -0.4180789633016837,
+          "value": -0.41810628922679755,
           "source": "neural_search",
           "best_move": {
-            "source": 31,
-            "target": 30
+            "source": 41,
+            "target": 68
           },
-          "simulations": 76
+          "simulations": 79
         },
         "search": {
           "version": 1,
@@ -3274,78 +3286,78 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 77,
-          "elapsed_ms": 251.50000000000006,
+          "neural_requests": 80,
+          "elapsed_ms": 253.60000000000005,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 13.100012000001549,
-            "encoding_ms": 8.700007999998594,
-            "validation_ms": 3.400007000000649,
-            "requests": 77
+            "legal_generation_ms": 14.700000000002156,
+            "encoding_ms": 8.89999999999791,
+            "validation_ms": 3.4999999999998366,
+            "requests": 80
           },
           "requested_simulations": 4096,
-          "completed_simulations": 76,
+          "completed_simulations": 79,
           "root_value": -0.416989803314209,
-          "search_value": -0.4180789633016837,
+          "search_value": -0.41810628922679755,
           "best_move": {
-            "source": 31,
-            "target": 30
+            "source": 41,
+            "target": 68
           },
           "root_visits": [
+            {
+              "source": 41,
+              "target": 68,
+              "visits": 14,
+              "share": 0.17721518987341772
+            },
             {
               "source": 31,
               "target": 30,
               "visits": 13,
-              "share": 0.17105263157894737
-            },
-            {
-              "source": 41,
-              "target": 68,
-              "visits": 12,
-              "share": 0.15789473684210525
+              "share": 0.16455696202531644
             },
             {
               "source": 38,
               "target": 47,
               "visits": 9,
-              "share": 0.11842105263157894
+              "share": 0.11392405063291139
             },
             {
               "source": 31,
               "target": 28,
               "visits": 8,
-              "share": 0.10526315789473684
+              "share": 0.10126582278481013
             },
             {
               "source": 42,
               "target": 24,
               "visits": 8,
-              "share": 0.10526315789473684
+              "share": 0.10126582278481013
             },
             {
               "source": 38,
               "target": 56,
               "visits": 7,
-              "share": 0.09210526315789473
+              "share": 0.08860759493670886
+            },
+            {
+              "source": 39,
+              "target": 57,
+              "visits": 7,
+              "share": 0.08860759493670886
             },
             {
               "source": 41,
               "target": 50,
               "visits": 7,
-              "share": 0.09210526315789473
-            },
-            {
-              "source": 39,
-              "target": 57,
-              "visits": 6,
-              "share": 0.07894736842105263
+              "share": 0.08860759493670886
             },
             {
               "source": 42,
               "target": 51,
               "visits": 6,
-              "share": 0.07894736842105263
+              "share": 0.0759493670886076
             }
           ],
           "prediction_reuses": 36,
@@ -3356,30 +3368,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 9,
-          "search_id": "s7-0-xmbvk0",
+          "search_id": "s7-0-d2p8ko",
           "coordinator": {
-            "end_to_end_ms": 253,
-            "completed_simulations": 76,
-            "simulations_per_second": 300.39525691699606,
-            "steps": 78,
-            "step_ms": 141.09999987483025,
-            "python_action_ms": 62.000018999998765,
-            "bridge_overhead_ms": 79.09998087483149,
-            "neural_wait_ms": 110.60000005364418,
-            "unattributed_ms": 1.3000000715255737,
-            "inferences": 77,
+            "end_to_end_ms": 254.89999997615814,
+            "completed_simulations": 79,
+            "simulations_per_second": 309.925460994073,
+            "steps": 81,
+            "step_ms": 145.69999995827675,
+            "python_action_ms": 64.29999999999983,
+            "bridge_overhead_ms": 81.39999995827692,
+            "neural_wait_ms": 108.7000000178814,
+            "unattributed_ms": 0.5,
+            "inferences": 80,
             "progress_events": 0,
-            "tensor_prepare_ms": 3.3000001311302185,
-            "inference_execution_ms": 27.99999988079071,
-            "policy_extract_ms": 34.70000010728836,
-            "serialize_ms": 2.600000023841858,
-            "parse_ms": 1.4999999403953552,
-            "request_bytes": 147605,
-            "response_bytes": 108057,
+            "tensor_prepare_ms": 3.5999999344348907,
+            "inference_execution_ms": 29.200000017881393,
+            "policy_extract_ms": 35.100000113248825,
+            "serialize_ms": 2.9999999701976776,
+            "parse_ms": 1.4999999701976776,
+            "request_bytes": 153733,
+            "response_bytes": 112234,
             "inference_payload_mode": "full-logits",
-            "response_policy_values": 505197,
+            "response_policy_values": 524880,
             "cache_hits": 0,
-            "cache_misses": 77,
+            "cache_misses": 80,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -3396,13 +3408,13 @@
       },
       "compact": {
         "analysis": {
-          "value": -0.4181104816918103,
+          "value": -0.4180934485690347,
           "source": "neural_search",
           "best_move": {
             "source": 41,
             "target": 68
           },
-          "simulations": 106
+          "simulations": 116
         },
         "search": {
           "version": 1,
@@ -3427,20 +3439,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 107,
-          "elapsed_ms": 252.80000099999978,
+          "neural_requests": 117,
+          "elapsed_ms": 252.8999999999999,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 17.999997999991635,
-            "encoding_ms": 11.300001000005722,
-            "validation_ms": 4.5000049999970315,
-            "requests": 107
+            "legal_generation_ms": 20.100000000001117,
+            "encoding_ms": 12.399999999998634,
+            "validation_ms": 4.699999999998816,
+            "requests": 117
           },
           "requested_simulations": 4096,
-          "completed_simulations": 106,
+          "completed_simulations": 116,
           "root_value": -0.416989803314209,
-          "search_value": -0.4181104816918103,
+          "search_value": -0.4180934485690347,
           "best_move": {
             "source": 41,
             "target": 68
@@ -3449,71 +3461,71 @@
             {
               "source": 41,
               "target": 68,
-              "visits": 17,
-              "share": 0.16037735849056603
+              "visits": 18,
+              "share": 0.15517241379310345
             },
             {
               "source": 31,
               "target": 30,
-              "visits": 15,
-              "share": 0.14150943396226415
+              "visits": 16,
+              "share": 0.13793103448275862
             },
             {
               "source": 38,
               "target": 47,
+              "visits": 12,
+              "share": 0.10344827586206896
+            },
+            {
+              "source": 31,
+              "target": 34,
               "visits": 11,
-              "share": 0.10377358490566038
+              "share": 0.09482758620689655
+            },
+            {
+              "source": 42,
+              "target": 24,
+              "visits": 10,
+              "share": 0.08620689655172414
             },
             {
               "source": 31,
               "target": 28,
               "visits": 9,
-              "share": 0.08490566037735849
+              "share": 0.07758620689655173
+            },
+            {
+              "source": 38,
+              "target": 56,
+              "visits": 9,
+              "share": 0.07758620689655173
             },
             {
               "source": 41,
               "target": 50,
               "visits": 9,
-              "share": 0.08490566037735849
-            },
-            {
-              "source": 42,
-              "target": 24,
-              "visits": 9,
-              "share": 0.08490566037735849
-            },
-            {
-              "source": 38,
-              "target": 56,
-              "visits": 8,
-              "share": 0.07547169811320754
+              "share": 0.07758620689655173
             },
             {
               "source": 39,
               "target": 57,
               "visits": 8,
-              "share": 0.07547169811320754
+              "share": 0.06896551724137931
             },
             {
               "source": 22,
               "target": 26,
               "visits": 7,
-              "share": 0.0660377358490566
+              "share": 0.0603448275862069
             },
             {
               "source": 42,
               "target": 51,
               "visits": 7,
-              "share": 0.0660377358490566
-            },
-            {
-              "source": 31,
-              "target": 34,
-              "visits": 6,
-              "share": 0.05660377358490566
+              "share": 0.0603448275862069
             }
           ],
-          "prediction_reuses": 49,
+          "prediction_reuses": 55,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -3521,30 +3533,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 11,
-          "search_id": "s8-0-eme3rp",
+          "search_id": "s8-0-i87eup",
           "coordinator": {
             "end_to_end_ms": 254.09999999403954,
-            "completed_simulations": 106,
-            "simulations_per_second": 417.1585989865661,
-            "steps": 108,
-            "step_ms": 179.50000002980232,
-            "python_action_ms": 81.30001100000106,
-            "bridge_overhead_ms": 98.19998902980126,
-            "neural_wait_ms": 72.20000004768372,
-            "unattributed_ms": 2.3999999165534973,
-            "inferences": 107,
+            "completed_simulations": 116,
+            "simulations_per_second": 456.51318379661956,
+            "steps": 118,
+            "step_ms": 180.99999982118607,
+            "python_action_ms": 88.10000000000298,
+            "bridge_overhead_ms": 92.89999982118309,
+            "neural_wait_ms": 71.80000019073486,
+            "unattributed_ms": 1.2999999821186066,
+            "inferences": 117,
             "progress_events": 0,
-            "tensor_prepare_ms": 2.7999999821186066,
-            "inference_execution_ms": 37.59999996423721,
-            "policy_extract_ms": 4.199999958276749,
-            "serialize_ms": 3.2999999821186066,
-            "parse_ms": 1.0000000596046448,
-            "request_bytes": 206626,
-            "response_bytes": 149760,
+            "tensor_prepare_ms": 2.699999898672104,
+            "inference_execution_ms": 37.49999991059303,
+            "policy_extract_ms": 3.699999988079071,
+            "serialize_ms": 3.5999999344348907,
+            "parse_ms": 2.0999999344348907,
+            "request_bytes": 224827,
+            "response_bytes": 163270,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
-            "cache_misses": 107,
+            "cache_misses": 117,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -3560,8 +3572,8 @@
         "authoritative": false
       },
       "full_move": {
-        "source": 31,
-        "target": 30
+        "source": 41,
+        "target": 68
       },
       "compact_move": {
         "source": 41,
@@ -3727,13 +3739,13 @@
       },
       "full": {
         "analysis": {
-          "value": -0.4181021849314372,
+          "value": -0.41804984118789434,
           "source": "neural_search",
           "best_move": {
             "source": 16,
             "target": 27
           },
-          "simulations": 27
+          "simulations": 32
         },
         "search": {
           "version": 1,
@@ -3758,20 +3770,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 28,
-          "elapsed_ms": 262,
+          "neural_requests": 33,
+          "elapsed_ms": 262.9999999999999,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 9.299999999999642,
-            "encoding_ms": 6.5999990000000786,
-            "validation_ms": 2.300002999999773,
-            "requests": 28
+            "legal_generation_ms": 11.200000999998405,
+            "encoding_ms": 5.600004000000158,
+            "validation_ms": 2.400002999999984,
+            "requests": 33
           },
           "requested_simulations": 4096,
-          "completed_simulations": 27,
+          "completed_simulations": 32,
           "root_value": -0.41889142990112305,
-          "search_value": -0.4181021849314372,
+          "search_value": -0.41804984118789434,
           "best_move": {
             "source": 16,
             "target": 27
@@ -3780,41 +3792,41 @@
             {
               "source": 16,
               "target": 27,
-              "visits": 8,
-              "share": 0.2962962962962963
+              "visits": 9,
+              "share": 0.28125
+            },
+            {
+              "source": 66,
+              "target": 69,
+              "visits": 6,
+              "share": 0.1875
             },
             {
               "source": 43,
               "target": 21,
               "visits": 5,
-              "share": 0.18518518518518517
+              "share": 0.15625
             },
             {
               "source": 56,
               "target": 67,
               "visits": 5,
-              "share": 0.18518518518518517
-            },
-            {
-              "source": 66,
-              "target": 69,
-              "visits": 5,
-              "share": 0.18518518518518517
+              "share": 0.15625
             },
             {
               "source": 7,
               "target": 40,
-              "visits": 2,
-              "share": 0.07407407407407407
+              "visits": 4,
+              "share": 0.125
             },
             {
               "source": 64,
               "target": 75,
-              "visits": 2,
-              "share": 0.07407407407407407
+              "visits": 3,
+              "share": 0.09375
             }
           ],
-          "prediction_reuses": 12,
+          "prediction_reuses": 14,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -3822,30 +3834,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 6,
-          "search_id": "s1-0-if9019",
+          "search_id": "s1-0-lury1q",
           "coordinator": {
-            "end_to_end_ms": 2794.5999999940395,
-            "completed_simulations": 27,
-            "simulations_per_second": 9.661490016480924,
-            "steps": 29,
-            "step_ms": 136.59999999403954,
-            "python_action_ms": 88.79999699999885,
-            "bridge_overhead_ms": 47.80000299404068,
-            "neural_wait_ms": 128.70000004768372,
-            "unattributed_ms": 2529.2999999523163,
-            "inferences": 28,
+            "end_to_end_ms": 2745.600000023842,
+            "completed_simulations": 32,
+            "simulations_per_second": 11.655011654910448,
+            "steps": 34,
+            "step_ms": 127.50000017881393,
+            "python_action_ms": 84.60000000000048,
+            "bridge_overhead_ms": 42.90000017881346,
+            "neural_wait_ms": 137.29999986290932,
+            "unattributed_ms": 2480.7999999821186,
+            "inferences": 33,
             "progress_events": 0,
-            "tensor_prepare_ms": 3.3999999463558197,
-            "inference_execution_ms": 36.80000004172325,
-            "policy_extract_ms": 58.99999997019768,
-            "serialize_ms": 1.9999999701976776,
-            "parse_ms": 0.5,
-            "request_bytes": 71358,
-            "response_bytes": 53921,
+            "tensor_prepare_ms": 3.5000000298023224,
+            "inference_execution_ms": 35.6000000834465,
+            "policy_extract_ms": 60.499999940395355,
+            "serialize_ms": 1.5000000894069672,
+            "parse_ms": 1.0999999940395355,
+            "request_bytes": 82555,
+            "response_bytes": 62814,
             "inference_payload_mode": "full-logits",
-            "response_policy_values": 409948,
+            "response_policy_values": 483153,
             "cache_hits": 0,
-            "cache_misses": 28,
+            "cache_misses": 33,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -3862,13 +3874,13 @@
       },
       "compact": {
         "analysis": {
-          "value": -0.41774270073934033,
+          "value": -0.4177328416624585,
           "source": "neural_search",
           "best_move": {
             "source": 16,
             "target": 27
           },
-          "simulations": 66
+          "simulations": 74
         },
         "search": {
           "version": 1,
@@ -3893,20 +3905,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 67,
-          "elapsed_ms": 253.19999900000002,
+          "neural_requests": 75,
+          "elapsed_ms": 252.90000099999997,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 17.700003999996827,
-            "encoding_ms": 10.200003999999208,
-            "validation_ms": 3.899994999999379,
-            "requests": 67
+            "legal_generation_ms": 18.599996999999924,
+            "encoding_ms": 9.89999699999844,
+            "validation_ms": 4.5000069999998615,
+            "requests": 75
           },
           "requested_simulations": 4096,
-          "completed_simulations": 66,
+          "completed_simulations": 74,
           "root_value": -0.41889142990112305,
-          "search_value": -0.41774270073934033,
+          "search_value": -0.4177328416624585,
           "best_move": {
             "source": 16,
             "target": 27
@@ -3916,58 +3928,58 @@
               "source": 16,
               "target": 27,
               "visits": 14,
-              "share": 0.21212121212121213
+              "share": 0.1891891891891892
+            },
+            {
+              "source": 64,
+              "target": 119,
+              "visits": 10,
+              "share": 0.13513513513513514
             },
             {
               "source": 66,
               "target": 69,
               "visits": 9,
-              "share": 0.13636363636363635
+              "share": 0.12162162162162163
             },
             {
               "source": 43,
               "target": 21,
               "visits": 8,
-              "share": 0.12121212121212122
+              "share": 0.10810810810810811
             },
             {
               "source": 56,
               "target": 67,
               "visits": 8,
-              "share": 0.12121212121212122
+              "share": 0.10810810810810811
             },
             {
               "source": 77,
               "target": 81,
               "visits": 8,
-              "share": 0.12121212121212122
+              "share": 0.10810810810810811
             },
             {
               "source": 33,
               "target": 35,
               "visits": 7,
-              "share": 0.10606060606060606
+              "share": 0.0945945945945946
             },
             {
               "source": 7,
               "target": 40,
               "visits": 6,
-              "share": 0.09090909090909091
+              "share": 0.08108108108108109
             },
             {
               "source": 64,
               "target": 75,
               "visits": 4,
-              "share": 0.06060606060606061
-            },
-            {
-              "source": 64,
-              "target": 119,
-              "visits": 2,
-              "share": 0.030303030303030304
+              "share": 0.05405405405405406
             }
           ],
-          "prediction_reuses": 31,
+          "prediction_reuses": 34,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -3975,30 +3987,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 9,
-          "search_id": "s2-0-pgam8f",
+          "search_id": "s2-0-ca84rb",
           "coordinator": {
-            "end_to_end_ms": 254.90000000596046,
-            "completed_simulations": 66,
-            "simulations_per_second": 258.92506864831967,
-            "steps": 68,
-            "step_ms": 185.79999986290932,
-            "python_action_ms": 111.9000069999956,
-            "bridge_overhead_ms": 73.89999286291372,
-            "neural_wait_ms": 68.20000010728836,
-            "unattributed_ms": 0.9000000357627869,
-            "inferences": 67,
+            "end_to_end_ms": 254.5,
+            "completed_simulations": 74,
+            "simulations_per_second": 290.7662082514735,
+            "steps": 76,
+            "step_ms": 180.60000029206276,
+            "python_action_ms": 108.6999979999987,
+            "bridge_overhead_ms": 71.90000229206406,
+            "neural_wait_ms": 72.49999976158142,
+            "unattributed_ms": 1.3999999463558197,
+            "inferences": 75,
             "progress_events": 0,
-            "tensor_prepare_ms": 2.2000001072883606,
-            "inference_execution_ms": 34.49999988079071,
-            "policy_extract_ms": 7.9999998807907104,
-            "serialize_ms": 3.300000011920929,
-            "parse_ms": 1.0999999344348907,
-            "request_bytes": 153119,
-            "response_bytes": 122757,
+            "tensor_prepare_ms": 2.600000023841858,
+            "inference_execution_ms": 34.69999986886978,
+            "policy_extract_ms": 7.999999970197678,
+            "serialize_ms": 3.100000113248825,
+            "parse_ms": 1.4000000655651093,
+            "request_bytes": 171023,
+            "response_bytes": 137070,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
-            "cache_misses": 67,
+            "cache_misses": 75,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -4179,13 +4191,13 @@
       },
       "full": {
         "analysis": {
-          "value": -0.41900787173315535,
+          "value": -0.41900801811462796,
           "source": "neural_search",
           "best_move": {
             "source": 22,
             "target": 33
           },
-          "simulations": 43
+          "simulations": 39
         },
         "search": {
           "version": 1,
@@ -4210,20 +4222,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 44,
-          "elapsed_ms": 257.39999999999964,
+          "neural_requests": 40,
+          "elapsed_ms": 250.79999899999984,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 6.099991999998,
-            "encoding_ms": 7.100002000000938,
-            "validation_ms": 2.000000000000224,
-            "requests": 44
+            "legal_generation_ms": 6.100003999999881,
+            "encoding_ms": 6.799999000002277,
+            "validation_ms": 1.8000050000006595,
+            "requests": 40
           },
           "requested_simulations": 4096,
-          "completed_simulations": 43,
+          "completed_simulations": 39,
           "root_value": -0.4206288158893585,
-          "search_value": -0.41900787173315535,
+          "search_value": -0.41900801811462796,
           "best_move": {
             "source": 22,
             "target": 33
@@ -4233,46 +4245,46 @@
               "source": 22,
               "target": 33,
               "visits": 9,
-              "share": 0.20930232558139536
+              "share": 0.23076923076923078
             },
             {
               "source": 22,
               "target": 44,
-              "visits": 8,
-              "share": 0.18604651162790697
+              "visits": 7,
+              "share": 0.1794871794871795
             },
             {
               "source": 26,
               "target": 29,
-              "visits": 7,
-              "share": 0.16279069767441862
+              "visits": 6,
+              "share": 0.15384615384615385
             },
             {
               "source": 26,
               "target": 15,
               "visits": 5,
-              "share": 0.11627906976744186
-            },
-            {
-              "source": 57,
-              "target": 55,
-              "visits": 5,
-              "share": 0.11627906976744186
+              "share": 0.1282051282051282
             },
             {
               "source": 57,
               "target": 90,
               "visits": 5,
-              "share": 0.11627906976744186
+              "share": 0.1282051282051282
             },
             {
               "source": 57,
               "target": 46,
               "visits": 4,
-              "share": 0.09302325581395349
+              "share": 0.10256410256410256
+            },
+            {
+              "source": 57,
+              "target": 55,
+              "visits": 3,
+              "share": 0.07692307692307693
             }
           ],
-          "prediction_reuses": 19,
+          "prediction_reuses": 17,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -4280,30 +4292,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 7,
-          "search_id": "s3-0-h75bv5",
+          "search_id": "s3-0-tgdp3k",
           "coordinator": {
-            "end_to_end_ms": 259.2000000178814,
-            "completed_simulations": 43,
-            "simulations_per_second": 165.89506171695047,
-            "steps": 45,
-            "step_ms": 108.19999998807907,
-            "python_action_ms": 51.699998999999785,
-            "bridge_overhead_ms": 56.500000988079286,
-            "neural_wait_ms": 149.50000002980232,
-            "unattributed_ms": 1.5,
-            "inferences": 44,
+            "end_to_end_ms": 252.2999999821186,
+            "completed_simulations": 39,
+            "simulations_per_second": 154.57788348301256,
+            "steps": 41,
+            "step_ms": 114.70000004768372,
+            "python_action_ms": 48.699999000000986,
+            "bridge_overhead_ms": 66.00000104768273,
+            "neural_wait_ms": 136.49999994039536,
+            "unattributed_ms": 1.0999999940395355,
+            "inferences": 40,
             "progress_events": 0,
-            "tensor_prepare_ms": 2.9000000059604645,
-            "inference_execution_ms": 22.700000017881393,
-            "policy_extract_ms": 78.79999989271164,
-            "serialize_ms": 2.0999999940395355,
-            "parse_ms": 0.6999999582767487,
-            "request_bytes": 64239,
-            "response_bytes": 72352,
+            "tensor_prepare_ms": 3.0999999940395355,
+            "inference_execution_ms": 22.30000013113022,
+            "policy_extract_ms": 67.80000001192093,
+            "serialize_ms": 2.299999952316284,
+            "parse_ms": 0.9000000059604645,
+            "request_bytes": 58973,
+            "response_bytes": 66089,
             "inference_payload_mode": "full-logits",
-            "response_policy_values": 644204,
+            "response_policy_values": 585640,
             "cache_hits": 0,
-            "cache_misses": 44,
+            "cache_misses": 40,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -4320,13 +4332,13 @@
       },
       "compact": {
         "analysis": {
-          "value": -0.418891436287335,
+          "value": -0.4188839902772623,
           "source": "neural_search",
           "best_move": {
             "source": 22,
             "target": 99
           },
-          "simulations": 70
+          "simulations": 68
         },
         "search": {
           "version": 1,
@@ -4351,20 +4363,20 @@
           "exploration": 1.4,
           "time_limit": 0.25,
           "hard_deadline": 2,
-          "neural_requests": 71,
-          "elapsed_ms": 253.49999999999983,
+          "neural_requests": 69,
+          "elapsed_ms": 251.59999999999982,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 10.8000180000003,
-            "encoding_ms": 11.599993999999114,
-            "validation_ms": 3.3999980000007923,
-            "requests": 71
+            "legal_generation_ms": 11.900008000001794,
+            "encoding_ms": 11.49999500000165,
+            "validation_ms": 3.2000010000001744,
+            "requests": 69
           },
           "requested_simulations": 4096,
-          "completed_simulations": 70,
+          "completed_simulations": 68,
           "root_value": -0.4206288158893585,
-          "search_value": -0.418891436287335,
+          "search_value": -0.4188839902772623,
           "best_move": {
             "source": 22,
             "target": 99
@@ -4374,58 +4386,58 @@
               "source": 22,
               "target": 99,
               "visits": 15,
-              "share": 0.21428571428571427
+              "share": 0.22058823529411764
             },
             {
               "source": 22,
               "target": 33,
               "visits": 10,
-              "share": 0.14285714285714285
+              "share": 0.14705882352941177
             },
             {
               "source": 22,
               "target": 44,
               "visits": 9,
-              "share": 0.12857142857142856
+              "share": 0.1323529411764706
             },
             {
               "source": 26,
               "target": 29,
               "visits": 7,
-              "share": 0.1
+              "share": 0.10294117647058823
             },
             {
               "source": 26,
               "target": 15,
               "visits": 6,
-              "share": 0.08571428571428572
+              "share": 0.08823529411764706
             },
             {
               "source": 57,
               "target": 55,
               "visits": 6,
-              "share": 0.08571428571428572
-            },
-            {
-              "source": 57,
-              "target": 79,
-              "visits": 6,
-              "share": 0.08571428571428572
+              "share": 0.08823529411764706
             },
             {
               "source": 57,
               "target": 90,
               "visits": 6,
-              "share": 0.08571428571428572
+              "share": 0.08823529411764706
             },
             {
               "source": 57,
               "target": 46,
               "visits": 5,
-              "share": 0.07142857142857142
+              "share": 0.07352941176470588
+            },
+            {
+              "source": 57,
+              "target": 79,
+              "visits": 4,
+              "share": 0.058823529411764705
             }
           ],
-          "prediction_reuses": 33,
+          "prediction_reuses": 32,
           "inference_cache_hits": 0,
           "deadline_cutoff": true,
           "completion_reason": "deadline",
@@ -4433,30 +4445,30 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 9,
-          "search_id": "s4-0-3ec4kg",
+          "search_id": "s4-0-4m6for",
           "coordinator": {
-            "end_to_end_ms": 255.2000000178814,
-            "completed_simulations": 70,
-            "simulations_per_second": 274.29467082717565,
-            "steps": 72,
-            "step_ms": 172.20000004768372,
-            "python_action_ms": 84.69999199999774,
-            "bridge_overhead_ms": 87.50000804768598,
-            "neural_wait_ms": 81.60000005364418,
-            "unattributed_ms": 1.3999999165534973,
-            "inferences": 71,
+            "end_to_end_ms": 253.60000002384186,
+            "completed_simulations": 68,
+            "simulations_per_second": 268.13880123662096,
+            "steps": 70,
+            "step_ms": 173.60000005364418,
+            "python_action_ms": 80.70000400000362,
+            "bridge_overhead_ms": 92.89999605364056,
+            "neural_wait_ms": 78.79999989271164,
+            "unattributed_ms": 1.2000000774860382,
+            "inferences": 69,
             "progress_events": 0,
-            "tensor_prepare_ms": 2.899999976158142,
-            "inference_execution_ms": 40.59999996423721,
-            "policy_extract_ms": 6.600000083446503,
-            "serialize_ms": 1.9999999701976776,
-            "parse_ms": 1.5999999940395355,
-            "request_bytes": 101485,
-            "response_bytes": 115170,
+            "tensor_prepare_ms": 1.800000011920929,
+            "inference_execution_ms": 42.39999994635582,
+            "policy_extract_ms": 2.2999999821186066,
+            "serialize_ms": 4.200000047683716,
+            "parse_ms": 1.800000011920929,
+            "request_bytes": 99449,
+            "response_bytes": 112210,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
-            "cache_misses": 71,
+            "cache_misses": 69,
             "cancellation_ms": 0,
             "direct": false,
             "worker_reused": true
@@ -4687,17 +4699,17 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 0,
-          "search_id": "s5-0-lz2o94",
+          "search_id": "s5-0-is3vqs",
           "coordinator": {
-            "end_to_end_ms": 1.600000023841858,
+            "end_to_end_ms": 1.800000011920929,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 1,
-            "step_ms": 1.5,
-            "python_action_ms": 0.39999999999995595,
-            "bridge_overhead_ms": 1.100000000000044,
+            "step_ms": 1.600000023841858,
+            "python_action_ms": 0.300000000000189,
+            "bridge_overhead_ms": 1.300000023841669,
             "neural_wait_ms": 0,
-            "unattributed_ms": 0.10000002384185791,
+            "unattributed_ms": 0.19999998807907104,
             "inferences": 0,
             "progress_events": 0,
             "tensor_prepare_ms": 0,
@@ -4706,7 +4718,7 @@
             "serialize_ms": 0,
             "parse_ms": 0,
             "request_bytes": 1167,
-            "response_bytes": 1189,
+            "response_bytes": 1187,
             "inference_payload_mode": null,
             "response_policy_values": 0,
             "cache_hits": 0,
@@ -4751,7 +4763,7 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 0,
-          "elapsed_ms": 0,
+          "elapsed_ms": 0.10000000000021103,
           "completed": true,
           "authoritative": false,
           "timing": {
@@ -4774,26 +4786,26 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 0,
-          "search_id": "s6-0-rhokf4",
+          "search_id": "s6-0-h5meoq",
           "coordinator": {
-            "end_to_end_ms": 1.7000000178813934,
+            "end_to_end_ms": 1.9000000059604645,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 1,
-            "step_ms": 1.7000000178813934,
-            "python_action_ms": 0.39999999999995595,
-            "bridge_overhead_ms": 1.3000000178814375,
+            "step_ms": 1.699999988079071,
+            "python_action_ms": 0.29999900000010626,
+            "bridge_overhead_ms": 1.4000009880789648,
             "neural_wait_ms": 0,
-            "unattributed_ms": 0,
+            "unattributed_ms": 0.20000001788139343,
             "inferences": 0,
             "progress_events": 0,
             "tensor_prepare_ms": 0,
             "inference_execution_ms": 0,
             "policy_extract_ms": 0,
-            "serialize_ms": 0.10000002384185791,
-            "parse_ms": 0,
+            "serialize_ms": 0,
+            "parse_ms": 0.09999999403953552,
             "request_bytes": 1167,
-            "response_bytes": 1189,
+            "response_bytes": 1205,
             "inference_payload_mode": null,
             "response_policy_values": 0,
             "cache_hits": 0,
@@ -5007,13 +5019,13 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 1,
-          "elapsed_ms": 6.5999990000000786,
+          "elapsed_ms": 8.299999999999752,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 0.20000099999961662,
-            "encoding_ms": 0.29999900000010626,
-            "validation_ms": 0,
+            "legal_generation_ms": 0.300000000000189,
+            "encoding_ms": 0.10000099999984968,
+            "validation_ms": 0.09999999999976694,
             "requests": 1
           },
           "requested_simulations": 4096,
@@ -5040,26 +5052,26 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 1,
-          "search_id": "s7-0-jvfe1n",
+          "search_id": "s7-0-qppdjd",
           "coordinator": {
-            "end_to_end_ms": 8.5,
+            "end_to_end_ms": 10.400000005960464,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 2,
-            "step_ms": 5,
-            "python_action_ms": 2.399999000000097,
-            "bridge_overhead_ms": 2.600000999999903,
-            "neural_wait_ms": 3.300000011920929,
-            "unattributed_ms": 0.19999998807907104,
+            "step_ms": 5.9000000059604645,
+            "python_action_ms": 2.4000000000001798,
+            "bridge_overhead_ms": 3.5000000059602847,
+            "neural_wait_ms": 4.5,
+            "unattributed_ms": 0,
             "inferences": 1,
             "progress_events": 0,
-            "tensor_prepare_ms": 0,
-            "inference_execution_ms": 0.5999999940395355,
-            "policy_extract_ms": 1.5999999940395355,
-            "serialize_ms": 0,
-            "parse_ms": 0,
+            "tensor_prepare_ms": 0.10000002384185791,
+            "inference_execution_ms": 0.699999988079071,
+            "policy_extract_ms": 2.4000000059604645,
+            "serialize_ms": 0.09999999403953552,
+            "parse_ms": 0.09999999403953552,
             "request_bytes": 4290,
-            "response_bytes": 3377,
+            "response_bytes": 3390,
             "inference_payload_mode": "full-logits",
             "response_policy_values": 14641,
             "cache_hits": 0,
@@ -5112,13 +5124,13 @@
           "time_limit": 0.25,
           "hard_deadline": 2,
           "neural_requests": 1,
-          "elapsed_ms": 4.300001000000275,
+          "elapsed_ms": 4.400000999999598,
           "completed": true,
           "authoritative": false,
           "timing": {
-            "legal_generation_ms": 0.3999990000003173,
-            "encoding_ms": 0.10000099999984968,
-            "validation_ms": 0.10000099999984968,
+            "legal_generation_ms": 0.19999999999997797,
+            "encoding_ms": 0.19999999999997797,
+            "validation_ms": 0.09999900000012829,
             "requests": 1
           },
           "requested_simulations": 4096,
@@ -5145,26 +5157,26 @@
           "temperature": 0,
           "dirichlet_fraction": 0,
           "root_children": 1,
-          "search_id": "s8-0-pr7c1z",
+          "search_id": "s8-0-ucczgo",
           "coordinator": {
-            "end_to_end_ms": 6,
+            "end_to_end_ms": 6.200000017881393,
             "completed_simulations": 0,
             "simulations_per_second": 0,
             "steps": 2,
-            "step_ms": 4.799999982118607,
-            "python_action_ms": 2.400001999999901,
-            "bridge_overhead_ms": 2.3999979821187054,
-            "neural_wait_ms": 1.0999999940395355,
-            "unattributed_ms": 0.10000002384185791,
+            "step_ms": 4.900000035762787,
+            "python_action_ms": 2.2999999999995246,
+            "bridge_overhead_ms": 2.600000035763262,
+            "neural_wait_ms": 1.199999988079071,
+            "unattributed_ms": 0.09999999403953552,
             "inferences": 1,
             "progress_events": 0,
             "tensor_prepare_ms": 0,
-            "inference_execution_ms": 0.5,
+            "inference_execution_ms": 0.5999999940395355,
             "policy_extract_ms": 0.09999999403953552,
-            "serialize_ms": 0.09999999403953552,
+            "serialize_ms": 0.10000002384185791,
             "parse_ms": 0,
             "request_bytes": 4290,
-            "response_bytes": 3391,
+            "response_bytes": 3392,
             "inference_payload_mode": "legal-only",
             "response_policy_values": 0,
             "cache_hits": 0,
