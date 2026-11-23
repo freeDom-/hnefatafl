@@ -129,22 +129,92 @@ def validate_report(report: dict) -> dict:
         if level == "competitive-trained" and model.get("checkpoint_supplied") is not True:
             fail("competitive-trained validation requires the source checkpoint fingerprint")
     parity = report.get("parity") or {}
+    expected_model = (model or {}).get("onnx_sha256")
     for gate in REQUIRED_PARITY:
         entry = parity.get(gate)
-        if not isinstance(entry, dict) or entry.get("ok") is not True:
-            fail(f"missing or failed parity gate {gate}")
+        if not isinstance(entry, dict):
+            fail(f"missing parity evidence for {gate}")
+            continue
+        if gate in ("level_a", "level_b"):
+            comparison = entry.get("comparison")
+            if not isinstance(comparison, dict):
+                fail(f"{gate}: no comparator evidence")
+                continue
+            if comparison.get("level") != ("a" if gate == "level_a" else "b"):
+                fail(f"{gate}: comparison level mismatch")
+            if comparison.get("acceptance") is not True:
+                fail(f"{gate}: comparator did not accept")
+            if (comparison.get("execution_validity") or {}).get("ok") is not True:
+                fail(f"{gate}: execution validity failed")
+            if (comparison.get("workload_completion") or {}).get("complete") is not True:
+                fail(f"{gate}: workload did not complete")
+            if (comparison.get("workload") or {}).get("identity_verified") is not True:
+                fail(f"{gate}: workload identity was not verified")
+            numerical = comparison.get("numerical_comparison") or {}
+            deterministic = comparison.get("deterministic_parity") or {}
+            if gate == "level_a" and deterministic.get("ok") is not True:
+                fail("level_a: deterministic parity failed")
+            if gate == "level_b":
+                if numerical.get("best_move_parity") is not True:
+                    fail("level_b: best-move parity failed")
+                if numerical.get("positions", 0) < 1:
+                    fail("level_b: no numerical comparison positions")
+            if entry.get("model_sha256") not in (None, expected_model):
+                fail(f"{gate}: model digest mismatch")
+        else:
+            fixed = entry.get("fixed")
+            timed = entry.get("fixed_time")
+            for label, document in (("fixed", fixed), ("fixed_time", timed)):
+                if not isinstance(document, dict):
+                    fail(f"direct_relay: missing {label} evidence")
+                    continue
+                if document.get("gate") != "direct-relay-compact":
+                    fail(f"direct_relay/{label}: wrong gate")
+                if document.get("ok") is not True or document.get("collector_ok") is not True:
+                    fail(f"direct_relay/{label}: collector or acceptance failed")
+                if document.get("coverage_ok") is not True or document.get("cases_ok") is not True:
+                    fail(f"direct_relay/{label}: coverage/case failure")
+                if not isinstance(document.get("cases"), list) or not document["cases"]:
+                    fail(f"direct_relay/{label}: no cases")
+            if (
+                not isinstance(entry.get("model_sha256"), str)
+                or entry.get("model_sha256") != expected_model
+            ):
+                fail("direct_relay: model digest mismatch")
     benchmarks = report.get("benchmarks")
     if not isinstance(benchmarks, list) or not benchmarks:
         fail("validated report lacks benchmark records")
     else:
+        modes = set()
         for index, record in enumerate(benchmarks):
             if not isinstance(record, dict):
                 fail(f"benchmark {index} is not an object")
                 continue
-            if record.get("completed_simulations") is None or record.get("ok") is not True:
-                fail(f"benchmark {index} has no valid completed work")
-            if record.get("model_sha256") != (model or {}).get("onnx_sha256"):
+            mode = record.get("mode")
+            if mode not in ("fixed_simulations", "fixed_time"):
+                fail(f"benchmark {index} has an unsupported mode")
+                continue
+            modes.add(mode)
+            if record.get("ok") is not True:
+                fail(f"benchmark {index} failed")
+            if record.get("model_sha256") != expected_model:
                 fail(f"benchmark {index} model identity mismatch")
+            if record.get("provider") not in ("wasm", "webgpu"):
+                fail(f"benchmark {index} provider is missing")
+            if (
+                not isinstance(record.get("completed_simulations"), int)
+                or record.get("completed_simulations") <= 0
+            ):
+                fail(f"benchmark {index} has no completed work")
+            if mode == "fixed_simulations":
+                if record.get("completed_simulations") != record.get("requested_simulations"):
+                    fail(f"benchmark {index} did not complete fixed work")
+            elif not isinstance(record.get("completion_reason"), str):
+                fail(f"benchmark {index} lacks completion reason")
+                if not isinstance(record.get("elapsed_ms"), (int, float)):
+                    fail(f"benchmark {index} lacks elapsed time")
+        if modes != {"fixed_simulations", "fixed_time"}:
+            fail("benchmarks must cover fixed simulations and fixed time")
     strength = report.get("playing_strength") or {}
     if strength.get("status") not in ("not-run", "blocked", "measured"):
         fail("playing strength status is invalid")
@@ -159,11 +229,17 @@ def main() -> None:
     parser.add_argument("--validate", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    if args.validate:
-        report = json.loads(args.validate.read_text())
+    if args.validate or args.report:
+        source = args.validate or args.report
+        report = json.loads(source.read_text())
         result = validate_report(report)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result, indent=2))
-        sys.exit(0 if result["ok"] else 1)
+        if not result["ok"]:
+            sys.exit(1)
+        sys.exit(0 if report.get("status") == "validated" else 2)
     if not args.checkpoint:
         report = blocked_report("owner-supplied competitive checkpoint is unavailable")
     elif not args.export_dir:
@@ -187,7 +263,9 @@ def main() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
-    sys.exit(0 if report.get("status") == "blocked" else 0)
+    # Blocked generation is not successful acceptance; use exit 2 so callers
+    # cannot confuse an explicit resource gap with a validated gate.
+    sys.exit(2 if report.get("status") == "blocked" else 0)
 
 
 if __name__ == "__main__":

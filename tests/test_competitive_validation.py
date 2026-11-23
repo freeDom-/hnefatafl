@@ -34,16 +34,68 @@ def _valid():
         "blocked_reasons": [],
         "model": model,
         "parity": {
-            "level_a": {"ok": True},
-            "level_b": {"ok": True},
-            "direct_relay": {"ok": True},
+            "level_a": {
+                "model_sha256": "b" * 64,
+                "comparison": {
+                    "level": "a",
+                    "acceptance": True,
+                    "execution_validity": {"ok": True},
+                    "workload_completion": {"complete": True},
+                    "workload": {"identity_verified": True},
+                    "deterministic_parity": {"ok": True},
+                    "numerical_comparison": {},
+                },
+            },
+            "level_b": {
+                "model_sha256": "b" * 64,
+                "comparison": {
+                    "level": "b",
+                    "acceptance": True,
+                    "execution_validity": {"ok": True},
+                    "workload_completion": {"complete": True},
+                    "workload": {"identity_verified": True},
+                    "deterministic_parity": {},
+                    "numerical_comparison": {"best_move_parity": True, "positions": 7},
+                },
+            },
+            "direct_relay": {
+                "model_sha256": "b" * 64,
+                "fixed": {
+                    "gate": "direct-relay-compact",
+                    "ok": True,
+                    "collector_ok": True,
+                    "coverage_ok": True,
+                    "cases_ok": True,
+                    "cases": [{"ok": True}],
+                },
+                "fixed_time": {
+                    "gate": "direct-relay-compact",
+                    "ok": True,
+                    "collector_ok": True,
+                    "coverage_ok": True,
+                    "cases_ok": True,
+                    "cases": [{"ok": True}],
+                },
+            },
         },
         "benchmarks": [
             {
                 "ok": True,
+                "mode": "fixed_simulations",
                 "completed_simulations": 1024,
+                "requested_simulations": 1024,
+                "provider": "wasm",
                 "model_sha256": "b" * 64,
-            }
+            },
+            {
+                "ok": True,
+                "mode": "fixed_time",
+                "completed_simulations": 90,
+                "completion_reason": "deadline",
+                "elapsed_ms": 500,
+                "provider": "wasm",
+                "model_sha256": "b" * 64,
+            },
         ],
         "playing_strength": {"status": "not-run"},
         "authoritative": False,
@@ -89,3 +141,51 @@ def test_validated_report_requires_all_gates_and_identity():
     report["model"]["source_weights_sha256"] = "bad"
     result = cv.validate_report(report)
     assert result["ok"] is False
+
+
+def test_cli_distinguishes_validated_blocked_and_invalid(tmp_path):
+    import subprocess
+
+    valid = tmp_path / "valid.json"
+    valid.write_text(json.dumps(_valid()))
+    result = subprocess.run(
+        [sys.executable, str(SPIKE / "competitive_validation.py"), "--report", str(valid)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    blocked = tmp_path / "blocked.json"
+    blocked.write_text(json.dumps(cv.blocked_report("checkpoint unavailable")))
+    result = subprocess.run(
+        [sys.executable, str(SPIKE / "competitive_validation.py"), "--report", str(blocked)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 2
+
+    invalid = _valid()
+    invalid["benchmarks"] = []
+    corrupted = tmp_path / "invalid.json"
+    corrupted.write_text(json.dumps(invalid))
+    result = subprocess.run(
+        [sys.executable, str(SPIKE / "competitive_validation.py"), "--validate", str(corrupted)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 1
+
+
+def test_bare_success_flags_cannot_pass_acceptance():
+    report = _valid()
+    report["parity"] = {
+        "level_a": {"ok": True},
+        "level_b": {"ok": True},
+        "direct_relay": {"ok": True},
+    }
+    result = cv.validate_report(report)
+    assert result["ok"] is False
+    assert any("comparator" in failure or "evidence" in failure for failure in result["failures"])

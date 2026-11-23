@@ -10,6 +10,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+import math
 
 SCHEMA = 1
 PLATFORMS = (
@@ -30,6 +31,21 @@ PLACEMENTS = (
 )
 
 
+def _hex64(value):
+    return (
+        isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+    )
+
+
+def _positive_finite(value):
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and value > 0
+    )
+
+
 def validate_report(report: dict) -> dict:
     failures = []
 
@@ -44,6 +60,21 @@ def validate_report(report: dict) -> dict:
     if not isinstance(records, list) or not records:
         fail("records must be a non-empty list")
         records = []
+    required = report.get("required_platforms")
+    if required is not None:
+        if not isinstance(required, list) or any(
+            platform not in PLATFORMS for platform in required
+        ):
+            fail("required_platforms is malformed")
+            required = []
+        observed = {record.get("platform") for record in records if isinstance(record, dict)}
+        for platform in required:
+            if platform not in observed:
+                fail(f"required platform {platform} has no blocked or measured record")
+    if report.get("acceptance") is True and any(
+        isinstance(record, dict) and record.get("status") == "blocked" for record in records
+    ):
+        fail("acceptance cannot be claimed while a required platform is blocked")
     for index, record in enumerate(records):
         if not isinstance(record, dict):
             fail(f"record {index} is not an object")
@@ -57,9 +88,19 @@ def validate_report(report: dict) -> dict:
             if not isinstance(record.get("blocked_reason"), str) or not record["blocked_reason"]:
                 fail(f"blocked record {index} needs a reason")
             continue
-        for field in ("browser_version", "os", "cpu", "ram_bytes"):
-            if record.get(field) in (None, ""):
+        for field in ("browser_version", "os", "cpu"):
+            if not isinstance(record.get(field), str) or not record[field]:
                 fail(f"record {index} lacks {field}")
+        if not isinstance(record.get("ram_bytes"), int) or record["ram_bytes"] <= 0:
+            fail(f"record {index} has invalid ram_bytes")
+        if not isinstance(record.get("architecture"), str) or not record["architecture"]:
+            fail(f"record {index} lacks architecture")
+        if not _hex64(record.get("model_sha256")) or not _hex64(record.get("onnx_sha256")):
+            fail(f"record {index} lacks model/ONNX digests")
+        if not isinstance(record.get("workload"), str) or not record["workload"]:
+            fail(f"record {index} lacks workload")
+        if not _positive_finite(record.get("mcts_simulations_per_second")):
+            fail(f"record {index} has invalid MCTS throughput")
         requested = record.get("provider_requested")
         observed = record.get("execution_placement")
         if requested not in ("wasm", "webgpu"):
@@ -68,15 +109,29 @@ def validate_report(report: dict) -> dict:
             fail(f"record {index} has an invalid observed placement")
         if requested == "webgpu" and observed == "wasm":
             fail(f"record {index} silently fell back from WebGPU to WASM")
-        if (
-            observed == "webgpu-session-verified"
-            and record.get("gpu_execution_verified") is not True
-        ):
-            fail(f"record {index} claims verified GPU execution without evidence")
-        for field in ("cold_init_ms", "warm_init_ms", "mcts_simulations_per_second"):
-            if not isinstance(record.get(field), (int, float)) or isinstance(
-                record.get(field), bool
+        if observed == "webgpu-mixed" and record.get("gpu_execution_verified") is True:
+            fail(f"record {index} cannot claim GPU-only acceptance for mixed execution")
+        if observed == "webgpu-session-verified":
+            evidence = record.get("gpu_evidence")
+            placements = (
+                evidence.get("per_operator_placement") if isinstance(evidence, dict) else None
+            )
+            if (
+                not isinstance(evidence, dict)
+                or evidence.get("gpu_execution_verified") is not True
+                or not isinstance(placements, list)
+                or not placements
+                or any(placement != "webgpu" for placement in placements)
             ):
+                fail(f"record {index} claims verified GPU execution without per-operator evidence")
+        for field in (
+            "cold_init_ms",
+            "warm_init_ms",
+            "first_inference_ms",
+            "warm_inference_ms",
+            "mcts_simulations_per_second",
+        ):
+            if not _positive_finite(record.get(field)):
                 fail(f"record {index} has an invalid {field}")
     return {
         "ok": not failures,

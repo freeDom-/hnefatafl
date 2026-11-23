@@ -24,6 +24,12 @@ PROFILES = (
     "independent-batching",
 )
 METRICS = ("process_rss_bytes", "js_heap_used_bytes", "wasm_heap_capacity_bytes")
+MIN_DURATION = {
+    "sustained-10m": 600.0,
+    "sustained-30m": 1800.0,
+}
+MIN_SAMPLES = 10
+MIN_WARMUP_SAMPLES = 1
 
 
 def _number(value, allow_none=True):
@@ -52,22 +58,34 @@ def validate_report(report: dict) -> dict:
         if not isinstance(reasons, list) or not reasons:
             fail("blocked profile needs reasons")
         return {"ok": not failures, "failures": failures, "status": status}
+    profile = report.get("profile")
+    required_duration = MIN_DURATION.get(profile, 0.0)
+    duration_ms = report.get("duration_ms")
+    if not _number(duration_ms, allow_none=False) or duration_ms <= 0:
+        fail("measured profile needs positive actual duration_ms")
+        duration_ms = 0
+    if required_duration and duration_ms < required_duration * 1000.0:
+        fail("measured profile duration does not cover the requested acceptance window")
     budgets = report.get("budgets")
     if not isinstance(budgets, dict):
         fail("budgets must be declared before evaluation")
         budgets = {}
     for field in ("max_process_rss_bytes", "max_js_heap_used_bytes", "max_cache_bytes"):
-        if field in budgets and not _number(budgets[field], allow_none=False):
+        if field in budgets and (
+            not _number(budgets[field], allow_none=False) or budgets[field] <= 0
+        ):
             fail(f"invalid budget {field}")
     samples = report.get("samples")
-    if not isinstance(samples, list) or len(samples) < 3:
-        fail("measured profile needs at least three samples")
+    if not isinstance(samples, list) or len(samples) < MIN_SAMPLES:
+        fail(f"measured profile needs at least {MIN_SAMPLES} samples")
         samples = []
-    previous = None
     warmup = report.get("warmup_samples", 1)
-    if not isinstance(warmup, int) or warmup < 0:
-        fail("warmup_samples must be a non-negative integer")
+    if not isinstance(warmup, int) or warmup < MIN_WARMUP_SAMPLES:
+        fail("warmup_samples must be a positive integer")
         warmup = 0
+    if samples and warmup >= len(samples) - 1:
+        fail("warmup leaves insufficient post-warmup measurements")
+    previous = None
     for index, sample in enumerate(samples):
         if not isinstance(sample, dict):
             fail(f"sample {index} is not an object")
@@ -83,12 +101,35 @@ def validate_report(report: dict) -> dict:
                 fail(f"sample {index} {metric} is invalid")
         for counter in ("cache_entries", "cache_bytes", "workers", "completed_requests"):
             if counter in sample and (
-                not _number(sample[counter], allow_none=False) or sample[counter] < 0
+                not isinstance(sample[counter], int)
+                or isinstance(sample[counter], bool)
+                or sample[counter] < 0
             ):
                 fail(f"sample {index} {counter} is invalid")
+        for metric in METRICS:
+            if sample.get(metric) is not None and sample[metric] < 0:
+                fail(f"sample {index} {metric} is negative")
         if sample.get("process_rss_bytes") is None and not sample.get("rss_unavailable_reason"):
             fail(f"sample {index} must explain unavailable RSS")
     measured = samples[warmup:]
+    if len(measured) < 2:
+        fail("insufficient post-warmup measurements")
+    observed_rss = any(
+        _number(sample.get("process_rss_bytes"), allow_none=False) for sample in measured
+    )
+    if observed_rss:
+        budget = budgets.get("max_process_rss_bytes")
+        if not _number(budget, allow_none=False) or budget <= 0:
+            fail("positive max_process_rss_bytes budget is required for observed RSS")
+    elif not report.get("rss_acceptance_unavailable_reason"):
+        fail("unavailable RSS needs an explicit acceptance-unavailable reason")
+    for field in ("max_js_heap_used_bytes", "max_cache_bytes"):
+        if not _number(budgets.get(field), allow_none=False) or budgets.get(field) <= 0:
+            fail(f"positive {field} budget is required")
+    if samples and duration_ms and warmup < len(samples):
+        span = samples[-1].get("timestamp_ms", 0) - samples[warmup].get("timestamp_ms", 0)
+        if span > duration_ms:
+            fail("sample timestamps exceed reported duration")
     for metric, budget in (
         ("process_rss_bytes", budgets.get("max_process_rss_bytes")),
         ("js_heap_used_bytes", budgets.get("max_js_heap_used_bytes")),

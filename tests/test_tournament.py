@@ -101,3 +101,64 @@ def test_validator_cli_returns_nonzero(tmp_path):
     )
     assert result.returncode != 0
     assert "game identifiers" in result.stdout
+
+
+def test_unresponsive_agent_hits_hard_deadline_and_other_games_continue():
+    import time
+
+    def blocking(state, settings, seed):
+        time.sleep(0.2)
+        return legal_moves(state)[0]
+
+    report = tournament.run_paired_openings(
+        blocking,
+        last_legal,
+        _openings()[:1],
+        labels=("blocking", "last"),
+        ruleset="brandubh",
+        simulations=8,
+        time_limit=1,
+        seed=3,
+        max_plies=8,
+        agent_timeout=0.02,
+    )
+    assert report["settings"]["agent_timeout_s"] == 0.02
+    assert len(report["games"]) == 2
+    assert all("AgentTimeoutError" in (game["error"] or "") for game in report["games"])
+    assert report["summary"]["execution_errors"] == 2
+    assert tournament.validate_report(report)["ok"] is True
+
+
+def test_validator_detects_pair_opening_history_and_terminal_mismatch():
+    report = _report()
+    a = report["games"][0]
+    b = next(game for game in report["games"] if game["pair"] == a["pair"] and game is not a)
+    b["opening_state"] = copy.deepcopy(b["opening_state"])
+    b["opening_state"]["history"] = ["different"]
+    assert tournament.validate_report(report)["ok"] is False
+
+    report = _report()
+    game = next(game for game in report["games"] if game["completed"])
+    game["plies"] += 1
+    assert tournament.validate_report(report)["ok"] is False
+
+    report = _report()
+    game = report["games"][0]
+    game["error"] = "forced execution failure"
+    game["completed"] = True
+    game["winner"] = "draw"
+    assert tournament.validate_report(report)["ok"] is False
+
+
+def test_validator_rejects_changed_role_and_fabricated_summary():
+    report = _report()
+    report["games"][0]["agent_a_side"] = "defenders"
+    assert tournament.validate_report(report)["ok"] is False
+
+    report = _report()
+    report["summary"]["by_agent"]["first"]["wins"] += 1
+    assert tournament.validate_report(report)["ok"] is False
+
+    report = _report()
+    report["summary"]["paired_score_ci95"] = [0, 1]
+    assert tournament.validate_report(report)["ok"] is False

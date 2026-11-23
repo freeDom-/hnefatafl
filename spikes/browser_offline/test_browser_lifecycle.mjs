@@ -1546,4 +1546,36 @@ await check("stale detach response cannot clear a newer reservation", async () =
   client.terminate();
 });
 
+
+await check("contradictory detach success fields fail closed", async () => {
+  for (const value of [
+    {
+      kind: "direct_port_detached",
+      pending: false,
+      failed: true,
+      error: "detach error",
+      code: "DETACH_FAILED",
+    },
+    {
+      kind: "direct_port_detached",
+      pending: false,
+      timedOut: true,
+    },
+  ]) {
+    const client = await attachedDirectClient(`detach-contradict-${Math.random()}`);
+    const worker = client.worker;
+    const detach = client.detachDirectPort({
+      channelId: client.directChannel.channelId,
+      timeoutMs: 100,
+    });
+    respondControl(client, "detachDirectPort", value);
+    const result = await detach;
+    assert.equal(result.failed, true);
+    assert.equal(worker.terminated, true);
+    assert.equal(client.worker, null);
+    assert.equal(client.model, null);
+    assert.equal(client.directChannel, null);
+  }
+});
+
 console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);

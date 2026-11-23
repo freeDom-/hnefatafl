@@ -500,3 +500,15 @@ def test_staging_refuses_runtime_digest_mismatch(tmp_path):
     )
     assert result.returncode != 0
     assert "Pinned runtime digest mismatch: pyodide.js" in result.stderr
+
+
+def test_webgpu_staging_requires_entry_bundle_and_jsep_assets():
+    preparing = (SPIKE / "prepare_neural.py").read_text()
+    runbook = (SPIKE.parents[1] / "docs/validation/device-matrix-phase3c.md").read_text()
+    assert '"ort.webgpu.min.js"' in preparing
+    assert "ort-wasm-simd-threaded.jsep.mjs" in preparing
+    assert "ort-wasm-simd-threaded.jsep.wasm" in preparing
+    assert "--output /tmp/device-spike-webgpu\n" in runbook.replace("\\\n", "")
+    assert "test -f /tmp/device-spike-webgpu/ort/ort.webgpu.min.js" in runbook
+    wasm_block = runbook.split("# WebGPU staging", 1)[0]
+    assert "--wasm-only" in wasm_block

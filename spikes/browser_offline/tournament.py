@@ -11,7 +11,9 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import signal
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -26,6 +28,46 @@ from hnefatafl.engine import Move, State, apply_move, legal_moves  # noqa: E402
 SCHEMA = 1
 AGENT = Callable[[State, dict, int], Move]
 SIDES = ("attackers", "defenders")
+DEFAULT_AGENT_TIMEOUT = 30.0
+
+
+class AgentTimeoutError(TimeoutError):
+    """Raised when an agent exceeds its hard per-move execution deadline."""
+
+
+class _deadline:
+    """Hard per-call deadline using SIGALRM in the main process.
+
+    Browser/process adapters must additionally enforce their own subprocess
+    timeout; this guard catches in-process blocking agents on Unix platforms.
+    """
+
+    def __init__(self, seconds: float):
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds <= 0:
+            raise ValueError("agent timeout must be positive")
+        self.seconds = float(seconds)
+        self.previous = None
+        self.enabled = False
+
+    def __enter__(self):
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("hard agent deadlines require the main thread")
+        if not hasattr(signal, "setitimer") or not hasattr(signal, "SIGALRM"):
+            raise RuntimeError("hard agent deadlines require SIGALRM support")
+        self.previous = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, self._alarm)
+        signal.setitimer(signal.ITIMER_REAL, self.seconds)
+        self.enabled = True
+        return self
+
+    def _alarm(self, _signum, _frame):
+        raise AgentTimeoutError(f"agent exceeded {self.seconds:g}s deadline")
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.enabled:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, self.previous)
+        return False
 
 
 def _move(value: Any) -> Move:
@@ -46,6 +88,7 @@ def play_game(
     time_limit: float,
     seed: int,
     max_plies: int = 200,
+    agent_timeout: float = DEFAULT_AGENT_TIMEOUT,
 ) -> dict:
     state = State.from_dict(opening["state"])
     if state.ruleset != ruleset:
@@ -73,11 +116,13 @@ def play_game(
         "error": None,
         "seed": seed,
         "settings": dict(settings),
+        "agent_timeout_s": float(agent_timeout),
     }
     try:
         while state.winner is None and state.ply < max_plies:
             agent = attacker if state.turn == "attackers" else defender
-            move = _move(agent(state, settings, seed + state.ply))
+            with _deadline(agent_timeout):
+                move = _move(agent(state, settings, seed + state.ply))
             if move not in legal_moves(state):
                 raise ValueError(f"agent selected an illegal move {move.to_dict()}")
             state = apply_move(state, move)
@@ -88,6 +133,7 @@ def play_game(
         game["completed"] = state.winner is not None
     except Exception as error:  # noqa: BLE001 - one failed game must not abort the report
         game["error"] = f"{type(error).__name__}: {error}"
+        game["plies"] = state.ply
         game["winner"] = None
         game["completed"] = False
         game["reason"] = "execution_error"
@@ -105,6 +151,7 @@ def run_paired_openings(
     time_limit: float,
     seed: int = 7,
     max_plies: int = 200,
+    agent_timeout: float = DEFAULT_AGENT_TIMEOUT,
 ) -> dict:
     games = []
     for pair, opening in enumerate(openings):
@@ -120,6 +167,7 @@ def run_paired_openings(
                 time_limit=time_limit,
                 seed=seed + pair * 100 + int(swap),
                 max_plies=max_plies,
+                agent_timeout=agent_timeout,
             )
             game.update(
                 {
@@ -144,6 +192,7 @@ def run_paired_openings(
             "time_limit": time_limit,
             "seed": seed,
             "max_plies": max_plies,
+            "agent_timeout_s": float(agent_timeout),
         },
         "openings": [entry["name"] for entry in openings],
         "games": games,
@@ -243,6 +292,10 @@ def summarize(games: list[dict], labels: tuple[str, str], *, seed: int = 7) -> d
     return result
 
 
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
 def _replay(opening: State, moves: list[dict]) -> State:
     state = opening
     for raw in moves:
@@ -272,6 +325,23 @@ def validate_report(report: dict) -> dict:
         fail("games must be a list")
         games = []
     # Opening states are recorded in every game snapshot for replay validation.
+    opening_states: dict[str, dict] = {}
+    for game in games:
+        if not isinstance(game, dict):
+            continue
+        name = game.get("opening")
+        raw = game.get("opening_state")
+        if not isinstance(raw, dict):
+            fail(f"{game.get('game_id')}: opening_state must be an object")
+            continue
+        try:
+            current = State.from_dict(raw).to_dict()
+        except (ValueError, KeyError, TypeError) as error:
+            fail(f"{game.get('game_id')}: invalid opening_state: {error}")
+            continue
+        if name in opening_states and opening_states[name] != current:
+            fail(f"{game.get('game_id')}: paired opening state/history differs")
+        opening_states[name] = current
     for game in games:
         if not isinstance(game, dict):
             fail("game entry must be an object")
@@ -298,16 +368,42 @@ def validate_report(report: dict) -> dict:
         if not isinstance(game.get("moves"), list):
             fail(f"{game.get('game_id')}: moves must be a list")
             continue
-        if game.get("error") is None:
-            try:
-                state = _replay(State.from_dict(game["opening_state"]), game["moves"])
-            except (ValueError, KeyError, TypeError) as error:
-                fail(f"{game.get('game_id')}: {error}")
-            else:
-                if state.winner != game.get("winner"):
-                    fail(f"{game.get('game_id')}: winner does not match replay")
-                if state.ply != game.get("plies"):
-                    fail(f"{game.get('game_id')}: ply count does not match replay")
+        game_id = game.get("game_id")
+        if isinstance(game_id, str):
+            parts = game_id.split("-")
+            if (
+                len(parts) != 3
+                or parts[0] != "pair"
+                or not parts[1].isdigit()
+                or parts[2] not in ("ab", "ba")
+            ):
+                fail(f"{game_id}: malformed game identifier")
+            elif game.get("pair") != int(parts[1]):
+                fail(f"{game_id}: pair index contradicts identifier")
+            elif parts[2] == "ba" and game.get("agent_a_side") != "defenders":
+                fail(f"{game_id}: swapped leg role assignment is inconsistent")
+            elif parts[2] == "ab" and game.get("agent_a_side") != "attackers":
+                fail(f"{game_id}: original leg role assignment is inconsistent")
+        expected_move_count = len(game["moves"])
+        if game.get("plies") != expected_move_count:
+            fail(f"{game.get('game_id')}: ply count does not match move count")
+        if game.get("error") is not None:
+            if game.get("completed") or game.get("winner") is not None:
+                fail(f"{game.get('game_id')}: error game claims completion")
+            continue
+        try:
+            state = _replay(State.from_dict(game["opening_state"]), game["moves"])
+        except (ValueError, KeyError, TypeError) as error:
+            fail(f"{game.get('game_id')}: {error}")
+        else:
+            if (state.winner is not None) != bool(game.get("completed")):
+                fail(f"{game.get('game_id')}: completion state does not match replay")
+            if state.winner != game.get("winner"):
+                fail(f"{game.get('game_id')}: winner does not match replay")
+            if state.ply != game.get("plies"):
+                fail(f"{game.get('game_id')}: ply count does not match replay")
+            if state.winner is not None and game.get("reason") != (state.reason or "terminal"):
+                fail(f"{game.get('game_id')}: terminal reason does not match replay")
         if game.get("completed") and game.get("winner") not in ("attackers", "defenders", "draw"):
             fail(f"{game.get('game_id')}: completed game has an invalid winner")
     ids = [game.get("game_id") for game in games if isinstance(game, dict)]
@@ -318,12 +414,27 @@ def validate_report(report: dict) -> dict:
     }
     if set(ids) != expected_pairs:
         fail("game identifiers do not cover every opening pair and role swap exactly once")
+    settings = report.get("settings") or {}
+    timeout = settings.get("agent_timeout_s")
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
+        fail("settings.agent_timeout_s must be positive")
     summary = report.get("summary") or {}
     if summary.get("games") != len(games):
         fail("summary game count does not match games")
     completed = sum(1 for game in games if isinstance(game, dict) and game.get("completed"))
     if summary.get("completed") != completed:
         fail("summary completed count does not match games")
+    labels = (
+        (report.get("agents") or {}).get("a"),
+        (report.get("agents") or {}).get("b"),
+    )
+    if all(isinstance(label, str) for label in labels):
+        recomputed = summarize(games, labels, seed=(report.get("settings") or {}).get("seed", 7))
+        if _canonical(recomputed) != _canonical(summary):
+            fail("summary statistics do not match independently recomputed results")
+    if report.get("structural_only") is True:
+        if (report.get("playing_strength") or {}).get("status") != "blocked":
+            fail("structural tournament evidence must mark playing strength blocked")
     result = {
         "kind": "browser-analysis-tournament-validation",
         "ok": not failures,

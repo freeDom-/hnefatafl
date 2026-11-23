@@ -18,6 +18,7 @@ def _report():
         "schema": 1,
         "profile": "sustained-10m",
         "status": "measured",
+        "duration_ms": 600000,
         "budgets": {
             "max_process_rss_bytes": 512 * 1024 * 1024,
             "max_js_heap_used_bytes": 256 * 1024 * 1024,
@@ -35,7 +36,7 @@ def _report():
                 "workers": 2,
                 "completed_requests": index,
             }
-            for index in range(4)
+            for index in range(12)
         ],
     }
 
@@ -81,3 +82,28 @@ def test_timestamps_and_counters_are_validated():
     assert result["ok"] is False
     assert any("backwards" in failure for failure in result["failures"])
     assert any("cache_entries" in failure for failure in result["failures"])
+
+
+def test_short_duration_and_insufficient_warmup_are_rejected():
+    report = _report()
+    report["duration_ms"] = 300000
+    assert mv.validate_report(report)["ok"] is False
+
+    report = _report()
+    report["warmup_samples"] = len(report["samples"])
+    assert mv.validate_report(report)["ok"] is False
+
+
+def test_positive_observable_budgets_are_required():
+    report = _report()
+    report["budgets"]["max_js_heap_used_bytes"] = None
+    assert mv.validate_report(report)["ok"] is False
+
+    report = _report()
+    for sample in report["samples"]:
+        sample["process_rss_bytes"] = None
+        sample["rss_unavailable_reason"] = "not exposed"
+    report["rss_acceptance_unavailable_reason"] = "process RSS not exposed by harness"
+    assert mv.validate_report(report)["ok"] is True
+    report.pop("rss_acceptance_unavailable_reason")
+    assert mv.validate_report(report)["ok"] is False

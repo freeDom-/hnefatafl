@@ -672,6 +672,25 @@ export class NeuralClient {
           malformed("Detach response is contradictory");
           return;
         }
+        if (
+          value.failed === true ||
+          value.timedOut === true ||
+          value.error !== undefined ||
+          value.code !== undefined
+        ) {
+          finish(
+            {
+              kind: "direct_port_detached",
+              pending: false,
+              stale: false,
+              failed: true,
+              error: value.error ?? "Direct detach reported failure",
+              code: value.code ?? "DETACH_FAILED",
+            },
+            { failed: true },
+          );
+          return;
+        }
         finish(value);
       };
       timer = setTimeout(() => {
