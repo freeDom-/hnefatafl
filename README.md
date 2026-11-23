@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="#features">Features</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="#install-and-start">Quick start</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="docs/TRAINING.md">AI training</a> ·
   <a href="docs/DEPLOYMENT.md">Deployment</a>
