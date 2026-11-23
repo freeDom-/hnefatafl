@@ -262,6 +262,82 @@ try {
     await page.close();
   });
 
+  await record("Bounded inference cache reuses repeated position predictions", async () => {
+    const { page, errors } = await freshPage();
+    await page.click("#load");
+    await waitState(page, "completed", 180000);
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5, seed: 7, exploration: 1.4 });
+    }, report.model.ruleset);
+    await page.check("#analysis-cache");
+    const run = async () => {
+      await page.evaluate(() => window.neural.analysis.start());
+      await waitAnalysisState(page, "completed", 180000);
+      return page.evaluate(() => window.neural.analysis.result());
+    };
+    const first = await run();
+    const second = await run();
+    assert.equal(second.analysis.best_move.source, first.analysis.best_move.source);
+    assert.equal(second.analysis.best_move.target, first.analysis.best_move.target);
+    assert.equal(second.search.completed_simulations, 128);
+    assert.ok(second.search.coordinator.cache_hits > 0, "repeated search must hit the cache");
+    assert.equal(second.search.coordinator.cache_misses >= 0, true);
+    const stats = await page.evaluate(() => window.neural.client.inferenceCacheStats());
+    assert.equal(stats.enabled, true);
+    assert.ok(stats.hits > 0);
+    assert.ok(stats.entries > 0);
+    assert.ok(stats.bytes > 0);
+    assert.ok(stats.entries <= stats.max_entries);
+    assert.ok(stats.bytes <= stats.max_bytes);
+    const displayed = await page.textContent("#analysis-cache-info");
+    assert.match(displayed, /hit\(s\), .*miss\(es\)/);
+    await page.uncheck("#analysis-cache");
+    const disabled = await run();
+    assert.equal(disabled.search.coordinator.cache_hits, 0);
+    const cleared = await page.evaluate(() => window.neural.client.inferenceCacheStats());
+    assert.equal(cleared.entries, 0);
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
+  await record("Direct worker transport cancels and restarts cleanly", async () => {
+    const { page, errors } = await freshPage();
+    await page.click("#load");
+    await waitState(page, "completed", 180000);
+    await page.evaluate((ruleset) => {
+      const analysis = window.neural.analysis;
+      analysis.setRuleset(ruleset);
+      analysis.setAgent("neural");
+      analysis.setBudget({ simulations: 128, time: 5, seed: 7, exploration: 1.4 });
+    }, report.model.ruleset);
+    await page.check("#analysis-direct");
+    const started = page.evaluate(() => window.neural.analysis.start());
+    await waitAnalysisState(page, "running", 180000);
+    await page.click("#analysis-cancel");
+    const replacement = page.evaluate(() => window.neural.analysis.start());
+    await Promise.all([started, replacement]);
+    await waitAnalysisState(page, "completed", 180000);
+    const result = await page.evaluate(() => window.neural.analysis.result());
+    assert.equal(result.search.completed_simulations, 128);
+    assert.equal(result.search.coordinator.direct, true);
+    assert.equal(result.search.coordinator.inference_payload_mode, "legal-only");
+    assert.equal(result.search.provider.requested, "wasm");
+    assert.ok(result.search.provider.execution_placement);
+    assert.equal(result.search.coordinator.inferences, result.search.neural_requests);
+    assert.ok(result.search.coordinator.neural_wait_ms > 0);
+    assert.equal(result.search.coordinator.step_ms, null);
+    assert.equal(result.search.coordinator.bridge_overhead_ms, null);
+    assert.equal(result.search.coordinator.unattributed_ms, null);
+    assert.ok(result.search.coordinator.cache_hits >= 0);
+    assert.ok(result.search.coordinator.cache_misses >= 0);
+    assert.equal(await page.textContent("#analysis-transport"), "direct worker channel");
+    assert.equal(errors.length, 0, errors.join("; "));
+    await page.close();
+  });
+
   await record("Budget and deadline reporting is meaningful", async () => {
     const { page } = await freshPage();
     await page.evaluate((ruleset) => {

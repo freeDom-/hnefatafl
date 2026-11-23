@@ -33,6 +33,151 @@ let session = null;
 // never imports the test adapter, so the capability is absent rather than gated
 // by a JavaScript/client flag.
 let model = null;
+let activeDirectPort = null;
+let activeDirectChannelId = null;
+let directInFlight = false;
+let directDetachRequested = false;
+let pendingDetachPort = null;
+// One ordinary mutating session operation at a time. Reserved synchronously
+// before the operation's first await and released in finally by its own token.
+let sessionOperation = null;
+const staleDirectChannels = new Set();
+const directStats = {
+  accepted: 0,
+  stale_rejected: 0,
+  busy_rejected: 0,
+};
+
+function directSessionOwned() {
+  return Boolean(activeDirectPort || activeDirectChannelId || directInFlight || directDetachRequested);
+}
+
+// Bounded exact inference cache for legal-only MCTS predictions. It is disabled
+// by default; enabling is explicit and every entry is keyed by model/provider,
+// encoder identity, encoded planes and the ordered legal-action set.
+const CACHE_DEFAULT_ENTRIES = 256;
+const CACHE_DEFAULT_BYTES = 4 * 1024 * 1024;
+const CACHE_MAX_ENTRIES = 16384;
+const CACHE_MAX_BYTES = 128 * 1024 * 1024;
+const inferenceCache = {
+  enabled: false,
+  maxEntries: CACHE_DEFAULT_ENTRIES,
+  maxBytes: CACHE_DEFAULT_BYTES,
+  entries: new Map(),
+  bytes: 0,
+  hits: 0,
+  misses: 0,
+  evictions: 0,
+};
+
+function resetInferenceCache({ keepStats = false } = {}) {
+  inferenceCache.entries.clear();
+  inferenceCache.bytes = 0;
+  if (!keepStats) {
+    inferenceCache.hits = 0;
+    inferenceCache.misses = 0;
+    inferenceCache.evictions = 0;
+  }
+}
+
+function cacheStats() {
+  const total = inferenceCache.hits + inferenceCache.misses;
+  return {
+    enabled: inferenceCache.enabled,
+    max_entries: inferenceCache.maxEntries,
+    max_bytes: inferenceCache.maxBytes,
+    entries: inferenceCache.entries.size,
+    bytes: inferenceCache.bytes,
+    hits: inferenceCache.hits,
+    misses: inferenceCache.misses,
+    evictions: inferenceCache.evictions,
+    hit_rate: total ? inferenceCache.hits / total : null,
+  };
+}
+
+function configureInferenceCache(request) {
+  const enabled = request?.enabled === true;
+  const maxEntries = request?.max_entries ?? CACHE_DEFAULT_ENTRIES;
+  const maxBytes = request?.max_bytes ?? CACHE_DEFAULT_BYTES;
+  if (!Number.isInteger(maxEntries) || maxEntries < 1 || maxEntries > CACHE_MAX_ENTRIES)
+    throw named("INPUT_INVALID", `max_entries must be 1..${CACHE_MAX_ENTRIES}`);
+  if (!Number.isInteger(maxBytes) || maxBytes < 1024 || maxBytes > CACHE_MAX_BYTES)
+    throw named("INPUT_INVALID", `max_bytes must be 1024..${CACHE_MAX_BYTES}`);
+  inferenceCache.enabled = enabled;
+  inferenceCache.maxEntries = maxEntries;
+  inferenceCache.maxBytes = maxBytes;
+  if (!enabled) resetInferenceCache({ keepStats: true });
+  else enforceCacheLimits();
+  return cacheStats();
+}
+
+function enforceCacheLimits() {
+  while (
+    inferenceCache.entries.size > inferenceCache.maxEntries ||
+    inferenceCache.bytes > inferenceCache.maxBytes
+  ) {
+    const oldest = inferenceCache.entries.keys().next().value;
+    if (oldest === undefined) break;
+    const removed = inferenceCache.entries.get(oldest);
+    inferenceCache.entries.delete(oldest);
+    inferenceCache.bytes -= removed.bytes;
+    inferenceCache.evictions += 1;
+  }
+}
+
+function planesCacheKey(planes, size) {
+  if (typeof planes === "string") return planes;
+  const values = ArrayBuffer.isView(planes) ? Array.from(planes) : planes;
+  if (!Array.isArray(values)) return null;
+  // MCTS planes are exact binary tensors. Any other input bypasses the cache
+  // rather than risking a lossy key.
+  if (values.some((value) => value !== 0 && value !== 1)) return null;
+  let binary = "";
+  for (const value of values) binary += String.fromCharCode(value);
+  return btoa(binary);
+}
+
+function inferenceCacheKey(modelIdentity, planes, legal) {
+  return [
+    modelIdentity.modelSha256,
+    modelIdentity.ruleset,
+    modelIdentity.size,
+    modelIdentity.providerRequested,
+    modelIdentity.executionPlacement,
+    planes,
+    legal.join(","),
+  ].join("|");
+}
+
+function cacheLookup(key) {
+  if (!inferenceCache.enabled) return null;
+  const entry = inferenceCache.entries.get(key);
+  if (!entry) {
+    inferenceCache.misses += 1;
+    return null;
+  }
+  // Refresh LRU order.
+  inferenceCache.entries.delete(key);
+  inferenceCache.entries.set(key, entry);
+  inferenceCache.hits += 1;
+  return entry;
+}
+
+function cacheInsert(key, entry) {
+  if (!inferenceCache.enabled) return;
+  const keyBytes = key.length * 2;
+  const valueBytes = entry.legal_probabilities.length * 8 + 128;
+  const bytes = keyBytes + valueBytes;
+  if (bytes > inferenceCache.maxBytes) return;
+  const existing = inferenceCache.entries.get(key);
+  if (existing) {
+    inferenceCache.bytes -= existing.bytes;
+    inferenceCache.entries.delete(key);
+  }
+  inferenceCache.entries.set(key, { ...entry, bytes });
+  inferenceCache.bytes += bytes;
+  enforceCacheLimits();
+}
 
 function named(name, message) {
   return Object.assign(new Error(message), { code: name });
@@ -233,6 +378,7 @@ async function loadModel(request) {
       );
   }
   await ensureOrt(provider);
+  resetInferenceCache();
   try {
     await releaseSession();
   } catch (error) {
@@ -261,6 +407,7 @@ async function loadModel(request) {
     throw named("ARTIFACT_BAD_OUTPUT", `Unexpected output names: ${outputNames}`);
   }
   session = created;
+  resetInferenceCache();
   const evidence = self.__neuralProvider.providerEvidence(created);
   const placement = self.__neuralProvider.placementFor(provider, evidence);
   model = {
@@ -484,6 +631,36 @@ async function inferMany(request) {
   };
 }
 
+async function inferManyCompact(request) {
+  rejectTestHook(request);
+  const { cases, model: expectedModel } = request;
+  if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
+  if (expectedModel === undefined || expectedModel === null)
+    throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+  if (!Array.isArray(cases) || cases.length === 0)
+    throw named("INPUT_INVALID", "cases must be a non-empty array");
+  const compactCases = cases.map((entry, index) => {
+    if ((entry.planes === undefined) === (entry.planes_base64 === undefined))
+      throw named("INPUT_INVALID", `case ${index} must provide exactly one of planes or planes_base64`);
+    return {
+      ...entry,
+      planes:
+        entry.planes_base64 !== undefined
+          ? decodePlanesBase64(entry.planes_base64, model.size)
+          : entry.planes,
+    };
+  });
+  const result = await runBatch(compactCases, model.size, {
+    expectedModel,
+    includeLogits: false,
+  });
+  return {
+    ...result,
+    per_position_ms: result.run_ms / result.batch,
+    payload_mode: "legal-only",
+  };
+}
+
 async function inferCompact(request) {
   const {
     planes,
@@ -498,22 +675,59 @@ async function inferCompact(request) {
   if (!model) throw named("MODEL_NOT_LOADED", "No model session is loaded");
   if (expectedModel === undefined || expectedModel === null)
     throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");
+  self.__neuralIdentity.validateModelIdentity(expectedModel, activeModelIdentity());
   if (size !== model.size)
     throw named("BOARD_SIZE_MISMATCH", `Requested size ${size} does not match the model`);
   if (ruleset !== model.ruleset)
     throw named("RULESET_MISMATCH", `Requested ruleset ${ruleset} does not match the model`);
   if ((planes === undefined) === (planesBase64 === undefined))
     throw named("INPUT_INVALID", "Provide exactly one of planes or planes_base64");
+  assertRequestId(request_id);
+  assertPositionDigest(position_digest);
+  assertLegal(legal, size);
+  // Validate/decode the encoded input before consulting the cache so malformed
+  // input can never bypass validation via a warm hit.
   const compactPlanes =
     planesBase64 !== undefined
       ? decodePlanesBase64(planesBase64, size)
-      : planes;
+      : (assertPlanes(planes, size), planes);
+  const canonicalPlanes =
+    planesBase64 !== undefined ? planesBase64 : planesCacheKey(compactPlanes, size);
+  const key =
+    inferenceCache.enabled && canonicalPlanes !== null
+      ? inferenceCacheKey(model, canonicalPlanes, legal)
+      : null;
+  const cached = key ? cacheLookup(key) : null;
+  if (cached) {
+    return {
+      provider_requested: model.providerRequested,
+      execution_placement: model.executionPlacement,
+      gpu_execution_verified: self.__neuralProvider.gpuVerified(model.executionPlacement),
+      model_sha256: model.modelSha256,
+      model_ruleset: model.ruleset,
+      model_bytes: model.modelBytes,
+      index: 0,
+      request_id,
+      position_digest,
+      value: cached.value,
+      legal: [...legal],
+      legal_probabilities: [...cached.legal_probabilities],
+      tensor_prepare_ms: 0,
+      run_ms: 0,
+      extract_ms: 0,
+      inference_ms: 0,
+      batch: 1,
+      requested_count: 1,
+      payload_mode: "legal-only",
+      cache_hit: true,
+    };
+  }
   const result = await runBatch(
     [{ planes: compactPlanes, legal, request_id, position_digest }],
     model.size,
     { expectedModel, includeLogits: false },
   );
-  return {
+  const response = {
     ...result,
     index: 0,
     request_id: result.results[0].request_id,
@@ -523,7 +737,15 @@ async function inferCompact(request) {
     legal_probabilities: result.results[0].legal_probabilities,
     inference_ms: result.tensor_prepare_ms + result.run_ms + result.extract_ms,
     payload_mode: "legal-only",
+    cache_hit: false,
   };
+  if (key) {
+    cacheInsert(key, {
+      value: response.value,
+      legal_probabilities: response.legal_probabilities,
+    });
+  }
+  return response;
 }
 
 async function benchmark(request) {
@@ -602,6 +824,7 @@ async function sustained(request) {
 async function release(request) {
   const released = await releaseSession({ unloadBundle: request?.unloadBundle === true });
   model = null;
+  resetInferenceCache();
   return { released, memory: memorySnapshot() };
 }
 
@@ -611,13 +834,168 @@ self.__neuralWorkerInternals = {
   runBatch,
 };
 
-onmessage = async ({ data: { id, request } }) => {
+async function handleDirectRequest(port, channelId, data) {
+  if (port !== activeDirectPort || channelId !== activeDirectChannelId) {
+    directStats.stale_rejected += 1;
+    try {
+      port.postMessage({
+        kind: "infer_error",
+        id: data.id,
+        error: "Direct channel is stale or detached",
+        code: "DIRECT_STALE",
+      });
+    } catch {
+      // The old port may already be closed; no work is executed either way.
+    }
+    return;
+  }
+  if (directInFlight) {
+    directStats.busy_rejected += 1;
+    port.postMessage({
+      kind: "infer_error",
+      id: data.id,
+      error: "Another direct inference is already running",
+      code: "DIRECT_BUSY",
+    });
+    return;
+  }
+  directStats.accepted += 1;
+  directInFlight = true;
   try {
+    const value = await inferCompact(data.request);
+    if (port === activeDirectPort) port.postMessage({ kind: "infer_result", id: data.id, value });
+  } catch (error) {
+    if (port === activeDirectPort)
+      port.postMessage({
+        kind: "infer_error",
+        id: data.id,
+        error: String(error?.message ?? error),
+        code: error?.code ?? null,
+      });
+  } finally {
+    directInFlight = false;
+    if (directDetachRequested) {
+      const oldPort = pendingDetachPort ?? activeDirectPort;
+      activeDirectPort = null;
+      activeDirectChannelId = null;
+      directDetachRequested = false;
+      pendingDetachPort = null;
+      oldPort?.close?.();
+    }
+  }
+}
+
+onmessage = async ({ data }) => {
+  if (data.control === "attachDirectPort") {
+    if (typeof data.channelId !== "string" || !data.channelId) {
+      postMessage({ id: data.id, error: "direct channel identity is required", code: "INPUT_INVALID" });
+      return;
+    }
+    if (staleDirectChannels.has(data.channelId)) {
+      postMessage({ id: data.id, error: "direct channel was detached", code: "DIRECT_STALE" });
+      return;
+    }
+    if (activeDirectPort || directInFlight || directDetachRequested) {
+      postMessage({
+        id: data.id,
+        error: "Another direct channel is already active",
+        code: "DIRECT_BUSY",
+      });
+      return;
+    }
+    if (sessionOperation) {
+      postMessage({
+        id: data.id,
+        error: `A ${sessionOperation.action} operation is already running`,
+        code: "SESSION_BUSY",
+      });
+      return;
+    }
+    activeDirectPort = data.port;
+    activeDirectChannelId = data.channelId;
+    const attachedPort = data.port;
+    attachedPort.onmessage = ({ data: directData }) => {
+      if (directData?.kind === "infer")
+        void handleDirectRequest(attachedPort, data.channelId, directData);
+    };
+    postMessage({ id: data.id, value: { kind: "direct_port_attached" } });
+    return;
+  }
+  if (data.control === "detachDirectPort") {
+    if (typeof data.channelId !== "string" || !data.channelId) {
+      postMessage({ id: data.id, error: "direct channel identity is required", code: "INPUT_INVALID" });
+      return;
+    }
+    staleDirectChannels.add(data.channelId);
+    while (staleDirectChannels.size > 16)
+      staleDirectChannels.delete(staleDirectChannels.values().next().value);
+    if (activeDirectChannelId !== data.channelId) {
+      postMessage({
+        id: data.id,
+        value: { kind: "direct_port_detached", pending: false, stale: true },
+      });
+      return;
+    }
+    const detachingPort = activeDirectPort;
+    activeDirectPort = null;
+    activeDirectChannelId = null;
+    if (detachingPort) {
+      detachingPort.onmessage = null;
+      if (!directInFlight) detachingPort.close?.();
+      else pendingDetachPort = detachingPort;
+    }
+    directDetachRequested = Boolean(directInFlight);
+    postMessage({
+      id: data.id,
+      value: {
+        kind: "direct_port_detached",
+        pending: Boolean(directInFlight),
+      },
+    });
+    return;
+  }
+  const { id, request } = data;
+  const readOnly = [
+    "capabilities",
+    "inferenceCacheStats",
+    "directStats",
+    "sessionStats",
+  ].includes(request.action);
+  let operationToken = null;
+  try {
+    if (directSessionOwned() && !readOnly)
+      throw named("DIRECT_BUSY", "The inference session is owned by a direct search");
+    if (!readOnly) {
+      if (sessionOperation)
+        throw named(
+          "SESSION_BUSY",
+          `A ${sessionOperation.action} operation is already running`,
+        );
+      // Synchronous reservation before any action can yield. The token prevents
+      // an obsolete operation from releasing a newer owner's lock.
+      operationToken = { action: request.action };
+      sessionOperation = operationToken;
+    }
     let value;
     if (request.action === "capabilities") value = await capabilities();
     else if (request.action === "load") value = await loadModel(request);
     else if (request.action === "infer") value = await inferSingle(request);
     else if (request.action === "inferCompact") value = await inferCompact(request);
+    else if (request.action === "inferManyCompact") value = await inferManyCompact(request);
+    else if (request.action === "configureInferenceCache")
+      value = configureInferenceCache(request);
+    else if (request.action === "inferenceCacheStats") value = cacheStats();
+    else if (request.action === "directStats") value = { ...directStats };
+    else if (request.action === "sessionStats")
+      value = {
+        session_operation: sessionOperation?.action ?? null,
+        direct_owned: directSessionOwned(),
+        direct_in_flight: directInFlight,
+      };
+    else if (request.action === "clearInferenceCache") {
+      resetInferenceCache();
+      value = cacheStats();
+    }
     else if (request.action === "test") value = await handleTestAction(request);
     else if (
       request.action === "configureTestHooks" ||
@@ -633,5 +1011,7 @@ onmessage = async ({ data: { id, request } }) => {
     postMessage({ id, value });
   } catch (error) {
     postMessage({ id, error: String(error?.message ?? error), code: error?.code ?? null });
+  } finally {
+    if (operationToken && sessionOperation === operationToken) sessionOperation = null;
   }
 };

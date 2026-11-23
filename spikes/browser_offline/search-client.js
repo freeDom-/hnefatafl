@@ -132,6 +132,10 @@ export class NeuralSearchCoordinator {
     // Prefer the legal-only inference payload. The full-logit path remains for
     // raw parity/benchmark comparisons and as a controlled A/B reference.
     this.compactInference = true;
+    // Optional direct search-worker <-> inference-worker MessageChannel. The
+    // coordinator retains admission, ownership, watchdog, progress and final
+    // validation; only the per-leaf payload relay moves off the main thread.
+    this.directInference = false;
     // A disposed coordinator is permanently retired: no later call may spawn a
     // replacement worker after page teardown. Callers that want a usable
     // coordinator after a lifecycle reset must create a new instance.
@@ -155,6 +159,33 @@ export class NeuralSearchCoordinator {
       this.startup = { reject, timer };
       worker.onmessage = ({ data }) => {
         if (this.worker !== worker || this.generation !== generation) return;
+        if (data.kind?.startsWith("direct_")) {
+          const search = this.active;
+          if (!search || search.searchId !== data.search_id || !search.directFinal) return;
+          if (data.kind === "direct_progress") {
+            this._publishProgress(search, { progress: data.progress }, search.onProgress);
+            return;
+          }
+          if (data.kind === "direct_inference") {
+            search.inferencePending = data.phase === "start";
+            if (data.phase === "end") search.inferencePending = false;
+            return;
+          }
+          if (data.telemetry) search.directTelemetry = data.telemetry;
+          const { resolve, reject } = search.directFinal;
+          search.directFinal = null;
+          if (data.kind === "direct_complete") resolve(data.event);
+          else if (data.kind === "direct_cancelled")
+            reject(search.error ?? named("AbortError", "Direct search was cancelled"));
+          else
+            reject(
+              named(
+                data.error?.code === "CANCELLED" ? "AbortError" : "WorkerError",
+                data.error?.message ?? "Direct search failed",
+              ),
+            );
+          return;
+        }
         if (data.id === 0) {
           clearTimeout(timer);
           this.startup = null;
@@ -196,6 +227,11 @@ export class NeuralSearchCoordinator {
       clearTimeout(active.watchdog);
       // Release an inference await so the search loop cannot outlive the worker.
       active.rejectCancel?.(active.error);
+      if (active.directFinal) {
+        const { reject } = active.directFinal;
+        active.directFinal = null;
+        reject(error);
+      }
     }
     try {
       this.worker?.terminate();
@@ -303,6 +339,8 @@ export class NeuralSearchCoordinator {
         cancellation_ms: 0,
         inference_payload_mode: null,
         response_policy_values: 0,
+        cache_hits: 0,
+        cache_misses: 0,
       },
       provider: null,
     };
@@ -408,6 +446,7 @@ export class NeuralSearchCoordinator {
       return await this.neural.cancelRequest({
         reason,
         drainMs: INFERENCE_DRAIN_MS,
+        requestId: search.inferenceRequestId,
       });
     } finally {
       search.inferencePending = false;
@@ -591,6 +630,14 @@ export class NeuralSearchCoordinator {
           ),
         );
       }, watchdogFor(configuration));
+      search.onProgress = onProgress;
+      if (this.directInference) {
+        return await this._searchDirect(
+          search,
+          { state, settings: configuration, model: expectedModel, provider, trace },
+          configuration,
+        );
+      }
       let event = this._validateEvent(
         search,
         (await this._step(
@@ -663,6 +710,130 @@ export class NeuralSearchCoordinator {
     }
   }
 
+  async _attachSearchDirect(port, channelId) {
+    const worker = this.worker;
+    if (!worker) throw named("WorkerError", "Search worker is not loaded");
+    return new Promise((resolve, reject) => {
+      const id = ++this.sequence;
+      const timer = setTimeout(() => {
+        worker.removeEventListener?.("message", onMessage);
+        reject(named("TimeoutError", "Search direct port attachment timed out"));
+      }, 5000);
+      const onMessage = ({ data }) => {
+        if (data?.id !== id) return;
+        clearTimeout(timer);
+        worker.removeEventListener?.("message", onMessage);
+        if (data.value?.kind === "direct_attached") resolve();
+        else reject(named("WorkerError", "Search direct port attachment failed"));
+      };
+      worker.addEventListener?.("message", onMessage);
+      worker.postMessage({ control: "attachDirect", id, channelId, port }, [port]);
+    });
+  }
+
+  async _detachSearchDirect(channelId) {
+    const worker = this.worker;
+    if (!worker) return false;
+    return new Promise((resolve) => {
+      const id = ++this.sequence;
+      const timer = setTimeout(() => {
+        worker.removeEventListener?.("message", onMessage);
+        resolve(false);
+      }, 5000);
+      const onMessage = ({ data }) => {
+        if (data?.id !== id) return;
+        clearTimeout(timer);
+        worker.removeEventListener?.("message", onMessage);
+        resolve(data?.value?.kind === "direct_detached");
+      };
+      worker.addEventListener?.("message", onMessage);
+      try {
+        worker.postMessage({ control: "detachDirect", id, channelId });
+      } catch {
+        clearTimeout(timer);
+        worker.removeEventListener?.("message", onMessage);
+        resolve(false);
+      }
+    });
+  }
+
+  async _searchDirect(search, payload, configuration) {
+    this._assertOwner(search);
+    if (!this.neural || typeof this.neural.attachDirectPort !== "function")
+      throw named("WorkerError", "Neural direct inference is unavailable");
+    const channel = new MessageChannel();
+    const channelId = search.searchId;
+    let neuralAttempted = false;
+    let neuralAttached = false;
+    let searchAttempted = false;
+    let searchAttached = false;
+    try {
+      neuralAttempted = true;
+      await Promise.race([
+        this.neural.attachDirectPort(channel.port2, { channelId }),
+        search.cancelSignal,
+      ]);
+      neuralAttached = true;
+      this._assertOwner(search);
+      searchAttempted = true;
+      await Promise.race([
+        this._attachSearchDirect(channel.port1, channelId),
+        search.cancelSignal,
+      ]);
+      searchAttached = true;
+      this._assertOwner(search);
+      search.directFinal = { resolve: null, reject: null };
+      const finalPromise = new Promise((resolve, reject) => {
+        search.directFinal.resolve = resolve;
+        search.directFinal.reject = reject;
+      });
+      const admitted = await this._request(
+        { ...payload, action: "start_direct", search_id: search.searchId },
+        { timeoutMs: MAX_STEP_TIMEOUT_MS, owner: search },
+      );
+      if (admitted.event?.kind !== "direct_admitted")
+        throw named("WorkerError", "Search worker did not admit direct execution");
+      const event = await Promise.race([finalPromise, search.cancelSignal]);
+      this._assertOwner(search);
+      if (!event || event.search_id !== search.searchId)
+        throw named("RESPONSE_MISMATCH", `Direct search returned another search context: ${JSON.stringify(event).slice(0, 300)}`);
+      if (event.kind === "cancelled")
+        throw search.error ?? named("AbortError", "Direct search was cancelled");
+      if (event.kind !== "complete")
+        throw named("WorkerError", `Unexpected direct search event: ${event.kind}`);
+      this._assertOwner(search);
+      search.phase = "completed";
+      return this._finalize(search, event, configuration);
+    } finally {
+      if (searchAttempted) {
+        try {
+          const detached = await this._detachSearchDirect(channelId);
+          if (!detached) this.workerUnhealthy = true;
+        } catch {
+          this.workerUnhealthy = true;
+        }
+      }
+      if (neuralAttempted && typeof this.neural?.detachDirectPort === "function") {
+        try {
+          const detached = await this.neural.detachDirectPort({ channelId });
+          // A pending detach means an in-flight inference still owns the
+          // session. Fail closed rather than leaving a stale channel active.
+          if (detached?.pending === true && !detached?.stale) {
+            this.neural.terminate("Direct attachment cleanup did not complete");
+          }
+        } catch {
+          // If cleanup cannot be acknowledged, invalidate the neural worker so
+          // a stale port can never block/contaminate a subsequent search.
+          this.neural.terminate("Direct attachment cleanup failed");
+        }
+      }
+      channel.port1.close?.();
+      channel.port2.close?.();
+      if (search.directFinal) search.directFinal = null;
+      search.directTelemetry = null;
+    }
+  }
+
   async _step(search, payload, deadline) {
     const remaining = Math.max(0, deadline + 1000 - performance.now());
     const timeoutMs = Math.min(
@@ -684,6 +855,7 @@ export class NeuralSearchCoordinator {
     if (performance.now() > deadline + 1000)
       throw named("TimeoutError", "Search deadline passed before leaf inference");
     const requestId = `${search.searchId}:${request.request_index}`;
+    search.inferenceRequestId = requestId;
     const started = performance.now();
     search.inferencePending = true;
     const compact = this.compactInference && typeof this.neural.inferCompact === "function";
@@ -721,6 +893,7 @@ export class NeuralSearchCoordinator {
       search.timings.inferences += 1;
     }
     search.inferencePending = false;
+    search.inferenceRequestId = null;
     if (response.request_id !== requestId)
       throw named("RESPONSE_MISMATCH", "Inference response belongs to another request");
     if (response.position_digest !== request.position_digest)
@@ -749,6 +922,8 @@ export class NeuralSearchCoordinator {
     search.timings.response_policy_values += Array.isArray(response.policy_logits)
       ? response.policy_logits.length
       : 0;
+    if (response.cache_hit === true) search.timings.cache_hits += 1;
+    else search.timings.cache_misses += 1;
     const provider = {
       requested: response.provider_requested ?? null,
       execution_placement: response.execution_placement ?? null,
@@ -782,7 +957,26 @@ export class NeuralSearchCoordinator {
     const searchMetrics = { ...event.search };
     const completed = Number(searchMetrics.completed_simulations) || 0;
     const timings = { ...search.timings };
-    const unattributed = Math.max(0, elapsed - timings.step_ms - timings.neural_wait_ms);
+    const telemetry = search.directTelemetry;
+    if (telemetry) {
+      timings.inferences = telemetry.inferences;
+      timings.cache_hits = telemetry.cache_hits;
+      timings.cache_misses = telemetry.cache_misses;
+      timings.neural_wait_ms = telemetry.neural_wait_ms;
+      timings.tensor_prepare_ms = telemetry.tensor_prepare_ms;
+      timings.inference_execution_ms = telemetry.inference_execution_ms;
+      timings.policy_extract_ms = telemetry.policy_extract_ms;
+      if (search.provider === null && telemetry.inferences > 0) {
+        search.provider = {
+          requested: telemetry.provider_requested ?? null,
+          execution_placement: telemetry.execution_placement ?? null,
+          gpu_execution_verified: telemetry.gpu_execution_verified === true,
+        };
+      }
+    }
+    const unattributed = telemetry
+      ? null
+      : Math.max(0, elapsed - timings.step_ms - timings.neural_wait_ms);
     return {
       analysis: event.analysis,
       search: {
@@ -794,12 +988,14 @@ export class NeuralSearchCoordinator {
           completed_simulations: completed,
           simulations_per_second: completed / (elapsed / 1000),
           steps: timings.steps,
-          step_ms: timings.step_ms,
-          python_action_ms: timings.python_ms,
+          step_ms: telemetry ? null : timings.step_ms,
+          python_action_ms: telemetry ? null : timings.python_ms,
           // Serialization + Pyodide call boundary between the coordinator and
           // the search worker (inside step_ms, outside python_action_ms).
-          bridge_overhead_ms: Math.max(0, timings.step_ms - timings.python_ms),
-          neural_wait_ms: timings.neural_wait_ms,
+          bridge_overhead_ms: telemetry
+            ? null
+            : Math.max(0, timings.step_ms - timings.python_ms),
+          neural_wait_ms: telemetry ? timings.neural_wait_ms : timings.neural_wait_ms,
           unattributed_ms: unattributed,
           inferences: timings.inferences,
           progress_events: timings.progress_events,
@@ -811,9 +1007,16 @@ export class NeuralSearchCoordinator {
           parse_ms: timings.parse_ms,
           request_bytes: timings.request_bytes,
           response_bytes: timings.response_bytes,
-          inference_payload_mode: timings.inference_payload_mode,
-          response_policy_values: timings.response_policy_values,
+          inference_payload_mode: telemetry
+            ? telemetry.inferences > 0
+              ? telemetry.payload_mode
+              : null
+            : timings.inference_payload_mode,
+          response_policy_values: telemetry ? 0 : timings.response_policy_values,
+          cache_hits: timings.cache_hits,
+          cache_misses: timings.cache_misses,
           cancellation_ms: timings.cancellation_ms,
+          direct: this.directInference === true,
           worker_reused: this.info !== null,
         },
       },

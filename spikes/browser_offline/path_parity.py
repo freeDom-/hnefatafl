@@ -26,6 +26,25 @@ from hnefatafl.mcts_driver import position_identity, validate_search_settings  #
 
 SCHEMA = 1
 REQUIRED_CATEGORIES = ("opening", "tactical", "repetition", "terminal")
+KNOWN_CASE_KINDS = {
+    "opening",
+    "midgame",
+    "endgame",
+    "tactical",
+    "repetition",
+    "terminal",
+    "king-escape",
+}
+GATE_CONTRACTS = {
+    "relay-full-compact": {
+        "full": {"transport": "relay", "payload": "full-logits"},
+        "compact": {"transport": "relay", "payload": "legal-only"},
+    },
+    "direct-relay-compact": {
+        "full": {"transport": "relay", "payload": "legal-only"},
+        "compact": {"transport": "direct", "payload": "legal-only"},
+    },
+}
 COMPLETION_REASONS = {
     "simulations",
     "deadline",
@@ -91,7 +110,13 @@ def _move(move: Any) -> Move | None:
 def _validate_legality(case: dict, failures: list[str], state: State) -> None:
     terminal = state.winner is not None
     for label in ("full", "compact"):
-        move_raw = case.get(f"{label}_move")
+        result = case.get(label) if isinstance(case.get(label), dict) else {}
+        analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        move_raw = analysis.get("best_move")
+        if f"{label}_move" not in case:
+            failures.append(f"{label}: mirrored best-move field is missing")
+        elif _canonical(case.get(f"{label}_move")) != _canonical(move_raw):
+            failures.append(f"{label}: mirrored best move disagrees with the search result")
         move = _move(move_raw)
         if terminal:
             if move_raw is not None:
@@ -180,7 +205,7 @@ def _validate_terminal_or_immediate(
     return False
 
 
-def _validate_common(case: dict, failures: list[str]) -> None:
+def _validate_common(case: dict, failures: list[str], contract: dict | None) -> None:
     full, compact = case.get("full"), case.get("compact")
     if not isinstance(full, dict) or not isinstance(compact, dict):
         failures.append("full and compact results must both be objects")
@@ -215,14 +240,50 @@ def _validate_common(case: dict, failures: list[str]) -> None:
     terminal = case.get("terminal") is True
     full_mode = full_coordinator.get("inference_payload_mode")
     compact_mode = compact_coordinator.get("inference_payload_mode")
-    if terminal:
-        if full_mode is not None or compact_mode is not None:
-            failures.append("terminal search reported an inference payload")
+    if contract is None:
+        failures.append("no canonical gate contract is available for this case")
+        expected_transports = None
+        expected_modes = None
     else:
-        if full_mode != "full-logits":
-            failures.append("full path did not report full-logits")
-        if compact_mode != "legal-only":
-            failures.append("compact path did not report legal-only")
+        expected_transports = {
+            "full": contract["full"]["transport"],
+            "compact": contract["compact"]["transport"],
+        }
+        expected_modes = {
+            "full": contract["full"]["payload"],
+            "compact": contract["compact"]["payload"],
+        }
+        duplicated_modes = case.get("expected_payload_modes")
+        if _canonical(duplicated_modes) != _canonical(expected_modes):
+            failures.append("duplicated expected payload modes contradict the canonical gate")
+        duplicated_transports = case.get("expected_transports")
+        if _canonical(duplicated_transports) != _canonical(expected_transports):
+            failures.append("duplicated expected transports contradict the canonical gate")
+    if expected_modes is not None:
+        if terminal:
+            if full_mode is not None or compact_mode is not None:
+                failures.append("terminal search reported an inference payload")
+        else:
+            if full_mode != expected_modes["full"]:
+                failures.append(
+                    f"full path payload mode {full_mode!r} does not match canonical {expected_modes['full']!r}"
+                )
+            if compact_mode != expected_modes["compact"]:
+                failures.append(
+                    f"compact path payload mode {compact_mode!r} does not match canonical {expected_modes['compact']!r}"
+                )
+    if expected_transports is not None:
+        for label, search, coordinator in (
+            ("full", full_search, full_coordinator),
+            ("compact", compact_search, compact_coordinator),
+        ):
+            observed = coordinator.get("direct")
+            if not isinstance(observed, bool):
+                failures.append(f"{label} search did not report its transport mode")
+            elif observed != (expected_transports[label] == "direct"):
+                failures.append(
+                    f"{label} observed transport does not match canonical {expected_transports[label]}"
+                )
     full_values = full_coordinator.get("response_policy_values")
     if not _is_int(full_values):
         failures.append("full path has no integer policy-value count")
@@ -308,7 +369,7 @@ def _validate_fixed_time(case: dict, failures: list[str]) -> None:
         if not isinstance(cutoff, bool):
             failures.append(f"{label}: deadline_cutoff must be a boolean")
         reason = search.get("completion_reason")
-        if reason not in COMPLETION_REASONS:
+        if not isinstance(reason, str) or reason not in COMPLETION_REASONS:
             failures.append(f"{label}: unsupported completion reason {reason!r}")
         special = _validate_terminal_or_immediate(search, analysis, label, terminal, failures)
         if not special:
@@ -331,7 +392,9 @@ def _validate_fixed_time(case: dict, failures: list[str]) -> None:
             failures.append(f"{label}: search timing is implausibly short")
 
 
-def _case_failures(case: dict, expected_model: dict | None) -> tuple[list[str], str | None]:
+def _case_failures(
+    case: dict, expected_model: dict | None, contract: dict | None
+) -> tuple[list[str], str | None]:
     failures: list[str] = []
     execution_error = case.get("execution_error")
     if execution_error is not None:
@@ -354,7 +417,7 @@ def _case_failures(case: dict, expected_model: dict | None) -> tuple[list[str], 
     except (ValueError, KeyError, TypeError) as error:
         failures.append(f"invalid settings: {error}")
         return failures, None
-    _validate_common(case, failures)
+    _validate_common(case, failures, contract)
     search = full.get("search") if isinstance(full.get("search"), dict) else {}
     if expected_model is not None:
         model = search.get("model") if isinstance(search.get("model"), dict) else {}
@@ -388,8 +451,10 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
         if not isinstance(entry, dict):
             failures.append(f"model coverage entry {index} must be an object")
             continue
-        if entry.get("ruleset") not in RULESETS:
+        ruleset = entry.get("ruleset")
+        if not isinstance(ruleset, str) or ruleset not in RULESETS:
             failures.append(f"model coverage entry {index} has an unsupported ruleset")
+            continue
         if not _is_int(entry.get("size")) or not 5 <= int(entry["size"]) <= 15:
             failures.append(f"model coverage entry {index} has an invalid size")
         if not _hex64(entry.get("sha256")):
@@ -402,6 +467,9 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
     if not isinstance(expected_rulesets, list) or not expected_rulesets:
         failures.append("expected_rulesets must be a non-empty list")
         expected_rulesets = []
+    elif any(not isinstance(name, str) for name in expected_rulesets):
+        failures.append("expected_rulesets must contain only strings")
+        expected_rulesets = [name for name in expected_rulesets if isinstance(name, str)]
     elif any(name not in RULESETS for name in expected_rulesets):
         failures.append("expected_rulesets contains an unsupported ruleset")
         expected_rulesets = [name for name in expected_rulesets if name in RULESETS]
@@ -425,14 +493,26 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
             not isinstance(entry, dict)
             or not isinstance(entry.get("name"), str)
             or not entry.get("name")
+            or not isinstance(entry.get("ruleset"), str)
             or entry.get("ruleset") not in RULESETS
         ):
             failures.append(f"expected case entry {index} is malformed")
             continue
         valid_expected.append(entry)
     cases = report.get("cases") if isinstance(report.get("cases"), list) else []
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            continue
+        if not isinstance(case.get("ruleset"), str) or case.get("ruleset") not in RULESETS:
+            failures.append(f"case entry {index} has an invalid ruleset identifier")
+        if not isinstance(case.get("position"), str) or not case.get("position"):
+            failures.append(f"case entry {index} has an invalid position identifier")
     actual_names = {
-        (case.get("ruleset"), case.get("position")) for case in cases if isinstance(case, dict)
+        (case.get("ruleset"), case.get("position"))
+        for case in cases
+        if isinstance(case, dict)
+        and isinstance(case.get("ruleset"), str)
+        and isinstance(case.get("position"), str)
     }
     for entry in valid_expected:
         key = (entry.get("ruleset"), entry.get("name"))
@@ -450,16 +530,24 @@ def _coverage(report: dict, synthetic: list[dict]) -> list[str]:
                 }
             )
     observed_names = [
-        (case.get("ruleset"), case.get("position")) for case in cases if isinstance(case, dict)
+        (case.get("ruleset"), case.get("position"))
+        for case in cases
+        if isinstance(case, dict)
+        and isinstance(case.get("ruleset"), str)
+        and isinstance(case.get("position"), str)
     ]
     if len(set(observed_names)) != len(observed_names):
         failures.append("measured cases contain duplicate position identifiers")
     for ruleset in expected_rulesets:
-        present = {
-            case.get("kind")
-            for case in cases
-            if isinstance(case, dict) and case.get("ruleset") == ruleset
-        }
+        present = set()
+        for case in cases:
+            if not isinstance(case, dict) or case.get("ruleset") != ruleset:
+                continue
+            kind = case.get("kind")
+            if not isinstance(kind, str) or kind not in KNOWN_CASE_KINDS:
+                failures.append(f"case entry {case.get('position')!r} has an invalid position kind")
+                continue
+            present.add(kind)
         for category in REQUIRED_CATEGORIES:
             if category not in present:
                 failures.append(f"{ruleset}: missing required position category {category!r}")
@@ -537,6 +625,10 @@ def validate_report(report: dict) -> dict:
         }
     if report.get("schema") != SCHEMA:
         failures.append(f"unsupported report schema {report.get('schema')!r}")
+    gate = report.get("gate")
+    contract = GATE_CONTRACTS.get(gate) if isinstance(gate, str) else None
+    if contract is None:
+        failures.append(f"unsupported or missing parity gate {gate!r}")
     collector = _collector_failures(report, failures)
     failures.extend(f"collector: {message}" for message in collector)
     cases = report.get("cases")
@@ -553,7 +645,14 @@ def validate_report(report: dict) -> dict:
         if not isinstance(case, dict):
             failures.append("case entry is not an object")
             continue
-        case_failures, execution_error = _case_failures(case, models.get(case.get("ruleset")))
+        ruleset = case.get("ruleset")
+        expected_model = models.get(ruleset) if isinstance(ruleset, str) else None
+        if not isinstance(case.get("gate"), str) or case.get("gate") != gate:
+            case_gate_failures = ["case gate contradicts the canonical report gate"]
+        else:
+            case_gate_failures = []
+        case_failures, execution_error = _case_failures(case, expected_model, contract)
+        case_failures = case_gate_failures + case_failures
         case["failures"] = case_failures
         case["execution_error"] = execution_error
         case["ok"] = execution_error is None and not case_failures

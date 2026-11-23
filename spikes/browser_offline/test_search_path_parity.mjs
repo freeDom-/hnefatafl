@@ -16,7 +16,7 @@ import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
 
 const RULESETS = ["brandubh", "tablut", "copenhagen"];
 const argv = process.argv.slice(2);
-const valueOptions = new Set(["provider", "output", "simulations"]);
+const valueOptions = new Set(["provider", "output", "simulations", "transport", "gate"]);
 const roots = [];
 for (let index = 0; index < argv.length; index += 1) {
   const argument = argv[index];
@@ -35,7 +35,13 @@ const provider = option("provider", "wasm");
 const output = option("output", null);
 const simulations = Number(option("simulations", "64"));
 const fixedTime = flag("fixed-time");
+const gate = option("gate", "relay-full-compact");
+const forceRelay = flag("force-relay");
 const injectPageError = flag("inject-page-error");
+if (!["relay-full-compact", "direct-relay-compact"].includes(gate)) {
+  console.error("--gate must be relay-full-compact or direct-relay-compact");
+  process.exit(2);
+}
 const python = process.env.SPIKE_PYTHON || resolve(import.meta.dirname, "../../.venv/bin/python");
 const mime = {
   ".js": "text/javascript",
@@ -101,6 +107,8 @@ const report = {
   fixed_time: fixedTime,
   mode: fixedTime ? "fixed_time" : "fixed_simulations",
   simulations,
+  gate,
+  requested_transport: gate === "direct-relay-compact" ? "direct" : "relay",
   roots: roots.map((root) => basename(root)),
   expected_rulesets: [],
   models: [],
@@ -185,17 +193,18 @@ try {
     for (const entry of positions)
       report.expected_cases.push({ name: entry.name, ruleset: entry.ruleset });
 
-    async function run(entry, compact, settings) {
+    async function run(entry, compact, transport, settings) {
       return page.evaluate(
         async (payload) => {
           window.neural.coordinator.compactInference = payload.compact;
+          window.neural.coordinator.directInference = payload.transport === "direct";
           return window.neural.coordinator.search({
             state: payload.state,
             settings: payload.settings,
             model: payload.model,
           });
         },
-        { state: entry.state, settings, model, compact },
+        { state: entry.state, settings, model, compact, transport },
       );
     }
 
@@ -204,6 +213,8 @@ try {
       const settings = fixedTime
         ? { iterations: 4096, time_limit: 0.25, seed: 7, exploration: 1.4 }
         : { iterations: simulations, time_limit: 10, seed: 7, exploration: 1.4 };
+      const expectedDirect = gate === "direct-relay-compact";
+      const direct = expectedDirect && !forceRelay;
       const caseReport = {
         ruleset: entry.ruleset,
         position: entry.name,
@@ -212,11 +223,23 @@ try {
         mode: fixedTime ? "fixed_time" : "fixed_simulations",
         settings,
         state: entry.state,
+        gate,
+        expected_transports: expectedDirect
+          ? { full: "relay", compact: "direct" }
+          : { full: "relay", compact: "relay" },
+        expected_payload_modes: gate === "direct-relay-compact"
+          ? { full: "legal-only", compact: "legal-only" }
+          : { full: "full-logits", compact: "legal-only" },
       };
       try {
-        const full = await run(entry, false, settings);
+        const full = await run(entry, gate !== "relay-full-compact", "relay", settings);
         await sleep(5);
-        const compact = await run(entry, true, settings);
+        const compact = await run(
+          entry,
+          true,
+          expectedDirect ? (direct ? "direct" : "relay") : "relay",
+          settings,
+        );
         caseReport.full = full;
         caseReport.compact = compact;
         caseReport.full_move = full.analysis?.best_move ?? null;

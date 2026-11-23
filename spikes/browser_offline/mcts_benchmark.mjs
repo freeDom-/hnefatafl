@@ -34,6 +34,8 @@ const requireWebGPU = flag("require-webgpu");
 // transport; full-logits preserves the Phase 2 reference for controlled
 // comparison and numerical inspection.
 const payloadMode = option("payload-mode", "compact");
+const inferenceCache = flag("cache");
+const transport = option("transport", "relay");
 const seed = Number(option("seed", "7"));
 const exploration = Number(option("exploration", "1.4"));
 const python = process.env.SPIKE_PYTHON || resolve(import.meta.dirname, "../../.venv/bin/python");
@@ -80,6 +82,8 @@ const report = {
   browser: null,
   requested_provider: provider,
   inference_payload_mode: payloadMode,
+  inference_cache_enabled: inferenceCache,
+  transport,
   engine_identity: null,
   workload_digest: null,
   workload: null,
@@ -356,6 +360,15 @@ try {
     ruleset: identity.load.model_ruleset,
     size: identity.load.size,
   };
+  report.inference_cache_configuration = await page.evaluate(
+    async (enabled) =>
+      window.neural.client.configureInferenceCache({
+        enabled,
+        maxEntries: 8192,
+        maxBytes: 64 * 1024 * 1024,
+      }),
+    inferenceCache,
+  );
   async function runSearch(position, settings, { warm, repetition, mode, budget }) {
     const record = {
       runtime: "browser-pyodide",
@@ -374,6 +387,7 @@ try {
       const result = await page.evaluate(
         async (payload) => {
           window.neural.coordinator.compactInference = payload.compact;
+          window.neural.coordinator.directInference = payload.direct;
           return window.neural.coordinator.search({
             state: payload.state,
             settings: payload.settings,
@@ -385,6 +399,7 @@ try {
           settings,
           model: capturedModel,
           compact: payloadMode === "compact",
+          direct: transport === "direct",
         },
       );
       const elapsed = Date.now() - started;
@@ -419,10 +434,17 @@ try {
       record.encode_ms = timing.encoding_ms ?? null;
       record.legal_generation_ms = timing.legal_generation_ms ?? null;
       record.state_validation_ms = timing.validation_ms ?? null;
-      record.traversal_ms = Math.max(0, (coordinator.python_action_ms ?? 0) - workerMs);
+      record.traversal_ms =
+        coordinator.python_action_ms === null || coordinator.python_action_ms === undefined
+          ? null
+          : Math.max(0, coordinator.python_action_ms - workerMs);
       record.inferences = coordinator.inferences;
+      record.transport = search.coordinator?.direct ? "direct" : transport;
+      record.search_provider = search.provider ?? null;
       record.inference_payload_mode = coordinator.inference_payload_mode;
       record.response_policy_values = coordinator.response_policy_values;
+      record.cache_hits = coordinator.cache_hits ?? 0;
+      record.cache_misses = coordinator.cache_misses ?? 0;
       record.peak_pending_inferences = 1; // sequential driver: never more than one
       record.deadline_overshoot_ms =
         mode === "fixed_time" ? Math.max(0, elapsed - budget * 1000) : 0;
@@ -463,6 +485,11 @@ try {
     }
   }
 
+  if (inferenceCache) {
+    report.inference_cache_stats = await page.evaluate(() =>
+      window.neural.client.inferenceCacheStats(),
+    );
+  }
   const fixedWorkRows = report.records.filter(
     (record) => record.mode === "fixed_simulations" && record.ok,
   );

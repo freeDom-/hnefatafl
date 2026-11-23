@@ -117,6 +117,7 @@ def _case(entry: dict, *, fixed_time: bool = False) -> dict:
             "root_visits": copy.deepcopy(root_visits),
             "best_move": copy.deepcopy(best),
             "coordinator": {
+                "direct": mode == "direct",
                 "inference_payload_mode": None
                 if terminal
                 else ("legal-only" if mode == "compact" else "full-logits"),
@@ -148,6 +149,12 @@ def _case(entry: dict, *, fixed_time: bool = False) -> dict:
         "compact": result("compact"),
         "full_move": copy.deepcopy(best),
         "compact_move": copy.deepcopy(best),
+        "gate": "relay-full-compact",
+        "expected_transports": {"full": "relay", "compact": "relay"},
+        "expected_payload_modes": {
+            "full": "full-logits",
+            "compact": "legal-only",
+        },
         "ok": False,
     }
 
@@ -158,6 +165,7 @@ def _report(*, fixed_time: bool = False) -> dict:
     return {
         "kind": "mcts-search-path-parity-observations",
         "schema": 1,
+        "gate": "relay-full-compact",
         "roots": ["brandubh"],
         "expected_rulesets": ["brandubh"],
         "models": [{**MODEL, "provider_requested": "wasm", "execution_placement": "wasm"}],
@@ -550,3 +558,212 @@ def test_one_failed_case_does_not_hide_other_successes_or_collector_errors():
     failed = [case for case in validated["cases"] if not case["ok"]]
     assert failed == [target]
     assert any("collector failure after case" in failure for failure in validated["failures"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda case: case["full"]["analysis"].update(
+            best_move={"source": 99, "target": 99}
+        ),  # mirrored still legal
+        lambda case: case["compact"]["analysis"].update(best_move={"source": 98, "target": 98}),
+        lambda case: case.update(full_move={"source": 97, "target": 97}),
+        lambda case: (
+            case["full"]["analysis"].update(best_move={"source": 96, "target": 96}),
+            case["compact"]["analysis"].update(best_move={"source": 96, "target": 96}),
+            case.update(
+                full_move={"source": 96, "target": 96},
+                compact_move={"source": 96, "target": 96},
+            ),
+        ),
+    ],
+)
+def test_nested_best_moves_are_authoritative(mutation):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    case = _fixed_time_case(report)
+    mutation(case)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert any("best move" in failure for failure in case["failures"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: report["models"][0].update(ruleset=["brandubh"]),
+        lambda report: report.update(expected_rulesets=[["brandubh"]]),
+        lambda report: report["expected_cases"][0].update(name={"bad": "name"}),
+        lambda report: report["expected_cases"][0].update(ruleset=["brandubh"]),
+        lambda report: report["cases"][0].update(ruleset=["brandubh"]),
+        lambda report: report["cases"][0].update(position={"bad": "position"}),
+        lambda report: report["cases"][0].update(position=None),
+    ],
+)
+def test_malformed_coverage_identifiers_fail_without_exceptions(tmp_path, mutation):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    mutation(report)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert validated["failures"]
+    code, cli_report = _run_cli(tmp_path, report)
+    assert code != 0
+    assert cli_report["ok"] is False
+    assert cli_report["failures"]
+
+
+@pytest.mark.parametrize("value", [None, [], {}, True, 3, "unsupported-kind"])
+def test_malformed_case_kind_is_rejected(value):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    report["cases"][0]["kind"] = value
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert validated["failures"]
+    assert any("invalid position kind" in failure for failure in validated["failures"])
+
+
+@pytest.mark.parametrize("value", [None, [], {}, True, 3, "unsupported-reason"])
+def test_malformed_completion_reason_is_rejected(value):
+    report = _report(fixed_time=True)
+    report["mode"] = "fixed_time"
+    case = _fixed_time_case(report)
+    case["full"]["search"]["completion_reason"] = value
+    case["compact"]["search"]["completion_reason"] = value
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert any("unsupported completion reason" in failure for failure in case["failures"])
+
+
+@pytest.mark.parametrize("value", [None, [], {}, True, 3, "unsupported-kind"])
+def test_cli_rejects_malformed_kind_and_exits_nonzero(tmp_path, value):
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    report["cases"][0]["kind"] = value
+    code, validated = _run_cli(tmp_path, report)
+    assert code != 0
+    assert validated["ok"] is False
+    assert validated["failures"]
+
+
+def _direct_relay_case(report: dict) -> dict:
+    report["gate"] = "direct-relay-compact"
+    selected = _fixed_time_case(report)
+    for case in report["cases"]:
+        case["gate"] = "direct-relay-compact"
+        case["expected_transports"] = {"full": "relay", "compact": "direct"}
+        case["expected_payload_modes"] = {"full": "legal-only", "compact": "legal-only"}
+        case["full"]["search"]["coordinator"]["direct"] = False
+        case["full"]["search"]["coordinator"]["inference_payload_mode"] = (
+            None if case["terminal"] else "legal-only"
+        )
+        case["compact"]["search"]["coordinator"]["direct"] = True
+        case["compact"]["search"]["coordinator"]["inference_payload_mode"] = (
+            None if case["terminal"] else "legal-only"
+        )
+    return selected
+
+
+def test_direct_compact_versus_relay_compact_parity():
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    _direct_relay_case(report)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is True, validated["failures"]
+
+
+def test_direct_gate_fails_when_relay_runs_and_direct_is_mislabelled():
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    case = _direct_relay_case(report)
+    case["compact"]["search"]["coordinator"]["direct"] = False
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert any("observed transport" in failure for failure in case["failures"])
+
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    case = _direct_relay_case(report)
+    case["compact"]["search"]["coordinator"]["inference_payload_mode"] = "full-logits"
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert case["ok"] is False
+    assert any("payload mode" in failure for failure in case["failures"])
+
+
+def _canonical_direct_report() -> dict:
+    report = _report()
+    report["mode"] = "fixed_simulations"
+    _direct_relay_case(report)
+    return report
+
+
+def test_direct_gate_observed_relay_relay_is_rejected():
+    report = _canonical_direct_report()
+    for case in report["cases"]:
+        case["compact"]["search"]["coordinator"]["direct"] = False
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert any("observed transport" in failure for failure in validated["failures"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: report["cases"][0].update(
+            expected_transports={"full": "relay", "compact": "relay"}
+        ),
+        lambda report: report["cases"][0].update(
+            expected_payload_modes={"full": "full-logits", "compact": "legal-only"}
+        ),
+        lambda report: report["cases"][0].update(gate="relay-full-compact"),
+        lambda report: report.update(gate="unsupported-gate"),
+        lambda report: report.pop("gate"),
+        lambda report: report.update(gate=["direct-relay-compact"]),
+        lambda report: report.update(gate=None),
+    ],
+)
+def test_canonical_gate_contradictions_are_rejected(mutation):
+    report = _canonical_direct_report()
+    mutation(report)
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    assert validated["failures"]
+
+
+def test_one_corrupted_case_does_not_hide_other_successes():
+    report = _canonical_direct_report()
+    target = report["cases"][0]
+    target["compact"]["search"]["coordinator"]["direct"] = False
+    validated = path_parity.validate_report(report)
+    assert validated["ok"] is False
+    failed = [case for case in validated["cases"] if not case["ok"]]
+    assert failed == [target]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: report["cases"][0].update(
+            expected_transports={"full": "relay", "compact": "relay"}
+        ),
+        lambda report: report["cases"][0].update(
+            expected_payload_modes={"full": "full-logits", "compact": "legal-only"}
+        ),
+        lambda report: report["cases"][0].update(gate="relay-full-compact"),
+        lambda report: report.update(gate="unsupported-gate"),
+        lambda report: report.pop("gate"),
+        lambda report: report.update(gate=42),
+    ],
+)
+def test_canonical_gate_cli_failures_are_structured(tmp_path, mutation):
+    report = _canonical_direct_report()
+    mutation(report)
+    code, validated = _run_cli(tmp_path, report)
+    assert code != 0
+    assert validated["ok"] is False
+    assert validated["failures"]

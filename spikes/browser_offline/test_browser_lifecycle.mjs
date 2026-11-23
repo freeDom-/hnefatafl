@@ -36,6 +36,17 @@ class FakeWorker {
     this.terminated = false;
     this.onmessage = null;
     this.onerror = null;
+    this.listeners = new Set();
+  }
+  addEventListener(type, listener) {
+    if (type === "message") this.listeners.add(listener);
+  }
+  removeEventListener(type, listener) {
+    if (type === "message") this.listeners.delete(listener);
+  }
+  dispatch(data) {
+    this.onmessage?.({ data });
+    for (const listener of [...this.listeners]) listener({ data });
   }
   postMessage(message) {
     this.messages.push(message);
@@ -45,8 +56,7 @@ class FakeWorker {
   }
   respond(index, value, error = null, code = null) {
     const message = this.messages[index];
-    if (this.onmessage)
-      this.onmessage({ data: { id: message.id, value, error, code } });
+    this.dispatch({ id: message.id, value, error, code });
   }
   fail(message = "fake worker failure") {
     if (this.onerror) this.onerror({ message });
@@ -876,8 +886,554 @@ await check("a normal client cannot activate any test-worker action", async () =
   client.terminate();
 });
 
-console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
 if (failures.length) {
   for (const row of failures) console.error(`  - ${row.name}: ${row.error}`);
   process.exit(1);
 }
+
+// ---------- bounded independent-search batching ----------
+function batchingClient(maxBatch = 4, maxQueue = 4) {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient({ batching: true, maxBatch, maxQueue, batchDelayMs: 1 });
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+  };
+  return client;
+}
+
+function compactRequest(id, planes = null) {
+  return {
+    planes: planes ?? new Array(294).fill(0),
+    size: 7,
+    legal: [0, 1],
+    ruleset: "brandubh",
+    request_id: id,
+    position_digest: "b".repeat(64),
+    model: { sha256: "a".repeat(64), ruleset: "brandubh", size: 7 },
+  };
+}
+
+function batchResult(requestId, value = 0.25) {
+  return {
+    index: 0,
+    request_id: requestId,
+    position_digest: "b".repeat(64),
+    value,
+    legal: [0, 1],
+    legal_probabilities: [0.5, 0.5],
+  };
+}
+
+await check("independent inference requests share one bounded batch", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("r1"));
+  const second = client.inferCompact(compactRequest("r2"));
+  await sleep(10);
+  const worker = client.worker;
+  assert.equal(worker.messages.length, 1);
+  const payload = worker.messages[0].request;
+  assert.equal(payload.action, "inferManyCompact");
+  assert.equal(payload.cases.length, 2);
+  worker.respond(0, {
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    gpu_execution_verified: false,
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    results: [batchResult("r2", 0.4), batchResult("r1", 0.2)],
+    tensor_prepare_ms: 1,
+    run_ms: 2,
+    extract_ms: 0,
+    batch: 2,
+  });
+  const [one, two] = await Promise.all([first, second]);
+  assert.equal(one.value, 0.2);
+  assert.equal(two.value, 0.4);
+  assert.equal(one.request_id, "r1");
+  assert.equal(two.request_id, "r2");
+  assert.equal(client.batchStatistics().batches, 1);
+  assert.equal(client.batchStatistics().observed_max_batch, 2);
+  client.terminate();
+});
+await check("batch queue is bounded and rejects overflow", async () => {
+  const client = batchingClient(2, 1);
+  const first = client.inferCompact(compactRequest("q1"));
+  await assert.rejects(
+    () => client.inferCompact(compactRequest("q2")),
+    (error) => error.code === "QUEUE_FULL",
+  );
+  await sleep(10);
+  client.worker.respond(0, {
+    results: [batchResult("q1")],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 1,
+    tensor_prepare_ms: 0,
+    run_ms: 1,
+    extract_ms: 0,
+  });
+  await first;
+  client.terminate();
+});
+await check("queued batched inference can be cancelled by request id", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("c1"));
+  const second = client.inferCompact(compactRequest("c2"));
+  const drained = await client.cancelRequest({ requestId: "c1", reason: "queued cancel" });
+  assert.equal(drained.state, "drained");
+  await assert.rejects(first, (error) => error.name === "AbortError");
+  await sleep(10);
+  client.worker.respond(0, {
+    results: [batchResult("c2")],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 1,
+    tensor_prepare_ms: 0,
+    run_ms: 1,
+    extract_ms: 0,
+  });
+  assert.equal((await second).request_id, "c2");
+  client.terminate();
+});
+await check("a failed batch rejects every independent search", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("f1"));
+  const second = client.inferCompact(compactRequest("f2"));
+  await sleep(10);
+  client.worker.respond(0, null, "batch failed", "OUTPUT_INVALID");
+  await assert.rejects(first, (error) => error.code === "OUTPUT_INVALID");
+  await assert.rejects(second, (error) => error.code === "OUTPUT_INVALID");
+  client.terminate();
+});
+
+function within(promise, milliseconds = 500) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("test deadline exceeded")), milliseconds),
+    ),
+  ]);
+}
+
+await check("in-flight batch cancellation settles on batch success", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("s1"));
+  const second = client.inferCompact(compactRequest("s2"));
+  await sleep(10);
+  const cancel = client.cancelRequest({ requestId: "s1", reason: "cancel in flight" });
+  client.worker.respond(0, {
+    results: [batchResult("s1"), batchResult("s2", 0.4)],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 2,
+    tensor_prepare_ms: 1,
+    run_ms: 2,
+    extract_ms: 0,
+  });
+  await assert.rejects(within(first), (error) => error.name === "AbortError");
+  assert.equal((await within(second)).value, 0.4);
+  assert.equal((await within(cancel)).state, "drained");
+  client.terminate();
+});
+await check("in-flight batch cancellation settles on batch failure", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("b1"));
+  const second = client.inferCompact(compactRequest("b2"));
+  await sleep(10);
+  const cancel = client.cancelRequest({ requestId: "b1", reason: "cancel in flight" });
+  client.worker.respond(0, null, "batch failed", "OUTPUT_INVALID");
+  await assert.rejects(within(first), (error) => error.name === "AbortError");
+  await assert.rejects(within(second), (error) => error.code === "OUTPUT_INVALID");
+  assert.equal((await within(cancel)).outcome, "failed");
+  client.terminate();
+});
+await check("worker crash settles queued and in-flight batches", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("w1"));
+  const second = client.inferCompact(compactRequest("w2"));
+  await sleep(10);
+  client.worker.fail("batch worker crashed");
+  await assert.rejects(within(first), (error) => error.name === "WorkerError");
+  await assert.rejects(within(second), (error) => error.name === "WorkerError");
+  assert.equal(client.batchQueue.length, 0);
+  assert.equal(client.batchEntries.size, 0);
+  client.terminate();
+});
+await check("termination and disposal reject outstanding batches", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("t1"));
+  const second = client.inferCompact(compactRequest("t2"));
+  await sleep(10);
+  client.terminate("test termination");
+  await assert.rejects(within(first), (error) => error.name === "AbortError");
+  await assert.rejects(within(second), (error) => error.name === "AbortError");
+  assert.equal(client.batchQueue.length, 0);
+  assert.equal(client.batchEntries.size, 0);
+
+  const replacement = batchingClient();
+  const pending = replacement.inferCompact(compactRequest("d1"));
+  await sleep(10);
+  replacement.dispose();
+  await assert.rejects(within(pending), (error) => error.name === "AbortError");
+});
+await check("timeout/abort rejects outstanding batches exactly once", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("x1"));
+  const second = client.inferCompact(compactRequest("x2"));
+  await sleep(10);
+  const timeout = Object.assign(new Error("test timeout"), {
+    name: "TimeoutError",
+    code: "TimeoutError",
+  });
+  client.abort(timeout);
+  await assert.rejects(within(first), (error) => error.name === "TimeoutError");
+  await assert.rejects(within(second), (error) => error.name === "TimeoutError");
+  assert.equal(client.batchQueue.length, 0);
+  assert.equal(client.batchEntries.size, 0);
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+  };
+  const replacement = client.inferCompact(compactRequest("x3"));
+  await sleep(10);
+  client.worker.respond(0, {
+    results: [batchResult("x3")],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 1,
+    tensor_prepare_ms: 0,
+    run_ms: 1,
+    extract_ms: 0,
+  });
+  assert.equal((await within(replacement)).request_id, "x3");
+  client.terminate();
+});
+
+await check("unresponsive shared batch fails closed within drain bound", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("u1"));
+  const second = client.inferCompact(compactRequest("u2"));
+  await sleep(10);
+  const firstSettled = assert.rejects(within(first), (error) => error.name === "AbortError");
+  const secondSettled = assert.rejects(within(second), (error) => error.name === "AbortError");
+  const cancel = client.cancelRequest({
+    requestId: "u1",
+    reason: "bounded drain",
+    drainMs: 30,
+  });
+  const result = await within(cancel, 500);
+  assert.equal(result.state, "terminated");
+  assert.equal(result.errorCode, "DRAIN_TIMEOUT");
+  await firstSettled;
+  await secondSettled;
+  assert.equal(client.worker, null);
+  assert.equal(client.batchQueue.length, 0);
+  assert.equal(client.batchEntries.size, 0);
+});
+await check("repeated cancellation of one batch member is counted once", async () => {
+  const client = batchingClient();
+  const first = client.inferCompact(compactRequest("m1"));
+  const second = client.inferCompact(compactRequest("m2"));
+  await sleep(10);
+  const firstSettled = assert.rejects(within(first), (error) => error.name === "AbortError");
+  const one = client.cancelRequest({ requestId: "m1", drainMs: 100 });
+  const two = client.cancelRequest({ requestId: "m1", drainMs: 100 });
+  client.worker.respond(0, {
+    results: [batchResult("m1"), batchResult("m2")],
+    provider_requested: "wasm",
+    execution_placement: "wasm",
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    model_bytes: 1,
+    batch: 2,
+    tensor_prepare_ms: 0,
+    run_ms: 1,
+    extract_ms: 0,
+  });
+  await firstSettled;
+  assert.equal((await within(second)).request_id, "m2");
+  assert.equal((await within(one)).state, "drained");
+  assert.equal((await within(two)).state, "drained");
+  assert.equal(client.batchStatistics().rejected, 1);
+  client.terminate();
+});
+
+await check("constructor batching limits are validated", () => {
+  assert.throws(
+    () => new NeuralClient({ batching: true, maxBatch: 0 }),
+    (error) => error.code === "INPUT_INVALID",
+  );
+  assert.throws(
+    () => new NeuralClient({ batching: true, maxQueue: 0 }),
+    (error) => error.code === "INPUT_INVALID",
+  );
+  assert.throws(
+    () => new NeuralClient({ batching: true, batchDelayMs: -1 }),
+    (error) => error.code === "INPUT_INVALID",
+  );
+});
+
+
+// ---------- pending direct attachment ownership ----------
+function pendingDirectClient() {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.worker = new FakeWorker();
+  client.workerProvider = "wasm";
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+    provider: "wasm",
+  };
+  return client;
+}
+
+await check("pending direct attachment reserves ownership before acknowledgment", async () => {
+  const client = pendingDirectClient();
+  const modelBefore = client.modelIdentity();
+  const workerBefore = client.worker;
+  let fetches = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetches += 1;
+    throw new Error("should not fetch");
+  };
+  const channel = new MessageChannel();
+  const attachment = client.attachDirectPort(channel.port2, {
+    channelId: "pending-a",
+    timeoutMs: 1000,
+  });
+  assert.equal(client.directChannel.state, "pending");
+  await assert.rejects(
+    () => client.load("/model.onnx", {
+      provider: "wasm",
+      size: 7,
+      ruleset: "brandubh",
+      expectedSha256: "a".repeat(64),
+    }),
+    (error) => error.code === "DIRECT_BUSY",
+  );
+  await assert.rejects(
+    () => client.load("/model.onnx", {
+      provider: "webgpu",
+      size: 7,
+      ruleset: "brandubh",
+      expectedSha256: "a".repeat(64),
+    }),
+    (error) => error.code === "DIRECT_BUSY",
+  );
+  assert.throws(
+    () => client.attachDirectPort(new MessageChannel().port2, { channelId: "pending-b" }),
+    (error) => error.code === "DIRECT_BUSY",
+  );
+  assert.equal(fetches, 0);
+  assert.equal(client.worker, workerBefore);
+  assert.deepEqual(client.modelIdentity(), modelBefore);
+  const attachMessage = client.worker.messages.find(
+    (message) => message.control === "attachDirectPort",
+  );
+  client.worker.respond(client.worker.messages.indexOf(attachMessage), {
+    kind: "direct_port_attached",
+  });
+  await attachment;
+  assert.equal(client.directChannel.state, "attached");
+  const detach = client.detachDirectPort({ channelId: "pending-a" });
+  const detachMessage = client.worker.messages.at(-1);
+  assert.equal(detachMessage.control, "detachDirectPort");
+  client.worker.respond(client.worker.messages.length - 1, {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await detach;
+  assert.equal(client.directChannel, null);
+  globalThis.fetch = originalFetch;
+  client.terminate();
+});
+function respondControl(client, control, value) {
+  const index = client.worker.messages.findLastIndex(
+    (message) => message.control === control,
+  );
+  assert.ok(index >= 0, `${control} was not sent`);
+  client.worker.respond(index, value);
+  return index;
+}
+
+await check("pending attachment timeout enters detaching until detach is confirmed", async () => {
+  const client = pendingDirectClient();
+  const timed = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "timeout-a",
+    timeoutMs: 20,
+  });
+  await assert.rejects(timed, (error) => error.name === "TimeoutError");
+  assert.equal(client.directChannel.state, "detaching");
+  assert.ok(
+    client.worker.messages.some((message) => message.control === "detachDirectPort"),
+  );
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await sleep(1);
+  assert.equal(client.directChannel, null);
+  assert.deepEqual(client.modelIdentity(), {
+    sha256: "a".repeat(64),
+    ruleset: "brandubh",
+    size: 7,
+  });
+  client.terminate();
+});
+
+await check("unconfirmed detach invalidates the worker and model", async () => {
+  const client = pendingDirectClient();
+  const worker = client.worker;
+  const timed = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "timeout-fail-a",
+    timeoutMs: 20,
+  });
+  await assert.rejects(timed, (error) => error.name === "TimeoutError");
+  await sleep(40);
+  assert.equal(worker.terminated, true);
+  assert.equal(client.worker, null);
+  assert.equal(client.directChannel, null);
+  assert.equal(client.model, null);
+});
+
+await check("rejected attachment keeps detaching ownership until cleanup", async () => {
+  const client = pendingDirectClient();
+  const attach = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "reject-a",
+    timeoutMs: 100,
+  });
+  const attachIndex = client.worker.messages.findLastIndex(
+    (message) => message.control === "attachDirectPort",
+  );
+  client.worker.respond(attachIndex, null, "rejected", "DETACH_FAILED");
+  await assert.rejects(attach, (error) => error.code === "DETACH_FAILED");
+  assert.equal(client.directChannel.state, "detaching");
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await sleep(1);
+  assert.equal(client.directChannel, null);
+  assert.deepEqual(client.modelIdentity(), {
+    sha256: "a".repeat(64),
+    ruleset: "brandubh",
+    size: 7,
+  });
+  client.terminate();
+});
+
+await check("normal and repeated detach requests settle consistently", async () => {
+  const client = pendingDirectClient();
+  const attach = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "normal-a",
+    timeoutMs: 100,
+  });
+  respondControl(client, "attachDirectPort", { kind: "direct_port_attached" });
+  await attach;
+  assert.equal(client.directChannel.state, "attached");
+  const first = client.detachDirectPort({ channelId: "normal-a", timeoutMs: 100 });
+  const second = client.detachDirectPort({ channelId: "normal-a", timeoutMs: 100 });
+  assert.equal(client.directChannel.state, "detaching");
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await first;
+  assert.equal(client.directChannel, null);
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await second;
+  assert.equal(client.directChannel, null);
+  assert.equal(client.worker.terminated, false);
+  client.terminate();
+});
+
+await check("provider switch is rejected during detaching cleanup", async () => {
+  const client = pendingDirectClient();
+  const timed = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "switch-a",
+    timeoutMs: 20,
+  });
+  await assert.rejects(timed, (error) => error.name === "TimeoutError");
+  assert.equal(client.directChannel.state, "detaching");
+  await assert.rejects(
+    () => client.load("/model.onnx", {
+      provider: "webgpu",
+      size: 7,
+      ruleset: "brandubh",
+      expectedSha256: "a".repeat(64),
+    }),
+    (error) => error.code === "DIRECT_BUSY",
+  );
+  assert.equal(client.worker.terminated, false);
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await sleep(1);
+  assert.equal(client.directChannel, null);
+  client.terminate();
+});
+
+await check("pending attachment abort releases reservations", async () => {
+  const client2 = pendingDirectClient();
+  const pending = client2.attachDirectPort(new MessageChannel().port2, {
+    channelId: "abort-a",
+    timeoutMs: 1000,
+  });
+  client2.terminate("pending abort");
+  await assert.rejects(pending, (error) => error.name === "AbortError");
+  assert.equal(client2.directChannel, null);
+  assert.equal(client2.model, null);
+});
+await check("late attachment acknowledgment cannot restore a timed-out reservation", async () => {
+  const client = pendingDirectClient();
+  const pending = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "late-a",
+    timeoutMs: 20,
+  });
+  await assert.rejects(pending, (error) => error.name === "TimeoutError");
+  const message = client.worker.messages.find(
+    (item) => item.control === "attachDirectPort",
+  );
+  client.worker.respond(client.worker.messages.indexOf(message), {
+    kind: "direct_port_attached",
+  });
+  await sleep(1);
+  assert.equal(client.directChannel.state, "detaching");
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await sleep(1);
+  assert.equal(client.directChannel, null);
+  assert.deepEqual(client.modelIdentity(), {
+    sha256: "a".repeat(64),
+    ruleset: "brandubh",
+    size: 7,
+  });
+  client.terminate();
+});
+
+console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
