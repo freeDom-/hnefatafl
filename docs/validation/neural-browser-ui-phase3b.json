@@ -1,6 +1,6 @@
 {
   "kind": "browser-neural-ui",
-  "generated": "2026-11-23T08:55:49.576Z",
+  "generated": "2026-11-23T10:28:52.301Z",
   "checks": [
     {
       "name": "Infer works from a clean initial state",

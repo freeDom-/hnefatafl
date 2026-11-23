@@ -45,6 +45,18 @@ Corrected gates are:
   ruleset, legal actions and canonical binary planes are validated before every
   cache lookup. Warm-cache stale/malformed/nonbinary requests fail or bypass
   rather than reuse a cached result.
+- **Client model-state safety:** direct-channel ownership is tracked client-side
+  with channel ID and worker generation. Model loads/provider switches are
+  rejected before download, identity change or worker termination while a direct
+  owner exists. A rejected worker admission preserves the previous model only
+  when the same worker generation is intact; changed/terminated workers report no
+  model. After detach/recovery, model replacement proceeds normally.
+- **Symmetric session admission:** the inference worker reserves one mutating
+  operation synchronously before its first await and releases it in `finally`
+  with an ownership token. Direct attachment is rejected with `SESSION_BUSY` while
+  normal inference, batching, load, release, sustained or benchmark work is
+  active; normal work is rejected with `DIRECT_BUSY` while a direct channel owns
+  the session. Safe read-only queries remain available in both states.
 - **Immediate cache limits:** lowering entry/byte limits during configuration
   evicts LRU entries immediately with consistent byte/eviction accounting;
   disabling clears all entries.
@@ -98,7 +110,8 @@ Implemented an optional `MessageChannel` path:
 
 The existing coordinator relay remains the default. `directInference`/the
 experimental UI checkbox selects the direct path. Direct cancellation/restart is
-covered by actual browser tests and direct full/compact parity passes.
+covered by actual browser tests; direct compact is compared against relay
+compact, never described as full-logit direct execution.
 
 ### Measured comparison (Brandubh smoke model, same stage)
 
@@ -199,6 +212,8 @@ capacity figures are reported, never substituted for actual process memory.
 | Direct compact vs relay compact fixed-work/time | 13/13 each |
 | Direct ownership partial attach/cancel/failure | pass |
 | Stale direct port/model-session ownership | accepted counter unchanged after stale port; load/infer/release/cache config return DIRECT_BUSY; capabilities allowed; recovery reload works |
+| Client model preservation | rejected direct-owned loads/provider switches keep model+worker; worker termination reports no model; post-detach load succeeds |
+| Normal-operation admission | delayed normal inference rejects direct attach with SESSION_BUSY, completes, then direct attach succeeds |
 | Analysis UI (cache, direct, pending inference, navigation) | 32/32 |
 | Neural inference UI (cache validation/limits/reload/numerical parity, hook isolation) | 22/22 |
 | Neural client lifecycle (incl. batch cancellation/cache) | 54/54 |

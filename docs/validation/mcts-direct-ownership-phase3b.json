@@ -8,9 +8,9 @@
         "code": "AbortError"
       },
       "secondError": {
-        "name": "WorkerError",
+        "name": "DIRECT_BUSY",
         "code": "DIRECT_BUSY",
-        "message": "Another direct channel is already active"
+        "message": "A direct channel already owns the session"
       },
       "replacement_completed": 64,
       "replacement_direct": true,
@@ -18,6 +18,7 @@
         "name": "AbortError",
         "code": "AbortError"
       },
+      "modelAfterTermination": null,
       "recovered_completed": 64,
       "attachFailure": {
         "name": "TimeoutError"
@@ -37,6 +38,20 @@
         "pending": false,
         "stale": true
       },
+      "modelBeforeRejectedLoad": {
+        "sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+        "ruleset": "brandubh",
+        "size": 7
+      },
+      "modelAfterRejectedLoad": {
+        "sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+        "ruleset": "brandubh",
+        "size": 7
+      },
+      "workerBeforeRejectedLoad": {},
+      "workerAfterRejectedLoad": {},
+      "modelLoadError": "DIRECT_BUSY",
+      "providerSwitchError": "DIRECT_BUSY",
       "statsBeforeRaw": {
         "accepted": 130,
         "stale_rejected": 0,
@@ -52,7 +67,6 @@
         "stale_rejected": 0,
         "busy_rejected": 0
       },
-      "modelLoadError": "DIRECT_BUSY",
       "normalInferError": "DIRECT_BUSY",
       "releaseError": "DIRECT_BUSY",
       "cacheConfigError": "DIRECT_BUSY",
@@ -61,7 +75,11 @@
         "accepted": 132,
         "stale_rejected": 0,
         "busy_rejected": 0
-      }
+      },
+      "normalAttachError": "SESSION_BUSY",
+      "sustainedError": null,
+      "testClientLoadError": null,
+      "finalLoadError": null
     }
   ],
   "failures": [],
