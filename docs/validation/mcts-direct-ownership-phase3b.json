@@ -76,6 +76,17 @@
         "stale_rejected": 0,
         "busy_rejected": 0
       },
+      "failedDetachState": {
+        "result": {
+          "kind": "direct_port_detached",
+          "pending": true,
+          "timedOut": true
+        },
+        "workerTerminated": false,
+        "workerNull": true,
+        "model": null,
+        "directChannel": null
+      },
       "normalAttachError": "SESSION_BUSY",
       "sustainedError": null,
       "testClientLoadError": null,

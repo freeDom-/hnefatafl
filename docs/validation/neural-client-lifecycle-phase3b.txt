@@ -57,7 +57,12 @@ TimeoutError: Batched inference did not drain in time
 ok   repeated cancellation of one batch member is counted once
 ok   constructor batching limits are validated
 ok   pending direct attachment reserves ownership before acknowledgment
-ok   pending attachment timeout and abort release reservations
+ok   pending attachment timeout enters detaching until detach is confirmed
+ok   unconfirmed detach invalidates the worker and model
+ok   rejected attachment keeps detaching ownership until cleanup
+ok   normal and repeated detach requests settle consistently
+ok   provider switch is rejected during detaching cleanup
+ok   pending attachment abort releases reservations
 ok   late attachment acknowledgment cannot restore a timed-out reservation
 
-57/57 lifecycle checks passed
+62/62 lifecycle checks passed
