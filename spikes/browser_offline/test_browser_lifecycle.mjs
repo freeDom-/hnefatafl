@@ -36,6 +36,17 @@ class FakeWorker {
     this.terminated = false;
     this.onmessage = null;
     this.onerror = null;
+    this.listeners = new Set();
+  }
+  addEventListener(type, listener) {
+    if (type === "message") this.listeners.add(listener);
+  }
+  removeEventListener(type, listener) {
+    if (type === "message") this.listeners.delete(listener);
+  }
+  dispatch(data) {
+    this.onmessage?.({ data });
+    for (const listener of [...this.listeners]) listener({ data });
   }
   postMessage(message) {
     this.messages.push(message);
@@ -45,8 +56,7 @@ class FakeWorker {
   }
   respond(index, value, error = null, code = null) {
     const message = this.messages[index];
-    if (this.onmessage)
-      this.onmessage({ data: { id: message.id, value, error, code } });
+    this.dispatch({ id: message.id, value, error, code });
   }
   fail(message = "fake worker failure") {
     if (this.onerror) this.onerror({ message });
@@ -1177,6 +1187,128 @@ await check("constructor batching limits are validated", () => {
     () => new NeuralClient({ batching: true, batchDelayMs: -1 }),
     (error) => error.code === "INPUT_INVALID",
   );
+});
+
+
+// ---------- pending direct attachment ownership ----------
+function pendingDirectClient() {
+  globalThis.Worker = FakeWorker;
+  const client = new NeuralClient();
+  client.worker = new FakeWorker();
+  client.workerProvider = "wasm";
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+    provider: "wasm",
+  };
+  return client;
+}
+
+await check("pending direct attachment reserves ownership before acknowledgment", async () => {
+  const client = pendingDirectClient();
+  const modelBefore = client.modelIdentity();
+  const workerBefore = client.worker;
+  let fetches = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetches += 1;
+    throw new Error("should not fetch");
+  };
+  const channel = new MessageChannel();
+  const attachment = client.attachDirectPort(channel.port2, {
+    channelId: "pending-a",
+    timeoutMs: 1000,
+  });
+  assert.equal(client.directChannel.state, "pending");
+  await assert.rejects(
+    () => client.load("/model.onnx", {
+      provider: "wasm",
+      size: 7,
+      ruleset: "brandubh",
+      expectedSha256: "a".repeat(64),
+    }),
+    (error) => error.code === "DIRECT_BUSY",
+  );
+  await assert.rejects(
+    () => client.load("/model.onnx", {
+      provider: "webgpu",
+      size: 7,
+      ruleset: "brandubh",
+      expectedSha256: "a".repeat(64),
+    }),
+    (error) => error.code === "DIRECT_BUSY",
+  );
+  assert.throws(
+    () => client.attachDirectPort(new MessageChannel().port2, { channelId: "pending-b" }),
+    (error) => error.code === "DIRECT_BUSY",
+  );
+  assert.equal(fetches, 0);
+  assert.equal(client.worker, workerBefore);
+  assert.deepEqual(client.modelIdentity(), modelBefore);
+  const attachMessage = client.worker.messages.find(
+    (message) => message.control === "attachDirectPort",
+  );
+  client.worker.respond(client.worker.messages.indexOf(attachMessage), {
+    kind: "direct_port_attached",
+  });
+  await attachment;
+  assert.equal(client.directChannel.state, "attached");
+  const detach = client.detachDirectPort({ channelId: "pending-a" });
+  const detachMessage = client.worker.messages.at(-1);
+  assert.equal(detachMessage.control, "detachDirectPort");
+  client.worker.respond(client.worker.messages.length - 1, {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await detach;
+  assert.equal(client.directChannel, null);
+  globalThis.fetch = originalFetch;
+  client.terminate();
+});
+await check("pending attachment timeout and abort release reservations", async () => {
+  const client = pendingDirectClient();
+  const timed = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "timeout-a",
+    timeoutMs: 20,
+  });
+  await assert.rejects(timed, (error) => error.name === "TimeoutError");
+  assert.equal(client.directChannel, null);
+  assert.ok(
+    client.worker.messages.some((message) => message.control === "detachDirectPort"),
+  );
+
+  const client2 = pendingDirectClient();
+  const pending = client2.attachDirectPort(new MessageChannel().port2, {
+    channelId: "abort-a",
+    timeoutMs: 1000,
+  });
+  client2.terminate("pending abort");
+  await assert.rejects(pending, (error) => error.name === "AbortError");
+  assert.equal(client2.directChannel, null);
+  assert.equal(client2.model, null);
+});
+await check("late attachment acknowledgment cannot restore a timed-out reservation", async () => {
+  const client = pendingDirectClient();
+  const pending = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "late-a",
+    timeoutMs: 20,
+  });
+  await assert.rejects(pending, (error) => error.name === "TimeoutError");
+  const message = client.worker.messages.find(
+    (item) => item.control === "attachDirectPort",
+  );
+  client.worker.respond(client.worker.messages.indexOf(message), {
+    kind: "direct_port_attached",
+  });
+  await sleep(5);
+  assert.equal(client.directChannel, null);
+  assert.deepEqual(client.modelIdentity(), {
+    sha256: "a".repeat(64),
+    ruleset: "brandubh",
+    size: 7,
+  });
+  client.terminate();
 });
 
 console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);

@@ -399,7 +399,9 @@ export class NeuralClient {
     }
     this.worker = null;
     this.workerProvider = null;
+    const direct = this.directChannel;
     this.directChannel = null;
+    direct?.reject?.(error);
     this.busy = false;
     this.model = null;
     this.loading = null;
@@ -515,34 +517,121 @@ export class NeuralClient {
 
   attachDirectPort(port, { channelId, timeoutMs = 5000 } = {}) {
     if (!this.worker) throw named("WorkerError", "Neural worker is not loaded");
+    if (typeof channelId !== "string" || !channelId)
+      throw named("INPUT_INVALID", "A direct channel identity is required");
     if (this.directChannel) throw named("DIRECT_BUSY", "A direct channel already owns the session");
     const worker = this.worker;
     const generation = this.generation;
     const id = ++this.sequence;
+    // Reserve ownership synchronously before transferring the port. A concurrent
+    // load/provider switch must not terminate the worker during this window.
+    const reservation = {
+      channelId,
+      worker,
+      generation,
+      state: "pending",
+      reject: null,
+    };
+    this.directChannel = reservation;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let settled = false;
+      let timer = null;
+      const cleanup = () => {
+        if (timer !== null) clearTimeout(timer);
+        timer = null;
         worker.removeEventListener?.("message", onMessage);
-        reject(named("TimeoutError", "Neural direct port attachment timed out"));
-      }, timeoutMs);
+      };
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (this.directChannel === reservation) this.directChannel = null;
+        // A timed-out/rejected attachment may still have reached the worker.
+        // Mark the channel stale and close it when safe.
+        void this.detachDirectPort({ channelId }).catch(() => {});
+        reject(error);
+      };
+      reservation.reject = fail;
       const onMessage = ({ data }) => {
         if (data?.id !== id) return;
-        clearTimeout(timer);
-        worker.removeEventListener?.("message", onMessage);
+        if (settled) return;
+        if (this.worker !== worker || this.generation !== generation) {
+          fail(named("AbortError", "Direct attachment generation changed"));
+          return;
+        }
         if (data.value?.kind === "direct_port_attached") {
-          if (this.worker !== worker || this.generation !== generation) {
-            reject(named("AbortError", "Direct attachment generation changed"));
+          if (this.directChannel !== reservation) {
+            fail(named("AbortError", "Direct attachment reservation was superseded"));
             return;
           }
-          this.directChannel = { channelId, generation, worker };
+          settled = true;
+          reservation.state = "attached";
+          reservation.reject = null;
+          cleanup();
           resolve(data.value);
-        } else {
-          const error = named("WorkerError", data.error ?? "Neural direct port attachment failed");
-          error.code = data.code ?? "WorkerError";
-          reject(error);
+          return;
         }
+        const error = named("WorkerError", data.error ?? "Neural direct port attachment failed");
+        error.code = data.code ?? "WorkerError";
+        fail(error);
       };
+      timer = setTimeout(
+        () => fail(named("TimeoutError", "Neural direct port attachment timed out")),
+        timeoutMs,
+      );
       worker.addEventListener?.("message", onMessage);
-      worker.postMessage({ control: "attachDirectPort", id, channelId, port }, [port]);
+      try {
+        worker.postMessage({ control: "attachDirectPort", id, channelId, port }, [port]);
+      } catch (error) {
+        fail(named("WorkerError", `Direct port transfer failed: ${error?.message ?? error}`));
+      }
+    });
+  }
+
+  detachDirectPort({ channelId, timeoutMs = 5000 } = {}) {
+    if (!this.worker) {
+      if (this.directChannel?.channelId === channelId) this.directChannel = null;
+      return Promise.resolve({ kind: "direct_port_detached", pending: false });
+    }
+    const worker = this.worker;
+    const id = ++this.sequence;
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer = null;
+      const finish = (value, timedOut = false) => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        timer = null;
+        worker.removeEventListener?.("message", onMessage);
+        if (
+          this.directChannel?.channelId === channelId &&
+          this.directChannel.worker === worker &&
+          (value.pending !== true || timedOut)
+        ) {
+          if (timedOut) {
+            this.directChannel = null;
+            this.abort(named("TimeoutError", "Direct port detach timed out"));
+          } else this.directChannel = null;
+        }
+        resolve(value);
+      };
+      const onMessage = ({ data }) => {
+        if (data?.id !== id) return;
+        finish(data.value ?? { kind: "direct_port_detached", pending: false });
+      };
+      timer = setTimeout(() => {
+        finish(
+          {
+            kind: "direct_port_detached",
+            pending: true,
+            timedOut: true,
+          },
+          true,
+        );
+      }, timeoutMs);
+      worker.addEventListener?.("message", onMessage);
+      worker.postMessage({ control: "detachDirectPort", id, channelId });
     });
   }
 
