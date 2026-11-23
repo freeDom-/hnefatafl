@@ -213,10 +213,11 @@ capacity figures are reported, never substituted for actual process memory.
 | Direct ownership partial attach/cancel/failure | pass |
 | Stale direct port/model-session ownership | accepted counter unchanged after stale port; load/infer/release/cache config return DIRECT_BUSY; capabilities allowed; recovery reload works |
 | Client model preservation | rejected direct-owned loads/provider switches keep model+worker; worker termination reports no model; post-detach load succeeds |
+| Pending attachment ownership | reservation before port transfer; loads/provider switches/second attach reject; delayed ack attaches; timeout/abort/late-ack cleanup verified |
 | Normal-operation admission | delayed normal inference rejects direct attach with SESSION_BUSY, completes, then direct attach succeeds |
 | Analysis UI (cache, direct, pending inference, navigation) | 32/32 |
 | Neural inference UI (cache validation/limits/reload/numerical parity, hook isolation) | 22/22 |
-| Neural client lifecycle (incl. batch cancellation/cache) | 54/54 |
+| Neural client lifecycle (incl. pending direct ownership) | 57/57 |
 | Search coordinator lifecycle | 30/30 |
 | Staged asset integrity | 21/21 |
 | Two-context actual-browser batching | pass; 33 batches of 2 |

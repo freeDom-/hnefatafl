@@ -56,5 +56,8 @@ Caught error:
 TimeoutError: Batched inference did not drain in time
 ok   repeated cancellation of one batch member is counted once
 ok   constructor batching limits are validated
+ok   pending direct attachment reserves ownership before acknowledgment
+ok   pending attachment timeout and abort release reservations
+ok   late attachment acknowledgment cannot restore a timed-out reservation
 
-54/54 lifecycle checks passed
+57/57 lifecycle checks passed
