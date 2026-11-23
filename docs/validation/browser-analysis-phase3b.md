@@ -10,9 +10,10 @@ communication** is an opt-in experimental transport; the relay remains the
 default because measured gain was modest/variable. **3B.3 independent-search
 batching** is implemented/actual-browser validated but retained opt-in because
 the smoke/CPU benchmark did not show an end-to-end gain. **3B.4 single-tree
-batching** and **3B.5 subtree reuse** are deferred. Phase 3B remains in progress
-in PR #115 and is **not merged**; Phase 3C/external gates remain outstanding. Phase 3C and all external hardware/competitive-model gates remain
-outstanding.
+batching** and **3B.5 subtree reuse** are deferred. Phase 3B is merged and
+software-validated within its declared scope; direct/cache/batching remain
+opt-in. Phase 3C-A and all external hardware/competitive-model/sustained-memory
+gates remain outstanding.
 
 ### Superseded evidence
 
@@ -218,7 +219,7 @@ capacity figures are reported, never substituted for actual process memory.
 | Normal-operation admission | delayed normal inference rejects direct attach with SESSION_BUSY, completes, then direct attach succeeds |
 | Analysis UI (cache, direct, pending inference, navigation) | 32/32 |
 | Neural inference UI (cache validation/limits/reload/numerical parity, hook isolation) | 22/22 |
-| Neural client lifecycle (incl. pending/detaching ownership) | 62/62 |
+| Neural client lifecycle (incl. pending/detaching ownership and strict detach acks) | 66/66 |
 | Search coordinator lifecycle | 30/30 |
 | Staged asset integrity | 21/21 |
 | Two-context actual-browser batching | pass; 33 batches of 2 |

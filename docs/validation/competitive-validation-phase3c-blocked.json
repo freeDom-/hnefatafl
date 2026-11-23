@@ -1,0 +1,19 @@
+{
+  "kind": "browser-competitive-validation",
+  "schema": 1,
+  "status": "blocked",
+  "acceptance": false,
+  "validation_level": null,
+  "ruleset": null,
+  "blocked_reasons": [
+    "owner-supplied competitive checkpoint is unavailable"
+  ],
+  "model": null,
+  "parity": {},
+  "benchmarks": [],
+  "playing_strength": {
+    "status": "blocked",
+    "reason": "no tournament evidence"
+  },
+  "authoritative": false
+}

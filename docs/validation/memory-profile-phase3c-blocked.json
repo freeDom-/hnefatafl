@@ -1,0 +1,17 @@
+{
+  "kind": "browser-analysis-memory-profile",
+  "schema": 1,
+  "profile": "sustained-30m",
+  "status": "blocked",
+  "blocked_reasons": [
+    "No owner-run 10/30-minute sustained execution window was performed in this environment.",
+    "Process RSS and worker process memory are not exposed by the available CI browser harness."
+  ],
+  "budgets": {
+    "max_process_rss_bytes": null,
+    "max_js_heap_used_bytes": null,
+    "max_cache_bytes": 67108864
+  },
+  "samples": [],
+  "authoritative": false
+}

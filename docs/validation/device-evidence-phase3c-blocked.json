@@ -1,0 +1,22 @@
+{
+  "kind": "browser-device-evidence",
+  "schema": 1,
+  "records": [
+    {
+      "platform": "windows-chrome",
+      "status": "blocked",
+      "blocked_reason": "No physical Windows GPU device was available to this implementation environment."
+    },
+    {
+      "platform": "android-chrome",
+      "status": "blocked",
+      "blocked_reason": "No physical Android device was available; mobile emulation is not accepted."
+    },
+    {
+      "platform": "safari",
+      "status": "blocked",
+      "blocked_reason": "No supported Apple hardware was available."
+    }
+  ],
+  "authoritative": false
+}
