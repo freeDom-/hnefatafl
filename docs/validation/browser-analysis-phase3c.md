@@ -16,6 +16,31 @@ opt-in. Single-tree batching and subtree reuse remain deferred.
   process memory and statistically meaningful playing-strength tournaments are
   **blocked** in this environment.
 
+## 0. Review-correction hardening
+
+- Competitive validation requires embedded comparator evidence: Level A
+  deterministic parity, Level B best-move parity, direct/relay fixed+f fixed-time
+  cases with verified model identity, plus fixed-simulation and fixed-time
+  benchmark records. Bare `ok` flags cannot pass. CLI exits 0 only for validated,
+  2 for explicit blocked resources, 1 for invalid/failed evidence.
+- Memory measured profiles require actual 10/30-minute duration coverage, at
+  least 10 samples, positive warmup, positive observable budgets, and sufficient
+  post-warmup data; unavailable RSS requires an explicit acceptance-unavailable
+  reason.
+- Tournament validation requires identical paired opening state/history, exact
+  role/game-ID mapping, authoritative replay, terminal/completion consistency and
+  independently recomputed agent/role/paired statistics including bootstrap CI.
+  Agents have a hard per-move SIGALRM deadline; timeouts are recorded as execution
+  errors while other games continue.
+- Physical-device evidence requires model/ONNX architecture digests, workload,
+  complete hardware/browser fields, positive finite measurements, and per-operator
+  GPU placement evidence for verified GPU claims. Mixed execution cannot claim
+  GPU-only acceptance. Blocked required platforms prevent acceptance.
+- WebGPU staging runbook now stages a separate directory **without**
+  `--wasm-only`, including `ort.webgpu.min.js` and JSEP assets.
+- Detach acknowledgments with explicit `failed`/`timedOut`/error indicators are
+  rejected even if `pending:false`; failed cleanup invalidates the worker.
+
 ## 1. Remaining Phase 3B finding — strict detach acknowledgments
 
 `NeuralClient.detachDirectPort()` now:
@@ -141,12 +166,12 @@ rerun. The requirement remains **outstanding**, not silently reduced. Evidence:
 
 ## 7. Test and compatibility summary
 
-- Phase 3B detach strictness is covered by neural lifecycle tests (66/66); one
+- Neural lifecycle is 67/67; one
   `detachDirectPort()` implementation remains.
-- Tournament harness/validator: 10 tests.
-- Competitive validation: 4 tests.
-- Memory validation: 5 tests.
-- Device evidence: 3 tests.
+- Tournament harness/validator: 13 tests.
+- Competitive validation: 6 tests.
+- Memory validation: 7 tests.
+- Device evidence: 7 tests.
 - Existing Phase 3B browser/UI/parity/cache/batching tests remain the mandatory
   regression suite; no production API/auth/DB/CSP/frontend changes.
 - Relay default; direct/cache/batching opt-in; sequential Python MCTS reference

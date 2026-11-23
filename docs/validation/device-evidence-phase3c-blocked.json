@@ -18,5 +18,11 @@
       "blocked_reason": "No supported Apple hardware was available."
     }
   ],
-  "authoritative": false
+  "authoritative": false,
+  "required_platforms": [
+    "windows-chrome",
+    "android-chrome",
+    "safari"
+  ],
+  "acceptance": false
 }

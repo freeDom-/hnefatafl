@@ -42,18 +42,31 @@ Validate with:
 
 ## Commands
 
+WASM-only staging intentionally omits the WebGPU entry bundle. Stage a separate
+directory without `--wasm-only` for WebGPU tests; the pinned all-in-one WASM
+bundle still needs the staged JSEP kernels.
+
 ```sh
-# Staged assets and provider probe
+# WASM/CPU staging and checks
 .venv/bin/python spikes/browser_offline/prepare_neural.py \
-  --model-dir /tmp/export --output /tmp/device-spike --wasm-only
-node spikes/browser_offline/neural_parity.mjs /tmp/device-spike \
+  --model-dir /tmp/export --output /tmp/device-spike-wasm --wasm-only
+node spikes/browser_offline/neural_parity.mjs /tmp/device-spike-wasm \
+  --provider wasm --output /tmp/wasm-parity.json
+node spikes/browser_offline/test_mcts_ui.mjs /tmp/device-spike-wasm
+
+# WebGPU staging (includes ort.webgpu.min.js and JSEP assets)
+.venv/bin/python spikes/browser_offline/prepare_neural.py \
+  --model-dir /tmp/export --output /tmp/device-spike-webgpu
+test -f /tmp/device-spike-webgpu/ort/ort.webgpu.min.js
+test -f /tmp/device-spike-webgpu/ort/ort-wasm-simd-threaded.jsep.mjs
+test -f /tmp/device-spike-webgpu/ort/ort-wasm-simd-threaded.jsep.wasm
+node spikes/browser_offline/neural_parity.mjs /tmp/device-spike-webgpu \
   --provider webgpu --require-webgpu --output /tmp/webgpu.json
-node spikes/browser_offline/neural_parity.mjs /tmp/device-spike \
+node spikes/browser_offline/neural_parity.mjs /tmp/device-spike-webgpu \
   --provider webgpu --require-gpu-execution --output /tmp/gpu-execution.json
-node spikes/browser_offline/neural_benchmark.mjs /tmp/device-spike \
+node spikes/browser_offline/neural_benchmark.mjs /tmp/device-spike-webgpu \
   --provider webgpu --output /tmp/webgpu-benchmark.json
-node spikes/browser_offline/test_neural_ui.mjs /tmp/device-spike
-node spikes/browser_offline/test_mcts_ui.mjs /tmp/device-spike
+node spikes/browser_offline/test_neural_ui.mjs /tmp/device-spike-webgpu
 ```
 
 `--require-gpu-execution` intentionally fails when the pinned ORT Web build

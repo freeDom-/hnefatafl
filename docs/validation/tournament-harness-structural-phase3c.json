@@ -10,7 +10,8 @@
     "simulations": 8,
     "time_limit": 1,
     "seed": 11,
-    "max_plies": 24
+    "max_plies": 24,
+    "agent_timeout_s": 1.0
   },
   "openings": [
     "brandubh-opening",
@@ -138,6 +139,7 @@
         "exploration": 1.4,
         "seed": 11
       },
+      "agent_timeout_s": 1.0,
       "game_id": "pair-0-ab",
       "pair": 0,
       "agent_a": "scripted-first",
@@ -274,6 +276,7 @@
         "exploration": 1.4,
         "seed": 12
       },
+      "agent_timeout_s": 1.0,
       "game_id": "pair-0-ba",
       "pair": 0,
       "agent_a": "scripted-first",
@@ -400,6 +403,7 @@
         "exploration": 1.4,
         "seed": 111
       },
+      "agent_timeout_s": 1.0,
       "game_id": "pair-1-ab",
       "pair": 1,
       "agent_a": "scripted-first",
@@ -534,6 +538,7 @@
         "exploration": 1.4,
         "seed": 112
       },
+      "agent_timeout_s": 1.0,
       "game_id": "pair-1-ba",
       "pair": 1,
       "agent_a": "scripted-first",

@@ -219,7 +219,7 @@ capacity figures are reported, never substituted for actual process memory.
 | Normal-operation admission | delayed normal inference rejects direct attach with SESSION_BUSY, completes, then direct attach succeeds |
 | Analysis UI (cache, direct, pending inference, navigation) | 32/32 |
 | Neural inference UI (cache validation/limits/reload/numerical parity, hook isolation) | 22/22 |
-| Neural client lifecycle (incl. pending/detaching ownership and strict detach acks) | 66/66 |
+| Neural client lifecycle (incl. pending/detaching ownership and strict detach acks) | 67/67 |
 | Search coordinator lifecycle | 30/30 |
 | Staged asset integrity | 21/21 |
 | Two-context actual-browser batching | pass; 33 batches of 2 |
