@@ -19,8 +19,6 @@
   <a href="docs/DEPLOYMENT.md">Deployment</a>
 </p>
 
-![Brandubh gameplay with the Wood theme, Carved wood tokens and Old walnut board](docs/screenshots/readme-gameplay.png)
-
 <a id="features"></a>
 
 ## What you can do
