@@ -84,7 +84,7 @@ async function readBodyBounded(response, maxBytes) {
 }
 
 export class NeuralClient {
-  constructor() {
+  constructor({ testHooks = false, workerUrl = null } = {}) {
     this.worker = null;
     this.workerProvider = null;
     this.pending = null;
@@ -98,9 +98,16 @@ export class NeuralClient {
     // Set while a cancelled inference is being drained; a replacement inference
     // must not be admitted against a worker that may still be executing it.
     this.draining = null;
-    // Experimental test seam (browser lifecycle tests only): ask the worker to
-    // delay a genuine inference completion by a bounded amount.
+    // Explicitly injected test adapter (browser lifecycle tests only). Normal
+    // clients do not enable the worker's delay hook, and inference requests never
+    // carry an arbitrary delay field.
+    this.testHooks = testHooks === true;
+    // A dedicated test worker entry point is required for delayed inference.
+    // Normal deployments never stage that file.
+    this.workerUrl = workerUrl;
     this.testInferenceDelayMs = null;
+    this.testHooksConfigured = false;
+    this.testHooksGeneration = null;
     // Injectable digest seam so cancellation during verification can be tested
     // deterministically. Production always uses crypto.subtle SHA-256.
     this.digestFn = sha256Hex;
@@ -108,7 +115,7 @@ export class NeuralClient {
 
   _spawn() {
     if (typeof Worker === "undefined") throw new Error("Web Workers are unsupported");
-    const worker = new Worker(new URL("./neural-worker.js", import.meta.url));
+    const worker = new Worker(this.workerUrl ?? new URL("./neural-worker.js", import.meta.url));
     const generation = this.generation;
     this.worker = worker;
     worker.onmessage = ({ data }) => {
@@ -440,15 +447,53 @@ export class NeuralClient {
       throw named("BOARD_SIZE_MISMATCH", "Requested board size does not match the active model");
   }
 
-  infer({ planes, size, legal, ruleset, request_id: requestId, position_digest: positionDigest, model }) {
+  setTestInferenceDelay(milliseconds) {
+    if (!this.testHooks)
+      throw named("TEST_HOOKS_DISABLED", "Inference delay is unavailable outside lifecycle tests");
+    if (milliseconds !== null) {
+      if (!Number.isInteger(milliseconds) || milliseconds < 0 || milliseconds > 5000)
+        throw named("INPUT_INVALID", "test inference delay must be 0..5000 ms or null");
+      if (milliseconds === 0) milliseconds = null;
+    }
+    this.testInferenceDelayMs = milliseconds;
+  }
+
+  async _ensureTestHooks() {
+    if (!this.testHooks || !this.workerUrl)
+      throw named(
+        "TEST_HOOKS_DISABLED",
+        "Delayed inference requires the dedicated test worker entry point",
+      );
+    if (this.testHooksConfigured && this.testHooksGeneration === this.generation) return;
+    await this.request(
+      { action: "test", test_action: "configure", enabled: true },
+      { timeoutMs: 5000 },
+    );
+    this.testHooksConfigured = true;
+    this.testHooksGeneration = this.generation;
+  }
+
+  async infer({
+    planes,
+    size,
+    legal,
+    ruleset,
+    request_id: requestId,
+    position_digest: positionDigest,
+    model,
+  }) {
     this._assertModel(model);
-    const testDelay =
-      Number.isInteger(this.testInferenceDelayMs) && this.testInferenceDelayMs > 0
-        ? { test_delay_ms: this.testInferenceDelayMs }
-        : {};
+    let action = "infer";
+    let testDelay = null;
+    if (this.testHooks && Number.isInteger(this.testInferenceDelayMs) && this.testInferenceDelayMs > 0) {
+      await this._ensureTestHooks();
+      action = "test";
+      testDelay = this.testInferenceDelayMs;
+    }
     return this.request(
       {
-        action: "infer",
+        action,
+        ...(testDelay === null ? {} : { test_action: "infer", test_delay_ms: testDelay }),
         planes,
         size,
         legal,
@@ -456,7 +501,50 @@ export class NeuralClient {
         request_id: requestId,
         position_digest: positionDigest,
         model,
-        ...testDelay,
+      },
+      { timeoutMs: INFER_TIMEOUT_MS },
+    );
+  }
+
+  // Legal-only payload for MCTS: the search never consumes full policy logits.
+  // Raw inference/parity/benchmark paths keep the complete response.
+  async inferCompact({
+    planes = null,
+    planes_base64: planesBase64 = null,
+    size,
+    legal,
+    ruleset,
+    request_id: requestId,
+    position_digest: positionDigest,
+    model,
+  }) {
+    this._assertModel(model);
+    if ((planes === null) === (planesBase64 === null))
+      throw named("INPUT_INVALID", "Provide exactly one of planes or planes_base64");
+    let action = "inferCompact";
+    let testDelay = null;
+    if (
+      this.testHooks &&
+      Number.isInteger(this.testInferenceDelayMs) &&
+      this.testInferenceDelayMs > 0
+    ) {
+      await this._ensureTestHooks();
+      action = "test";
+      testDelay = this.testInferenceDelayMs;
+    }
+    return this.request(
+      {
+        action,
+        ...(testDelay === null
+          ? {}
+          : { test_action: "infer_compact", test_delay_ms: testDelay }),
+        ...(planesBase64 === null ? { planes } : { planes_base64: planesBase64 }),
+        size,
+        legal,
+        ruleset,
+        request_id: requestId,
+        position_digest: positionDigest,
+        model,
       },
       { timeoutMs: INFER_TIMEOUT_MS },
     );

@@ -279,9 +279,14 @@ class NeuralSearch:
         progress: Callable[[dict], None] | None = None,
         should_stop: Callable[[], bool] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        include_position: bool = True,
     ) -> None:
         self.state = state
         self.settings = settings
+        # Native evaluators need the exact requested state; the browser
+        # coordinator only needs the encoded planes and request association, so
+        # the Pyodide bridge can omit a potentially large duplicated state.
+        self.include_position = include_position
         self.model = validate_model_identity(model)
         if self.model["ruleset"] != state.ruleset or self.model["size"] != state.size:
             raise SearchRequestError(
@@ -458,20 +463,21 @@ class NeuralSearch:
             "moves": moves,
             "legal": legal,
             "digest": digest,
-            "position": state.to_dict(),
         }
         self._last_event_at = time.monotonic()
+        request = {
+            "request_index": index,
+            "position_digest": digest,
+            "ruleset": state.ruleset,
+            "size": state.size,
+            "planes": base64.b64encode(planes).decode("ascii"),
+            "legal": legal,
+        }
+        if self.include_position:
+            request["position"] = state.to_dict()
         return {
             "kind": "evaluate",
-            "request": {
-                "request_index": index,
-                "position_digest": digest,
-                "ruleset": state.ruleset,
-                "size": state.size,
-                "planes": base64.b64encode(planes).decode("ascii"),
-                "legal": legal,
-                "position": state.to_dict(),
-            },
+            "request": request,
             "progress": self._take_progress(),
         }
 

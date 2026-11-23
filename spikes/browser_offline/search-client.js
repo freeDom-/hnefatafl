@@ -129,6 +129,9 @@ export class NeuralSearchCoordinator {
     // Set when a superseded search's cancellation acknowledgement failed after a
     // newer admission took ownership. The newer owner replaces the worker itself.
     this.workerUnhealthy = false;
+    // Prefer the legal-only inference payload. The full-logit path remains for
+    // raw parity/benchmark comparisons and as a controlled A/B reference.
+    this.compactInference = true;
     // A disposed coordinator is permanently retired: no later call may spawn a
     // replacement worker after page teardown. Callers that want a usable
     // coordinator after a lifecycle reset must create a new instance.
@@ -292,7 +295,14 @@ export class NeuralSearchCoordinator {
         progress_events: 0,
         tensor_prepare_ms: 0,
         inference_execution_ms: 0,
+        policy_extract_ms: 0,
+        serialize_ms: 0,
+        parse_ms: 0,
+        request_bytes: 0,
+        response_bytes: 0,
         cancellation_ms: 0,
+        inference_payload_mode: null,
+        response_policy_values: 0,
       },
       provider: null,
     };
@@ -409,11 +419,17 @@ export class NeuralSearchCoordinator {
     if (this.pending) throw named("WorkerError", "A search message is already in flight");
     const worker = this.worker;
     const generation = this.generation;
+    const serializeStarted = performance.now();
     const serialized = JSON.stringify(payload);
     if (typeof serialized !== "string")
       throw named("INPUT_TOO_LARGE", "Search request could not be serialized");
-    if (encoder.encode(serialized).length > MAX_REQUEST_BYTES)
+    const requestBytes = encoder.encode(serialized).length;
+    if (requestBytes > MAX_REQUEST_BYTES)
       throw named("INPUT_TOO_LARGE", "Search request exceeds 512 KiB");
+    if (owner) {
+      owner.timings.serialize_ms += performance.now() - serializeStarted;
+      owner.timings.request_bytes += requestBytes;
+    }
     const raw = await new Promise((resolve, reject) => {
       const id = ++this.sequence;
       const timer = setTimeout(() => {
@@ -441,10 +457,15 @@ export class NeuralSearchCoordinator {
       }
     });
     let envelope;
+    const parseStarted = performance.now();
     try {
       envelope = JSON.parse(raw);
     } catch {
       throw named("WorkerError", "Search worker returned malformed JSON");
+    }
+    if (owner) {
+      owner.timings.parse_ms += performance.now() - parseStarted;
+      owner.timings.response_bytes += typeof raw === "string" ? raw.length : 0;
     }
     if (!envelope || typeof envelope !== "object")
       throw named("WorkerError", "Search worker returned no envelope");
@@ -665,16 +686,29 @@ export class NeuralSearchCoordinator {
     const requestId = `${search.searchId}:${request.request_index}`;
     const started = performance.now();
     search.inferencePending = true;
+    const compact = this.compactInference && typeof this.neural.inferCompact === "function";
     const inference = Promise.resolve(
-      this.neural.infer({
-        planes: decodePlanes(request.planes),
-        size: request.size,
-        legal: request.legal,
-        ruleset: request.ruleset,
-        request_id: requestId,
-        position_digest: request.position_digest,
-        model: expectedModel,
-      }),
+      compact
+        ? this.neural.inferCompact({
+            // The encoded planes stay base64 until the inference worker decodes
+            // them directly into a Float32Array.
+            planes_base64: request.planes,
+            size: request.size,
+            legal: request.legal,
+            ruleset: request.ruleset,
+            request_id: requestId,
+            position_digest: request.position_digest,
+            model: expectedModel,
+          })
+        : this.neural.infer({
+            planes: decodePlanes(request.planes),
+            size: request.size,
+            legal: request.legal,
+            ruleset: request.ruleset,
+            request_id: requestId,
+            position_digest: request.position_digest,
+            model: expectedModel,
+          }),
     );
     // The inference promise may settle after cancellation raced it; keep that
     // late settlement from becoming an unhandled rejection.
@@ -705,6 +739,16 @@ export class NeuralSearchCoordinator {
       search.timings.tensor_prepare_ms += response.tensor_prepare_ms;
     if (Number.isFinite(response.run_ms))
       search.timings.inference_execution_ms += response.run_ms;
+    if (Number.isFinite(response.extract_ms))
+      search.timings.policy_extract_ms += response.extract_ms;
+    const payloadMode = response.payload_mode ?? (compact ? "legal-only" : "full-logits");
+    if (search.timings.inference_payload_mode === null)
+      search.timings.inference_payload_mode = payloadMode;
+    else if (search.timings.inference_payload_mode !== payloadMode)
+      throw named("RESPONSE_MISMATCH", "Inference payload mode changed during the search");
+    search.timings.response_policy_values += Array.isArray(response.policy_logits)
+      ? response.policy_logits.length
+      : 0;
     const provider = {
       requested: response.provider_requested ?? null,
       execution_placement: response.execution_placement ?? null,
@@ -762,6 +806,13 @@ export class NeuralSearchCoordinator {
           // Nested inside neural_wait_ms: tensor preparation and ORT execution.
           tensor_prepare_ms: timings.tensor_prepare_ms,
           inference_execution_ms: timings.inference_execution_ms,
+          policy_extract_ms: timings.policy_extract_ms,
+          serialize_ms: timings.serialize_ms,
+          parse_ms: timings.parse_ms,
+          request_bytes: timings.request_bytes,
+          response_bytes: timings.response_bytes,
+          inference_payload_mode: timings.inference_payload_mode,
+          response_policy_values: timings.response_policy_values,
           cancellation_ms: timings.cancellation_ms,
           worker_reused: this.info !== null,
         },
