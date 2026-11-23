@@ -206,7 +206,12 @@ performance, recovery, security, accessibility and deployment acceptance has not
 been performed. Neural MCTS is a primary but unimplemented roadmap target; it need
 not block a server-only or classical-only release if browser analysis is explicitly
 deferred. The 2026-11-18 audits are dated observations, not permanent clearance.
-The owner must still choose a distribution license and authorize deployment.
+The selected distribution license is the PolyForm Noncommercial License 1.0.0
+recorded in the licensing checklist above; selecting it does not itself authorize
+deployment. Copyright ownership and generated-artwork provenance still require
+owner confirmation. Initial public deployment remains unauthorized and
+release-acceptance remains incomplete pending the maintainer's separate
+deployment decision.
 
 Re-evaluate this checklist on the actual release candidate after the remaining
 focused PRs. The owner makes deployment decisions for the merged milestone or any

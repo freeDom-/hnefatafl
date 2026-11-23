@@ -17,6 +17,13 @@ or full CI matrix was re-run merely to write this document. This is a point-in-t
 reviewed snapshot: future implementation agents must check current PR statuses
 before assigning or duplicating work.
 
+> **Later update (2026-11-23):** the licensing rows below are retained as part of
+> the 2026-11-20 snapshot. The project subsequently adopted the PolyForm
+> Noncommercial License 1.0.0 and shipped third-party notices. Copyright
+> ownership and generated-artwork provenance still require owner confirmation.
+> See [release readiness](../RELEASE_READINESS.md) and
+> [licensing](../LICENSING.md); no deployment is authorized by this update.
+
 [Release readiness](../RELEASE_READINESS.md) ·
 [Historical audit](arena-completion.md) ·
 [Contracts](arena-v2-contracts.md) ·

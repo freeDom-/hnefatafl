@@ -61,6 +61,18 @@ def test_contributor_documentation_keeps_broader_rights_deferred_and_optional():
     assert "separately authorized commercial versions" not in contributing
 
 
+def test_release_readiness_license_decision_is_current_and_still_blocks_deployment():
+    readiness = " ".join((ROOT / "docs/RELEASE_READINESS.md").read_text(encoding="utf-8").split())
+    assert "must still choose a distribution license" not in readiness
+    assert "selected distribution license is the PolyForm Noncommercial License 1.0.0" in readiness
+    assert "does not itself authorize deployment" in readiness
+    assert "Initial public deployment remains unauthorized" in readiness
+    assert (
+        "Copyright ownership and generated-artwork provenance still require owner confirmation"
+        in readiness
+    )
+
+
 def test_python_and_frontend_metadata_use_the_spdx_identifier():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["license"] == "PolyForm-Noncommercial-1.0.0"
