@@ -1436,4 +1436,114 @@ await check("late attachment acknowledgment cannot restore a timed-out reservati
   client.terminate();
 });
 
+
+async function attachedDirectClient(channelId = "detach-a") {
+  const client = pendingDirectClient();
+  const attach = client.attachDirectPort(new MessageChannel().port2, {
+    channelId,
+    timeoutMs: 100,
+  });
+  respondControl(client, "attachDirectPort", { kind: "direct_port_attached" });
+  await attach;
+  return client;
+}
+
+await check("malformed detach response fails closed", async () => {
+  const client = await attachedDirectClient("detach-malformed");
+  const worker = client.worker;
+  const detach = client.detachDirectPort({ channelId: "detach-malformed", timeoutMs: 100 });
+  respondControl(client, "detachDirectPort", {});
+  const result = await detach;
+  assert.equal(result.failed, true);
+  assert.equal(result.code, "DETACH_INVALID");
+  assert.equal(worker.terminated, true);
+  assert.equal(client.worker, null);
+  assert.equal(client.directChannel, null);
+  assert.equal(client.model, null);
+});
+await check("explicit detach worker error fails closed", async () => {
+  const client = await attachedDirectClient("detach-error");
+  const worker = client.worker;
+  const detach = client.detachDirectPort({ channelId: "detach-error", timeoutMs: 100 });
+  const index = client.worker.messages.findLastIndex(
+    (message) => message.control === "detachDirectPort",
+  );
+  client.worker.respond(index, null, "detach rejected", "DETACH_FAILED");
+  const result = await detach;
+  assert.equal(result.failed, true);
+  assert.equal(result.code, "DETACH_FAILED");
+  assert.equal(worker.terminated, true);
+  assert.equal(client.worker, null);
+  assert.equal(client.model, null);
+});
+await check("pending and stale detach acknowledgments are distinguished", async () => {
+  const pendingClient = await attachedDirectClient("detach-pending");
+  const pendingWorker = pendingClient.worker;
+  const pendingDetach = pendingClient.detachDirectPort({
+    channelId: "detach-pending",
+    timeoutMs: 100,
+  });
+  respondControl(pendingClient, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: true,
+  });
+  const pendingResult = await pendingDetach;
+  assert.equal(pendingResult.pending, true);
+  assert.equal(pendingClient.directChannel.state, "detaching");
+  assert.equal(pendingWorker.terminated, false);
+  pendingClient.abort(new Error("test cleanup"));
+  assert.equal(pendingClient.directChannel, null);
+
+  const staleClient = await attachedDirectClient("detach-stale");
+  const staleWorker = staleClient.worker;
+  const staleDetach = staleClient.detachDirectPort({
+    channelId: "detach-stale",
+    timeoutMs: 100,
+  });
+  respondControl(staleClient, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+    stale: true,
+  });
+  const staleResult = await staleDetach;
+  assert.equal(staleResult.stale, true);
+  assert.equal(staleClient.directChannel, null);
+  assert.equal(staleWorker.terminated, false);
+  staleClient.terminate();
+});
+await check("stale detach response cannot clear a newer reservation", async () => {
+  const client = await attachedDirectClient("detach-old");
+  const oldWorker = client.worker;
+  const oldDetach = client.detachDirectPort({ channelId: "detach-old", timeoutMs: 500 });
+  const oldDetachIndex = oldWorker.messages.findLastIndex(
+    (message) => message.control === "detachDirectPort",
+  );
+  // Replace the worker/reservation before the old acknowledgment arrives.
+  client.abort(new Error("replacement"));
+  client.worker = new FakeWorker();
+  client.workerProvider = "wasm";
+  client.model = {
+    model_sha256: "a".repeat(64),
+    model_ruleset: "brandubh",
+    size: 7,
+  };
+  const attach = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "detach-new",
+    timeoutMs: 100,
+  });
+  respondControl(client, "attachDirectPort", { kind: "direct_port_attached" });
+  await attach;
+  assert.equal(client.directChannel.channelId, "detach-new");
+  assert.notEqual(client.worker, oldWorker);
+  assert.equal(client.directChannel.state, "attached");
+  oldWorker.respond(oldDetachIndex, {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await oldDetach;
+  assert.equal(client.directChannel.channelId, "detach-new");
+  assert.equal(client.directChannel.state, "attached");
+  client.terminate();
+});
+
 console.log(`\n${results.length - failures.length}/${results.length} lifecycle checks passed`);
