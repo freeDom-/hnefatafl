@@ -1266,18 +1266,137 @@ await check("pending direct attachment reserves ownership before acknowledgment"
   globalThis.fetch = originalFetch;
   client.terminate();
 });
-await check("pending attachment timeout and abort release reservations", async () => {
+function respondControl(client, control, value) {
+  const index = client.worker.messages.findLastIndex(
+    (message) => message.control === control,
+  );
+  assert.ok(index >= 0, `${control} was not sent`);
+  client.worker.respond(index, value);
+  return index;
+}
+
+await check("pending attachment timeout enters detaching until detach is confirmed", async () => {
   const client = pendingDirectClient();
   const timed = client.attachDirectPort(new MessageChannel().port2, {
     channelId: "timeout-a",
     timeoutMs: 20,
   });
   await assert.rejects(timed, (error) => error.name === "TimeoutError");
-  assert.equal(client.directChannel, null);
+  assert.equal(client.directChannel.state, "detaching");
   assert.ok(
     client.worker.messages.some((message) => message.control === "detachDirectPort"),
   );
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await sleep(1);
+  assert.equal(client.directChannel, null);
+  assert.deepEqual(client.modelIdentity(), {
+    sha256: "a".repeat(64),
+    ruleset: "brandubh",
+    size: 7,
+  });
+  client.terminate();
+});
 
+await check("unconfirmed detach invalidates the worker and model", async () => {
+  const client = pendingDirectClient();
+  const worker = client.worker;
+  const timed = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "timeout-fail-a",
+    timeoutMs: 20,
+  });
+  await assert.rejects(timed, (error) => error.name === "TimeoutError");
+  await sleep(40);
+  assert.equal(worker.terminated, true);
+  assert.equal(client.worker, null);
+  assert.equal(client.directChannel, null);
+  assert.equal(client.model, null);
+});
+
+await check("rejected attachment keeps detaching ownership until cleanup", async () => {
+  const client = pendingDirectClient();
+  const attach = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "reject-a",
+    timeoutMs: 100,
+  });
+  const attachIndex = client.worker.messages.findLastIndex(
+    (message) => message.control === "attachDirectPort",
+  );
+  client.worker.respond(attachIndex, null, "rejected", "DETACH_FAILED");
+  await assert.rejects(attach, (error) => error.code === "DETACH_FAILED");
+  assert.equal(client.directChannel.state, "detaching");
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await sleep(1);
+  assert.equal(client.directChannel, null);
+  assert.deepEqual(client.modelIdentity(), {
+    sha256: "a".repeat(64),
+    ruleset: "brandubh",
+    size: 7,
+  });
+  client.terminate();
+});
+
+await check("normal and repeated detach requests settle consistently", async () => {
+  const client = pendingDirectClient();
+  const attach = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "normal-a",
+    timeoutMs: 100,
+  });
+  respondControl(client, "attachDirectPort", { kind: "direct_port_attached" });
+  await attach;
+  assert.equal(client.directChannel.state, "attached");
+  const first = client.detachDirectPort({ channelId: "normal-a", timeoutMs: 100 });
+  const second = client.detachDirectPort({ channelId: "normal-a", timeoutMs: 100 });
+  assert.equal(client.directChannel.state, "detaching");
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await first;
+  assert.equal(client.directChannel, null);
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await second;
+  assert.equal(client.directChannel, null);
+  assert.equal(client.worker.terminated, false);
+  client.terminate();
+});
+
+await check("provider switch is rejected during detaching cleanup", async () => {
+  const client = pendingDirectClient();
+  const timed = client.attachDirectPort(new MessageChannel().port2, {
+    channelId: "switch-a",
+    timeoutMs: 20,
+  });
+  await assert.rejects(timed, (error) => error.name === "TimeoutError");
+  assert.equal(client.directChannel.state, "detaching");
+  await assert.rejects(
+    () => client.load("/model.onnx", {
+      provider: "webgpu",
+      size: 7,
+      ruleset: "brandubh",
+      expectedSha256: "a".repeat(64),
+    }),
+    (error) => error.code === "DIRECT_BUSY",
+  );
+  assert.equal(client.worker.terminated, false);
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await sleep(1);
+  assert.equal(client.directChannel, null);
+  client.terminate();
+});
+
+await check("pending attachment abort releases reservations", async () => {
   const client2 = pendingDirectClient();
   const pending = client2.attachDirectPort(new MessageChannel().port2, {
     channelId: "abort-a",
@@ -1301,7 +1420,13 @@ await check("late attachment acknowledgment cannot restore a timed-out reservati
   client.worker.respond(client.worker.messages.indexOf(message), {
     kind: "direct_port_attached",
   });
-  await sleep(5);
+  await sleep(1);
+  assert.equal(client.directChannel.state, "detaching");
+  respondControl(client, "detachDirectPort", {
+    kind: "direct_port_detached",
+    pending: false,
+  });
+  await sleep(1);
   assert.equal(client.directChannel, null);
   assert.deepEqual(client.modelIdentity(), {
     sha256: "a".repeat(64),

@@ -488,33 +488,6 @@ export class NeuralClient {
     return this.request({ action: "capabilities" }, { timeoutMs: 15000 });
   }
 
-  detachDirectPort({ channelId, timeoutMs = 5000 } = {}) {
-    if (!this.worker) return Promise.resolve({ kind: "direct_port_detached", pending: false });
-    const worker = this.worker;
-    const id = ++this.sequence;
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        worker.removeEventListener?.("message", onMessage);
-        resolve({ kind: "direct_port_detached", pending: true });
-      }, timeoutMs);
-      const onMessage = ({ data }) => {
-        if (data?.id !== id) return;
-        clearTimeout(timer);
-        worker.removeEventListener?.("message", onMessage);
-        const value = data.value ?? { kind: "direct_port_detached", pending: false };
-        if (
-          this.directChannel?.channelId === channelId &&
-          this.directChannel.worker === worker &&
-          value.pending !== true
-        )
-          this.directChannel = null;
-        resolve(value);
-      };
-      worker.addEventListener?.("message", onMessage);
-      worker.postMessage({ control: "detachDirectPort", id, channelId });
-    });
-  }
-
   attachDirectPort(port, { channelId, timeoutMs = 5000 } = {}) {
     if (!this.worker) throw named("WorkerError", "Neural worker is not loaded");
     if (typeof channelId !== "string" || !channelId)
@@ -545,10 +518,27 @@ export class NeuralClient {
         if (settled) return;
         settled = true;
         cleanup();
-        if (this.directChannel === reservation) this.directChannel = null;
+        if (this.directChannel === reservation) reservation.state = "detaching";
         // A timed-out/rejected attachment may still have reached the worker.
-        // Mark the channel stale and close it when safe.
-        void this.detachDirectPort({ channelId }).catch(() => {});
+        // Keep ownership reserved while cleanup runs; loads/provider switches
+        // must not touch a session with an uncertain MessagePort.
+        void this.detachDirectPort({ channelId, timeoutMs })
+          .then((value) => {
+            if (
+              value?.pending === true &&
+              this.directChannel === reservation &&
+              this.worker === worker &&
+              this.generation === generation
+            )
+              this.abort(named("TimeoutError", "Direct attachment cleanup did not settle"));
+          })
+          .catch(() => {
+            if (this.directChannel === reservation) {
+              reservation.state = "released";
+              this.directChannel = null;
+              this.abort(named("WorkerError", "Direct attachment cleanup failed"));
+            }
+          });
         reject(error);
       };
       reservation.reject = fail;
@@ -589,11 +579,17 @@ export class NeuralClient {
   }
 
   detachDirectPort({ channelId, timeoutMs = 5000 } = {}) {
+    const reservation = this.directChannel;
     if (!this.worker) {
-      if (this.directChannel?.channelId === channelId) this.directChannel = null;
+      if (reservation?.channelId === channelId) {
+        reservation.state = "released";
+        this.directChannel = null;
+      }
       return Promise.resolve({ kind: "direct_port_detached", pending: false });
     }
     const worker = this.worker;
+    const generation = this.generation;
+    if (reservation?.channelId === channelId) reservation.state = "detaching";
     const id = ++this.sequence;
     return new Promise((resolve) => {
       let settled = false;
@@ -605,14 +601,20 @@ export class NeuralClient {
         timer = null;
         worker.removeEventListener?.("message", onMessage);
         if (
-          this.directChannel?.channelId === channelId &&
-          this.directChannel.worker === worker &&
+          this.directChannel === reservation &&
+          reservation?.channelId === channelId &&
+          reservation.worker === worker &&
+          reservation.generation === generation &&
           (value.pending !== true || timedOut)
         ) {
           if (timedOut) {
+            reservation.state = "released";
             this.directChannel = null;
             this.abort(named("TimeoutError", "Direct port detach timed out"));
-          } else this.directChannel = null;
+          } else {
+            reservation.state = "released";
+            this.directChannel = null;
+          }
         }
         resolve(value);
       };
@@ -631,7 +633,19 @@ export class NeuralClient {
         );
       }, timeoutMs);
       worker.addEventListener?.("message", onMessage);
-      worker.postMessage({ control: "detachDirectPort", id, channelId });
+      try {
+        worker.postMessage({ control: "detachDirectPort", id, channelId });
+      } catch (error) {
+        finish(
+          {
+            kind: "direct_port_detached",
+            pending: true,
+            timedOut: true,
+            error: String(error?.message ?? error),
+          },
+          true,
+        );
+      }
     });
   }
 

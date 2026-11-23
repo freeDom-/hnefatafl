@@ -352,6 +352,31 @@ try {
       finalLoadError = { name: error.name, code: error.code, message: error.message };
     }
     const statsAfterRecovery = await client.directStats();
+    const failedDetachChannel = await attachRaw("failed-detach");
+    const failedDetachWorker = client.worker;
+    const realPost = failedDetachWorker.postMessage.bind(failedDetachWorker);
+    failedDetachWorker.postMessage = (message, transfer) => {
+      if (message?.control === "detachDirectPort") return;
+      realPost(message, transfer);
+    };
+    const failedDetach = await client.detachDirectPort({
+      channelId: "failed-detach",
+      timeoutMs: 30,
+    });
+    failedDetachChannel.port1.close?.();
+    const failedDetachState = {
+      result: failedDetach,
+      workerTerminated: failedDetachWorker.terminated === true,
+      workerNull: client.worker === null,
+      model: client.model,
+      directChannel: client.directChannel,
+    };
+    await client.load("./" + stagedReload.model.file, {
+      provider: "wasm",
+      size: stagedReload.model.size,
+      ruleset: stagedReload.model.ruleset,
+      expectedSha256: stagedReload.model.sha256,
+    });
     c2.dispose();
     c3.dispose();
     c4.dispose();
@@ -391,6 +416,7 @@ try {
       cacheConfigError,
       capabilitiesDuringDirect: Boolean(capabilitiesDuringDirect),
       statsAfterRecovery,
+      failedDetachState,
       normalAttachError,
       sustainedError,
       testClientLoadError,
@@ -428,6 +454,10 @@ try {
   assert.equal(outcome.cacheConfigError, "DIRECT_BUSY");
   assert.equal(outcome.capabilitiesDuringDirect, true);
   assert.equal(outcome.statsAfterRecovery.accepted, outcome.statsBeforeRaw.accepted + 2);
+  assert.equal(outcome.failedDetachState.result.timedOut, true);
+  assert.equal(outcome.failedDetachState.workerNull, true);
+  assert.equal(outcome.failedDetachState.model, null);
+  assert.equal(outcome.failedDetachState.directChannel, null);
   assert.equal(outcome.normalAttachError, "SESSION_BUSY");
   assert.equal(outcome.finalLoadError, null);
   assert.equal(outcome.testClientLoadError, null);
