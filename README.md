@@ -6,7 +6,7 @@ from scratch with real self-play learning.
 
 ![Brandubh gameplay with the Wood theme, Carved wood tokens and Old walnut board](docs/screenshots/readme-gameplay.png)
 
-[Documentation](docs/README.md) · [Quick start](#quick-start) · [Training](docs/TRAINING.md) · [Deployment](docs/DEPLOYMENT.md) · [Licensing](#licensing)
+[Documentation](docs/README.md) · [Quick start](#quick-start) · [Training](docs/TRAINING.md) · [Deployment](docs/DEPLOYMENT.md) · [Licensing](#licensing) · [Support](#support-development)
 
 <a id="features"></a>
 
@@ -46,6 +46,16 @@ the proposed non-assignment CLA are in [CONTRIBUTING.md](CONTRIBUTING.md) and
 position, AI-model distinctions and unresolved ownership questions are documented
 in [Licensing](docs/LICENSING.md). Earlier releases contained no root license;
 this change does not retroactively revoke rights or relicense older archives.
+
+## Support development
+
+Financial support is completely voluntary through
+[Buy Me a Coffee](https://buymeacoffee.com/free.dom). Hnefatafl remains free for
+permitted noncommercial use whether or not anyone donates. All gameplay and AI
+features remain free. Donations are not a software license purchase and unlock
+no features, privileges, ranking, matchmaking or training advantages; non-donors
+have identical access. The project makes no tax-deductible charitable-status
+claim. See the [donation policy](docs/DONATIONS.md) for details.
 
 ## What you can do
 

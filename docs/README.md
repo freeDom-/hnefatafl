@@ -98,6 +98,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Third-party notices and dependency compatibility](../THIRD_PARTY_NOTICES.md)
 - [Contributing rules and current CLA status](../CONTRIBUTING.md)
 - [Proposed Harmony CLA and GitHub automation](CONTRIBUTOR_LICENSING.md)
+- [Voluntary donations, donor policy and the support link](DONATIONS.md)
 
 ## Online foundations and offline feasibility
 

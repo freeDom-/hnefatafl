@@ -25,6 +25,12 @@ it('names the project license and exposes local terms, notices and a commercial 
     'href',
     'https://github.com/freeDom-/hnefatafl/issues',
   );
+  const support = screen.getByRole('link', {
+    name: 'Support development on Buy Me a Coffee (opens in a new tab)',
+  });
+  expect(support).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
+  expect(support).toHaveAttribute('target', '_blank');
+  expect(support).toHaveAttribute('rel', 'noopener noreferrer');
 });
 
 it('uses the existing German translation mechanism', () => {
@@ -37,4 +43,9 @@ it('uses the existing German translation mechanism', () => {
     'href',
     '/LICENSE.txt',
   );
+  expect(
+    screen.getByRole('link', {
+      name: 'Die Entwicklung auf Buy Me a Coffee unterstützen (öffnet in einem neuen Tab)',
+    }),
+  ).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
 });

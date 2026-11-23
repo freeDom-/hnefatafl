@@ -269,6 +269,9 @@ const translations: Record<string, string> = {
   'License terms': 'Lizenzbedingungen',
   'Third-party notices': 'Hinweise zu Drittanbietern',
   'Commercial licensing': 'Kommerzielle Lizenzierung',
+  'Support development': 'Entwicklung unterstützen',
+  'Support development on Buy Me a Coffee (opens in a new tab)':
+    'Die Entwicklung auf Buy Me a Coffee unterstützen (öffnet in einem neuen Tab)',
   'Open seat': 'Freier Platz',
   'No official result': 'Kein offizielles Ergebnis',
   '{side} won': '{side} haben gewonnen',

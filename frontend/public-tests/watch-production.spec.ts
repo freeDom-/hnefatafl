@@ -217,6 +217,15 @@ for (const theme of themes) {
           name: language === 'de' ? 'Lizenzbedingungen' : 'License terms',
         }),
       ).toHaveAttribute('href', '/LICENSE.txt');
+      const support = license.getByRole('link', {
+        name:
+          language === 'de'
+            ? 'Die Entwicklung auf Buy Me a Coffee unterstützen (öffnet in einem neuen Tab)'
+            : 'Support development on Buy Me a Coffee (opens in a new tab)',
+      });
+      await expect(support).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
+      await expect(support).toHaveAttribute('target', '_blank');
+      await expect(support).toHaveAttribute('rel', 'noopener noreferrer');
       const licenseText = await page.request.get('/LICENSE.txt');
       expect(licenseText.status()).toBe(200);
       expect(await licenseText.text()).toContain('PolyForm Noncommercial License 1.0.0');
