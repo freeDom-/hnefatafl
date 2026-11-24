@@ -1,5 +1,151 @@
 {
   "kind": "browser-analysis-tournament",
+  "manifest": {
+    "ruleset": "brandubh",
+    "agents": {
+      "a": "scripted-first",
+      "b": "scripted-last"
+    },
+    "settings": {
+      "simulations": 8,
+      "iterations": 8,
+      "time_limit": 1,
+      "exploration": 1.4,
+      "seed": 11,
+      "max_plies": 24,
+      "agent_timeout_s": 1.0
+    },
+    "openings": [
+      {
+        "pair": 0,
+        "name": "brandubh-opening",
+        "state": {
+          "ruleset": "brandubh",
+          "board": [
+            ".",
+            ".",
+            ".",
+            "A",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            "A",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            "D",
+            ".",
+            ".",
+            ".",
+            "A",
+            "A",
+            "D",
+            "K",
+            "D",
+            "A",
+            "A",
+            ".",
+            ".",
+            ".",
+            "D",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            "A",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            "A",
+            ".",
+            ".",
+            "."
+          ],
+          "turn": "attackers",
+          "ply": 0,
+          "winner": null,
+          "reason": null,
+          "history": [
+            "attackers:...A......A......D...AADKDAA...D......A......A..."
+          ]
+        }
+      },
+      {
+        "pair": 1,
+        "name": "brandubh-tactical",
+        "state": {
+          "ruleset": "brandubh",
+          "board": [
+            ".",
+            ".",
+            "A",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            "D",
+            ".",
+            ".",
+            ".",
+            ".",
+            "A",
+            "D",
+            ".",
+            "D",
+            "A",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            "K",
+            ".",
+            ".",
+            ".",
+            ".",
+            "A",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            "."
+          ],
+          "turn": "attackers",
+          "ply": 0,
+          "winner": null,
+          "reason": null,
+          "history": []
+        }
+      }
+    ]
+  },
   "schema": 1,
   "ruleset": "brandubh",
   "agents": {
@@ -8,7 +154,9 @@
   },
   "settings": {
     "simulations": 8,
+    "iterations": 8,
     "time_limit": 1,
+    "exploration": 1.4,
     "seed": 11,
     "max_plies": 24,
     "agent_timeout_s": 1.0
@@ -86,6 +234,7 @@
       "defender_agent": "scripted-last",
       "winner": "draw",
       "reason": "threefold_repetition",
+      "starting_ply": 0,
       "plies": 10,
       "moves": [
         {
@@ -215,6 +364,7 @@
       "defender_agent": "scripted-first",
       "winner": "draw",
       "reason": "threefold_repetition",
+      "starting_ply": 0,
       "plies": 12,
       "moves": [
         {
@@ -350,6 +500,7 @@
       "defender_agent": "scripted-last",
       "winner": "draw",
       "reason": "threefold_repetition",
+      "starting_ply": 0,
       "plies": 10,
       "moves": [
         {
@@ -477,6 +628,7 @@
       "defender_agent": "scripted-first",
       "winner": "draw",
       "reason": "threefold_repetition",
+      "starting_ply": 0,
       "plies": 12,
       "moves": [
         {
