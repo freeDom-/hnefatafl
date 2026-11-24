@@ -1,0 +1,101 @@
+.leagues-page {
+  display: grid;
+  width: min(100%, 1600px);
+  min-width: 0;
+  gap: var(--gap-stack);
+  margin: var(--gap-stack) auto;
+}
+.league-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--gap-stack);
+  align-items: stretch;
+}
+.league-panel {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: var(--gap-inline);
+  padding: var(--pad-panel);
+}
+.league-heading,
+.league-tier {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-stack);
+}
+.league-heading {
+  justify-content: space-between;
+}
+.league-panel .page-toolbar {
+  padding-block: var(--gap-inline);
+}
+.league-panel :is(h1, h2, h3, p, dl) {
+  margin: 0;
+}
+.league-panel h2 {
+  font-size: var(--text-section);
+}
+.league-panel p {
+  color: var(--ui-copy);
+}
+.league-filter {
+  display: grid;
+  min-width: 0;
+  gap: var(--gap-inline);
+}
+.league-tier img {
+  width: 4.5rem;
+  height: auto;
+}
+.league-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 6rem), 1fr));
+  gap: var(--gap-stack);
+}
+.league-metrics dd {
+  margin: var(--gap-inline) 0 0;
+  color: var(--ui-heading);
+  font-size: var(--text-subsection);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.league-progression {
+  display: grid;
+  gap: var(--gap-inline);
+}
+.league-progression progress {
+  display: block;
+  width: min(100%, 24rem);
+  margin-block-start: var(--gap-inline);
+  accent-color: var(--green);
+}
+.league-panel table.leaderboard th,
+.league-panel table.leaderboard td {
+  font-size: var(--text-label);
+  color: var(--ui-copy);
+}
+.league-panel table.leaderboard th[scope='row'] {
+  white-space: normal;
+  min-width: 10ch;
+  overflow-wrap: anywhere;
+}
+.league-panel table.leaderboard td small {
+  display: block;
+}
+.league-game-links a {
+  display: block;
+  padding-block: var(--gap-inline);
+}
+.league-panel table.leaderboard td.league-audit-reason {
+  min-width: 14ch;
+  max-width: 40ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.league-admin-form {
+  display: grid;
+  gap: var(--gap-stack);
+  min-width: 0;
+}

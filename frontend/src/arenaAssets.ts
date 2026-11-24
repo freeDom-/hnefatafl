@@ -21,3 +21,11 @@ export const ARENA_DECOR = {
     height: 736,
   },
 } as const;
+
+export const LEAGUE_TIER_DECOR = {
+  midgard: '/assets/arena-v2/assets/decor/league-midgard.svg',
+  nidavellir: '/assets/arena-v2/assets/decor/league-nidavellir.svg',
+  alfheim: '/assets/arena-v2/assets/decor/league-alfheim.svg',
+  asgard: '/assets/arena-v2/assets/decor/league-asgard.svg',
+  valhalla: '/assets/arena-v2/assets/decor/league-valhalla.svg',
+} as const;

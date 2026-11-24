@@ -522,3 +522,20 @@ it('keeps an in-flight refresh running when the cadence changes and applies it o
   expect(hook.result.current.phase).toBe('ready');
   expect(load).toHaveBeenCalledTimes(2);
 });
+
+it('uses a supplied fresh snapshot without a duplicate initial read, and still wakes on focus', async () => {
+  vi.useFakeTimers();
+  const load = vi.fn(async () => 'fresh');
+  const { result } = renderHook(() =>
+    useOnlinePoll('seeded queue', load, { intervalMs: 0, initialData: 'seed' }),
+  );
+  expect(result.current.data).toBe('seed');
+  expect(result.current.phase).toBe('ready');
+  await act(async () => vi.advanceTimersByTimeAsync(30000));
+  expect(load).not.toHaveBeenCalled();
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'));
+  });
+  expect(result.current.data).toBe('fresh');
+  expect(load).toHaveBeenCalledTimes(1);
+});
