@@ -12,7 +12,7 @@ from hnefatafl.account_mail import AccountSettings
 from hnefatafl.auth import COOKIE, digest, password_hash, verify
 from hnefatafl.profile_api import COUNTRY_CODES
 from hnefatafl.server import create_app
-from hnefatafl.storage import Store
+from hnefatafl.storage import SCHEMA_VERSION, Store
 from test_registration import Mailbox
 
 PASSWORD = "profile-fixture-password"
@@ -428,7 +428,7 @@ def test_schema13_upgrade_preserves_accounts_sessions_and_optional_legacy_names(
     Store(store.path)  # Idempotent restart.
     with store.connection() as c:
         after = dict(c.execute("SELECT * FROM accounts WHERE id=?", (account["id"],)).fetchone())
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert all(
             after[field] is None
             for field in ("country_code", "city", "birth_year", "date_of_birth")

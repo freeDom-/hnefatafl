@@ -120,7 +120,7 @@ class TournamentSettlement:
                         continue
                     tournament = self.core._load(c, identifier)
                     if tournament["status"] in ("running", "complete"):
-                        self.core.settle_committed(c, identifier, None, now)
+                        self.core.settle_committed(c, identifier, now)
                     c.execute(
                         "DELETE FROM player_tournament_settlement_queue WHERE tournament_id=?",
                         (identifier,),
@@ -170,6 +170,7 @@ class TournamentSettlement:
         for identifier in identifiers:
             if self.stop.is_set():
                 break
+            attempted_schedule = None
             try:
                 with self.core._write() as c:
                     now = self.core._now()  # Sample after locking, like manual starts.
@@ -178,36 +179,47 @@ class TournamentSettlement:
                         row["status"] != "registration"
                         or row["start_due_at"] is None
                         or row["start_due_at"] > micros(now)
+                        or row["scheduled_start_at"] is None
+                        or row["scheduled_start_at"] > micros(now)
                     ):
                         continue
-                    count = c.execute(
-                        "SELECT COUNT(*) FROM player_tournament_entrants WHERE tournament_id=? AND status='registered'",
+                    count, last_registration = c.execute(
+                        """SELECT COUNT(*),MAX(registered_at) FROM player_tournament_entrants
+                        WHERE tournament_id=? AND status='registered'""",
                         (identifier,),
-                    ).fetchone()[0]
-                    if count < row["capacity"] or count < 2:
-                        # Later registrations re-arm this row; historical/unfilled
-                        # competitions never become periodic scanning work.
-                        c.execute(
-                            "UPDATE player_tournaments SET start_due_at=NULL WHERE id=?",
-                            (identifier,),
-                        )
+                    ).fetchone()
+                    if count != row["capacity"] or last_registration > row["scheduled_start_at"]:
+                        # A missed start remains consumed until the creator reschedules.
+                        # The timestamp also covers starts re-armed by older releases.
+                        self.core._consume_schedule(c, identifier)
                         continue
+                    attempted_schedule = row
                     self.core._start(c, row, now)
-                    completed += 1
+                completed += 1
             except DeploymentLocked:
                 break
             except Exception:
                 LOGGER.warning("Tournament scheduled start deferred")
+                if attempted_schedule is None:
+                    continue
                 try:
                     with self.core._write() as c:
-                        row = self.core._load(c, identifier)
-                        if row["status"] == "registration" and row["start_due_at"] is not None:
-                            delay = min(300, 2 ** min(row["start_attempts"] + 1, 8))
-                            c.execute(
-                                """UPDATE player_tournaments SET start_attempts=start_attempts+1,
-                            start_due_at=?,start_error='start_failed' WHERE id=?""",
-                                (micros(self.core._now() + timedelta(seconds=delay)), identifier),
-                            )
+                        attempts = attempted_schedule["start_attempts"]
+                        delay = min(300, 2 ** min(attempts + 1, 9))
+                        c.execute(
+                            """UPDATE player_tournaments SET start_attempts=start_attempts+1,
+                               start_due_at=?,start_error='start_failed'
+                            WHERE id=? AND status='registration' AND schedule_version=?
+                              AND scheduled_start_at=? AND start_due_at=? AND start_attempts=?""",
+                            (
+                                micros(self.core._now() + timedelta(seconds=delay)),
+                                identifier,
+                                attempted_schedule["schedule_version"],
+                                attempted_schedule["scheduled_start_at"],
+                                attempted_schedule["start_due_at"],
+                                attempts,
+                            ),
+                        )
                 except DeploymentLocked:
                     pass
                 except Exception:

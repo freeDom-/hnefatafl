@@ -202,12 +202,16 @@ development validation.
 Schema 19 adds the player-tournament settlement outbox and optional planned start
 column. Schema 20 adds indexed persistent due starts and sanitized retry state,
 creator quota indexes, clock/increment fields and explicit match modes. Historical
-1–5-leg tournaments default to legacy parallel behavior without rewriting games.
-Registration-phase planned tournaments are queued once during migration: overdue
-full cups may start as soon as the worker runs. Unfilled cups stay open (subject
-to their deadline) for creator/admin start. No external cron or browser is needed.
-The upgrade is additive; it does not remove games, training history, checkpoints or
-models. The lifespan worker resumes committed bracket work without a browser and
+1–5-leg tournaments default to legacy parallel behavior. Schema 22 adds the
+tournament's progression policy and schedule generation. Already-started cups
+continue to advance independently. Modern two-game cups started after the
+upgrade use synchronized rounds. The migration preserves existing brackets,
+online games, clocks and history.
+
+Registration-phase schedules and their retry metadata survive migration. The
+worker may start an overdue cup if its places filled by the planned instant.
+Unfilled cups stay in registration for rescheduling or a manual start. The
+lifespan worker resumes committed bracket work without a browser and
 reconciles terminal result revisions once at startup. Retained tournament and queue
 tables participate in the same stopped-writer backup/restore boundary as their
 online games; automatic restore requires matching current schemas. Preserve and
@@ -216,9 +220,9 @@ test a backup before upgrading. See [player tournaments](PLAYER_TOURNAMENTS.md).
 New player-tournament creation requires explicit `sequential` or `simultaneous`
 mode and always stores two side-swapped games. Update API clients to omit
 `match_legs`; missing/null modes, `single` and supplied legacy counts now return
-422. This contract refinement leaves schema 20 and existing single/1–5-leg data
-unchanged. Full future-scheduled tournaments reject early creator starts;
-administrators can override. An active bootstrapped administrator retains creation
+422. Existing single-game and 1–5-leg formats retain their original execution.
+Full future-scheduled tournaments reject early creator starts. Administrators
+can override. An active bootstrapped administrator retains creation
 and management permissions before email verification. No new frontend dependency
 is required for the compact calendar or lazy tournament route.
 
@@ -432,19 +436,19 @@ the journal and log locations; inspect them before any manual action.
 Creating an automatic pre-deployment snapshot is **not** a guarantee that an
 automatic rollback can complete. After a successful migration the live database
 uses a newer schema than the pre-deployment snapshot. Existing account/online
-schema-authority checks refuse to replace a schema-21 live database with a
-schema-15/schema-20 snapshot, because that would silently downgrade authoritative
-online, tournament and security state. The corrected updater performs a read-only
+schema-authority checks refuse to replace a schema-22 live database with a
+schema-15, schema-20 or schema-21 snapshot. This preserves authoritative online,
+tournament and security state. The corrected updater performs a read-only
 compatibility preflight before stopping a healthy service for an explicit
 `--rollback`; a schema mismatch is refused before service stop, data replacement or
 release switching. During automatic recovery it performs the same preflight and
 retains the activated target, migrated live database, verified snapshot, model and
 checkpoint files, installed state and transaction journal.
 
-The historical `0.40.0` updater also fails closed after migrating to schema 21:
-its `retain_online_on_restore` check reports `Online schema changed; manual
-recovery is required` before replacing live authority. It does not start the old
-application against the newer database. In that situation the target release may
+The historical `0.40.0` updater also fails closed after migrating to a newer
+online schema. Its `retain_online_on_restore` check reports `Online schema
+changed; manual recovery is required` before replacing live authority. In that
+situation the target release may
 already be activated and the service stopped; the old release is not automatically
 started, and the transaction remains unrecovered. Do not force a downgrade.
 

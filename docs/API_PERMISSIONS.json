@@ -515,7 +515,7 @@
     "method": "POST",
     "route": "/api/player-tournaments",
     "authentication": "session",
-    "permission": "tournaments",
+    "permission": "play",
     "persistent_state": true,
     "user_specific": false
   },
@@ -593,6 +593,14 @@
   },
   {
     "method": "POST",
+    "route": "/api/player-tournaments/{tournament_id}/reschedule",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": true,
+    "user_specific": false
+  },
+  {
+    "method": "POST",
     "route": "/api/player-tournaments/{tournament_id}/settle",
     "authentication": "session",
     "permission": "play",
@@ -603,7 +611,7 @@
     "method": "POST",
     "route": "/api/player-tournaments/{tournament_id}/start",
     "authentication": "session",
-    "permission": "tournaments",
+    "permission": "play",
     "persistent_state": true,
     "user_specific": false
   },

@@ -433,6 +433,7 @@ grant(
     "/api/player-tournaments/{tournament_id}/register",
     "/api/player-tournaments/{tournament_id}/withdraw",
     "/api/player-tournaments/{tournament_id}/settle",
+    "/api/player-tournaments/{tournament_id}/reschedule",
 )
 grant("play", "POST", "/api/player-tournaments", "/api/player-tournaments/{tournament_id}/start")
 grant(

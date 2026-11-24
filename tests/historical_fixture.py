@@ -2,8 +2,8 @@
 
 Run with PYTHONPATH pointing at the historical source tree. Mode ``create-0.40``
 creates a schema-15 installation using 0.40.0 code. Mode ``upgrade-schema20``
-uses the pinned schema-20 historical code to migrate that installation and add
-representative online/player-tournament records. No PRAGMA relabelling is used.
+or ``upgrade-schema21`` uses historical code to migrate that installation and
+add representative online/player-tournament records.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def create_040(data: Path, manifest_path: Path) -> None:
     )
 
 
-def upgrade_schema20(data: Path, manifest_path: Path) -> None:
+def upgrade_online(data: Path, manifest_path: Path, expected_schema: int) -> None:
     from hnefatafl.auth import Auth, SecuritySettings, digest
     from hnefatafl.online_core import OnlineCore
     from hnefatafl.online_settings import OnlineSettings
@@ -106,8 +106,8 @@ def upgrade_schema20(data: Path, manifest_path: Path) -> None:
     store = Store(data / "hnefatafl.sqlite3")
     with store.connection() as c:
         schema = c.execute("PRAGMA user_version").fetchone()[0]
-    if schema != 20:
-        raise SystemExit(f"Expected authentic schema 20, found {schema}")
+    if schema != expected_schema:
+        raise SystemExit(f"Expected authentic schema {expected_schema}, found {schema}")
     manifest = json.loads(manifest_path.read_text())
     auth = Auth(store, SecuritySettings())
     tokens = {}
@@ -164,7 +164,7 @@ def upgrade_schema20(data: Path, manifest_path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("create-0.40", "upgrade-schema20"))
+    parser.add_argument("mode", choices=("create-0.40", "upgrade-schema20", "upgrade-schema21"))
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
@@ -172,7 +172,7 @@ def main() -> int:
     if args.mode == "create-0.40":
         create_040(args.data, args.manifest)
     else:
-        upgrade_schema20(args.data, args.manifest)
+        upgrade_online(args.data, args.manifest, 20 if args.mode == "upgrade-schema20" else 21)
     return 0
 
 

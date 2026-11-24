@@ -11,7 +11,7 @@ from record_fixtures import stored_player, retired_player, historical_game, hist
 from hnefatafl.identities import RUNES, agent_identity, effective_ai_config, rune_for_ordinal
 from hnefatafl.models import ModelRegistry, PolicyValueNet, save_checkpoint
 from hnefatafl.server import create_app
-from hnefatafl.storage import Store
+from hnefatafl.storage import SCHEMA_VERSION, Store
 
 
 def test_neural_wrapper_effective_settings_preserve_legacy_mcts_defaults():
@@ -86,7 +86,7 @@ def test_schema_four_migration_keeps_game_json_and_deleted_human_runes(tmp_path)
     assert Store(path).players(include_deleted=True)[0]["rune"] == fresh["rune"]
     assert migrated.rune("player:retired") == retired["rune"]
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("SELECT data FROM games WHERE id='old'").fetchone()[0] == old_json
 
 
