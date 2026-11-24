@@ -431,6 +431,47 @@ def validate_report(report: dict) -> dict:
             partial_reasons.append(
                 "progress-file/telemetry consistency was not verified for acceptance"
             )
+        workload = report.get("workload_telemetry")
+        if not isinstance(workload, dict):
+            partial_reasons.append("workload failure/work accounting telemetry is missing")
+        else:
+            for field in (
+                "successful_searches",
+                "workload_failures",
+                "neural_searches",
+                "completed_simulations",
+                "neural_inferences",
+            ):
+                value = workload.get(field, 0)
+                if type(value) is not int or value < 0:
+                    fail(f"workload_telemetry.{field} must be a non-negative integer")
+            workload_failures = workload.get("workload_failures", 0)
+            if type(workload_failures) is int and workload_failures > 0:
+                partial_reasons.append(
+                    f"workload recorded {workload_failures} failed search(es) during collection"
+                )
+            successful = workload.get("successful_searches", 0)
+            if type(successful) is int and successful < 1:
+                partial_reasons.append("workload recorded no successful searches")
+            neural = workload.get("neural_searches", 0)
+            if type(neural) is int and neural < 1:
+                partial_reasons.append("workload recorded no neural-analysis searches")
+            placements = workload.get("provider_placements")
+            if not isinstance(placements, list) or not placements:
+                partial_reasons.append("workload telemetry lacks observed provider placements")
+            sample_failures = max(
+                (
+                    sample.get("workload_failures", 0)
+                    for sample in measured
+                    if type(sample.get("workload_failures")) is int
+                ),
+                default=0,
+            )
+            if (
+                type(workload_failures) is int
+                and sample_failures != workload_failures
+            ):
+                fail("workload failure summary does not match the sample telemetry")
     coverage: dict[str, dict] = {}
     coverage_window_start = window_start
     coverage_window_end = window_start + window_ms

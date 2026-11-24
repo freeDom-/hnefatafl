@@ -42,6 +42,14 @@ CLEANUP_GRACE_MS = 1000.0
 TELEMETRY_FUTURE_TOLERANCE_MS = 100.0
 TELEMETRY_HISTORY_LIMIT = 4096
 IDENTITY_FIELDS = ("session_id", "model_sha256", "workload")
+WORKLOAD_FIELDS = (
+    "successful_searches",
+    "workload_failures",
+    "neural_searches",
+    "completed_simulations",
+    "neural_inferences",
+    "no_inference_shortcuts",
+)
 
 
 def _finite_number(value) -> bool:
@@ -294,6 +302,11 @@ class TelemetryStream:
                 self.progress_resets += 1
                 self.last_error = "telemetry completed_requests counter reset"
             self.last_progress = progress
+        for field in WORKLOAD_FIELDS:
+            if field in record and not _non_negative_int(record[field]):
+                self.malformed += 1
+                self.last_error = f"telemetry {field} is malformed"
+                return
         self.records.append(record)
         if (
             self.last_rejected_timestamp is not None
@@ -380,7 +393,9 @@ def _telemetry_sample(record: dict | None) -> dict:
         "js_heap_used_bytes",
         "cache_entries",
         "cache_bytes",
+        "cache_evictions",
         "wasm_heap_capacity_bytes",
+        *WORKLOAD_FIELDS,
     ):
         if field not in record:
             continue
@@ -430,6 +445,9 @@ def collect(args) -> dict:
     progress_mismatches = 0
     telemetry_progress_samples = 0
     progress_file_samples = 0
+    workload_telemetry: dict = {}
+    provider_placements: set[str] = set()
+    completion_reasons: dict[str, int] = {}
     while True:
         now = time.monotonic()
         wall_ms = time.time() * 1000.0
@@ -481,6 +499,23 @@ def collect(args) -> dict:
             )
         sample.update(_telemetry_sample(record))
         if record is not None:
+            for field in WORKLOAD_FIELDS:
+                if _non_negative_int(record.get(field)):
+                    workload_telemetry[field] = max(
+                        workload_telemetry.get(field, 0), record[field]
+                    )
+            placements = record.get("provider_placements")
+            if isinstance(placements, list):
+                provider_placements.update(
+                    item for item in placements if isinstance(item, str) and item
+                )
+            reasons = record.get("completion_reasons")
+            if isinstance(reasons, dict):
+                for name, value in reasons.items():
+                    if isinstance(name, str) and _non_negative_int(value):
+                        completion_reasons[name] = max(
+                            completion_reasons.get(name, 0), value
+                        )
             sample["telemetry"] = {
                 key: record.get(key)
                 for key in ("timestamp_ms", "session_id", "model_sha256", "workload")
@@ -581,6 +616,11 @@ def collect(args) -> dict:
         "features": {"inference_cache": args.inference_cache},
         "events": events,
         "events_source": "telemetry",
+        "workload_telemetry": {
+            **workload_telemetry,
+            "provider_placements": sorted(provider_placements),
+            "completion_reasons": completion_reasons,
+        },
         "progress_consistency": progress_consistency,
         "telemetry": telemetry.diagnostics(),
         "unavailable_metrics": unavailable,

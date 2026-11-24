@@ -28,9 +28,67 @@ are never presented as playing-strength evidence.
 | 10-minute sustained profile | Brandubh 32×2, real 600 s post-warmup | Measured | Partial/blocked (WASM capacity unobservable) | [profile](phase3cb-memory-10m-profile.json), [validation](phase3cb-memory-10m-validation.json) | Runtime metric exposure or documented partial acceptance |
 | 30-minute sustained profile | Brandubh 32×2, real 1800 s post-warmup | Measured | Not met (JS heap growth threshold; compatibility-file consistency) | [profile](phase3cb-memory-30m-profile.json), [validation](phase3cb-memory-30m-validation.json) | Investigate JS heap step; rerun with telemetry-only progress |
 | Lifecycle profiles | Cancel/restart, model reload, worker replacement | Measured | Partial/blocked (WASM unobservable; worker replacement RSS growth) | `phase3cb-memory-*-profile.json` | Owner lifecycle acceptance with observable metrics |
+| Executable owner benchmark/tournament workflow (A1–A2) | Extended native/browser workload, 50-pair corpus generation, all adapter comparisons | Validated structurally/integration | Met | `test_extended_native_browser_benchmark_workloads_are_compatible`, `tests/test_tournament_openings.py` | Owner private models/hardware for full samples |
+| Sustained workload driver integrity (A3–A8) | Failure accounting, nonterminal selection, telemetry-only progress, lifecycle modes | Validated with short actual-browser runs | Met for driver correctness; sustained acceptance remains blocked | `spikes/browser_offline/test_sustained_workload.mjs`, `tests/test_sustained_workload_driver.py` | Full owner 10/30-minute rerun |
 | Physical device matrix | None | Blocked | Not met | [blocked matrix](phase3cb-device-evidence-blocked.json), [runbook](device-matrix-phase3c.md) | Physical Windows/Linux/macOS/Android/Safari runs |
 | Verified GPU execution | No WebGPU adapter | Blocked | Not met | [capability report](phase3cb-webgpu-capability-blocked.json) | Runtime with supported placement diagnostics + physical GPU |
 | Copenhagen depth-5 | Native, 2/5/10/30 s | Measured | Not met | [reassessment](phase3cb-copenhagen-depth5.json) | Owner decision on adaptive target |
+
+## A.1 Correctness and reproducibility corrections
+
+This revision resolves the review findings A1–A8:
+
+- **A1 benchmark compatibility:** owner commands now use extended native and
+  browser workloads with identical position kinds, budgets (128/256/512/1024 and
+  0.5/1/2/5 s), repetitions (3), warmup (1), seed 7 and exploration 1.4. The
+  native benchmark CLI gained `--repetitions`/`--warmup`; the opt-in integration
+  test `test_extended_native_browser_benchmark_workloads_are_compatible` compares
+  actual extended native/browser reports. The runbook includes full/compact and
+  direct/relay parity commands and a concrete competitive manifest generator.
+- **A2 opening corpus:** `tournament_openings.py` generates deterministic seeded
+  legal-playout corpora with nonterminal states, correct ply/history, full-state
+  symmetry-aware duplicate rejection, generator/seed/corpus digest metadata and
+  validation. The tournament CLI records `openings_source`, rejects duplicate
+  names/states, and rejects playing-strength runs with fewer than ten opening pairs
+  before launching. The runbook includes 50-pair commands for all three rulesets
+  and all required comparisons.
+- **A3 workload failures:** the sustained driver emits cumulative
+  `successful_searches`, `workload_failures`, `neural_searches`,
+  `completed_simulations`, `neural_inferences`, no-inference shortcuts, completion
+  reasons and provider placements. Failed searches never increment successful
+  progress; exit codes are 0 (healthy), 2 (partial with failures) and 1 (no
+  successful work/fatal). Memory validation treats workload failures as partial
+  (non-accepted) even when RSS/heap/progress checks pass.
+- **A4 position selection:** sustained runs select only nonterminal analysis
+  positions (`opening`, `midgame`, `tactical`, `endgame`, `repetition`), exclude
+  terminal and immediate-win fixtures, deduplicate states, record the selected
+  positions and require observed neural-analysis searches (not just request
+  counts) for acceptance. Terminal/no-inference shortcuts are counted separately.
+- **A5 native neural integrity:** the adapter now calls
+  `prepare_neural.validate_export_dir()` (validated marker/manifest/ONNX/reference
+  digests), verifies checkpoint weights, architecture, encoder, ruleset and size,
+  retains the exact verified model, injects it through `_model` (no path-based
+  reload/cache), reports CPU/device identity, and rejects modified/stale/mismatched
+  artifacts before handshake. Tests cover corrupted ONNX, stale marker, mismatched
+  checkpoint, retained-model requests and valid execution.
+- **A6 telemetry-only progress:** the compatibility progress file is optional; the
+  recommended owner workflow uses telemetry-only progress with fresh
+  `--overwrite` files, unique session ids and a ready-file handshake before the
+  collector starts. Legacy progress-file diagnostics remain explicit.
+- **A7 lifecycle coverage:** the driver adds `model-replacement` (different
+  validated model identity with cache-invalidation check), `cache-churn`,
+  `batching` (two independent coordinators with actual batch utilization/foreground
+  elapsed time) and `client-disposal` alongside repeated/cancel/reload/worker
+  replacement. Model identity transitions are recorded explicitly; replacement
+  profiles that change model identity remain blocked by the strict collector
+  identity contract rather than silently accepted.
+- **A8 driver regression suite:** `test_sustained_workload.mjs` covers selection,
+  work accounting, failures/exit statuses, telemetry identity, no-inference
+  shortcuts, cancellation handling and optional actual-browser runs for repeated,
+  cancel/restart, reload, worker replacement, cache churn, batching and model
+  replacement. `tests/test_sustained_workload_driver.py` runs it when Node is
+  available; actual-browser modes are opt-in via `SPIKE_NEURAL_DIR` and
+  `SPIKE_REPLACEMENT_MODEL_*`.
 
 ## B. Software delivered in Phase 3C-B
 
@@ -149,13 +207,23 @@ window excludes the 60 s warmup.
 
 | Profile | Acceptance window | Requests | RSS median/peak | JS heap median/peak | Cache peak | Workers | Validation |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| sustained-10m | 600 s | 9,086 | 930.9 / 971.2 MB | 9.5 / 9.5 MB | 12.6 MB | 2 | partial: WASM capacity unavailable |
-| sustained-30m | 1,800 s | 25,445 | 947.4 / 979.1 MB | 9.5 / 19.6 MB | 12.6 MB | 2 | invalid: JS-heap growth threshold; compatibility progress lag; WASM unavailable |
-| cancel-restart | 90 s | 2,143 | 907.3 / 945.1 MB | 9.5 / 9.5 MB | 12.5 MB | 2 | partial: WASM unavailable |
-| model-reload | 90 s | 1,760 | 877.7 / 957.4 MB | 9.5 / 9.5 MB | 0.3 MB | 2 | partial: WASM unavailable |
-| worker-replacement | 90 s | 391 | 863.7 / 981.8 MB | 9.5 / 9.5 MB | 0.5 MB | 1–2 | invalid: RSS growth threshold; WASM unavailable |
+| sustained-10m (historical) | 600 s | 9,086 | 930.9 / 971.2 MB | 9.5 / 9.5 MB | 12.6 MB | 2 | partial: WASM capacity unavailable |
+| sustained-10m (telemetry-only rerun) | 600 s | 7,719 | see validation/profile | 9.5 MB stable | 12.6 MB | 2 | partial: WASM capacity unavailable; zero workload failures |
+| sustained-30m (historical) | 1,800 s | 25,445 | 947.4 / 979.1 MB | 9.5 / 19.6 MB | 12.6 MB | 2 | invalid: JS-heap growth threshold; compatibility progress lag; WASM unavailable |
+| cancel-restart (historical) | 90 s | 2,143 | 907.3 / 945.1 MB | 9.5 / 9.5 MB | 12.5 MB | 2 | partial: WASM unavailable |
+| model-reload (historical) | 90 s | 1,760 | 877.7 / 957.4 MB | 9.5 / 9.5 MB | 0.3 MB | 2 | partial: WASM unavailable |
+| worker-replacement (90 s historical) | 90 s | 391 | 863.7 / 981.8 MB | 9.5 / 9.5 MB | 0.5 MB | 1–2 | invalid: RSS growth threshold; WASM unavailable |
+| worker-replacement (240 s rerun) | 240 s | 311 | 858→898 MB medians; peak 1,015 MB | 9.5 MB stable | 0.5 MB | 1–2 | partial: WASM unavailable; growth threshold not exceeded |
 
 Observations:
+
+Corrected telemetry-only rerun evidence:
+[10-minute profile](phase3cb-memory-10m-r2-profile.json),
+[validation](phase3cb-memory-10m-r2-validation.json),
+[workload summary](phase3cb-memory-10m-r2-workload.json),
+[worker-replacement profile](phase3cb-memory-worker-replacement-r2-profile.json),
+[validation](phase3cb-memory-worker-replacement-r2-validation.json),
+[workload summary](phase3cb-memory-worker-replacement-r2-workload.json).
 
 - Process RSS stayed roughly 930–979 MB for the 10/30-minute runs; no monotonic
   unbounded process growth was observed. The 30-minute validation still fails its
@@ -170,9 +238,24 @@ Observations:
 - Cancellation/restart completed 1,017 observed cancellations with recovery;
   model reload completed 113 observed reloads; worker replacement completed 16
   observed replacements with recovery.
-- The 30-minute run recorded eight transient progress-file/telemetry mismatches.
-  Progress acceptance uses the live telemetry counter exclusively; the compatibility
-  progress file was retained for diagnostics and the run remains non-accepted.
+- The historical 30-minute run recorded eight transient progress-file/telemetry
+  mismatches. The corrected recommended workflow is telemetry-only and does not
+  require independent files to be atomic; the historical run remains non-accepted.
+- **Memory-growth investigation:** the 30-minute JS p95/p50 stepped from 9.5 MB to
+  19.6 MB at about 17 minutes and then stayed flat for the remaining 13 minutes.
+  Worker count remained 2, OS process count 7, cache bytes stayed within budget,
+  and no retained search/coordinator reference accumulation was found; the
+  coordinator holds only the active search, and completed search contexts are
+  released. The step is consistent with V8 old-space/GC growth rather than a
+  demonstrated unbounded leak, but it is not proven and the historical invalid
+  report is preserved. The 90-second worker-replacement run's RSS threshold failure
+  was a startup/replacement transient (baseline 765 MB, peak 982 MB); a corrected
+  240-second rerun with more replacements showed median 858→898 MB and peak 1,015 MB,
+  below the declared growth threshold, while workers stayed 1–2 and OS processes 7.
+  No code defect was reproduced; both findings remain investigation observations,
+  not acceptance. The 30-minute profile was not rerun after the telemetry-only
+  driver corrections (resource budget); its historical invalid report is preserved
+  and the corrected owner command is provided above for a fresh run.
 - WASM heap capacity is not exposed by the pinned ORT Web runtime, so these
   profiles remain partial/blocked rather than accepted. No substitute metric was
   used.
@@ -212,21 +295,22 @@ separate change.
 
 ## I. Owner-side Phase 3C-B runbook
 
-Private checkpoints, ONNX files and training data must remain outside the
-repository. The commands below are copyable; substitute private paths locally.
+Private checkpoints, ONNX files, telemetry and device reports stay outside the
+repository. The commands below were checked against the implemented CLIs; replace
+`/private/...` with owner paths and keep unique session ids/files per run.
 
 ```sh
-# Environment
+# 0. Environment
 uv sync --frozen --extra train --extra dev
 uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
 npm --prefix frontend ci && npx --prefix frontend playwright install chromium
 
-# 1. Competitive checkpoint provenance and validated ONNX export
+# 1. Validated export and staging (repeat per ruleset)
 .venv/bin/python spikes/browser_offline/onnx_export.py /private/brandubh.pt /private/export-brandubh
 .venv/bin/python spikes/browser_offline/prepare_neural.py \
   --model-dir /private/export-brandubh --output /private/spike-brandubh
 
-# 2. Numerical and search parity (repeat for tablut/copenhagen)
+# 2. Numerical/search parity: Level A, Level B, direct/relay and full/compact
 .venv/bin/python spikes/browser_offline/native_mcts_parity.py --level a \
   --iterations 128 --output /tmp/native-a.json
 node spikes/browser_offline/mcts_parity.mjs /private/spike-brandubh \
@@ -241,63 +325,193 @@ node spikes/browser_offline/test_search_path_parity.mjs /private/spike-brandubh 
   --gate direct-relay-compact --output /tmp/direct-relay-fixed.json
 node spikes/browser_offline/test_search_path_parity.mjs /private/spike-brandubh \
   --gate direct-relay-compact --fixed-time --output /tmp/direct-relay-fixed-time.json
+node spikes/browser_offline/test_search_path_parity.mjs /private/spike-brandubh \
+  --gate relay-full-compact --output /tmp/relay-full-compact.json
 
-# 3. Full competitive benchmarking (native and browser; all kinds/repetitions)
+# 3. Compatible native/browser benchmark workloads (same extended preset,
+#    budgets, repetitions, warmup, seed and exploration)
 .venv/bin/python spikes/browser_offline/native_mcts_benchmark.py \
   --model-export /private/export-brandubh --checkpoint /private/brandubh.pt \
   --evaluator onnx --extended --simulations 128,256,512,1024 \
-  --time-budgets 0.5,1,2,5 --output /tmp/native-bench.json
+  --time-budgets 0.5,1,2,5 --repetitions 3 --warmup 1 --seed 7 --exploration 1.4 \
+  --output /tmp/native-bench.json
 node spikes/browser_offline/mcts_benchmark.mjs /private/spike-brandubh \
-  --provider wasm --simulations 128,256,512,1024 --time-budgets 0.5,1,2,5 \
-  --repetitions 2 --warmup 1 --native /tmp/native-bench.json \
-  --output /tmp/browser-bench.json
+  --provider wasm --extended --simulations 128,256,512,1024 \
+  --time-budgets 0.5,1,2,5 --repetitions 3 --warmup 1 --seed 7 --exploration 1.4 \
+  --native /tmp/native-bench.json --output /tmp/browser-bench.json
+.venv/bin/python spikes/browser_offline/mcts_benchmark.py /tmp/native-bench.json \
+  /tmp/browser-bench.json --output /tmp/benchmark-comparison.json
 
-# 4. Competitive manifest and validation (see Phase 3C-A schema)
+# 3b. Optimization comparisons (opt-in; keep relay as default)
+for variant in relay direct cache full; do
+  args="--transport relay --payload-mode compact"
+  [ "$variant" = direct ] && args="--transport direct --payload-mode compact"
+  [ "$variant" = cache ] && args="--transport relay --payload-mode compact --cache"
+  [ "$variant" = full ] && args="--transport relay --payload-mode full"
+  node spikes/browser_offline/mcts_benchmark.mjs /private/spike-brandubh \
+    --provider wasm --quick --simulations 256,1024 --time-budgets 1,2 \
+    --repetitions 1 --warmup 1 $args --output /tmp/bench-$variant.json
+done
+node spikes/browser_offline/test_independent_batching.mjs /private/spike-brandubh \
+  --mode sequential --simulations 64 --output /tmp/batching-sequential.json
+node spikes/browser_offline/test_independent_batching.mjs /private/spike-brandubh \
+  --mode batched --simulations 64 --output /tmp/batching-batched.json
+
+# 4. Competitive evidence manifest. Run this after collecting the reports above.
+#    It binds the private checkpoint/export digests and training metadata.
+export RULESET=brandubh CHECKPOINT=/private/brandubh.pt EXPORT=/private/export-brandubh
+export EVIDENCE=/tmp/phase3cb-evidence
+mkdir -p "$EVIDENCE"
+cp /tmp/native-a.json /tmp/browser-a.json /tmp/native-b.json /tmp/browser-b.json "$EVIDENCE"/
+cp /tmp/direct-relay-fixed.json /tmp/direct-relay-fixed-time.json "$EVIDENCE"/
+cp /tmp/native-bench.json /tmp/browser-bench.json "$EVIDENCE"/
+.venv/bin/python - <<'PY'
+import hashlib, json, os
+from pathlib import Path
+from hnefatafl.models import load_checkpoint
+
+checkpoint = Path(os.environ["CHECKPOINT"])
+export = Path(os.environ["EXPORT"])
+sidecar = json.loads((export / "model.json").read_text())
+_, payload = load_checkpoint(checkpoint.resolve(), device="cpu")
+metadata = payload.get("metadata") or {}
+canonical = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+manifest = {
+    "kind": "browser-competitive-evidence",
+    "schema": 2,
+    "validation_level": "competitive-trained",
+    "acceptance_policy": "competitive",
+    "provenance": {
+        "training_status": "competitive-trained",
+        "checkpoint_sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
+        "onnx_sha256": hashlib.sha256((export / "model.onnx").read_bytes()).hexdigest(),
+        "source_weights_sha256": sidecar["source"]["weights_sha256"],
+        "ruleset": sidecar["ruleset"],
+        "architecture": {
+            "channels": sidecar["model_config"]["channels"],
+            "blocks": sidecar["model_config"]["blocks"],
+        },
+        "encoder_version": sidecar["source"]["encoder_version"],
+        "training": {
+            "classification": "competitive-trained",
+            "checkpoint_metadata_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+            "attestation": {
+                "source": "owner",
+                "statement": "Owner attests this checkpoint is competitively trained.",
+                "recorded_at": "2026-11-24T00:00:00Z",
+            },
+        },
+    },
+    "evidence": {
+        "level_a": {"native": "native-a.json", "browser": "browser-a.json"},
+        "level_b": {"native": "native-b.json", "browser": "browser-b.json"},
+        "direct_relay": {"fixed": "direct-relay-fixed.json", "fixed_time": "direct-relay-fixed-time.json"},
+        "benchmarks": ["native-bench.json", "browser-bench.json"],
+    },
+}
+Path(os.environ["EVIDENCE"], "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+print("wrote", os.environ["EVIDENCE"] + "/manifest.json")
+PY
 .venv/bin/python spikes/browser_offline/competitive_validation.py \
-  --checkpoint /private/brandubh.pt --export-dir /private/export-brandubh \
-  --report /tmp/evidence-manifest.json --output /tmp/competitive-validation.json
+  --checkpoint "$CHECKPOINT" --export-dir "$EXPORT" \
+  --report "$EVIDENCE/manifest.json" --output /tmp/competitive-validation.json
 
-# 5. Tournaments (browser vs native neural, and browser vs native Jarl)
+# 5. Reproducible 50-pair opening corpora (repeat for tablut/copenhagen)
+.venv/bin/python spikes/browser_offline/tournament_openings.py \
+  --ruleset brandubh --pairs 50 --seed 20261124 --max-plies 120 \
+  --output /private/openings-brandubh.json
+.venv/bin/python spikes/browser_offline/tournament_openings.py \
+  --ruleset tablut --pairs 50 --seed 20261124 --max-plies 140 \
+  --output /private/openings-tablut.json
+.venv/bin/python spikes/browser_offline/tournament_openings.py \
+  --ruleset copenhagen --pairs 50 --seed 20261124 --max-plies 160 \
+  --output /private/openings-copenhagen.json
+.venv/bin/python spikes/browser_offline/tournament_openings.py \
+  --ruleset brandubh --pairs 50 --validate /private/openings-brandubh.json
+
+# 6. Agent configs (same model identity for native/browser neural)
 cat > /tmp/native-neural.json <<'JSON'
 {"label":"native-neural","kind":"native-neural","runtime":"native-cpython","provider":"torch-cpu","algorithm":"mcts","model":{"onnx_sha256":"<64 hex>","weights_sha256":"<64 hex>","ruleset":"brandubh","size":7}}
 JSON
 cat > /tmp/browser-neural.json <<'JSON'
 {"label":"browser-neural","kind":"browser-neural","runtime":"browser-pyodide","provider":"wasm","algorithm":"mcts","model":{"onnx_sha256":"<64 hex>","weights_sha256":"<64 hex>","ruleset":"brandubh","size":7}}
 JSON
+cat > /tmp/native-jarl.json <<'JSON'
+{"label":"native-jarl","kind":"native-jarl","runtime":"native-cpython","provider":"cpu","algorithm":"alpha_beta","depth":5,"model":null}
+JSON
+# Fixed-work primary comparison
 .venv/bin/python spikes/browser_offline/tournament.py --run --ruleset brandubh \
-  --limit 50 --simulations 256 --time-limit 2 --seed 7 --max-plies 200 \
-  --mode fixed-work --agent-timeout 60 \
+  --openings-file /private/openings-brandubh.json --simulations 256 --time-limit 2 \
+  --seed 7 --max-plies 200 --mode fixed-work --agent-timeout 120 --evidence-class playing-strength \
   --agent-a-command ".venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine neural --checkpoint /private/brandubh.pt --model-export /private/export-brandubh" \
   --agent-b-command "node spikes/browser_offline/browser_tournament_agent.mjs /private/spike-brandubh --provider wasm" \
   --agent-a-config /tmp/native-neural.json --agent-b-config /tmp/browser-neural.json \
-  --evidence-class playing-strength --output /tmp/tournament.json
-.venv/bin/python spikes/browser_offline/tournament.py /tmp/tournament.json
+  --output /tmp/tournament-neural-fixed-work.json
+.venv/bin/python spikes/browser_offline/tournament.py /tmp/tournament-neural-fixed-work.json
+# Same comparison under fixed time
+.venv/bin/python spikes/browser_offline/tournament.py --run --ruleset brandubh \
+  --openings-file /private/openings-brandubh.json --simulations 4096 --time-limit 2 \
+  --seed 8 --max-plies 200 --mode fixed-time --agent-timeout 120 --evidence-class playing-strength \
+  --agent-a-command ".venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine neural --checkpoint /private/brandubh.pt --model-export /private/export-brandubh" \
+  --agent-b-command "node spikes/browser_offline/browser_tournament_agent.mjs /private/spike-brandubh --provider wasm" \
+  --agent-a-config /tmp/native-neural.json --agent-b-config /tmp/browser-neural.json \
+  --output /tmp/tournament-neural-fixed-time.json
+# Browser neural vs native Jarl (equal time; work units are not comparable)
+.venv/bin/python spikes/browser_offline/tournament.py --run --ruleset brandubh \
+  --openings-file /private/openings-brandubh.json --simulations 4096 --time-limit 2 \
+  --seed 9 --max-plies 200 --mode fixed-time --agent-timeout 120 --evidence-class playing-strength \
+  --agent-a-command ".venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine jarl --depth 5" \
+  --agent-b-command "node spikes/browser_offline/browser_tournament_agent.mjs /private/spike-brandubh --provider wasm" \
+  --agent-a-config /tmp/native-jarl.json --agent-b-config /tmp/browser-neural.json \
+  --output /tmp/tournament-jarl-fixed-time.json
+# Browser WASM vs browser WebGPU (only when a physical adapter is available)
+.venv/bin/python spikes/browser_offline/prepare_neural.py --model-dir /private/export-brandubh --output /private/spike-brandubh-webgpu
+cat > /tmp/browser-webgpu.json <<'JSON'
+{"label":"browser-webgpu","kind":"browser-neural","runtime":"browser-pyodide","provider":"webgpu","algorithm":"mcts","model":{"onnx_sha256":"<64 hex>","weights_sha256":"<64 hex>","ruleset":"brandubh","size":7}}
+JSON
+.venv/bin/python spikes/browser_offline/tournament.py --run --ruleset brandubh \
+  --openings-file /private/openings-brandubh.json --simulations 128 --time-limit 2 \
+  --seed 10 --max-plies 200 --mode fixed-work --agent-timeout 120 \
+  --agent-a-command "node spikes/browser_offline/browser_tournament_agent.mjs /private/spike-brandubh --provider wasm" \
+  --agent-b-command "node spikes/browser_offline/browser_tournament_agent.mjs /private/spike-brandubh-webgpu --provider webgpu" \
+  --agent-a-config /tmp/browser-neural.json --agent-b-config /tmp/browser-webgpu.json \
+  --output /tmp/tournament-wasm-webgpu.json
 
-# 6. Sustained memory (10/30 minutes; warmup is additional)
+# 7. Sustained memory: telemetry-only progress, fresh files, ready handshake
+SESSION="owner-$(date +%s)"; TELEMETRY="/tmp/$SESSION.jsonl"; READY="/tmp/$SESSION.ready"
 node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
-  --duration 690 --mode repeated --session owner-10m --provider wasm \
-  --telemetry /tmp/telemetry-10m.jsonl --progress /tmp/progress-10m.txt \
+  --duration 690 --mode repeated --session "$SESSION" --provider wasm \
+  --telemetry "$TELEMETRY" --ready "$READY" --overwrite \
   --iterations 128 --time-limit 2 --cache --output /tmp/workload-10m.json &
 BROWSER_PID=$!
-sleep 10
+while [ ! -s "$READY" ]; do sleep 0.2; done
 .venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$BROWSER_PID" \
   --profile sustained-10m --warmup-duration 60 --duration 600 --interval 1 \
-  --telemetry-file /tmp/telemetry-10m.jsonl --telemetry-session-id owner-10m \
+  --telemetry-file "$TELEMETRY" --telemetry-session-id "$SESSION" \
   --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
-  --inference-cache --progress-file /tmp/progress-10m.txt \
-  --output /tmp/memory-10m.json
+  --inference-cache --output /tmp/memory-10m.json
+wait "$BROWSER_PID"
 .venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json
-# Repeat with --duration 1890, --profile sustained-30m, --duration 1800 for 30 minutes.
+# 30 minutes: --duration 1890 on the driver, --profile sustained-30m --duration 1800 collector
+# Lifecycle profiles: repeat step 7 with --mode cancel-restart | model-reload |
+# worker-replacement | client-disposal | cache-churn | batching and matching collector profile.
+# Model replacement additionally needs:
+#   --mode model-replacement --replacement-model-file models/alt.onnx \
+#   --replacement-model-sha256 "<alt digest>" (copy a second validated model into the staged root).
 
-# 7. Physical device matrix (see device-matrix-phase3c.md for every platform)
+# 8. Physical device matrix
 .venv/bin/python spikes/browser_offline/device_evidence.py /private/device-evidence.json \
   --output /private/device-validation.json
+
+# 9. Evidence validation summary
+.venv/bin/python spikes/browser_offline/competitive_validation.py --validate /tmp/competitive-validation.json
+.venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json --output /tmp/memory-10m-validation.json
 ```
 
-Structural smoke mode: the existing quick benchmark/parity commands and short
-2-pair tournaments remain appropriate for CI and software checks; they are not
-full acceptance. Full owner runs need private checkpoints, physical hardware and
-the complete 10/30-minute windows.
+Structural smoke mode remains available through the existing quick benchmark/parity
+commands and small fixture-based tournaments; it is not full acceptance. The
+tournament CLI rejects playing-strength runs with fewer than ten opening pairs
+before launching, and generated corpora record generator/seed/corpus identity.
 
 ## J. Readiness recommendation
 

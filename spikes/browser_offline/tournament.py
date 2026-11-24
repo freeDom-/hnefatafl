@@ -18,6 +18,7 @@ and replace the child process.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -1105,6 +1106,7 @@ def run_paired_openings(
     agent_config: dict | None = None,
     evidence_class: str = "structural",
     mode: str = "fixed-work",
+    openings_source: dict | None = None,
 ) -> dict:
     if evidence_class not in ("structural", "playing-strength"):
         raise ValueError("evidence_class must be structural or playing-strength")
@@ -1196,6 +1198,7 @@ def run_paired_openings(
         "agents": {"a": labels[0], "b": labels[1]},
         "agent_config": config,
         "agent_handshakes": handshakes,
+        "openings_source": openings_source,
         "settings": settings,
         "openings": [
             {
@@ -1224,6 +1227,7 @@ def run_paired_openings(
         "agents": {"a": labels[0], "b": labels[1]},
         "agent_config": config,
         "agent_handshakes": handshakes,
+        "openings_source": openings_source,
         "settings": settings,
         "openings": [entry["name"] for entry in validated_openings],
         "games": games,
@@ -1691,6 +1695,10 @@ def validate_report(report: dict) -> dict:
             report.get("agent_handshakes")
         ):
             fail("manifest agent handshakes do not match report")
+        if _canonical(manifest.get("openings_source")) != _canonical(
+            report.get("openings_source")
+        ):
+            fail("manifest opening corpus identity does not match report")
         if _canonical(manifest.get("settings")) != _canonical(report.get("settings")):
             fail("manifest settings do not match report")
         manifest_openings = manifest.get("openings")
@@ -1953,6 +1961,25 @@ def validate_report(report: dict) -> dict:
                 fail(f"{label}: uncompleted game reason is not a move limit")
             if max_plies and plies != max_plies:
                 fail(f"{label}: move-limited game did not reach the recorded move limit")
+    source = report.get("openings_source")
+    if source is not None:
+        if not isinstance(source, dict):
+            fail("openings_source must be an object")
+        else:
+            if source.get("count") != len(openings):
+                fail("openings_source count does not match the tournament openings")
+            if source.get("ruleset") != ruleset:
+                fail("openings_source ruleset does not match the tournament")
+            if source.get("kind") == "corpus":
+                generator = source.get("generator")
+                if not isinstance(generator, dict) or not _positive_int(
+                    generator.get("seed")
+                ):
+                    fail("corpus opening generator seed is missing")
+                if not _hex64(source.get("corpus_sha256")):
+                    fail("corpus opening digest is missing or malformed")
+            elif source.get("kind") not in ("fixtures", "file"):
+                fail("openings_source kind is unsupported")
     if len(set(ids)) != len(ids):
         fail("duplicate game identifiers")
     expected_pairs = {
@@ -2041,7 +2068,7 @@ def _read_json(path: Path) -> dict:
     return value
 
 
-def _load_openings(path: Path | None, ruleset: str, limit: int | None) -> list[dict]:
+def _load_openings(path: Path | None, ruleset: str, limit: int | None):
     if path is None:
         from fixtures import jarl_positions
 
@@ -2053,19 +2080,58 @@ def _load_openings(path: Path | None, ruleset: str, limit: int | None) -> list[d
         ]
         if limit is not None:
             entries = entries[:limit]
-        return [{"name": entry["name"], "state": entry["state"]} for entry in entries]
+        openings = [{"name": entry["name"], "state": entry["state"]} for entry in entries]
+        return openings, {
+            "kind": "fixtures",
+            "selection": "fixtures.jarl_positions",
+            "ruleset": ruleset,
+            "count": len(openings),
+        }
     document = _read_json(path)
+    if document.get("kind") == "browser-analysis-tournament-openings":
+        from tournament_openings import validate_corpus
+
+        validated = validate_corpus(document, ruleset, minimum_pairs=1)
+        openings = validated["openings"]
+        if limit is not None:
+            openings = openings[:limit]
+        return openings, {
+            "kind": "corpus",
+            "generator": validated["generator"],
+            "corpus_sha256": validated["corpus_sha256"],
+            "ruleset": ruleset,
+            "count": len(openings),
+        }
     raw = document.get("openings") if isinstance(document.get("openings"), list) else document
     if not isinstance(raw, list) or not raw:
         raise ValueError("openings file must contain a non-empty list")
     entries = []
+    seen_names = set()
+    seen_states = set()
     for entry in raw:
         if not isinstance(entry, dict):
             raise ValueError("opening entry must be an object")
-        entries.append({"name": entry.get("name"), "state": entry.get("state")})
+        name = entry.get("name")
+        if not isinstance(name, str) or not name or name in seen_names:
+            raise ValueError("opening names must be unique non-empty strings")
+        seen_names.add(name)
+        state = State.from_dict(entry.get("state"))
+        if state.winner is not None or not legal_moves(state):
+            raise ValueError("opening files must contain nonterminal positions with moves")
+        key = _canonical(state.to_dict())
+        if key in seen_states:
+            raise ValueError("opening files must not contain duplicate states")
+        seen_states.add(key)
+        entries.append({"name": name, "state": entry["state"]})
     if limit is not None:
         entries = entries[:limit]
-    return entries
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return entries, {
+        "kind": "file",
+        "file_sha256": digest,
+        "ruleset": ruleset,
+        "count": len(entries),
+    }
 
 
 def _expected_identity(entry: dict) -> dict:
@@ -2126,7 +2192,14 @@ def _run_cli(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             "a": _read_json(args.agent_a_config),
             "b": _read_json(args.agent_b_config),
         }
-        openings = _load_openings(args.openings_file, args.ruleset, args.limit)
+        openings, openings_source = _load_openings(
+            args.openings_file, args.ruleset, args.limit
+        )
+        if args.evidence_class == "playing-strength" and len(openings) < MIN_STRENGTH_PAIRS:
+            raise ValueError(
+                f"playing-strength tournaments require at least {MIN_STRENGTH_PAIRS} "
+                f"opening pairs; {len(openings)} were supplied"
+            )
         labels = (config["a"].get("label"), config["b"].get("label"))
         for key in ("a", "b"):
             entry = config[key] if isinstance(config[key], dict) else {}
@@ -2162,6 +2235,7 @@ def _run_cli(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
                 agent_config=config,
                 evidence_class=args.evidence_class,
                 mode=args.mode,
+                openings_source=openings_source,
             )
     except (ValueError, OSError, AgentProtocolError, AgentTimeoutError) as error:
         print(json.dumps({"ok": False, "failures": [str(error)]}, indent=2))

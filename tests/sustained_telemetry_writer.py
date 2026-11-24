@@ -24,6 +24,7 @@ def main() -> int:
     parser.add_argument("--events-stop-at", type=int)
     parser.add_argument("--progress-reset-at", type=int)
     parser.add_argument("--drop-identity-after", type=int)
+    parser.add_argument("--workload-failures", type=int, default=0)
     args = parser.parse_args()
     started = time.monotonic()
     completed = 0
@@ -66,6 +67,14 @@ def main() -> int:
                 "cache_bytes": 4096 + index * 16,
                 "wasm_heap_capacity_bytes": 32 * 1024 * 1024,
                 "completed_requests": reported_progress,
+                "successful_searches": completed,
+                "workload_failures": args.workload_failures if index > 5 else 0,
+                "neural_searches": completed,
+                "completed_simulations": completed * 4,
+                "neural_inferences": completed * 4,
+                "no_inference_shortcuts": 0,
+                "provider_placements": ["wasm"],
+                "completion_reasons": {"simulations": completed},
                 "events": {
                     "worker_replacements": 1 + (event_index // 5),
                     "cancellations": event_index // 10,

@@ -31,6 +31,7 @@ for path in (str(SPIKE), str(ROOT)):
         sys.path.insert(0, path)
 
 import native_mcts_parity  # noqa: E402
+import prepare_neural  # noqa: E402
 from hnefatafl.ai import choose_move  # noqa: E402
 from hnefatafl.engine import State, legal_moves  # noqa: E402
 
@@ -57,7 +58,7 @@ def _search(
     seed: int,
     engine: str,
     depth: int,
-    checkpoint: Path | None = None,
+    verified_model=None,
 ):
     started = time.perf_counter()
     mode = settings.get("mode", "fixed-work")
@@ -94,12 +95,12 @@ def _search(
             "seed": seed,
         }
     elif engine == "neural":
-        if checkpoint is None:
-            raise ValueError("the neural engine requires --checkpoint")
+        if verified_model is None:
+            raise ValueError("the neural engine requires a verified model")
         config = {
             "algorithm": "neural",
             "search_wrapper": "mcts",
-            "model_path": str(checkpoint),
+            "_model": verified_model,
             "iterations": int(settings.get("iterations", 128)),
             "time_limit": time_limit,
             "exploration": float(settings.get("exploration", 1.4)),
@@ -153,6 +154,55 @@ def _search(
     }
 
 
+def _verify_neural_artifacts(checkpoint: Path, export_dir: Path):
+    """Validate the full export contract and return the retained checkpoint model."""
+    from hnefatafl.models import load_checkpoint, weights_fingerprint
+
+    try:
+        export = prepare_neural.validate_export_dir(export_dir, allow_unvalidated=False)
+    except (SystemExit, ValueError, OSError, TypeError) as error:
+        message = str(error)
+        message = message.replace(str(export_dir), "<model-export>")
+        raise ValueError(f"ONNX export validation failed: {message}") from None
+    sidecar = export["sidecar"]
+    try:
+        model, _ = load_checkpoint(checkpoint.resolve(), device="cpu")
+    except (SystemExit, ValueError, OSError, TypeError) as error:
+        message = str(error).replace(str(checkpoint), "<checkpoint>")
+        raise ValueError(f"checkpoint validation failed: {message}") from None
+    source = sidecar.get("source") or {}
+    if weights_fingerprint(model) != source.get("weights_sha256"):
+        raise ValueError("checkpoint weights do not match the validated ONNX export")
+    metadata = sidecar.get("model_config") or {}
+    architecture = {
+        "channels": getattr(model, "channels", None),
+        "blocks": getattr(model, "blocks", None),
+    }
+    if architecture["channels"] != metadata.get("channels") or architecture["blocks"] != metadata.get(
+        "blocks"
+    ):
+        raise ValueError("checkpoint architecture does not match the validated ONNX export")
+    if sidecar.get("ruleset") != getattr(model, "ruleset", sidecar.get("ruleset")):
+        raise ValueError("checkpoint ruleset does not match the validated ONNX export")
+    encoder = source.get("encoder_version") or (sidecar.get("input") or {}).get("encoding")
+    if encoder != "six-plane-v1":
+        raise ValueError("validated export uses an unsupported encoder version")
+    shape = (sidecar.get("input") or {}).get("shape")
+    size = shape[-1] if isinstance(shape, list) and len(shape) >= 2 else None
+    if size != getattr(model, "size", size):
+        raise ValueError("checkpoint board size does not match the validated ONNX export")
+    identity = {
+        "model_sha256": (sidecar.get("onnx") or {}).get("sha256"),
+        "weights_sha256": source.get("weights_sha256"),
+        "ruleset": sidecar.get("ruleset"),
+        "size": size,
+        "encoder_version": encoder,
+        "architecture": architecture,
+        "device": "cpu",
+    }
+    return model, identity
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -171,21 +221,17 @@ def main() -> int:
     kind = args.kind or DEFAULT_KIND[args.engine]
     algorithm = ALGORITHM[args.engine]
     model_identity = {}
+    verified_model = None
     if args.engine == "neural":
         if args.checkpoint is None or args.model_export is None:
             parser.error("--engine neural requires --checkpoint and --model-export")
-        from hnefatafl.models import load_checkpoint, weights_fingerprint
-
-        sidecar = json.loads((args.model_export / "model.json").read_text())
-        model, _ = load_checkpoint(args.checkpoint.resolve(), device="cpu")
-        if weights_fingerprint(model) != sidecar["source"]["weights_sha256"]:
-            parser.error("checkpoint weights do not match the ONNX export")
-        model_identity = {
-            "model_sha256": sidecar["onnx"]["sha256"],
-            "weights_sha256": sidecar["source"]["weights_sha256"],
-            "ruleset": sidecar["ruleset"],
-            "size": sidecar["input"]["shape"][-1],
-        }
+        try:
+            verified_model, model_identity = _verify_neural_artifacts(
+                args.checkpoint, args.model_export
+            )
+        except ValueError as error:
+            print(f"native_tournament_agent: {error}", file=sys.stderr)
+            return 2
     handshake = {
         "kind": "handshake",
         "protocol": PROTOCOL_VERSION,
@@ -226,7 +272,7 @@ def main() -> int:
                 raise ValueError("cannot search a terminal position")
             started = time.perf_counter()
             move, result = _search(
-                state, settings, seed, args.engine, args.depth, args.checkpoint
+                state, settings, seed, args.engine, args.depth, verified_model
             )
             elapsed_ms = (time.perf_counter() - started) * 1000.0
         except Exception as error:  # noqa: BLE001 - report the failure on stderr and exit 2

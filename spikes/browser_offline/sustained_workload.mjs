@@ -1,18 +1,20 @@
 // Sustained browser-analysis workload driver for Phase 3C-B memory profiles.
 //
-// Runs repeated real browser neural-MCTS searches (and optional cancellation,
-// model reload or worker replacement lifecycle actions) while appending live
-// telemetry for memory_profile_collect.py. It is measurement tooling, not a
-// production integration or a playing-strength claim.
-//
-// Usage:
-//   node spikes/browser_offline/sustained_workload.mjs /tmp/neural-spike \
-//     --duration 660 --session phase3cb --telemetry /tmp/telemetry.jsonl \
-//     --progress /tmp/progress.txt --mode repeated --cache --output /tmp/summary.json
+// Runs repeated real browser neural-MCTS searches and optional lifecycle actions
+// while emitting identity-bound live telemetry. Measurement tooling only.
 import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
+import {
+  exitCode,
+  newCounters,
+  recordBatch,
+  recordFailure,
+  recordSuccess,
+  selectAnalysisPositions,
+  telemetryRecord,
+} from "./sustained_workload_core.mjs";
 
 const mime = {
   ".html": "text/html",
@@ -24,7 +26,16 @@ const mime = {
   ".bin": "application/octet-stream",
   ".zip": "application/zip",
 };
-
+const MODES = [
+  "repeated",
+  "cancel-restart",
+  "model-reload",
+  "model-replacement",
+  "worker-replacement",
+  "client-disposal",
+  "cache-churn",
+  "batching",
+];
 const argv = process.argv.slice(2);
 const root = resolve(argv.find((arg) => !arg.startsWith("--")) || "work/phase0/neural");
 const option = (name, fallback) => {
@@ -39,25 +50,31 @@ const session = option("session", null);
 const provider = option("provider", "wasm");
 const telemetryFile = option("telemetry", null);
 const progressFile = option("progress", null);
+const readyFile = option("ready", null);
 const output = option("output", null);
 const iterations = Number(option("iterations", "64"));
 const timeLimit = Number(option("time-limit", "2"));
 const exploration = Number(option("exploration", "1.4"));
 const cache = flag("cache");
-if (!["repeated", "cancel-restart", "model-reload", "worker-replacement"].includes(mode)) {
-  console.error("sustained_workload: unsupported --mode");
+const overwrite = flag("overwrite");
+const replacementModelFile = option("replacement-model-file", null);
+const replacementModelSha = option("replacement-model-sha256", null);
+if (!MODES.includes(mode)) {
+  console.error(`sustained_workload: unsupported --mode (expected ${MODES.join(", ")})`);
   process.exit(2);
 }
 if (!session) {
   console.error("sustained_workload: --session is required");
   process.exit(2);
 }
-if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(iterations) || iterations < 1) {
+if (!Number.isFinite(duration) || duration <= 0 || !Number.isInteger(iterations) || iterations < 1) {
   console.error("sustained_workload: invalid duration or iterations");
   process.exit(2);
 }
-if (telemetryFile && !progressFile) {
-  console.error("sustained_workload: --telemetry requires --progress");
+if (mode === "model-replacement" && (!replacementModelFile || !replacementModelSha)) {
+  console.error(
+    "sustained_workload: model-replacement requires --replacement-model-file and --replacement-model-sha256",
+  );
   process.exit(2);
 }
 
@@ -68,14 +85,14 @@ let page = null;
 let model = null;
 let positions = [];
 let cursor = 0;
-let completed = 0;
-let cancellations = 0;
-let reloads = 0;
-let workerReplacements = 0;
-let failures = 0;
+const counters = newCounters();
+const completionReasons = {};
+const placements = new Set();
+const modelTransitions = [];
 
-async function loadModel() {
+async function loadModel({ file = null, sha256 = null } = {}) {
   const staged = await page.evaluate(async () => window.neural.meta());
+  const selectedFile = file ?? staged.model.file;
   model = await page.evaluate(
     async (payload) => {
       const load = await window.neural.client.load("./" + payload.file, {
@@ -93,8 +110,15 @@ async function loadModel() {
         execution_placement: load.execution_placement,
       };
     },
-    { ...staged.model, provider },
+    {
+      file: selectedFile,
+      sha256: sha256 ?? staged.model.sha256,
+      provider,
+      size: staged.model.size,
+      ruleset: staged.model.ruleset,
+    },
   );
+  placements.add(`${model.provider_requested}/${model.execution_placement}`);
   if (cache) {
     await page.evaluate(() =>
       window.neural.client.configureInferenceCache({
@@ -112,6 +136,10 @@ async function nextPosition() {
   return position;
 }
 
+function settingsFor(seed) {
+  return { algorithm: "mcts", iterations, time_limit: timeLimit, exploration, seed };
+}
+
 async function search(position) {
   return page.evaluate(
     async (payload) => {
@@ -127,22 +155,8 @@ async function search(position) {
         settings: outcome.settings,
       };
     },
-    {
-      state: position.state,
-      settings: {
-        algorithm: "mcts",
-        iterations: payloadIterations(),
-        time_limit: timeLimit,
-        exploration,
-        seed: completed + 7,
-      },
-      model,
-    },
+    { state: position.state, settings: settingsFor(counters.completed_requests + 7), model },
   );
-}
-
-function payloadIterations() {
-  return iterations;
 }
 
 async function cancelRound(position) {
@@ -155,15 +169,17 @@ async function cancelRound(position) {
         model: payload.model,
         trace: false,
       });
+      // Attach rejection handling immediately: a legitimate cancellation may
+      // reject the pending search before cancel() resolves.
+      pending.catch(() => {});
       await new Promise((done) => setTimeout(done, 25));
       const cancellation = await coordinator.cancel("sustained probe cancellation");
-      let outcome = null;
       try {
-        outcome = await pending;
+        await pending;
       } catch {
-        outcome = null;
+        // expected for a cancelled search
       }
-      return { cancellation, outcome };
+      return cancellation;
     },
     {
       state: position.state,
@@ -172,15 +188,54 @@ async function cancelRound(position) {
         iterations: Math.min(4096, iterations * 8),
         time_limit: Math.max(timeLimit, 2),
         exploration,
-        seed: completed + 11,
+        seed: counters.completed_requests + 11,
       },
       model,
     },
   );
 }
 
-async function emitTelemetry() {
-  if (!telemetryFile) return;
+async function batchRound(positionsForRound) {
+  return page.evaluate(
+    async (payload) => {
+      window.neural.client.enableBatching({ maxBatch: 4, maxQueue: 8 });
+      const { NeuralSearchCoordinator } = await import("/search-client.js");
+      const coordinators = payload.positions.map(
+        () => new NeuralSearchCoordinator({ neural: window.neural.client }),
+      );
+      await Promise.all(coordinators.map((coordinator) => coordinator.load()));
+      const started = performance.now();
+      const outcomes = await Promise.all(
+        coordinators.map((coordinator, index) =>
+          coordinator.search({
+            state: payload.positions[index].state,
+            settings: payload.settings,
+            model: payload.model,
+          }),
+        ),
+      );
+      const elapsed_ms = performance.now() - started;
+      const batching = window.neural.client.batchStatistics();
+      await Promise.all(coordinators.map((coordinator) => coordinator.dispose()));
+      return {
+        batching,
+        elapsed_ms,
+        outcomes: outcomes.map((outcome) => ({
+          best_move: outcome.analysis?.best_move,
+          search: outcome.search,
+          settings: outcome.settings,
+        })),
+      };
+    },
+    {
+      positions: positionsForRound,
+      settings: settingsFor(counters.completed_requests + 13),
+      model,
+    },
+  );
+}
+
+async function telemetry() {
   let live = null;
   try {
     live = await page.evaluate(async () => {
@@ -193,6 +248,7 @@ async function emitTelemetry() {
         js_heap_used_bytes: performance.memory?.usedJSHeapSize ?? null,
         cache_entries: cacheStats?.entries ?? null,
         cache_bytes: cacheStats?.bytes ?? null,
+        cache_evictions: cacheStats?.evictions ?? null,
         workers:
           workers === null
             ? null
@@ -202,28 +258,93 @@ async function emitTelemetry() {
   } catch {
     live = null;
   }
-  const record = {
-    timestamp_ms: Date.now(),
-    session_id: session,
-    model_sha256: model.sha256,
-    workload: "sustained-analysis",
-    completed_requests: completed,
-    events: {
-      cancellations,
-      reloads,
-      worker_replacements: workerReplacements,
-      batches: 0,
-    },
-  };
+  const record = telemetryRecord(
+    counters,
+    { session, modelSha256: model.sha256, workload: "sustained-analysis" },
+    { completion_reasons: { ...completionReasons }, provider_placements: [...placements] },
+  );
   if (live) {
     for (const [key, value] of Object.entries(live))
       if (value !== null && value !== undefined) record[key] = value;
   }
-  await appendFile(telemetryFile, JSON.stringify(record) + "\n");
-  if (progressFile) await appendFile(progressFile, String(completed) + "\n");
+  if (modelTransitions.length) record.model_transitions = modelTransitions.slice();
+  if (telemetryFile) await appendFile(telemetryFile, JSON.stringify(record) + "\n");
+  if (progressFile) await appendFile(progressFile, String(counters.completed_requests) + "\n");
+}
+
+async function runIteration() {
+  const position = await nextPosition();
+  if (mode === "cancel-restart") {
+    const cancellation = await cancelRound(position);
+    if (cancellation?.cancelled === true || cancellation?.state === "drained")
+      counters.cancellations += 1;
+    const outcome = await search(position);
+    const result = recordSuccess(counters, outcome);
+    completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
+  } else if (mode === "model-reload") {
+    const outcome = await search(position);
+    const result = recordSuccess(counters, outcome);
+    completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
+    if (counters.completed_requests % 5 === 0) {
+      await loadModel();
+      counters.reloads += 1;
+    }
+  } else if (mode === "model-replacement") {
+    const outcome = await search(position);
+    const result = recordSuccess(counters, outcome);
+    completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
+    if (counters.completed_requests % 5 === 0) {
+      const previous = model.sha256;
+      await loadModel({ file: replacementModelFile, sha256: replacementModelSha });
+      counters.model_replacements += 1;
+      modelTransitions.push({ from: previous, to: model.sha256, at: Date.now() });
+      if (cache) {
+        const stats = await page.evaluate(() =>
+          window.neural.client.inferenceCacheStats(),
+        );
+        if ((stats?.entries ?? 0) > 0) counters.cache_invalidation_failures += 1;
+      }
+    }
+  } else if (mode === "worker-replacement" || mode === "client-disposal") {
+    const outcome = await search(position);
+    const result = recordSuccess(counters, outcome);
+    completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
+    if (counters.completed_requests % 5 === 0) {
+      await page.evaluate(() => window.neural.shutdown("sustained probe replacement"));
+      await page.evaluate(() => window.neural.restoreAfterBfcache());
+      await loadModel();
+      counters.worker_replacements += 1;
+    }
+  } else if (mode === "cache-churn") {
+    const outcome = await search(position);
+    const result = recordSuccess(counters, outcome);
+    completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
+    if (counters.completed_requests % 3 === 0) {
+      await page.evaluate(() => window.neural.client.clearInferenceCache());
+      counters.cache_clears += 1;
+    }
+  } else if (mode === "batching") {
+    const first = position;
+    const second = await nextPosition();
+    const result = await batchRound([first, second]);
+    for (const outcome of result.outcomes) {
+      const counted = recordSuccess(counters, outcome);
+      completionReasons[counted.reason] = (completionReasons[counted.reason] ?? 0) + 1;
+    }
+    recordBatch(counters, result.batching, result.elapsed_ms);
+  } else {
+    const outcome = await search(position);
+    const result = recordSuccess(counters, outcome);
+    completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
+  }
 }
 
 async function run() {
+  if (overwrite) {
+    if (telemetryFile) await writeFile(telemetryFile, "");
+    if (progressFile) await writeFile(progressFile, "");
+    if (readyFile) await writeFile(readyFile, "");
+  }
   server = createServer(async (request, response) => {
     try {
       let path = resolve(
@@ -250,76 +371,68 @@ async function run() {
   await page.goto(origin + "/neural.html");
   await page.waitForFunction(() => window.neural && window.neural.ready, null, { timeout: 60000 });
   await loadModel();
+  if (mode === "model-replacement" && replacementModelSha !== model.sha256) {
+    // The replacement identity is validated when first loaded; no event yet.
+  }
   const stagedPositions = JSON.parse(
     await readFile(resolve(root, "mcts-positions.json"), "utf8"),
   );
-  positions = stagedPositions.filter((entry) => entry.ruleset === model.ruleset);
-  if (!positions.length) throw new Error("no positions for the staged model ruleset");
-
+  positions = selectAnalysisPositions(stagedPositions, model.ruleset);
+  if (!positions.length)
+    throw new Error("no nonterminal analysis positions for the staged ruleset");
+  if (readyFile) {
+    await writeFile(
+      readyFile,
+      JSON.stringify({
+        ready: true,
+        session,
+        model_sha256: model.sha256,
+        ruleset: model.ruleset,
+        provider_requested: provider,
+        execution_placement: model.execution_placement,
+        positions: positions.map((entry) => ({ name: entry.name, kind: entry.kind })),
+        modes: MODES,
+      }) + "\n",
+    );
+  }
   const started = Date.now();
   const deadline = started + duration * 1000;
   while (Date.now() < deadline) {
     try {
-      const position = await nextPosition();
-      if (mode === "cancel-restart") {
-        const result = await cancelRound(position);
-        if (result?.cancellation?.cancelled === true) cancellations += 1;
-        else if (result?.cancellation?.state && result.cancellation.state !== "idle")
-          cancellations += 1;
-        await search(position);
-        completed += 1;
-      } else if (mode === "model-reload") {
-        await search(position);
-        completed += 1;
-        if (completed % 10 === 0) {
-          await loadModel();
-          reloads += 1;
-        }
-      } else if (mode === "worker-replacement") {
-        await search(position);
-        completed += 1;
-        if (completed % 15 === 0) {
-          await page.evaluate(() => window.neural.shutdown("sustained probe replacement"));
-          await page.evaluate(() => window.neural.restoreAfterBfcache());
-          await loadModel();
-          workerReplacements += 1;
-        }
-      } else {
-        await search(position);
-        completed += 1;
-      }
-      await emitTelemetry();
+      await runIteration();
     } catch (error) {
-      failures += 1;
+      recordFailure(counters);
       console.error(`sustained_workload: iteration failed: ${error?.message ?? error}`);
     }
+    await telemetry();
     if (interval > 0) await new Promise((done) => setTimeout(done, interval * 1000));
   }
   const summary = {
     kind: "browser-sustained-workload",
-    schema: 1,
+    schema: 2,
     session_id: session,
     mode,
     runtime: "browser-pyodide",
     model,
     provider_requested: provider,
-    execution_placement: model?.execution_placement ?? null,
+    provider_placements: [...placements],
     provider_observed: model !== null,
     model_sha256: model?.sha256 ?? null,
+    model_transitions: modelTransitions,
     duration_s: (Date.now() - started) / 1000,
-    completed_requests: completed,
-    cancellations,
-    reloads,
-    worker_replacements: workerReplacements,
-    failures,
+    workload: "sustained-analysis",
+    counters,
+    completion_reasons: completionReasons,
+    positions: positions.map((entry) => ({ name: entry.name, kind: entry.kind })),
     authoritative: false,
   };
   if (output) await writeFile(resolve(output), JSON.stringify(summary, null, 2) + "\n");
   console.log(JSON.stringify(summary, null, 2));
+  return exitCode(counters);
 }
 
 try {
-  await run();
+  process.exitCode = await run();
 } catch (error) {
   console.error(`sustained_workload: ${error?.message ?? error}`);
   process.exitCode = 1;

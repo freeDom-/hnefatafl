@@ -172,8 +172,7 @@ def _collect(tmp_path, workload_pid, telemetry, progress, **overrides):
         str(overrides.get("interval", 0.1)),
         "--telemetry-file",
         str(telemetry),
-        "--progress-file",
-        str(progress),
+        *(["--progress-file", str(progress)] if progress is not None else []),
         "--telemetry-session-id",
         overrides.get("session", "session-a"),
         "--telemetry-model-sha256",
@@ -657,3 +656,58 @@ def test_initial_mismatched_record_does_not_block_later_expected_session(tmp_pat
     assert record["session_id"] == "right-session"
     assert stream.identity["session_id"] == "right-session"
     assert stream.identity_mismatch == 1
+
+
+def test_telemetry_only_progress_needs_no_compatibility_file(tmp_path):
+    writer, telemetry, progress = _start_workload(tmp_path, duration=2.0)
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            warmup=0.3,
+            duration=0.9,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    measured = [s for s in report["samples"] if s["timestamp_ms"] >= 300]
+    assert measured
+    assert all(s.get("completed_requests_source") == "telemetry" for s in measured)
+    assert report["progress_consistency"]["verified"] is True
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["acceptance_ok"] is True, validation["failures"]
+
+
+def test_workload_failures_block_memory_acceptance(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path, telemetry_args=("--workload-failures", "3"), duration=2.5
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            progress,
+            warmup=0.4,
+            duration=0.9,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert report["workload_telemetry"]["workload_failures"] > 0
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["structural_ok"] is True
+    assert validation["acceptance_ok"] is False
+    assert any("failed search" in reason for reason in validation["partial_reasons"])

@@ -333,6 +333,15 @@ def _schema3_report(**overrides):
             }
         },
         "progress_consistency": {"verified": True},
+        "workload_telemetry": {
+            "successful_searches": 15,
+            "workload_failures": 0,
+            "neural_searches": 15,
+            "completed_simulations": 960,
+            "neural_inferences": 960,
+            "no_inference_shortcuts": 0,
+            "provider_placements": ["wasm"],
+        },
         "samples": [
             {
                 "timestamp_ms": index * 12000,
