@@ -129,8 +129,10 @@ const translations: Record<string, string> = {
   'Each match starts as soon as its preceding matches are decided.':
     'Jede Begegnung beginnt, sobald ihre Vorgängerbegegnungen entschieden sind.',
   'Unassigned seed {seed}': 'Unbesetzter Setzplatz {seed}',
-  'Provisional bracket based on maximum entrants. Seeds and byes are determined at start.':
-    'Vorläufiger Turnierbaum basierend auf der maximalen Teilnehmerzahl. Setzliste und Freilose werden beim Start bestimmt.',
+  'Tournament cancelled before the start. No seeds were assigned.':
+    'Das Turnier wurde vor dem Start abgesagt. Es wurden keine Setzplätze ausgelost.',
+  'Provisional bracket based on maximum entrants. Player seeds and byes will be randomized when the tournament starts.':
+    'Vorläufiger Turnierbaum basierend auf der maximalen Teilnehmerzahl. Setzliste und Freilose werden beim Turnierstart zufällig ausgelost.',
   'Only the creator or an administrator may reschedule this tournament.':
     'Nur der Ersteller oder ein Administrator darf dieses Turnier verschieben.',
   'Only a tournament in registration can be rescheduled.':
@@ -163,8 +165,6 @@ const translations: Record<string, string> = {
   'The tournament changed while loading. Refresh to see its latest bracket.':
     'Das Turnier wurde während des Ladens geändert. Aktualisiere die Ansicht, um den aktuellen Turnierbaum zu sehen.',
   'Enter a valid date and time.': 'Gib ein gültiges Datum und eine gültige Uhrzeit ein.',
-  'Each entrant must have a different seed.':
-    'Jede teilnehmende Person benötigt einen eigenen Setzplatz.',
   'Player tournament created.': 'Spielerturnier erstellt.',
   'Tournament updated.': 'Turnier aktualisiert.',
   'All player tournaments': 'Alle Spielerturniere',
@@ -203,7 +203,8 @@ const translations: Record<string, string> = {
   'Entrants and seeds': 'Teilnehmende und Setzplätze',
   'No entrants yet. Be the first to register.':
     'Noch keine Anmeldungen. Sei die erste teilnehmende Person.',
-  'Not seeded': 'Noch nicht gesetzt',
+  'Seed pending randomization': 'Setzplatz wird beim Start zugelost',
+  'Not seeded': 'Nicht gesetzt',
   'Match losses: {count}': 'Verlorene Begegnungen: {count}',
   Eliminated: 'Ausgeschieden',
   'Tournament bracket': 'Turnierbaum',
@@ -216,10 +217,12 @@ const translations: Record<string, string> = {
   'Planned start (your local time, optional)': 'Geplanter Beginn (deine Ortszeit, optional)',
   'Register your account for this competition? Games are played through the normal online board.':
     'Dein Konto für diesen Wettbewerb anmelden? Die Partien werden auf dem normalen Onlinebrett gespielt.',
-  'Withdraw before the bracket is seeded? You may register again while registration remains open.':
-    'Anmeldung vor der Setzung zurückziehen? Solange die Anmeldung offen ist, kannst du dich erneut anmelden.',
-  'Review the seed order. Starting closes registration and creates official online games.':
-    'Prüfe die Setzreihenfolge. Der Start schließt die Anmeldung und erstellt offizielle Onlinepartien.',
+  'Withdraw before the tournament starts? You may register again while registration remains open.':
+    'Anmeldung vor dem Turnierstart zurückziehen? Solange die Anmeldung offen ist, kannst du dich erneut anmelden.',
+  'Player seeds will be assigned randomly when the tournament starts.':
+    'Die Setzliste wird beim Turnierstart zufällig ausgelost.',
+  'Starting closes registration and creates official online games.':
+    'Der Start schließt die Anmeldung und erstellt offizielle Onlinepartien.',
   'Active tournament games will be stopped. Completed results remain in history. Cancel this tournament?':
     'Laufende Turnierpartien werden beendet. Abgeschlossene Ergebnisse bleiben im Verlauf erhalten. Dieses Turnier abbrechen?',
   'Rebuild from official corrected results? Displaced active games will be stopped and previous overrides must be reviewed again.':
