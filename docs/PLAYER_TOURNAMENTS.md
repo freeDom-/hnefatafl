@@ -38,13 +38,42 @@ API, database table and permission boundary for model comparisons.
 A voided leg counts as neither a win nor a draw, so a match whose legs were all
 voided falls back to the seed rule instead of silently disappearing.
 
+## Randomized seeding
+
+Seeds are assigned by the server when a tournament starts, not when entrants
+register. The start transaction draws a uniformly random permutation of every
+registered, eligible participant with a secure system random source
+(`secrets.SystemRandom().shuffle()`), then persists consecutive seeds `1..N`.
+Every participant receives exactly one seed, and no participant can receive a
+seed derived from registration order, account ID, username, rating or previous
+tournament results. Seed generation uses the same transaction and policy for
+automatic scheduled starts and manual starts by the creator or an administrator,
+whether the tournament is full or only partially filled.
+
+Seeds are immutable after the start commits. Settlement, result corrections,
+disputes, restarts, backup/restore and administrative bracket rebuilds keep the
+original draw; a rebuild reuses the committed seeds rather than drawing again.
+A failed or rolled-back start leaves no seed assignments behind, and automatic
+retries draw only when the start transaction commits. Already-started and
+completed tournaments keep their historical seeds unchanged, and tournaments
+still in registration receive randomized seeds when they eventually start.
+
+Randomized seeds determine which participants receive bracket advantages.
+The standard recursive bracket placement still keeps higher seeds apart for as
+long as possible, and seeds above the entrant count remain byes. The
+distribution of byes for non-power-of-two entrant counts is therefore the same
+as before; the draw simply decides which participants receive those slots.
+Higher-seed tie-breaking continues to use the assigned seed that was persisted
+at the start.
+
 ## Bracket construction
 
 The bracket size is the smallest power of two at or above the registered entrant
-count. Entrants are placed with the standard recursive seed order, so the top
-seeds meet as late as possible. Seeds above the entrant count are byes: the
-present participant advances without playing or taking a loss, and a match with
-no participants propagates as a bye instead of stalling the bracket.
+count. Entrants are placed with the standard recursive seed order using their
+randomly assigned seeds, so the top seeds meet as late as possible. Seeds above
+the entrant count are byes: the present participant advances without playing or
+taking a loss, and a match with no participants propagates as a bye instead of
+stalling the bracket.
 
 The lower bracket receives upper-bracket losers. Lower-bracket rounds alternate
 between "drop" rounds (a survivor meets an upper-bracket loser, in reversed order
@@ -125,9 +154,13 @@ Clock summaries use the shared days/hours/minutes/seconds formatter, preserving
 historical second precision, and show the time-control type, increment and mode.
 The upper/lower bracket, grand final and reset have source-based progression paths,
 horizontal touch scrolling and an accessible list alternative. Before starting,
-the bracket uses capacity to show a provisional tree with unassigned seed slots.
-It creates no persistent matches, games or playable links. Starting replaces it
-with the seeded bracket sized for the actual entrant count.
+the bracket uses capacity to show a provisional tree with unassigned seed slots
+and a notice that seed assignments will be randomized at the start. It creates
+no persistent matches, games or playable links. Starting replaces it with the
+actual bracket sized for the entrant count and seeded from the committed random
+draw. The entrant list shows pending seed labels before the start and the
+persisted seed for each participant afterwards; neither view offers seed
+selection, reordering or reshuffling controls.
 
 The detail and discovery responses provide `start_state` for registration and
 scheduled-start status. The bracket response provides `round_progress` with
@@ -153,11 +186,12 @@ The stored creator can manually start their own registration-phase tournament
 with at least two eligible entrants. A full tournament with a future planned
 start must wait; its creator cannot start it early. An unfilled tournament may
 start early with at least two entrants. Administrators can explicitly override
-the planned time. The same policy controls both capabilities and mutations. Starting
-closes registration and freezes deterministic registration-time/account-ID seeds,
-or a reviewed custom seed list. Registration and withdrawal increment the
-version; repeated successful registration is a no-op. A changed entrant set
-makes reviewed creator/admin starts and custom seed submissions return HTTP 409.
+the planned time. The same policy controls both capabilities and mutations.
+Starting closes registration and draws a fresh secure random seed permutation in
+the same transaction. Registration and withdrawal increment the version;
+repeated successful registration is a no-op. A changed entrant set invalidates
+a reviewed creator/admin start confirmation, so an outdated version returns
+HTTP 409.
 
 Registration stays open until capacity or start. A planned start is optional and
 stored as UTC microseconds. The persistent worker starts a full tournament at or
@@ -181,9 +215,10 @@ for `waiting_for_entrants`, `waiting_for_start`, `start_pending`,
 A partial index bounds the due-start query. Under the deployment gate and
 `BEGIN IMMEDIATE`, the worker samples server time, reloads the schedule and
 checks the planned time and latest registration. Automatic and manual starts
-share the transaction that seeds the bracket, seats games, consumes the due
-start and records one start audit. The audit source is `automatic`, `creator`
-or `administrator`. Automatic events have no account actor.
+share the transaction that draws and persists seeds, builds the bracket, seats
+games, consumes the due start and records one start audit. The audit source is
+`automatic`, `creator` or `administrator`. Automatic events have no account
+actor.
 
 Failed starts roll back and retry with exponential backoff capped at 300
 seconds. Retry writes require the same schedule generation, planned instant and
@@ -218,7 +253,8 @@ Upper round N and lower round N-1 share a wave; the next wave waits for every
 match in the current wave to settle, including both games or byes. Finals and
 the reset follow in their own waves. Historical single/legacy formats retain
 independent progression. Registration details show a read-only capacity-based
-bracket preview with unassigned seeds; no games are created before the start.
+bracket preview with unassigned seeds; no games are created and no definitive
+seeds are assigned before the start.
 
 When a match becomes ready, the service seats games through the online core
 inside the same transaction and records each returned `game_id`. Simultaneous
@@ -336,7 +372,7 @@ capabilities are derived for the current authenticated viewer.
 | `POST` | `/api/player-tournaments/{id}/register` | play | Register the current account (idempotent) |
 | `POST` | `/api/player-tournaments/{id}/withdraw` | play | Withdraw before the start |
 | `POST` | `/api/player-tournaments/{id}/settle` | play | Read detail; administrators can retry pending outbox work |
-| `POST` | `/api/player-tournaments/{id}/start` | creator / tournaments | Seed the bracket and start |
+| `POST` | `/api/player-tournaments/{id}/start` | creator / tournaments | Draw seeds randomly and start |
 | `POST` | `/api/player-tournaments/{id}/reschedule` | verified creator / tournaments | Replace the planned start during registration |
 | `POST` | `/api/player-tournaments/{id}/cancel` | tournaments | Cancel a tournament |
 | `POST` | `/api/player-tournaments/{id}/rebuild` | tournaments | Re-derive a disputed bracket |
@@ -381,10 +417,13 @@ version and a timezone-aware future datetime.
 { "version": 7, "scheduled_start_at": "2028-02-02T19:00:00Z" }
 ```
 
-`POST /start` accepts an optional `seeds` array that must list every registered
-entrant exactly once; otherwise registration order is used. `POST /rebuild` and
-`POST /override` require a private note of 1–1000 characters. `POST /override`
-requires a `winner` that is one of the match participants.
+`POST /start` always draws seeds randomly on the server. Older clients may
+still send the deprecated `seeds` property; it is accepted for compatibility,
+validated only as a list of strings, and ignored. The supplied ordering cannot
+influence the assigned seeds. Send only the reviewed `version` in new clients.
+`POST /rebuild` and `POST /override` require a private note of 1–1000
+characters. `POST /override` requires a `winner` that is one of the match
+participants.
 
 ### Error contract
 
@@ -414,8 +453,10 @@ Schema 22 adds `progression_policy` and a schedule generation. Existing rows
 default to `independent`. At start the service records `synchronized` for a
 two-game sequential or simultaneous tournament, including one created before
 the upgrade that was still in registration. Stored `single` and legacy formats
-remain independent. Migration leaves game associations, clocks and completed
-history intact. Fresh installations initialize the same schema.
+remain independent. Randomized seeding uses the existing persistent entrant
+seed fields, so it needs no additional schema change. Migration leaves game
+associations, clocks and completed history intact. Fresh installations
+initialize the same schema.
 
 Backups and compatible restores retain both fields and queued work alongside the
 online games. Automatic rollback and restore across schema 21 and schema 22 are

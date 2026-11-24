@@ -16,10 +16,12 @@ import sqlite3
 import threading
 import time
 from types import SimpleNamespace
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 import pytest
 
+from hnefatafl import player_tournaments as tournament_engine
 from hnefatafl.account_mail import AccountSettings
 from hnefatafl.auth import COOKIE, Auth, SecuritySettings, digest
 from hnefatafl.engine import State, apply_move, legal_moves
@@ -73,6 +75,7 @@ def account_template(tmp_path_factory):
 @pytest.fixture
 def rig(tmp_path, account_template):
     template, accounts, tokens = account_template
+    accounts, tokens = dict(accounts), dict(tokens)
     shutil.copy(template, tmp_path / "hnefatafl.sqlite3")
     clock = Clock()
     app = create_app(
@@ -129,6 +132,7 @@ def authenticated_client(rig, name=ADMIN, app=None):
 @pytest.fixture
 def background_rig(tmp_path, account_template):
     template, accounts, tokens = account_template
+    accounts, tokens = dict(accounts), dict(tokens)
     shutil.copy(template, tmp_path / "hnefatafl.sqlite3")
     clock = Clock()
     app = create_app(
@@ -244,6 +248,53 @@ def seeds_of(rig, tournament_id):
         entry["account_id"]: entry["seed"]
         for entry in rig.core.detail(rig.admin, tournament_id)["entrants"]
     }
+
+
+def force_seed_order(monkeypatch, ordered_ids):
+    """Make the server draw deterministic without changing its seeding path."""
+    expected = list(ordered_ids)
+
+    def draw(registered):
+        assert {*registered} == {*expected}
+        return list(expected)
+
+    monkeypatch.setattr(tournament_engine, "randomized_seed_order", draw)
+
+
+def provision_accounts(rig, total):
+    """Add verified player accounts when a test needs more than the fixture set."""
+    names = [name for name in [*PLAYERS, ADMIN] if name in rig.accounts]
+    with rig.store.connection() as c:
+        row = c.execute(
+            "SELECT password_hash,email_verified_at FROM accounts WHERE username=?",
+            (PLAYERS[0],),
+        ).fetchone()
+        for index in range(len(names) + 1, total + 1):
+            name = f"Q{index:02d}"
+            account_id = uuid4().hex
+            token = f"capacity-token-{name}"
+            c.execute(
+                """INSERT INTO accounts(id,username,email,password_hash,role,active,created_at,email_verified_at)
+                VALUES(?,?,?,?,?,1,?,?)""",
+                (
+                    account_id,
+                    name,
+                    name.lower() + "@example.test",
+                    row["password_hash"],
+                    "USER",
+                    time.time(),
+                    row["email_verified_at"],
+                ),
+            )
+            c.execute(
+                "INSERT INTO sessions(token_hash,account_id,expires,csrf_hash) VALUES(?,?,?,?)",
+                (digest(token), account_id, time.time() + 86400, digest("csrf:" + token)),
+            )
+            rig.accounts[name] = {"id": account_id, "username": name}
+            rig.credentials[name] = digest(token)
+            rig.by_id[account_id] = digest(token)
+            names.append(name)
+    return names
 
 
 def higher_seed(rig, tournament_id):
@@ -441,6 +492,7 @@ def test_voided_leg_disputes_bracket_and_rebuild_restores_progress(rig):
     names = [*PLAYERS, ADMIN][:4]
     tournament = tournament_with_entrants(rig, names, capacity=4)
     rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    committed_seeds = seeds_of(rig, tournament["id"])
     match = ready_matches(rig, tournament["id"])[0]
     force_match(rig, match, match["participants"]["a"]["account_id"])
     rig.core.settle(rig.admin, tournament["id"])
@@ -468,6 +520,7 @@ def test_voided_leg_disputes_bracket_and_rebuild_restores_progress(rig):
         m for entry in bracket["upper"] for m in entry["matches"] if m["id"] == match["id"]
     ][0]
     seeds = seeds_of(rig, tournament["id"])
+    assert seeds == committed_seeds
     assert restored["status"] == "complete"
     assert restored["decided_by"] == "higher_seed"
     assert restored["legs"][0]["outcome"] == "void"
@@ -1118,22 +1171,178 @@ def test_registration_requires_a_verified_account(rig):
         rig.core.register(rig.credentials[UNVERIFIED], tournament["id"])
 
 
-def test_start_requires_two_entrants_and_freezes_seeding(rig):
+def test_start_requires_two_entrants_and_freezes_seeding(rig, monkeypatch):
     tournament = tournament_with_entrants(rig, ["P01"], capacity=4)
     with pytest.raises(Exception, match="two registered"):
         rig.core.start(rig.admin, tournament["id"], tournament["version"])
 
     tournament = tournament_with_entrants(rig, ["P01", "P02", "P03"], capacity=4)
     order = [rig.accounts["P03"]["id"], rig.accounts["P01"]["id"], rig.accounts["P02"]["id"]]
-    started = rig.core.start(rig.admin, tournament["id"], tournament["version"], order)
+    force_seed_order(monkeypatch, order)
+    started = rig.core.start(rig.admin, tournament["id"], tournament["version"])
     assert started["bracket_size"] == 4
     seeds = seeds_of(rig, tournament["id"])
-    assert seeds[rig.accounts["P03"]["id"]] == 1
-    assert seeds[rig.accounts["P01"]["id"]] == 2
+    assert seeds == {
+        rig.accounts["P03"]["id"]: 1,
+        rig.accounts["P01"]["id"]: 2,
+        rig.accounts["P02"]["id"]: 3,
+    }
+    assert sorted(seeds.values()) == [1, 2, 3]
+    # The committed draw is immutable: a stale start cannot rewrite it.
+    with pytest.raises(OnlineError) as stale:
+        rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    assert stale.value.status == 409
+    assert seeds_of(rig, tournament["id"]) == seeds
 
-    bad = tournament_with_entrants(rig, ["P01", "P02"], capacity=4)
-    with pytest.raises(Exception, match="exactly once"):
-        rig.core.start(rig.admin, bad["id"], bad["version"], [rig.accounts["P01"]["id"]])
+
+def test_deprecated_custom_seed_order_cannot_influence_assigned_seeds(rig, client, monkeypatch):
+    cup = scheduled_cup(rig, capacity=4)
+    for name in PLAYERS[:3]:
+        rig.core.register(rig.credentials[name], cup["id"])
+    reviewed = rig.core.detail(rig.admin, cup["id"])
+    drawn = [
+        rig.accounts["P02"]["id"],
+        rig.accounts["P03"]["id"],
+        rig.accounts["P01"]["id"],
+    ]
+    force_seed_order(monkeypatch, drawn)
+    supplied = [rig.accounts["P01"]["id"], rig.accounts["P02"]["id"]]
+    response = client("P01").post(
+        f"/api/player-tournaments/{cup['id']}/start",
+        json={"version": reviewed["version"], "seeds": supplied},
+    )
+    assert response.status_code == 200
+    started = response.json()
+    assert seeds_of(rig, cup["id"]) == {
+        rig.accounts["P02"]["id"]: 1,
+        rig.accounts["P03"]["id"]: 2,
+        rig.accounts["P01"]["id"]: 3,
+    }
+    assert started["status"] == "running"
+
+
+def test_start_request_keeps_strict_validation_while_ignoring_deprecated_seeds(rig, client):
+    cup = scheduled_cup(rig, capacity=4)
+    for name in PLAYERS[:2]:
+        rig.core.register(rig.credentials[name], cup["id"])
+    reviewed = rig.core.detail(rig.admin, cup["id"])
+    base = f"/api/player-tournaments/{cup['id']}/start"
+    for body in (
+        {"version": reviewed["version"], "seeds": [1, 2]},
+        {"version": reviewed["version"], "seeds": "P01"},
+        {"version": reviewed["version"], "unknown": True},
+    ):
+        assert client("P01").post(base, json=body).status_code == 422
+    unchanged = rig.core.detail(rig.admin, cup["id"])
+    assert unchanged["status"] == "registration"
+    assert all(entry["seed"] is None for entry in unchanged["entrants"])
+
+
+@pytest.mark.parametrize("mechanism", ["creator", "administrator", "automatic"])
+def test_all_start_mechanisms_draw_the_same_random_seeds(rig, monkeypatch, mechanism):
+    names = PLAYERS[:5]
+    cup = scheduled_cup(rig, capacity=5, creator="P01")
+    for name in names:
+        rig.core.register(rig.credentials[name], cup["id"])
+    drawn_names = ["P05", "P03", "P01", "P04", "P02"]
+    drawn = [rig.accounts[name]["id"] for name in drawn_names]
+    force_seed_order(monkeypatch, drawn)
+    reviewed = rig.core.detail(rig.admin, cup["id"])
+    rig.clock.value += timedelta(minutes=2)
+    if mechanism == "automatic":
+        assert rig.app.state.tournament_settlement.start_due() == 1
+        started = rig.core.detail(rig.admin, cup["id"])
+    else:
+        credential = rig.admin if mechanism == "administrator" else rig.credentials["P01"]
+        started = rig.core.start(credential, cup["id"], reviewed["version"])
+    assert started["status"] == "running"
+    expected = {rig.accounts[name]["id"]: index for index, name in enumerate(drawn_names, 1)}
+    assert seeds_of(rig, cup["id"]) == expected
+    event = next(
+        entry
+        for entry in rig.core.audit(rig.admin, cup["id"])["items"]
+        if entry["action"] == "started"
+    )
+    assert event["details"]["source"] == mechanism
+
+
+@pytest.mark.parametrize("mechanism", ["creator", "administrator"])
+def test_manual_starts_randomize_partially_filled_tournaments(rig, monkeypatch, mechanism):
+    cup = scheduled_cup(rig, capacity=5, creator="P01")
+    for name in PLAYERS[:3]:
+        rig.core.register(rig.credentials[name], cup["id"])
+    drawn_names = ["P03", "P01", "P02"]
+    force_seed_order(monkeypatch, [rig.accounts[name]["id"] for name in drawn_names])
+    reviewed = rig.core.detail(rig.admin, cup["id"])
+    credential = rig.admin if mechanism == "administrator" else rig.credentials["P01"]
+    started = rig.core.start(credential, cup["id"], reviewed["version"])
+    assert started["status"] == "running" and started["bracket_size"] == 4
+    assert seeds_of(rig, cup["id"]) == {
+        rig.accounts[name]["id"]: index for index, name in enumerate(drawn_names, 1)
+    }
+
+
+@pytest.mark.parametrize("entrants", [2, 3, 4, 5, 8, 16])
+def test_randomized_seeding_assigns_one_consecutive_seed_per_entrant(rig, entrants):
+    names = [*PLAYERS, ADMIN][:entrants]
+    tournament = tournament_with_entrants(rig, names, capacity=max(entrants, 2))
+    started = rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    seeds = seeds_of(rig, tournament["id"])
+    assert sorted(seeds.values()) == list(range(1, entrants + 1))
+    assert len(seeds) == entrants and len(set(seeds.values())) == entrants
+    size = tournament_engine.power_of_two_at_least(entrants)
+    assert started["bracket_size"] == size
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    opening = next(entry for entry in bracket["upper"] if entry["round"] == 1)
+    byes = [match for match in opening["matches"] if match["status"] == "bye"]
+    assert len(byes) == size - entrants
+    assert all(match["winner"] is not None and not match["legs"] for match in byes)
+    assert all(
+        match["participants"]["a"] is None or match["participants"]["b"] is None for match in byes
+    )
+    assert {entry["account_id"] for entry in started["entrants"]} == set(seeds)
+
+
+def test_randomized_seeding_supports_the_maximum_capacity(rig):
+    names = provision_accounts(rig, 64)
+    tournament = tournament_with_entrants(rig, names, capacity=64)
+    started = rig.core.start(rig.admin, tournament["id"], tournament["version"])
+    seeds = seeds_of(rig, tournament["id"])
+    assert len(seeds) == 64
+    assert sorted(seeds.values()) == list(range(1, 65))
+    assert started["bracket_size"] == 64
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    assert len(bracket["upper"][0]["matches"]) == 32
+    assert not any(match["status"] == "bye" for match in bracket["upper"][0]["matches"])
+
+
+def test_registration_preview_has_no_definitive_seed_assignments(rig):
+    tournament = tournament_with_entrants(rig, PLAYERS[:3], capacity=8)
+    assert all(entry["seed"] is None for entry in tournament["entrants"])
+    bracket = rig.core.bracket(rig.admin, tournament["id"])
+    assert bracket["preview"] is True
+    assert bracket["bracket_size"] == 8
+    assert all(
+        match["participants"] == {"a": None, "b": None} for match in bracket["upper"][0]["matches"]
+    )
+
+
+def test_randomized_seed_order_uses_a_secure_permutation(monkeypatch):
+    calls = []
+
+    class Draw:
+        def shuffle(self, values):
+            calls.append(list(values))
+            values.reverse()
+
+    monkeypatch.setattr(tournament_engine.secrets, "SystemRandom", Draw)
+    registered = [f"account-{index}" for index in range(8)]
+    drawn = tournament_engine.randomized_seed_order(registered)
+    assert drawn == registered[::-1]
+    assert sorted(drawn) == sorted(registered) and len(set(drawn)) == len(registered)
+    assert calls == [registered]
+    # The draw permutes a copy and leaves the caller's registration list intact.
+    assert registered == [f"account-{index}" for index in range(8)]
 
 
 def test_start_ignores_null_seeds_left_by_withdrawn_entrants(rig):
@@ -1948,8 +2157,12 @@ def test_start_queue_survives_restart_and_downtime(rig, restart_after_due, full)
         assert worker.start_due() == 0
         rig.clock.value += timedelta(minutes=1)
     assert worker.start_due() == int(full)
-    latest = rig.core.detail(rig.admin, cup["id"])
+    latest = app.state.player_tournaments.detail(rig.admin, cup["id"])
     assert latest["status"] == ("running" if full else "registration")
+    if full:
+        seeds = {entry["account_id"]: entry["seed"] for entry in latest["entrants"]}
+        assert sorted(seeds.values()) == [1, 2]
+        assert seeds == seeds_of(rig, cup["id"])
     if not full:
         assert latest["start_state"] == "missed_start"
         rig.core.register(rig.credentials["P02"], cup["id"])
@@ -1962,6 +2175,8 @@ def test_scheduled_start_failure_rolls_back_and_retries_without_duplicate_games(
     cup = scheduled_cup(rig)
     for name in PLAYERS[:2]:
         rig.core.register(rig.credentials[name], cup["id"])
+    drawn = [rig.accounts["P02"]["id"], rig.accounts["P01"]["id"]]
+    force_seed_order(monkeypatch, drawn)
     rig.clock.value += timedelta(minutes=2)
     original = rig.online.seat_game
 
@@ -1976,12 +2191,23 @@ def test_scheduled_start_failure_rolls_back_and_retries_without_duplicate_games(
     with rig.store.connection() as c:
         row = c.execute("SELECT * FROM player_tournaments WHERE id=?", (cup["id"],)).fetchone()
         assert row["start_attempts"] == 1 and row["start_error"] == "start_failed"
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM player_tournament_entrants WHERE tournament_id=? AND seed IS NOT NULL",
+                (cup["id"],),
+            ).fetchone()[0]
+            == 0
+        )
     assert "private error payload" not in caplog.text
     monkeypatch.setattr(rig.online, "seat_game", original)
     assert worker.start_due() == 0
     rig.clock.value += timedelta(seconds=3)
     assert worker.start_due() == 1
     assert table_counts(rig) == {"matches": 2, "legs": 1, "games": 1}
+    assert seeds_of(rig, cup["id"]) == {
+        rig.accounts["P02"]["id"]: 1,
+        rig.accounts["P01"]["id"]: 2,
+    }
 
 
 def test_failed_start_cannot_defer_a_concurrently_rescheduled_cup(rig, monkeypatch):
@@ -2094,11 +2320,19 @@ def test_reschedule_serializes_with_entrant_writes_and_automatic_start(rig, acti
         assert latest["scheduled_start_at"] == cup["scheduled_start_at"]
 
 
-def test_concurrent_creator_admin_and_scheduled_starts_commit_exactly_once(rig):
+def test_concurrent_creator_admin_and_scheduled_starts_commit_exactly_once(rig, monkeypatch):
     cup = scheduled_cup(rig)
     for name in PLAYERS[:2]:
         cup = rig.core.register(rig.credentials[name], cup["id"])
     rig.clock.value += timedelta(minutes=2)
+    drawn = [rig.accounts["P02"]["id"], rig.accounts["P01"]["id"]]
+    draws = []
+
+    def draw(registered):
+        draws.append([*registered])
+        return list(drawn)
+
+    monkeypatch.setattr(tournament_engine, "randomized_seed_order", draw)
 
     def start(credential):
         try:
@@ -2115,6 +2349,11 @@ def test_concurrent_creator_admin_and_scheduled_starts_commit_exactly_once(rig):
         for future in futures:
             future.result()
     assert table_counts(rig) == {"matches": 2, "legs": 1, "games": 1}
+    assert len(draws) == 1
+    assert seeds_of(rig, cup["id"]) == {
+        rig.accounts["P02"]["id"]: 1,
+        rig.accounts["P01"]["id"]: 2,
+    }
     assert (
         len([e for e in rig.core.audit(rig.admin, cup["id"])["items"] if e["action"] == "started"])
         == 1

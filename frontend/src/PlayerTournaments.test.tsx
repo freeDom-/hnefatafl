@@ -381,23 +381,69 @@ it('requires a private administrator reason and uses the actual match participan
     ),
   );
 });
-it('rejects duplicate seeds before submitting and leaves the server in control of the bracket', async () => {
+it('only confirms server-side random seeding and never submits client seeds', async () => {
   identity.permissions = ['play', 'tournaments'];
   tournament.status = 'registration';
+  tournament.entrants = tournament.entrants.map((entry) => ({ ...entry, seed: null }));
   tournament.capabilities = { can_create: true, can_start: true, can_moderate: true };
   render(<PlayerTournaments tournamentId="cup-1" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Start tournament' }));
   const dialog = screen.getByRole('dialog');
-  fireEvent.change(within(dialog).getByLabelText('Seed 2'), { target: { value: 'archer' } });
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Start tournament' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Each entrant must have a different seed.',
-  );
   expect(
-    vi
-      .mocked(api)
-      .mock.calls.some(([path, , method]) => path.endsWith('/start') && method === 'POST'),
-  ).toBe(false);
+    within(dialog).getByText('Player seeds will be assigned randomly when the tournament starts.'),
+  ).toBeVisible();
+  expect(
+    within(dialog).getByText('Starting closes registration and creates official online games.'),
+  ).toBeVisible();
+  expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument();
+  expect(within(dialog).queryByLabelText(/^Seed \d/)).not.toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Start tournament' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith(
+      '/player-tournaments/cup-1/start',
+      { version: 7 },
+      'POST',
+      expect.any(AbortSignal),
+    ),
+  );
+  const startCall = vi
+    .mocked(api)
+    .mock.calls.find(([path, , method]) => path.endsWith('/start') && method === 'POST');
+  expect(startCall?.[1]).not.toHaveProperty('seeds');
+});
+it('explains random seeding in German without seed controls', async () => {
+  setLanguage('de');
+  identity.permissions = ['play', 'tournaments'];
+  tournament.status = 'registration';
+  tournament.capabilities = { can_create: true, can_start: true, can_moderate: true };
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Turnier starten' }));
+  const dialog = screen.getByRole('dialog');
+  expect(
+    within(dialog).getByText('Die Setzliste wird beim Turnierstart zufällig ausgelost.'),
+  ).toBeVisible();
+  expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument();
+  expect(within(dialog).queryByLabelText(/^Setzplatz \d/)).not.toBeInTheDocument();
+});
+it('shows pending seed labels before the start and server-assigned seeds afterwards', async () => {
+  tournament.status = 'registration';
+  tournament.entrants = tournament.entrants.map((entry) => ({ ...entry, seed: null }));
+  const view = render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(
+    await screen.findByText('Player seeds will be assigned randomly when the tournament starts.'),
+  ).toBeVisible();
+  expect(screen.getAllByText(/Seed pending randomization/)).toHaveLength(4);
+  expect(screen.queryByText('Seed 1')).not.toBeInTheDocument();
+  view.unmount();
+  tournament.status = 'running';
+  tournament.entrants = tournament.entrants.map((entry, index) => ({
+    ...entry,
+    seed: index + 1,
+  }));
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(await screen.findByText(/Seed 1/)).toBeVisible();
+  expect(screen.getByText(/Seed 4/)).toBeVisible();
+  expect(screen.queryByText('Seed pending randomization')).not.toBeInTheDocument();
 });
 it('rejects a late old-account mutation response and notification', async () => {
   tournament.status = 'registration';
@@ -520,7 +566,7 @@ it('lets a creator start their own tournament using server capabilities without 
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith(
       '/player-tournaments/cup-1/start',
-      { version: 7, seeds: players.map((player) => player.account_id) },
+      { version: 7 },
       'POST',
       expect.any(AbortSignal),
     ),
@@ -664,13 +710,18 @@ it('explains independent progression using the published policy', async () => {
   expect(screen.queryByRole('heading', { name: /Tournament round/ })).not.toBeInTheDocument();
 });
 
-it('identifies unassigned bracket slots and omits links in the provisional list and graph', async () => {
+it('identifies randomized provisional bracket slots and omits links before the start', async () => {
   tournament.status = bracket.status = 'registration';
   tournament.capabilities = { can_create: false, can_start: false, can_moderate: false };
+  tournament.entrants = tournament.entrants.map((entry) => ({ ...entry, seed: null }));
   bracket.preview = true;
   bracket.upper[0].matches = [match('u1', 'upper', 1, 'seed:1', 'seed:4')];
   render(<PlayerTournaments tournamentId="cup-1" />);
-  expect(await screen.findByText(/Provisional bracket based on maximum entrants/)).toBeVisible();
+  expect(
+    await screen.findByText(
+      /Provisional bracket based on maximum entrants. Player seeds and byes will be randomized/,
+    ),
+  ).toBeVisible();
   expect(screen.getByText('Unassigned seed 1')).toBeVisible();
   expect(screen.queryByRole('link', { name: /Game \d/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Accessible match list' }));

@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import fcntl
 import json
+import secrets
 import sqlite3
 import time
 import unicodedata
@@ -65,6 +66,18 @@ def seed_order(size: int) -> list[int]:
             for value in pair
         ]
     return order
+
+
+def randomized_seed_order(registered: list[str]) -> list[str]:
+    """Return a uniformly random permutation of the registered account ids.
+
+    The caller maps the permutation to consecutive seeds 1..N. Client-supplied
+    orderings never reach this function, so registration order, account ids and
+    ratings cannot influence the draw.
+    """
+    ordered = list(registered)
+    secrets.SystemRandom().shuffle(ordered)
+    return ordered
 
 
 def encode_cursor(payload: dict) -> str:
@@ -442,7 +455,7 @@ class PlayerTournaments:
             )
             return self._detail(c, identifier, account)
 
-    def start(self, credential: str, identifier: str, version: int, seeds=None) -> dict:
+    def start(self, credential: str, identifier: str, version: int) -> dict:
         with self._write() as c:
             account = self._identity(c, credential)
             row = self._load(c, identifier)
@@ -458,11 +471,10 @@ class PlayerTournaments:
                 self._now(),
                 actor_id=account["id"],
                 source="administrator" if admin else "creator",
-                seeds=seeds,
             )
             return self._detail(c, identifier, account)
 
-    def _start(self, c, row, now, *, actor_id=None, source="automatic", seeds=None):
+    def _start(self, c, row, now, *, actor_id=None, source="automatic"):
         """Shared start under BEGIN IMMEDIATE; every game and seed commits together."""
         identifier = row["id"]
         if row["status"] != "registration":
@@ -492,14 +504,10 @@ class PlayerTournaments:
                 409,
                 "A full tournament must wait for its planned start. An administrator may override it.",
             )
-        if seeds is not None and (
-            not isinstance(seeds, list)
-            or any(not isinstance(seed, str) for seed in seeds)
-            or len(set(seeds)) != len(seeds)
-            or sorted(seeds) != sorted(registered)
-        ):
-            raise OnlineError(422, "Seeding must list every registered entrant exactly once.")
-        ordered = registered if seeds is None else seeds
+        # Every start mechanism uses the same secure server-side draw. The draw
+        # happens inside the start transaction, so a rolled-back start leaves no
+        # seeds behind and concurrent starters cannot commit different draws.
+        ordered = randomized_seed_order(registered)
         for index, account_id in enumerate(ordered, start=1):
             c.execute(
                 "UPDATE player_tournament_entrants SET seed=? WHERE tournament_id=? AND account_id=?",
