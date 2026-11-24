@@ -693,8 +693,15 @@ test('compact navigation height tracks text resize and keeps Workshop unchanged'
   test.setTimeout(180000);
   const compact = APPROVED_LABELS.compact;
 
-  for (const width of [320, 360, 380, 390]) {
-    await page.setViewportSize({ width, height: width === 390 ? 844 : 640 });
+  for (const [width, rows] of [
+    [320, 2],
+    [360, 2],
+    [380, 2],
+    [390, 2],
+    [440, 2],
+    [441, 1],
+  ]) {
+    await page.setViewportSize({ width, height: width >= 390 ? 844 : 640 });
     await page.goto('/dashboard');
     await setNavigationDensity(page, 'default');
     for (const rootSize of [16, 24, 32]) {
@@ -718,7 +725,7 @@ test('compact navigation height tracks text resize and keeps Workshop unchanged'
           Math.abs(metrics!.height - metrics!.reserved),
           `${context}: navigation and reserved height stay synchronized`,
         ).toBeLessThanOrEqual(1);
-        expect(metrics!.rows, `${context}: narrow Arena rows`).toBe(width <= 380 ? 2 : 1);
+        expect(metrics!.rows, `${context}: responsive Arena rows`).toBe(rows);
         expect(
           metrics!.rowHeights.every((height) => height >= 44),
           `${context}: navigation row heights`,

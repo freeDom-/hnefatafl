@@ -90,13 +90,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .workspace-bottom-nav[data-workspace='arena'] {
-    flex-wrap: var(--arena-nav-wrap, nowrap);
-  }
   /* One-row layouts allocate space from the translated labels and keep the
    * shortest labels on a 44px target. */
   .workspace-bottom-nav[data-workspace='arena'] a {
-    flex: var(--arena-nav-link-flex, 1 1 auto);
+    flex: 1 1 auto;
     min-width: 44px;
     padding-inline: 2px;
   }
@@ -138,24 +135,20 @@
     --bottom-nav-row-padding: 6px;
     --bottom-nav-icon-size: 18px;
   }
+}
+
+/* Give all seven Arena links room for localized labels on narrow phones. */
+@media (max-width: 440px) {
   body:has(.workspace-bottom-nav[data-workspace='arena']) {
     --bottom-nav-rows: 2;
     --bottom-nav-row-min: 44px;
     --bottom-nav-row-padding: 4px;
-    --arena-nav-wrap: wrap;
-    --arena-nav-link-flex: 0 0 25%;
   }
-}
-
-/* The Large interface scale needs the same two-row arrangement on wider
- * phones to fit the localized labels. */
-@media (min-width: 381px) and (max-width: 440px) {
-  :root[data-density='large'] body:has(.workspace-bottom-nav[data-workspace='arena']) {
-    --bottom-nav-rows: 2;
-    --bottom-nav-row-min: 44px;
-    --bottom-nav-row-padding: 4px;
-    --arena-nav-wrap: wrap;
-    --arena-nav-link-flex: 0 0 25%;
+  .workspace-bottom-nav[data-workspace='arena'] {
+    flex-wrap: wrap;
+  }
+  .workspace-bottom-nav[data-workspace='arena'] a {
+    flex: 0 0 25%;
   }
 }
 
