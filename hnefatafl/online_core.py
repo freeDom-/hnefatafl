@@ -608,11 +608,14 @@ class OnlineCore:
                 (micros(now), game.id),
             )
             c.execute(
-                """INSERT INTO league_settlement_queue(game_id,due_at)
-                SELECT game_id,? FROM league_games WHERE game_id=?
+                """INSERT INTO league_settlement_queue(game_id,season_id,due_at,pending_since)
+                SELECT game_id,season_id,?,? FROM league_games WHERE game_id=?
                 ON CONFLICT(game_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
-                (micros(now), game.id),
+                (micros(now), micros(now), game.id),
             )
+            # League seats become available with the authoritative result. The
+            # outbox can take longer to project standings or recover after a restart.
+            c.execute("DELETE FROM league_active_players WHERE game_id=?", (game.id,))
         self._return_game(c, row, game, now)
         if actor is not None:
             c.execute(

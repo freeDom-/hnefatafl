@@ -12,8 +12,19 @@ POLICY_VERSION = 1
 QUEUE_SECONDS = 600
 CLOCK_SECONDS = 600
 INCREMENT_SECONDS = 5
+FINISHING_GRACE_SECONDS = 86400
+RATING_WINDOW_INITIAL = 200
+RATING_WINDOW_STEP = 100
+RATING_WINDOW_MAX = 600
+RATING_WINDOW_INTERVAL_SECONDS = 60
 PAIR_DAILY_LIMIT = 3
+REQUESTS_PER_MINUTE = 10
+REQUESTS_PER_UTC_DAY = 100
+REQUEST_WINDOW_SECONDS = 60
 QUALIFYING_RESULTS = 3
+WIN_POINTS = 3
+DRAW_POINTS = 1
+LOSS_POINTS = -1
 TIERS = (
     ("midgard", "Midgard", 0),
     ("nidavellir", "Nidavellir", 6),
@@ -38,7 +49,7 @@ class Season:
 
     @property
     def grace_end(self) -> datetime:
-        return self.end + timedelta(days=1)
+        return self.end + timedelta(seconds=FINISHING_GRACE_SECONDS)
 
     def contains_pairing(self, moment: datetime) -> bool:
         return self.start <= utc(moment) < self.end
@@ -56,7 +67,11 @@ def season_for(moment: datetime) -> Season:
 
 def rating_window(wait_seconds: float) -> int:
     """Each player's wait bounds the mutually accepted pairing window."""
-    return min(600, 200 + 100 * (max(0, int(wait_seconds)) // 60))
+    return min(
+        RATING_WINDOW_MAX,
+        RATING_WINDOW_INITIAL
+        + RATING_WINDOW_STEP * (max(0, int(wait_seconds)) // RATING_WINDOW_INTERVAL_SECONDS),
+    )
 
 
 def compatible_ratings(first: float, second: float, first_wait: float, second_wait: float) -> bool:
@@ -91,6 +106,17 @@ class Standing:
             identifier for identifier, _, minimum in reversed(TIERS) if self.points >= minimum
         )
 
+    def apply(self, outcome: Outcome) -> "Standing":
+        if outcome == "win":
+            return Standing(self.points + WIN_POINTS, self.wins + 1, self.draws, self.losses)
+        if outcome == "draw":
+            return Standing(self.points + DRAW_POINTS, self.wins, self.draws + 1, self.losses)
+        if outcome == "loss":
+            return Standing(
+                max(0, self.points + LOSS_POINTS), self.wins, self.draws, self.losses + 1
+            )
+        raise ValueError("Unknown league outcome")
+
 
 def fold_contributions(contributions: list[Contribution]) -> Standing:
     """Rebuild after revisions/voids; subtraction cannot undo a zero floor.
@@ -100,7 +126,7 @@ def fold_contributions(contributions: list[Contribution]) -> Standing:
     """
     game_ids = set()
     sequences = set()
-    points = wins = draws = losses = 0
+    standing = Standing()
     for item in sorted(contributions, key=lambda row: row.sequence):
         if item.game_id in game_ids or item.sequence in sequences:
             raise ValueError("Duplicate game or authoritative result sequence")
@@ -108,15 +134,5 @@ def fold_contributions(contributions: list[Contribution]) -> Standing:
             raise ValueError("A contribution requires a game and positive ledger sequence")
         game_ids.add(item.game_id)
         sequences.add(item.sequence)
-        if item.outcome == "win":
-            wins += 1
-            points += 3
-        elif item.outcome == "draw":
-            draws += 1
-            points += 1
-        elif item.outcome == "loss":
-            losses += 1
-            points = max(0, points - 1)
-        else:
-            raise ValueError("Unknown league outcome")
-    return Standing(points, wins, draws, losses)
+        standing = standing.apply(item.outcome)
+    return standing

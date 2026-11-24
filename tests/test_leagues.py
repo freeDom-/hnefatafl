@@ -1,14 +1,18 @@
 """Real SQLite queue races and shared rated-online authority, no browser or sleep."""
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+import fcntl
+import random
 from uuid import uuid4
 
 import pytest
 
-from hnefatafl.leagues import Leagues
-from hnefatafl.online_core import OnlineError
-from test_online_core import account_template as account_template, rig as rig
+from hnefatafl import league_policy as policy, league_results
+from hnefatafl.leagues import MATCH_STARTERS, Leagues
+from hnefatafl.online_core import OnlineError, micros
+from test_online_core import account_template as account_template, actor, rig as rig
 
 
 def join(service, rig, name, ruleset="brandubh", request=None):
@@ -90,6 +94,10 @@ def test_expiry_does_not_extend_on_retry_and_new_request_can_reenter(rig):
     first = join(service, rig, "Archer", request=request)
     rig.clock.value += timedelta(seconds=600)
     assert service.queue_status(rig.credentials["Archer"])["status"] == "expired"
+    assert service.drain()["expired"] == 1
+    recovered = Leagues(rig.core).queue_status(rig.credentials["Archer"])
+    assert recovered["status"] == "expired" and recovered["queue"] is None
+    assert recovered["request_id"] == request
     repeated = join(service, rig, "Archer", request=request)
     assert repeated["status"] == "expired"
     assert repeated["expires_at"] == first["expires_at"]
@@ -151,12 +159,11 @@ def test_cancel_and_match_commit_one_coherent_outcome(rig):
             assert joined["status"] == "queued"
 
 
-def finish_league_game(service, rig, loser="Archer"):
+def finish_league_game(service, rig, loser="Archer", order=("Archer", "Keeper")):
     from hnefatafl.engine import legal_moves
-    from test_online_core import actor
 
-    join(service, rig, "Archer")
-    matched = join(service, rig, "Keeper")
+    join(service, rig, order[0])
+    matched = join(service, rig, order[1])
     game = rig.core.read(rig.credentials["Archer"], matched["game_id"])
     if actor(rig, game) != rig.credentials[loser]:
         with rig.store.connection() as c:
@@ -192,7 +199,11 @@ def test_official_results_enqueue_once_and_settle_without_browser(rig):
         assert c.execute("SELECT count(*) FROM league_active_players").fetchone()[0] == 0
         assert c.execute("SELECT count(*) FROM rating_events").fetchone()[0] == 1
         before = c.execute("SELECT revision FROM league_seasons").fetchone()[0]
-        c.execute("INSERT INTO league_settlement_queue VALUES(?,0,0,NULL)", (terminal["id"],))
+        c.execute(
+            """INSERT INTO league_settlement_queue(game_id,season_id,due_at,pending_since)
+            SELECT game_id,season_id,0,0 FROM league_games WHERE game_id=?""",
+            (terminal["id"],),
+        )
     assert restarted.drain()["settled"] == 1
     with rig.store.connection() as c:
         assert c.execute("SELECT revision FROM league_seasons").fetchone()[0] == before
@@ -240,6 +251,14 @@ def test_void_replays_season_floor_and_does_not_reopen_pair_farming(rig):
     assert join(service, rig, "Keeper")["status"] == "queued"
     with rig.store.connection() as c:
         assert c.execute("SELECT count(*) FROM league_games").fetchone()[0] == 3
+    unrelated = join(service, rig, "Visitor")
+    assert unrelated["status"] == "matched"
+    assert rig.accounts["Visitor"]["id"] in {
+        seat["account_id"]
+        for seat in rig.core.read(rig.credentials["Visitor"], unrelated["game_id"])[
+            "participants"
+        ].values()
+    }
 
 
 def test_league_maintenance_pauses_new_matches_without_changing_games(rig):
@@ -268,8 +287,6 @@ def test_replayed_cancellation_cannot_cancel_a_new_queue_or_other_account(rig):
 
 
 def test_queue_expires_at_utc_season_boundary(rig):
-    from datetime import datetime, timezone
-
     service = Leagues(rig.core)
     rig.clock.value = datetime(2027, 1, 31, 23, 59, 30, tzinfo=timezone.utc)
     queued = join(service, rig, "Archer")
@@ -283,8 +300,6 @@ def test_queue_expires_at_utc_season_boundary(rig):
 
 
 def test_rolling_minute_request_limit_survives_midnight(rig):
-    from datetime import datetime, timezone
-
     service = Leagues(rig.core)
     rig.clock.value = datetime(2027, 1, 2, 23, 59, 45, tzinfo=timezone.utc)
     for _ in range(10):
@@ -295,3 +310,338 @@ def test_rolling_minute_request_limit_survives_midnight(rig):
     assert error.value.status == 429
     rig.clock.value += timedelta(seconds=46)
     assert join(service, rig, "Archer")["status"] == "queued"
+
+
+def set_rating(c, account_id, value, ruleset="brandubh"):
+    c.execute(
+        """INSERT INTO player_ratings VALUES(?,?,?,0,0,0,0,1,0)
+        ON CONFLICT(account_id,pool) DO UPDATE SET rating=excluded.rating""",
+        (account_id, ruleset, value),
+    )
+
+
+def test_round_robin_finds_compatible_players_beyond_old_candidate_batch(rig):
+    service = Leagues(rig.core)
+    at = micros(rig.clock.value)
+    with rig.core._write() as c:
+        for index in range(40):
+            name = f"Early-{index:02d}"
+            request = str(uuid4())
+            rating = 3000.0 + 1000 * index
+            joined = at - 1000000 + index
+            expires = at + 599000000
+            c.execute(
+                """INSERT INTO accounts(id,username,email,password_hash,role,created_at,email_verified_at)
+                VALUES(?,?,?,'fixture','USER',0,1)""",
+                (name, name, f"{name}@example.test"),
+            )
+            set_rating(c, name, rating)
+            c.execute(
+                """INSERT INTO league_requests(id,account_id,ruleset,created_at,status,entry_id,joined_at,expires_at)
+                VALUES(?,?,'brandubh',?,'queued',?,?,?)""",
+                (request, name, joined, request, joined, expires),
+            )
+            c.execute(
+                """INSERT INTO league_queue(account_id,request_id,ruleset,joined_at,expires_at,rating)
+                VALUES(?,?,'brandubh',?,?,?)""",
+                (name, request, joined, expires, rating),
+            )
+    join(service, rig, "Archer")
+    join(service, rig, "Keeper")
+    # Continue the on-disk cursor using a newly started service.
+    restarted = Leagues(rig.core)
+    for _ in range((42 // MATCH_STARTERS) + 1):
+        restarted.drain()
+        active = restarted.queue_status(rig.credentials["Keeper"])["active_game"]
+        if active:
+            break
+    assert active == restarted.queue_status(rig.credentials["Archer"])["active_game"]
+    assert active is not None
+    with rig.store.connection() as c:
+        assert c.execute("SELECT count(*) FROM league_queue").fetchone()[0] == 40
+        assert c.execute("SELECT count(*) FROM league_games").fetchone()[0] == 1
+
+
+def test_rating_change_and_both_windows_gate_automatic_matching(rig):
+    service = Leagues(rig.core)
+    keeper = rig.accounts["Keeper"]["id"]
+    with rig.core._write() as c:
+        set_rating(c, keeper, 2101.0)
+    join(service, rig, "Archer")
+    rig.clock.value += timedelta(minutes=4)
+    assert join(service, rig, "Keeper")["status"] == "queued"
+    rig.clock.value += timedelta(minutes=4)
+    assert service.drain()["matched"] == 0  # Both max windows reject a 601 Elo gap.
+    with rig.core._write() as c:
+        set_rating(c, keeper, 2100.0)
+        assert (
+            c.execute("SELECT rating FROM league_queue WHERE account_id=?", (keeper,)).fetchone()[0]
+            == 2100.0
+        )
+    assert service.drain()["matched"] == 1
+
+
+def test_younger_entry_must_wait_for_its_own_window(rig):
+    service = Leagues(rig.core)
+    with rig.core._write() as c:
+        set_rating(c, rig.accounts["Keeper"]["id"], 1800.0)
+    join(service, rig, "Archer")
+    rig.clock.value += timedelta(minutes=4)
+    assert join(service, rig, "Keeper")["rating_window"] == 200
+    rig.clock.value += timedelta(seconds=60, microseconds=-1)
+    assert service.drain()["matched"] == 0
+    rig.clock.value += timedelta(microseconds=1)
+    assert service.drain()["matched"] == 1
+
+
+def test_side_balance_persists_for_repeated_opponents_across_day_and_queue_order(rig):
+    service = Leagues(rig.core)
+    rig.clock.value = datetime(2027, 1, 2, 23, 59, 58, tzinfo=timezone.utc)
+    first = finish_league_game(service, rig)
+    rig.clock.value += timedelta(seconds=3)
+    second = finish_league_game(service, rig, order=("Keeper", "Archer"))
+    first_seats = {side: player["account_id"] for side, player in first["participants"].items()}
+    second_seats = {side: player["account_id"] for side, player in second["participants"].items()}
+    assert first_seats["attackers"] == second_seats["defenders"]
+    assert first_seats["defenders"] == second_seats["attackers"]
+    with rig.store.connection() as c:
+        assert [row[0] for row in c.execute("SELECT balance FROM league_side_balance")] == [0, 0]
+        # The canonical online creator is the same in both matches, regardless
+        # of which participant entered the queue first.
+        assert c.execute("SELECT COUNT(DISTINCT creator_id) FROM online_games").fetchone()[0] == 1
+
+
+def test_exact_requests_and_cancel_aliases_remain_bound_to_the_original_entry(rig):
+    service = Leagues(rig.core)
+    first = join(service, rig, "Archer")
+    alias = join(service, rig, "Archer")
+    assert alias["request_id"] != first["request_id"]
+    assert alias["queue"]["request_id"] == first["request_id"]
+    assert alias["expires_at"] == first["expires_at"]
+    assert service.cancel(rig.credentials["Archer"], alias["request_id"])["status"] == "cancelled"
+    newer = join(service, rig, "Archer")
+    for previous in (first, alias):
+        replay = join(service, rig, "Archer", request=previous["request_id"])
+        assert replay["status"] == "cancelled"
+        assert replay["queue"]["request_id"] == newer["request_id"]
+        assert (
+            service.cancel(rig.credentials["Archer"], previous["request_id"])["status"]
+            == "cancelled"
+        )
+
+
+def test_old_match_retries_are_distinct_from_actual_active_game_and_live_queue(rig):
+    service = Leagues(rig.core)
+    first = join(service, rig, "Archer")
+    terminal = finish_league_game(service, rig)
+    assert service.queue_status(rig.credentials["Archer"])["status"] == "idle"
+    new_queue = join(service, rig, "Archer", "tablut")
+    assert new_queue["status"] == "queued"
+    old_result = service.cancel(rig.credentials["Archer"], first["request_id"])
+    assert old_result["status"] == "matched"
+    assert old_result["game_id"] == terminal["id"]
+    assert old_result["active_game"] is None
+    assert old_result["queue"]["request_id"] == new_queue["request_id"]
+    newer = join(service, rig, "Visitor", "tablut")
+    old_retry = join(service, rig, "Archer", request=first["request_id"])
+    assert old_retry["game_id"] == terminal["id"]
+    assert old_retry["active_game"]["game_id"] == newer["game_id"]
+    assert join(service, rig, "Archer", request=first["request_id"])["queue"] is None
+
+
+def test_pause_and_policy_change_allow_exact_retry_but_reconcile_invalid_entry(rig):
+    service = Leagues(rig.core)
+    queued = join(service, rig, "Archer")
+    rig.core.settings = replace(rig.core.settings, creation_policy_approved=False)
+    with rig.store.connection() as c:
+        c.execute("UPDATE league_settings SET paused=1")
+        c.execute(
+            "UPDATE accounts SET email_verified_at=NULL WHERE id=?", (rig.accounts["Archer"]["id"],)
+        )
+    replay = join(service, rig, "Archer", request=queued["request_id"])
+    assert replay["status"] == "cancelled"
+    assert replay["paused"] and not replay["eligible"] and not replay["enabled"]
+    assert service.drain()["matched"] == 0
+    retry = join(service, rig, "Archer", request=queued["request_id"])
+    assert retry["status"] == "cancelled" and retry["queue"] is None
+
+
+def test_rate_limit_resets_at_midnight_without_forgetting_old_request(rig):
+    service = Leagues(rig.core)
+    rig.clock.value = datetime(2027, 1, 3, 23, 20, tzinfo=timezone.utc)
+    for minute in range(10):
+        for number in range(10):
+            current = join(service, rig, "Archer")
+            if minute == number == 0:
+                first_request = current["request_id"]
+        rig.clock.value += timedelta(minutes=1)
+    with pytest.raises(OnlineError) as error:
+        join(service, rig, "Archer")
+    assert error.value.status == 429
+    rig.clock.value = datetime(2027, 1, 4, tzinfo=timezone.utc)
+    new = join(service, rig, "Archer")
+    replay = join(service, rig, "Archer", request=first_request)
+    assert replay["status"] == "expired" and replay["queue"]["request_id"] == new["request_id"]
+
+
+def test_deployment_lock_defers_work_without_attempts(rig):
+    service = Leagues(rig.core)
+    terminal = finish_league_game(service, rig)
+    with rig.auth.gate_path.open("rb") as gate:
+        fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert service.drain() == {"settled": 0, "expired": 0, "matched": 0, "deferred": True}
+    with rig.store.connection() as c:
+        assert tuple(
+            c.execute(
+                "SELECT attempts,last_error FROM league_settlement_queue WHERE game_id=?",
+                (terminal["id"],),
+            ).fetchone()
+        ) == (0, None)
+    assert service.drain()["settled"] == 1
+
+
+def test_failed_matching_rolls_back_seats_game_provenance_and_balances(rig, monkeypatch):
+    service = Leagues(rig.core)
+    with rig.core._write() as c:
+        set_rating(c, rig.accounts["Keeper"]["id"], 2300.0)
+    join(service, rig, "Archer")
+    join(service, rig, "Keeper")
+    with rig.core._write() as c:
+        set_rating(c, rig.accounts["Keeper"]["id"], 1500.0)
+    original = service._seat
+
+    def fail_after_seating(c, first, second, now):
+        original(c, first, second, now)
+        raise OnlineError(503, "fixture")
+
+    monkeypatch.setattr(service, "_seat", fail_after_seating)
+    with pytest.raises(OnlineError, match="fixture"):
+        service.drain()
+    with rig.store.connection() as c:
+        assert c.execute("SELECT count(*) FROM league_queue").fetchone()[0] == 2
+        for table in (
+            "online_games",
+            "league_games",
+            "league_active_players",
+            "league_side_balance",
+        ):
+            assert c.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+    monkeypatch.setattr(service, "_seat", original)
+    assert service.drain()["matched"] == 1
+
+
+def test_failed_settlement_rolls_back_partial_writes_and_retries(rig, monkeypatch):
+    service = Leagues(rig.core)
+    terminal = finish_league_game(service, rig)
+    original = service.settle
+
+    def fail_after_projecting(c, game_id, now):
+        original(c, game_id, now)
+        raise RuntimeError("private fixture text")
+
+    monkeypatch.setattr(service, "settle", fail_after_projecting)
+    assert service.drain()["settled"] == 0
+    with rig.store.connection() as c:
+        assert c.execute("SELECT count(*) FROM league_contributions").fetchone()[0] == 0
+        assert c.execute("SELECT count(*) FROM league_standings").fetchone()[0] == 0
+        assert c.execute("SELECT revision FROM league_seasons").fetchone()[0] == 0
+        assert tuple(
+            c.execute(
+                "SELECT attempts,last_error FROM league_settlement_queue WHERE game_id=?",
+                (terminal["id"],),
+            ).fetchone()
+        ) == (1, "accounting_deferred")
+    rig.clock.value += timedelta(seconds=2)
+    assert Leagues(rig.core).drain()["settled"] == 1
+
+
+@pytest.mark.parametrize("delta,state", [(-1, "eligible"), (0, "late"), (1, "late")])
+def test_authoritative_completion_time_controls_grace_boundary(rig, delta, state):
+    service = Leagues(rig.core)
+    rig.clock.value = datetime(2026, 12, 31, 23, 59, tzinfo=timezone.utc)
+    season = policy.season_for(rig.clock.value)
+    join(service, rig, "Archer")
+    game_id = join(service, rig, "Keeper")["game_id"]
+    # Supply a synthetic late-game deadline. OnlineCore, not this fixture,
+    # records the timeout revision and Elo outcome at that deadline.
+    deadline = season.grace_end + timedelta(microseconds=delta)
+    with rig.core._write() as c:
+        c.execute(
+            "UPDATE online_games SET deadline=?,version=version+1 WHERE id=?",
+            (micros(deadline), game_id),
+        )
+    rig.clock.value = season.grace_end + timedelta(seconds=5)
+    rig.core.sweep()
+    assert service.drain()["settled"] == 1
+    with rig.store.connection() as c:
+        assert tuple(c.execute("SELECT season_id,state FROM league_games").fetchone()) == (
+            "2026-12",
+            state,
+        )
+        assert c.execute("SELECT count(*) FROM rating_events").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM league_standings").fetchone()[0] == (
+            2 if state == "eligible" else 0
+        )
+
+
+def test_projection_matches_full_replay_after_random_appends_reordering_void_and_repair(
+    rig, monkeypatch
+):
+    service = Leagues(rig.core)
+    random_source = random.Random(81823)
+    outcomes = ["Archer", "Keeper"] * 12
+    random_source.shuffle(outcomes)
+    replay = league_results.rebuild_player
+    fallbacks = []
+
+    def observe(*args):
+        fallbacks.append(args[3])
+        return replay(*args)
+
+    monkeypatch.setattr(league_results, "rebuild_player", observe)
+    terminals = []
+    for index, loser in enumerate(outcomes):
+        rig.clock.value += timedelta(hours=12)
+        terminal = finish_league_game(service, rig, loser)
+        terminals.append(terminal)
+        if index < 12:
+            assert service.drain()["settled"] == 1
+    assert fallbacks == []
+
+    def assert_equivalence():
+        with rig.store.connection() as c:
+            for row in c.execute("SELECT * FROM league_standings"):
+                contributions = [
+                    policy.Contribution(*item)
+                    for item in c.execute(
+                        """SELECT game_id,sequence,outcome FROM league_contributions
+                        WHERE season_id=? AND ruleset=? AND account_id=?""",
+                        (row["season_id"], row["ruleset"], row["account_id"]),
+                    )
+                ]
+                assert league_results.standing_value(row) == policy.fold_contributions(
+                    contributions
+                )
+                assert row["last_sequence"] == max(item.sequence for item in contributions)
+
+    assert_equivalence()
+    shuffled = terminals[12:]
+    random_source.shuffle(shuffled)
+    for terminal in shuffled:
+        with rig.core._write() as c:
+            assert service.settle(c, terminal["id"], rig.clock.value)
+        assert_equivalence()
+    assert len(fallbacks) >= 2
+    old = terminals[3]
+    rig.core.mutate(
+        rig.credentials["Odin"], old["id"], old["version"], "void", note="Fixture reason"
+    )
+    assert service.drain()["settled"] > 0
+    assert_equivalence()
+    missing = terminals[6]["id"]
+    with rig.core._write() as c:
+        c.execute("DELETE FROM league_contributions WHERE game_id=?", (missing,))
+        after_void = len(fallbacks)
+        assert service.settle(c, missing, rig.clock.value)
+        assert len(fallbacks) == after_void + 2
+    assert_equivalence()
