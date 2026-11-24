@@ -57,7 +57,8 @@ function bottomNavigationMetrics(page: Page) {
 
 test.describe('one primary navigation per viewport', () => {
   for (const viewport of [
-    { name: 'portrait phone', width: 390, height: 844, wrap: 'nowrap', reserved: 56 },
+    { name: 'wide phone', width: 441, height: 844, wrap: 'nowrap', reserved: 56 },
+    { name: 'portrait phone', width: 390, height: 844, wrap: 'wrap', reserved: 90 },
     { name: 'narrow phone', width: 320, height: 568, wrap: 'wrap', reserved: 89 },
   ]) {
     test(`shows only the compact bottom navigation on a ${viewport.name}`, async ({ page }) => {
@@ -216,10 +217,15 @@ test('keeps a workshop section anchor on the route that owns it', async ({ page 
 
 test('reserves the bottom strip only where a bottom navigation exists', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ['/dashboard', '/statistics', '/training']) {
+  for (const [path, reserved] of [
+    ['/dashboard', 90],
+    ['/statistics', 90],
+    ['/leagues', 90],
+    ['/training', 56],
+  ] as const) {
     await page.goto(path);
     await expect(page.locator(bottomNav), path).toBeVisible();
-    expect(await reservedBottomSpace(page), path).toBe(56);
+    expect(await reservedBottomSpace(page), path).toBe(reserved);
   }
 
   // Signed out there is no bottom navigation, so no strip may be reserved.
