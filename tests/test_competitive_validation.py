@@ -695,6 +695,8 @@ def _level_a_report(tmp_path: Path, name: str) -> Path:
 
 
 def test_smoke_checkpoint_cannot_be_relabelled_competitive(tmp_path):
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
     checkpoint = tmp_path / "smoke.pt"
     export = tmp_path / "smoke-export"
     subprocess.run(
