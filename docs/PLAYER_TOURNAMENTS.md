@@ -131,10 +131,11 @@ with the seeded bracket sized for the actual entrant count.
 
 The detail and discovery responses provide `start_state` for registration and
 scheduled-start status. The bracket response provides `round_progress` with
-the global round number and counts of finished and outstanding matches. It also
-shows which future matches are held by the round barrier and which sequential
-return games are waiting for the previous result. Game and match reads remain
-server-authoritative. Account-specific capabilities govern creator controls and
+the global round number and counts of finished and outstanding matches.
+Both bracket views show the bracket-local and global round numbers for synchronized
+tournaments. They distinguish games kept in play after a rebuild from matches
+with a future start. Sequential matches show when the return game is waiting
+for the previous result. Account-specific capabilities govern creator controls and
 administrative moderation. The route and calendar load on tournament navigation
 through the existing lazy-route/Suspense pattern.
 
@@ -192,8 +193,10 @@ schedule also invalidates the older retry. Disabled or unverified entrants defer
 a full cup until the accounts are eligible or the registration changes. Due work
 survives downtime and compatible restore.
 
-The reschedule dialog shows the planned start being reviewed and requires a
-future replacement. The planned start uses compact adjacent date/time controls. Activating
+The reschedule dialog shows the planned start being reviewed. The browser checks
+that the replacement date and time are complete and valid. The server checks
+that the replacement is in the future using its authoritative clock.
+The planned start uses compact adjacent date/time controls. Activating
 the date field or its integrated calendar icon opens a themed, anchored React
 DayPicker popup. It occupies the native top layer while remaining a DOM descendant
 of the existing Modal, escaping the scrolling container without expanding it.
@@ -297,9 +300,12 @@ immutable move and result history. A valid reset can retain its games. A
 disputed reset is replayed if the rebuilt final still requires one.
 
 Reconciliation preserves proven results before normal advancement resumes.
-Any replacement games are seated only when their global round is eligible. An
-unaffected game already in progress can keep its original clock if its pairing
-is still valid. The rebuild, its audit and any retirements roll back together on
+Any replacement games are seated only when their global round is eligible.
+Retained active games remain playable with their original clocks, including
+when a rebuild returns the tournament to an earlier round. Their terminal
+results are recorded by the online lifecycle and applied to the match when
+its round opens. A sequential return game is seated at that point if its
+first game has finished. The rebuild, its audit and any retirements roll back together on
 failure. Automatic settlement resumes without an administrator actor after a
 successful rebuild. Overriding any match while the bracket is disputed returns
 HTTP 409.
@@ -335,6 +341,14 @@ capabilities are derived for the current authenticated viewer.
 | `POST` | `/api/player-tournaments/{id}/cancel` | tournaments | Cancel a tournament |
 | `POST` | `/api/player-tournaments/{id}/rebuild` | tournaments | Re-derive a disputed bracket |
 | `POST` | `/api/player-tournaments/{id}/matches/{match_id}/override` | tournaments | Force a ready match winner |
+
+All three match reads (`/bracket`, `/matches` and `/matches/{match_id}`)
+publish the same scheduling fields for a persisted match. `global_round` is the
+synchronized tournament round or null for independent progression.
+`waiting_for_round` means an earlier round is holding advancement.
+`retained_game_state` is `active` when a held match still has a playable
+game, `results_held` when its retained games have finished, or null for other
+matches. `return_game_state` describes sequential returns in an eligible match.
 
 Creator start, rescheduling and administrative mutations take the reviewed
 tournament `version` and return `409` when it is stale. Creation quotas return

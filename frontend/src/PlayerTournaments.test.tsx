@@ -585,14 +585,83 @@ it.each([
 it('renders server round counts, held matches and return-game settlement in both bracket views', async () => {
   bracket.round_progress = { number: 1, finished_matches: 1, outstanding_matches: 1 };
   bracket.upper[1].matches[0].waiting_for_round = true;
+  bracket.upper[1].matches[0].global_round = 2;
+  bracket.lower[0].matches[0].global_round = 2;
   bracket.upper[0].matches[1].return_game_state = 'awaiting_settlement';
+  bracket.final!.global_round = 4;
+  bracket.reset = { ...match('reset', 'reset', 1, 'winner:f1', 'loser:f1'), global_round: 5 };
   render(<PlayerTournaments tournamentId="cup-1" />);
   expect(await screen.findByText('Tournament round 1 · 1 finished · 1 outstanding')).toBeVisible();
+  expect(screen.getByRole('region', { name: 'Round 2 · Tournament round 2' })).toBeVisible();
+  expect(screen.getByRole('region', { name: 'Round 1 · Tournament round 2' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Grand final · Tournament round 4' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Bracket reset · Tournament round 5' })).toBeVisible();
   expect(screen.getByText('Waiting for the current round to finish')).toBeVisible();
   expect(screen.getByText('Next game awaiting settlement of the previous game.')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Accessible match list' }));
   expect(screen.getByText('Waiting for the current round to finish')).toBeVisible();
+  for (const name of [
+    'Upper bracket · Round 2 · Match 1 · Tournament round 2',
+    'Lower bracket · Round 1 · Match 1 · Tournament round 2',
+    'Grand final · Tournament round 4',
+    'Bracket reset · Tournament round 5',
+  ]) {
+    expect(screen.getByRole('heading', { name })).toBeVisible();
+  }
   expect(screen.queryByRole('link', { name: 'Game 2' })).not.toBeInTheDocument();
+});
+
+it.each([
+  ['sequential', 'active'],
+  ['sequential', 'results_held'],
+  ['simultaneous', 'active'],
+  ['simultaneous', 'results_held'],
+] as const)(
+  'describes %s retained games with server state %s in both bracket views',
+  async (mode, state) => {
+    tournament.match_mode = mode;
+    const retained = bracket.upper[1].matches[0];
+    const isActive = state === 'active';
+    const first = { ...upper2.legs[0], game_status: isActive ? 'active' : 'completed' };
+    retained.global_round = 2;
+    retained.waiting_for_round = true;
+    retained.retained_game_state = state;
+    retained.legs =
+      mode === 'simultaneous' ? [first, { ...first, leg: 2, game_id: 'retained-return' }] : [first];
+    const status = isActive
+      ? 'Retained games in progress'
+      : 'Retained results waiting for the match’s tournament round';
+    const clocks =
+      'These games are playable and their clocks keep running. Match advancement waits for the match’s tournament round.';
+    render(<PlayerTournaments tournamentId="cup-1" />);
+    await screen.findByText(status);
+    const verify = () => {
+      const card = within(
+        screen.getByRole('article', {
+          name: 'Upper bracket · Round 2 · Match 1 · Tournament round 2',
+        }),
+      );
+      expect(card.getByText(status)).toBeVisible();
+      expect(card.queryByText('Waiting for the current round to finish')).not.toBeInTheDocument();
+      expect(card.getByRole('link', { name: 'Game 1' })).toHaveAttribute(
+        'href',
+        '/online/games/online-game-1',
+      );
+      expect(card.queryByText(clocks) !== null).toBe(isActive);
+    };
+    verify();
+    fireEvent.click(screen.getByRole('button', { name: 'Accessible match list' }));
+    verify();
+  },
+);
+
+it('explains independent progression using the published policy', async () => {
+  tournament.progression_policy = 'independent';
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(
+    await screen.findByText('Each match starts as soon as its preceding matches are decided.'),
+  ).toBeVisible();
+  expect(screen.queryByRole('heading', { name: /Tournament round/ })).not.toBeInTheDocument();
 });
 
 it('identifies unassigned bracket slots and omits links in the provisional list and graph', async () => {
@@ -609,7 +678,7 @@ it('identifies unassigned bracket slots and omits links in the provisional list 
   expect(screen.queryByRole('button', { name: 'Reschedule tournament' })).not.toBeInTheDocument();
 });
 
-it('requires a future replacement and submits UTC once when an eligible creator reschedules', async () => {
+it('sends a complete reschedule in UTC once and uses server validation with skewed clocks', async () => {
   tournament.status = 'registration';
   tournament.scheduled_start_at = '2035-02-01T00:00:00Z';
   tournament.capabilities = {
@@ -620,13 +689,16 @@ it('requires a future replacement and submits UTC once when an eligible creator 
   };
   const original = vi.mocked(api).getMockImplementation()!;
   let resolve: () => void = () => {};
-  vi.mocked(api).mockImplementation((path, ...rest) =>
-    path.endsWith('/reschedule')
-      ? new Promise((done) => {
-          resolve = () => done(tournament as never);
-        })
-      : original(path, ...rest),
-  );
+  vi.mocked(api).mockImplementation((path, data, ...rest) => {
+    if (!path.endsWith('/reschedule')) return original(path, data, ...rest);
+    const { scheduled_start_at } = data as { scheduled_start_at: string };
+    if (Date.parse(scheduled_start_at) <= Date.parse('2035-02-01T00:00:00Z')) {
+      return Promise.reject(new Error('The planned start must be in the future.'));
+    }
+    return new Promise((done) => {
+      resolve = () => done(tournament as never);
+    });
+  });
   render(<PlayerTournaments tournamentId="cup-1" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Reschedule tournament' }));
   const dialog = within(screen.getByRole('dialog'));
@@ -637,12 +709,23 @@ it('requires a future replacement and submits UTC once when an eligible creator 
   expect(date).toHaveValue('');
   fireEvent.click(button);
   expect(dialog.getByRole('alert')).toHaveTextContent('Enter a valid date and time.');
-  fireEvent.change(date, { target: { value: '2000-02-01' } });
-  fireEvent.click(button);
-  expect(dialog.getByRole('alert')).toHaveTextContent('The planned start must be in the future.');
   expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/reschedule'))).toHaveLength(
     0,
   );
+  const deviceClock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('1999-01-01T00:00:00Z'));
+  fireEvent.change(date, { target: { value: '2000-02-01' } });
+  fireEvent.click(button);
+  expect(await dialog.findByRole('alert')).toHaveTextContent(
+    'The planned start must be in the future.',
+  );
+  expect(api).toHaveBeenCalledWith(
+    '/player-tournaments/cup-1/reschedule',
+    { version: 7, scheduled_start_at: new Date('2000-02-01T12:00').toISOString() },
+    'POST',
+    expect.any(AbortSignal),
+  );
+  vi.mocked(api).mockClear();
+  deviceClock.mockReturnValue(Date.parse('2036-01-01T00:00:00Z'));
   fireEvent.change(date, { target: { value: '2035-02-02' } });
   fireEvent.change(time, { target: { value: '19:30' } });
   fireEvent.submit(button.closest('form')!);

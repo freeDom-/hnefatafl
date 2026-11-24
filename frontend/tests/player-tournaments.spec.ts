@@ -39,6 +39,7 @@ function fixture(owner: string) {
   });
   const first = {
     ...match('u1', 'upper', 1, 'seed:1', 'seed:4'),
+    global_round: 1,
     status: 'complete' as const,
     participants: { a: players[0], b: players[3] },
     winner: players[0],
@@ -47,6 +48,7 @@ function fixture(owner: string) {
   };
   const second = {
     ...match('u2', 'upper', 1, 'seed:2', 'seed:3'),
+    global_round: 1,
     slot: 1,
     status: 'ready' as const,
     return_game_state: 'waiting_for_game' as const,
@@ -72,6 +74,7 @@ function fixture(owner: string) {
     capacity: 4,
     match_legs: 2,
     match_mode: 'sequential',
+    progression_policy: 'synchronized',
     time_per_move: 3600,
     bracket_size: 4,
     entrant_count: 4,
@@ -102,15 +105,25 @@ function fixture(owner: string) {
       {
         round: 2,
         matches: [
-          { ...match('u3', 'upper', 2, 'winner:u1', 'winner:u2'), waiting_for_round: true },
+          {
+            ...match('u3', 'upper', 2, 'winner:u1', 'winner:u2'),
+            global_round: 2,
+            waiting_for_round: true,
+          },
         ],
       },
     ],
     lower: [
-      { round: 1, matches: [match('l1', 'lower', 1, 'loser:u1', 'loser:u2')] },
-      { round: 2, matches: [match('l2', 'lower', 2, 'winner:l1', 'loser:u3')] },
+      {
+        round: 1,
+        matches: [{ ...match('l1', 'lower', 1, 'loser:u1', 'loser:u2'), global_round: 2 }],
+      },
+      {
+        round: 2,
+        matches: [{ ...match('l2', 'lower', 2, 'winner:l1', 'loser:u3'), global_round: 3 }],
+      },
     ],
-    final: match('final', 'grand_final', 1, 'winner:u3', 'winner:l2'),
+    final: { ...match('final', 'grand_final', 1, 'winner:u3', 'winner:l2'), global_round: 4 },
     reset: null,
   };
   return { tournament, bracket };
@@ -152,7 +165,13 @@ for (const theme of ['kings-table', 'iron-ash', 'saga-hall', 'classic-table']) {
     page,
     adminSession,
   }, info) => {
-    await mockTournament(page, adminSession.id);
+    const { bracket } = await mockTournament(page, adminSession.id);
+    const retained = bracket.upper[1].matches[0];
+    retained.retained_game_state = 'active';
+    retained.participants = bracket.upper[0].matches[1].participants;
+    retained.legs = [
+      { ...bracket.upper[0].matches[1].legs[0], game_id: `online-${'b'.repeat(32)}` },
+    ];
     const sizes =
       info.project.name === 'mobile'
         ? [
@@ -187,6 +206,18 @@ for (const theme of ['kings-table', 'iron-ash', 'saga-hall', 'classic-table']) {
               ? 'Tournament round 1 · 1 finished · 1 outstanding'
               : 'Turnierrunde 1 · 1 entschieden · 1 offen',
           ),
+        ).toBeVisible();
+        const retainedStatus =
+          language === 'en' ? 'Retained games in progress' : 'Fortgesetzte Partien laufen';
+        const clocks = language === 'en' ? /their clocks keep running/ : /ihre Uhren laufen weiter/;
+        const retainedCard = region.locator('[data-match-id="u3"]');
+        await expect(retainedCard.getByText(retainedStatus)).toBeVisible();
+        await expect(retainedCard.getByText(clocks)).toBeVisible();
+        await expect(
+          region.getByRole('heading', {
+            name: language === 'en' ? 'Round 1 · Tournament round 2' : 'Runde 1 · Turnierrunde 2',
+            exact: true,
+          }),
         ).toBeVisible();
         await expect(region).toHaveAttribute('tabindex', '0');
         await expect(region.locator('.player-match')).toHaveCount(6);
@@ -236,9 +267,20 @@ for (const theme of ['kings-table', 'iron-ash', 'saga-hall', 'classic-table']) {
         await page.locator('.player-bracket-mode button').nth(1).click();
         await expect(page.locator('.player-bracket-list .player-match')).toHaveCount(6);
         await expect(page.locator('.player-bracket-scroll')).toHaveCount(0);
-        await expect(page.locator('.player-bracket-list a')).toHaveAttribute(
+        const list = page.locator('.player-bracket-list');
+        await expect(list.locator('[data-match-id="u2"] a')).toHaveAttribute(
           'href',
           `/online/games/online-${'a'.repeat(32)}`,
+        );
+        const retainedListCard = list.locator('[data-match-id="u3"]');
+        await expect(retainedListCard.getByText(retainedStatus)).toBeVisible();
+        await expect(retainedListCard.getByText(clocks)).toBeVisible();
+        await expect(retainedListCard.locator('a')).toHaveAttribute(
+          'href',
+          `/online/games/online-${'b'.repeat(32)}`,
+        );
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+          size.width + 1,
         );
       }
     }

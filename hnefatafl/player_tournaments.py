@@ -1126,15 +1126,21 @@ class PlayerTournaments:
                 self._finish_match(c, tournament, resolved, seeds, now)
         return retired
 
-    def _current_round(self, tournament, matches) -> int | None:
+    def _current_round(self, c, tournament, matches=None) -> int | None:
         if tournament["progression_policy"] != "synchronized" or tournament["status"] != "running":
             return None
+        if matches is None:
+            # Each bracket's earliest undecided round is enough to find the
+            # barrier, including when only a page or a single match is read.
+            candidates = c.execute(
+                """SELECT bracket, MIN(round) AS round FROM player_tournament_matches
+                WHERE tournament_id=? AND status NOT IN (?,?) GROUP BY bracket""",
+                (tournament["id"], *TERMINAL_MATCHES),
+            )
+        else:
+            candidates = (match for match in matches if match["status"] not in TERMINAL_MATCHES)
         return min(
-            (
-                self._global_round(match, tournament["bracket_size"])
-                for match in matches
-                if match["status"] not in TERMINAL_MATCHES
-            ),
+            (self._global_round(match, tournament["bracket_size"]) for match in candidates),
             default=None,
         )
 
@@ -1154,7 +1160,7 @@ class PlayerTournaments:
                 self._dispute(c, identifier, match, now)
                 return
         while True:
-            current_round = self._current_round(tournament, rows)
+            current_round = self._current_round(c, tournament, rows)
             decided = False
             for match in rows:
                 if match["status"] not in ("pending", "ready"):
@@ -1402,26 +1408,37 @@ class PlayerTournaments:
             return self._detail(c, identifier, account)
 
     @staticmethod
-    def _games(c, identifier: str) -> dict[str, str]:
-        return {
-            row["id"]: row["status"]
-            for row in c.execute(
-                "SELECT g.id,g.status FROM online_games g WHERE g.id IN (SELECT game_id FROM player_tournament_legs l JOIN player_tournament_matches m ON m.id=l.match_id WHERE m.tournament_id=?)",
-                (identifier,),
-            )
-        }
+    def _match_legs(c, matches) -> dict[str, list[sqlite3.Row]]:
+        grouped: dict[str, list[sqlite3.Row]] = {}
+        if matches:
+            placeholders = ",".join("?" for _ in matches)
+            for leg in c.execute(
+                f"""SELECT l.*, g.status AS game_status FROM player_tournament_legs l
+                LEFT JOIN online_games g ON g.id=l.game_id
+                WHERE l.match_id IN ({placeholders}) ORDER BY l.leg""",
+                [match["id"] for match in matches],
+            ):
+                grouped.setdefault(leg["match_id"], []).append(leg)
+        return grouped
 
-    def _match_projection(
-        self, c, match, accounts, games, *, tournament=None, saved_legs=None
-    ) -> dict:
-        legs = (
-            saved_legs
-            if saved_legs is not None
-            else c.execute(
-                "SELECT * FROM player_tournament_legs WHERE match_id=? ORDER BY leg", (match["id"],)
-            ).fetchall()
+    def _match_projection(self, match, accounts, *, tournament, current_round, legs) -> dict:
+        global_round = (
+            self._global_round(match, tournament["bracket_size"])
+            if tournament["progression_policy"] == "synchronized"
+            else None
         )
-        tournament = tournament if tournament is not None else self._load(c, match["tournament_id"])
+        future_round = (
+            match["status"] == "pending"
+            and current_round is not None
+            and global_round is not None
+            and global_round > current_round
+        )
+        retained_game_state = None
+        if future_round and legs:
+            if any(leg["game_status"] == "active" for leg in legs):
+                retained_game_state = "active"
+            elif all(leg["game_status"] in ("completed", "voided") for leg in legs):
+                retained_game_state = "results_held"
         pending_games = (
             max(0, tournament["match_legs"] - len(legs))
             if tournament["match_mode"] == "sequential" and match["status"] == "ready"
@@ -1431,7 +1448,7 @@ class PlayerTournaments:
         if pending_games and legs and tournament["review_state"] == "ok":
             return_game_state = (
                 "awaiting_settlement"
-                if games.get(legs[-1]["game_id"]) in ("completed", "voided")
+                if legs[-1]["game_status"] in ("completed", "voided")
                 else "waiting_for_game"
             )
         return {
@@ -1449,16 +1466,16 @@ class PlayerTournaments:
             },
             "winner": self._public(accounts, match["winner"]),
             "loser": self._public(accounts, match["loser"]),
-            "global_round": self._global_round(match, tournament["bracket_size"])
-            if tournament["progression_policy"] == "synchronized"
-            else None,
+            "global_round": global_round,
+            "waiting_for_round": future_round and tournament["review_state"] == "ok",
+            "retained_game_state": retained_game_state,
             "pending_games": pending_games,
             "return_game_state": return_game_state,
             "legs": [
                 {
                     "leg": leg["leg"],
                     "game_id": leg["game_id"],
-                    "game_status": games.get(leg["game_id"]),
+                    "game_status": leg["game_status"],
                     "outcome": leg["outcome"],
                     "result_revision": leg["result_revision"],
                     "settled_at": stamp(instant(leg["settled_at"])) if leg["settled_at"] else None,
@@ -1481,7 +1498,7 @@ class PlayerTournaments:
             matches = self._build_bracket(
                 c, identifier, size, instant(row["created_at"]), preview=True
             )
-        current_round = self._current_round(row, matches)
+        current_round = self._current_round(c, row, matches)
         finished = outstanding = 0
         accounts = self._accounts(
             c,
@@ -1496,31 +1513,18 @@ class PlayerTournaments:
                 )
             ],
         )
-        games = self._games(c, identifier)
-        saved_legs: dict[str, list] = {}
-        for leg in c.execute(
-            "SELECT l.* FROM player_tournament_legs l JOIN player_tournament_matches m ON m.id=l.match_id WHERE m.tournament_id=? ORDER BY l.leg",
-            (identifier,),
-        ):
-            saved_legs.setdefault(leg["match_id"], []).append(leg)
+        saved_legs = {} if preview else self._match_legs(c, matches)
         groups: dict[str, dict[int, list[dict]]] = {"upper": {}, "lower": {}}
         final = reset = None
         for match in matches:
             projection = self._match_projection(
-                c,
                 match,
                 accounts,
-                games,
                 tournament=row,
-                saved_legs=saved_legs.get(match["id"], []),
+                current_round=current_round,
+                legs=saved_legs.get(match["id"], []),
             )
             global_round = projection["global_round"]
-            projection["waiting_for_round"] = bool(
-                current_round is not None
-                and global_round > current_round
-                and match["status"] == "pending"
-                and row["review_state"] == "ok"
-            )
             if current_round is not None and global_round == current_round:
                 if match["status"] in TERMINAL_MATCHES:
                     finished += 1
@@ -1583,6 +1587,7 @@ class PlayerTournaments:
             ).fetchall()
             has_more = len(rows) > limit
             rows = rows[:limit]
+            current_round = self._current_round(c, tournament)
             accounts = self._accounts(
                 c,
                 [
@@ -1596,23 +1601,14 @@ class PlayerTournaments:
                     )
                 ],
             )
-            games = self._games(c, identifier)
-            saved_legs: dict[str, list] = {}
-            if rows:
-                placeholders = ",".join("?" for _ in rows)
-                for leg in c.execute(
-                    f"SELECT * FROM player_tournament_legs WHERE match_id IN ({placeholders}) ORDER BY leg",
-                    [match["id"] for match in rows],
-                ):
-                    saved_legs.setdefault(leg["match_id"], []).append(leg)
+            saved_legs = self._match_legs(c, rows)
             items = [
                 self._match_projection(
-                    c,
                     match,
                     accounts,
-                    games,
                     tournament=tournament,
-                    saved_legs=saved_legs.get(match["id"], []),
+                    current_round=current_round,
+                    legs=saved_legs.get(match["id"], []),
                 )
                 for match in rows
             ]
@@ -1627,7 +1623,7 @@ class PlayerTournaments:
         with self.store.connection() as c:
             c.execute("BEGIN")
             self._identity(c, credential)
-            self._load(c, identifier)
+            tournament = self._load(c, identifier)
             row = c.execute(
                 "SELECT * FROM player_tournament_matches WHERE id=? AND tournament_id=?",
                 (match_id, identifier),
@@ -1638,7 +1634,13 @@ class PlayerTournaments:
                 c,
                 [row["participant_a"], row["participant_b"], row["winner"], row["loser"]],
             )
-            return self._match_projection(c, row, accounts, self._games(c, identifier))
+            return self._match_projection(
+                row,
+                accounts,
+                tournament=tournament,
+                current_round=self._current_round(c, tournament),
+                legs=self._match_legs(c, [row]).get(match_id, []),
+            )
 
     def audit(self, credential: str, identifier: str, *, limit=50) -> dict:
         if type(limit) is not int or not 1 <= limit <= MAX_AUDIT_PAGE:

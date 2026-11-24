@@ -132,20 +132,35 @@ function matchName(match: TournamentMatch, t: Translate) {
     match: match.slot + 1,
   });
 }
+function withTournamentRound(label: string, round: number | null | undefined, t: Translate) {
+  return round == null ? label : t('{label} · Tournament round {round}', { label, round });
+}
 function MatchCard({
   match,
   matches,
   preview,
+  showTournamentRound,
   canOverride,
   onOverride,
 }: {
   match: TournamentMatch;
   matches: Map<string, TournamentMatch>;
   preview?: boolean;
+  showTournamentRound?: boolean;
   canOverride: boolean;
   onOverride: (match: TournamentMatch) => void;
 }) {
   const { t } = useI18n();
+  const name = matchName(match, t);
+  const nameWithRound = withTournamentRound(name, preview ? null : match.global_round, t);
+  const statusLabel =
+    match.retained_game_state === 'active'
+      ? 'Retained games in progress'
+      : match.retained_game_state === 'results_held'
+        ? 'Retained results waiting for the match’s tournament round'
+        : match.waiting_for_round
+          ? 'Waiting for the current round to finish'
+          : matchLabels[match.status];
   const unresolved = (source: string) => {
     const split = source.indexOf(':');
     const kind = source.slice(0, split),
@@ -163,17 +178,11 @@ function MatchCard({
     <article
       className={`arena-surface player-match player-match-${match.status}`}
       data-match-id={match.id}
-      aria-label={matchName(match, t)}
+      aria-label={nameWithRound}
     >
       <header>
-        <h4>{matchName(match, t)}</h4>
-        <span className="player-match-status">
-          {t(
-            match.waiting_for_round
-              ? 'Waiting for the current round to finish'
-              : matchLabels[match.status],
-          )}
-        </span>
+        <h4>{showTournamentRound ? nameWithRound : name}</h4>
+        <span className="player-match-status">{t(statusLabel)}</span>
       </header>
       <ul className="player-match-seats">
         {(['a', 'b'] as const).map((seat) => {
@@ -230,6 +239,13 @@ function MatchCard({
             </li>
           ))}
         </ol>
+      )}
+      {match.retained_game_state === 'active' && (
+        <p>
+          {t(
+            'These games are playable and their clocks keep running. Match advancement waits for the match’s tournament round.',
+          )}
+        </p>
       )}
       {match.return_game_state && (
         <p>
@@ -321,27 +337,30 @@ function BracketGraph({
     >
       <h3>{t(bracketLabels[kind])}</h3>
       <div className="player-bracket-rounds">
-        {entries.map((round) => (
-          <section
-            className="player-bracket-round"
-            key={round.round}
-            aria-label={t('Round {round}', { round: round.round })}
-          >
-            <h4>{t('Round {round}', { round: round.round })}</h4>
-            <div className="player-bracket-round-matches">
-              {round.matches.map((match) => (
-                <MatchCard
-                  key={match.id}
-                  match={match}
-                  matches={byId}
-                  preview={bracket.preview}
-                  canOverride={canOverride}
-                  onOverride={onOverride}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
+        {entries.map((round) => {
+          const heading = withTournamentRound(
+            t('Round {round}', { round: round.round }),
+            bracket.preview ? null : round.matches[0]?.global_round,
+            t,
+          );
+          return (
+            <section className="player-bracket-round" key={round.round} aria-label={heading}>
+              <h4>{heading}</h4>
+              <div className="player-bracket-round-matches">
+                {round.matches.map((match) => (
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    matches={byId}
+                    preview={bracket.preview}
+                    canOverride={canOverride}
+                    onOverride={onOverride}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
         {!entries.length && <p>{t('No lower-bracket rounds are needed for this bracket size.')}</p>}
       </div>
     </section>
@@ -381,7 +400,13 @@ function BracketGraph({
               .filter((match): match is TournamentMatch => match !== null)
               .map((match) => (
                 <section key={match.id}>
-                  <h3>{t(bracketLabels[match.bracket])}</h3>
+                  <h3>
+                    {withTournamentRound(
+                      t(bracketLabels[match.bracket]),
+                      bracket.preview ? null : match.global_round,
+                      t,
+                    )}
+                  </h3>
                   <MatchCard
                     match={match}
                     matches={byId}
@@ -575,11 +600,6 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
       if (!plannedStart || !Number.isFinite(Date.parse(plannedStart))) {
         controller.current = null;
         setError('Enter a valid date and time.');
-        return;
-      }
-      if (Date.parse(plannedStart) <= Date.now()) {
-        controller.current = null;
-        setError('The planned start must be in the future.');
         return;
       }
       body = { version: dialog.version, scheduled_start_at: new Date(plannedStart).toISOString() };
@@ -1029,6 +1049,10 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   })}
                 </p>
               )}
+              {tournament.status === 'running' &&
+                tournament.progression_policy === 'independent' && (
+                  <p>{t('Each match starts as soon as its preceding matches are decided.')}</p>
+                )}
               {mode === 'graph' ? (
                 <BracketGraph
                   bracket={bracket}
@@ -1043,6 +1067,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                         match={match}
                         matches={byId}
                         preview={bracket.preview}
+                        showTournamentRound
                         canOverride={canOverride}
                         onOverride={(entry) => open('override', entry)}
                       />

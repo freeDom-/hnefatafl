@@ -120,6 +120,14 @@ const translations: Record<string, string> = {
   'Tournament round {round} · {finished} finished · {outstanding} outstanding':
     'Turnierrunde {round} · {finished} entschieden · {outstanding} offen',
   'Waiting for the current round to finish': 'Die laufende Turnierrunde muss zuerst enden',
+  '{label} · Tournament round {round}': '{label} · Turnierrunde {round}',
+  'Retained games in progress': 'Fortgesetzte Partien laufen',
+  'Retained results waiting for the match’s tournament round':
+    'Die Ergebnisse werden in der Turnierrunde dieser Begegnung gewertet',
+  'These games are playable and their clocks keep running. Match advancement waits for the match’s tournament round.':
+    'Diese Partien können gespielt werden und ihre Uhren laufen weiter. Die Begegnung wird in ihrer Turnierrunde fortgesetzt.',
+  'Each match starts as soon as its preceding matches are decided.':
+    'Jede Begegnung beginnt, sobald ihre Vorgängerbegegnungen entschieden sind.',
   'Unassigned seed {seed}': 'Unbesetzter Setzplatz {seed}',
   'Provisional bracket based on maximum entrants. Seeds and byes are determined at start.':
     'Vorläufiger Turnierbaum basierend auf der maximalen Teilnehmerzahl. Setzliste und Freilose werden beim Start bestimmt.',

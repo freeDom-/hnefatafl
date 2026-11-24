@@ -1516,13 +1516,21 @@ def test_match_cursor_is_bounded_and_bound_to_its_tournament(rig):
     assert len(seen) == sum(rig.core.detail(rig.admin, first["id"])["match_counts"].values())
 
 
-def test_match_listing_batches_tournament_and_legs_for_large_pages(rig, monkeypatch):
+@pytest.mark.parametrize("progression_policy", ["independent", "synchronized"])
+def test_match_listing_batches_tournament_and_legs_for_large_pages(
+    rig, monkeypatch, progression_policy
+):
     from hnefatafl import storage
 
     cup = create(rig, name="Large listing", capacity=64, match_legs=2)
     seat_a = rig.accounts[PLAYERS[0]]["id"]
     seat_b = rig.accounts[PLAYERS[1]]["id"]
     with rig.store.connection() as c:
+        c.execute(
+            """UPDATE player_tournaments SET status='running', bracket_size=64,
+               started_at=created_at, progression_policy=? WHERE id=?""",
+            (progression_policy, cup["id"]),
+        )
         for index in range(200):
             match_id = f"large-match-{index:03d}"
             c.execute(
@@ -1562,6 +1570,8 @@ def test_match_listing_batches_tournament_and_legs_for_large_pages(rig, monkeypa
     statements.clear()
     first = rig.core.matches(rig.admin, cup["id"], limit=1)
     single_count = len(statements)
+    expected_round_queries = int(progression_policy == "synchronized")
+    assert sum("MIN(round)" in sql for sql in statements) == expected_round_queries
     statements.clear()
     page = rig.core.matches(rig.admin, cup["id"], limit=200)
     batch_count = len(statements)
@@ -1573,6 +1583,22 @@ def test_match_listing_batches_tournament_and_legs_for_large_pages(rig, monkeypa
     assert page["items"][-1]["legs"][0]["game_id"] == "large-game-199"
     assert batch_count == single_count
     assert batch_count <= 12
+    assert sum("MIN(round)" in sql for sql in statements) == expected_round_queries
+    assert sum("LEFT JOIN online_games" in sql for sql in statements) == 1
+
+    last = page["items"][-1]
+    statements.clear()
+    assert rig.core.match(rig.admin, cup["id"], last["id"]) == last
+    assert len(statements) <= 12
+    assert sum("MIN(round)" in sql for sql in statements) == expected_round_queries
+    assert sum("LEFT JOIN online_games" in sql for sql in statements) == 1
+
+    statements.clear()
+    bracket = rig.core.bracket(rig.admin, cup["id"])
+    assert bracket["upper"][-1]["matches"][0] == last
+    assert len(statements) <= 12
+    assert all("MIN(round)" not in sql for sql in statements)
+    assert sum("LEFT JOIN online_games" in sql for sql in statements) == 1
 
 
 def test_listing_pagination_is_stable_while_tournaments_change(rig):

@@ -201,9 +201,13 @@ test('a missed start can be rescheduled by its creator after reviewing the lates
     await expect(dialog.getByRole('alert')).toHaveText('Enter a valid date and time.');
     const date = dialog.getByLabel('Date (YYYY-MM-DD)');
     const time = dialog.getByLabel('Time (HH:MM)');
+    await page.clock.setFixedTime(new Date('1999-01-01T00:00:00Z'));
     await date.fill('2000-02-01');
+    const past = page.waitForResponse((response) => response.url().endsWith('/reschedule'));
     await submit.click();
+    expect((await past).status()).toBe(422);
     await expect(dialog.getByRole('alert')).toHaveText('The planned start must be in the future.');
+    await page.clock.setFixedTime(new Date('2036-01-01T00:00:00Z'));
 
     const registered = await post(entrant, `${base}/register`);
     expect(registered.status()).toBe(200);
@@ -229,6 +233,7 @@ test('a missed start can be rescheduled by its creator after reviewing the lates
     const rescheduled = await success;
     expect(rescheduled.status()).toBe(200);
     expect((await rescheduled.json()).scheduled_start_at).toBe('2035-10-28T01:30:00.000000Z');
+    await page.clock.setFixedTime(new Date());
     await expect(dialog).toHaveCount(0);
     await expect(page.getByText('Waiting for more registrations.')).toBeVisible();
 

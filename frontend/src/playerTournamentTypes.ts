@@ -31,6 +31,7 @@ export type PlayerTournament = {
   time_control?: 'per_move' | 'total';
   increment_seconds?: number;
   match_mode?: 'legacy' | 'single' | 'sequential' | 'simultaneous';
+  progression_policy?: 'independent' | 'synchronized';
   created_by?: string;
   capabilities?: TournamentCapabilities;
   bracket_size: number | null;
@@ -71,6 +72,7 @@ export type TournamentMatch = {
   loser: TournamentPlayer | null;
   global_round?: number | null;
   waiting_for_round?: boolean;
+  retained_game_state?: 'active' | 'results_held' | null;
   return_game_state?: 'waiting_for_game' | 'awaiting_settlement' | null;
   legs: {
     leg: number;

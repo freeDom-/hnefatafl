@@ -21,6 +21,7 @@ from test_player_tournaments import (
     account_template as account_template,
     assert_double_elimination,
     assert_no_duplicate_matches_or_legs,
+    authenticated_client,
     force_leg,
     ready_matches,
     rig as rig,
@@ -335,6 +336,7 @@ def test_rebuild_retires_unproven_later_games_and_keeps_proven_games(rig, mode):
     history, stale_game = [rig.online.read(rig.admin, leg["game_id"]) for leg in affected["legs"]]
     assert history["status"] == "completed" and stale_game["status"] == "active"
     safe_ids = [leg["game_id"] for leg in unaffected["legs"]]
+    safe_games = [rig.online.read(rig.admin, game_id) for game_id in safe_ids]
     for leg in match(rig, identifier, corrected["id"])["legs"]:
         result = rig.online.read(rig.admin, leg["game_id"])
         rig.online.mutate(
@@ -365,6 +367,11 @@ def test_rebuild_retires_unproven_later_games_and_keeps_proven_games(rig, mode):
     assert retained["status"] == "pending"
     assert [leg["game_id"] for leg in retained["legs"]] == safe_ids
     assert all(rig.online.read(rig.admin, game_id)["status"] == "active" for game_id in safe_ids)
+    assert retained["participants"] == unaffected["participants"]
+    for before in safe_games:
+        after = rig.online.read(rig.admin, before["id"])
+        for field in ("started_at", "deadline", "participants"):
+            assert after[field] == before[field]
     assert rig.online.read(rig.admin, history["id"]) == history
     retired = rig.online.read(rig.admin, stale_game["id"])
     assert retired["status"] == "voided" and retired["deadline"] is None
@@ -381,13 +388,94 @@ def test_rebuild_retires_unproven_later_games_and_keeps_proven_games(rig, mode):
     counts = table_counts(rig)
     rig.core.rebuild(rig.admin, identifier, rebuilt["version"], "Verify identical derivation")
     assert table_counts(rig) == counts
-    for entry in ready_matches(rig, identifier):
+
+    def consistent_projection(match_id):
+        base = f"/api/player-tournaments/{identifier}"
+        with authenticated_client(rig, PLAYERS[0]) as client:
+            responses = [
+                client.get(f"{base}/bracket"),
+                client.get(f"{base}/matches", params={"limit": 200}),
+                client.get(f"{base}/matches/{match_id}"),
+            ]
+        assert [response.status_code for response in responses] == [200, 200, 200]
+        bracket_response, page, detail = [response.json() for response in responses]
+        assert (
+            next(entry for entry in all_matches(bracket_response) if entry["id"] == match_id)
+            == detail
+        )
+        assert next(entry for entry in page["items"] if entry["id"] == match_id) == detail
+        return detail
+
+    future = consistent_projection(affected["id"])
+    assert future["waiting_for_round"] and future["retained_game_state"] is None
+    retained = consistent_projection(unaffected["id"])
+    assert retained["waiting_for_round"] and retained["retained_game_state"] == "active"
+    assert retained["global_round"] == 3 and retained["return_game_state"] is None
+
+    # The original games remain playable while an earlier round is being repaired.
+    rig.clock.value += timedelta(seconds=1)
+    results = []
+    for leg in retained["legs"]:
+        force_leg(rig, leg, player(retained, "a"))
+        results.append(rig.online.read(rig.admin, leg["game_id"])["result"])
+    worker = restart(rig)
+
+    def drain_concurrently():
+        barrier = Barrier(2, timeout=10)
+
+        def drain_once():
+            barrier.wait()
+            return worker.drain()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first, second = pool.submit(drain_once), pool.submit(drain_once)
+            return first.result() + second.result()
+
+    assert drain_concurrently() == 1
+    held = consistent_projection(unaffected["id"])
+    assert held["status"] == "pending" and held["waiting_for_round"]
+    assert held["retained_game_state"] == "results_held" and held["return_game_state"] is None
+    assert [leg["game_id"] for leg in held["legs"]] == safe_ids
+    assert all(leg["game_status"] == "completed" and leg["outcome"] is None for leg in held["legs"])
+    assert table_counts(rig) == counts
+
+    rig.clock.value += timedelta(seconds=1)
+    earlier_round = ready_matches(rig, identifier)
+    for entry in earlier_round[:-1]:
         decide(rig, mode, identifier, entry, player(entry, "a"))
+    last = earlier_round[-1]
+    decide(rig, mode, identifier, last, player(last, "a"), drain=False)
+    assert drain_concurrently() == 1
     assert rig.core.bracket(rig.admin, identifier)["round_progress"]["number"] == 3
     replacement = match(rig, identifier, affected["id"])
     assert replacement["status"] == "ready"
     assert all(leg["game_id"] not in (retired["id"], history["id"]) for leg in replacement["legs"])
-    assert [leg["game_id"] for leg in match(rig, identifier, unaffected["id"])["legs"]] == safe_ids
+    advanced = consistent_projection(unaffected["id"])
+    assert advanced["waiting_for_round"] is False and advanced["retained_game_state"] is None
+    advanced_legs = advanced["legs"][: len(safe_ids)]
+    assert [leg["game_id"] for leg in advanced_legs] == safe_ids
+    assert all(leg["outcome"] == "a" and leg["result_revision"] == 1 for leg in advanced_legs)
+    assert [rig.online.read(rig.admin, game_id)["result"] for game_id in safe_ids] == results
+    if mode == "simultaneous":
+        assert advanced["status"] == "complete"
+    else:
+        assert advanced["status"] == "ready" and len(advanced["legs"]) == 2
+        assert advanced["return_game_state"] is None
+        assert advanced["legs"][1]["game_status"] == "active"
+        second_game = rig.online.read(rig.admin, advanced["legs"][1]["game_id"])
+        assert second_game["started_at"] == stamp(rig.clock.value)
+        assert_side_swap(rig, advanced)
+    assert worker.drain() == 0
+    assert consistent_projection(unaffected["id"]) == advanced
+    if mode == "sequential":
+        force_leg(rig, advanced["legs"][1], player(advanced, "a"))
+        assert drain_concurrently() == 1
+        finished = consistent_projection(unaffected["id"])
+        assert finished["status"] == "complete"
+        assert [leg["game_id"] for leg in finished["legs"]] == [
+            leg["game_id"] for leg in advanced["legs"]
+        ]
+        assert [leg["result_revision"] for leg in finished["legs"]] == [1, 1]
     assert_no_duplicate_matches_or_legs(rig)
 
 
