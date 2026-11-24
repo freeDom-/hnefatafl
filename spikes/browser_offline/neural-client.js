@@ -594,33 +594,104 @@ export class NeuralClient {
     return new Promise((resolve) => {
       let settled = false;
       let timer = null;
-      const finish = (value, timedOut = false) => {
+      const ownsReservation = () =>
+        this.directChannel === reservation &&
+        reservation?.channelId === channelId &&
+        reservation.worker === worker &&
+        reservation.generation === generation;
+
+      const finish = (value, { timedOut = false, failed = false } = {}) => {
         if (settled) return;
         settled = true;
         if (timer !== null) clearTimeout(timer);
         timer = null;
         worker.removeEventListener?.("message", onMessage);
-        if (
-          this.directChannel === reservation &&
-          reservation?.channelId === channelId &&
-          reservation.worker === worker &&
-          reservation.generation === generation &&
-          (value.pending !== true || timedOut)
-        ) {
-          if (timedOut) {
-            reservation.state = "released";
-            this.directChannel = null;
-            this.abort(named("TimeoutError", "Direct port detach timed out"));
-          } else {
-            reservation.state = "released";
-            this.directChannel = null;
-          }
+        const current = ownsReservation();
+        if (current && (timedOut || failed)) {
+          reservation.state = "released";
+          this.directChannel = null;
+          this.abort(
+            named(
+              timedOut ? "TimeoutError" : "WorkerError",
+              timedOut ? "Direct port detach timed out" : value.error ?? "Direct detach failed",
+            ),
+          );
+        } else if (current && value.pending !== true) {
+          reservation.state = "released";
+          this.directChannel = null;
         }
         resolve(value);
       };
+
+      const malformed = (message) => {
+        const value = {
+          kind: "direct_port_detached",
+          pending: false,
+          stale: false,
+          failed: true,
+          error: message,
+          code: "DETACH_INVALID",
+        };
+        finish(value, { failed: true });
+      };
+
       const onMessage = ({ data }) => {
         if (data?.id !== id) return;
-        finish(data.value ?? { kind: "direct_port_detached", pending: false });
+        if (data.error !== undefined && data.error !== null) {
+          finish(
+            {
+              kind: "direct_port_detached",
+              pending: false,
+              stale: false,
+              failed: true,
+              error: String(data.error),
+              code: data.code ?? "DETACH_FAILED",
+            },
+            { failed: true },
+          );
+          return;
+        }
+        const value = data.value;
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          malformed("Detach response is missing");
+          return;
+        }
+        if (value.kind !== "direct_port_detached") {
+          malformed("Detach response has an unexpected kind");
+          return;
+        }
+        if (typeof value.pending !== "boolean") {
+          malformed("Detach response pending flag is missing or malformed");
+          return;
+        }
+        if (value.stale !== undefined && typeof value.stale !== "boolean") {
+          malformed("Detach response stale flag is malformed");
+          return;
+        }
+        if (value.stale === true && value.pending === true) {
+          malformed("Detach response is contradictory");
+          return;
+        }
+        if (
+          value.failed === true ||
+          value.timedOut === true ||
+          value.error !== undefined ||
+          value.code !== undefined
+        ) {
+          finish(
+            {
+              kind: "direct_port_detached",
+              pending: false,
+              stale: false,
+              failed: true,
+              error: value.error ?? "Direct detach reported failure",
+              code: value.code ?? "DETACH_FAILED",
+            },
+            { failed: true },
+          );
+          return;
+        }
+        finish(value);
       };
       timer = setTimeout(() => {
         finish(
@@ -628,8 +699,11 @@ export class NeuralClient {
             kind: "direct_port_detached",
             pending: true,
             timedOut: true,
+            failed: true,
+            error: "Direct port detach timed out",
+            code: "DETACH_TIMEOUT",
           },
-          true,
+          { timedOut: true },
         );
       }, timeoutMs);
       worker.addEventListener?.("message", onMessage);
@@ -641,9 +715,11 @@ export class NeuralClient {
             kind: "direct_port_detached",
             pending: true,
             timedOut: true,
+            failed: true,
             error: String(error?.message ?? error),
+            code: "DETACH_TIMEOUT",
           },
-          true,
+          { timedOut: true },
         );
       }
     });

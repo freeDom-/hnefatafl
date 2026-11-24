@@ -64,5 +64,10 @@ ok   normal and repeated detach requests settle consistently
 ok   provider switch is rejected during detaching cleanup
 ok   pending attachment abort releases reservations
 ok   late attachment acknowledgment cannot restore a timed-out reservation
+ok   malformed detach response fails closed
+ok   explicit detach worker error fails closed
+ok   pending and stale detach acknowledgments are distinguished
+ok   stale detach response cannot clear a newer reservation
+ok   contradictory detach success fields fail closed
 
-62/62 lifecycle checks passed
+67/67 lifecycle checks passed

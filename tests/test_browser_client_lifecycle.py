@@ -35,7 +35,7 @@ def test_neural_and_jarl_lifecycle_unit_checks():
         timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "62/62 lifecycle checks passed" in result.stdout
+    assert "67/67 lifecycle checks passed" in result.stdout
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")

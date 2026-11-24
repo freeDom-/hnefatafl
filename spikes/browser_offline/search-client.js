@@ -522,6 +522,15 @@ export class NeuralSearchCoordinator {
     return { worker: this.info, python: envelope.info };
   }
 
+  // Actual live worker objects owned by the coordinator, not OS thread/process
+  // counts. Used by sustained-memory telemetry for a browser-worker metric.
+  workerStats() {
+    return {
+      search_workers: this.worker && !this.workerUnhealthy ? 1 : 0,
+      inference_workers: this.neural && this.neural.worker ? 1 : 0,
+    };
+  }
+
   // Deterministic shared-driver parity (Level A). No inference is requested: the
   // evaluator runs inside this runtime, exercising the real generator.
   async parity({ state, settings = {}, trace = true }) {
