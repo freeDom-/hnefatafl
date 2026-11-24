@@ -16,9 +16,9 @@ import {
 } from "./sustained_workload_core.mjs";
 
 const checks = [];
-function check(name, fn) {
+async function check(name, fn) {
   try {
-    fn();
+    await fn();
     checks.push({ name, ok: true });
   } catch (error) {
     checks.push({ name, ok: false, error: String(error?.message ?? error) });
@@ -35,12 +35,12 @@ const midgame = {
 const terminal = { name: "terminal", kind: "terminal", ruleset: "brandubh", state: { ruleset: "brandubh", winner: "defenders" } };
 const escape = { name: "king-escape", kind: "king-escape", ruleset: "brandubh", state: { ruleset: "brandubh", winner: null } };
 
-check("terminal and immediate-win fixtures are excluded", () => {
+await check("terminal and immediate-win fixtures are excluded", () => {
   const selected = selectAnalysisPositions([terminal, escape, opening, midgame], "brandubh");
   assert.deepEqual(selected.map((entry) => entry.name), ["opening", "midgame"]);
 });
 
-check("duplicate and wrong-ruleset positions are excluded", () => {
+await check("duplicate and wrong-ruleset positions are excluded", () => {
   const selected = selectAnalysisPositions(
     [opening, { ...opening }, { ...opening, ruleset: "tablut" }, midgame],
     "brandubh",
@@ -48,7 +48,7 @@ check("duplicate and wrong-ruleset positions are excluded", () => {
   assert.deepEqual(selected.map((entry) => entry.name), ["opening", "midgame"]);
 });
 
-check("successful neural searches count work and progress", () => {
+await check("successful neural searches count work and progress", () => {
   const counters = newCounters();
   const result = recordSuccess(counters, {
     search: {
@@ -65,7 +65,7 @@ check("successful neural searches count work and progress", () => {
   assert.equal(exitCode(counters), 0);
 });
 
-check("no-inference shortcuts are not neural analysis progress", () => {
+await check("no-inference shortcuts are not neural analysis progress", () => {
   const counters = newCounters();
   recordSuccess(counters, {
     search: {
@@ -80,7 +80,7 @@ check("no-inference shortcuts are not neural analysis progress", () => {
   assert.equal(counters.completed_simulations, 0);
 });
 
-check("failed searches are failure-only and never successful progress", () => {
+await check("failed searches are failure-only and never successful progress", () => {
   const counters = newCounters();
   recordFailure(counters);
   assert.equal(counters.workload_failures, 1);
@@ -92,7 +92,7 @@ check("failed searches are failure-only and never successful progress", () => {
   assert.equal(exitCode(counters), 2);
 });
 
-check("telemetry binds identity and cumulative work", () => {
+await check("telemetry binds identity and cumulative work", () => {
   const counters = newCounters();
   recordSuccess(counters, {
     search: { completed_simulations: 8, completion_reason: "simulations", coordinator: { inferences: 8 } },
@@ -107,7 +107,7 @@ check("telemetry binds identity and cumulative work", () => {
   assert.equal(record.neural_inferences, 8);
 });
 
-check("batch accounting keeps actual utilization separate", () => {
+await check("batch accounting keeps actual utilization separate", () => {
   const counters = newCounters();
   recordBatch(counters, { batches: 3, observed_max_batch: 2 });
   recordBatch(counters, { batches: 1, observed_max_batch: 1 });
@@ -115,7 +115,7 @@ check("batch accounting keeps actual utilization separate", () => {
   assert.equal(counters.observed_max_batch, 2);
 });
 
-check("invalid usage exits with a bounded error status", async () => {
+await check("invalid usage exits with a bounded error status", async () => {
   const child = spawn(process.execPath, [resolve(import.meta.dirname, "sustained_workload.mjs"), "--duration", "1"], {
     stdio: ["ignore", "ignore", "pipe"],
   });
