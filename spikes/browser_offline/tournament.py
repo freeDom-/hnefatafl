@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import queue
 import random
 import signal
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -29,6 +31,96 @@ SCHEMA = 1
 AGENT = Callable[[State, dict, int], Move]
 SIDES = ("attackers", "defenders")
 DEFAULT_AGENT_TIMEOUT = 30.0
+
+
+class JsonProcessAgent:
+    """Portable persistent line-protocol agent with a bounded hard deadline.
+
+    The child process is independent of Python threads/signals and is terminated
+    on timeout or protocol failure. One child per adapter bounds accumulation.
+    """
+
+    enforces_own_deadline = True
+
+    def __init__(self, command: list[str], *, timeout: float = DEFAULT_AGENT_TIMEOUT, cwd=None):
+        if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
+            raise ValueError("agent timeout must be positive")
+        self.command = list(command)
+        self.timeout = float(timeout)
+        self.cwd = cwd
+        self.process = None
+        self.responses = queue.Queue()
+        self.stderr = queue.Queue()
+
+    def _start(self):
+        self.close()
+        self.process = subprocess.Popen(
+            self.command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            cwd=self.cwd,
+        )
+
+        def pump(stream, target):
+            for line in stream:
+                target.put(line)
+            target.put(None)
+
+        threading.Thread(
+            target=pump, args=(self.process.stdout, self.responses), daemon=True
+        ).start()
+        threading.Thread(target=pump, args=(self.process.stderr, self.stderr), daemon=True).start()
+
+    def __call__(self, state, settings, seed):
+        if self.process is None or self.process.poll() is not None:
+            self._start()
+        request = json.dumps(
+            {"state": state.to_dict(), "settings": settings, "seed": seed}, separators=(",", ":")
+        )
+        try:
+            self.process.stdin.write(request + "\n")
+            self.process.stdin.flush()
+        except (BrokenPipeError, OSError) as error:
+            self.close()
+            raise AgentTimeoutError(f"agent process write failed: {error}") from None
+        try:
+            line = self.responses.get(timeout=self.timeout)
+        except queue.Empty:
+            self.close()
+            raise AgentTimeoutError(f"agent exceeded {self.timeout:g}s deadline") from None
+        if line is None:
+            self.close()
+            raise RuntimeError("agent process exited without a response")
+        try:
+            payload = json.loads(line)
+            return _move(payload.get("move") if isinstance(payload, dict) else None)
+        except (ValueError, TypeError, KeyError) as error:
+            self.close()
+            raise RuntimeError(f"agent returned malformed JSON: {error}") from None
+
+    def close(self):
+        process = self.process
+        self.process = None
+        if process is None:
+            return
+        try:
+            process.terminate()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 class AgentTimeoutError(TimeoutError):
@@ -110,6 +202,7 @@ def play_game(
         "defender_agent": None,
         "winner": None,
         "reason": None,
+        "starting_ply": state.ply,
         "plies": 0,
         "moves": [],
         "completed": False,
@@ -121,8 +214,11 @@ def play_game(
     try:
         while state.winner is None and state.ply < max_plies:
             agent = attacker if state.turn == "attackers" else defender
-            with _deadline(agent_timeout):
+            if getattr(agent, "enforces_own_deadline", False):
                 move = _move(agent(state, settings, seed + state.ply))
+            else:
+                with _deadline(agent_timeout):
+                    move = _move(agent(state, settings, seed + state.ply))
             if move not in legal_moves(state):
                 raise ValueError(f"agent selected an illegal move {move.to_dict()}")
             state = apply_move(state, move)
@@ -140,6 +236,19 @@ def play_game(
     return game
 
 
+def supports_own_deadline(agent) -> bool:
+    return bool(getattr(agent, "enforces_own_deadline", False))
+
+
+def validate_execution_environment(agent_a, agent_b) -> None:
+    if supports_own_deadline(agent_a) and supports_own_deadline(agent_b):
+        return
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError("tournament callables require the main thread or process agents")
+    if not hasattr(signal, "setitimer") or not hasattr(signal, "SIGALRM"):
+        raise RuntimeError("tournament callables require SIGALRM or process-isolated agents")
+
+
 def run_paired_openings(
     agent_a: AGENT,
     agent_b: AGENT,
@@ -153,6 +262,7 @@ def run_paired_openings(
     max_plies: int = 200,
     agent_timeout: float = DEFAULT_AGENT_TIMEOUT,
 ) -> dict:
+    validate_execution_environment(agent_a, agent_b)
     games = []
     for pair, opening in enumerate(openings):
         for swap in (False, True):
@@ -182,14 +292,38 @@ def run_paired_openings(
                 }
             )
             games.append(game)
+    manifest = {
+        "ruleset": ruleset,
+        "agents": {"a": labels[0], "b": labels[1]},
+        "settings": {
+            "simulations": simulations,
+            "iterations": simulations,
+            "time_limit": time_limit,
+            "exploration": 1.4,
+            "seed": seed,
+            "max_plies": max_plies,
+            "agent_timeout_s": float(agent_timeout),
+        },
+        "openings": [
+            {
+                "pair": index,
+                "name": opening["name"],
+                "state": opening["state"],
+            }
+            for index, opening in enumerate(openings)
+        ],
+    }
     report = {
         "kind": "browser-analysis-tournament",
+        "manifest": manifest,
         "schema": SCHEMA,
         "ruleset": ruleset,
         "agents": {"a": labels[0], "b": labels[1]},
         "settings": {
             "simulations": simulations,
+            "iterations": simulations,
             "time_limit": time_limit,
+            "exploration": 1.4,
             "seed": seed,
             "max_plies": max_plies,
             "agent_timeout_s": float(agent_timeout),
@@ -324,6 +458,43 @@ def validate_report(report: dict) -> dict:
     if not isinstance(games, list):
         fail("games must be a list")
         games = []
+    agents = report.get("agents")
+    if not isinstance(agents, dict):
+        fail("agents must be an object")
+        agents = {}
+    if not isinstance(agents.get("a"), str) or not agents.get("a"):
+        fail("agent A identity is missing")
+    if not isinstance(agents.get("b"), str) or not agents.get("b"):
+        fail("agent B identity is missing")
+    if agents.get("a") == agents.get("b"):
+        fail("agent labels must be distinct")
+    manifest = report.get("manifest")
+    if not isinstance(manifest, dict):
+        fail("manifest must be an object")
+        manifest = {}
+    else:
+        if manifest.get("ruleset") != report.get("ruleset"):
+            fail("manifest ruleset does not match report")
+        if manifest.get("agents") != agents:
+            fail("manifest agent identities do not match report")
+        if _canonical(manifest.get("settings")) != _canonical(report.get("settings")):
+            fail("manifest settings do not match report")
+        manifest_openings = manifest.get("openings")
+        if not isinstance(manifest_openings, list):
+            fail("manifest openings must be a list")
+            manifest_openings = []
+        manifest_names = [
+            entry.get("name") for entry in manifest_openings if isinstance(entry, dict)
+        ]
+        if len(set(manifest_names)) != len(manifest_names):
+            fail("manifest opening identities are duplicated")
+        if manifest_names != openings:
+            fail("report openings do not match manifest order")
+        for index, entry in enumerate(manifest_openings):
+            if not isinstance(entry, dict) or entry.get("pair") != index:
+                fail("manifest opening pair index is inconsistent")
+            elif not isinstance(entry.get("state"), dict):
+                fail("manifest opening state is missing")
     # Opening states are recorded in every game snapshot for replay validation.
     opening_states: dict[str, dict] = {}
     for game in games:
@@ -351,9 +522,28 @@ def validate_report(report: dict) -> dict:
             fail(f"{game.get('game_id')}: unknown opening {opening_name!r}")
         if game.get("ruleset") != report.get("ruleset"):
             fail(f"{game.get('game_id')}: ruleset mismatch")
-        if game.get("agent_a") != (report.get("agents") or {}).get("a"):
+        manifest_entry = next(
+            (
+                entry
+                for entry in manifest.get("openings", [])
+                if isinstance(entry, dict) and entry.get("name") == opening_name
+            ),
+            None,
+        )
+        if manifest_entry is None:
+            fail(f"{game.get('game_id')}: opening is absent from manifest")
+        elif _canonical(manifest_entry.get("state")) != _canonical(game.get("opening_state")):
+            fail(f"{game.get('game_id')}: opening state/history differs from manifest")
+        game_settings = game.get("settings")
+        if not isinstance(game_settings, dict):
+            fail(f"{game.get('game_id')}: game settings are missing")
+        else:
+            for field in ("iterations", "time_limit", "exploration"):
+                if game_settings.get(field) != (manifest.get("settings") or {}).get(field):
+                    fail(f"{game.get('game_id')}: {field} differs from manifest")
+        if game.get("agent_a") != agents.get("a"):
             fail(f"{game.get('game_id')}: agent A identity mismatch")
-        if game.get("agent_b") != (report.get("agents") or {}).get("b"):
+        if game.get("agent_b") != agents.get("b"):
             fail(f"{game.get('game_id')}: agent B identity mismatch")
         if {game.get("agent_a_side"), game.get("agent_b_side")} != set(SIDES):
             fail(f"{game.get('game_id')}: role assignment is invalid")
@@ -385,8 +575,11 @@ def validate_report(report: dict) -> dict:
             elif parts[2] == "ab" and game.get("agent_a_side") != "attackers":
                 fail(f"{game_id}: original leg role assignment is inconsistent")
         expected_move_count = len(game["moves"])
-        if game.get("plies") != expected_move_count:
-            fail(f"{game.get('game_id')}: ply count does not match move count")
+        starting_ply = game.get("starting_ply")
+        if not isinstance(starting_ply, int) or starting_ply < 0:
+            fail(f"{game.get('game_id')}: starting_ply is invalid")
+        elif game.get("plies") != starting_ply + expected_move_count:
+            fail(f"{game.get('game_id')}: absolute ply count does not match initial ply and moves")
         if game.get("error") is not None:
             if game.get("completed") or game.get("winner") is not None:
                 fail(f"{game.get('game_id')}: error game claims completion")
@@ -401,7 +594,7 @@ def validate_report(report: dict) -> dict:
             if state.winner != game.get("winner"):
                 fail(f"{game.get('game_id')}: winner does not match replay")
             if state.ply != game.get("plies"):
-                fail(f"{game.get('game_id')}: ply count does not match replay")
+                fail(f"{game.get('game_id')}: absolute ply count does not match replay")
             if state.winner is not None and game.get("reason") != (state.reason or "terminal"):
                 fail(f"{game.get('game_id')}: terminal reason does not match replay")
         if game.get("completed") and game.get("winner") not in ("attackers", "defenders", "draw"):
@@ -414,19 +607,25 @@ def validate_report(report: dict) -> dict:
     }
     if set(ids) != expected_pairs:
         fail("game identifiers do not cover every opening pair and role swap exactly once")
-    settings = report.get("settings") or {}
+    settings = report.get("settings")
+    if not isinstance(settings, dict):
+        fail("settings must be an object")
+        settings = {}
     timeout = settings.get("agent_timeout_s")
     if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
         fail("settings.agent_timeout_s must be positive")
-    summary = report.get("summary") or {}
+    summary = report.get("summary")
+    if not isinstance(summary, dict):
+        fail("summary must be an object")
+        summary = {}
     if summary.get("games") != len(games):
         fail("summary game count does not match games")
     completed = sum(1 for game in games if isinstance(game, dict) and game.get("completed"))
     if summary.get("completed") != completed:
         fail("summary completed count does not match games")
     labels = (
-        (report.get("agents") or {}).get("a"),
-        (report.get("agents") or {}).get("b"),
+        agents.get("a"),
+        agents.get("b"),
     )
     if all(isinstance(label, str) for label in labels):
         recomputed = summarize(games, labels, seed=(report.get("settings") or {}).get("seed", 7))

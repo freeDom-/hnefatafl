@@ -162,3 +162,85 @@ def test_validator_rejects_changed_role_and_fabricated_summary():
     report = _report()
     report["summary"]["paired_score_ci95"] = [0, 1]
     assert tournament.validate_report(report)["ok"] is False
+
+
+def test_portable_process_agent_timeout_and_recovery(tmp_path):
+    script = tmp_path / "agent.py"
+    script.write_text(
+        "import json,sys\n"
+        "for line in sys.stdin:\n"
+        "    request=json.loads(line)\n"
+        "    from hnefatafl.engine import State, legal_moves\n"
+        "    moves=legal_moves(State.from_dict(request['state']))\n"
+        "    print(json.dumps({'move': moves[0].to_dict()}), flush=True)\n"
+    )
+    env = {"PYTHONPATH": str(SPIKE.parents[1])}
+    import os
+
+    env.update(os.environ)
+    agent = tournament.JsonProcessAgent([sys.executable, str(script)], timeout=1, cwd=tmp_path)
+    agent.enforces_own_deadline = True
+    state = __import__("hnefatafl.engine", fromlist=["new_game"]).new_game("brandubh")
+    move = agent(state, {"iterations": 1}, 1)
+    assert move in legal_moves(state)
+    agent.close()
+
+    blocked = tournament.JsonProcessAgent(
+        [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.1
+    )
+    try:
+        blocked(state, {"iterations": 1}, 1)
+        raise AssertionError("expected timeout")
+    except tournament.AgentTimeoutError:
+        pass
+    assert blocked.process is None
+    blocked.close()
+
+    fresh = tournament.JsonProcessAgent([sys.executable, str(script)], timeout=1, cwd=tmp_path)
+    # Child imports the project engine; expose it through cwd/PYTHONPATH.
+    fresh.command = [sys.executable, str(script)]
+    assert fresh(state, {"iterations": 1}, 1) in legal_moves(state)
+    fresh.close()
+
+
+def test_manifest_and_initial_ply_invariants():
+    report = _report()
+    report["manifest"]["openings"][0]["state"] = copy.deepcopy(
+        report["manifest"]["openings"][0]["state"]
+    )
+    report["manifest"]["openings"][0]["state"]["board"][0] = "A"
+    assert tournament.validate_report(report)["ok"] is False
+
+    report = _report()
+    report["agents"]["b"] = report["agents"]["a"]
+    assert tournament.validate_report(report)["ok"] is False
+
+    midgame = next(
+        entry
+        for entry in jarl_positions()
+        if entry["ruleset"] == "brandubh" and entry["kind"] == "midgame"
+    )
+    assert midgame["state"]["ply"] > 0
+    report = tournament.run_paired_openings(
+        first_legal,
+        last_legal,
+        [midgame],
+        labels=("first", "last"),
+        ruleset="brandubh",
+        simulations=8,
+        time_limit=1,
+        seed=5,
+        max_plies=24,
+    )
+    assert tournament.validate_report(report)["ok"] is True
+
+
+def test_failed_game_with_illegal_prefix_history_is_rejected():
+    report = _report()
+    game = report["games"][0]
+    game["error"] = "forced"
+    game["completed"] = False
+    game["winner"] = None
+    game["moves"] = [{"source": 0, "target": 0}]
+    game["plies"] = 1
+    assert tournament.validate_report(report)["ok"] is False

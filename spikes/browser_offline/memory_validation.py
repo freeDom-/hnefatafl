@@ -80,7 +80,7 @@ def validate_report(report: dict) -> dict:
         fail(f"measured profile needs at least {MIN_SAMPLES} samples")
         samples = []
     warmup = report.get("warmup_samples", 1)
-    if not isinstance(warmup, int) or warmup < MIN_WARMUP_SAMPLES:
+    if isinstance(warmup, bool) or not isinstance(warmup, int) or warmup < MIN_WARMUP_SAMPLES:
         fail("warmup_samples must be a positive integer")
         warmup = 0
     if samples and warmup >= len(samples) - 1:
@@ -93,7 +93,8 @@ def validate_report(report: dict) -> dict:
         timestamp = sample.get("timestamp_ms")
         if not _number(timestamp, allow_none=False) or timestamp < 0:
             fail(f"sample {index} timestamp is invalid")
-        elif previous is not None and timestamp < previous:
+            continue
+        if previous is not None and timestamp < previous:
             fail(f"sample {index} timestamp moved backwards")
         previous = timestamp
         for metric in METRICS:
@@ -114,6 +115,30 @@ def validate_report(report: dict) -> dict:
     measured = samples[warmup:]
     if len(measured) < 2:
         fail("insufficient post-warmup measurements")
+    if measured:
+        observed_span = measured[-1].get("timestamp_ms", 0) - measured[0].get("timestamp_ms", 0)
+        if required_duration and observed_span < required_duration * 1000.0:
+            fail("sample timestamps do not cover the requested sustained window")
+        gaps = [
+            measured[index].get("timestamp_ms", 0) - measured[index - 1].get("timestamp_ms", 0)
+            for index in range(1, len(measured))
+        ]
+        if any(gap <= 0 for gap in gaps):
+            fail("sample timestamps are not strictly increasing")
+        max_gap = max(1000.0, required_duration * 1000.0 / 10.0) if required_duration else 60_000.0
+        if any(gap > max_gap for gap in gaps):
+            fail("sampling gap is too large for the acceptance window")
+        progress = [
+            sample.get("completed_requests")
+            for sample in measured
+            if isinstance(sample.get("completed_requests"), int)
+        ]
+        if len(progress) < 2 or any(
+            progress[index] < progress[index - 1] for index in range(1, len(progress))
+        ):
+            fail("completed-request counters are missing or non-monotonic")
+        elif progress[-1] <= progress[0]:
+            fail("sustained profile shows no completed-request progress")
     observed_rss = any(
         _number(sample.get("process_rss_bytes"), allow_none=False) for sample in measured
     )
@@ -148,8 +173,15 @@ def validate_report(report: dict) -> dict:
         growth = max(values) - baseline
         if baseline > 0 and growth > max(1024 * 1024, baseline * 0.25):
             fail(f"{metric} grew by more than 25% / 1 MiB after warmup")
+    structural_ok = not failures
+    acceptance_unavailable = not observed_rss
+    if acceptance_unavailable:
+        failures.append("process-memory acceptance is blocked without observable RSS")
+    acceptance_ok = structural_ok and not acceptance_unavailable
     return {
-        "ok": not failures,
+        "ok": acceptance_ok,
+        "structural_ok": structural_ok,
+        "acceptance_ok": acceptance_ok,
         "failures": failures,
         "status": status,
         "samples": len(samples),

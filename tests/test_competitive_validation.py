@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import sys
 from pathlib import Path
@@ -149,7 +150,7 @@ def test_cli_distinguishes_validated_blocked_and_invalid(tmp_path):
     valid = tmp_path / "valid.json"
     valid.write_text(json.dumps(_valid()))
     result = subprocess.run(
-        [sys.executable, str(SPIKE / "competitive_validation.py"), "--report", str(valid)],
+        [sys.executable, str(SPIKE / "competitive_validation.py"), "--validate", str(valid)],
         capture_output=True,
         text=True,
         timeout=60,
@@ -189,3 +190,109 @@ def test_bare_success_flags_cannot_pass_acceptance():
     result = cv.validate_report(report)
     assert result["ok"] is False
     assert any("comparator" in failure or "evidence" in failure for failure in result["failures"])
+
+
+def test_actual_smoke_evidence_pipeline_is_structural_not_competitive(tmp_path):
+    import subprocess
+
+    pytest = __import__("pytest")
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    checkpoint = tmp_path / "smoke.pt"
+    export = tmp_path / "export"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "smoke_checkpoint.py"),
+            "--ruleset",
+            "brandubh",
+            "--channels",
+            "4",
+            "--blocks",
+            "0",
+            "--output",
+            str(checkpoint),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    subprocess.run(
+        [sys.executable, str(SPIKE / "onnx_export.py"), str(checkpoint), str(export)],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+    native = tmp_path / "native-a.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "native_mcts_parity.py"),
+            "--level",
+            "a",
+            "--iterations",
+            "8",
+            "--limit",
+            "1",
+            "--output",
+            str(native),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "kind": "browser-competitive-evidence",
+                "schema": 1,
+                "validation_level": "structural-smoke",
+                "evidence": {"level_a": {"native": "native-a.json", "browser": "native-a.json"}},
+            }
+        )
+    )
+    result = cv.validate_evidence_manifest(checkpoint, export, manifest)
+    assert result["status"] == "structural-validated", result
+    assert result["ok"] is True
+    assert result["competitive_acceptance"] is False
+    assert result["model"]["checkpoint_supplied"] is True
+    assert result["model"]["source_weights_sha256"] != "a" * 64
+
+    forged = copy.deepcopy(result)
+    forged["model"]["checkpoint_supplied"] = True
+    forged["parity"]["level_a"]["comparison"]["acceptance"] = True
+    forged["parity"]["level_a"]["comparison"]["execution_validity"]["ok"] = True
+    forged["validation_level"] = "competitive-trained"
+    forged["status"] = "validated"
+    forged["acceptance"] = True
+    assert cv.validate_report(forged)["ok"] is False
+
+
+def test_nested_model_identity_and_benchmark_numeric_fields_are_validated():
+    report = _valid()
+    report["parity"]["level_b"]["model_sha256"] = "c" * 64
+    assert cv.validate_report(report)["ok"] is False
+
+    for elapsed in (-1, 0, float("nan"), float("inf"), True, "500"):
+        report = _valid()
+        report["benchmarks"][1]["elapsed_ms"] = elapsed
+        assert cv.validate_report(report)["ok"] is False, elapsed
+
+    report = _valid()
+    report["benchmarks"][1]["mode"] = "fixed_simulations"
+    assert cv.validate_report(report)["ok"] is False
+
+
+def test_missing_workload_and_model_identity_are_rejected():
+    report = _valid()
+    report["parity"]["level_b"]["model_sha256"] = None
+    assert cv.validate_report(report)["ok"] is False
+
+    report = _valid()
+    report["parity"]["level_b"]["comparison"]["numerical_comparison"]["positions"] = 0
+    assert cv.validate_report(report)["ok"] is False
+
+    report = _valid()
+    report["parity"]["level_b"]["comparison"]["workload_completion"]["complete"] = False
+    assert cv.validate_report(report)["ok"] is False

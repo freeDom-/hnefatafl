@@ -27,7 +27,7 @@ def _report():
         "warmup_samples": 1,
         "samples": [
             {
-                "timestamp_ms": index * 1000,
+                "timestamp_ms": index * 60000,
                 "process_rss_bytes": 100 * 1024 * 1024 + index * 1024,
                 "js_heap_used_bytes": 20 * 1024 * 1024,
                 "wasm_heap_capacity_bytes": 32 * 1024 * 1024,
@@ -58,12 +58,17 @@ def test_blocked_profile_is_explicit():
 
 def test_unavailable_rss_must_be_explained_and_not_zero_substituted():
     report = _report()
-    report["samples"][0]["process_rss_bytes"] = None
+    for sample in report["samples"]:
+        sample["process_rss_bytes"] = None
     result = mv.validate_report(report)
     assert result["ok"] is False
     assert any("RSS" in failure for failure in result["failures"])
-    report["samples"][0]["rss_unavailable_reason"] = "playwright did not expose process RSS"
-    assert mv.validate_report(report)["ok"] is True
+    for sample in report["samples"]:
+        sample["rss_unavailable_reason"] = "playwright did not expose process RSS"
+    report["rss_acceptance_unavailable_reason"] = "process RSS not exposed by harness"
+    structural = mv.validate_report(report)
+    assert structural["structural_ok"] is True
+    assert structural["acceptance_ok"] is False
 
 
 def test_growth_and_budget_are_rejected():
@@ -76,11 +81,11 @@ def test_growth_and_budget_are_rejected():
 
 def test_timestamps_and_counters_are_validated():
     report = _report()
-    report["samples"][2]["timestamp_ms"] = 0
+    report["samples"][2]["timestamp_ms"] = report["samples"][1]["timestamp_ms"]
     report["samples"][3]["cache_entries"] = -1
     result = mv.validate_report(report)
     assert result["ok"] is False
-    assert any("backwards" in failure for failure in result["failures"])
+    assert any("strictly increasing" in failure for failure in result["failures"])
     assert any("cache_entries" in failure for failure in result["failures"])
 
 
@@ -104,6 +109,8 @@ def test_positive_observable_budgets_are_required():
         sample["process_rss_bytes"] = None
         sample["rss_unavailable_reason"] = "not exposed"
     report["rss_acceptance_unavailable_reason"] = "process RSS not exposed by harness"
-    assert mv.validate_report(report)["ok"] is True
+    structural = mv.validate_report(report)
+    assert structural["structural_ok"] is True
+    assert structural["acceptance_ok"] is False
     report.pop("rss_acceptance_unavailable_reason")
-    assert mv.validate_report(report)["ok"] is False
+    assert mv.validate_report(report)["structural_ok"] is False

@@ -22,6 +22,18 @@ PLATFORMS = (
     "safari",
     "other",
 )
+REQUIRED_MATRIX = {
+    ("windows-chrome", "wasm"),
+    ("windows-chrome", "webgpu"),
+    ("windows-edge", "wasm"),
+    ("windows-edge", "webgpu"),
+    ("linux-chromium", "wasm"),
+    ("linux-firefox", "wasm"),
+    ("android-chrome", "wasm"),
+    ("android-chrome", "webgpu"),
+    ("safari", "wasm"),
+    ("safari", "webgpu"),
+}
 PLACEMENTS = (
     "wasm",
     "cpu-fallback",
@@ -71,6 +83,14 @@ def validate_report(report: dict) -> dict:
         for platform in required:
             if platform not in observed:
                 fail(f"required platform {platform} has no blocked or measured record")
+    observed_matrix = {
+        (record.get("platform"), record.get("provider_requested"))
+        for record in records
+        if isinstance(record, dict)
+    }
+    for platform, provider in sorted(REQUIRED_MATRIX):
+        if (platform, provider) not in observed_matrix:
+            fail(f"missing mandatory device/provider entry {platform}/{provider}")
     if report.get("acceptance") is True and any(
         isinstance(record, dict) and record.get("status") == "blocked" for record in records
     ):
@@ -88,10 +108,14 @@ def validate_report(report: dict) -> dict:
             if not isinstance(record.get("blocked_reason"), str) or not record["blocked_reason"]:
                 fail(f"blocked record {index} needs a reason")
             continue
-        for field in ("browser_version", "os", "cpu"):
+        for field in ("browser_version", "os", "cpu", "runtime"):
             if not isinstance(record.get(field), str) or not record[field]:
                 fail(f"record {index} lacks {field}")
-        if not isinstance(record.get("ram_bytes"), int) or record["ram_bytes"] <= 0:
+        if (
+            isinstance(record.get("ram_bytes"), bool)
+            or not isinstance(record.get("ram_bytes"), int)
+            or record["ram_bytes"] <= 0
+        ):
             fail(f"record {index} has invalid ram_bytes")
         if not isinstance(record.get("architecture"), str) or not record["architecture"]:
             fail(f"record {index} lacks architecture")
@@ -99,6 +123,10 @@ def validate_report(report: dict) -> dict:
             fail(f"record {index} lacks model/ONNX digests")
         if not isinstance(record.get("workload"), str) or not record["workload"]:
             fail(f"record {index} lacks workload")
+        if not isinstance(record.get("mcts_budget"), int) or record["mcts_budget"] <= 0:
+            fail(f"record {index} lacks MCTS budget")
+        if record.get("cancellation_recovery") is not True:
+            fail(f"record {index} lacks cancellation/recovery evidence")
         if not _positive_finite(record.get("mcts_simulations_per_second")):
             fail(f"record {index} has invalid MCTS throughput")
         requested = record.get("provider_requested")
@@ -116,12 +144,24 @@ def validate_report(report: dict) -> dict:
             placements = (
                 evidence.get("per_operator_placement") if isinstance(evidence, dict) else None
             )
+            session = evidence.get("session") if isinstance(evidence, dict) else None
             if (
                 not isinstance(evidence, dict)
+                or evidence.get("evidence_source") != "ort-web-per-operator-v1"
+                or evidence.get("all_operators_covered") is not True
                 or evidence.get("gpu_execution_verified") is not True
+                or not isinstance(session, dict)
+                or session.get("model_sha256") != record.get("model_sha256")
+                or session.get("onnx_sha256") != record.get("onnx_sha256")
+                or session.get("runtime") != record.get("runtime")
                 or not isinstance(placements, list)
                 or not placements
-                or any(placement != "webgpu" for placement in placements)
+                or any(
+                    not isinstance(item, dict)
+                    or item.get("provider") != "webgpu"
+                    or not isinstance(item.get("operator"), str)
+                    for item in placements
+                )
             ):
                 fail(f"record {index} claims verified GPU execution without per-operator evidence")
         for field in (
@@ -133,8 +173,22 @@ def validate_report(report: dict) -> dict:
         ):
             if not _positive_finite(record.get(field)):
                 fail(f"record {index} has an invalid {field}")
+    structural_ok = not failures
+    blocked = any(
+        isinstance(record, dict) and record.get("status") == "blocked" for record in records
+    )
+    measured = sum(
+        1 for record in records if isinstance(record, dict) and record.get("status") == "measured"
+    )
+    computed_acceptance = structural_ok and not blocked and measured >= 1
+    if report.get("acceptance") is True and not computed_acceptance:
+        failures.append("submitted acceptance contradicts computed device acceptance")
+        structural_ok = False
+        computed_acceptance = False
     return {
-        "ok": not failures,
+        "ok": structural_ok,
+        "structural_ok": structural_ok,
+        "acceptance": computed_acceptance,
         "failures": failures,
         "records": len(records),
         "blocked": sum(
