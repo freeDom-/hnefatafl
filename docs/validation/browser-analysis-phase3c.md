@@ -393,13 +393,14 @@ requirement remains **outstanding**, not silently reduced. Evidence:
 
 ## 7. Test summary
 
-- Competitive validation: 13 tests including the real CLI integration with a
+- Competitive validation: 14 tests including the real CLI integration with a
   disposable checkpoint/export and genuine committed browser Level B evidence.
 - Persistent process agents: 7 same-instance lifecycle/protocol tests.
-- Tournament harness/validator: 33 tests.
+- Tournament harness/validator: 28 tests.
 - Memory validation: 17 tests; collection workflow test.
 - Device evidence: 14 tests including the complete unverified/CPU-fallback matrix.
-- Cross-validator malformed input: 8 tests (plus development fuzzing).
+- Cross-validator malformed input: 8 tests here plus the existing 23-case
+  malformed suite (and development fuzzing).
 - Collection-to-validation workflow: 3 CLI integration tests.
 - Existing Phase 3B browser/UI/parity/cache/batching, neural lifecycle and detach
   regressions remain mandatory. Relay default; direct/cache/batching opt-in;
