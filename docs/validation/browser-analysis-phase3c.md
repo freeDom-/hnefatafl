@@ -54,6 +54,14 @@ opt-in. Single-tree batching and subtree reuse remain deferred.
 | T4 | `_coverage()` now includes the gap from acceptance-window start to the first usable observation and from the last usable observation to window end, in addition to internal gaps, for every applicable mandatory metric. | `tests/test_memory_validation.py`: sufficient coverage with excessive leading/trailing gaps is partial, while a boundary gap exactly at the 12 s policy maximum is accepted. |
 | T5 | Telemetry requires all three identity fields in every accepted record once identity is established; workload progress prefers the telemetry counter, records provenance, verifies file/telemetry consistency, and blocks acceptance on counter resets. Lifecycle events are derived only inside the acceptance window. History is bounded (4096 records) and no longer repeatedly sorted. | `tests/test_phase3c_workflow.py`: missing identity fields, mismatched-session progress, warmup-only events, acceptance-window events, counter reset, and a 5000-record bounded-history stream. |
 
+## 0.3 Final ownership/evidence correction (U1–U3)
+
+| Finding | Correction | Regression proof |
+| --- | --- | --- |
+| U1 | Each generation sets a random `HNEFATAFL_TOURNAMENT_OWNER` token inherited by the adapter and all descendants. Ownership now requires the captured process-group id **and** the token; a reused group id or newer unrelated process is never treated as owned. `pidfd_open` is followed by a second ownership check before signalling; disappearance is ignored safely. Unverified group members are left untouched and reported as incomplete cleanup. Windows only runs `taskkill /T` while the original root still exists. | `tests/test_tournament_agents.py`: simulated group reuse with a verified/unverified member, identity change between check and pidfd signal, disappearance during signalling, ambiguous ownership left untouched, and an already-exited Windows root avoiding stale taskkill. |
+| U2 | The browser adapter returns the coordinator's normalized effective settings and the actual per-search provider observation (`provider`, `provider_requested`, inference count, GPU flag). Searches with zero neural inference report no placement instead of inventing one. Tournament validation binds observed placement to the requested provider, rejects CPU/silent WASM fallback and unverified GPU claims, and validates effective iterations/time/exploration/seed. | `tests/test_tournament_execution.py`: committed genuine WASM search evidence, initialization-vs-search provider mismatch, CPU fallback, incorrect effective iterations, and a no-inference shortcut that cannot claim placement. Committed browser structural evidence refreshed from the real adapter. |
+| U3 | Lifecycle events are aggregated incrementally per accepted telemetry record inside the acceptance window, independent of bounded-history eviction; warmup events are excluded, counter resets are not counted as increments and are reported blocked by the collector, and identity is established only after required/expected checks pass. An initial mismatched record no longer blocks later valid expected-session telemetry. | `tests/test_phase3c_workflow.py`: event before 5000-record eviction, >4096 records, warmup-only events, event-counter reset, initial mismatch followed by valid session records, and consistent progress/event accounting. |
+
 ## 1. Strict detach acknowledgments (preserved)
 
 `NeuralClient.detachDirectPort()` accepts only a matching request id on the
@@ -277,9 +285,12 @@ report a lower completed depth with `completion_reason: deadline`; MCTS may repo
 `deadline` below its simulation ceiling or `simulations` when it reaches the
 ceiling before the deadline. Evidence reports actual completed depth/simulations,
 effective time/exploration/iterations/max-depth settings and observed provider
-placement. Browser evidence reports the observed placement; a WebGPU request with
-WASM or `cpu-fallback` placement cannot satisfy WebGPU evidence. Unknown or
-echo-only budgets are not equal-work evidence.
+placement. Browser evidence reports the coordinator's normalized effective settings and actual
+per-search provider observation; a WebGPU request with WASM or `cpu-fallback`
+placement cannot satisfy WebGPU evidence. A search that performed no neural
+inference reports no provider placement (it is not invented), while a search with
+inference must report a provider observation matching the requested contract.
+Unknown or echo-only budgets are not equal-work evidence.
 
 The adapter creates a new response queue per subprocess generation, rejects
 stale/duplicate/unexpected/malformed responses, bounds responses and stderr, and
@@ -292,12 +303,19 @@ still holding a stream lock is never synchronously closed. Reaping/thread failur
 are reported in diagnostics. The same adapter instance recovers with a replacement
 process; use it as a context manager (or call `close()`) to guarantee cleanup.
 
+Ownership uses both the captured process-group id and a random environment token
+inherited by the adapter and descendants. This prevents recycled process-group ids
+or newer unrelated processes from being signalled. Verified group members are
+signalled through pidfds where available, with a second environment/start-time
+check after opening the pidfd to close the reuse race; unverified group members are
+left untouched and recorded as incomplete cleanup.
+
 Platform limitation: on Windows the child is created in a new process group and
-`taskkill /F /T` is used while the root process is alive. Windows has no equivalent
-of POSIX process-group enumeration once the root exits, and no Job Object
-integration is claimed here; descendant cleanup after parent exit is therefore
-best-effort on Windows and not verified on physical Windows in this environment.
-POSIX (Linux) cleanup is the verified path.
+`taskkill /F /T` is used only while the original root process is still alive.
+Windows has no equivalent of POSIX process-group/environment enumeration once the
+root exits, and no Job Object integration is claimed here; descendant cleanup after
+parent exit is therefore best-effort on Windows and not verified on physical
+Windows in this environment. POSIX (Linux) cleanup is the verified path.
 
 Agent configuration schema:
 
@@ -454,6 +472,11 @@ Rules enforced:
   `os_processes` is reported separately and never used as the worker metric.
 - telemetry history is bounded to 4096 records for timestamp alignment and
   diagnostics; live records are appended without re-sorting the whole stream.
+- lifecycle events are aggregated incrementally (observed increments, not raw
+  first/last) inside the acceptance window, so eviction of earlier records cannot
+  erase valid events; event-counter resets are not counted as increments and block
+  collector acceptance explicitly. Initial mismatched records do not prevent later
+  valid expected-session telemetry.
 
 Collection command (Linux `/proc`, Windows/macOS with `psutil`; process-tree RSS):
 
@@ -560,14 +583,16 @@ requirement remains **outstanding**, not silently reduced. Evidence:
 - Competitive validation: 19 tests, including the real CLI integration with a
   disposable checkpoint/export, genuine committed browser Level B and benchmark
   evidence, and training/architecture/workload-policy negatives.
-- Persistent process agents: 11 tests, including externally watched
-  blocked-write and parent-exit/SIGTERM-ignoring descendant cleanup probes.
-- Tournament harness/validator: 28 tests; manifest-to-execution binding: 14 tests
-  (noninitial ply/seed, real Jarl handshake/evidence, fixed-work/fixed-time modes,
-  command/config mismatch, evidence mutations).
-- Memory validation: 24 tests; collection-to-validation workflow: 12 CLI
+- Persistent process agents: 16 tests, including externally watched blocked-write
+  and parent-exit/SIGTERM-ignoring cleanup, simulated group reuse, identity-change
+  signalling, ambiguous ownership and Windows stale-taskkill probes.
+- Tournament harness/validator: 28 tests; manifest-to-execution binding: 16 tests
+  (noninitial ply/seed, real Jarl/browser handshake/evidence, provider/settings
+  binding, fixed-work/fixed-time modes, command/config mismatch, evidence mutations).
+- Memory validation: 24 tests; collection-to-validation workflow: 15 CLI
   integration tests (warmup separation, live telemetry, identity/staleness,
-  disappearance, PID replacement, boundary gaps, progress/event binding).
+  disappearance, PID replacement, boundary gaps, progress/event binding,
+  eviction-independent event aggregation and event resets).
 - Device evidence: 16 tests, including the complete unverified/CPU-fallback
   matrix, emulated-device rejection and unsupported GPU-evidence claims.
 - Cross-validator malformed input: 8 tests here plus the existing 23-case

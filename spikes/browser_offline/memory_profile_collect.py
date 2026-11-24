@@ -198,6 +198,40 @@ class TelemetryStream:
         self.last_rejected_timestamp: float | None = None
         self.progress_resets = 0
         self.last_progress: int | None = None
+        self.acceptance_start_ms: float | None = None
+        self.acceptance_end_ms: float | None = None
+        self.window_event_observed: dict[str, int] = {}
+        self.window_event_last: dict[str, int] = {}
+        self.event_resets = 0
+
+    def set_acceptance_window(self, start_ms: float, end_ms: float) -> None:
+        self.acceptance_start_ms = float(start_ms)
+        self.acceptance_end_ms = float(end_ms)
+
+    def _update_event_window(self, record: dict) -> None:
+        if self.acceptance_start_ms is None or self.acceptance_end_ms is None:
+            return
+        timestamp = record["timestamp_ms"]
+        if not self.acceptance_start_ms <= timestamp <= self.acceptance_end_ms:
+            return
+        events = record.get("events")
+        if not isinstance(events, dict):
+            return
+        for name, value in events.items():
+            if not _non_negative_int(value):
+                continue
+            if name not in self.window_event_last:
+                self.window_event_observed[name] = 0
+                self.window_event_last[name] = value
+                continue
+            if value < self.window_event_last[name]:
+                # A counter reset is not an increment: keep prior observed events
+                # and restart from the new value without counting the drop.
+                self.event_resets += 1
+                self.window_event_last[name] = value
+                continue
+            self.window_event_observed[name] += value - self.window_event_last[name]
+            self.window_event_last[name] = value
 
     def _accept_identity(self, record: dict) -> bool:
         missing = [field for field in IDENTITY_FIELDS if record.get(field) is None]
@@ -209,20 +243,21 @@ class TelemetryStream:
             self.last_rejected_timestamp = record.get("timestamp_ms")
             return False
         identity = {field: record.get(field) for field in IDENTITY_FIELDS}
-        if self.identity is None:
-            self.identity = identity
         for key, expected in self.expected.items():
             if record.get(key) != expected:
                 self.identity_mismatch += 1
                 self.last_error = f"telemetry {key} does not match the expected identity"
                 self.last_rejected_timestamp = record.get("timestamp_ms")
                 return False
-        for key, value in self.identity.items():
-            if record.get(key) != value:
-                self.identity_mismatch += 1
-                self.last_error = f"telemetry {key} changed during collection"
-                self.last_rejected_timestamp = record.get("timestamp_ms")
-                return False
+        if self.identity is None:
+            self.identity = identity
+        else:
+            for key, value in self.identity.items():
+                if record.get(key) != value:
+                    self.identity_mismatch += 1
+                    self.last_error = f"telemetry {key} changed during collection"
+                    self.last_rejected_timestamp = record.get("timestamp_ms")
+                    return False
         return True
 
     def _record(self, record: dict) -> None:
@@ -260,6 +295,12 @@ class TelemetryStream:
                 self.last_error = "telemetry completed_requests counter reset"
             self.last_progress = progress
         self.records.append(record)
+        if (
+            self.last_rejected_timestamp is not None
+            and timestamp >= self.last_rejected_timestamp
+        ):
+            self.last_rejected_timestamp = None
+        self._update_event_window(record)
 
     def poll(self) -> None:
         if self.path is None:
@@ -312,20 +353,10 @@ class TelemetryStream:
         return record, None
 
     def events_in_window(self, start_ms: float, end_ms: float) -> dict[str, int]:
-        """Derive cumulative event deltas only inside the acceptance window."""
-        first: dict[str, int] = {}
-        last: dict[str, int] = {}
-        for record in self.records:
-            if not start_ms <= record["timestamp_ms"] <= end_ms:
-                continue
-            events = record.get("events")
-            if not isinstance(events, dict):
-                continue
-            for name, value in events.items():
-                if _non_negative_int(value):
-                    first.setdefault(name, value)
-                    last[name] = value
-        return {name: max(0, last[name] - first[name]) for name in last}
+        """Return acceptance-window event deltas independent of history eviction."""
+        if self.acceptance_start_ms != start_ms or self.acceptance_end_ms != end_ms:
+            self.set_acceptance_window(start_ms, end_ms)
+        return dict(self.window_event_observed)
 
     def diagnostics(self) -> dict:
         return {
@@ -334,6 +365,7 @@ class TelemetryStream:
             "malformed": self.malformed,
             "identity_mismatch": self.identity_mismatch,
             "progress_resets": self.progress_resets,
+            "event_resets": self.event_resets,
             "last_error": self.last_error,
             "identity": self.identity,
         }
@@ -364,10 +396,16 @@ def collect(args) -> dict:
         "model_sha256": args.telemetry_model_sha256,
         "workload": args.telemetry_workload,
     }
+    collection_wall_start = time.time() * 1000.0
     telemetry = TelemetryStream(
         args.telemetry_file,
         stale_after_ms=args.telemetry_stale_ms,
         expected=expected,
+    )
+    telemetry.set_acceptance_window(
+        collection_wall_start + args.warmup_duration * 1000.0,
+        collection_wall_start
+        + (args.warmup_duration + args.duration) * 1000.0,
     )
     budgets = {
         "max_process_rss_bytes": args.max_process_rss_bytes,
@@ -383,7 +421,6 @@ def collect(args) -> dict:
         blocked_reasons.append("the requested root process identity is unavailable")
     samples = []
     started = time.monotonic()
-    collection_wall_start = time.time() * 1000.0
     warmup_seconds = args.warmup_duration
     acceptance_seconds = args.duration
     acceptance_end = started + warmup_seconds + acceptance_seconds
@@ -503,6 +540,11 @@ def collect(args) -> dict:
         )
         unavailable.setdefault(
             "workers", "progress counter reset invalidates workload-progress evidence"
+        )
+    if telemetry.event_resets:
+        blocked_reasons.append(
+            "a lifecycle-event counter reset during the acceptance window; event "
+            "evidence is incomplete"
         )
     acceptance_start_wall = collection_wall_start + warmup_seconds * 1000.0
     acceptance_end_wall = acceptance_start_wall + acceptance_seconds * 1000.0

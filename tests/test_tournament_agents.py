@@ -262,3 +262,100 @@ def test_parent_exit_and_sigterm_ignoring_descendants_are_cleaned_up(mode):
     assert payload["owned_group_members"] == []
     assert payload["leaked_threads"] == []
     assert payload["process_after_close"] is False
+
+
+def test_process_group_reuse_only_owns_verified_environment_members(monkeypatch):
+    starts = {100: (555, 10), 200: (555, 20), 300: (999, 30)}
+    token = "owner-token"
+    monkeypatch.setattr(tournament, "_group_member_pids", lambda pgid: [100, 200, 300])
+    monkeypatch.setattr(tournament, "_proc_group_start", lambda pid: starts.get(pid))
+    monkeypatch.setattr(
+        tournament,
+        "_proc_environ",
+        lambda pid: (
+            f"PATH=/bin\0{tournament.OWNER_ENV}={token}\0".encode()
+            if pid == 100
+            else b"PATH=/bin\0"
+        ),
+    )
+    members = tournament._owned_group_members(555, token, 5)
+    assert members == [(100, 10)]
+
+
+def test_signal_member_does_not_signal_after_identity_changes(monkeypatch):
+    monkeypatch.setattr(tournament, "_member_owned", lambda *args: 10)
+    sent = []
+    monkeypatch.setattr(tournament.os, "pidfd_open", lambda pid: 7, raising=False)
+    monkeypatch.setattr(tournament.os, "close", lambda fd: None)
+    monkeypatch.setattr(
+        tournament.signal, "pidfd_send_signal", lambda fd, signum: sent.append(signum)
+    )
+    calls = {"count": 0}
+
+    def identity(*args):
+        calls["count"] += 1
+        return 10 if calls["count"] == 1 else None
+
+    monkeypatch.setattr(tournament, "_member_owned", identity)
+    tournament._signal_member(100, 10, tournament.signal.SIGTERM, 555, "token")
+    assert sent == []
+
+
+def test_signal_member_handles_process_disappearance(monkeypatch):
+    monkeypatch.setattr(tournament, "_member_owned", lambda *args: 10)
+
+    def gone(pid):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(tournament.os, "pidfd_open", gone, raising=False)
+    tournament._signal_member(100, 10, tournament.signal.SIGTERM, 555, "token")
+
+
+def test_ambiguous_group_members_are_not_signalled(monkeypatch):
+    class Process:
+        pid = 100
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    signalled = []
+    monkeypatch.setattr(tournament, "_group_member_pids", lambda pgid: [100, 200])
+    monkeypatch.setattr(
+        tournament,
+        "_owned_group_members",
+        lambda pgid, token, start: [(100, 10)],
+    )
+    monkeypatch.setattr(
+        tournament,
+        "_signal_member",
+        lambda pid, start, signum, pgid, token: signalled.append((pid, signum)),
+    )
+    failures = tournament._terminate_process_tree(Process(), 555, 5, "token", 0.5)
+    assert any("ownership could not be verified" in failure for failure in failures)
+    assert all(pid != 200 for pid, _ in signalled)
+
+
+def test_windows_exited_root_does_not_invoke_stale_taskkill(monkeypatch):
+    class Process:
+        pid = 4321
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    calls = []
+    monkeypatch.setattr(tournament.os, "name", "nt")
+    monkeypatch.setattr(tournament.subprocess, "run", lambda *args, **kwargs: calls.append(args))
+    tournament._terminate_process_tree(Process(), 4321, 1, "token", 0.5)
+    assert calls == []

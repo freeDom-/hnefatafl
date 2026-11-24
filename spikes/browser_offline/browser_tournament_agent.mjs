@@ -169,27 +169,42 @@ async function handle(line) {
           model: payload.model,
           trace: false,
         });
-        return { best_move: outcome.analysis?.best_move, search: outcome.search };
+        return {
+          best_move: outcome.analysis?.best_move,
+          search: outcome.search,
+          settings: outcome.settings,
+        };
       },
       { state: request.state, settings, model },
     );
     if (!result?.best_move) throw new Error("search produced no best move");
+    const search = result.search ?? {};
+    const effective = result.settings;
+    if (!effective || !Number.isInteger(effective.iterations))
+      throw new Error("search returned no effective normalized settings");
+    const observedProvider = search.provider ?? null;
+    const inferences = Number(search.coordinator?.inferences ?? 0);
+    if (inferences > 0 && !observedProvider)
+      throw new Error("search performed inference without a provider observation");
     const evidence = {
       settings: {
         mode: executionMode ?? "fixed-work",
-        iterations: settings.iterations,
-        time_limit: settings.time_limit,
-        exploration: settings.exploration,
-        seed: request.seed,
+        iterations: effective.iterations,
+        time_limit: effective.time_limit,
+        exploration: effective.exploration,
+        seed: effective.seed,
       },
       seed: request.seed,
       algorithm: "mcts",
-      provider: model.execution_placement,
-      provider_requested: model.provider_requested,
+      provider: observedProvider?.execution_placement ?? null,
+      provider_requested: observedProvider?.requested ?? null,
+      provider_observed: observedProvider !== null,
+      neural_inferences: inferences,
+      gpu_execution_verified: observedProvider?.gpu_execution_verified === true,
       model_sha256: model.sha256,
-      completed_simulations: result.search?.completed_simulations ?? null,
+      completed_simulations: search.completed_simulations ?? null,
       depth: null,
-      completion_reason: result.search?.completion_reason ?? "completed",
+      completion_reason: search.completion_reason ?? "completed",
       elapsed_ms: Date.now() - started,
     };
     respond({ id: request.id, move: result.best_move, evidence });

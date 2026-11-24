@@ -200,6 +200,8 @@ def main() -> int:
             "algorithm": algorithm,
             "provider": "cpu",
             "provider_requested": "cpu",
+            "provider_observed": False,
+            "neural_inferences": 0,
             "model_sha256": None,
             "elapsed_ms": elapsed_ms,
             **result,

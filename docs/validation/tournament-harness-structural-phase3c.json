@@ -418,9 +418,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.37293898640200496,
+          "elapsed_ms": 0.30058197444304824,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -440,9 +443,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.2546670148149133,
+          "elapsed_ms": 0.2973800292238593,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -462,9 +468,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.051292998250573874,
+          "elapsed_ms": 0.057469995226711035,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -484,9 +493,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03379798727110028,
+          "elapsed_ms": 0.057630997616797686,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -506,9 +518,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03930495586246252,
+          "elapsed_ms": 0.050794973503798246,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -528,9 +543,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.032810959964990616,
+          "elapsed_ms": 0.03861798904836178,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -550,9 +568,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04343304317444563,
+          "elapsed_ms": 0.052351970225572586,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -572,9 +593,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03393494989722967,
+          "elapsed_ms": 0.034935015719383955,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -594,9 +618,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04643900319933891,
+          "elapsed_ms": 0.04265399184077978,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -616,9 +643,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03850599750876427,
+          "elapsed_ms": 0.03346404992043972,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         }
       ],
@@ -781,9 +811,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.06278499495238066,
+          "elapsed_ms": 0.042903004214167595,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -803,9 +836,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04170497413724661,
+          "elapsed_ms": 0.03808399196714163,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -825,9 +861,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.05397503264248371,
+          "elapsed_ms": 0.04598003579303622,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -847,9 +886,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.034285010769963264,
+          "elapsed_ms": 0.03169500268995762,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -869,9 +911,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04715396789833903,
+          "elapsed_ms": 0.04781095776706934,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -891,9 +936,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.0367090106010437,
+          "elapsed_ms": 0.03501196624711156,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -913,9 +961,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04497601184993982,
+          "elapsed_ms": 0.04323699977248907,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -935,9 +986,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.029474962502717972,
+          "elapsed_ms": 0.030300987418740988,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -957,9 +1011,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04703400190919638,
+          "elapsed_ms": 0.04472798900678754,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -979,9 +1036,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.029032991733402014,
+          "elapsed_ms": 0.029683986213058233,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1001,9 +1061,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04372402327135205,
+          "elapsed_ms": 0.04201405681669712,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1023,9 +1086,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03266497515141964,
+          "elapsed_ms": 0.028462032787501812,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         }
       ],
@@ -1178,9 +1244,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02760399365797639,
+          "elapsed_ms": 0.027088040951639414,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1200,9 +1269,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03664701944217086,
+          "elapsed_ms": 0.03222702071070671,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1222,9 +1294,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.029883987735956907,
+          "elapsed_ms": 0.032612006179988384,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1244,9 +1319,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.035811972338706255,
+          "elapsed_ms": 0.0365750165656209,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1266,9 +1344,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02962298458442092,
+          "elapsed_ms": 0.030095980037003756,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1288,9 +1369,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.034052005503326654,
+          "elapsed_ms": 0.034169002901762724,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1310,9 +1394,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.035491015296429396,
+          "elapsed_ms": 0.031441973987966776,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1332,9 +1419,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.033863005228340626,
+          "elapsed_ms": 0.03585399826988578,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1354,9 +1444,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.031775038223713636,
+          "elapsed_ms": 0.03479799488559365,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1376,9 +1469,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.033253978472203016,
+          "elapsed_ms": 0.03798899706453085,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         }
       ],
@@ -1539,9 +1635,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.026243971660733223,
+          "elapsed_ms": 0.03302301047369838,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1561,9 +1660,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03321998519822955,
+          "elapsed_ms": 0.039343954995274544,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1583,9 +1685,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.027662026695907116,
+          "elapsed_ms": 0.032325973734259605,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1605,9 +1710,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02911704359576106,
+          "elapsed_ms": 0.03046501660719514,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1627,9 +1735,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.027593981940299273,
+          "elapsed_ms": 0.031173985917121172,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1649,9 +1760,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.030889001209288836,
+          "elapsed_ms": 0.04039896884933114,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1671,9 +1785,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03200594801455736,
+          "elapsed_ms": 0.03309303428977728,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1693,9 +1810,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03222597297281027,
+          "elapsed_ms": 0.03118399763479829,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1715,9 +1835,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.029871996957808733,
+          "elapsed_ms": 0.028146023396402597,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1737,9 +1860,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03224797546863556,
+          "elapsed_ms": 0.033753050956875086,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1759,9 +1885,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03260199446231127,
+          "elapsed_ms": 0.03113801358267665,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -1781,9 +1910,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.029635964892804623,
+          "elapsed_ms": 0.029245042242109776,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         }
       ],

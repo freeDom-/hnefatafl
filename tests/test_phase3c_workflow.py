@@ -300,7 +300,7 @@ def test_collector_reports_process_disappearance_as_blocked(tmp_path):
         str(output),
     ]
     collector = sp.Popen(command, stdout=sp.PIPE, stderr=sp.PIPE, text=True)
-    time.sleep(0.5)
+    time.sleep(1.2)
     process.terminate()
     process.wait(timeout=10)
     stdout, stderr = collector.communicate(timeout=30)
@@ -524,3 +524,136 @@ def test_long_telemetry_stream_retains_bounded_history(tmp_path):
     record, reason = stream.latest(time.time() * 1000.0 + 5000)
     assert record is not None
     assert reason is None
+
+
+def test_lifecycle_events_survive_history_eviction(tmp_path):
+    import json
+    import time
+
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_profile_collect as mpc
+
+    telemetry = tmp_path / "long-events.jsonl"
+    base = time.time() * 1000.0
+    with telemetry.open("w", encoding="utf-8") as handle:
+        for index in range(5000):
+            handle.write(
+                json.dumps(
+                    {
+                        "timestamp_ms": base + index,
+                        "session_id": "s",
+                        "model_sha256": "a" * 64,
+                        "workload": "w",
+                        "workers": 2,
+                        "completed_requests": index,
+                        "events": {
+                            "worker_replacements": (1 if index >= 100 else 0)
+                            + (1 if index >= 4500 else 0)
+                        },
+                    }
+                )
+                + "\n"
+            )
+    stream = mpc.TelemetryStream(telemetry, stale_after_ms=10000)
+    stream.set_acceptance_window(base, base + 5000)
+    stream.poll()
+    assert len(stream.records) <= mpc.TELEMETRY_HISTORY_LIMIT
+    assert stream.events_in_window(base, base + 5000)["worker_replacements"] == 2
+    assert stream.event_resets == 0
+
+
+def test_acceptance_window_events_ignore_warmup_and_event_resets(tmp_path):
+    import json
+    import time
+
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_profile_collect as mpc
+
+    telemetry = tmp_path / "window-events.jsonl"
+    base = time.time() * 1000.0
+    records = [
+        (base + 100, 5),
+        (base + 900, 5),
+        (base + 1100, 5),
+        (base + 1200, 6),
+        (base + 1300, 8),
+        (base + 1400, 2),
+        (base + 1500, 3),
+    ]
+    with telemetry.open("w", encoding="utf-8") as handle:
+        for timestamp, value in records:
+            handle.write(
+                json.dumps(
+                    {
+                        "timestamp_ms": timestamp,
+                        "session_id": "s",
+                        "model_sha256": "a" * 64,
+                        "workload": "w",
+                        "workers": 2,
+                        "completed_requests": 0,
+                        "events": {"worker_replacements": value},
+                    }
+                )
+                + "\n"
+            )
+    stream = mpc.TelemetryStream(telemetry, stale_after_ms=10000)
+    stream.set_acceptance_window(base + 1000, base + 2000)
+    stream.poll()
+    # Warmup record is excluded; 5->6 adds 1, 6->8 adds 2, reset to 2 adds
+    # nothing, and 2->3 adds 1.
+    assert stream.events_in_window(base + 1000, base + 2000)["worker_replacements"] == 4
+    assert stream.event_resets == 1
+
+
+def test_initial_mismatched_record_does_not_block_later_expected_session(tmp_path):
+    import json
+    import time
+
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_profile_collect as mpc
+
+    telemetry = tmp_path / "mismatch-then-valid.jsonl"
+    base = time.time() * 1000.0
+    with telemetry.open("w", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "timestamp_ms": base,
+                    "session_id": "wrong-session",
+                    "model_sha256": "b" * 64,
+                    "workload": "w",
+                    "workers": 1,
+                }
+            )
+            + "\n"
+        )
+        handle.write(
+            json.dumps(
+                {
+                    "timestamp_ms": base + 100,
+                    "session_id": "right-session",
+                    "model_sha256": "a" * 64,
+                    "workload": "w",
+                    "workers": 2,
+                }
+            )
+            + "\n"
+        )
+    stream = mpc.TelemetryStream(
+        telemetry,
+        stale_after_ms=10000,
+        expected={
+            "session_id": "right-session",
+            "model_sha256": "a" * 64,
+            "workload": "w",
+        },
+    )
+    stream.poll()
+    record, reason = stream.latest(base + 200)
+    assert record is not None, reason
+    assert record["session_id"] == "right-session"
+    assert stream.identity["session_id"] == "right-session"
+    assert stream.identity_mismatch == 1

@@ -500,3 +500,88 @@ def test_immediate_win_mcts_evidence_is_accepted(tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert tournament.validate_report(report)["ok"] is True
+
+
+def _committed_browser_report():
+    import json
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "docs/validation/tournament-browser-structural-phase3c.json"
+    )
+    return json.loads(path.read_text())
+
+
+def test_browser_search_evidence_uses_observed_provider_and_effective_settings():
+    report = _committed_browser_report()
+    assert tournament.validate_report(report)["ok"] is True
+    browser_entries = [
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "browser-neural"
+    ]
+    assert browser_entries
+    assert all(entry["provider"] == "wasm" for entry in browser_entries)
+    assert all(entry["neural_inferences"] > 0 for entry in browser_entries)
+    assert all(entry["settings"]["iterations"] == 4 for entry in browser_entries)
+    assert all(entry["gpu_execution_verified"] is False for entry in browser_entries)
+
+    mutated = copy.deepcopy(report)
+    target = next(
+        entry
+        for game in mutated["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "browser-neural"
+    )
+    target["provider"] = "webgpu-session-unverified"
+    assert tournament.validate_report(mutated)["ok"] is False
+
+    mutated = copy.deepcopy(report)
+    target = next(
+        entry
+        for game in mutated["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "browser-neural"
+    )
+    target["provider"] = "cpu-fallback"
+    validated = tournament.validate_report(mutated)
+    assert validated["ok"] is False
+    assert any("provider" in failure for failure in validated["failures"])
+
+    mutated = copy.deepcopy(report)
+    target = next(
+        entry
+        for game in mutated["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "browser-neural"
+    )
+    target["settings"]["iterations"] = 999
+    assert tournament.validate_report(mutated)["ok"] is False
+
+
+def test_no_inference_browser_shortcut_does_not_invent_placement():
+    report = _committed_browser_report()
+    captured = copy.deepcopy(report)
+    target = next(
+        entry
+        for game in captured["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "browser-neural"
+    )
+    target.update(
+        provider=None,
+        provider_requested=None,
+        provider_observed=False,
+        neural_inferences=0,
+        gpu_execution_verified=False,
+        completed_simulations=0,
+        completion_reason="immediate_win",
+    )
+    validated = tournament.validate_report(captured)
+    assert validated["ok"] is True, validated["failures"]
+
+    target["provider"] = "wasm"
+    validated = tournament.validate_report(captured)
+    assert validated["ok"] is False
+    assert any("without inference" in failure for failure in validated["failures"])

@@ -23,6 +23,7 @@ import math
 import os
 import queue
 import random
+import secrets
 import shlex
 import signal
 import subprocess
@@ -58,6 +59,7 @@ EVIDENCE_REASONS = {
 # reader/writer thread joins after a request deadline has expired.
 CLEANUP_ALLOWANCE = 2.0
 PROCESS_KILL_GRACE = 1.0
+OWNER_ENV = "HNEFATAFL_TOURNAMENT_OWNER"
 MAX_RESPONSE_BYTES = 1 << 20
 MAX_STDERR_BYTES = 64 * 1024
 MIN_STRENGTH_PAIRS = 10
@@ -123,56 +125,108 @@ def _process_start_time(pid: int) -> int | None:
         return None
 
 
-def _owned_group_members(pgid: int, minimum_start_time: int | None) -> list[tuple[int, int]]:
-    """Return (pid, start_time) for processes still in the captured group.
-
-    Only processes created no earlier than the owned root are considered, which
-    prevents a recycled process-group id from targeting pre-existing unrelated
-    processes.
-    """
+def _proc_pids() -> list[int]:
     if not Path("/proc").is_dir():
         return []
-    members: list[tuple[int, int]] = []
     try:
-        names = os.listdir("/proc")
+        return [int(name) for name in os.listdir("/proc") if name.isdigit()]
     except OSError:
         return []
-    for name in names:
-        if not name.isdigit():
-            continue
-        pid = int(name)
-        try:
-            stat_text = Path(f"/proc/{pid}/stat").read_text()
-            tail = stat_text[stat_text.rfind(")") + 2 :].split()
-            process_group = int(tail[2])
-            start_time = int(tail[19])
-        except (OSError, IndexError, ValueError):
-            continue
-        if process_group != pgid:
-            continue
-        if minimum_start_time is not None and start_time < minimum_start_time:
-            continue
-        members.append((pid, start_time))
+
+
+def _proc_group_start(pid: int) -> tuple[int, int] | None:
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text()
+        tail = stat_text[stat_text.rfind(")") + 2 :].split()
+        return int(tail[2]), int(tail[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _proc_environ(pid: int) -> bytes | None:
+    try:
+        return Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return None
+
+
+def _member_owned(
+    pid: int,
+    pgid: int,
+    owner_token: str,
+    minimum_start_time: int | None,
+) -> int | None:
+    """Return the process start time when the instance verifiably belongs to us."""
+    group_start = _proc_group_start(pid)
+    if group_start is None:
+        return None
+    process_group, start_time = group_start
+    if process_group != pgid:
+        return None
+    if minimum_start_time is not None and start_time < minimum_start_time:
+        return None
+    environment = _proc_environ(pid)
+    if environment is None:
+        return None
+    marker = f"{OWNER_ENV}={owner_token}".encode()
+    if marker not in environment.split(b"\0"):
+        return None
+    return start_time
+
+
+def _group_member_pids(pgid: int) -> list[int]:
+    members = []
+    for pid in _proc_pids():
+        group_start = _proc_group_start(pid)
+        if group_start is not None and group_start[0] == pgid:
+            members.append(pid)
     return members
 
 
-def _signal_member(pid: int, start_time: int, signum: int) -> None:
-    """Signal one verified process instance, binding the pid via pidfd if available."""
-    if (
-        hasattr(os, "pidfd_open")
-        and hasattr(signal, "pidfd_send_signal")
-        and _process_start_time(pid) == start_time
-    ):
+def _owned_group_members(
+    pgid: int,
+    owner_token: str,
+    minimum_start_time: int | None,
+) -> list[tuple[int, int]]:
+    """Return verified owned (pid, start_time) instances in the captured group."""
+    members = []
+    for pid in _group_member_pids(pgid):
+        start_time = _member_owned(pid, pgid, owner_token, minimum_start_time)
+        if start_time is not None:
+            members.append((pid, start_time))
+    return members
+
+
+def _signal_member(
+    pid: int,
+    start_time: int,
+    signum: int,
+    pgid: int,
+    owner_token: str,
+) -> None:
+    """Signal one verified owned instance, closing the identity/pidfd race."""
+    if _member_owned(pid, pgid, owner_token, start_time) != start_time:
+        return
+    if hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"):
         try:
             descriptor = os.pidfd_open(pid)
         except (OSError, ProcessLookupError):
             return
         try:
+            # Re-verify after opening the pidfd: the pid may have been reused
+            # between the initial check and pidfd_open().
+            if _member_owned(pid, pgid, owner_token, start_time) != start_time:
+                return
             signal.pidfd_send_signal(descriptor, signum)
+        except (ProcessLookupError, OSError):
+            pass
         finally:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         return
-    if _process_start_time(pid) != start_time:
+    if _member_owned(pid, pgid, owner_token, start_time) != start_time:
         return
     try:
         os.kill(pid, signum)
@@ -184,6 +238,7 @@ def _terminate_process_tree(
     process: subprocess.Popen,
     process_group: int | None,
     root_start_time: int | None,
+    owner_token: str | None,
     allowance: float,
 ) -> list[str]:
     """Terminate the owned process group/tree before any stream cleanup.
@@ -199,39 +254,53 @@ def _terminate_process_tree(
         return ["process has no valid pid"]
     deadline = time.monotonic() + allowance
     if os.name == "posix" and process_group is not None and process_group != os.getpgrp():
-        members = _owned_group_members(process_group, root_start_time)
-        for member_pid, member_start in members:
-            _signal_member(member_pid, member_start, signal.SIGTERM)
+        owner_token = owner_token or ""
+        all_members = set(_group_member_pids(process_group))
+        owned = _owned_group_members(process_group, owner_token, root_start_time)
+        ambiguous = all_members - {member_pid for member_pid, _ in owned}
+        if ambiguous:
+            failures.append(
+                f"ownership could not be verified for {len(ambiguous)} process-group "
+                "member(s); left untouched"
+            )
+        for member_pid, member_start in owned:
+            _signal_member(
+                member_pid, member_start, signal.SIGTERM, process_group, owner_token
+            )
         # Wait for graceful exit even when the immediate parent has already gone.
         grace_deadline = min(deadline, time.monotonic() + PROCESS_KILL_GRACE)
         while time.monotonic() < grace_deadline:
-            if not _owned_group_members(process_group, root_start_time):
+            if not _owned_group_members(process_group, owner_token, root_start_time):
                 break
             time.sleep(0.02)
-        remaining = _owned_group_members(process_group, root_start_time)
+        remaining = _owned_group_members(process_group, owner_token, root_start_time)
         for member_pid, member_start in remaining:
-            _signal_member(member_pid, member_start, signal.SIGKILL)
+            _signal_member(
+                member_pid, member_start, signal.SIGKILL, process_group, owner_token
+            )
         # Escalation must not depend on the immediate parent still being alive.
         while time.monotonic() < deadline:
-            if not _owned_group_members(process_group, root_start_time):
+            if not _owned_group_members(process_group, owner_token, root_start_time):
                 break
             time.sleep(0.02)
-        if _owned_group_members(process_group, root_start_time):
+        if _owned_group_members(process_group, owner_token, root_start_time):
             failures.append("owned process-group members survived the cleanup allowance")
     elif os.name == "nt":
-        # Windows process groups cannot be enumerated after the parent exits;
-        # taskkill /T is only reliable while the root is alive. This limitation is
-        # documented in the Phase 3C-A runbook.
-        try:
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=max(0.1, allowance / 2),
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            failures.append(f"taskkill failed: {error}")
+        # Never invoke taskkill with a stale root PID after the original root has
+        # exited: Windows offers no safe group enumeration without Job Objects.
+        if process.poll() is None:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=max(0.1, allowance / 2),
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                failures.append(f"taskkill failed: {error}")
+        # If the root has exited, descendant ownership cannot be established and
+        # the limitation is recorded by the caller as an incomplete-cleanup risk.
     # Reap the immediate child if it is still present.
     try:
         process.wait(timeout=max(0.05, deadline - time.monotonic()))
@@ -294,6 +363,7 @@ class JsonProcessAgent:
         self._cleanup_failures: deque[str] = deque(maxlen=8)
         self._process_group: int | None = None
         self._root_start_time: int | None = None
+        self._owner_token: str | None = None
         self.last_process_group: int | None = None
         self._failure: str | None = None
         self.expected_identity = dict(expected_identity) if expected_identity else None
@@ -318,7 +388,11 @@ class JsonProcessAgent:
             self._cleanup_failures.append("close could not acquire adapter ownership")
             if process is not None:
                 for failure in _terminate_process_tree(
-                    process, self._process_group, self._root_start_time, CLEANUP_ALLOWANCE
+                    process,
+                    self._process_group,
+                    self._root_start_time,
+                    self._owner_token,
+                    CLEANUP_ALLOWANCE,
                 ):
                     self._cleanup_failures.append(failure)
             return
@@ -332,10 +406,12 @@ class JsonProcessAgent:
         process = self.process
         group = self._process_group
         root_start = self._root_start_time
+        owner_token = self._owner_token
         self.last_process_group = group
         self.process = None
         self._process_group = None
         self._root_start_time = None
+        self._owner_token = None
         threads = self._threads
         self._threads = []
         writers = self._writers
@@ -346,7 +422,7 @@ class JsonProcessAgent:
         # pipe handles held by surviving descendants.
         if process is not None:
             for failure in _terminate_process_tree(
-                process, group, root_start, CLEANUP_ALLOWANCE
+                process, group, root_start, owner_token, CLEANUP_ALLOWANCE
             ):
                 self._cleanup_failures.append(failure)
         for writer in writers:
@@ -387,6 +463,7 @@ class JsonProcessAgent:
 
     def _start(self) -> None:
         self._stop_generation()
+        self._owner_token = secrets.token_hex(16)
         self._generation += 1
         generation = self._generation
         self.responses = queue.Queue(maxsize=64)
@@ -404,6 +481,7 @@ class JsonProcessAgent:
                 text=True,
                 bufsize=1,
                 cwd=self.cwd,
+                env={**os.environ, OWNER_ENV: self._owner_token},
                 start_new_session=os.name == "posix",
                 creationflags=creationflags,
             )
@@ -679,24 +757,51 @@ class JsonProcessAgent:
         provider = evidence.get("provider")
         requested = evidence.get("provider_requested")
         expected_provider = self.expected_identity.get("provider")
-        if requested != expected_provider:
-            raise self._fail("agent evidence requested provider does not match the handshake")
+        inferences = evidence.get("neural_inferences")
+        if type(inferences) is not int or inferences < 0:
+            raise self._fail("agent evidence lacks neural inference accounting")
+        gpu_verified = evidence.get("gpu_execution_verified")
+        if gpu_verified not in (True, False, None):
+            raise self._fail("agent evidence GPU verification flag is invalid")
         if expected_provider in ("wasm", "webgpu"):
-            if provider == "wasm" and expected_provider == "webgpu":
-                raise self._fail("agent evidence silently fell back from WebGPU to WASM")
-            if provider == "cpu-fallback":
-                raise self._fail("agent evidence reports an explicit CPU fallback")
-            allowed = (
-                {"wasm"}
-                if expected_provider == "wasm"
-                else {
-                    "webgpu-session-unverified",
-                    "webgpu-mixed",
-                    "webgpu-session-verified",
-                }
-            )
-            if provider not in allowed:
-                raise self._fail("agent evidence placement is not the requested provider")
+            if inferences == 0:
+                # No inference occurred: do not invent a provider observation.
+                if provider is not None:
+                    raise self._fail(
+                        "agent evidence reported placement without neural inference"
+                    )
+                if requested not in (None, expected_provider):
+                    raise self._fail(
+                        "agent evidence requested provider does not match the handshake"
+                    )
+                if gpu_verified is True:
+                    raise self._fail("agent evidence claims GPU execution without inference")
+            else:
+                if requested != expected_provider:
+                    raise self._fail(
+                        "agent evidence requested provider does not match the handshake"
+                    )
+                if provider == "wasm" and expected_provider == "webgpu":
+                    raise self._fail("agent evidence silently fell back from WebGPU to WASM")
+                if provider == "cpu-fallback":
+                    raise self._fail("agent evidence reports an explicit CPU fallback")
+                allowed = (
+                    {"wasm"}
+                    if expected_provider == "wasm"
+                    else {
+                        "webgpu-session-unverified",
+                        "webgpu-mixed",
+                        "webgpu-session-verified",
+                    }
+                )
+                if provider not in allowed:
+                    raise self._fail(
+                        "agent evidence placement is not the requested provider"
+                    )
+                if gpu_verified is True and provider != "webgpu-session-verified":
+                    raise self._fail(
+                        "agent evidence cannot claim verified GPU execution for its placement"
+                    )
         elif provider != expected_provider:
             raise self._fail("agent evidence provider does not match the handshake")
         model_digest = evidence.get("model_sha256")
@@ -720,6 +825,9 @@ class JsonProcessAgent:
             "elapsed_ms": float(elapsed),
             "provider": provider,
             "provider_requested": requested,
+            "provider_observed": evidence.get("provider_observed"),
+            "neural_inferences": inferences,
+            "gpu_execution_verified": gpu_verified is True,
             "model_sha256": model_digest,
         }
 
@@ -1426,17 +1534,49 @@ def _validate_execution_evidence(
         requested_provider = entry.get("provider")
         reported_requested = observation.get("provider_requested")
         observed_provider = observation.get("provider")
-        if reported_requested != requested_provider:
-            failures.append(f"{label}: execution evidence requested provider mismatch")
-        if requested_provider == "webgpu":
-            if observed_provider not in (
-                "webgpu-session-unverified",
-                "webgpu-mixed",
-                "webgpu-session-verified",
-            ):
-                failures.append(
-                    f"{label}: execution evidence did not observe a WebGPU placement"
-                )
+        inferences = observation.get("neural_inferences")
+        if type(inferences) is not int or inferences < 0:
+            failures.append(f"{label}: execution evidence inference accounting is missing")
+            inferences = None
+        if requested_provider in ("wasm", "webgpu"):
+            if inferences == 0:
+                if observed_provider is not None:
+                    failures.append(
+                        f"{label}: execution evidence invented placement without inference"
+                    )
+                if reported_requested not in (None, requested_provider):
+                    failures.append(
+                        f"{label}: execution evidence requested provider mismatch"
+                    )
+                if observation.get("gpu_execution_verified") is True:
+                    failures.append(
+                        f"{label}: execution evidence claims GPU work without inference"
+                    )
+            elif inferences is not None:
+                if reported_requested != requested_provider:
+                    failures.append(
+                        f"{label}: execution evidence requested provider mismatch"
+                    )
+                if requested_provider == "webgpu":
+                    if observed_provider not in (
+                        "webgpu-session-unverified",
+                        "webgpu-mixed",
+                        "webgpu-session-verified",
+                    ):
+                        failures.append(
+                            f"{label}: execution evidence did not observe a WebGPU placement"
+                        )
+                    if (
+                        observation.get("gpu_execution_verified") is True
+                        and observed_provider != "webgpu-session-verified"
+                    ):
+                        failures.append(
+                            f"{label}: execution evidence claims unverified GPU execution"
+                        )
+                elif observed_provider != requested_provider:
+                    failures.append(
+                        f"{label}: execution evidence provider mismatch"
+                    )
         elif observed_provider != requested_provider:
             failures.append(f"{label}: execution evidence provider mismatch")
         model = entry.get("model")

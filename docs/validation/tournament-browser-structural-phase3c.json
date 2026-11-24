@@ -343,9 +343,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.2768749836832285,
+          "elapsed_ms": 0.2704359940253198,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         },
         {
@@ -365,9 +368,12 @@
           "completed_simulations": 4,
           "depth": null,
           "completion_reason": "simulations",
-          "elapsed_ms": 42.0,
+          "elapsed_ms": 41.0,
           "provider": "wasm",
           "provider_requested": "wasm",
+          "provider_observed": true,
+          "neural_inferences": 5,
+          "gpu_execution_verified": false,
           "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78"
         }
       ],
@@ -490,9 +496,12 @@
           "completed_simulations": 4,
           "depth": null,
           "completion_reason": "simulations",
-          "elapsed_ms": 22.0,
+          "elapsed_ms": 21.0,
           "provider": "wasm",
           "provider_requested": "wasm",
+          "provider_observed": true,
+          "neural_inferences": 5,
+          "gpu_execution_verified": false,
           "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78"
         },
         {
@@ -512,9 +521,12 @@
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04118599463254213,
+          "elapsed_ms": 0.04143099067732692,
           "provider": "cpu",
           "provider_requested": "cpu",
+          "provider_observed": false,
+          "neural_inferences": 0,
+          "gpu_execution_verified": false,
           "model_sha256": null
         }
       ],
