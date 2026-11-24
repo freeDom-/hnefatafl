@@ -59,6 +59,9 @@ per-operation errors and the production bundle fingerprint.
 [Backend measurements](measurements/league-arena-backend.json) ·
 [Browser measurements](measurements/league-arena-browser.json)
 
+The baseline and the subsequently integrated main at `a4edb70` share the same
+production Python and frontend sources and dependency locks.
+
 ```sh
 work=$(mktemp -d)
 mkdir "$work/main"

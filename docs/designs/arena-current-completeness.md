@@ -305,7 +305,7 @@ acceptance for any functionality that is included in the release.
 
 ## Migration and data guards
 
-The League branch integrates `main` at `27a3193`, where synchronized tournament
+The League branch integrates `main` at `a4edb70`, where synchronized tournament
 rounds use **schema 22**. PR #99 adds League Arena at **schema 23**. League
 acceptance precedes final canonical schema cleanup, and a data
 inventory with a verified backup/restore of development databases, games, jobs,
