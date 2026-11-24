@@ -80,7 +80,10 @@
         "result": {
           "kind": "direct_port_detached",
           "pending": true,
-          "timedOut": true
+          "timedOut": true,
+          "failed": true,
+          "error": "Direct port detach timed out",
+          "code": "DETACH_TIMEOUT"
         },
         "workerTerminated": false,
         "workerNull": true,

@@ -1,0 +1,50 @@
+{
+  "kind": "copenhagen-depth5-reassessment",
+  "schema": 1,
+  "runtime": "native-cpython",
+  "environment": {
+    "python": "3.11.18",
+    "implementation": "cpython"
+  },
+  "requested_depth": 5,
+  "budgets_seconds": [
+    30.0
+  ],
+  "records": [
+    {
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "time_limit_s": 30.0,
+      "elapsed_ms": 30000.691120978445,
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "time_limit_s": 30.0,
+      "elapsed_ms": 30000.812185986433,
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "time_limit_s": 30.0,
+      "elapsed_ms": 30000.857423001435,
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    }
+  ],
+  "browser_status": "blocked: owner must run verify_jarl.mjs on a staged runtime",
+  "authoritative": false
+}

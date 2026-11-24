@@ -10,7 +10,7 @@
 //     --provider wasm --extended --simulations 128,256,512,1024 \
 //     --native /tmp/mcts-native.json --output /tmp/mcts-browser.json
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, extname, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
@@ -35,6 +35,13 @@ const requireWebGPU = flag("require-webgpu");
 // comparison and numerical inspection.
 const payloadMode = option("payload-mode", "compact");
 const inferenceCache = flag("cache");
+const telemetryFile = option("telemetry", null);
+const telemetrySession = option("telemetry-session", null);
+const telemetryWorkload = option("telemetry-workload", "mcts-benchmark");
+const telemetryProgress = option(
+  "telemetry-progress",
+  telemetryFile ? telemetryFile + ".progress" : null,
+);
 const transport = option("transport", "relay");
 const seed = Number(option("seed", "7"));
 const exploration = Number(option("exploration", "1.4"));
@@ -62,6 +69,10 @@ if (!["wasm", "webgpu"].includes(provider)) {
 }
 if (!["compact", "full"].includes(payloadMode)) {
   console.error("mcts_benchmark: --payload-mode must be compact or full");
+  process.exit(2);
+}
+if (telemetryFile && !telemetrySession) {
+  console.error("mcts_benchmark: --telemetry requires --telemetry-session");
   process.exit(2);
 }
 
@@ -369,6 +380,47 @@ try {
       }),
     inferenceCache,
   );
+  async function emitTelemetry() {
+    if (!telemetryFile) return;
+    let live = null;
+    try {
+      live = await page.evaluate(async () => {
+        const cache = await window.neural.client
+          .inferenceCacheStats()
+          .catch(() => null);
+        const workers =
+          typeof window.neural.coordinator.workerStats === "function"
+            ? window.neural.coordinator.workerStats()
+            : null;
+        return {
+          js_heap_used_bytes: performance.memory?.usedJSHeapSize ?? null,
+          cache_entries: cache?.entries ?? null,
+          cache_bytes: cache?.bytes ?? null,
+          workers:
+            workers === null
+              ? null
+              : (workers.search_workers ?? 0) + (workers.inference_workers ?? 0),
+        };
+      });
+    } catch {
+      live = null;
+    }
+    const line = {
+      timestamp_ms: Date.now(),
+      session_id: telemetrySession,
+      model_sha256: identity.load.model_sha256,
+      workload: telemetryWorkload,
+      completed_requests: report.records.length,
+    };
+    if (live) {
+      for (const [key, value] of Object.entries(live))
+        if (value !== null && value !== undefined) line[key] = value;
+    }
+    await appendFile(telemetryFile, JSON.stringify(line) + "\n");
+    if (telemetryProgress)
+      await appendFile(telemetryProgress, String(report.records.length) + "\n");
+  }
+
   async function runSearch(position, settings, { warm, repetition, mode, budget }) {
     const record = {
       runtime: "browser-pyodide",
@@ -473,15 +525,16 @@ try {
           mode: item.mode,
           budget: item.budget,
         });
-      for (let repetition = 0; repetition < repetitions; repetition += 1)
-        report.records.push(
-          await runSearch(position, settings, {
-            warm: true,
-            repetition,
-            mode: item.mode,
-            budget: item.budget,
-          }),
-        );
+      for (let repetition = 0; repetition < repetitions; repetition += 1) {
+        const record = await runSearch(position, settings, {
+          warm: true,
+          repetition,
+          mode: item.mode,
+          budget: item.budget,
+        });
+        report.records.push(record);
+        await emitTelemetry();
+      }
     }
   }
 
