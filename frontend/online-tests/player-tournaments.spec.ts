@@ -164,7 +164,7 @@ test('a missed start can be rescheduled by its creator after reviewing the lates
       scheduled_start_at: new Date(Date.now() + 120_000).toISOString(),
     });
     expect(created.status()).toBe(201);
-    const { id } = await created.json();
+    const { id, created_at: createdAt, scheduled_start_at: plannedStart } = await created.json();
     const base = `/api/player-tournaments/${id}`;
     expect((await post(creator, `${base}/register`)).status()).toBe(200);
     await page.goto(`/player-tournaments/${id}`);
@@ -174,7 +174,10 @@ test('a missed start can be rescheduled by its creator after reviewing the lates
     await expect(page.getByRole('link', { name: 'Game 1' })).toHaveCount(0);
     expect((await (await creator.context.get(`${base}/matches`)).json()).items).toEqual([]);
 
-    await request.post('http://127.0.0.1:8006/advance', { data: { seconds: 121 } });
+    const seconds = Math.ceil((Date.parse(plannedStart) - Date.parse(createdAt)) / 1000) + 1;
+    expect((await request.post('http://127.0.0.1:8006/advance', { data: { seconds } })).ok()).toBe(
+      true,
+    );
     await expect(page.getByText(/Planned start missed/)).toBeVisible();
     const reviewed = await (await creator.context.get(base)).json();
     const otherPage = await otherBrowser.newPage();
