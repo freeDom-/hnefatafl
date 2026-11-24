@@ -13,7 +13,9 @@ League pages before the windows widen tests matchmaking independently of the
 page. Leaving the League pages during settlement tests recovery from browser
 absence. The suite also exercises direct navigation, compact navigation, themes,
 English/German, keyboard focus, reload, reconnect, expiry, delayed cancellation,
-stale protected requests and permission-gated audit access.
+stale protected requests and permission-gated audit access. The compact
+navigation checks cover 390- and 441-pixel phones at Large scale and verify the
+space reserved by the fixed bar during normal play and text resizing.
 
 The restore test copies the live League authority into a temporary candidate
 taken before the games existed. It verifies that the paused timeout gate survives
@@ -48,10 +50,11 @@ tournament settlement paths available on current main.
 
 The runs used a Linux x86-64 cloud host with three visible AMD EPYC 9V74 vCPUs,
 Python 3.12.14, SQLite 3.53.1, Node.js 24.19.0 and Chromium 154. The measured
-runtime was commit `371bc31854d39900a841cfc2ce7e09bc569a4d19`, with validation
-and documentation changes pending. The backend source hashes match its Git
-blobs. The comparison used an archive of main at
-`27a3193bb1abd1fd98d26428d48b14fe14cb5bdf`. The raw files include query plans,
+backend runtime was commit `371bc31854d39900a841cfc2ce7e09bc569a4d19`, with
+validation and documentation changes pending. The backend source hashes match
+its Git blobs. The browser run used the clean compact-navigation fix at
+`e6f7af5c20c53d7ba401cc3e192d301f29f1400b`. The main comparison used an archive
+at `27a3193bb1abd1fd98d26428d48b14fe14cb5bdf`. The raw files include query plans,
 per-operation errors and the production bundle fingerprint.
 [Backend measurements](measurements/league-arena-backend.json) ·
 [Browser measurements](measurements/league-arena-browser.json)
@@ -162,7 +165,7 @@ Opening League from the authenticated dashboard transferred 3,507 response
 bytes over four League API reads. During the next 17 seconds idle it issued
 zero League requests. An explicit join issued one POST, followed by four queue
 status reads in 17 seconds, transferring 3,748 response bytes. Those four reads
-measured 8.54 ms p50 and 13.81 ms p95/p99 on loopback. During the 4.5 seconds
+measured 13.03 ms p50 and 14.28 ms p95/p99 on loopback. During the 4.5 seconds
 after navigation away, it issued zero League requests. The browser recorded
 zero HTTP or network errors.
 
@@ -174,8 +177,8 @@ use level 9, as in the bundle-budget check.
 | Asset group | Raw bytes | Gzip bytes |
 | --- | ---: | ---: |
 | Main initial JavaScript | 573,702 | 183,136 |
-| League branch initial JavaScript | 582,988 | 185,962 |
+| League branch initial JavaScript | 582,988 | 185,953 |
 | Main initial CSS | 115,904 | 24,194 |
-| League branch initial CSS | 115,603 | 24,118 |
+| League branch initial CSS | 115,832 | 24,170 |
 | Deferred League JavaScript | 27,432 | 8,567 |
 | Deferred League CSS | 1,782 | 629 |
