@@ -3,9 +3,9 @@
 [Documentation index](README.md) · [Online authority](ONLINE.md) ·
 [Arena completion plan](designs/arena-completion.md)
 
-Status: implementation contract, policy version 1. League play is not yet exposed
-on main. The existing five tier decorations are artwork, not earned standings.
-This policy does not change Elo or reinterpret historical casual games.
+Policy version 1. PR #99 exposes League Arena at `/leagues`. Season standings
+come from official League games played through the existing online interface.
+Elo continues to use the normal rated online rules.
 
 ## Season and progression
 
@@ -35,7 +35,8 @@ Standings sort by points, wins and fewer losses. Equal sporting records share a
 rank; account ID only stabilizes pagination. Selected portraits are published
 through the existing safe portrait projection, not client-created asset paths.
 
-Games have 24 hours after season end to finish for seasonal scoring. Existing
+Games qualify for seasonal scoring through the instant before the 24-hour grace
+period ends. A game finishing exactly at the grace boundary is late. Existing
 online clocks and results continue after that grace; late games retain their Elo
 result but contribute no league points. Season summaries remain provisional until
 grace ends. Later official corrections or voids can revise archived standings,
@@ -68,6 +69,16 @@ seat or incompatible ruleset may commit. Waiting time must not silently relax th
 maximum rating bound or substitute an AI. An empty queue explains the lack of
 players, expiry and cancellation rather than promising an estimated wait.
 
+Matchmaking processes a bounded age-ordered page in each ruleset. Within an
+entry's rating range it reads age-ordered candidate pages from indexed rating
+buckets. Each pass examines up to eight starting entries and revalidates up to
+eight opponents per starter. It saves both positions and wraps at the end, so
+incompatible or pair-capped entries cannot hold the scanner on the first page. A pass commits at
+most one match per ruleset. It prefers the oldest entries it visits. In a large,
+changing queue, the saved positions can advance to a younger compatible pair
+before an earlier pair has been revisited. Waiting windows and expiry remain
+authoritative throughout.
+
 Cap league pairings at three per unordered opponent pair per UTC day. Count
 committed pairings even if a result is later voided, so corrections cannot reopen
 an unlimited farming loophole. This conservatively implements the earlier
@@ -75,6 +86,23 @@ three-scoring-game proposal. It limits repeated pairing, not collusion across
 accounts. Queue discovery may show a cooldown reason but never private account
 metadata. A global administrator matching pause blocks new pairings, without
 changing existing authoritative online clocks or results.
+
+Side assignments use each account's committed attacker-minus-defender balance
+for that ruleset. The player with the lower balance attacks. Among equal
+balances the server alternates the pair's last assignment, with a stable
+ruleset-and-account choice for a first meeting. The balances survive day and
+season boundaries and count committed games. Queue order and the daily pairing
+counter play no part in choosing sides.
+
+The server retains each accepted request ID and its original queue generation
+as an idempotency record. An additional ID for the same ruleset while queued
+counts toward the request budget and refers to the same entry and expiry.
+An exact retry returns that ID's original entry outcome and the current queue
+and active-game state in one snapshot. A matched ID can outlive its game.
+Cancellation acts on the entry associated with the submitted ID. A delayed
+cancellation can therefore return an earlier outcome while a newer entry stays
+queued. Request records have no time-based expiry. Rate checks read the current
+rolling minute and UTC day using the account/time index.
 
 ## Results, revisions and recovery
 
@@ -92,6 +120,13 @@ queue/result discovery must use indexes. Worker batches, retries and outstanding
 work must be bounded; avoid recurring whole-history scans. Old-season matching is
 forbidden at rollover even while old games finish during grace.
 
+An eligible new contribution can extend the current standing when its sequence
+follows the indexed ledger tail and the standing records that tail. Replacements,
+gaps and out-of-order results replay the affected player ledger. Progress without
+eligible results has no earned tier or rank. Archived standings stay provisional
+during grace or while results are pending. Settlement advances the revision when
+it changes the season's records.
+
 Administrators may inspect queue/settlement health, pause matching, cancel stale
 entries and request an audited version-checked season rebuild with a private
 reason. Official game corrections and voids use the existing online authority;
@@ -101,6 +136,48 @@ inventory must include every new league table in dependency order. The next sche
 number must be chosen from current main, not an earlier branch's proposed number.
 No developer database, games, training job, checkpoint or model is deleted to
 introduce leagues.
+
+## API and recovery
+
+The authenticated API uses the session account for personal progress, history
+and queue operations. Requests use a supported ruleset, an optional season ID
+in `YYYY-MM` format where applicable, and a page size from 1 to 50 for lists.
+List responses include an opaque `next_cursor`. Reload from the first page when
+the server reports a changed revision or the process has restarted. Standings
+keep one shared sporting rank for tied players across page boundaries.
+
+| Method and path | Result |
+| --- | --- |
+| `GET /api/leagues/current` | Current UTC month, policy, per-ruleset progress and current queue |
+| `GET /api/leagues/seasons` | Persisted seasons with status and revision |
+| `GET /api/leagues/progress` | Own seasonal results, tier, qualification and rank |
+| `GET /api/leagues/standings` | Qualified standings with published identity and portrait |
+| `GET /api/leagues/history` | Own official games, result eligibility and authorized game/replay links |
+| `GET /api/leagues/queue` | Account eligibility, queue, server time and active game |
+| `POST /api/leagues/queue` | Join with a ruleset and request UUID |
+| `POST /api/leagues/queue/cancel` | Cancel or retrieve the outcome of the specified request UUID |
+| `GET /api/leagues/active-game` | The current official League game, if any |
+| `GET /api/leagues/admin/health` | Queue, worker, settlement and rebuild status |
+| `GET /api/leagues/admin/audit` | Private append-only administration history |
+| `POST /api/leagues/admin/matchmaking` | Set paused state with its current version and a reason |
+| `POST /api/leagues/admin/queue/cancel` | Cancel a stale entry by its original UUID and a reason |
+| `POST /api/leagues/admin/seasons/{season_id}/rebuild` | Schedule a rebuild with the current season revision and a reason |
+
+The League worker shares the online lifespan configuration and periodically
+checks indexed due work, queue expiry and matchmaking. Administrative pause
+blocks queue admission and pairing. Expiry, results and existing gameplay
+continue according to the online authority and its clock gate. Deployment
+contention leaves pending writes available for a later cycle.
+
+The administration panel shows pending and failed settlement counts, age of the
+oldest pending result, stale entries and current rebuild jobs. For a projection
+repair, submit the season revision displayed by the server and a reason. The
+worker clears and reconstructs contributions and standings in durable batches
+from League game provenance and effective rated results. A running rebuild
+reports the season as rebuilding. The worker catches up intervening result
+changes before it publishes the repaired standings and their new revision.
+Administrative audit and League authority participate in compatible restores.
+See [deployment and recovery](DEPLOYMENT.md#rollback-and-recovery).
 
 ## Acceptance gates
 
