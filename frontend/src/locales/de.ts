@@ -447,7 +447,6 @@ const translations: Record<string, string> = {
   'All rulesets': 'Alle Regelwerke',
   'Alpha-beta search': 'Alpha-Beta-Suche',
   'Alpha-beta': 'Alpha-Beta',
-  'An ancient game. An open horizon.': 'Ein altes Spiel. Ein offener Horizont.',
   'An ancient contest of escape and encirclement.':
     'Ein uralter Wettstreit zwischen Flucht und Einkesselung.',
   'An evenly matched saga': 'Eine ausgeglichene Saga',
@@ -527,7 +526,6 @@ const translations: Record<string, string> = {
   'Local players': 'Lokale Spieler',
   'MAKE YOUR MARK': 'HINTERLASSE DEINE SPUREN',
   MOVE: 'ZUG',
-  'Made for thoughtful moves.': 'Für durchdachte Züge gemacht.',
   'Main navigation': 'Hauptnavigation',
   'Monte Carlo tree search': 'Monte-Carlo-Baumsuche',
   Move: 'Zug',

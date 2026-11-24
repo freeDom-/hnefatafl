@@ -132,8 +132,6 @@ function AppShell({
       <WorkspaceBottomNav workspace={workspace} current={current} account={account} />
       <footer className="site-footer">
         <span>{t('ᛟ HNEFATAFL')}</span>
-        <p>{t('An ancient game. An open horizon.')}</p>
-        <span className="footer-credit">{t('Made for thoughtful moves.')}</span>
         <LicenseNotice />
       </footer>
     </>
