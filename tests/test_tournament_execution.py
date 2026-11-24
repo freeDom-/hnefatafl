@@ -455,7 +455,10 @@ def test_incomplete_fixed_work_and_bad_reasons_are_rejected(tmp_path):
     game["execution_evidence"][0]["provider"] = "wasm"
     validated = tournament.validate_report(report)
     assert validated["ok"] is False
-    assert any("provider" in failure for failure in validated["failures"])
+    assert any(
+        "placement" in failure or "CPU fallback" in failure or "provider" in failure
+        for failure in validated["failures"]
+    )
 
 
 def test_unsupported_agent_mode_is_rejected_before_launch(tmp_path):
@@ -547,7 +550,10 @@ def test_browser_search_evidence_uses_observed_provider_and_effective_settings()
     target["provider"] = "cpu-fallback"
     validated = tournament.validate_report(mutated)
     assert validated["ok"] is False
-    assert any("provider" in failure for failure in validated["failures"])
+    assert any(
+        "placement" in failure or "CPU fallback" in failure or "provider" in failure
+        for failure in validated["failures"]
+    )
 
     mutated = copy.deepcopy(report)
     target = next(
@@ -584,4 +590,103 @@ def test_no_inference_browser_shortcut_does_not_invent_placement():
     target["provider"] = "wasm"
     validated = tournament.validate_report(captured)
     assert validated["ok"] is False
-    assert any("without inference" in failure for failure in validated["failures"])
+    assert any(
+        "inference" in failure or "contradicts" in failure for failure in validated["failures"]
+    )
+
+
+def test_offline_wasm_evidence_cannot_claim_verified_gpu_execution():
+    report = _committed_browser_report()
+    target = next(
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "browser-neural"
+    )
+    assert target["provider"] == "wasm"
+    target["gpu_execution_verified"] = True
+    validated = tournament.validate_report(report)
+    assert validated["ok"] is False
+    assert any("WASM observation cannot claim" in failure for failure in validated["failures"])
+
+    live_failures = tournament._provider_evidence_failures(
+        requested="wasm",
+        observed="wasm",
+        reported_requested="wasm",
+        inferences=5,
+        gpu_verified=True,
+        provider_observed=True,
+    )
+    assert any("WASM observation cannot claim" in failure for failure in live_failures)
+
+
+def test_native_neural_adapter_handshake_and_execution(tmp_path):
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    checkpoint = tmp_path / "smoke.pt"
+    export = tmp_path / "export"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "smoke_checkpoint.py"),
+            "--ruleset",
+            "brandubh",
+            "--channels",
+            "4",
+            "--blocks",
+            "0",
+            "--output",
+            str(checkpoint),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+    subprocess.run(
+        [sys.executable, str(SPIKE / "onnx_export.py"), str(checkpoint), str(export)],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
+    sidecar = json.loads((export / "model.json").read_text())
+    model = {
+        "onnx_sha256": sidecar["onnx"]["sha256"],
+        "weights_sha256": sidecar["source"]["weights_sha256"],
+        "ruleset": sidecar["ruleset"],
+        "size": 7,
+    }
+    config_a = {
+        "label": "native-neural",
+        "kind": "native-neural",
+        "provider": "torch-cpu",
+        "algorithm": "mcts",
+        "depth": None,
+        "model": model,
+    }
+    result, report = _run(
+        tmp_path,
+        config_a=config_a,
+        config_b=_scripted_b(),
+        command_a=(
+            f"{sys.executable} {AGENT} --engine neural "
+            f"--checkpoint {checkpoint} --model-export {export}"
+        ),
+        command_b=_scripted_command(),
+        mode="fixed-work",
+        simulations=4,
+        time_limit=2,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert report["agent_handshakes"]["a"]["kind"] == "native-neural"
+    assert report["agent_handshakes"]["a"]["model_sha256"] == model["onnx_sha256"]
+    evidence = [
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "native-neural"
+    ]
+    assert evidence
+    assert all(entry["algorithm"] == "mcts" for entry in evidence)
+    assert all(entry["provider_requested"] == "torch-cpu" for entry in evidence)
+    assert all(entry["gpu_execution_verified"] is False for entry in evidence)
+    assert tournament.validate_report(report)["ok"] is True

@@ -555,6 +555,10 @@ def validate_report(report: dict) -> dict:
             continue
         if max(values) > budget:
             fail(f"{metric} exceeded declared budget")
+        if metric == "cache_bytes":
+            # Cache bytes may legitimately fill the bounded cache during a
+            # sustained profile; the declared maximum cache budget is the limit.
+            continue
         baseline = values[0]
         growth = max(values) - baseline
         threshold = max(1024 * 1024, baseline * 0.25)

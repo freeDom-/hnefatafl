@@ -40,16 +40,25 @@ DEFAULT_KIND = {
     "scripted-last": "scripted",
     "jarl": "native-jarl",
     "seer": "native-seer",
+    "neural": "native-neural",
 }
 ALGORITHM = {
     "scripted": "scripted",
     "scripted-last": "scripted",
     "jarl": "alpha_beta",
     "seer": "mcts",
+    "neural": "mcts",
 }
 
 
-def _search(state: State, settings: dict, seed: int, engine: str, depth: int):
+def _search(
+    state: State,
+    settings: dict,
+    seed: int,
+    engine: str,
+    depth: int,
+    checkpoint: Path | None = None,
+):
     started = time.perf_counter()
     mode = settings.get("mode", "fixed-work")
     if engine in ("scripted", "scripted-last"):
@@ -79,6 +88,18 @@ def _search(state: State, settings: dict, seed: int, engine: str, depth: int):
     elif engine == "seer":
         config = {
             "algorithm": "mcts",
+            "iterations": int(settings.get("iterations", 128)),
+            "time_limit": time_limit,
+            "exploration": float(settings.get("exploration", 1.4)),
+            "seed": seed,
+        }
+    elif engine == "neural":
+        if checkpoint is None:
+            raise ValueError("the neural engine requires --checkpoint")
+        config = {
+            "algorithm": "neural",
+            "search_wrapper": "mcts",
+            "model_path": str(checkpoint),
             "iterations": int(settings.get("iterations", 128)),
             "time_limit": time_limit,
             "exploration": float(settings.get("exploration", 1.4)),
@@ -121,6 +142,7 @@ def _search(state: State, settings: dict, seed: int, engine: str, depth: int):
         "completed_simulations": completed,
         "depth": None,
         "completion_reason": reason,
+        "neural_inferences": int(diagnostics.get("mcts_neural_requests", 0)),
         "settings": {
             "mode": mode,
             "iterations": requested,
@@ -135,14 +157,35 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--engine",
-        choices=("scripted", "scripted-last", "jarl", "seer"),
+        choices=("scripted", "scripted-last", "jarl", "seer", "neural"),
         default="scripted",
     )
-    parser.add_argument("--kind", choices=("scripted", "native-jarl", "native-seer"))
+    parser.add_argument(
+        "--kind",
+        choices=("scripted", "native-jarl", "native-seer", "native-neural"),
+    )
     parser.add_argument("--depth", type=int, default=5)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--model-export", type=Path)
     args = parser.parse_args()
     kind = args.kind or DEFAULT_KIND[args.engine]
     algorithm = ALGORITHM[args.engine]
+    model_identity = {}
+    if args.engine == "neural":
+        if args.checkpoint is None or args.model_export is None:
+            parser.error("--engine neural requires --checkpoint and --model-export")
+        from hnefatafl.models import load_checkpoint, weights_fingerprint
+
+        sidecar = json.loads((args.model_export / "model.json").read_text())
+        model, _ = load_checkpoint(args.checkpoint.resolve(), device="cpu")
+        if weights_fingerprint(model) != sidecar["source"]["weights_sha256"]:
+            parser.error("checkpoint weights do not match the ONNX export")
+        model_identity = {
+            "model_sha256": sidecar["onnx"]["sha256"],
+            "weights_sha256": sidecar["source"]["weights_sha256"],
+            "ruleset": sidecar["ruleset"],
+            "size": sidecar["input"]["shape"][-1],
+        }
     handshake = {
         "kind": "handshake",
         "protocol": PROTOCOL_VERSION,
@@ -150,11 +193,12 @@ def main() -> int:
             "protocol": PROTOCOL_VERSION,
             "kind": kind,
             "runtime": "native-cpython",
-            "provider": "cpu",
+            "provider": "torch-cpu" if args.engine == "neural" else "cpu",
             "algorithm": algorithm,
             "engine_sha256": native_mcts_parity.engine_identity()["sha256"],
+            **model_identity,
             "settings_support": {
-                "iterations": args.engine == "seer",
+                "iterations": args.engine in ("seer", "neural"),
                 "time_limit": True,
                 "depth": args.engine == "jarl",
             },
@@ -181,7 +225,9 @@ def main() -> int:
             if state.winner is not None:
                 raise ValueError("cannot search a terminal position")
             started = time.perf_counter()
-            move, result = _search(state, settings, seed, args.engine, args.depth)
+            move, result = _search(
+                state, settings, seed, args.engine, args.depth, args.checkpoint
+            )
             elapsed_ms = (time.perf_counter() - started) * 1000.0
         except Exception as error:  # noqa: BLE001 - report the failure on stderr and exit 2
             print(f"native_tournament_agent: {type(error).__name__}: {error}", file=sys.stderr)
@@ -198,11 +244,12 @@ def main() -> int:
             },
             "seed": seed,
             "algorithm": algorithm,
-            "provider": "cpu",
-            "provider_requested": "cpu",
-            "provider_observed": False,
-            "neural_inferences": 0,
-            "model_sha256": None,
+            "provider": "torch-cpu" if args.engine == "neural" else "cpu",
+            "provider_requested": "torch-cpu" if args.engine == "neural" else "cpu",
+            "provider_observed": args.engine == "neural",
+            "neural_inferences": result.get("neural_inferences", 0),
+            "gpu_execution_verified": False,
+            "model_sha256": model_identity.get("model_sha256"),
             "elapsed_ms": elapsed_ms,
             **result,
         }

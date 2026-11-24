@@ -502,3 +502,19 @@ def test_boundary_gap_at_the_permitted_maximum_is_accepted():
     assert result["structural_ok"] is True, result["failures"]
     assert result["measurement_ok"] is True, result["partial_reasons"]
     assert result["acceptance_ok"] is True
+
+
+def test_cache_fill_is_bounded_by_the_cache_budget_not_growth_threshold():
+    report = _schema3_report()
+    for index, sample in enumerate(report["samples"]):
+        sample["cache_bytes"] = 1024 + index * 512 * 1024
+        sample["cache_entries"] = index * 100
+    report["budgets"]["max_cache_bytes"] = 16 * 1024 * 1024
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True, result["failures"]
+    assert result["acceptance_ok"] is True
+
+    report["samples"][-1]["cache_bytes"] = 32 * 1024 * 1024
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("cache_bytes exceeded" in failure for failure in result["failures"])
