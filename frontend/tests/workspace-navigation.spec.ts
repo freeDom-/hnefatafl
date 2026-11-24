@@ -883,10 +883,11 @@ const NAV_VIEWPORTS: readonly NavViewport[] = [
   { name: '1440-desktop', width: 1440, height: 900, kind: 'sidebar' },
 ];
 
-// Highest-risk scale/viewport pairs: the Large scale grows every label, and the
-// German compact names are longest on a 320px phone and the tablet header.
+// Large scale stresses both compact arrangements and the tablet header.
 const LARGE_RISK_VIEWPORTS: readonly NavViewport[] = [
   { name: '320-phone', width: 320, height: 568, kind: 'compact' },
+  { name: '390-phone', width: 390, height: 844, kind: 'compact' },
+  { name: '441-phone', width: 441, height: 900, kind: 'compact' },
   { name: '768-tablet', width: 768, height: 1024, kind: 'header' },
 ];
 
