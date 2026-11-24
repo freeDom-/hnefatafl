@@ -5,7 +5,6 @@
 import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
-import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
 import {
   exitCode,
   newCounters,
@@ -361,6 +360,7 @@ async function run() {
   });
   await new Promise((done) => server.listen(0, "127.0.0.1", done));
   const origin = `http://127.0.0.1:${server.address().port}`;
+  const { chromium } = await import("../../frontend/node_modules/playwright/index.mjs");
   browser = await chromium.launch({ executablePath: process.env.SPIKE_CHROMIUM || undefined });
   context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.route("**/*", (route) => {
