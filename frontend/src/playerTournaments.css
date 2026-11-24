@@ -53,6 +53,7 @@
 }
 .player-tournament-discovery,
 .player-tournament-entrants ol,
+.player-tournament-entrants ul,
 .player-bracket-list {
   list-style: none;
   display: grid;
@@ -320,12 +321,6 @@
 }
 .player-tournaments .button {
   white-space: normal;
-}
-.player-seed-editor {
-  display: grid;
-  gap: 12px;
-  margin: 0;
-  padding-left: 24px;
 }
 @media (min-width: 3000px) {
   .player-tournaments {

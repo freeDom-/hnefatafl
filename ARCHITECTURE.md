@@ -843,8 +843,12 @@ filename prefix. See the
 Schema 20 adds immutable match/clock modes and due-start/retry columns without
 rewriting legacy legs or authoritative games. `PlayerTournaments._start` is the
 single transaction boundary for scheduled, creator and administrator starts.
-New creation requires an explicit sequential/simultaneous mode and exactly two
-side-swapped games; stored single and legacy 1–5-leg execution stays intact.
+Each start draws a fresh secure random permutation of eligible registered
+entrants inside that transaction and persists consecutive seeds, so all start
+mechanisms share one seeding policy and concurrent or failed starts cannot
+leave conflicting assignments. New creation requires an explicit
+sequential/simultaneous mode and exactly two side-swapped games; stored single
+and legacy 1–5-leg execution stays intact.
 The shared start operation and capability projection reject early creator starts
 of full future-scheduled tournaments, retaining administrator overrides and early
 creator starts of unfilled tournaments with at least two eligible entrants.
@@ -867,6 +871,7 @@ open independently within that round using the normal online lifecycle and
 clocks. Administrative rebuilds reconcile attached games in feeder order
 across all rounds before the barrier can open new games. Invalid live games
 are retired in the rebuild transaction. Registration brackets are read-only
-projections of capacity and unassigned seeds.
+projections of capacity and unassigned seeds; committed seeds persist unchanged
+through settlement, disputes, rebuilds, restarts and compatible restores.
 Published capabilities never grant global administrative authority. See
 [player tournaments](docs/PLAYER_TOURNAMENTS.md) for limits, migration and recovery.

@@ -337,6 +337,76 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
   });
 }
 
+test('cancelled-before-start tournaments show neutral seed history and a provisional bracket in both languages', async ({
+  page,
+  adminSession,
+}) => {
+  const { tournament, bracket } = await mockTournament(page, adminSession.id);
+  tournament.status = 'cancelled';
+  tournament.started_at = null;
+  tournament.bracket_size = null;
+  tournament.entrants = tournament.entrants.map((entry) => ({ ...entry, seed: null }));
+  bracket.status = 'cancelled';
+  bracket.preview = true;
+  bracket.bracket_size = 4;
+  bracket.round_progress = null;
+  const provisional = (entry: TournamentMatch): TournamentMatch => ({
+    ...entry,
+    status: 'pending',
+    participants: { a: null, b: null },
+    winner: null,
+    loser: null,
+    legs: [],
+    decided_by: null,
+    retained_game_state: undefined,
+    return_game_state: undefined,
+    waiting_for_round: false,
+    settled_at: null,
+  });
+  bracket.upper = [{ round: 1, matches: bracket.upper[0].matches.map(provisional) }];
+  bracket.lower = [];
+  bracket.final = null;
+  bracket.reset = null;
+
+  for (const language of ['en', 'de'] as const) {
+    await page.addInitScript((language) => {
+      localStorage.setItem('hnefatafl-language', language);
+    }, language);
+    await page.goto(`/player-tournaments/${identifier}`);
+    const copy =
+      language === 'en'
+        ? {
+            notSeeded: /Not seeded/,
+            cancelled: 'Tournament cancelled before the start. No seeds were assigned.',
+            notRandomized: /Player seeds and byes will be randomized/,
+            unassigned: 'Unassigned seed 1',
+            listButton: 'Accessible match list',
+          }
+        : {
+            notSeeded: /Nicht gesetzt/,
+            cancelled:
+              'Das Turnier wurde vor dem Start abgesagt. Es wurden keine Setzplätze ausgelost.',
+            notRandomized: /Setzliste und Freilose werden beim Turnierstart zufällig ausgelost/,
+            unassigned: 'Unbesetzter Setzplatz 1',
+            listButton: 'Barrierearme Begegnungsliste',
+          };
+    const entrants = page.locator('.player-tournament-entrants');
+    await expect(entrants.getByText(copy.notSeeded)).toHaveCount(4);
+    await expect(
+      entrants.getByText(/Seed pending randomization|Setzplatz wird beim Start/),
+    ).toHaveCount(0);
+    await expect(page.getByText(copy.cancelled)).toBeVisible();
+    await expect(page.getByText(copy.notRandomized)).toHaveCount(0);
+    await expect(page.getByText(copy.unassigned, { exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /^(Game|Partie) \d/ })).toHaveCount(0);
+    await page.getByRole('button', { name: copy.listButton, exact: true }).click();
+    await expect(page.getByText(copy.cancelled)).toBeVisible();
+    await expect(page.getByText(copy.unassigned, { exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /^(Game|Partie) \d/ })).toHaveCount(0);
+    await expect(page.locator('.player-bracket-list .player-match')).toHaveCount(2);
+  }
+});
+
 test('administrator creates a real tournament; registration and withdrawal persist through the authoritative API', async ({
   page,
   request,
