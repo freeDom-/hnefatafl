@@ -185,8 +185,8 @@ class TournamentSettlement:
                         (identifier,),
                     ).fetchone()[0]
                     if count < row["capacity"] or count < 2:
-                        # Later registrations re-arm this row; historical/unfilled
-                        # competitions never become periodic scanning work.
+                        # A missed start remains consumed until the creator reschedules.
+                        # Unfilled competitions do not become periodic scanning work.
                         c.execute(
                             "UPDATE player_tournaments SET start_due_at=NULL WHERE id=?",
                             (identifier,),

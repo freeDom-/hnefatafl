@@ -373,7 +373,7 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
         const opener = page.getByRole('button', { name: createName, exact: true });
         await opener.click();
         const dialog = page.getByRole('dialog', { name: createName, exact: true });
-        for (const kind of ['registration', 'start']) {
+        for (const kind of ['start']) {
           const picker = dialog.getByRole('group', {
             name:
               kind === 'start'

@@ -70,8 +70,7 @@ registration ──start──▶ running ──champion decided──▶ comple
      └──────cancel─────────┴──▶ cancelled
 ```
 
-- `registration`: accepting entrants until the capacity is reached or the
-  registration deadline passes.
+- `registration`: accepting entrants until capacity is reached or the tournament starts.
 - `running`: the bracket is seeded; matches advance as authoritative results
   settle.
 - `complete`: the grand final (or its reset) produced an official winner.
@@ -131,11 +130,10 @@ makes reviewed creator/admin starts and custom seed submissions return HTTP 409.
 An optional future planned instant is stored as UTC microseconds. The persistent
 worker starts a full tournament at or after that instant without any browser,
 client polling or administrator session. If unfilled, it remains in registration
-for a manual creator/admin start with at least two entrants. A later registration
-that fills it re-arms the due row (if registration is still open). Fullness before
-the planned instant never starts it early. Optional registration deadlines must
-be future instants no later than the planned start; without a deadline,
-registration can fill after the planned instant.
+for a manual creator/admin start with at least two entrants. A later registration may fill it but does not re-arm the consumed start. The
+creator or administrator can reschedule to a future instant using the reviewed
+version or start manually with at least two entrants. Fullness before the planned
+instant never starts it early. Registration has no separate deadline.
 
 The partial due index excludes historical and consumed/unfilled starts. Each
 bounded worker pass samples server time after acquiring the deployment gate and
@@ -151,7 +149,7 @@ capped at 300 seconds. Disabled/unverified entrants defer a start until they are
 eligible again or an administrator resolves the registration. Logs and public
 projections never contain private exception payloads or administrator notes.
 
-Both optional scheduling fields use compact adjacent date/time controls. Activating
+The planned start uses compact adjacent date/time controls. Activating
 the date field or its integrated calendar icon opens a themed, anchored React
 DayPicker popup. It occupies the native top layer while remaining a DOM descendant
 of the existing Modal, escaping the scrolling container without expanding it.
@@ -167,6 +165,13 @@ DST-gap rejection and both repeated-hour occurrences are preserved. English/Germ
 labels and existing theme tokens apply on mobile and desktop.
 
 ## Advancing from authoritative games
+
+For modern two-game modes, all matches in a global round are opened together.
+Upper round N and lower round N-1 share a wave; the next wave waits for every
+match in the current wave to settle, including both games or byes. Finals and
+the reset follow in their own waves. Historical single/legacy formats retain
+independent progression. Registration details show a read-only capacity-based
+bracket preview with unassigned seeds; no games are created before the start.
 
 When a match becomes ready, the service seats games through the online core
 inside the same transaction and records each returned `game_id`. Parallel modes

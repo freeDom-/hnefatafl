@@ -21,7 +21,6 @@ class TournamentCreation(BaseModel):
     time_control: Literal["per_move", "total"] = "per_move"
     increment_seconds: StrictInt = Field(default=0, ge=0, le=1209600)
     time_per_move: StrictInt = Field(default=259200, ge=60, le=1209600)
-    registration_deadline: datetime | None = None
     scheduled_start_at: datetime | None = None
 
 
@@ -32,6 +31,10 @@ class ExpectedVersion(BaseModel):
 
 class StartRequest(ExpectedVersion):
     seeds: list[StrictStr] | None = None
+
+
+class RescheduleRequest(ExpectedVersion):
+    scheduled_start_at: datetime
 
 
 class RebuildRequest(ExpectedVersion):
@@ -85,7 +88,6 @@ def attach_player_tournaments(app, auth, online, *, clock=None):
                 match_mode=body.match_mode,
                 time_control=body.time_control,
                 increment_seconds=body.increment_seconds,
-                registration_deadline=body.registration_deadline,
                 scheduled_start_at=body.scheduled_start_at,
             )
         )
@@ -132,6 +134,14 @@ def attach_player_tournaments(app, auth, online, *, clock=None):
     def start(tournament_id: str, body: StartRequest):
         return execute(
             lambda credential: core.start(credential, tournament_id, body.version, body.seeds)
+        )
+
+    @app.post("/api/player-tournaments/{tournament_id}/reschedule")
+    def reschedule(tournament_id: str, body: RescheduleRequest):
+        return execute(
+            lambda credential: core.reschedule(
+                credential, tournament_id, body.version, body.scheduled_start_at
+            )
         )
 
     @app.post("/api/player-tournaments/{tournament_id}/cancel")

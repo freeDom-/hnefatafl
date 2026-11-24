@@ -160,7 +160,7 @@ def wait_until(predicate, timeout=10):
     return predicate()
 
 
-def create(rig, *, name="Cup", capacity=16, match_legs=1, ruleset="brandubh", deadline=None):
+def create(rig, *, name="Cup", capacity=16, match_legs=1, ruleset="brandubh"):
     """Provision a stored historical format; the public creation path cannot create it."""
     tournament = rig.core.create(
         rig.admin,
@@ -169,7 +169,6 @@ def create(rig, *, name="Cup", capacity=16, match_legs=1, ruleset="brandubh", de
         capacity=capacity,
         match_mode="simultaneous",
         time_per_move=600,
-        registration_deadline=deadline,
     )
     with rig.store.connection() as c:
         c.execute(
@@ -1099,7 +1098,7 @@ def test_override_of_the_grand_final_for_the_challenger_forces_a_reset(rig):
 # -- registration, capacity and deadlines --------------------------------
 
 
-def test_registration_capacity_deadline_and_withdrawal(rig):
+def test_registration_capacity_and_withdrawal(rig):
     tournament = create(rig, capacity=2)
     assert rig.core.register(rig.credentials["P01"], tournament["id"])["entrant_count"] == 1
     assert rig.core.register(rig.credentials["P02"], tournament["id"])["entrant_count"] == 2
@@ -1110,16 +1109,6 @@ def test_registration_capacity_deadline_and_withdrawal(rig):
     assert rig.core.register(rig.credentials["P03"], tournament["id"])["entrant_count"] == 2
     with pytest.raises(Exception, match="not registered"):
         rig.core.withdraw(rig.credentials["P02"], tournament["id"])
-
-    closed = create(
-        rig,
-        name="Closed",
-        capacity=4,
-        deadline=rig.clock.value + timedelta(seconds=1),
-    )
-    rig.clock.value += timedelta(seconds=2)
-    with pytest.raises(Exception, match="deadline"):
-        rig.core.register(rig.credentials["P01"], closed["id"])
 
 
 def test_registration_requires_a_verified_account(rig):
@@ -1732,17 +1721,6 @@ def test_planned_start_filters_and_cursor_scope(rig):
             time_per_move=600,
             scheduled_start_at=datetime(2027, 1, 2),
         )
-    with pytest.raises(Exception, match="Registration"):
-        rig.core.create(
-            rig.admin,
-            name="Bad",
-            ruleset="brandubh",
-            capacity=4,
-            match_mode="sequential",
-            time_per_move=600,
-            registration_deadline=rig.clock.value + timedelta(days=2),
-            scheduled_start_at=rig.clock.value + timedelta(days=1),
-        )
     # These cups are not full: due scheduling leaves them in registration.
     rig.clock.value += timedelta(days=2)
     assert rig.core.listing(rig.admin, phase="upcoming")["items"] == []
@@ -1852,6 +1830,14 @@ def test_scheduled_starts_without_a_browser_and_only_when_full(rig, full_when):
             )
     if full_when != "before":
         rig.core.register(rig.credentials["P02"], identifier)
+    if full_when == "after":
+        assert worker.start_due() == 0
+        cup = rig.core.detail(rig.credentials["P01"], identifier)
+        cup = rig.core.reschedule(
+            rig.credentials["P01"], identifier, cup["version"],
+            rig.clock.value + timedelta(minutes=1),
+        )
+        rig.clock.value += timedelta(minutes=1)
     assert worker.start_due() == 1
     started = rig.core.detail(rig.admin, identifier)
     assert started["status"] == "running" and started["entrant_count"] == 2
@@ -1979,8 +1965,9 @@ def test_withdrawal_at_due_time_defers_start_until_capacity_is_restored(rig):
     rig.clock.value += timedelta(minutes=1)
     rig.core.withdraw(rig.credentials["P02"], cup["id"])
     assert rig.app.state.tournament_settlement.start_due() == 0
-    rig.core.register(rig.credentials["P03"], cup["id"])
-    assert rig.app.state.tournament_settlement.start_due() == 1
+    cup = rig.core.register(rig.credentials["P03"], cup["id"])
+    assert rig.app.state.tournament_settlement.start_due() == 0
+    rig.core.start(rig.credentials["P01"], cup["id"], cup["version"])
     assert {e["account_id"] for e in rig.core.detail(rig.admin, cup["id"])["entrants"]} == {
         rig.accounts[n]["id"] for n in ["P01", "P03"]
     }
@@ -1992,7 +1979,9 @@ def test_creator_http_capabilities_ownership_eligibility_and_admin_boundaries(ri
         "/api/player-tournaments", json={"match_mode": "sequential", "name": "Owned", "capacity": 4}
     ).json()
     assert cup["created_by"] == rig.accounts["P01"]["id"]
-    assert cup["capabilities"] == {"can_create": True, "can_start": True, "can_moderate": False}
+    assert cup["capabilities"] == {
+        "can_create": True, "can_start": True, "can_reschedule": True, "can_moderate": False
+    }
     base = f"/api/player-tournaments/{cup['id']}"
     assert other.get(base).json()["capabilities"]["can_start"] is False
     for name in PLAYERS[:2]:
@@ -2101,7 +2090,6 @@ def test_schedule_uses_utc_across_dst_boundaries(rig, client, when):
     "field,value",
     [
         ("scheduled_start_at", "2026-01-01T00:00:00Z"),
-        ("registration_deadline", "2026-01-01T00:00:00Z"),
         ("scheduled_start_at", "2028-01-01T00:00:00"),
     ],
 )
@@ -2869,3 +2857,44 @@ def test_shutdown_while_reconciliation_is_deferred_stops_all_workers(background_
         fcntl.flock(gate, fcntl.LOCK_UN)
         gate.close()
     assert_workers_stopped(worker_threads(app))
+
+
+def test_reschedule_permissions_version_and_preview(rig, client):
+    cup = scheduled_cup(rig, capacity=4)
+    identifier = cup["id"]
+    base = f"/api/player-tournaments/{identifier}"
+    preview = rig.core.bracket(rig.admin, identifier)
+    assert preview["preview"] and len(preview["upper"][0]["matches"]) == 2
+    assert table_counts(rig) == {"matches": 0, "legs": 0, "games": 0}
+    body = {
+        "version": cup["version"],
+        "scheduled_start_at": (rig.clock.value + timedelta(days=1)).isoformat(),
+    }
+    assert client("P02").post(base + "/reschedule", json=body).status_code == 403
+    response = client("P01").post(base + "/reschedule", json=body)
+    assert response.status_code == 200
+    assert response.json()["version"] == cup["version"] + 1
+    assert client("P01").post(base + "/reschedule", json=body).status_code == 409
+
+
+@pytest.mark.parametrize("mode", ["sequential", "simultaneous"])
+def test_modern_round_waits_for_all_matches(rig, mode):
+    cup = rig.core.create(
+        rig.admin, name="Round barrier", ruleset="brandubh", capacity=8, match_mode=mode
+    )
+    identifier = cup["id"]
+    for name in PLAYERS[:8]:
+        cup = rig.core.register(rig.credentials[name], identifier)
+    rig.core.start(rig.admin, identifier, cup["version"])
+    opening = ready_matches(rig, identifier)
+    assert len(opening) == 4
+    for match in opening[:2]:
+        # Override is also a terminal match decision and must respect the barrier.
+        version = rig.core.detail(rig.admin, identifier)["version"]
+        rig.core.override(
+            rig.admin, identifier, match["id"], version,
+            match["participants"]["a"]["account_id"], "Round barrier test",
+        )
+    bracket = rig.core.bracket(rig.admin, identifier)
+    assert all(m["status"] == "pending" for m in bracket["upper"][1]["matches"])
+    assert all(m["status"] == "pending" for m in bracket["lower"][0]["matches"])

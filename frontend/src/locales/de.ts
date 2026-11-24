@@ -96,6 +96,16 @@ const translations: Record<string, string> = {
   'Register for tournament': 'Zum Turnier anmelden',
   'Withdraw registration': 'Anmeldung zurückziehen',
   'Start tournament': 'Turnier starten',
+  'Reschedule tournament': 'Turnier verschieben',
+  'New planned start (your local time)': 'Neuer geplanter Beginn (deine Ortszeit)',
+  'Provisional bracket based on maximum entrants. Seeds and byes are determined at start.':
+    'Vorläufiger Turnierbaum basierend auf der maximalen Teilnehmerzahl. Setzliste und Freilose werden beim Start bestimmt.',
+  'Only the creator or an administrator may reschedule this tournament.':
+    'Nur der Ersteller oder ein Administrator darf dieses Turnier verschieben.',
+  'Only a tournament in registration can be rescheduled.':
+    'Nur ein Turnier in der Anmeldephase kann verschoben werden.',
+  'Starts automatically when full at the planned time. Otherwise, the creator can reschedule or start with at least two entrants.':
+    'Startet automatisch zum geplanten Zeitpunkt, wenn alle Plätze belegt sind. Andernfalls kann der Ersteller das Turnier verschieben oder mit mindestens zwei Teilnehmern starten.',
   'Cancel tournament': 'Turnier abbrechen',
   'Rebuild bracket': 'Turnierbaum neu aufbauen',
   'Override match result': 'Begegnungsergebnis festlegen',

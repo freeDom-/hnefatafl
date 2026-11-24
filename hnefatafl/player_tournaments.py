@@ -225,7 +225,6 @@ class PlayerTournaments:
         match_mode: str | None = None,
         time_control: str = "per_move",
         increment_seconds: int = 0,
-        registration_deadline: datetime | None = None,
         scheduled_start_at: datetime | None = None,
     ) -> dict:
         name = name.strip()
@@ -248,18 +247,11 @@ class PlayerTournaments:
             lifecycle.TimeControl(time_per_move, time_control, increment_seconds)
         except lifecycle.LifecycleError as error:
             raise OnlineError(422, str(error)) from None
-        deadline = None
-        if registration_deadline is not None:
-            if registration_deadline.tzinfo is None or registration_deadline.utcoffset() is None:
-                raise OnlineError(422, "The registration deadline must include a timezone.")
-            deadline = micros(registration_deadline)
         scheduled = None
         if scheduled_start_at is not None:
             if scheduled_start_at.tzinfo is None or scheduled_start_at.utcoffset() is None:
                 raise OnlineError(422, "The planned start must include a timezone.")
             scheduled = micros(scheduled_start_at)
-            if deadline is not None and deadline > scheduled:
-                raise OnlineError(422, "Registration must close no later than the planned start.")
         with self._write() as c:
             account = self._identity(c, credential)
             now = self._now()
@@ -269,8 +261,6 @@ class PlayerTournaments:
                 raise OnlineError(429, "Tournament creation limit reached. Try again later.")
             if scheduled is not None and scheduled <= micros(now):
                 raise OnlineError(422, "The planned start must be in the future.")
-            if deadline is not None and deadline <= micros(now):
-                raise OnlineError(422, "The registration deadline must be in the future.")
             identifier = "ptournament-" + uuid4().hex
             c.execute(
                 "INSERT INTO player_tournaments(id,name,ruleset,format,status,review_state,capacity,match_legs,time_per_move,registration_deadline,created_by,created_at,version) VALUES(?,?,?,'double_elimination','registration','ok',?,?,?,?,?,?,0)",
@@ -281,7 +271,7 @@ class PlayerTournaments:
                     capacity,
                     2,
                     time_per_move,
-                    deadline,
+                    None,
                     account["id"],
                     micros(now),
                 ),
@@ -340,6 +330,11 @@ class PlayerTournaments:
             "can_start": bool(
                 row is not None and row["status"] == "registration" and (admin or creator_can_start)
             ),
+            "can_reschedule": bool(
+                row is not None
+                and row["status"] == "registration"
+                and (admin or (eligible and row["created_by"] == account["id"]))
+            ),
             "can_moderate": admin,
         }
 
@@ -354,11 +349,6 @@ class PlayerTournaments:
                     403, "Tournament registration requires an active, verified account."
                 )
             now = self._now()
-            if (
-                row["registration_deadline"] is not None
-                and micros(now) >= row["registration_deadline"]
-            ):
-                raise OnlineError(409, "The registration deadline has passed.")
             existing = c.execute(
                 "SELECT * FROM player_tournament_entrants WHERE tournament_id=? AND account_id=?",
                 (identifier, account["id"]),
@@ -382,11 +372,12 @@ class PlayerTournaments:
                     (micros(now), identifier, account["id"]),
                 )
             self._bump(c, identifier, row["version"])
-            # Wake a consumed/unfilled due start when registration fills later.
-            if row["scheduled_start_at"] is not None and registered + 1 >= row["capacity"]:
+            # Missing the planned start requires a new schedule or a manual start.
+            # Do not re-arm a consumed start when a later entrant fills the cup.
+            if row["scheduled_start_at"] is not None and micros(now) > row["scheduled_start_at"]:
                 c.execute(
-                    "UPDATE player_tournaments SET start_due_at=?,start_attempts=0,start_error=NULL WHERE id=?",
-                    (max(micros(now), row["scheduled_start_at"]), identifier),
+                    "UPDATE player_tournaments SET start_due_at=NULL,start_error=NULL WHERE id=?",
+                    (identifier,),
                 )
             self._audit(c, identifier, account["id"], "registered", now)
             return self._detail(c, identifier, account)
@@ -408,11 +399,49 @@ class PlayerTournaments:
                 "UPDATE player_tournament_entrants SET status='withdrawn',withdrawn_at=? WHERE tournament_id=? AND account_id=?",
                 (micros(now), identifier, account["id"]),
             )
+            if row["scheduled_start_at"] is not None and micros(now) >= row["scheduled_start_at"]:
+                c.execute(
+                    "UPDATE player_tournaments SET start_due_at=NULL,start_error=NULL WHERE id=?",
+                    (identifier,),
+                )
             self._audit(c, identifier, account["id"], "withdrawn", now)
             self._bump(c, identifier, row["version"])
             return self._detail(c, identifier, account)
 
     # -- administration ---------------------------------------------------
+
+    def reschedule(
+        self, credential: str, identifier: str, version: int, scheduled_start_at: datetime
+    ) -> dict:
+        if scheduled_start_at.tzinfo is None or scheduled_start_at.utcoffset() is None:
+            raise OnlineError(422, "The planned start must include a timezone.")
+        scheduled = micros(scheduled_start_at)
+        with self._write() as c:
+            account = self._identity(c, credential)
+            row = self._load(c, identifier)
+            if not allowed(account, "tournaments") and (
+                row["created_by"] != account["id"] or not online_eligible(account)
+            ):
+                raise OnlineError(
+                    403, "Only the creator or an administrator may reschedule this tournament."
+                )
+            self._version(row, version)
+            if row["status"] != "registration":
+                raise OnlineError(409, "Only a tournament in registration can be rescheduled.")
+            now = self._now()
+            if scheduled <= micros(now):
+                raise OnlineError(422, "The planned start must be in the future.")
+            c.execute(
+                """UPDATE player_tournaments SET scheduled_start_at=?,start_due_at=?,
+                start_attempts=0,start_error=NULL WHERE id=?""",
+                (scheduled, scheduled, identifier),
+            )
+            self._bump(c, identifier, version)
+            self._audit(
+                c, identifier, account["id"], "rescheduled", now,
+                details={"scheduled_start_at": stamp(instant(scheduled))},
+            )
+            return self._detail(c, identifier, account)
 
     def start(self, credential: str, identifier: str, version: int, seeds=None) -> dict:
         with self._write() as c:
@@ -679,12 +708,33 @@ class PlayerTournaments:
 
     # -- bracket construction --------------------------------------------
 
-    def _build_bracket(self, c, identifier: str, size: int, now: datetime) -> None:
+    def _build_bracket(
+        self, c, identifier: str, size: int, now: datetime, *, preview=False
+    ) -> list[dict]:
         order = seed_order(size)
         at = micros(now)
+        preview_matches: list[dict] = []
 
         def new(bracket, round_, slot, source_a, source_b):
             match_id = f"{identifier}:{bracket}:{round_}:{slot}"
+            if preview:
+                preview_matches.append({
+                    "id": match_id,
+                    "bracket": bracket,
+                    "round": round_,
+                    "slot": slot,
+                    "source_a": source_a,
+                    "source_b": source_b,
+                    "status": "pending",
+                    "participant_a": None,
+                    "participant_b": None,
+                    "winner": None,
+                    "loser": None,
+                    "decided_by": None,
+                    "created_at": at,
+                    "settled_at": None,
+                })
+                return match_id
             c.execute(
                 "INSERT INTO player_tournament_matches(id,tournament_id,bracket,round,slot,status,source_a,source_b,created_at) VALUES(?,?,?,?,?,'pending',?,?,?)",
                 (match_id, identifier, bracket, round_, slot, source_a, source_b, at),
@@ -735,6 +785,9 @@ class PlayerTournaments:
                 f"winner:{lower[(len(plan), 0)]}",
             )
 
+        if preview:
+            return preview_matches
+
         for round_ in range(1, _rounds(size) + 1):
             for slot in range(size >> round_):
                 if round_ < _rounds(size):
@@ -769,7 +822,20 @@ class PlayerTournaments:
                     (*winner_target, lower[(index, slot)]),
                 )
 
+        return preview_matches
+
     # -- advancement ------------------------------------------------------
+
+    @staticmethod
+    def _match_wave(match, size: int) -> int:
+        """Global play rounds: upper N and lower N-1 share a wave."""
+        bracket = match["bracket"]
+        if bracket == "upper":
+            return match["round"]
+        if bracket == "lower":
+            return match["round"] + 1
+        final_wave = max(_rounds(size), len(_lower_rounds(size)) + 1) + 1
+        return final_wave + (bracket == "reset")
 
     def _resolve(self, c, ordered: list[str], source: str):
         kind, _, value = source.partition(":")
@@ -1010,6 +1076,19 @@ class PlayerTournaments:
                 "SELECT * FROM player_tournament_matches WHERE tournament_id=? ORDER BY CASE bracket WHEN 'upper' THEN 0 WHEN 'lower' THEN 1 WHEN 'grand_final' THEN 2 ELSE 3 END, round, slot",
                 (identifier,),
             ).fetchall()
+            # Legacy formats keep their historical independent advancement.
+            # Modern matches open in global waves, not as soon as an individual
+            # feeder happens to finish. Already active games can still settle.
+            wave = None
+            if tournament["match_mode"] in ("sequential", "simultaneous"):
+                wave = min(
+                    (
+                        self._match_wave(match, tournament["bracket_size"])
+                        for match in rows
+                        if match["status"] not in ("complete", "bye")
+                    ),
+                    default=None,
+                )
             for row in rows:
                 if row["status"] == "complete":
                     # An administrative decision is independent of the recorded
@@ -1020,6 +1099,12 @@ class PlayerTournaments:
                         return retired
                     continue
                 if row["status"] in ("bye", "disputed"):
+                    continue
+                if (
+                    wave is not None
+                    and row["status"] == "pending"
+                    and self._match_wave(row, tournament["bracket_size"]) > wave
+                ):
                     continue
                 resolution = self._resolve_sources(c, ordered, row)
                 if resolution is None:
@@ -1136,11 +1221,7 @@ class PlayerTournaments:
             "bracket_size": row["bracket_size"],
             "entrant_count": entrants,
             "registration_open": row["status"] == "registration"
-            and entrants < row["capacity"]
-            and (
-                row["registration_deadline"] is None
-                or micros(self._now()) < row["registration_deadline"]
-            ),
+            and entrants < row["capacity"],
             "version": row["version"],
             "created_at": stamp(instant(row["created_at"])),
             "started_at": stamp(instant(row["started_at"])) if row["started_at"] else None,
@@ -1148,9 +1229,8 @@ class PlayerTournaments:
             "scheduled_start_at": stamp(instant(row["scheduled_start_at"]))
             if row["scheduled_start_at"] is not None
             else None,
-            "registration_deadline": stamp(instant(row["registration_deadline"]))
-            if row["registration_deadline"] is not None
-            else None,
+            # Retain the response key for older clients; deadlines no longer apply.
+            "registration_deadline": None,
             "official_winner": self._public(accounts, row["official_winner"]),
         }
 
@@ -1326,6 +1406,12 @@ class PlayerTournaments:
             "SELECT * FROM player_tournament_matches WHERE tournament_id=? ORDER BY bracket,round,slot",
             (identifier,),
         ).fetchall()
+        preview = row["bracket_size"] is None and not matches
+        size = power_of_two_at_least(row["capacity"]) if preview else row["bracket_size"]
+        if preview:
+            matches = self._build_bracket(
+                c, identifier, size, instant(row["created_at"]), preview=True
+            )
         accounts = self._accounts(
             c,
             [
@@ -1368,7 +1454,8 @@ class PlayerTournaments:
             "version": row["version"],
             "status": row["status"],
             "review_state": row["review_state"],
-            "bracket_size": row["bracket_size"],
+            "bracket_size": size,
+            "preview": preview,
             "upper": [
                 {"round": round_, "matches": entries}
                 for round_, entries in sorted(groups["upper"].items())

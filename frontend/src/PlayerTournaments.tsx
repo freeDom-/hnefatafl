@@ -65,13 +65,14 @@ const decisionLabels = {
 };
 const emptyPage: PlayerTournamentPage = { items: [], next_cursor: null, limit: 20 };
 type DetailData = { tournament: PlayerTournamentDetail; bracket: PlayerTournamentBracket };
-type Action = 'create' | 'register' | 'withdraw' | 'start' | 'cancel' | 'rebuild' | 'override';
+type Action = 'create' | 'register' | 'withdraw' | 'start' | 'reschedule' | 'cancel' | 'rebuild' | 'override';
 type Dialog = { kind: Action; version?: number; match?: TournamentMatch };
 const actionLabels: Record<Action, string> = {
   create: 'Create player tournament',
   register: 'Register for tournament',
   withdraw: 'Withdraw registration',
   start: 'Start tournament',
+  reschedule: 'Reschedule tournament',
   cancel: 'Cancel tournament',
   rebuild: 'Rebuild bracket',
   override: 'Override match result',
@@ -501,9 +502,8 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
     let body: Record<string, unknown> = {};
     if (action === 'create') {
       path = '/player-tournaments';
-      const deadline = String(form.get('registration_deadline') || '');
       const plannedStart = String(form.get('scheduled_start_at') || '');
-      if ([deadline, plannedStart].some((value) => value && !Number.isFinite(Date.parse(value)))) {
+      if (plannedStart && !Number.isFinite(Date.parse(plannedStart))) {
         controller.current = null;
         setError('Enter a valid date and time.');
         return;
@@ -522,9 +522,16 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
         capacity: Number(form.get('capacity')),
         match_mode: matchMode,
         ...clock,
-        registration_deadline: deadline ? new Date(deadline).toISOString() : null,
         scheduled_start_at: plannedStart ? new Date(plannedStart).toISOString() : null,
       };
+    } else if (action === 'reschedule') {
+      const plannedStart = String(form.get('scheduled_start_at') || '');
+      if (!plannedStart || !Number.isFinite(Date.parse(plannedStart))) {
+        controller.current = null;
+        setError('Enter a valid date and time.');
+        return;
+      }
+      body = { version: dialog.version, scheduled_start_at: new Date(plannedStart).toISOString() };
     } else if (action === 'start') {
       const seeds = form.getAll('seed').map(String);
       if (new Set(seeds).size !== seeds.length) {
@@ -684,11 +691,6 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                 {item.scheduled_start_at && (
                   <p>{t('Planned start: {date}', { date: date(item.scheduled_start_at) })}</p>
                 )}
-                {item.registration_deadline && (
-                  <p>
-                    {t('Registration closes: {date}', { date: date(item.registration_deadline) })}
-                  </p>
-                )}
                 {item.review_state === 'disputed' && (
                   <p className="player-review-notice">{t('Bracket under review')}</p>
                 )}
@@ -792,15 +794,10 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                     {' '}
                     ·{' '}
                     {t(
-                      'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.',
+                      'Starts automatically when full at the planned time. Otherwise, the creator can reschedule or start with at least two entrants.',
                     )}
                   </>
                 )}
-              </p>
-            )}
-            {tournament.registration_deadline && (
-              <p>
-                {t('Registration closes: {date}', { date: date(tournament.registration_deadline) })}
               </p>
             )}
             {tournament.status === 'registration' && !tournament.scheduled_start_at && (
@@ -870,7 +867,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   </div>
                 </div>
               )}
-            {(tournament.capabilities?.can_start || canAdmin) && (
+            {(tournament.capabilities?.can_start || tournament.capabilities?.can_reschedule || canAdmin) && (
               <div className="player-tournament-admin" aria-label={t('Tournament administration')}>
                 {tournament.status === 'registration' &&
                   (tournament.capabilities?.can_start ?? canAdmin) && (
@@ -883,6 +880,16 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                       {t('Start tournament')}
                     </button>
                   )}
+                {tournament.status === 'registration' && tournament.capabilities?.can_reschedule && (
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy || detail.phase !== 'ready'}
+                    onClick={() => open('reschedule')}
+                  >
+                    {t('Reschedule tournament')}
+                  </button>
+                )}
                 {canAdmin && ['registration', 'running'].includes(tournament.status) && (
                   <button
                     type="button"
@@ -938,7 +945,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
               ))}
             </ol>
           </section>
-          {bracket && tournament.status !== 'registration' && (
+          {bracket && (
             <section
               className="arena-surface player-tournament-bracket"
               aria-labelledby="player-bracket-heading"
@@ -964,6 +971,9 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   </button>
                 </div>
               </header>
+              {bracket.preview && (
+                <p>{t('Provisional bracket based on maximum entrants. Seeds and byes are determined at start.')}</p>
+              )}
               {mode === 'graph' ? (
                 <BracketGraph
                   bracket={bracket}
@@ -998,6 +1008,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
         (canAdmin ||
           dialog.kind === 'create' ||
           (dialog.kind === 'start' && tournament?.capabilities?.can_start) ||
+          (dialog.kind === 'reschedule' && tournament?.capabilities?.can_reschedule) ||
           dialog.kind === 'register' ||
           dialog.kind === 'withdraw') && (
           <Modal
@@ -1046,10 +1057,6 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                     />
                     <ClockFields value={clockInput} onChange={setClockInput} />
                     <LocalDateTimePicker
-                      name="registration_deadline"
-                      label="Registration deadline (your local time, optional)"
-                    />
-                    <LocalDateTimePicker
                       name="scheduled_start_at"
                       label="Planned start (your local time, optional)"
                     />
@@ -1060,9 +1067,23 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                     </small>
                     <p>
                       {t(
-                        'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.',
+                        'Starts automatically when full at the planned time. Otherwise, the creator can reschedule or start with at least two entrants.',
                       )}
                     </p>
+                  </>
+                )}
+                {dialog.kind === 'reschedule' && (
+                  <>
+                    <LocalDateTimePicker
+                      name="scheduled_start_at"
+                      label="New planned start (your local time)"
+                      value={tournament?.scheduled_start_at ?? ''}
+                    />
+                    <small>
+                      {t('Your timezone: {zone}. Dates are saved in UTC.', {
+                        zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                      })}
+                    </small>
                   </>
                 )}
                 {dialog.kind === 'register' && (

@@ -456,7 +456,7 @@ it('stops polling while hidden and cleans up timers on unmount', async () => {
   });
   expect(api).toHaveBeenCalledTimes(stopped);
 });
-it('creates a tournament with explicit local-time deadlines serialized as UTC', async () => {
+it('creates a tournament with a planned start serialized as UTC', async () => {
   identity.permissions = ['play', 'tournaments'];
   render(<PlayerTournaments />);
   fireEvent.click(await screen.findByRole('button', { name: 'Create player tournament' }));
@@ -470,7 +470,6 @@ it('creates a tournament with explicit local-time deadlines serialized as UTC', 
     target: { value: 'Winter cup' },
   });
   for (const [label, time] of [
-    ['Registration deadline (your local time, optional)', '18:00'],
     ['Planned start (your local time, optional)', '19:00'],
   ]) {
     const picker = within(within(dialog).getByRole('group', { name: label }));
@@ -491,7 +490,6 @@ it('creates a tournament with explicit local-time deadlines serialized as UTC', 
         time_control: 'per_move',
         increment_seconds: 0,
         time_per_move: 259200,
-        registration_deadline: new Date('2035-02-01T18:00').toISOString(),
         scheduled_start_at: new Date('2035-02-01T19:00').toISOString(),
       },
       'POST',

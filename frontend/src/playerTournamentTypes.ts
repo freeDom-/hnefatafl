@@ -10,6 +10,7 @@ export type TournamentCapabilities = {
   can_create: boolean;
   can_start: boolean;
   can_moderate: boolean;
+  can_reschedule?: boolean;
 };
 export type PlayerTournament = {
   id: string;
@@ -32,7 +33,8 @@ export type PlayerTournament = {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
-  registration_deadline: string | null;
+  /** Deprecated: registration no longer has a separate deadline. */
+  registration_deadline?: string | null;
   /** Server clock/capacity projection, not account eligibility. */
   registration_open?: boolean;
   scheduled_start_at?: string | null;
@@ -77,6 +79,7 @@ export type TournamentMatch = {
 export type TournamentRound = { round: number; matches: TournamentMatch[] };
 export type PlayerTournamentBracket = {
   tournament_id: string;
+  preview?: boolean;
   version?: number;
   status: PlayerTournamentStatus;
   review_state: 'ok' | 'disputed';
