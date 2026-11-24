@@ -42,7 +42,7 @@ def test_forward_migration_preserves_security_and_ownership(tmp_path):
     store = Store(path)
     with store.connection() as c:
         account = dict(c.execute("SELECT * FROM accounts").fetchone())
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert account["id"] == "one" and account["password_hash"] == "retained-hash"
         assert account["role"] == "ADMIN" and account["active"] == 1
         assert account["username"] == "Admin" and account["email"] == "admin@example.test"
