@@ -803,9 +803,10 @@ h1 {
   padding: var(--footer-pad) var(--gutter-x);
   border-top: 1px solid var(--line);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--gap-card);
+  gap: 0.35rem var(--gap-card);
   color: var(--ui-subtle, #a5a88f);
   font-size: 0.5rem;
   letter-spacing: 0.5px;
@@ -815,11 +816,6 @@ h1 {
   font-size: 0.6875rem;
   letter-spacing: 2px;
   color: var(--ui-copy, #8b937b);
-}
-.site-footer p {
-  font-family: Georgia, serif;
-  font-style: italic;
-  font-size: 0.6875rem;
 }
 .welcome-panel {
   text-align: center;
@@ -1955,9 +1951,6 @@ summary {
     font-size: 0.5625rem;
     letter-spacing: 1.5px;
   }
-  .site-footer > span:last-child {
-    display: none;
-  }
   .decorative-rune {
     font-size: 3rem;
   }
@@ -2147,9 +2140,6 @@ summary {
   }
   .history-footer {
     font-size: 0.5rem;
-  }
-  .site-footer p {
-    font-size: 0.625rem;
   }
   .ruleset-options label {
     padding: 16px 4px 12px;

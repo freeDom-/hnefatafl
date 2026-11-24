@@ -17,6 +17,13 @@ or full CI matrix was re-run merely to write this document. This is a point-in-t
 reviewed snapshot: future implementation agents must check current PR statuses
 before assigning or duplicating work.
 
+> **Later update (2026-11-23):** the licensing rows below are retained as part of
+> the 2026-11-20 snapshot. The project subsequently adopted the PolyForm
+> Noncommercial License 1.0.0 and shipped third-party notices. Copyright
+> ownership and generated-artwork provenance still require owner confirmation.
+> See [release readiness](../RELEASE_READINESS.md) and
+> [licensing](../LICENSING.md); no deployment is authorized by this update.
+
 [Release readiness](../RELEASE_READINESS.md) ·
 [Historical audit](arena-completion.md) ·
 [Contracts](arena-v2-contracts.md) ·
@@ -285,7 +292,9 @@ included changes; final combined functional, visual, accessibility, regression,
 performance, security, recovery and deployment acceptance then applies to the
 actual integrated release candidate, not to an earlier branch snapshot.
 Licensing, third-party notices and explicit owner authorization remain release
-gates.
+gates. A licensing implementation and the required owner/legal confirmations are
+recorded in [the licensing audit](../LICENSING.md); the proposed contributor terms
+are not active.
 
 Work already owned by a PR is not duplicated: #99 owns league schema/backend
 work. Browser-analysis Phase 1 research (#104) and benchmark hardening (#105) are

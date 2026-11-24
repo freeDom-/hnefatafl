@@ -2,6 +2,7 @@
   "name": "hnefatafl-web",
   "private": true,
   "version": "0.41.1",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -19,8 +20,8 @@
     "test:online": "playwright test --config playwright.online.config.ts",
     "test:personal": "playwright test --config playwright.personal.config.ts",
     "test:public": "playwright test --config playwright.public.config.ts",
-    "predev": "node scripts/sync-appearance-catalog.mjs",
-    "prebuild": "node scripts/sync-appearance-catalog.mjs",
+    "predev": "node scripts/sync-appearance-catalog.mjs && node scripts/licenseArtifacts.mjs",
+    "prebuild": "node scripts/sync-appearance-catalog.mjs && node scripts/licenseArtifacts.mjs",
     "test:bundle": "node --test scripts/check-bundle-budget.test.mjs",
     "bundle:check": "node scripts/check-bundle-budget.mjs",
     "audit:ci": "node scripts/auditDependencies.mjs",

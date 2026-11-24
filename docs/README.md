@@ -94,6 +94,14 @@ Commands assume the repository root unless a different directory is shown.
 - [Frontend feature splitting and initial bundle evidence](validation/frontend-feature-splitting.md)
 - [Arena theme completion and visual checks](validation/arena-theme-completion.md)
 
+## Licensing and contributions
+
+- [Project licensing scope, previous releases, AI models and open ownership questions](LICENSING.md)
+- [Third-party notices and dependency compatibility](../THIRD_PARTY_NOTICES.md)
+- [Contributing rules and current CLA status](../CONTRIBUTING.md)
+- [Deferred Harmony CLA proposal and GitHub automation](CONTRIBUTOR_LICENSING.md)
+- [Voluntary donations, donor policy and the support link](DONATIONS.md)
+
 ## Online foundations and offline feasibility
 
 - [Shared interface and online creation validation](validation/shared-ui-layout.md)

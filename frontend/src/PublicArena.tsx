@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import Board from './Board';
 import DashboardCountdown from './DashboardCountdown';
+import LicenseNotice from './LicenseNotice';
 import ThemeSelect from './ThemeSelect';
 import { LanguageSelect, useI18n } from './i18n';
 import { portraitAssetSrc } from './portraitAssets';
@@ -764,6 +765,7 @@ export default function PublicArena() {
       <footer>
         <p>{t('Three battlefields. Real players. New sagas.')}</p>
         <a href="/register">{t('Join the table')}</a>
+        <LicenseNotice />
       </footer>
     </div>
   );

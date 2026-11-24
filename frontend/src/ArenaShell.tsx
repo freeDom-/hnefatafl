@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Account } from './Auth';
 import ArenaSidebar from './ArenaSidebar';
 import ArenaTopBar from './ArenaTopBar';
+import LicenseNotice from './LicenseNotice';
 import SiteHeader from './SiteHeader';
 import { useI18n } from './i18n';
 import { surfaceLink } from './surfaceNavigation';
@@ -131,8 +132,7 @@ function AppShell({
       <WorkspaceBottomNav workspace={workspace} current={current} account={account} />
       <footer className="site-footer">
         <span>{t('ᛟ HNEFATAFL')}</span>
-        <p>{t('An ancient game. An open horizon.')}</p>
-        <span>{t('Made for thoughtful moves.')}</span>
+        <LicenseNotice />
       </footer>
     </>
   );

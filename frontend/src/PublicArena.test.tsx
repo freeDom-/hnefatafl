@@ -80,6 +80,12 @@ it('renders independently of Auth and uses only credential-free public GET reque
   expect(screen.getByRole('link', { name: 'Play' })).toHaveAttribute('href', '/play');
   expect(screen.getByLabelText('Theme')).toBeInTheDocument();
   expect(screen.getByLabelText('Language')).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', {
+      name: 'Support development on Buy Me a Coffee (opens in a new tab)',
+    }),
+  ).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
+  expect(screen.queryByRole('link', { name: /commercial licensing/i })).toBeNull();
   expect(expired).not.toHaveBeenCalled();
   window.removeEventListener('authentication-required', expired);
 });

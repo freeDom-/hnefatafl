@@ -534,6 +534,11 @@ the linked JSON evidence.
 
 ## Network, packaging, licensing and limitations
 
+> Current repository status (2026-11-22): the project now has a root PolyForm
+> Noncommercial License 1.0.0 and third-party notices. This section preserves the
+> assessment baseline and its observation that no top-level LICENSE existed at
+> that time. See [project licensing](../../docs/LICENSING.md) for current terms.
+
 Initial preparation needs the CDN through the configured network proxy. No network
 dependencies were observed after browser installation/caching; the core runtime's
 package loader has a CDN default, but this spike never invokes package installation.

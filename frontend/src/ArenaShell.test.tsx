@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import { ArenaShell, WorkshopShell } from './ArenaShell';
-import { I18nProvider } from './i18n';
+import { I18nProvider, setLanguage } from './i18n';
 import type { Account } from './Auth';
 
 const player: Account = {
@@ -17,6 +17,7 @@ afterEach(() => {
   cleanup();
   history.replaceState(null, '', '/');
   delete document.documentElement.dataset.workspace;
+  setLanguage('en', false);
 });
 
 it('offers a skip link to the main region for every player', () => {
@@ -65,6 +66,55 @@ it('switches a workshop shell back to the arena and records the workspace', () =
   expect(document.documentElement.dataset.workspace).toBe('workshop');
   fireEvent.click(screen.getByRole('button', { name: 'Arena' }));
   expect(location.pathname).toBe('/dashboard');
+});
+
+it('keeps branding and licensing links without decorative footer slogans', () => {
+  render(
+    <I18nProvider>
+      <ArenaShell account={player} current="dashboard">
+        <main id="main-content">Content</main>
+      </ArenaShell>
+    </I18nProvider>,
+  );
+  const footer = screen.getByRole('contentinfo');
+  expect(footer).toHaveTextContent('ᛟ HNEFATAFL');
+  expect(footer).not.toHaveTextContent('An ancient game. An open horizon.');
+  expect(footer).not.toHaveTextContent('Made for thoughtful moves.');
+  expect(within(footer).getByRole('link', { name: 'License terms' })).toHaveAttribute(
+    'href',
+    '/LICENSE.txt',
+  );
+  expect(within(footer).getByRole('link', { name: 'Third-party notices' })).toHaveAttribute(
+    'href',
+    '/THIRD_PARTY_NOTICES.txt',
+  );
+  expect(
+    within(footer).getByRole('link', {
+      name: 'Support development on Buy Me a Coffee (opens in a new tab)',
+    }),
+  ).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
+  expect(within(footer).queryByRole('link', { name: /commercial licensing/i })).toBeNull();
+});
+
+it('keeps the simplified footer localized in German', () => {
+  render(
+    <I18nProvider>
+      <ArenaShell account={player} current="dashboard">
+        <main id="main-content">Content</main>
+      </ArenaShell>
+    </I18nProvider>,
+  );
+  act(() => setLanguage('de', false));
+  const footer = screen.getByRole('contentinfo');
+  expect(footer).toHaveTextContent('ᛟ HNEFATAFL');
+  expect(footer).not.toHaveTextContent('Ein altes Spiel. Ein offener Horizont.');
+  expect(footer).not.toHaveTextContent('Für durchdachte Züge gemacht.');
+  expect(within(footer).getByRole('link', { name: 'Lizenzbedingungen' })).toBeVisible();
+  expect(
+    within(footer).getByRole('link', {
+      name: 'Die Entwicklung auf Buy Me a Coffee unterstützen (öffnet in einem neuen Tab)',
+    }),
+  ).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
 });
 
 it('marks the active destination with aria-current in both navigations', () => {

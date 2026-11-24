@@ -264,6 +264,13 @@ const translations: Record<string, string> = {
   'Public navigation': 'Öffentliche Navigation',
   'Three battlefields. Real players. New sagas.': 'Drei Schlachtfelder. Echte Spieler. Neue Sagen.',
   'Join the table': 'Nimm am Tisch Platz',
+  'Source-available under the PolyForm Noncommercial License 1.0.0':
+    'Quelltext verfügbar unter der PolyForm Noncommercial License 1.0.0',
+  'License terms': 'Lizenzbedingungen',
+  'Third-party notices': 'Hinweise zu Drittanbietern',
+  'Support development': 'Entwicklung unterstützen',
+  'Support development on Buy Me a Coffee (opens in a new tab)':
+    'Die Entwicklung auf Buy Me a Coffee unterstützen (öffnet in einem neuen Tab)',
   'Open seat': 'Freier Platz',
   'No official result': 'Kein offizielles Ergebnis',
   '{side} won': '{side} haben gewonnen',
@@ -440,7 +447,6 @@ const translations: Record<string, string> = {
   'All rulesets': 'Alle Regelwerke',
   'Alpha-beta search': 'Alpha-Beta-Suche',
   'Alpha-beta': 'Alpha-Beta',
-  'An ancient game. An open horizon.': 'Ein altes Spiel. Ein offener Horizont.',
   'An ancient contest of escape and encirclement.':
     'Ein uralter Wettstreit zwischen Flucht und Einkesselung.',
   'An evenly matched saga': 'Eine ausgeglichene Saga',
@@ -520,7 +526,6 @@ const translations: Record<string, string> = {
   'Local players': 'Lokale Spieler',
   'MAKE YOUR MARK': 'HINTERLASSE DEINE SPUREN',
   MOVE: 'ZUG',
-  'Made for thoughtful moves.': 'Für durchdachte Züge gemacht.',
   'Main navigation': 'Hauptnavigation',
   'Monte Carlo tree search': 'Monte-Carlo-Baumsuche',
   Move: 'Zug',

@@ -26,7 +26,7 @@ release evidence are not relabelled as fresh combined validation.
 | Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1 research ([#104](validation/browser-analysis-phase1.md), partially validated); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
 | Implemented on open branches | None in the Arena program at this snapshot. Browser-analysis Phase 1A/1B (#104) and benchmark hardening (#105) merged during this review |
 | In development | League seasons, queue and authoritative result accounting in draft PR #99 (proposed schema 22, partial backend, no UI, failing checks at review) |
-| Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; distribution license and third-party notices |
+| Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; owner/legal confirmation of contributor aliases and generated-artwork terms |
 | Deferred | Browser-neural production integration is optional for the initial public release; durable UTC login/activity-day streaks remain excluded |
 | Final combined acceptance | **Not performed.** No release candidate has been evaluated as one system across performance, recovery, security, localization, accessibility and deployment |
 
@@ -54,12 +54,23 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
 
 ## Licensing and dependencies
 
-- [ ] Owner selects the public distribution license. No top-level LICENSE/NOTICE
-  exists. Do not infer a license from GitHub visibility or select one silently.
-- [ ] Inventory third-party code, fonts, art and runtime redistribution
-  obligations and ship notices; preserve original generated-art provenance. If
-  Pyodide/ONNX runtimes ship, review the exact pinned package and distribution
-  licenses, including model-publication rights.
+- [x] Owner selected the [PolyForm Noncommercial License 1.0.0](LICENSING.md)
+  with SPDX identifier `PolyForm-Noncommercial-1.0.0`. The root
+  [LICENSE](../LICENSE), package metadata, README, documentation, frontend notice
+  and release packaging include the license. This is not an OSI-approved
+  open-source license.
+- [x] Inventoried the current third-party runtime dependencies and project
+  assets and shipped [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). The
+  frontend build generates full runtime package license texts. Original portrait
+  provenance and the image-generation tool's terms remain owner confirmation
+  items, not settled facts.
+- [ ] Owner must confirm that the recorded author aliases belong to the same
+  rights holder and resolve the generated-artwork provenance questions in the
+  [licensing audit](LICENSING.md#open-questions-for-the-project-owner).
+- [x] No CLA, copyright assignment or DCO enforcement is active. Contributors
+  retain copyright, and a deferred Harmony CLA proposal is documented only as a
+  contingency. Any future activation needs explicit maintainer approval and legal
+  review.
 - [ ] Rerun the full and production-only dependency audits before release. On
   2026-11-18 both reported zero findings and GitHub had withdrawn
   GHSA-fc5q-39xc-vjpf. Withdrawal is not an upstream technical patch; the unused
@@ -71,7 +82,9 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
   The fail-closed `security` job must remain: returning or new findings require
   remediation or separate owner review. Do not treat the 2026-11-18 clean audits
   as permanent, and rerun audits after any lockfile change.
-- [ ] Fresh Python dependency and license inventory with security review.
+- [ ] Fresh Python dependency and license inventory with security review for the
+  exact release candidate; the current notice covers the locked direct and
+  frontend runtime inventory, not every future optional package.
 
 ## Security and abuse resistance
 
@@ -193,7 +206,12 @@ performance, recovery, security, accessibility and deployment acceptance has not
 been performed. Neural MCTS is a primary but unimplemented roadmap target; it need
 not block a server-only or classical-only release if browser analysis is explicitly
 deferred. The 2026-11-18 audits are dated observations, not permanent clearance.
-The owner must still choose a distribution license and authorize deployment.
+The selected distribution license is the PolyForm Noncommercial License 1.0.0
+recorded in the licensing checklist above; selecting it does not itself authorize
+deployment. Copyright ownership and generated-artwork provenance still require
+owner confirmation. Initial public deployment remains unauthorized and
+release-acceptance remains incomplete pending the maintainer's separate
+deployment decision.
 
 Re-evaluate this checklist on the actual release candidate after the remaining
 focused PRs. The owner makes deployment decisions for the merged milestone or any

@@ -16,10 +16,57 @@
   <a href="#install-and-start">Quick start</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="docs/TRAINING.md">AI training</a> ·
-  <a href="docs/DEPLOYMENT.md">Deployment</a>
+  <a href="docs/DEPLOYMENT.md">Deployment</a> ·
+  <a href="#licensing">Licensing</a> ·
+  <a href="#support-development">Support</a>
 </p>
 
 <a id="features"></a>
+
+## Licensing
+
+Hnefatafl is **source-available** software licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE), SPDX identifier
+`PolyForm-Noncommercial-1.0.0`. It is **not** OSI-approved open-source software.
+
+The license permits private use, noncommercial self-hosting, noncommercial
+modification and redistribution, and qualifying use by charitable, educational,
+public research, public safety/health, environmental and government
+organizations, as the license defines those terms. Fair-use rights are preserved.
+The summary in this section does not replace the license; the
+[license text](LICENSE) controls, including its definitions and exceptions.
+
+Commercial use not permitted by the license requires separate explicit
+authorization from the relevant rights holders. Hnefatafl does not offer a
+commercial licensing program, sales channel or entitlement to commercial terms;
+no authorization is offered or implied through GitHub Issues. Examples that
+generally require separate authorization include:
+
+- Selling copies of the software.
+- Providing commercial managed hosting.
+- Operating a commercial Hnefatafl platform based on the software.
+- Offering paid subscriptions or premium features using the software.
+- Commercial redistribution.
+- Incorporating the software into commercial products or services.
+
+Third-party components and assets keep their own terms; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Contributors retain copyright in
+their contributions; no CLA is active and a deferred proposal is documented in
+[CONTRIBUTING.md](CONTRIBUTING.md) and
+[the CLA proposal](docs/CONTRIBUTOR_LICENSING.md). The full scope, previous-release
+position, AI-model distinctions and unresolved ownership questions are documented
+in [Licensing](docs/LICENSING.md). Earlier releases contained no root license;
+this change does not retroactively revoke rights or relicense older archives.
+
+## Support development
+
+Financial support is completely voluntary through
+[Buy Me a Coffee](https://buymeacoffee.com/free.dom). Hnefatafl remains free for
+permitted noncommercial use whether or not anyone donates. All gameplay and AI
+features remain free. Donations are not a software license purchase and unlock
+no features, privileges, ranking, matchmaking or training advantages; non-donors
+have identical access. The project makes no tax-deductible charitable-status
+claim. See the [donation policy](docs/DONATIONS.md) for details.
 
 ## What you can do
 

@@ -480,6 +480,30 @@ def test_a_private_handler_cannot_override_the_boundary_cache_policy(application
         assert response.headers.get_list("cache-control") == ["no-store"]
 
 
+def test_public_license_files_load_without_a_session(tmp_path, monkeypatch):
+    """The fixed legal files are anonymously readable and do not widen other paths."""
+    project = tmp_path / "project"
+    build = project / "frontend" / "dist"
+    build.mkdir(parents=True)
+    (build / "index.html").write_text("<!doctype html><title>License shell</title>")
+    (build / "LICENSE.txt").write_text("PolyForm Noncommercial License 1.0.0")
+    (build / "THIRD_PARTY_NOTICES.txt").write_text("third-party notices")
+    (build / "THIRD_PARTY_LICENSES.txt").write_text("third-party license texts")
+    monkeypatch.setattr("hnefatafl.server.PROJECT_ROOT", project)
+    with TestClient(create_app(tmp_path / "data")) as client:
+        for path, expected in (
+            ("/LICENSE.txt", "PolyForm Noncommercial License 1.0.0"),
+            ("/THIRD_PARTY_NOTICES.txt", "third-party notices"),
+            ("/THIRD_PARTY_LICENSES.txt", "third-party license texts"),
+        ):
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code == 200, (path, response.headers.get("location"))
+            assert expected in response.text
+            assert response.headers.get_list("cache-control") == ["no-store"]
+        assert client.get("/LICENSE.txt/extra", follow_redirects=False).status_code == 307
+        assert client.get("/third-party-notices.txt", follow_redirects=False).status_code == 307
+
+
 def test_public_watch_shell_loads_without_a_session(tmp_path, monkeypatch):
     """The signed-out Watch Hall shell reaches the SPA instead of the login redirect."""
     project = tmp_path / "project"
