@@ -36,7 +36,10 @@
           "iterations": false,
           "time_limit": true,
           "depth": false
-        }
+        },
+        "modes": [
+          "fixed-work"
+        ]
       },
       "b": {
         "protocol": 2,
@@ -49,7 +52,10 @@
           "iterations": false,
           "time_limit": true,
           "depth": false
-        }
+        },
+        "modes": [
+          "fixed-work"
+        ]
       }
     },
     "settings": {
@@ -231,7 +237,10 @@
         "iterations": false,
         "time_limit": true,
         "depth": false
-      }
+      },
+      "modes": [
+        "fixed-work"
+      ]
     },
     "b": {
       "protocol": 2,
@@ -244,7 +253,10 @@
         "iterations": false,
         "time_limit": true,
         "depth": false
-      }
+      },
+      "modes": [
+        "fixed-work"
+      ]
     }
   },
   "settings": {
@@ -394,18 +406,21 @@
           "ply": 0,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 11
+            "seed": 11,
+            "max_depth": null
           },
           "seed": 11,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.3274199552834034,
+          "elapsed_ms": 0.37293898640200496,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -413,18 +428,21 @@
           "ply": 1,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 12
+            "seed": 12,
+            "max_depth": null
           },
           "seed": 12,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.2968030166812241,
+          "elapsed_ms": 0.2546670148149133,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -432,18 +450,21 @@
           "ply": 2,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 13
+            "seed": 13,
+            "max_depth": null
           },
           "seed": 13,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.05594402318820357,
+          "elapsed_ms": 0.051292998250573874,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -451,18 +472,21 @@
           "ply": 3,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 14
+            "seed": 14,
+            "max_depth": null
           },
           "seed": 14,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03527197986841202,
+          "elapsed_ms": 0.03379798727110028,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -470,18 +494,21 @@
           "ply": 4,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 15
+            "seed": 15,
+            "max_depth": null
           },
           "seed": 15,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04185503348708153,
+          "elapsed_ms": 0.03930495586246252,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -489,18 +516,21 @@
           "ply": 5,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 16
+            "seed": 16,
+            "max_depth": null
           },
           "seed": 16,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.032952986657619476,
+          "elapsed_ms": 0.032810959964990616,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -508,18 +538,21 @@
           "ply": 6,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 17
+            "seed": 17,
+            "max_depth": null
           },
           "seed": 17,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04495400935411453,
+          "elapsed_ms": 0.04343304317444563,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -527,18 +560,21 @@
           "ply": 7,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 18
+            "seed": 18,
+            "max_depth": null
           },
           "seed": 18,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.030790979508310556,
+          "elapsed_ms": 0.03393494989722967,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -546,18 +582,21 @@
           "ply": 8,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 19
+            "seed": 19,
+            "max_depth": null
           },
           "seed": 19,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03943004412576556,
+          "elapsed_ms": 0.04643900319933891,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -565,18 +604,21 @@
           "ply": 9,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 20
+            "seed": 20,
+            "max_depth": null
           },
           "seed": 20,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.0297880033031106,
+          "elapsed_ms": 0.03850599750876427,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         }
       ],
@@ -727,18 +769,21 @@
           "ply": 0,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 12
+            "seed": 12,
+            "max_depth": null
           },
           "seed": 12,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03977800952270627,
+          "elapsed_ms": 0.06278499495238066,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -746,18 +791,21 @@
           "ply": 1,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 13
+            "seed": 13,
+            "max_depth": null
           },
           "seed": 13,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03159098559990525,
+          "elapsed_ms": 0.04170497413724661,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -765,18 +813,21 @@
           "ply": 2,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 14
+            "seed": 14,
+            "max_depth": null
           },
           "seed": 14,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.042760977521538734,
+          "elapsed_ms": 0.05397503264248371,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -784,18 +835,21 @@
           "ply": 3,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 15
+            "seed": 15,
+            "max_depth": null
           },
           "seed": 15,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.030549010261893272,
+          "elapsed_ms": 0.034285010769963264,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -803,18 +857,21 @@
           "ply": 4,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 16
+            "seed": 16,
+            "max_depth": null
           },
           "seed": 16,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.041651015635579824,
+          "elapsed_ms": 0.04715396789833903,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -822,18 +879,21 @@
           "ply": 5,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 17
+            "seed": 17,
+            "max_depth": null
           },
           "seed": 17,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.032283016480505466,
+          "elapsed_ms": 0.0367090106010437,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -841,18 +901,21 @@
           "ply": 6,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 18
+            "seed": 18,
+            "max_depth": null
           },
           "seed": 18,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04005600931122899,
+          "elapsed_ms": 0.04497601184993982,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -860,18 +923,21 @@
           "ply": 7,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 19
+            "seed": 19,
+            "max_depth": null
           },
           "seed": 19,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02964801387861371,
+          "elapsed_ms": 0.029474962502717972,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -879,18 +945,21 @@
           "ply": 8,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 20
+            "seed": 20,
+            "max_depth": null
           },
           "seed": 20,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.045043008867651224,
+          "elapsed_ms": 0.04703400190919638,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -898,18 +967,21 @@
           "ply": 9,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 21
+            "seed": 21,
+            "max_depth": null
           },
           "seed": 21,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.028067035600543022,
+          "elapsed_ms": 0.029032991733402014,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -917,18 +989,21 @@
           "ply": 10,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 22
+            "seed": 22,
+            "max_depth": null
           },
           "seed": 22,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03818899858742952,
+          "elapsed_ms": 0.04372402327135205,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -936,18 +1011,21 @@
           "ply": 11,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 23
+            "seed": 23,
+            "max_depth": null
           },
           "seed": 23,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.026470981538295746,
+          "elapsed_ms": 0.03266497515141964,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         }
       ],
@@ -1088,18 +1166,21 @@
           "ply": 0,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 111
+            "seed": 111,
+            "max_depth": null
           },
           "seed": 111,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.025378947611898184,
+          "elapsed_ms": 0.02760399365797639,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1107,18 +1188,21 @@
           "ply": 1,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 112
+            "seed": 112,
+            "max_depth": null
           },
           "seed": 112,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.029560993425548077,
+          "elapsed_ms": 0.03664701944217086,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1126,18 +1210,21 @@
           "ply": 2,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 113
+            "seed": 113,
+            "max_depth": null
           },
           "seed": 113,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.029964023269712925,
+          "elapsed_ms": 0.029883987735956907,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1145,18 +1232,21 @@
           "ply": 3,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 114
+            "seed": 114,
+            "max_depth": null
           },
           "seed": 114,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02984004095196724,
+          "elapsed_ms": 0.035811972338706255,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1164,18 +1254,21 @@
           "ply": 4,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 115
+            "seed": 115,
+            "max_depth": null
           },
           "seed": 115,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02792297163978219,
+          "elapsed_ms": 0.02962298458442092,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1183,18 +1276,21 @@
           "ply": 5,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 116
+            "seed": 116,
+            "max_depth": null
           },
           "seed": 116,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02857798244804144,
+          "elapsed_ms": 0.034052005503326654,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1202,18 +1298,21 @@
           "ply": 6,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 117
+            "seed": 117,
+            "max_depth": null
           },
           "seed": 117,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.028304988518357277,
+          "elapsed_ms": 0.035491015296429396,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1221,18 +1320,21 @@
           "ply": 7,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 118
+            "seed": 118,
+            "max_depth": null
           },
           "seed": 118,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.0346270389854908,
+          "elapsed_ms": 0.033863005228340626,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1240,18 +1342,21 @@
           "ply": 8,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 119
+            "seed": 119,
+            "max_depth": null
           },
           "seed": 119,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03134500002488494,
+          "elapsed_ms": 0.031775038223713636,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1259,18 +1364,21 @@
           "ply": 9,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 120
+            "seed": 120,
+            "max_depth": null
           },
           "seed": 120,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.03412499791011214,
+          "elapsed_ms": 0.033253978472203016,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         }
       ],
@@ -1419,18 +1527,21 @@
           "ply": 0,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 112
+            "seed": 112,
+            "max_depth": null
           },
           "seed": 112,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.026823021471500397,
+          "elapsed_ms": 0.026243971660733223,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1438,18 +1549,21 @@
           "ply": 1,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 113
+            "seed": 113,
+            "max_depth": null
           },
           "seed": 113,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.036135956179350615,
+          "elapsed_ms": 0.03321998519822955,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1457,18 +1571,21 @@
           "ply": 2,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 114
+            "seed": 114,
+            "max_depth": null
           },
           "seed": 114,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.027709000278264284,
+          "elapsed_ms": 0.027662026695907116,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1476,18 +1593,21 @@
           "ply": 3,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 115
+            "seed": 115,
+            "max_depth": null
           },
           "seed": 115,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.0277829822152853,
+          "elapsed_ms": 0.02911704359576106,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1495,18 +1615,21 @@
           "ply": 4,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 116
+            "seed": 116,
+            "max_depth": null
           },
           "seed": 116,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02734799636527896,
+          "elapsed_ms": 0.027593981940299273,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1514,18 +1637,21 @@
           "ply": 5,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 117
+            "seed": 117,
+            "max_depth": null
           },
           "seed": 117,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.030813971534371376,
+          "elapsed_ms": 0.030889001209288836,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1533,18 +1659,21 @@
           "ply": 6,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 118
+            "seed": 118,
+            "max_depth": null
           },
           "seed": 118,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02727197716012597,
+          "elapsed_ms": 0.03200594801455736,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1552,18 +1681,21 @@
           "ply": 7,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 119
+            "seed": 119,
+            "max_depth": null
           },
           "seed": 119,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.027807021979242563,
+          "elapsed_ms": 0.03222597297281027,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1571,18 +1703,21 @@
           "ply": 8,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 120
+            "seed": 120,
+            "max_depth": null
           },
           "seed": 120,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02637202851474285,
+          "elapsed_ms": 0.029871996957808733,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1590,18 +1725,21 @@
           "ply": 9,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 121
+            "seed": 121,
+            "max_depth": null
           },
           "seed": 121,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.029951974283903837,
+          "elapsed_ms": 0.03224797546863556,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1609,18 +1747,21 @@
           "ply": 10,
           "turn": "attackers",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 122
+            "seed": 122,
+            "max_depth": null
           },
           "seed": 122,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.02705102087929845,
+          "elapsed_ms": 0.03260199446231127,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -1628,18 +1769,21 @@
           "ply": 11,
           "turn": "defenders",
           "settings": {
-            "iterations": 8,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 1.0,
             "exploration": 1.4,
-            "seed": 123
+            "seed": 123,
+            "max_depth": null
           },
           "seed": 123,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.027144968044012785,
+          "elapsed_ms": 0.029635964892804623,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         }
       ],

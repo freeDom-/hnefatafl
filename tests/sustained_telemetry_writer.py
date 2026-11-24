@@ -21,6 +21,9 @@ def main() -> int:
     parser.add_argument("--stale-first", action="store_true")
     parser.add_argument("--identity-change", action="store_true")
     parser.add_argument("--identity-change-at", type=int, default=8)
+    parser.add_argument("--events-stop-at", type=int)
+    parser.add_argument("--progress-reset-at", type=int)
+    parser.add_argument("--drop-identity-after", type=int)
     args = parser.parse_args()
     started = time.monotonic()
     completed = 0
@@ -49,21 +52,32 @@ def main() -> int:
                 if args.identity_change and index > args.identity_change_at
                 else args.session_id
             )
+            event_index = index
+            if args.events_stop_at is not None:
+                event_index = min(event_index, args.events_stop_at)
+            reported_progress = completed
+            if args.progress_reset_at is not None and index >= args.progress_reset_at:
+                reported_progress = 0
             record = {
                 "timestamp_ms": time.time() * 1000.0,
-                "session_id": session,
-                "model_sha256": args.model_sha256,
-                "workload": args.workload,
                 "workers": args.workers,
                 "js_heap_used_bytes": 20 * 1024 * 1024 + index * 128,
                 "cache_entries": 10 + index,
                 "cache_bytes": 4096 + index * 16,
                 "wasm_heap_capacity_bytes": 32 * 1024 * 1024,
+                "completed_requests": reported_progress,
                 "events": {
-                    "worker_replacements": 1 + (index // 5),
-                    "cancellations": index // 10,
+                    "worker_replacements": 1 + (event_index // 5),
+                    "cancellations": event_index // 10,
                 },
             }
+            drop_identity = (
+                args.drop_identity_after is not None and index > args.drop_identity_after
+            )
+            if not drop_identity:
+                record["session_id"] = session
+                record["model_sha256"] = args.model_sha256
+                record["workload"] = args.workload
             telemetry.write(json.dumps(record) + "\n")
             telemetry.flush()
             args.progress.write_text(str(completed))

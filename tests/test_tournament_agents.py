@@ -241,3 +241,24 @@ def test_blocked_write_cleanup_is_bounded_and_reaps_descendants(tmp_path):
     assert payload["leaked_threads"] == []
     assert payload["process_after_close"] is False
     assert payload["recovered_move"] == {"source": 0, "target": 1}
+
+
+@pytest.mark.parametrize("mode", ["exit-immediately", "sigterm-ignore", "hold-pipes"])
+def test_parent_exit_and_sigterm_ignoring_descendants_are_cleaned_up(mode):
+    import json
+    import subprocess
+
+    probe = Path(__file__).resolve().parent / "bounded_tree_probe.py"
+    result = subprocess.run(
+        [sys.executable, str(probe), mode],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True, payload
+    assert payload["descendant_alive"] is False
+    assert payload["owned_group_members"] == []
+    assert payload["leaked_threads"] == []
+    assert payload["process_after_close"] is False

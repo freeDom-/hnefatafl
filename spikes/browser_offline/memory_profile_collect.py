@@ -35,10 +35,13 @@ import math
 import os
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 CLEANUP_GRACE_MS = 1000.0
 TELEMETRY_FUTURE_TOLERANCE_MS = 100.0
+TELEMETRY_HISTORY_LIMIT = 4096
+IDENTITY_FIELDS = ("session_id", "model_sha256", "workload")
 
 
 def _finite_number(value) -> bool:
@@ -186,22 +189,27 @@ class TelemetryStream:
         }
         self.offset = 0
         self.remainder = ""
-        self.records: list[dict] = []
+        # Bounded history is sufficient for timestamp alignment and diagnostics.
+        self.records: deque[dict] = deque(maxlen=TELEMETRY_HISTORY_LIMIT)
         self.malformed = 0
         self.identity_mismatch = 0
         self.last_error: str | None = None
         self.identity: dict | None = None
         self.last_rejected_timestamp: float | None = None
-        self._event_first: dict[str, int] = {}
-        self._event_last: dict[str, int] = {}
+        self.progress_resets = 0
+        self.last_progress: int | None = None
 
     def _accept_identity(self, record: dict) -> bool:
-        identity = {
-            key: record.get(key)
-            for key in ("session_id", "model_sha256", "workload")
-            if record.get(key) is not None
-        }
-        if self.identity is None and identity:
+        missing = [field for field in IDENTITY_FIELDS if record.get(field) is None]
+        if missing:
+            self.identity_mismatch += 1
+            self.last_error = (
+                "telemetry is missing established identity fields: " + ", ".join(missing)
+            )
+            self.last_rejected_timestamp = record.get("timestamp_ms")
+            return False
+        identity = {field: record.get(field) for field in IDENTITY_FIELDS}
+        if self.identity is None:
             self.identity = identity
         for key, expected in self.expected.items():
             if record.get(key) != expected:
@@ -209,13 +217,12 @@ class TelemetryStream:
                 self.last_error = f"telemetry {key} does not match the expected identity"
                 self.last_rejected_timestamp = record.get("timestamp_ms")
                 return False
-        if self.identity is not None:
-            for key, value in self.identity.items():
-                if key in record and record.get(key) != value:
-                    self.identity_mismatch += 1
-                    self.last_error = f"telemetry {key} changed during collection"
-                    self.last_rejected_timestamp = record.get("timestamp_ms")
-                    return False
+        for key, value in self.identity.items():
+            if record.get(key) != value:
+                self.identity_mismatch += 1
+                self.last_error = f"telemetry {key} changed during collection"
+                self.last_rejected_timestamp = record.get("timestamp_ms")
+                return False
         return True
 
     def _record(self, record: dict) -> None:
@@ -224,21 +231,35 @@ class TelemetryStream:
             self.malformed += 1
             self.last_error = "telemetry timestamp_ms is invalid"
             return
-        record = {**record, "timestamp_ms": float(timestamp)}
+        timestamp = float(timestamp)
+        if self.records and timestamp < self.records[-1]["timestamp_ms"]:
+            # Do not sort the complete history: reject out-of-order live records.
+            self.malformed += 1
+            self.last_error = "telemetry timestamps are not monotonic"
+            return
+        record = {**record, "timestamp_ms": timestamp}
         if not self._accept_identity(record):
             return
         events = record.get("events")
-        if isinstance(events, dict):
-            for name, value in events.items():
-                if isinstance(name, str) and _non_negative_int(value):
-                    self._event_first.setdefault(name, value)
-                    self._event_last[name] = value
-                else:
-                    self.malformed += 1
-                    self.last_error = "telemetry events are malformed"
-                    return
+        if events is not None:
+            if not isinstance(events, dict) or any(
+                not isinstance(name, str) or not _non_negative_int(value)
+                for name, value in events.items()
+            ):
+                self.malformed += 1
+                self.last_error = "telemetry events are malformed"
+                return
+        progress = record.get("completed_requests")
+        if progress is not None and not _non_negative_int(progress):
+            self.malformed += 1
+            self.last_error = "telemetry completed_requests is malformed"
+            return
+        if _non_negative_int(progress):
+            if self.last_progress is not None and progress < self.last_progress:
+                self.progress_resets += 1
+                self.last_error = "telemetry completed_requests counter reset"
+            self.last_progress = progress
         self.records.append(record)
-        self.records.sort(key=lambda item: item["timestamp_ms"])
 
     def poll(self) -> None:
         if self.path is None:
@@ -276,32 +297,43 @@ class TelemetryStream:
             or self.last_rejected_timestamp > self.records[-1]["timestamp_ms"]
         ):
             return None, f"telemetry identity mismatch ({self.last_error})"
-        candidates = [
-            record
-            for record in self.records
-            if record["timestamp_ms"] <= now_ms + TELEMETRY_FUTURE_TOLERANCE_MS
-        ]
-        if not candidates:
+        record = None
+        for candidate in reversed(self.records):
+            if candidate["timestamp_ms"] <= now_ms + TELEMETRY_FUTURE_TOLERANCE_MS:
+                record = candidate
+                break
+        if record is None:
             if self.last_error:
                 return None, f"no usable telemetry ({self.last_error})"
             return None, "no live telemetry has been appended yet"
-        record = candidates[-1]
         age = now_ms - record["timestamp_ms"]
         if age > self.stale_after_ms:
             return None, f"telemetry is stale by {age:.0f} ms"
         return record, None
 
-    def observed_events(self) -> dict[str, int]:
-        return {
-            name: max(0, self._event_last.get(name, 0) - self._event_first.get(name, 0))
-            for name in self._event_last
-        }
+    def events_in_window(self, start_ms: float, end_ms: float) -> dict[str, int]:
+        """Derive cumulative event deltas only inside the acceptance window."""
+        first: dict[str, int] = {}
+        last: dict[str, int] = {}
+        for record in self.records:
+            if not start_ms <= record["timestamp_ms"] <= end_ms:
+                continue
+            events = record.get("events")
+            if not isinstance(events, dict):
+                continue
+            for name, value in events.items():
+                if _non_negative_int(value):
+                    first.setdefault(name, value)
+                    last[name] = value
+        return {name: max(0, last[name] - first[name]) for name in last}
 
     def diagnostics(self) -> dict:
         return {
             "records": len(self.records),
+            "history_limit": TELEMETRY_HISTORY_LIMIT,
             "malformed": self.malformed,
             "identity_mismatch": self.identity_mismatch,
+            "progress_resets": self.progress_resets,
             "last_error": self.last_error,
             "identity": self.identity,
         }
@@ -351,10 +383,16 @@ def collect(args) -> dict:
         blocked_reasons.append("the requested root process identity is unavailable")
     samples = []
     started = time.monotonic()
+    collection_wall_start = time.time() * 1000.0
     warmup_seconds = args.warmup_duration
     acceptance_seconds = args.duration
     acceptance_end = started + warmup_seconds + acceptance_seconds
     sample_errors: list[str] = []
+    previous_progress: int | None = None
+    progress_reset_detected = False
+    progress_mismatches = 0
+    telemetry_progress_samples = 0
+    progress_file_samples = 0
     while True:
         now = time.monotonic()
         wall_ms = time.time() * 1000.0
@@ -371,12 +409,28 @@ def collect(args) -> dict:
         if identity_problem:
             blocked_reasons.append(identity_problem)
         record, telemetry_reason = telemetry.latest(wall_ms)
+        file_progress = _read_progress(args.progress_file)
+        telemetry_progress = (record or {}).get("completed_requests")
+        if _non_negative_int(telemetry_progress):
+            progress = telemetry_progress
+            progress_source = "telemetry"
+            telemetry_progress_samples += 1
+            if args.progress_file is not None and file_progress != telemetry_progress:
+                progress_mismatches += 1
+        else:
+            progress = file_progress
+            progress_source = "progress-file"
+            progress_file_samples += 1
+        if previous_progress is not None and progress < previous_progress:
+            progress_reset_detected = True
+        previous_progress = progress
         sample = {
             "timestamp_ms": round((now - started) * 1000.0, 3),
             "wall_time_ms": round(wall_ms, 3),
             "process_rss_bytes": sum(rss_values) if rss_values else None,
             "os_processes": len(tree) if tree else None,
-            "completed_requests": _read_progress(args.progress_file),
+            "completed_requests": progress,
+            "completed_requests_source": progress_source,
         }
         if not rss_values:
             sample["rss_unavailable_reason"] = tree_error or (
@@ -443,7 +497,36 @@ def collect(args) -> dict:
             "workers",
         ):
             unavailable.setdefault(metric, interrupted)
-    events = telemetry.observed_events()
+    if telemetry.progress_resets or progress_reset_detected:
+        blocked_reasons.append(
+            "the completed-request counter reset during collection; acceptance is blocked"
+        )
+        unavailable.setdefault(
+            "workers", "progress counter reset invalidates workload-progress evidence"
+        )
+    acceptance_start_wall = collection_wall_start + warmup_seconds * 1000.0
+    acceptance_end_wall = acceptance_start_wall + acceptance_seconds * 1000.0
+    events = telemetry.events_in_window(acceptance_start_wall, acceptance_end_wall)
+    measured_samples = [
+        sample for sample in samples if sample["timestamp_ms"] >= warmup_seconds * 1000.0
+    ]
+    measured_telemetry = sum(
+        1
+        for sample in measured_samples
+        if sample.get("completed_requests_source") == "telemetry"
+    )
+    progress_consistency = {
+        "verified": (
+            progress_mismatches == 0
+            and bool(measured_samples)
+            and measured_telemetry == len(measured_samples)
+        ),
+        "file_mismatches": progress_mismatches,
+        "telemetry_samples": telemetry_progress_samples,
+        "progress_file_samples": progress_file_samples,
+        "measured_telemetry_samples": measured_telemetry,
+        "measured_samples": len(measured_samples),
+    }
     report = {
         "kind": "browser-analysis-memory-profile",
         "schema": 3,
@@ -456,6 +539,7 @@ def collect(args) -> dict:
         "features": {"inference_cache": args.inference_cache},
         "events": events,
         "events_source": "telemetry",
+        "progress_consistency": progress_consistency,
         "telemetry": telemetry.diagnostics(),
         "unavailable_metrics": unavailable,
         "root_process": {

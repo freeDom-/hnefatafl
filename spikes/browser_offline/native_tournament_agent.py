@@ -51,6 +51,7 @@ ALGORITHM = {
 
 def _search(state: State, settings: dict, seed: int, engine: str, depth: int):
     started = time.perf_counter()
+    mode = settings.get("mode", "fixed-work")
     if engine in ("scripted", "scripted-last"):
         moves = legal_moves(state)
         move = moves[0] if engine == "scripted" else moves[-1]
@@ -58,6 +59,13 @@ def _search(state: State, settings: dict, seed: int, engine: str, depth: int):
             "completed_simulations": None,
             "depth": None,
             "completion_reason": "completed",
+            "settings": {
+                "mode": mode,
+                "iterations": None,
+                "time_limit": settings.get("time_limit"),
+                "exploration": settings.get("exploration"),
+                "seed": seed,
+            },
         }
     time_limit = float(settings.get("time_limit", 2.0))
     diagnostics: dict = {}
@@ -80,10 +88,26 @@ def _search(state: State, settings: dict, seed: int, engine: str, depth: int):
         raise ValueError(f"unsupported engine {engine!r}")
     move = choose_move(state, config, diagnostics=diagnostics)
     if engine == "jarl":
+        completed_depth = int(diagnostics.get("completed_depth", 0))
+        interrupted = diagnostics.get("interrupted_depth")
+        if mode == "fixed-time" and (
+            completed_depth < depth or interrupted is not None
+        ):
+            reason = "deadline"
+        else:
+            reason = "completed"
         return move, {
             "completed_simulations": None,
-            "depth": int(diagnostics.get("completed_depth", depth)),
-            "completion_reason": "completed",
+            "depth": completed_depth,
+            "completion_reason": reason,
+            "settings": {
+                "mode": mode,
+                "iterations": None,
+                "time_limit": time_limit,
+                "exploration": settings.get("exploration"),
+                "seed": seed,
+                "max_depth": depth,
+            },
         }
     completed = int(diagnostics.get("simulations", 0))
     requested = int(settings.get("iterations", 128))
@@ -97,6 +121,13 @@ def _search(state: State, settings: dict, seed: int, engine: str, depth: int):
         "completed_simulations": completed,
         "depth": None,
         "completion_reason": reason,
+        "settings": {
+            "mode": mode,
+            "iterations": requested,
+            "time_limit": time_limit,
+            "exploration": settings.get("exploration"),
+            "seed": seed,
+        },
     }
 
 
@@ -127,6 +158,11 @@ def main() -> int:
                 "time_limit": True,
                 "depth": args.engine == "jarl",
             },
+            "modes": (
+                ["fixed-work"]
+                if args.engine in ("scripted", "scripted-last")
+                else ["fixed-work", "fixed-time"]
+            ),
         },
     }
     if args.engine == "jarl":
@@ -150,8 +186,11 @@ def main() -> int:
         except Exception as error:  # noqa: BLE001 - report the failure on stderr and exit 2
             print(f"native_tournament_agent: {type(error).__name__}: {error}", file=sys.stderr)
             return 2
+        result_settings = result.pop("settings", None)
         evidence = {
-            "settings": {
+            "settings": result_settings
+            or {
+                "mode": settings.get("mode", "fixed-work"),
                 "iterations": settings.get("iterations"),
                 "time_limit": settings.get("time_limit"),
                 "exploration": settings.get("exploration"),
@@ -160,6 +199,7 @@ def main() -> int:
             "seed": seed,
             "algorithm": algorithm,
             "provider": "cpu",
+            "provider_requested": "cpu",
             "model_sha256": None,
             "elapsed_ms": elapsed_ms,
             **result,

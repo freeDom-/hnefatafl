@@ -137,6 +137,7 @@ async function start() {
       ruleset: model.ruleset,
       size: model.size,
       settings_support: { iterations: true, time_limit: true, depth: false },
+      modes: ["fixed-work", "fixed-time"],
     },
   };
   process.stdout.write(JSON.stringify(handshake) + "\n");
@@ -157,7 +158,8 @@ async function handle(line) {
     if (typeof request.id !== "string" || !request.id) throw new Error("request id is missing");
     if (!Number.isInteger(request.seed) || request.seed < 0)
       throw new Error("request seed is missing");
-    const settings = { ...(request.settings ?? {}), seed: request.seed };
+    const { mode: executionMode, ...requestedSettings } = request.settings ?? {};
+    const settings = { ...requestedSettings, seed: request.seed };
     const started = Date.now();
     const result = await page.evaluate(
       async (payload) => {
@@ -174,6 +176,7 @@ async function handle(line) {
     if (!result?.best_move) throw new Error("search produced no best move");
     const evidence = {
       settings: {
+        mode: executionMode ?? "fixed-work",
         iterations: settings.iterations,
         time_limit: settings.time_limit,
         exploration: settings.exploration,
@@ -181,7 +184,8 @@ async function handle(line) {
       },
       seed: request.seed,
       algorithm: "mcts",
-      provider: model.provider_requested,
+      provider: model.execution_placement,
+      provider_requested: model.provider_requested,
       model_sha256: model.sha256,
       completed_simulations: result.search?.completed_simulations ?? null,
       depth: null,

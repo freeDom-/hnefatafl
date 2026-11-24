@@ -265,8 +265,8 @@ def test_collector_detects_telemetry_identity_change(tmp_path):
     import memory_validation as mv
 
     validation = mv.validate_report(report)
-    assert validation["structural_ok"] is True
     assert validation["acceptance_ok"] is False
+    assert any("telemetry" in failure for failure in validation["failures"])
 
 
 def test_collector_reports_process_disappearance_as_blocked(tmp_path):
@@ -387,3 +387,140 @@ def test_collector_detects_root_process_identity_replacement(monkeypatch):
     report = mpc.collect(args)
     assert report["status"] == "blocked"
     assert any("identity changed" in reason for reason in report["blocked_reasons"])
+
+
+def test_telemetry_missing_identity_fields_after_establishment(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path, telemetry_args=("--drop-identity-after", "8"), duration=2.0
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            progress,
+            warmup=0.4,
+            duration=0.8,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert report["telemetry"]["identity_mismatch"] >= 1
+    measured = [s for s in report["samples"] if s["timestamp_ms"] >= 400]
+    assert any(s.get("completed_requests_source") == "progress-file" for s in measured)
+    assert report["progress_consistency"]["verified"] is False
+
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["acceptance_ok"] is False
+
+
+def test_telemetry_progress_from_mismatched_session_is_not_accepted(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path, telemetry_args=("--identity-change", "--identity-change-at", "5"), duration=2.0
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            progress,
+            warmup=0.3,
+            duration=0.8,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0
+    assert report["telemetry"]["identity_mismatch"] >= 1
+    assert report["progress_consistency"]["verified"] is False
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["acceptance_ok"] is False
+
+
+def test_lifecycle_events_are_restricted_to_the_acceptance_window(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path, telemetry_args=("--events-stop-at", "2"), duration=2.5
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            progress,
+            warmup=0.7,
+            duration=0.8,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    # Events incremented only during warmup; the acceptance window observed none.
+    assert report["events"].get("worker_replacements", 0) == 0
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["structural_ok"] is False
+    assert any("worker_replacements" in failure for failure in validation["failures"])
+
+
+def test_progress_counter_reset_blocks_acceptance(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path, telemetry_args=("--progress-reset-at", "8"), duration=2.5
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            progress,
+            warmup=0.3,
+            duration=1.0,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 2
+    assert report["status"] == "blocked"
+    assert any("counter reset" in reason for reason in report["blocked_reasons"])
+
+
+def test_long_telemetry_stream_retains_bounded_history(tmp_path):
+    import json
+    import time
+
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_profile_collect as mpc
+
+    telemetry = tmp_path / "long.jsonl"
+    with telemetry.open("w", encoding="utf-8") as handle:
+        for index in range(5000):
+            handle.write(
+                json.dumps(
+                    {
+                        "timestamp_ms": time.time() * 1000.0 + index,
+                        "session_id": "s",
+                        "model_sha256": "a" * 64,
+                        "workload": "w",
+                        "completed_requests": index,
+                        "workers": 2,
+                    }
+                )
+                + "\n"
+            )
+    stream = mpc.TelemetryStream(telemetry, stale_after_ms=5000)
+    stream.poll()
+    diagnostics = stream.diagnostics()
+    assert diagnostics["records"] <= diagnostics["history_limit"]
+    assert diagnostics["history_limit"] == mpc.TELEMETRY_HISTORY_LIMIT
+    assert diagnostics["malformed"] == 0
+    record, reason = stream.latest(time.time() * 1000.0 + 5000)
+    assert record is not None
+    assert reason is None

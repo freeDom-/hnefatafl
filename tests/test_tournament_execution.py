@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import sys
@@ -36,38 +37,60 @@ def _config(tmp_path: Path, stem: str, **overrides) -> Path:
     return path
 
 
-def _run(tmp_path: Path, *, config_a: dict, config_b: dict, command_a: str, command_b: str):
+def _run(
+    tmp_path: Path,
+    *,
+    config_a: dict,
+    config_b: dict,
+    command_a: str,
+    command_b: str,
+    mode: str = "fixed-work",
+    simulations: int = 4,
+    time_limit: float = 2,
+    max_plies: int = 2,
+    opening_file: Path | None = None,
+    agent_timeout: float = 10,
+):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     a = _config(tmp_path, "agent-a", **config_a)
     b = _config(tmp_path, "agent-b", **config_b)
     output = tmp_path / "report.json"
+    command = [
+        sys.executable,
+        str(SPIKE / "tournament.py"),
+        "--run",
+        "--ruleset",
+        "brandubh",
+        "--limit",
+        "1",
+        "--simulations",
+        str(simulations),
+        "--time-limit",
+        str(time_limit),
+        "--max-plies",
+        str(max_plies),
+        "--mode",
+        mode,
+        "--agent-timeout",
+        str(agent_timeout),
+        "--agent-a-command",
+        command_a,
+        "--agent-b-command",
+        command_b,
+        "--agent-a-config",
+        str(a),
+        "--agent-b-config",
+        str(b),
+        "--output",
+        str(output),
+    ]
+    if opening_file is not None:
+        command[command.index("--limit") : command.index("--limit") + 2] = [
+            "--openings-file",
+            str(opening_file),
+        ]
     result = subprocess.run(
-        [
-            sys.executable,
-            str(SPIKE / "tournament.py"),
-            "--run",
-            "--ruleset",
-            "brandubh",
-            "--limit",
-            "1",
-            "--simulations",
-            "4",
-            "--time-limit",
-            "2",
-            "--max-plies",
-            "2",
-            "--agent-timeout",
-            "10",
-            "--agent-a-command",
-            command_a,
-            "--agent-b-command",
-            command_b,
-            "--agent-a-config",
-            str(a),
-            "--agent-b-config",
-            str(b),
-            "--output",
-            str(output),
-        ],
+        command,
         capture_output=True,
         text=True,
         timeout=120,
@@ -201,3 +224,279 @@ def test_invalid_per_move_evidence_blocks_validation(tmp_path, mutation, needle)
     assert validated["ok"] is False
     assert any(needle in failure for failure in validated["failures"]), validated["failures"]
     assert validated["playing_strength_acceptance"] is False
+
+
+def _run_noninitial(tmp_path: Path):
+    from fixtures import jarl_positions
+
+    midgame = next(
+        entry
+        for entry in jarl_positions()
+        if entry["ruleset"] == "brandubh" and entry["kind"] == "midgame"
+    )
+    openings = tmp_path / "openings.json"
+    openings.write_text(
+        json.dumps({"openings": [{"name": midgame["name"], "state": midgame["state"]}]})
+    )
+    a = _config(tmp_path, "agent-a")
+    b = _config(
+        tmp_path,
+        "agent-b",
+        kind="scripted",
+        algorithm="scripted",
+        depth=None,
+    )
+    output = tmp_path / "noninitial.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "tournament.py"),
+            "--run",
+            "--ruleset",
+            "brandubh",
+            "--openings-file",
+            str(openings),
+            "--simulations",
+            "4",
+            "--time-limit",
+            "2",
+            "--max-plies",
+            str(midgame["state"]["ply"] + 2),
+            "--agent-timeout",
+            "10",
+            "--agent-a-command",
+            _jarl_command(),
+            "--agent-b-command",
+            _scripted_command(),
+            "--agent-a-config",
+            str(a),
+            "--agent-b-config",
+            str(b),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return (
+        result,
+        json.loads(output.read_text()) if output.exists() else None,
+        midgame["state"]["ply"],
+    )
+
+
+def test_noninitial_opening_execution_evidence_uses_absolute_ply(tmp_path):
+    result, report, starting_ply = _run_noninitial(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert starting_ply > 0
+    validated = tournament.validate_report(report)
+    assert validated["ok"] is True, validated["failures"]
+    evidence = [
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "agent-a"
+    ]
+    assert evidence
+    assert all(entry["ply"] >= starting_ply for entry in evidence)
+    assert all(
+        entry["seed"] == game["seed"] + entry["ply"]
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "agent-a"
+    )
+
+    mutated = copy.deepcopy(report)
+    mutated["games"][0]["execution_evidence"][0]["ply"] = 0
+    validated = tournament.validate_report(mutated)
+    assert validated["ok"] is False
+    assert any("out of range" in failure for failure in validated["failures"])
+
+    mutated = copy.deepcopy(report)
+    target = next(
+        entry
+        for game in mutated["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "agent-a"
+    )
+    target["seed"] = target["seed"] + 1
+    validated = tournament.validate_report(mutated)
+    assert validated["ok"] is False
+    assert any("seed" in failure for failure in validated["failures"])
+
+
+def _seer_config(tmp_path: Path) -> dict:
+    return {
+        "kind": "native-seer",
+        "algorithm": "mcts",
+        "depth": None,
+        "model": None,
+    }
+
+
+def _scripted_b() -> dict:
+    return {
+        "label": "agent-b",
+        "kind": "scripted",
+        "algorithm": "scripted",
+        "depth": None,
+    }
+
+
+def _seer_command() -> str:
+    return f"{sys.executable} {AGENT} --engine seer"
+
+
+def test_alpha_beta_fixed_time_allows_deadline_limited_depth(tmp_path):
+    result, report = _run(
+        tmp_path,
+        config_a={"label": "agent-a", "depth": 5},
+        config_b={"label": "agent-b", "depth": 1},
+        command_a=f"{sys.executable} {AGENT} --engine jarl --depth 5",
+        command_b=f"{sys.executable} {AGENT} --engine jarl --depth 1",
+        mode="fixed-time",
+        time_limit=0.4,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    evidence = [
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "agent-a"
+    ]
+    assert evidence
+    assert all(entry["settings"]["mode"] == "fixed-time" for entry in evidence)
+    assert all(0 < entry["depth"] <= 5 for entry in evidence)
+    assert all(entry["completion_reason"] in ("deadline", "completed") for entry in evidence)
+    assert tournament.validate_report(report)["ok"] is True
+
+
+def test_mcts_fixed_work_and_fixed_time_semantics(tmp_path):
+    result, report = _run(
+        tmp_path,
+        config_a={"label": "agent-a", **_seer_config(tmp_path)},
+        config_b=_scripted_b(),
+        command_a=_seer_command(),
+        command_b=_scripted_command(),
+        mode="fixed-work",
+        simulations=8,
+        time_limit=5,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    evidence = [
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "agent-a"
+    ]
+    assert all(entry["completion_reason"] == "simulations" for entry in evidence)
+    assert all(entry["completed_simulations"] == 8 for entry in evidence)
+    assert tournament.validate_report(report)["ok"] is True
+
+    result, report = _run(
+        tmp_path / "time",
+        config_a={"label": "agent-a", **_seer_config(tmp_path)},
+        config_b={"label": "agent-b", "depth": 1},
+        command_a=_seer_command(),
+        command_b=f"{sys.executable} {AGENT} --engine jarl --depth 1",
+        mode="fixed-time",
+        simulations=5000,
+        time_limit=0.2,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    evidence = [
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "agent-a"
+    ]
+    assert all(entry["settings"]["mode"] == "fixed-time" for entry in evidence)
+    assert all(entry["completion_reason"] in ("deadline", "simulations") for entry in evidence)
+    assert tournament.validate_report(report)["ok"] is True
+
+
+def test_incomplete_fixed_work_and_bad_reasons_are_rejected(tmp_path):
+    result, report = _run(
+        tmp_path,
+        config_a={"label": "agent-a", "depth": 3},
+        config_b=_scripted_b(),
+        command_a=f"{sys.executable} {AGENT} --engine jarl --depth 3",
+        command_b=_scripted_command(),
+        mode="fixed-work",
+    )
+    assert result.returncode == 0
+    game = next(game for game in report["games"] if game["agent_a_side"] == "attackers")
+    game["execution_evidence"][0]["depth"] = 1
+    game["execution_evidence"][0]["completion_reason"] = "deadline"
+    validated = tournament.validate_report(report)
+    assert validated["ok"] is False
+    assert any(
+        "unequal depth" in failure or "did not reach" in failure
+        for failure in validated["failures"]
+    )
+
+    result, report = _run(
+        tmp_path / "mcts",
+        config_a={"label": "agent-a", **_seer_config(tmp_path)},
+        config_b=_scripted_b(),
+        command_a=_seer_command(),
+        command_b=_scripted_command(),
+        mode="fixed-work",
+        simulations=8,
+        time_limit=5,
+    )
+    assert result.returncode == 0
+    game = next(game for game in report["games"] if game["agent_a_side"] == "attackers")
+    game["execution_evidence"][0]["completion_reason"] = "deadline"
+    validated = tournament.validate_report(report)
+    assert validated["ok"] is False
+
+    game["execution_evidence"][0]["provider"] = "wasm"
+    validated = tournament.validate_report(report)
+    assert validated["ok"] is False
+    assert any("provider" in failure for failure in validated["failures"])
+
+
+def test_unsupported_agent_mode_is_rejected_before_launch(tmp_path):
+    result, _ = _run(
+        tmp_path,
+        config_a={"label": "agent-a", "kind": "scripted", "algorithm": "scripted", "depth": None},
+        config_b=_scripted_b(),
+        command_a=_scripted_command(),
+        command_b=_scripted_command(),
+        mode="fixed-time",
+    )
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert any("fixed-time" in failure for failure in payload["failures"])
+
+
+def test_immediate_win_mcts_evidence_is_accepted(tmp_path):
+    from fixtures import jarl_positions
+
+    position = next(entry for entry in jarl_positions() if entry["name"] == "brandubh-king-escape")
+    openings = tmp_path / "immediate.json"
+    openings.write_text(
+        json.dumps({"openings": [{"name": position["name"], "state": position["state"]}]})
+    )
+    result, report = _run(
+        tmp_path,
+        config_a={
+            "label": "agent-a",
+            "kind": "native-seer",
+            "algorithm": "mcts",
+            "depth": None,
+            "model": None,
+        },
+        config_b=_scripted_b(),
+        command_a=_seer_command(),
+        command_b=_scripted_command(),
+        mode="fixed-work",
+        simulations=8,
+        time_limit=5,
+        max_plies=2,
+        opening_file=openings,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert tournament.validate_report(report)["ok"] is True

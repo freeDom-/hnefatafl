@@ -325,6 +325,14 @@ def _schema3_report(**overrides):
         "features": {"inference_cache": True},
         "events": {"cancellations": 1},
         "events_source": "telemetry",
+        "telemetry": {
+            "identity": {
+                "session_id": "session-a",
+                "model_sha256": "a" * 64,
+                "workload": "brandubh-opening",
+            }
+        },
+        "progress_consistency": {"verified": True},
         "samples": [
             {
                 "timestamp_ms": index * 12000,
@@ -336,6 +344,12 @@ def _schema3_report(**overrides):
                 "workers": 3,
                 "os_processes": 9,
                 "completed_requests": index,
+                "completed_requests_source": "telemetry",
+                "telemetry": {
+                    "session_id": "session-a",
+                    "model_sha256": "a" * 64,
+                    "workload": "brandubh-opening",
+                },
             }
             for index in range(16)
         ],
@@ -451,3 +465,40 @@ def test_lifecycle_events_must_be_observed_from_telemetry():
     result = mv.validate_report(report)
     assert result["structural_ok"] is False
     assert any("live telemetry" in failure for failure in result["failures"])
+
+
+def test_observation_window_boundary_gaps_are_enforced():
+    # Sufficient overall coverage but the first usable JS-heap observation is
+    # 24 s after the acceptance window starts (policy max gap is 12 s).
+    report = _schema3_report()
+    for sample in report["samples"]:
+        if sample["timestamp_ms"] < 84000:
+            sample.pop("js_heap_used_bytes")
+    report["unavailable_metrics"] = {"js_heap_used_bytes": "late JS telemetry"}
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True
+    assert result["measurement_ok"] is False
+    assert any("js_heap_used_bytes has a" in reason for reason in result["partial_reasons"])
+
+    # Same coverage, but the last usable observation is 24 s before the window end.
+    report = _schema3_report()
+    for sample in report["samples"]:
+        if sample["timestamp_ms"] > 156000:
+            sample.pop("js_heap_used_bytes")
+    report["unavailable_metrics"] = {"js_heap_used_bytes": "early JS telemetry stop"}
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True
+    assert result["measurement_ok"] is False
+    assert any("js_heap_used_bytes has a" in reason for reason in result["partial_reasons"])
+
+
+def test_boundary_gap_at_the_permitted_maximum_is_accepted():
+    report = _schema3_report()
+    next(sample for sample in report["samples"] if sample["timestamp_ms"] == 60000).pop(
+        "js_heap_used_bytes"
+    )
+    # First usable JS heap is now exactly 12000 ms after the window start.
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True, result["failures"]
+    assert result["measurement_ok"] is True, result["partial_reasons"]
+    assert result["acceptance_ok"] is True

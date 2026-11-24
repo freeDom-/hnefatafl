@@ -41,7 +41,10 @@
           "iterations": false,
           "time_limit": true,
           "depth": false
-        }
+        },
+        "modes": [
+          "fixed-work"
+        ]
       },
       "b": {
         "protocol": 2,
@@ -59,7 +62,11 @@
           "iterations": true,
           "time_limit": true,
           "depth": false
-        }
+        },
+        "modes": [
+          "fixed-work",
+          "fixed-time"
+        ]
       }
     },
     "settings": {
@@ -182,7 +189,10 @@
         "iterations": false,
         "time_limit": true,
         "depth": false
-      }
+      },
+      "modes": [
+        "fixed-work"
+      ]
     },
     "b": {
       "protocol": 2,
@@ -200,7 +210,11 @@
         "iterations": true,
         "time_limit": true,
         "depth": false
-      }
+      },
+      "modes": [
+        "fixed-work",
+        "fixed-time"
+      ]
     }
   },
   "settings": {
@@ -317,18 +331,21 @@
           "ply": 0,
           "turn": "attackers",
           "settings": {
-            "iterations": 4,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 0.5,
             "exploration": 1.4,
-            "seed": 5
+            "seed": 5,
+            "max_depth": null
           },
           "seed": 5,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.3036339767277241,
+          "elapsed_ms": 0.2768749836832285,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         },
         {
@@ -336,10 +353,12 @@
           "ply": 1,
           "turn": "defenders",
           "settings": {
+            "mode": "fixed-work",
             "iterations": 4,
             "time_limit": 0.5,
             "exploration": 1.4,
-            "seed": 6
+            "seed": 6,
+            "max_depth": null
           },
           "seed": 6,
           "algorithm": "mcts",
@@ -348,6 +367,7 @@
           "completion_reason": "simulations",
           "elapsed_ms": 42.0,
           "provider": "wasm",
+          "provider_requested": "wasm",
           "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78"
         }
       ],
@@ -458,18 +478,21 @@
           "ply": 0,
           "turn": "attackers",
           "settings": {
+            "mode": "fixed-work",
             "iterations": 4,
             "time_limit": 0.5,
             "exploration": 1.4,
-            "seed": 6
+            "seed": 6,
+            "max_depth": null
           },
           "seed": 6,
           "algorithm": "mcts",
           "completed_simulations": 4,
           "depth": null,
           "completion_reason": "simulations",
-          "elapsed_ms": 21.0,
+          "elapsed_ms": 22.0,
           "provider": "wasm",
+          "provider_requested": "wasm",
           "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78"
         },
         {
@@ -477,18 +500,21 @@
           "ply": 1,
           "turn": "defenders",
           "settings": {
-            "iterations": 4,
+            "mode": "fixed-work",
+            "iterations": null,
             "time_limit": 0.5,
             "exploration": 1.4,
-            "seed": 7
+            "seed": 7,
+            "max_depth": null
           },
           "seed": 7,
           "algorithm": "scripted",
           "completed_simulations": null,
           "depth": null,
           "completion_reason": "completed",
-          "elapsed_ms": 0.04107301356270909,
+          "elapsed_ms": 0.04118599463254213,
           "provider": "cpu",
+          "provider_requested": "cpu",
           "model_sha256": null
         }
       ],
@@ -547,5 +573,5 @@
     "reason": "structural tournament evidence is not playing-strength evidence"
   },
   "authoritative": false,
-  "ok": false
+  "ok": true
 }

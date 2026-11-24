@@ -80,6 +80,14 @@ AGENT_KINDS = (
 )
 NEURAL_KINDS = ("native-neural", "browser-neural")
 BROWSER_KINDS = ("browser-neural", "browser-jarl")
+AGENT_MODES = {
+    "scripted": ("fixed-work",),
+    "native-jarl": ("fixed-work", "fixed-time"),
+    "native-seer": ("fixed-work", "fixed-time"),
+    "native-neural": ("fixed-work", "fixed-time"),
+    "browser-neural": ("fixed-work", "fixed-time"),
+    "browser-jarl": ("fixed-work", "fixed-time"),
+}
 
 
 class AgentTimeoutError(TimeoutError):
@@ -103,36 +111,117 @@ def _close_stream(stream) -> str | None:
     return None
 
 
-def _terminate_process_tree(process: subprocess.Popen, allowance: float) -> list[str]:
+def _process_start_time(pid: int) -> int | None:
+    """Linux boot-relative start time used to avoid signalling a reused PID."""
+    if not Path("/proc").is_dir():
+        return None
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text()
+        tail = stat_text[stat_text.rfind(")") + 2 :].split()
+        return int(tail[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _owned_group_members(pgid: int, minimum_start_time: int | None) -> list[tuple[int, int]]:
+    """Return (pid, start_time) for processes still in the captured group.
+
+    Only processes created no earlier than the owned root are considered, which
+    prevents a recycled process-group id from targeting pre-existing unrelated
+    processes.
+    """
+    if not Path("/proc").is_dir():
+        return []
+    members: list[tuple[int, int]] = []
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return []
+    for name in names:
+        if not name.isdigit():
+            continue
+        pid = int(name)
+        try:
+            stat_text = Path(f"/proc/{pid}/stat").read_text()
+            tail = stat_text[stat_text.rfind(")") + 2 :].split()
+            process_group = int(tail[2])
+            start_time = int(tail[19])
+        except (OSError, IndexError, ValueError):
+            continue
+        if process_group != pgid:
+            continue
+        if minimum_start_time is not None and start_time < minimum_start_time:
+            continue
+        members.append((pid, start_time))
+    return members
+
+
+def _signal_member(pid: int, start_time: int, signum: int) -> None:
+    """Signal one verified process instance, binding the pid via pidfd if available."""
+    if (
+        hasattr(os, "pidfd_open")
+        and hasattr(signal, "pidfd_send_signal")
+        and _process_start_time(pid) == start_time
+    ):
+        try:
+            descriptor = os.pidfd_open(pid)
+        except (OSError, ProcessLookupError):
+            return
+        try:
+            signal.pidfd_send_signal(descriptor, signum)
+        finally:
+            os.close(descriptor)
+        return
+    if _process_start_time(pid) != start_time:
+        return
+    try:
+        os.kill(pid, signum)
+    except (ProcessLookupError, OSError):
+        pass
+
+
+def _terminate_process_tree(
+    process: subprocess.Popen,
+    process_group: int | None,
+    root_start_time: int | None,
+    allowance: float,
+) -> list[str]:
     """Terminate the owned process group/tree before any stream cleanup.
 
-    The child is started in its own session/process group on POSIX and in a new
-    process group on Windows, so descendants cannot escape termination and no
-    unrelated process is signalled.
+    The captured group id and root start time are used instead of rediscovering
+    the group through the immediate child, so descendants are still terminated
+    after the parent exits. Members are signalled individually through pidfds
+    where available, never blindly via a recycled group id.
     """
     failures: list[str] = []
     pid = getattr(process, "pid", None)
     if type(pid) is not int or pid <= 0:
         return ["process has no valid pid"]
     deadline = time.monotonic() + allowance
-    if os.name == "posix":
-        try:
-            pgid = os.getpgid(pid)
-        except (ProcessLookupError, OSError):
-            pgid = None
-        if pgid == pid and pgid != os.getpgrp():
-            try:
-                os.killpg(pgid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            except OSError as error:
-                failures.append(f"process-group terminate failed: {error}")
-        else:
-            try:
-                process.terminate()
-            except (ProcessLookupError, OSError):
-                pass
+    if os.name == "posix" and process_group is not None and process_group != os.getpgrp():
+        members = _owned_group_members(process_group, root_start_time)
+        for member_pid, member_start in members:
+            _signal_member(member_pid, member_start, signal.SIGTERM)
+        # Wait for graceful exit even when the immediate parent has already gone.
+        grace_deadline = min(deadline, time.monotonic() + PROCESS_KILL_GRACE)
+        while time.monotonic() < grace_deadline:
+            if not _owned_group_members(process_group, root_start_time):
+                break
+            time.sleep(0.02)
+        remaining = _owned_group_members(process_group, root_start_time)
+        for member_pid, member_start in remaining:
+            _signal_member(member_pid, member_start, signal.SIGKILL)
+        # Escalation must not depend on the immediate parent still being alive.
+        while time.monotonic() < deadline:
+            if not _owned_group_members(process_group, root_start_time):
+                break
+            time.sleep(0.02)
+        if _owned_group_members(process_group, root_start_time):
+            failures.append("owned process-group members survived the cleanup allowance")
     elif os.name == "nt":
+        # Windows process groups cannot be enumerated after the parent exits;
+        # taskkill /T is only reliable while the root is alive. This limitation is
+        # documented in the Phase 3C-A runbook.
         try:
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
@@ -143,31 +232,16 @@ def _terminate_process_tree(process: subprocess.Popen, allowance: float) -> list
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             failures.append(f"taskkill failed: {error}")
+    # Reap the immediate child if it is still present.
     try:
-        process.wait(timeout=max(0.05, min(PROCESS_KILL_GRACE, deadline - time.monotonic())))
+        process.wait(timeout=max(0.05, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
-        if os.name == "posix":
-            try:
-                pgid = os.getpgid(pid)
-            except (ProcessLookupError, OSError):
-                pgid = None
-            if pgid == pid and pgid != os.getpgrp():
-                try:
-                    os.killpg(pgid, signal.SIGKILL)
-                except (ProcessLookupError, OSError):
-                    pass
-            else:
-                try:
-                    process.kill()
-                except (ProcessLookupError, OSError):
-                    pass
-        else:
-            try:
-                process.kill()
-            except (ProcessLookupError, OSError):
-                pass
         try:
-            process.wait(timeout=max(0.05, min(PROCESS_KILL_GRACE, deadline - time.monotonic())))
+            process.kill()
+        except (ProcessLookupError, OSError):
+            pass
+        try:
+            process.wait(timeout=max(0.05, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
             failures.append("process could not be reaped within the cleanup allowance")
     return failures
@@ -218,6 +292,9 @@ class JsonProcessAgent:
         self._threads: list[threading.Thread] = []
         self._writers: list[threading.Thread] = []
         self._cleanup_failures: deque[str] = deque(maxlen=8)
+        self._process_group: int | None = None
+        self._root_start_time: int | None = None
+        self.last_process_group: int | None = None
         self._failure: str | None = None
         self.expected_identity = dict(expected_identity) if expected_identity else None
         self.handshake: dict | None = None
@@ -240,7 +317,9 @@ class JsonProcessAgent:
             process = self.process
             self._cleanup_failures.append("close could not acquire adapter ownership")
             if process is not None:
-                for failure in _terminate_process_tree(process, CLEANUP_ALLOWANCE):
+                for failure in _terminate_process_tree(
+                    process, self._process_group, self._root_start_time, CLEANUP_ALLOWANCE
+                ):
                     self._cleanup_failures.append(failure)
             return
         try:
@@ -251,16 +330,24 @@ class JsonProcessAgent:
 
     def _stop_generation(self) -> None:
         process = self.process
+        group = self._process_group
+        root_start = self._root_start_time
+        self.last_process_group = group
         self.process = None
+        self._process_group = None
+        self._root_start_time = None
         threads = self._threads
         self._threads = []
         writers = self._writers
         self._writers = []
         cleanup_deadline = time.monotonic() + CLEANUP_ALLOWANCE
-        # Terminate the owned process tree BEFORE touching buffered streams: a
-        # writer thread may hold the stdin lock or be blocked on a full pipe.
+        # Terminate the captured group/tree BEFORE touching buffered streams: a
+        # writer may hold the stdin lock and readers may be blocked on inherited
+        # pipe handles held by surviving descendants.
         if process is not None:
-            for failure in _terminate_process_tree(process, CLEANUP_ALLOWANCE):
+            for failure in _terminate_process_tree(
+                process, group, root_start, CLEANUP_ALLOWANCE
+            ):
                 self._cleanup_failures.append(failure)
         for writer in writers:
             writer.join(timeout=max(0.0, min(PROCESS_KILL_GRACE, cleanup_deadline - time.monotonic())))
@@ -269,18 +356,6 @@ class JsonProcessAgent:
             self._cleanup_failures.append(
                 f"{len(stuck_writers)} writer thread(s) did not terminate within the allowance"
             )
-        if process is not None:
-            # Only close stdin once the writer cannot be holding its lock. If a
-            # writer is still stuck, leaving the handle to process teardown is
-            # safer than blocking cleanup indefinitely.
-            if not stuck_writers:
-                failure = _close_stream(process.stdin)
-                if failure:
-                    self._cleanup_failures.append(failure)
-            for stream in (process.stdout, process.stderr):
-                failure = _close_stream(stream)
-                if failure:
-                    self._cleanup_failures.append(failure)
         for thread in threads:
             thread.join(timeout=max(0.0, min(PROCESS_KILL_GRACE, cleanup_deadline - time.monotonic())))
         stuck_threads = [thread for thread in threads if thread.is_alive()]
@@ -288,6 +363,19 @@ class JsonProcessAgent:
             self._cleanup_failures.append(
                 f"{len(stuck_threads)} reader thread(s) did not terminate within the allowance"
             )
+        if process is not None:
+            # Never synchronously close a buffered stream whose reader/writer is
+            # still alive: it may hold the stream lock while blocked. Leaving that
+            # handle to process teardown is safer than blocking cleanup.
+            if not stuck_writers:
+                failure = _close_stream(process.stdin)
+                if failure:
+                    self._cleanup_failures.append(failure)
+            if not stuck_threads:
+                for stream in (process.stdout, process.stderr):
+                    failure = _close_stream(stream)
+                    if failure:
+                        self._cleanup_failures.append(failure)
 
     def _record_stderr(self, line: str) -> None:
         encoded = len(line.encode("utf-8", "replace"))
@@ -322,6 +410,11 @@ class JsonProcessAgent:
         except OSError as error:
             raise AgentProtocolError(f"cannot start agent process: {error}") from None
         self.process = process
+        if os.name == "posix":
+            self._process_group = process.pid
+        else:
+            self._process_group = process.pid
+        self._root_start_time = _process_start_time(process.pid)
 
         def pump_stdout(generation: int, stream, target: queue.Queue) -> None:
             try:
@@ -545,14 +638,19 @@ class JsonProcessAgent:
         effective = evidence.get("settings")
         if not isinstance(effective, dict):
             raise self._fail("agent evidence lacks effective settings")
-        for field in ("iterations", "time_limit", "exploration"):
-            if field in settings and effective.get(field) != settings.get(field):
-                raise self._fail(f"agent evidence {field} does not match the request")
+        if effective.get("mode") != settings.get("mode", "fixed-work"):
+            raise self._fail("agent evidence mode does not match the tournament mode")
         if effective.get("seed") != seed or evidence.get("seed") != seed:
             raise self._fail("agent evidence seed does not match the request")
         algorithm = evidence.get("algorithm")
         if not isinstance(algorithm, str) or algorithm != self.expected_identity.get("algorithm"):
             raise self._fail("agent evidence algorithm does not match the handshake")
+        for field in ("time_limit", "exploration"):
+            if field in settings and effective.get(field) != settings.get(field):
+                raise self._fail(f"agent evidence {field} does not match the request")
+        if algorithm in ("mcts", "neural-mcts-puct-v1"):
+            if effective.get("iterations") != settings.get("iterations"):
+                raise self._fail("agent evidence iterations do not match the request")
         completed = evidence.get("completed_simulations")
         if completed is not None:
             if type(completed) is not int or completed < 0:
@@ -579,7 +677,27 @@ class JsonProcessAgent:
         ):
             raise self._fail("agent evidence elapsed_ms is invalid")
         provider = evidence.get("provider")
-        if provider != self.expected_identity.get("provider"):
+        requested = evidence.get("provider_requested")
+        expected_provider = self.expected_identity.get("provider")
+        if requested != expected_provider:
+            raise self._fail("agent evidence requested provider does not match the handshake")
+        if expected_provider in ("wasm", "webgpu"):
+            if provider == "wasm" and expected_provider == "webgpu":
+                raise self._fail("agent evidence silently fell back from WebGPU to WASM")
+            if provider == "cpu-fallback":
+                raise self._fail("agent evidence reports an explicit CPU fallback")
+            allowed = (
+                {"wasm"}
+                if expected_provider == "wasm"
+                else {
+                    "webgpu-session-unverified",
+                    "webgpu-mixed",
+                    "webgpu-session-verified",
+                }
+            )
+            if provider not in allowed:
+                raise self._fail("agent evidence placement is not the requested provider")
+        elif provider != expected_provider:
             raise self._fail("agent evidence provider does not match the handshake")
         model_digest = evidence.get("model_sha256")
         expected_digest = self.expected_identity.get("model_sha256")
@@ -587,10 +705,12 @@ class JsonProcessAgent:
             raise self._fail("agent evidence model identity does not match the handshake")
         return {
             "settings": {
+                "mode": effective.get("mode"),
                 "iterations": effective.get("iterations"),
                 "time_limit": effective.get("time_limit"),
                 "exploration": effective.get("exploration"),
                 "seed": effective.get("seed"),
+                "max_depth": effective.get("max_depth"),
             },
             "seed": seed,
             "algorithm": algorithm,
@@ -599,6 +719,7 @@ class JsonProcessAgent:
             "completion_reason": reason,
             "elapsed_ms": float(elapsed),
             "provider": provider,
+            "provider_requested": requested,
             "model_sha256": model_digest,
         }
 
@@ -611,6 +732,8 @@ class JsonProcessAgent:
             "running": self.process is not None and self.process.poll() is None,
             "cleanup_failures": list(self._cleanup_failures),
             "handshake": self.handshake,
+            "process_group": self._process_group,
+            "last_process_group": self.last_process_group,
             "request_deadline_s": self.timeout,
             "cleanup_allowance_s": CLEANUP_ALLOWANCE,
         }
@@ -755,6 +878,7 @@ def play_game(
         "time_limit": time_limit,
         "exploration": 1.4,
         "seed": seed,
+        "mode": mode,
     }
     game = {
         "opening": opening["name"],
@@ -885,6 +1009,11 @@ def run_paired_openings(
     if len(set(names)) != len(names):
         raise ValueError("opening identities must be unique")
     config = _agent_config(labels, agent_config)
+    for key in ("a", "b"):
+        entry = config.get(key) if isinstance(config.get(key), dict) else {}
+        kind = entry.get("kind")
+        if not isinstance(kind, str) or mode not in AGENT_MODES.get(kind, ()):
+            raise ValueError(f"agent {key} kind {kind!r} does not support {mode} mode")
     settings = {
         "simulations": simulations,
         "iterations": simulations,
@@ -1108,7 +1237,9 @@ def _replay(opening: State, moves: list[dict]) -> State:
     return state
 
 
-def _validate_agent_config(config: Any, agents: dict, ruleset: str, failures: list[str]) -> None:
+def _validate_agent_config(
+    config: Any, agents: dict, ruleset: str, failures: list[str], mode: str = "fixed-work"
+) -> None:
     if not isinstance(config, dict) or set(config) != {"a", "b"}:
         failures.append("agent_config must describe both agents")
         return
@@ -1158,6 +1289,8 @@ def _validate_agent_config(config: Any, agents: dict, ruleset: str, failures: li
             failures.append(f"agent_config.{key} algorithm is missing or unsupported")
         if algorithm == "alpha_beta" and not _positive_int(entry.get("depth")):
             failures.append(f"agent_config.{key} alpha-beta depth is missing")
+        if not isinstance(kind, str) or mode not in AGENT_MODES.get(kind, ()):
+            failures.append(f"agent_config.{key} does not support the {mode} execution mode")
 
 
 def _validate_agent_handshakes(config, handshakes, failures: list[str]) -> None:
@@ -1241,6 +1374,7 @@ def _validate_execution_evidence(
         state = State.from_dict(opening_state)
     except (ValueError, KeyError, TypeError):
         return
+    starting_ply = state.ply
     turns = []
     for move in moves:
         turns.append(state.turn)
@@ -1254,12 +1388,19 @@ def _validate_execution_evidence(
             failures.append(f"{label}: execution evidence entry is not an object")
             continue
         ply = entry.get("ply")
-        if type(ply) is not int or ply in by_ply:
-            failures.append(f"{label}: execution evidence ply is invalid or duplicated")
+        if type(ply) is not int:
+            failures.append(f"{label}: execution evidence ply is invalid")
+            continue
+        if ply in by_ply:
+            failures.append(f"{label}: execution evidence ply is duplicated")
+            continue
+        if ply < starting_ply or ply >= starting_ply + len(turns):
+            failures.append(f"{label}: execution evidence ply is out of range")
             continue
         by_ply[ply] = entry
     game_seed = game.get("seed")
-    for ply, turn in enumerate(turns):
+    for relative_ply, turn in enumerate(turns):
+        ply = starting_ply + relative_ply
         side = "a" if turn == "attackers" else "b"
         # Determine which declared agent played this turn from the role mapping.
         if game.get("agent_a_side") == turn:
@@ -1282,7 +1423,21 @@ def _validate_execution_evidence(
             failures.append(f"{label}: execution evidence seed does not match the move seed")
         if observation.get("algorithm") != entry.get("algorithm"):
             failures.append(f"{label}: execution evidence algorithm mismatch")
-        if observation.get("provider") != entry.get("provider"):
+        requested_provider = entry.get("provider")
+        reported_requested = observation.get("provider_requested")
+        observed_provider = observation.get("provider")
+        if reported_requested != requested_provider:
+            failures.append(f"{label}: execution evidence requested provider mismatch")
+        if requested_provider == "webgpu":
+            if observed_provider not in (
+                "webgpu-session-unverified",
+                "webgpu-mixed",
+                "webgpu-session-verified",
+            ):
+                failures.append(
+                    f"{label}: execution evidence did not observe a WebGPU placement"
+                )
+        elif observed_provider != requested_provider:
             failures.append(f"{label}: execution evidence provider mismatch")
         model = entry.get("model")
         if isinstance(model, dict):
@@ -1292,24 +1447,75 @@ def _validate_execution_evidence(
         if not isinstance(effective, dict):
             failures.append(f"{label}: execution evidence settings are missing")
             continue
-        for field in ("iterations", "time_limit", "exploration"):
-            if effective.get(field) != settings.get(field):
-                failures.append(f"{label}: execution evidence {field} mismatch")
+        if effective.get("mode") != mode:
+            failures.append(f"{label}: execution evidence mode mismatch")
+        if effective.get("seed") != game_seed + ply:
+            failures.append(f"{label}: execution evidence effective seed mismatch")
+        if effective.get("time_limit") != settings.get("time_limit"):
+            failures.append(f"{label}: execution evidence time_limit mismatch")
+        if effective.get("exploration") != settings.get("exploration"):
+            failures.append(f"{label}: execution evidence exploration mismatch")
         completed = observation.get("completed_simulations")
         reason = observation.get("completion_reason")
-        if reason not in EVIDENCE_REASONS:
-            failures.append(f"{label}: execution evidence completion reason is invalid")
-        if entry.get("algorithm") == "alpha_beta":
-            if observation.get("depth") != entry.get("depth"):
-                failures.append(f"{label}: execution evidence depth mismatch")
+        algorithm = entry.get("algorithm")
+        if algorithm == "alpha_beta":
+            if reason not in ("completed", "deadline", "immediate_win", "terminal"):
+                failures.append(f"{label}: alpha-beta completion reason is invalid")
+            max_depth = effective.get("max_depth")
+            recorded_depth = observation.get("depth")
+            if max_depth != entry.get("depth"):
+                failures.append(f"{label}: execution evidence max depth mismatch")
+            if type(recorded_depth) is not int or recorded_depth < 0:
+                failures.append(f"{label}: execution evidence completed depth is invalid")
+            elif _positive_int(entry.get("depth")) and recorded_depth > entry["depth"]:
+                failures.append(f"{label}: execution evidence depth exceeds the configured cap")
+            elif mode == "fixed-work":
+                if reason not in ("immediate_win", "terminal"):
+                    if reason != "completed":
+                        failures.append(
+                            f"{label}: fixed-work alpha-beta did not reach its depth limit"
+                        )
+                    elif recorded_depth != entry.get("depth"):
+                        failures.append(
+                            f"{label}: fixed-work alpha-beta completed unequal depth"
+                        )
+            elif mode == "fixed-time":
+                if type(recorded_depth) is not int or recorded_depth < 1:
+                    failures.append(
+                        f"{label}: fixed-time alpha-beta completed no usable depth"
+                    )
+                if reason == "deadline" and recorded_depth == entry.get("depth"):
+                    failures.append(
+                        f"{label}: deadline reason contradicts a completed maximum depth"
+                    )
+                if reason == "completed" and recorded_depth != entry.get("depth"):
+                    failures.append(
+                        f"{label}: completed reason contradicts the recorded depth"
+                    )
         else:
+            if reason not in ("simulations", "deadline", "immediate_win", "terminal"):
+                failures.append(f"{label}: MCTS completion reason is invalid")
+            if effective.get("iterations") != settings.get("iterations"):
+                failures.append(f"{label}: execution evidence iterations mismatch")
             if type(completed) is not int or completed < 0:
                 failures.append(f"{label}: execution evidence completed work is unknown")
             elif completed > settings["iterations"]:
                 failures.append(f"{label}: execution evidence exceeds the simulation budget")
-            elif mode == "fixed-work" and completed != settings["iterations"]:
+            elif mode == "fixed-work":
                 if reason not in ("immediate_win", "terminal"):
-                    failures.append(f"{label}: fixed-work agent completed unequal work")
+                    if reason != "simulations":
+                        failures.append(
+                            f"{label}: fixed-work MCTS did not complete its simulation budget"
+                        )
+                    elif completed != settings["iterations"]:
+                        failures.append(f"{label}: fixed-work MCTS completed unequal work")
+            elif mode == "fixed-time":
+                if reason == "simulations" and completed != settings["iterations"]:
+                    failures.append(
+                        f"{label}: simulation-era reason contradicts completed work"
+                    )
+                if reason == "deadline" and completed > settings["iterations"]:
+                    failures.append(f"{label}: deadline completion exceeds the ceiling")
         elapsed = observation.get("elapsed_ms")
         if (
             isinstance(elapsed, bool)
@@ -1319,8 +1525,8 @@ def _validate_execution_evidence(
         ):
             failures.append(f"{label}: execution evidence elapsed time is invalid")
         elif mode == "fixed-time":
-            if reason not in ("deadline", "immediate_win", "terminal"):
-                failures.append(f"{label}: fixed-time agent did not stop at its deadline")
+            if reason not in ("deadline", "simulations", "completed", "immediate_win", "terminal"):
+                failures.append(f"{label}: fixed-time agent used an unsupported completion reason")
             if float(elapsed) > settings["time_limit"] * 1000.0 + 2000.0:
                 failures.append(f"{label}: fixed-time agent exceeded its time budget")
 
@@ -1435,7 +1641,11 @@ def validate_report(report: dict) -> dict:
         max_plies = 0
     ruleset = report.get("ruleset")
     _validate_agent_config(
-        report.get("agent_config"), agents, ruleset if isinstance(ruleset, str) else "", failures
+        report.get("agent_config"),
+        agents,
+        ruleset if isinstance(ruleset, str) else "",
+        failures,
+        mode,
     )
     _validate_agent_handshakes(report.get("agent_config"), report.get("agent_handshakes"), failures)
     manifest_openings = manifest.get("openings") if isinstance(manifest.get("openings"), list) else []
@@ -1757,6 +1967,7 @@ def _expected_identity(entry: dict) -> dict:
         "runtime": entry.get("runtime"),
         "provider": entry.get("provider"),
         "algorithm": algorithm,
+        "modes": list(AGENT_MODES.get(kind, ())),
     }
     if algorithm == "alpha_beta":
         if not _positive_int(entry.get("depth")):
@@ -1802,6 +2013,13 @@ def _run_cli(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         }
         openings = _load_openings(args.openings_file, args.ruleset, args.limit)
         labels = (config["a"].get("label"), config["b"].get("label"))
+        for key in ("a", "b"):
+            entry = config[key] if isinstance(config[key], dict) else {}
+            kind = entry.get("kind")
+            if not isinstance(kind, str) or args.mode not in AGENT_MODES.get(kind, ()):
+                raise ValueError(
+                    f"agent {key} kind {kind!r} does not support {args.mode} mode"
+                )
         deadline = float(args.agent_timeout)
         with _agent_from_command(
             shlex.split(args.agent_a_command),

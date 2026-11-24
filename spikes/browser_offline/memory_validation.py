@@ -100,6 +100,8 @@ def _coverage(
     reason: str | None,
     failures: list[str],
     partial: list[str],
+    window_start_ms: float | None = None,
+    window_end_ms: float | None = None,
 ) -> dict:
     points = []
     for sample in measured:
@@ -111,7 +113,13 @@ def _coverage(
     gaps = [
         points[index][0] - points[index - 1][0] for index in range(1, len(points))
     ]
-    longest_gap = max(gaps) if gaps else None
+    boundary_gaps = []
+    if points and window_start_ms is not None:
+        boundary_gaps.append(max(0.0, points[0][0] - window_start_ms))
+    if points and window_end_ms is not None:
+        boundary_gaps.append(max(0.0, window_end_ms - points[-1][0]))
+    all_gaps = gaps + boundary_gaps
+    longest_gap = max(all_gaps) if all_gaps else None
     info = {
         "usable": len(points),
         "of": len(measured),
@@ -385,7 +393,47 @@ def validate_report(report: dict) -> dict:
         if workers and min(workers) < 1:
             fail("lifecycle profile reports a period without an active worker")
     partial_reasons: list[str] = []
+    if schema >= 3:
+        identity = (report.get("telemetry") or {}).get("identity") if isinstance(
+            report.get("telemetry"), dict
+        ) else None
+        for index, sample in enumerate(measured):
+            telemetry = sample.get("telemetry")
+            if telemetry is None:
+                if sample.get("telemetry_unavailable_reason"):
+                    partial_reasons.append(
+                        f"sample {index} has no usable live telemetry: "
+                        f"{sample['telemetry_unavailable_reason']}"
+                    )
+                else:
+                    fail(f"sample {index} has no live telemetry identity")
+                continue
+            if not isinstance(telemetry, dict) or any(
+                not isinstance(telemetry.get(field), str) or not telemetry.get(field)
+                for field in ("session_id", "model_sha256", "workload")
+            ):
+                fail(f"sample {index} telemetry identity is incomplete")
+                continue
+            if isinstance(identity, dict) and any(
+                telemetry.get(field) != identity.get(field)
+                for field in ("session_id", "model_sha256", "workload")
+            ):
+                fail(f"sample {index} telemetry identity is inconsistent")
+        sources = {
+            sample.get("completed_requests_source") for sample in measured
+        }
+        if sources != {"telemetry"}:
+            partial_reasons.append(
+                "workload progress is not exclusively from the live telemetry session"
+            )
+        consistency = report.get("progress_consistency")
+        if not isinstance(consistency, dict) or consistency.get("verified") is not True:
+            partial_reasons.append(
+                "progress-file/telemetry consistency was not verified for acceptance"
+            )
     coverage: dict[str, dict] = {}
+    coverage_window_start = window_start
+    coverage_window_end = window_start + window_ms
     coverage["process_rss_bytes"] = _coverage(
         "process_rss_bytes",
         measured,
@@ -396,6 +444,8 @@ def validate_report(report: dict) -> dict:
         or report.get("rss_acceptance_unavailable_reason"),
         failures=failures,
         partial=partial_reasons,
+        window_start_ms=coverage_window_start,
+        window_end_ms=coverage_window_end,
     )
     observed_rss = coverage["process_rss_bytes"]["usable"] > 0
     js_reason = unavailable.get("js_heap_used_bytes") or report.get(
@@ -412,6 +462,8 @@ def validate_report(report: dict) -> dict:
         reason=js_reason,
         failures=failures,
         partial=partial_reasons,
+        window_start_ms=coverage_window_start,
+        window_end_ms=coverage_window_end,
     )
     cache_reason = unavailable.get("cache_bytes") or unavailable.get("cache_entries")
     cache_values = any(
@@ -437,6 +489,8 @@ def validate_report(report: dict) -> dict:
             reason=cache_reason,
             failures=failures,
             partial=partial_reasons,
+            window_start_ms=coverage_window_start,
+            window_end_ms=coverage_window_end,
         )
         coverage["cache_entries"] = _coverage(
             "cache_entries",
@@ -447,6 +501,8 @@ def validate_report(report: dict) -> dict:
             reason=cache_reason,
             failures=failures,
             partial=partial_reasons,
+            window_start_ms=coverage_window_start,
+            window_end_ms=coverage_window_end,
         )
     wasm_values = any(
         _number(sample.get("wasm_heap_capacity_bytes"), allow_none=False) for sample in measured
@@ -467,6 +523,8 @@ def validate_report(report: dict) -> dict:
             reason=wasm_reason,
             failures=failures,
             partial=partial_reasons,
+            window_start_ms=coverage_window_start,
+            window_end_ms=coverage_window_end,
         )
     coverage["workers"] = _coverage(
         "workers",
@@ -477,6 +535,8 @@ def validate_report(report: dict) -> dict:
         reason=unavailable.get("workers") or "browser worker telemetry was not reported",
         failures=failures,
         partial=partial_reasons,
+        window_start_ms=coverage_window_start,
+        window_end_ms=coverage_window_end,
     )
     for metric, budget in (
         ("process_rss_bytes", budgets.get("max_process_rss_bytes")),

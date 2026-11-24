@@ -44,6 +44,16 @@ opt-in. Single-tree batching and subtree reuse remain deferred.
 | Q5 | Device evidence now requires explicit `physical`/`emulated` provenance and a session identity, binds GPU session model/browser/runtime/workload/session identity, requires ordered observed cancellation timestamps, and keeps verified-GPU evidence through a code-controlled runtime registry that is empty for the pinned ORT Web runtime. Manually supplied matching operator lists cannot become acceptance. | `tests/test_device_evidence.py`: emulated matrix cannot satisfy physical acceptance, matching manual lists rejected as unsupported runtime claims, session/model/browser identity mismatches, missing/out-of-order cancellation timestamps. |
 | Q6 | Memory validation enforces per-metric coverage (RSS ≥80 %, ≥5 usable; JS heap/cache/WASM/workers ≥80 %, ≥5 usable), longest usable-observation gaps, complete acceptance-window coverage, explicit inapplicability rules and telemetry-observed lifecycle events. Missing mandatory metrics make the result partial/blocked, never accepted. | `tests/test_memory_validation.py`: warmup-only RSS, shortened window, sparse JS heap, longest-gap, worker/cache/WASM coverage, manual lifecycle events, schema-3 window boundaries. |
 
+## 0.2 Final targeted correction (T1–T5)
+
+| Finding | Correction | Regression proof |
+| --- | --- | --- |
+| T1 | The adapter captures the owned process-group id and root start time at launch and terminates verified group members through pidfds (or verified PIDs), so cleanup no longer depends on the immediate child being alive. SIGTERM is escalated to SIGKILL after the grace period even if the parent exited; readers are joined before streams are closed, and a still-blocked reader is never synchronously closed. | `tests/bounded_tree_probe.py` (external watchdog) covers a parent that exits immediately, a parent exiting on SIGTERM with a SIGTERM-ignoring descendant, a descendant retaining stdout/stderr, bounded cleanup, no surviving owned group members/threads and same-instance recovery. |
+| T2 | Execution evidence uses one explicit convention: absolute engine ply. The validator derives `starting_ply + relative replay index`, rejects out-of-range/duplicate/missing entries and recomputes `game_seed + absolute_ply`. | `test_noninitial_opening_execution_evidence_uses_absolute_ply` runs the real Jarl adapter on a midgame opening (ply > 0) and rejects ply/seed mutations. |
+| T3 | The tournament mode is passed in request settings and supported-mode maps are enforced before launch. Fixed-work MCTS requires completed simulations; fixed-work alpha-beta requires completed configured depth. Fixed-time accepts deadline-limited alpha-beta depth and deadline/ceiling MCTS completion, reports actual depth/completed work and effective settings, and binds browser placement (`wasm`, WebGPU session placement, rejecting CPU fallback). | `tests/test_tournament_execution.py`: Jarl fixed-work, Jarl deadline-limited fixed-time, MCTS fixed-work/fixed-time, immediate-win, bad completion reasons, incomplete fixed-work, provider/placement mismatch and unsupported scripted fixed-time. |
+| T4 | `_coverage()` now includes the gap from acceptance-window start to the first usable observation and from the last usable observation to window end, in addition to internal gaps, for every applicable mandatory metric. | `tests/test_memory_validation.py`: sufficient coverage with excessive leading/trailing gaps is partial, while a boundary gap exactly at the 12 s policy maximum is accepted. |
+| T5 | Telemetry requires all three identity fields in every accepted record once identity is established; workload progress prefers the telemetry counter, records provenance, verifies file/telemetry consistency, and blocks acceptance on counter resets. Lifecycle events are derived only inside the acceptance window. History is bounded (4096 records) and no longer repeatedly sorted. | `tests/test_phase3c_workflow.py`: missing identity fields, mismatched-session progress, warmup-only events, acceptance-window events, counter reset, and a 5000-record bounded-history stream. |
+
 ## 1. Strict detach acknowledgments (preserved)
 
 `NeuralClient.detachDirectPort()` accepts only a matching request id on the
@@ -224,6 +234,12 @@ prefix, and terminal reasons/move-limit outcomes are recomputed. Summary totals,
 role/agent statistics and bootstrap values are recomputed from the games after
 canonical pair ordering.
 
+Execution-evidence plies use one explicit convention: the absolute engine ply. For
+a noninitial opening the validator derives each expected evidence ply as
+`starting_ply + relative_replay_index` and the expected move seed as
+`game_seed + absolute_ply`; evidence outside that range, duplicated or missing is
+rejected.
+
 Process protocol (persistent, newline-delimited JSON, version 2):
 
 ```text
@@ -240,23 +256,48 @@ response:  {"id": "<same>", "move": {"source": 0, "target": 1},
 ```
 
 The adapter requires the handshake before admitting the agent and compares kind,
-runtime, provider, algorithm, depth and model/weight/ruleset/size identities with
-the declared configuration. A scripted adapter configured as Jarl, or any other
-command/config mismatch, aborts the tournament instead of being recorded as a
-game failure. Every move's evidence must match the request seed and effective
-settings; MCTS reports completed simulations, alpha-beta reports its completed
-depth. `--mode fixed-work|fixed-time` is explicit in the manifest and per game;
-fixed-work requires equal completed work, fixed-time requires deadline termination
-and records the elapsed time. Unknown budgets are not equal-work evidence.
+runtime, provider, algorithm, depth, supported modes and
+model/weight/ruleset/size identities with the declared configuration. A scripted
+adapter configured as Jarl, an unsupported agent/mode combination, or any other
+command/config mismatch aborts the tournament before play instead of being
+recorded as a game failure.
+
+`--mode fixed-work|fixed-time` is passed in the request settings, recorded in the
+manifest and per game, and supported modes are declared per kind (`scripted`
+supports structural fixed-work only; Jarl, Seer and neural/browser agents support
+both). Fixed-work semantics are algorithm-specific:
+
+- MCTS must report `completion_reason: simulations` with completed simulations
+  equal to the requested budget (immediate-win/terminal shortcuts excepted).
+- Alpha-beta must report `completion_reason: completed` at the configured maximum
+  depth (immediate-win/terminal excepted).
+
+Fixed-time semantics explicitly allow early legitimate completion: alpha-beta may
+report a lower completed depth with `completion_reason: deadline`; MCTS may report
+`deadline` below its simulation ceiling or `simulations` when it reaches the
+ceiling before the deadline. Evidence reports actual completed depth/simulations,
+effective time/exploration/iterations/max-depth settings and observed provider
+placement. Browser evidence reports the observed placement; a WebGPU request with
+WASM or `cpu-fallback` placement cannot satisfy WebGPU evidence. Unknown or
+echo-only budgets are not equal-work evidence.
 
 The adapter creates a new response queue per subprocess generation, rejects
 stale/duplicate/unexpected/malformed responses, bounds responses and stderr, and
-enforces one hard deadline over writes, reads and recovery. Shutdown terminates the
-owned process group/tree before touching buffered streams, joins writer and reader
-threads within a bounded cleanup allowance, and reports reaping failures. The same
-adapter instance recovers with a replacement process; use it as a context manager
-(or call `close()`) to guarantee cleanup. A child that never reads stdin therefore
-cannot hang timeout recovery.
+enforces one hard deadline over writes, reads and recovery. The owned process-group
+id and root start time are captured at launch; shutdown signals verified group
+members (pidfd where available), escalates SIGTERM to SIGKILL after the grace
+period even when the immediate parent has already exited, joins writer/reader
+threads within a bounded allowance and only then closes dead streams. A reader
+still holding a stream lock is never synchronously closed. Reaping/thread failures
+are reported in diagnostics. The same adapter instance recovers with a replacement
+process; use it as a context manager (or call `close()`) to guarantee cleanup.
+
+Platform limitation: on Windows the child is created in a new process group and
+`taskkill /F /T` is used while the root process is alive. Windows has no equivalent
+of POSIX process-group enumeration once the root exits, and no Job Object
+integration is claimed here; descendant cleanup after parent exit is therefore
+best-effort on Windows and not verified on physical Windows in this environment.
+POSIX (Linux) cleanup is the verified path.
 
 Agent configuration schema:
 
@@ -385,8 +426,10 @@ Rules enforced:
 - every applicable mandatory metric (RSS, JS heap, cache entries/bytes when the
   cache is enabled, WASM capacity when budgeted/observed, browser workers) needs
   at least 80 % observation coverage, five usable observations and no usable-value
-  gap longer than the sampling-gap policy; a declared budget is not proof that the
-  metric was observed;
+  gap longer than the sampling-gap policy. That gap check includes the window
+  start→first usable observation and last usable observation→window end, so
+  sufficient sample percentages cannot hide missing boundary telemetry. A declared
+  budget is not proof that the metric was observed;
 - acceptance requires usable RSS in at least 80 % of post-warmup samples and at
   least five usable observations; one RSS observation is never sufficient;
 - missing mandatory metrics leave the result partial (structural but not accepted)
@@ -399,9 +442,18 @@ Rules enforced:
   active worker count; growth is evaluated from zero baselines too;
 - `cancel-restart`, `model-reload`, `worker-replacement` and
   `independent-batching` profiles require their corresponding lifecycle events,
-  observed from live telemetry (`events_source: telemetry`), not declared counts.
+  observed from live telemetry (`events_source: telemetry`) and derived only from
+  records inside the acceptance window; warmup-only events do not count.
+- every accepted telemetry record requires complete `session_id`,
+  `model_sha256` and `workload` identity; a record missing an established field,
+  changing session/model/workload, arriving malformed/out of order or resetting
+  the completed-request counter is rejected. Acceptance requires progress from the
+  live telemetry session (a compatibility progress file is recorded with its
+  provenance and must match telemetry where claimed).
 - `workers` is the actual browser-worker count from runtime telemetry;
   `os_processes` is reported separately and never used as the worker metric.
+- telemetry history is bounded to 4096 records for timestamp alignment and
+  diagnostics; live records are appended without re-sorting the whole stream.
 
 Collection command (Linux `/proc`, Windows/macOS with `psutil`; process-tree RSS):
 
@@ -508,13 +560,14 @@ requirement remains **outstanding**, not silently reduced. Evidence:
 - Competitive validation: 19 tests, including the real CLI integration with a
   disposable checkpoint/export, genuine committed browser Level B and benchmark
   evidence, and training/architecture/workload-policy negatives.
-- Persistent process agents: 8 tests, including the externally watched
-  blocked-write/process-tree cleanup probe.
-- Tournament harness/validator: 28 tests; manifest-to-execution binding: 8 tests
-  (real Jarl handshake/evidence, command/config mismatch, evidence mutations).
-- Memory validation: 22 tests; collection-to-validation workflow: 7 CLI
+- Persistent process agents: 11 tests, including externally watched
+  blocked-write and parent-exit/SIGTERM-ignoring descendant cleanup probes.
+- Tournament harness/validator: 28 tests; manifest-to-execution binding: 14 tests
+  (noninitial ply/seed, real Jarl handshake/evidence, fixed-work/fixed-time modes,
+  command/config mismatch, evidence mutations).
+- Memory validation: 24 tests; collection-to-validation workflow: 12 CLI
   integration tests (warmup separation, live telemetry, identity/staleness,
-  disappearance, PID replacement).
+  disappearance, PID replacement, boundary gaps, progress/event binding).
 - Device evidence: 16 tests, including the complete unverified/CPU-fallback
   matrix, emulated-device rejection and unsupported GPU-evidence claims.
 - Cross-validator malformed input: 8 tests here plus the existing 23-case
