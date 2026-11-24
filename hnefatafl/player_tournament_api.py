@@ -31,7 +31,10 @@ class ExpectedVersion(BaseModel):
 
 
 class StartRequest(ExpectedVersion):
-    seeds: list[StrictStr] | None = None
+    # Deprecated compatibility field. The server always draws seeds randomly
+    # when the tournament starts; any supplied ordering is validated for type
+    # but otherwise ignored and never persisted.
+    seeds: list[StrictStr] | None = Field(default=None, deprecated=True)
 
 
 class RescheduleRequest(ExpectedVersion):
@@ -133,9 +136,10 @@ def attach_player_tournaments(app, auth, online, *, clock=None):
 
     @app.post("/api/player-tournaments/{tournament_id}/start")
     def start(tournament_id: str, body: StartRequest):
-        return execute(
-            lambda credential: core.start(credential, tournament_id, body.version, body.seeds)
-        )
+        # ``body.seeds`` is intentionally unused: random server-side seeding is
+        # not client-controllable. Keeping the field allows older clients to
+        # keep posting it without affecting the draw.
+        return execute(lambda credential: core.start(credential, tournament_id, body.version))
 
     @app.post("/api/player-tournaments/{tournament_id}/reschedule")
     def reschedule(tournament_id: str, body: RescheduleRequest):

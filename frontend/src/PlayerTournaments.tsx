@@ -604,13 +604,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
       }
       body = { version: dialog.version, scheduled_start_at: new Date(plannedStart).toISOString() };
     } else if (action === 'start') {
-      const seeds = form.getAll('seed').map(String);
-      if (new Set(seeds).size !== seeds.length) {
-        controller.current = null;
-        setError('Each entrant must have a different seed.');
-        return;
-      }
-      body = { version: dialog.version, seeds };
+      body = { version: dialog.version };
     } else if (action === 'cancel') body = { version: dialog.version };
     else if (action === 'rebuild' || action === 'override') {
       body = { version: dialog.version, note: String(form.get('note') || '').trim() };
@@ -650,6 +644,11 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
   const canOverride =
     canModerate && tournament?.review_state === 'ok' && tournament.status === 'running';
   if (!account) return null;
+  const unorderedEntrants =
+    tournament?.status === 'registration' ||
+    (tournament?.status === 'cancelled' &&
+      tournament.entrants.every((entry) => entry.seed === null));
+  const EntrantList = unorderedEntrants ? ('ul' as const) : ('ol' as const);
   return (
     <section
       className="player-tournaments"
@@ -981,10 +980,13 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
             aria-labelledby="player-entrants-heading"
           >
             <h2 id="player-entrants-heading">{t('Entrants and seeds')}</h2>
+            {tournament.status === 'registration' && (
+              <p>{t('Player seeds will be assigned randomly when the tournament starts.')}</p>
+            )}
             {!tournament.entrants.length && (
               <p>{t('No entrants yet. Be the first to register.')}</p>
             )}
-            <ol>
+            <EntrantList>
               {tournament.entrants.map((entry) => (
                 <li key={entry.account_id}>
                   <Portrait id={entry.portrait_id} />
@@ -992,7 +994,9 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                     <strong>{playerName(entry, t)}</strong>
                     <p>
                       {entry.seed === null
-                        ? t('Not seeded')
+                        ? tournament.status === 'cancelled'
+                          ? t('Not seeded')
+                          : t('Seed pending randomization')
                         : t('Seed {seed}', { seed: entry.seed })}
                       {typeof entry.losses === 'number' && (
                         <>
@@ -1005,7 +1009,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   </div>
                 </li>
               ))}
-            </ol>
+            </EntrantList>
           </section>
           {bracket && (
             <section
@@ -1035,9 +1039,11 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
               </header>
               {bracket.preview && (
                 <p>
-                  {t(
-                    'Provisional bracket based on maximum entrants. Seeds and byes are determined at start.',
-                  )}
+                  {tournament.status === 'cancelled'
+                    ? t('Tournament cancelled before the start. No seeds were assigned.')
+                    : t(
+                        'Provisional bracket based on maximum entrants. Player seeds and byes will be randomized when the tournament starts.',
+                      )}
                 </p>
               )}
               {bracket.round_progress && (
@@ -1170,33 +1176,14 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
               {dialog.kind === 'withdraw' && (
                 <p>
                   {t(
-                    'Withdraw before the bracket is seeded? You may register again while registration remains open.',
+                    'Withdraw before the tournament starts? You may register again while registration remains open.',
                   )}
                 </p>
               )}
               {dialog.kind === 'start' && (
                 <>
-                  <p>
-                    {t(
-                      'Review the seed order. Starting closes registration and creates official online games.',
-                    )}
-                  </p>
-                  <ol className="player-seed-editor">
-                    {tournament?.entrants.map((entry, index) => (
-                      <li key={entry.account_id}>
-                        <label>
-                          {t('Seed {seed}', { seed: index + 1 })}
-                          <select name="seed" defaultValue={entry.account_id}>
-                            {tournament.entrants.map((candidate) => (
-                              <option key={candidate.account_id} value={candidate.account_id}>
-                                {playerName(candidate, t)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </li>
-                    ))}
-                  </ol>
+                  <p>{t('Player seeds will be assigned randomly when the tournament starts.')}</p>
+                  <p>{t('Starting closes registration and creates official online games.')}</p>
                 </>
               )}
               {dialog.kind === 'cancel' && (

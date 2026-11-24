@@ -241,11 +241,17 @@ test('a missed start can be rescheduled by its creator after reviewing the lates
     await expect(page.getByText('Waiting for more registrations.')).toBeVisible();
 
     await page.getByRole('button', { name: 'Start tournament', exact: true }).click();
-    await page
-      .getByRole('dialog')
-      .getByRole('button', { name: 'Start tournament', exact: true })
-      .click();
+    const startDialog = page.getByRole('dialog');
+    await expect(
+      startDialog.getByText('Player seeds will be assigned randomly when the tournament starts.'),
+    ).toBeVisible();
+    await expect(startDialog.getByRole('combobox')).toHaveCount(0);
+    await expect(startDialog.getByLabel(/^Seed \d/)).toHaveCount(0);
+    await startDialog.getByRole('button', { name: 'Start tournament', exact: true }).click();
     await expect(page.getByText(/Provisional bracket/)).toHaveCount(0);
+    const entrants = page.locator('.player-tournament-entrants');
+    await expect(entrants.getByText(/^Seed 1 ·/)).toBeVisible();
+    await expect(entrants.getByText(/^Seed 2 ·/)).toBeVisible();
     await expect(page.locator('.player-bracket-scroll .player-match')).toHaveCount(2);
     await expect(page.getByRole('link', { name: 'Game 1' })).toBeVisible();
     await expect(page.getByText('Tournament round 1 · 0 finished · 1 outstanding')).toBeVisible();
