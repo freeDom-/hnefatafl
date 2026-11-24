@@ -53,7 +53,8 @@ The fixed initial league clock is 600 seconds total per player with a 5-second
 increment. Queue entry is explicit, ruleset-aware and globally unique per account.
 An account may have at most one active league game, across all rulesets. Joining,
 cancelling and matching are idempotent and serialized with authoritative online
-writes. Queue entries expire after ten minutes; cancellation does not cancel an
+writes. Queue entries expire after ten minutes or at the UTC season boundary, whichever
+comes first; cancellation does not cancel an
 already committed game. Cancellation targets its original queue request, so a
 delayed retry cannot cancel a later entry. Return the official game link when
 matching wins the race. New request IDs are limited to ten per minute and one

@@ -122,12 +122,18 @@ class Leagues:
                 raise OnlineError(409, "Cancel your current league queue before changing ruleset.")
             day = now.replace(hour=0, minute=0, second=0, microsecond=0)
             requests = c.execute(
-                "SELECT count(*),sum(created_at>=?) FROM league_requests WHERE account_id=? AND created_at>=?",
-                (micros(now - timedelta(minutes=1)), actor["id"], micros(day)),
+                """SELECT sum(created_at>=?),sum(created_at>=?)
+                FROM league_requests WHERE account_id=? AND created_at>=?""",
+                (
+                    micros(day),
+                    micros(now - timedelta(minutes=1)),
+                    actor["id"],
+                    micros(min(day, now - timedelta(minutes=1))),
+                ),
             ).fetchone()
-            if requests[0] >= 100 or (requests[1] or 0) >= 10:
+            if (requests[0] or 0) >= 100 or (requests[1] or 0) >= 10:
                 raise OnlineError(429, "League queue request limit reached. Try again later.")
-            self._season(c, now)
+            season = self._season(c, now)
             c.execute(
                 "INSERT INTO league_requests(id,account_id,ruleset,created_at,status) VALUES(?,?,?,?,'queued')",
                 (request_id, actor["id"], ruleset, micros(now)),
@@ -140,7 +146,7 @@ class Leagues:
                         request_id,
                         ruleset,
                         micros(now),
-                        micros(now + timedelta(seconds=policy.QUEUE_SECONDS)),
+                        micros(min(season.end, now + timedelta(seconds=policy.QUEUE_SECONDS))),
                     ),
                 )
             self._match(c, now, ruleset)

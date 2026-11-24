@@ -265,3 +265,33 @@ def test_replayed_cancellation_cannot_cancel_a_new_queue_or_other_account(rig):
     assert second["request_id"] != first["request_id"]
     assert service.cancel(rig.credentials["Archer"], first["request_id"])["status"] == "cancelled"
     assert service.queue_status(rig.credentials["Archer"])["request_id"] == second["request_id"]
+
+
+def test_queue_expires_at_utc_season_boundary(rig):
+    from datetime import datetime, timezone
+
+    service = Leagues(rig.core)
+    rig.clock.value = datetime(2027, 1, 31, 23, 59, 30, tzinfo=timezone.utc)
+    queued = join(service, rig, "Archer")
+    rig.clock.value += timedelta(seconds=30)
+    assert service.queue_status(rig.credentials["Archer"])["status"] == "expired"
+    assert join(service, rig, "Keeper")["status"] == "queued"
+    assert join(service, rig, "Archer", request=queued["request_id"])["status"] == "expired"
+    assert join(service, rig, "Archer")["status"] == "matched"
+    with rig.store.connection() as c:
+        assert c.execute("SELECT season_id FROM league_games").fetchone()[0] == "2027-02"
+
+
+def test_rolling_minute_request_limit_survives_midnight(rig):
+    from datetime import datetime, timezone
+
+    service = Leagues(rig.core)
+    rig.clock.value = datetime(2027, 1, 2, 23, 59, 45, tzinfo=timezone.utc)
+    for _ in range(10):
+        join(service, rig, "Archer")
+    rig.clock.value += timedelta(seconds=15)
+    with pytest.raises(OnlineError) as error:
+        join(service, rig, "Archer")
+    assert error.value.status == 429
+    rig.clock.value += timedelta(seconds=46)
+    assert join(service, rig, "Archer")["status"] == "queued"
