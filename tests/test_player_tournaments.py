@@ -2360,7 +2360,7 @@ def test_schema19_legacy_tournaments_keep_every_game_and_leg_after_upgrade(rig, 
     assert table_counts(rig)["games"] == legs
     with rig.store.connection() as c:
         assert not c.execute("PRAGMA foreign_key_check").fetchall()
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 22
 
 
 def test_worker_starts_return_clock_after_acquiring_the_write_lock(rig, monkeypatch):
