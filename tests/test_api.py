@@ -9,7 +9,7 @@ from record_fixtures import retired_player, historical_game, historical_player
 
 from hnefatafl.engine import State
 from hnefatafl.server import create_app
-from hnefatafl.storage import ConflictError, Store
+from hnefatafl.storage import SCHEMA_VERSION, ConflictError, Store
 
 
 @pytest.fixture
@@ -645,7 +645,7 @@ def test_schema_one_migrates_profiles_without_losing_rows(tmp_path):
     assert reopened.players() == []
     assert reopened.players(include_deleted=True)[0]["name"] == "Freya"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def complete_human_game(client, game):

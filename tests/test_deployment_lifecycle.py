@@ -17,7 +17,7 @@ from hnefatafl.auth import Auth, SecuritySettings
 from hnefatafl.deployment import Deployment, ReadinessError, atomic_json
 from hnefatafl.online_settings import OnlineSettings
 from hnefatafl.server import create_app
-from hnefatafl.storage import Store
+from hnefatafl.storage import SCHEMA_VERSION, Store
 
 PASSWORD = "deployment-lifecycle-password"
 POLICY = OnlineSettings(
@@ -184,7 +184,7 @@ def test_live_fresh_install_starts_and_probes_while_gate_is_held(lifecycle):
     assert json.loads(lifecycle.journal.read_text())["phase"] == "committed"
     assert "service:start" in lifecycle.actions
     with sqlite3.connect(lifecycle.data / "hnefatafl.sqlite3") as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert c.execute("SELECT COUNT(*) FROM accounts WHERE role='ADMIN'").fetchone()[0] == 1
 
 
@@ -198,13 +198,13 @@ def test_live_fast_in_process_update_start_probe_commit_and_restart(lifecycle):
     assert lifecycle.current.resolve() == target
     assert json.loads(lifecycle.state.read_text())["version"] == "0.41.1"
     with sqlite3.connect(lifecycle.data / "hnefatafl.sqlite3") as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert (
             c.execute("SELECT username FROM accounts WHERE id=?", (admin["id"],)).fetchone()[0]
             == "Odin"
         )
     assert (lifecycle.data / "models/weights").read_bytes() == b"retained-model"
-    # Ordinary restart of the committed schema-21 installation must also start,
+    # Ordinary restart of the committed installation must also start,
     # synchronously reconcile with no deployment lock and pass readiness.
     lifecycle.service("stop")
     lifecycle.service("start")

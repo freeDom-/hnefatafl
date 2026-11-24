@@ -34,6 +34,7 @@ import type {
   TournamentMatch,
   TournamentPlayer,
   TournamentRound,
+  TournamentStartState,
 } from './playerTournamentTypes';
 import './playerTournaments.css';
 
@@ -56,6 +57,14 @@ const matchLabels: Record<TournamentMatch['status'], string> = {
   bye: 'Bye',
   disputed: 'Under review',
 };
+const schedulingLabels: Record<TournamentStartState, string> = {
+  waiting_for_entrants: 'Waiting for more registrations.',
+  waiting_for_start: 'Waiting for the planned start.',
+  start_pending: 'Automatic start pending.',
+  missed_start:
+    'Planned start missed. The creator or an administrator can reschedule or start the tournament.',
+  manual_start: 'The creator or an administrator can start with at least two registered entrants.',
+};
 const decisionLabels = {
   play: 'Decided by play',
   higher_seed: 'Higher seed advances after tied legs',
@@ -65,13 +74,27 @@ const decisionLabels = {
 };
 const emptyPage: PlayerTournamentPage = { items: [], next_cursor: null, limit: 20 };
 type DetailData = { tournament: PlayerTournamentDetail; bracket: PlayerTournamentBracket };
-type Action = 'create' | 'register' | 'withdraw' | 'start' | 'cancel' | 'rebuild' | 'override';
-type Dialog = { kind: Action; version?: number; match?: TournamentMatch };
+type Action =
+  | 'create'
+  | 'register'
+  | 'withdraw'
+  | 'start'
+  | 'reschedule'
+  | 'cancel'
+  | 'rebuild'
+  | 'override';
+type Dialog = {
+  kind: Action;
+  version?: number;
+  match?: TournamentMatch;
+  plannedStart?: string | null;
+};
 const actionLabels: Record<Action, string> = {
   create: 'Create player tournament',
   register: 'Register for tournament',
   withdraw: 'Withdraw registration',
   start: 'Start tournament',
+  reschedule: 'Reschedule tournament',
   cancel: 'Cancel tournament',
   rebuild: 'Rebuild bracket',
   override: 'Override match result',
@@ -109,24 +132,42 @@ function matchName(match: TournamentMatch, t: Translate) {
     match: match.slot + 1,
   });
 }
+function withTournamentRound(label: string, round: number | null | undefined, t: Translate) {
+  return round == null ? label : t('{label} · Tournament round {round}', { label, round });
+}
 function MatchCard({
   match,
   matches,
+  preview,
+  showTournamentRound,
   canOverride,
   onOverride,
 }: {
   match: TournamentMatch;
   matches: Map<string, TournamentMatch>;
+  preview?: boolean;
+  showTournamentRound?: boolean;
   canOverride: boolean;
   onOverride: (match: TournamentMatch) => void;
 }) {
   const { t } = useI18n();
+  const name = matchName(match, t);
+  const nameWithRound = withTournamentRound(name, preview ? null : match.global_round, t);
+  const statusLabel =
+    match.retained_game_state === 'active'
+      ? 'Retained games in progress'
+      : match.retained_game_state === 'results_held'
+        ? 'Retained results waiting for the match’s tournament round'
+        : match.waiting_for_round
+          ? 'Waiting for the current round to finish'
+          : matchLabels[match.status];
   const unresolved = (source: string) => {
     const split = source.indexOf(':');
     const kind = source.slice(0, split),
       value = source.slice(split + 1);
     const previous = matches.get(value);
-    if (kind === 'seed') return t('Seed {seed}', { seed: value });
+    if (kind === 'seed')
+      return t(preview ? 'Unassigned seed {seed}' : 'Seed {seed}', { seed: value });
     if (previous)
       return t(kind === 'winner' ? 'Winner of {match}' : 'Loser of {match}', {
         match: matchName(previous, t),
@@ -137,11 +178,11 @@ function MatchCard({
     <article
       className={`arena-surface player-match player-match-${match.status}`}
       data-match-id={match.id}
-      aria-label={matchName(match, t)}
+      aria-label={nameWithRound}
     >
       <header>
-        <h4>{matchName(match, t)}</h4>
-        <span className="player-match-status">{t(matchLabels[match.status])}</span>
+        <h4>{showTournamentRound ? nameWithRound : name}</h4>
+        <span className="player-match-status">{t(statusLabel)}</span>
       </header>
       <ul className="player-match-seats">
         {(['a', 'b'] as const).map((seat) => {
@@ -199,7 +240,22 @@ function MatchCard({
           ))}
         </ol>
       )}
-      {!!match.pending_games && <p>{t('Next game available after the previous game finishes.')}</p>}
+      {match.retained_game_state === 'active' && (
+        <p>
+          {t(
+            'These games are playable and their clocks keep running. Match advancement waits for the match’s tournament round.',
+          )}
+        </p>
+      )}
+      {match.return_game_state && (
+        <p>
+          {t(
+            match.return_game_state === 'waiting_for_game'
+              ? 'Next game available after the previous game finishes.'
+              : 'Next game awaiting settlement of the previous game.',
+          )}
+        </p>
+      )}
       {canOverride && match.status === 'ready' && (
         <button className="button secondary" type="button" onClick={() => onOverride(match)}>
           {t('Override match result')}
@@ -281,26 +337,30 @@ function BracketGraph({
     >
       <h3>{t(bracketLabels[kind])}</h3>
       <div className="player-bracket-rounds">
-        {entries.map((round) => (
-          <section
-            className="player-bracket-round"
-            key={round.round}
-            aria-label={t('Round {round}', { round: round.round })}
-          >
-            <h4>{t('Round {round}', { round: round.round })}</h4>
-            <div className="player-bracket-round-matches">
-              {round.matches.map((match) => (
-                <MatchCard
-                  key={match.id}
-                  match={match}
-                  matches={byId}
-                  canOverride={canOverride}
-                  onOverride={onOverride}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
+        {entries.map((round) => {
+          const heading = withTournamentRound(
+            t('Round {round}', { round: round.round }),
+            bracket.preview ? null : round.matches[0]?.global_round,
+            t,
+          );
+          return (
+            <section className="player-bracket-round" key={round.round} aria-label={heading}>
+              <h4>{heading}</h4>
+              <div className="player-bracket-round-matches">
+                {round.matches.map((match) => (
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    matches={byId}
+                    preview={bracket.preview}
+                    canOverride={canOverride}
+                    onOverride={onOverride}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
         {!entries.length && <p>{t('No lower-bracket rounds are needed for this bracket size.')}</p>}
       </div>
     </section>
@@ -340,10 +400,17 @@ function BracketGraph({
               .filter((match): match is TournamentMatch => match !== null)
               .map((match) => (
                 <section key={match.id}>
-                  <h3>{t(bracketLabels[match.bracket])}</h3>
+                  <h3>
+                    {withTournamentRound(
+                      t(bracketLabels[match.bracket]),
+                      bracket.preview ? null : match.global_round,
+                      t,
+                    )}
+                  </h3>
                   <MatchCard
                     match={match}
                     matches={byId}
+                    preview={bracket.preview}
                     canOverride={canOverride}
                     onOverride={onOverride}
                   />
@@ -482,7 +549,12 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
       setClockInput(defaultClockInput);
       setMatchMode('sequential');
     }
-    setDialog({ kind, version: tournament?.version, match });
+    setDialog({
+      kind,
+      version: tournament?.version,
+      match,
+      plannedStart: tournament?.scheduled_start_at,
+    });
   };
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -501,9 +573,8 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
     let body: Record<string, unknown> = {};
     if (action === 'create') {
       path = '/player-tournaments';
-      const deadline = String(form.get('registration_deadline') || '');
       const plannedStart = String(form.get('scheduled_start_at') || '');
-      if ([deadline, plannedStart].some((value) => value && !Number.isFinite(Date.parse(value)))) {
+      if (plannedStart && !Number.isFinite(Date.parse(plannedStart))) {
         controller.current = null;
         setError('Enter a valid date and time.');
         return;
@@ -522,9 +593,16 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
         capacity: Number(form.get('capacity')),
         match_mode: matchMode,
         ...clock,
-        registration_deadline: deadline ? new Date(deadline).toISOString() : null,
         scheduled_start_at: plannedStart ? new Date(plannedStart).toISOString() : null,
       };
+    } else if (action === 'reschedule') {
+      const plannedStart = String(form.get('scheduled_start_at') || '');
+      if (!plannedStart || !Number.isFinite(Date.parse(plannedStart))) {
+        controller.current = null;
+        setError('Enter a valid date and time.');
+        return;
+      }
+      body = { version: dialog.version, scheduled_start_at: new Date(plannedStart).toISOString() };
     } else if (action === 'start') {
       const seeds = form.getAll('seed').map(String);
       if (new Set(seeds).size !== seeds.length) {
@@ -568,6 +646,9 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
   const eligibleRegistration = account?.email_verified !== false;
   const matches = bracket ? allMatches(bracket) : [];
   const byId = new Map(matches.map((match) => [match.id, match]));
+  const canModerate = tournament?.capabilities?.can_moderate ?? canAdmin;
+  const canOverride =
+    canModerate && tournament?.review_state === 'ok' && tournament.status === 'running';
   if (!account) return null;
   return (
     <section
@@ -684,11 +765,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                 {item.scheduled_start_at && (
                   <p>{t('Planned start: {date}', { date: date(item.scheduled_start_at) })}</p>
                 )}
-                {item.registration_deadline && (
-                  <p>
-                    {t('Registration closes: {date}', { date: date(item.registration_deadline) })}
-                  </p>
-                )}
+                {item.start_state && <p>{t(schedulingLabels[item.start_state])}</p>}
                 {item.review_state === 'disputed' && (
                   <p className="player-review-notice">{t('Bracket under review')}</p>
                 )}
@@ -785,30 +862,10 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
               </div>
             </dl>
             {tournament.scheduled_start_at && (
-              <p>
-                {t('Planned start: {date}', { date: date(tournament.scheduled_start_at) })}
-                {tournament.status === 'registration' && (
-                  <>
-                    {' '}
-                    ·{' '}
-                    {t(
-                      'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.',
-                    )}
-                  </>
-                )}
-              </p>
+              <p>{t('Planned start: {date}', { date: date(tournament.scheduled_start_at) })}</p>
             )}
-            {tournament.registration_deadline && (
-              <p>
-                {t('Registration closes: {date}', { date: date(tournament.registration_deadline) })}
-              </p>
-            )}
-            {tournament.status === 'registration' && !tournament.scheduled_start_at && (
-              <p>
-                {t(
-                  'The creator or an administrator can start with at least two registered entrants.',
-                )}
-              </p>
+            {tournament.start_state && (
+              <p role="status">{t(schedulingLabels[tournament.start_state])}</p>
             )}
             {tournament.started_at && (
               <p>{t('Started: {date}', { date: date(tournament.started_at) })}</p>
@@ -870,20 +927,32 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   </div>
                 </div>
               )}
-            {(tournament.capabilities?.can_start || canAdmin) && (
+            {(tournament.capabilities?.can_start ||
+              tournament.capabilities?.can_reschedule ||
+              canModerate) && (
               <div className="player-tournament-admin" aria-label={t('Tournament administration')}>
+                {tournament.status === 'registration' && tournament.capabilities?.can_start && (
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy || detail.phase !== 'ready'}
+                    onClick={() => open('start')}
+                  >
+                    {t('Start tournament')}
+                  </button>
+                )}
                 {tournament.status === 'registration' &&
-                  (tournament.capabilities?.can_start ?? canAdmin) && (
+                  tournament.capabilities?.can_reschedule && (
                     <button
                       type="button"
                       className="button secondary"
-                      disabled={busy || tournament.entrant_count < 2 || detail.phase !== 'ready'}
-                      onClick={() => open('start')}
+                      disabled={busy || detail.phase !== 'ready'}
+                      onClick={() => open('reschedule')}
                     >
-                      {t('Start tournament')}
+                      {t('Reschedule tournament')}
                     </button>
                   )}
-                {canAdmin && ['registration', 'running'].includes(tournament.status) && (
+                {canModerate && ['registration', 'running'].includes(tournament.status) && (
                   <button
                     type="button"
                     className="button secondary"
@@ -894,7 +963,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   </button>
                 )}
 
-                {canAdmin && tournament.review_state === 'disputed' && (
+                {canModerate && tournament.review_state === 'disputed' && (
                   <button
                     type="button"
                     className="button secondary"
@@ -938,7 +1007,7 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
               ))}
             </ol>
           </section>
-          {bracket && tournament.status !== 'registration' && (
+          {bracket && (
             <section
               className="arena-surface player-tournament-bracket"
               aria-labelledby="player-bracket-heading"
@@ -964,12 +1033,30 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                   </button>
                 </div>
               </header>
+              {bracket.preview && (
+                <p>
+                  {t(
+                    'Provisional bracket based on maximum entrants. Seeds and byes are determined at start.',
+                  )}
+                </p>
+              )}
+              {bracket.round_progress && (
+                <p role="status">
+                  {t('Tournament round {round} · {finished} finished · {outstanding} outstanding', {
+                    round: numbers.format(bracket.round_progress.number),
+                    finished: numbers.format(bracket.round_progress.finished_matches),
+                    outstanding: numbers.format(bracket.round_progress.outstanding_matches),
+                  })}
+                </p>
+              )}
+              {tournament.status === 'running' &&
+                tournament.progression_policy === 'independent' && (
+                  <p>{t('Each match starts as soon as its preceding matches are decided.')}</p>
+                )}
               {mode === 'graph' ? (
                 <BracketGraph
                   bracket={bracket}
-                  canOverride={
-                    canAdmin && tournament.review_state === 'ok' && tournament.status === 'running'
-                  }
+                  canOverride={canOverride}
                   onOverride={(match) => open('override', match)}
                 />
               ) : (
@@ -979,11 +1066,9 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                       <MatchCard
                         match={match}
                         matches={byId}
-                        canOverride={
-                          canAdmin &&
-                          tournament.review_state === 'ok' &&
-                          tournament.status === 'running'
-                        }
+                        preview={bracket.preview}
+                        showTournamentRound
+                        canOverride={canOverride}
                         onOverride={(entry) => open('override', entry)}
                       />
                     </li>
@@ -994,179 +1079,189 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
           )}
         </>
       )}
-      {dialog &&
-        (canAdmin ||
-          dialog.kind === 'create' ||
-          (dialog.kind === 'start' && tournament?.capabilities?.can_start) ||
-          dialog.kind === 'register' ||
-          dialog.kind === 'withdraw') && (
-          <Modal
-            title={t(actionLabels[dialog.kind])}
-            onClose={() => {
-              if (!busy) {
-                setDialog(null);
-                setError('');
-              }
-            }}
-            initialFocus="input,select,textarea,button[type=submit]"
-            className="player-tournament-dialog"
-          >
-            <form onSubmit={(event) => void submit(event)} aria-busy={busy}>
-              <fieldset disabled={busy}>
-                {dialog.kind === 'create' && (
-                  <>
-                    <label>
-                      {t('Tournament name')}
-                      <input name="name" required maxLength={120} />
-                    </label>
-                    <label>
-                      {t('Ruleset')}
-                      <select name="ruleset" defaultValue="tablut">
-                        <option value="brandubh">Brandubh</option>
-                        <option value="tablut">Tablut</option>
-                        <option value="copenhagen">Copenhagen</option>
-                      </select>
-                    </label>
-                    <label>
-                      {t('Maximum entrants')}
-                      <input
-                        name="capacity"
-                        type="number"
-                        min={2}
-                        max={64}
-                        step={1}
-                        defaultValue={8}
-                        required
-                      />
-                    </label>
-                    <MatchModeField
-                      value={matchMode}
-                      onChange={setMatchMode}
-                      allowedModes={['sequential', 'simultaneous']}
-                    />
-                    <ClockFields value={clockInput} onChange={setClockInput} />
-                    <LocalDateTimePicker
-                      name="registration_deadline"
-                      label="Registration deadline (your local time, optional)"
-                    />
-                    <LocalDateTimePicker
-                      name="scheduled_start_at"
-                      label="Planned start (your local time, optional)"
-                    />
-                    <small>
-                      {t('Your timezone: {zone}. Dates are saved in UTC.', {
-                        zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                      })}
-                    </small>
-                    <p>
-                      {t(
-                        'Starts automatically when full at the planned time. Otherwise, the creator can start with at least two entrants.',
-                      )}
-                    </p>
-                  </>
-                )}
-                {dialog.kind === 'register' && (
-                  <p>
-                    {t(
-                      'Register your account for this competition? Games are played through the normal online board.',
-                    )}
-                  </p>
-                )}
-                {dialog.kind === 'withdraw' && (
-                  <p>
-                    {t(
-                      'Withdraw before the bracket is seeded? You may register again while registration remains open.',
-                    )}
-                  </p>
-                )}
-                {dialog.kind === 'start' && (
-                  <>
-                    <p>
-                      {t(
-                        'Review the seed order. Starting closes registration and creates official online games.',
-                      )}
-                    </p>
-                    <ol className="player-seed-editor">
-                      {tournament?.entrants.map((entry, index) => (
-                        <li key={entry.account_id}>
-                          <label>
-                            {t('Seed {seed}', { seed: index + 1 })}
-                            <select name="seed" defaultValue={entry.account_id}>
-                              {tournament.entrants.map((candidate) => (
-                                <option key={candidate.account_id} value={candidate.account_id}>
-                                  {playerName(candidate, t)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </li>
-                      ))}
-                    </ol>
-                  </>
-                )}
-                {dialog.kind === 'cancel' && (
-                  <p>
-                    {t(
-                      'Active tournament games will be stopped. Completed results remain in history. Cancel this tournament?',
-                    )}
-                  </p>
-                )}
-                {dialog.kind === 'rebuild' && (
-                  <p>
-                    {t(
-                      'Rebuild from official corrected results? Displaced active games will be stopped and previous overrides must be reviewed again.',
-                    )}
-                  </p>
-                )}
-                {dialog.kind === 'override' && dialog.match && (
-                  <>
-                    <p>
-                      {t('Choose the official winner. Active games in this match will be stopped.')}
-                    </p>
-                    <label>
-                      {t('Match winner')}
-                      <select name="winner" required>
-                        {[dialog.match.participants.a, dialog.match.participants.b]
-                          .filter((player): player is TournamentPlayer => player !== null)
-                          .map((player) => (
-                            <option key={player.account_id} value={player.account_id}>
-                              {playerName(player, t)}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  </>
-                )}
-                {needsReason && (
+      {dialog && (
+        <Modal
+          title={t(actionLabels[dialog.kind])}
+          onClose={() => {
+            if (!busy) {
+              setDialog(null);
+              setError('');
+            }
+          }}
+          initialFocus="input,select,textarea,button[type=submit]"
+          className="player-tournament-dialog"
+        >
+          <form onSubmit={(event) => void submit(event)} aria-busy={busy}>
+            <fieldset disabled={busy}>
+              {dialog.kind === 'create' && (
+                <>
                   <label>
-                    {t('Private administrator reason')}
-                    <textarea name="note" required minLength={1} maxLength={1000} />
+                    {t('Tournament name')}
+                    <input name="name" required maxLength={120} />
                   </label>
-                )}
-                {error && (
-                  <p className="player-tournament-error" role="alert">
-                    {t(error)}
+                  <label>
+                    {t('Ruleset')}
+                    <select name="ruleset" defaultValue="tablut">
+                      <option value="brandubh">Brandubh</option>
+                      <option value="tablut">Tablut</option>
+                      <option value="copenhagen">Copenhagen</option>
+                    </select>
+                  </label>
+                  <label>
+                    {t('Maximum entrants')}
+                    <input
+                      name="capacity"
+                      type="number"
+                      min={2}
+                      max={64}
+                      step={1}
+                      defaultValue={8}
+                      required
+                    />
+                  </label>
+                  <MatchModeField
+                    value={matchMode}
+                    onChange={setMatchMode}
+                    allowedModes={['sequential', 'simultaneous']}
+                  />
+                  <ClockFields value={clockInput} onChange={setClockInput} />
+                  <LocalDateTimePicker
+                    name="scheduled_start_at"
+                    label="Planned start (your local time, optional)"
+                  />
+                  <small>
+                    {t('Your timezone: {zone}. Dates are saved in UTC.', {
+                      zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    })}
+                  </small>
+                  <p>
+                    {t(
+                      'Starts automatically when full at the planned time. Otherwise, the creator can reschedule or start with at least two entrants.',
+                    )}
                   </p>
-                )}
-                <div className="dialog-actions">
-                  <button
-                    className="button secondary"
-                    type="button"
-                    onClick={() => {
-                      setDialog(null);
-                      setError('');
-                    }}
-                  >
-                    {t('Back')}
-                  </button>
-                  <button className="button primary" type="submit">
-                    {t(busy ? 'Saving…' : actionLabels[dialog.kind])}
-                  </button>
-                </div>
-              </fieldset>
-            </form>
-          </Modal>
-        )}
+                </>
+              )}
+              {dialog.kind === 'reschedule' && (
+                <>
+                  <p>
+                    {dialog.plannedStart
+                      ? t('Current planned start is {date}.', { date: date(dialog.plannedStart) })
+                      : t('No planned start is set.')}
+                  </p>
+                  <LocalDateTimePicker
+                    name="scheduled_start_at"
+                    label="New planned start (your local time)"
+                    required
+                  />
+                  <small>
+                    {t('Your timezone: {zone}. Dates are saved in UTC.', {
+                      zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    })}
+                  </small>
+                </>
+              )}
+              {dialog.kind === 'register' && (
+                <p>
+                  {t(
+                    'Register your account for this competition? Games are played through the normal online board.',
+                  )}
+                </p>
+              )}
+              {dialog.kind === 'withdraw' && (
+                <p>
+                  {t(
+                    'Withdraw before the bracket is seeded? You may register again while registration remains open.',
+                  )}
+                </p>
+              )}
+              {dialog.kind === 'start' && (
+                <>
+                  <p>
+                    {t(
+                      'Review the seed order. Starting closes registration and creates official online games.',
+                    )}
+                  </p>
+                  <ol className="player-seed-editor">
+                    {tournament?.entrants.map((entry, index) => (
+                      <li key={entry.account_id}>
+                        <label>
+                          {t('Seed {seed}', { seed: index + 1 })}
+                          <select name="seed" defaultValue={entry.account_id}>
+                            {tournament.entrants.map((candidate) => (
+                              <option key={candidate.account_id} value={candidate.account_id}>
+                                {playerName(candidate, t)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
+              {dialog.kind === 'cancel' && (
+                <p>
+                  {t(
+                    'Active tournament games will be stopped. Completed results remain in history. Cancel this tournament?',
+                  )}
+                </p>
+              )}
+              {dialog.kind === 'rebuild' && (
+                <p>
+                  {t(
+                    'Rebuild from official corrected results? Displaced active games will be stopped and previous overrides must be reviewed again.',
+                  )}
+                </p>
+              )}
+              {dialog.kind === 'override' && dialog.match && (
+                <>
+                  <p>
+                    {t('Choose the official winner. Active games in this match will be stopped.')}
+                  </p>
+                  <label>
+                    {t('Match winner')}
+                    <select name="winner" required>
+                      {[dialog.match.participants.a, dialog.match.participants.b]
+                        .filter((player): player is TournamentPlayer => player !== null)
+                        .map((player) => (
+                          <option key={player.account_id} value={player.account_id}>
+                            {playerName(player, t)}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                </>
+              )}
+              {needsReason && (
+                <label>
+                  {t('Private administrator reason')}
+                  <textarea name="note" required minLength={1} maxLength={1000} />
+                </label>
+              )}
+              {error && (
+                <p className="player-tournament-error" role="alert">
+                  {t(error)}
+                </p>
+              )}
+              <div className="dialog-actions">
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => {
+                    setDialog(null);
+                    setError('');
+                  }}
+                >
+                  {t('Back')}
+                </button>
+                <button className="button primary" type="submit">
+                  {t(busy ? 'Saving…' : actionLabels[dialog.kind])}
+                </button>
+              </div>
+            </fieldset>
+          </form>
+        </Modal>
+      )}
     </section>
   );
 }

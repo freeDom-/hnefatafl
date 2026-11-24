@@ -5,7 +5,7 @@ import time
 
 from .league_migrations import LEAGUE_TABLES, migrate_leagues
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -356,6 +356,18 @@ def migrate_online(c: sqlite3.Connection) -> None:
                 c.execute(
                     "UPDATE player_tournaments SET start_due_at=scheduled_start_at WHERE status='registration'"
                 )
+    # Schema 22: keep the original progression for every already-started cup.
+    # Modern cups switch policy atomically at start. Reschedules have their own
+    # generation so a failed writer cannot defer a newer schedule.
+    for name, definition in (
+        (
+            "progression_policy",
+            "TEXT NOT NULL DEFAULT 'independent' CHECK(progression_policy IN ('independent','synchronized'))",
+        ),
+        ("schedule_version", "INTEGER NOT NULL DEFAULT 0 CHECK(schedule_version>=0)"),
+    ):
+        if name not in tournament_columns:
+            c.execute(f"ALTER TABLE player_tournaments ADD COLUMN {name} {definition}")
     c.execute(
         "CREATE INDEX IF NOT EXISTS player_tournaments_start_due ON player_tournaments(start_due_at,id) WHERE status='registration' AND start_due_at IS NOT NULL"
     )
@@ -485,7 +497,7 @@ def migrate_online(c: sqlite3.Connection) -> None:
         category TEXT NOT NULL, game_id TEXT NOT NULL,
         PRIMARY KEY(account_id,category,game_id)
     )""")
-    # Schema 22 is additive; it does not reset accounts, games or training data.
+    # Schema 23 is additive; it does not reset accounts, games or training data.
     migrate_leagues(c)
     for table in APPEND_ONLY:
         for action in ("UPDATE", "DELETE"):

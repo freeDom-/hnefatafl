@@ -17,7 +17,7 @@ from hnefatafl.auth import Auth, SecuritySettings
 from hnefatafl.online_core import OnlineCore, OnlineError
 from hnefatafl.online_migrations import retain_online_on_restore
 from hnefatafl.online_settings import OnlineSettings
-from hnefatafl.storage import Store
+from hnefatafl.storage import SCHEMA_VERSION, Store
 from test_online_api import api as api, creation
 from test_online_core import (
     POLICY,
@@ -288,7 +288,7 @@ def test_existing_schema10_adds_monitoring_without_rewriting_authority(rig):
         c.execute("DROP INDEX online_waiting_creator")
     reopened = Store(rig.store.path)
     with reopened.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert tuple(c.execute("SELECT * FROM online_games").fetchone()) == before
         assert c.execute("SELECT COUNT(*) FROM online_creation_metrics").fetchone()[0] == 2
     assert rig.core.read(rig.credentials["Archer"], game["id"])["status"] == "waiting"
