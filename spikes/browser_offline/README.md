@@ -532,6 +532,56 @@ and was not profiled. Source/build changes change totals; use the generated inve
 for a new run. Exact asset digests and individual measurements are retained in
 the linked JSON evidence.
 
+## Phase 3C-A owner workflows
+
+The complete schemas and acceptance rules are in the
+[Phase 3C-A validation report](../../docs/validation/browser-analysis-phase3c.md)
+and the [device runbook](../../docs/validation/device-matrix-phase3c.md). Short
+executable workflows:
+
+```sh
+# 1. Competitive checkpoint -> validated export -> evidence manifest -> validation
+.venv/bin/python spikes/browser_offline/onnx_export.py /private/last.pt /tmp/export
+.venv/bin/python spikes/browser_offline/competitive_validation.py \
+  --checkpoint /private/last.pt --export-dir /tmp/export \
+  --report /tmp/evidence-manifest.json --output /tmp/competitive-validation.json
+.venv/bin/python spikes/browser_offline/competitive_validation.py \
+  --validate /tmp/competitive-validation.json   # report inspection only
+
+# 2. Structural tournament (collection -> validation) using the process protocol
+cat > /tmp/agent-a.json <<'JSON'
+{"label":"scripted-first","kind":"scripted","runtime":"in-process","provider":"in-process","model":null}
+JSON
+cat > /tmp/agent-b.json <<'JSON'
+{"label":"scripted-last","kind":"scripted","runtime":"in-process","provider":"in-process","model":null}
+JSON
+.venv/bin/python spikes/browser_offline/tournament.py --run --ruleset brandubh \
+  --limit 1 --simulations 4 --time-limit 0.2 --max-plies 6 --agent-timeout 5 \
+  --agent-a-command ".venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine scripted" \
+  --agent-b-command ".venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine scripted-last" \
+  --agent-a-config /tmp/agent-a.json --agent-b-config /tmp/agent-b.json \
+  --output /tmp/tournament.json
+.venv/bin/python spikes/browser_offline/tournament.py /tmp/tournament.json
+
+# 3. Browser tournament adapter (same protocol, one persistent browser session)
+node spikes/browser_offline/browser_tournament_agent.mjs /tmp/neural-spike \
+  --provider wasm
+
+# 4. Sustained-memory collection and validation
+.venv/bin/python spikes/browser_offline/memory_profile_collect.py \
+  --pid "$BROWSER_PID" --profile sustained-10m --duration 600 --interval 1 \
+  --progress-file /tmp/completed-requests.txt --output /tmp/memory-profile.json
+.venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-profile.json
+
+# 5. Physical-device/provider matrix validation
+.venv/bin/python spikes/browser_offline/device_evidence.py /tmp/device-evidence.json \
+  --output /tmp/device-validation.json
+```
+
+Structural tournaments are explicitly not playing-strength evidence. Unverified or
+mixed WebGPU placement and CPU fallback can never satisfy the verified-GPU gate,
+and blocked/partial memory profiles exit nonzero.
+
 ## Network, packaging, licensing and limitations
 
 Initial preparation needs the CDN through the configured network proxy. No network

@@ -1,6 +1,6 @@
 {
   "kind": "browser-device-evidence",
-  "schema": 1,
+  "schema": 2,
   "acceptance": false,
   "required_platforms": [
     "windows-chrome",

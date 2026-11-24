@@ -171,36 +171,25 @@ def test_portable_process_agent_timeout_and_recovery(tmp_path):
         "for line in sys.stdin:\n"
         "    request=json.loads(line)\n"
         "    from hnefatafl.engine import State, legal_moves\n"
+        "    if request['settings'].get('hang'):\n"
+        "        continue\n"
         "    moves=legal_moves(State.from_dict(request['state']))\n"
-        "    print(json.dumps({'move': moves[0].to_dict()}), flush=True)\n"
+        "    print(json.dumps({'id': request['id'], 'move': moves[0].to_dict()}), flush=True)\n"
     )
     env = {"PYTHONPATH": str(SPIKE.parents[1])}
     import os
 
     env.update(os.environ)
-    agent = tournament.JsonProcessAgent([sys.executable, str(script)], timeout=1, cwd=tmp_path)
-    agent.enforces_own_deadline = True
+    agent = tournament.JsonProcessAgent([sys.executable, str(script)], timeout=0.3, cwd=tmp_path)
     state = __import__("hnefatafl.engine", fromlist=["new_game"]).new_game("brandubh")
-    move = agent(state, {"iterations": 1}, 1)
-    assert move in legal_moves(state)
+    assert agent(state, {"iterations": 1}, 1) in legal_moves(state)
+    generation = agent.diagnostics()["generation"]
+    with pytest.raises(tournament.AgentTimeoutError):
+        agent(state, {"iterations": 1, "hang": True}, 1)
+    # The same adapter instance must recover with a replacement process.
+    assert agent(state, {"iterations": 1}, 1) in legal_moves(state)
+    assert agent.diagnostics()["generation"] > generation
     agent.close()
-
-    blocked = tournament.JsonProcessAgent(
-        [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.1
-    )
-    try:
-        blocked(state, {"iterations": 1}, 1)
-        raise AssertionError("expected timeout")
-    except tournament.AgentTimeoutError:
-        pass
-    assert blocked.process is None
-    blocked.close()
-
-    fresh = tournament.JsonProcessAgent([sys.executable, str(script)], timeout=1, cwd=tmp_path)
-    # Child imports the project engine; expose it through cwd/PYTHONPATH.
-    fresh.command = [sys.executable, str(script)]
-    assert fresh(state, {"iterations": 1}, 1) in legal_moves(state)
-    fresh.close()
 
 
 def test_manifest_and_initial_ply_invariants():
@@ -244,3 +233,268 @@ def test_failed_game_with_illegal_prefix_history_is_rejected():
     game["moves"] = [{"source": 0, "target": 0}]
     game["plies"] = 1
     assert tournament.validate_report(report)["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# N4: canonical manifest, replay, budgets and statistics acceptance
+# ---------------------------------------------------------------------------
+
+
+def _recompute(report):
+    report["summary"] = tournament.summarize(
+        report["games"],
+        (report["agents"]["a"], report["agents"]["b"]),
+        seed=report["settings"]["seed"],
+    )
+    return report
+
+
+def _game(report, leg="pair-0-ab"):
+    return next(game for game in report["games"] if game["game_id"] == leg)
+
+
+def _assert_failure(report, needle):
+    validated = tournament.validate_report(report)
+    assert validated["ok"] is False, needle
+    assert any(needle in failure for failure in validated["failures"]), validated["failures"]
+
+
+def test_game_identifier_is_bound_to_the_expected_manifest_opening():
+    report = _report()
+    game = _game(report)
+    other = report["manifest"]["openings"][1]
+    game["opening"] = other["name"]
+    game["opening_state"] = copy.deepcopy(other["state"])
+    _recompute(report)
+    _assert_failure(report, "pair index contradicts the manifest opening")
+
+
+def test_both_legs_must_share_exact_opening_state_and_history():
+    report = _report()
+    opening = report["manifest"]["openings"][0]
+    opening["state"] = copy.deepcopy(opening["state"])
+    opening["state"]["history"] = ["brandubh-opening"]
+    _recompute(report)
+    _assert_failure(report, "opening state/history differs from manifest")
+
+
+def test_actual_deserialized_rulesets_are_validated():
+    report = _report()
+    report["games"][0]["ruleset"] = "tablut"
+    _recompute(report)
+    _assert_failure(report, "ruleset mismatch")
+
+    report = _report()
+    report["manifest"]["openings"][0]["state"]["ruleset"] = "not-a-ruleset"
+    _assert_failure(report, "manifest opening state is invalid")
+
+
+def test_nonterminal_openings_and_role_assignments_are_enforced():
+    report = _report()
+    opening = report["manifest"]["openings"][0]["state"]
+    opening["winner"] = "defenders"
+    opening["reason"] = "king_escaped"
+    for game in report["games"]:
+        if game["pair"] == 0:
+            game["opening_state"] = copy.deepcopy(opening)
+    _recompute(report)
+    _assert_failure(report, "opening state is terminal")
+
+    report = _report()
+    game = _game(report)
+    game["attacker_agent"], game["defender_agent"] = (
+        game["defender_agent"],
+        game["attacker_agent"],
+    )
+    _assert_failure(report, "attacker assignment contradicts agent roles")
+
+
+def test_complete_agent_configuration_and_model_identity_are_required():
+    report = _report()
+    report["manifest"]["agent_config"]["b"]["kind"] = "browser-neural"
+    report["agent_config"]["b"]["kind"] = "browser-neural"
+    _assert_failure(report, "model identity is missing")
+
+    report = _report()
+    report["manifest"]["agent_config"]["b"]["runtime"] = ""
+    report["agent_config"]["b"]["runtime"] = ""
+    _assert_failure(report, "runtime is missing")
+
+    report = _report()
+    report["agent_config"]["a"]["model"] = {
+        "onnx_sha256": "a" * 64,
+        "weights_sha256": "b" * 64,
+        "ruleset": "tablut",
+        "size": 9,
+    }
+    report["manifest"]["agent_config"] = copy.deepcopy(report["agent_config"])
+    report["agent_config"]["a"]["kind"] = "native-neural"
+    report["manifest"]["agent_config"]["a"]["kind"] = "native-neural"
+    report["agent_config"]["a"]["provider"] = "onnxruntime-cpu"
+    report["manifest"]["agent_config"]["a"]["provider"] = "onnxruntime-cpu"
+    _assert_failure(report, "model ruleset mismatch")
+
+
+def test_per_game_algorithm_seed_budget_and_deadline_are_validated():
+    for field, value, needle in (
+        ("algorithm", "alpha-beta", "algorithm identity"),
+        ("iterations", 4, "iterations differs"),
+        ("time_limit", 5, "time_limit differs"),
+    ):
+        report = _report()
+        _game(report)["settings"][field] = value
+        _assert_failure(report, needle)
+
+    report = _report()
+    game = _game(report)
+    game["settings"]["seed"] = game["seed"] + 1
+    _assert_failure(report, "game seed does not match the scheduled seed")
+
+    report = _report()
+    _game(report)["agent_timeout_s"] = 99
+    _assert_failure(report, "adapter deadline does not match")
+
+
+def test_absolute_ply_move_limits_and_initial_ply():
+    report = _report()
+    game = _game(report)
+    game["plies"] += 1
+    _assert_failure(report, "absolute ply count does not match")
+
+    report = _report()
+    game = _game(report)
+    game["plies"] = report["settings"]["max_plies"] + 1
+    _assert_failure(report, "exceeds its recorded move limit")
+
+    report = _report()
+    report["manifest"]["openings"][0]["starting_ply"] = 7
+    _assert_failure(report, "starting ply is inconsistent")
+
+    midgame = next(
+        entry
+        for entry in jarl_positions()
+        if entry["ruleset"] == "brandubh" and entry["kind"] == "midgame"
+    )
+    limit = midgame["state"]["ply"] + 2
+    report = tournament.run_paired_openings(
+        first_legal,
+        last_legal,
+        [midgame],
+        labels=("first", "last"),
+        ruleset="brandubh",
+        simulations=8,
+        time_limit=1,
+        seed=5,
+        max_plies=limit,
+    )
+    assert tournament.validate_report(report)["ok"] is True
+    assert all(game["plies"] <= limit for game in report["games"])
+
+
+def test_truncated_move_limit_outcome_is_validated():
+    report = tournament.run_paired_openings(
+        first_legal,
+        last_legal,
+        _openings()[:1],
+        labels=("first", "last"),
+        ruleset="brandubh",
+        simulations=8,
+        time_limit=1,
+        max_plies=3,
+    )
+    assert all(not game["completed"] for game in report["games"])
+    assert tournament.validate_report(report)["ok"] is True
+    game = report["games"][0]
+    game["plies"] -= 1
+    _recompute(report)
+    _assert_failure(report, "did not reach the recorded move limit")
+
+
+def test_terminal_reason_and_completion_combinations_are_validated():
+    report = _report()
+    game = next(game for game in report["games"] if game["completed"])
+    game["reason"] = "king_escaped" if game["reason"] != "king_escaped" else "king_captured"
+    _assert_failure(report, "terminal reason does not match replay")
+
+    report = _report()
+    game = next(game for game in report["games"] if game["completed"])
+    game["reason"] = "move_limit"
+    _assert_failure(report, "completion reason is not a terminal reason")
+
+    report = tournament.run_paired_openings(
+        first_legal,
+        last_legal,
+        _openings()[:1],
+        labels=("first", "last"),
+        ruleset="brandubh",
+        simulations=8,
+        time_limit=1,
+        max_plies=3,
+    )
+    report["games"][0]["reason"] = "terminal"
+    _recompute(report)
+    _assert_failure(report, "uncompleted game reason is not a move limit")
+
+
+def test_failed_game_prefix_is_replayed_before_accepting_the_failure():
+    report = _report()
+    game = next(game for game in report["games"] if game["completed"] and game["moves"])
+    legal_prefix = game["moves"][:1]
+    game.update(
+        moves=legal_prefix,
+        plies=game["starting_ply"] + len(legal_prefix),
+        completed=False,
+        winner=None,
+        reason="execution_error",
+        error="RuntimeError: simulated agent failure",
+    )
+    _recompute(report)
+    validated = tournament.validate_report(report)
+    assert validated["ok"] is True, validated["failures"]
+
+    game["moves"] = legal_prefix + [{"source": 0, "target": 0}]
+    game["plies"] = game["starting_ply"] + len(game["moves"])
+    _recompute(report)
+    _assert_failure(report, "illegal move")
+
+
+def test_pair_ordering_is_canonical_for_bootstrap_statistics():
+    report = _report()
+    reference = copy.deepcopy(report["summary"])
+    report["games"] = list(reversed(report["games"]))
+    _recompute(report)
+    assert report["summary"] == reference
+    assert tournament.validate_report(report)["ok"] is True
+
+
+def test_structural_and_playing_strength_evidence_are_distinguished():
+    report = _report()
+    report["structural_only"] = True
+    report["playing_strength"]["status"] = "measured"
+    _assert_failure(report, "must mark playing strength blocked")
+
+    report = _report()
+    report["structural_only"] = False
+    report["evidence_class"] = "playing-strength"
+    report["playing_strength"] = {"status": "measured"}
+    _assert_failure(report, "requires real agent configurations")
+
+    report = _report()
+    report["structural_only"] = False
+    report["evidence_class"] = "playing-strength"
+    report["playing_strength"] = {"status": "measured"}
+    for key in ("a", "b"):
+        report["agent_config"][key] = {
+            "label": report["agents"][key],
+            "kind": "native-neural",
+            "runtime": "native-cpython",
+            "provider": "onnxruntime-cpu",
+            "model": {
+                "onnx_sha256": "a" * 64,
+                "weights_sha256": "b" * 64,
+                "ruleset": "brandubh",
+                "size": 7,
+            },
+        }
+    report["manifest"]["agent_config"] = copy.deepcopy(report["agent_config"])
+    _assert_failure(report, "at least 10 complete pairs")

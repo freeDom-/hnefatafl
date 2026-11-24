@@ -1,6 +1,6 @@
 {
   "kind": "browser-analysis-memory-profile",
-  "schema": 1,
+  "schema": 2,
   "profile": "sustained-30m",
   "status": "blocked",
   "blocked_reasons": [

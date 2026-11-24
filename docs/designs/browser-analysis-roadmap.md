@@ -509,13 +509,26 @@ Phase 3 is not complete.
   request/worker/generation and a well-formed `direct_port_detached` response;
   malformed/rejected/timeout cleanup fails closed; one detach implementation.
 - **Competitive validation:** fail-closed owner-checkpoint provenance/parity/
-  benchmark validator; no checkpoint means blocked, never a fabricated pass.
-- **Tournament harness:** role-balanced paired openings, authoritative engine
-  replay validation, paired bootstrap uncertainty, strict negative validator.
-- **Memory validation:** explicit budgets, time-series checks, unavailable RSS
-  reporting without zero substitution; 10/30-minute profiles remain owner runs.
-- **Device/WebGPU:** physical matrix/runbook and evidence validator; WebGPU
-  fallback/unverified placement cannot be labelled GPU-only.
+  benchmark validator with an executable CLI; Level A/B gates must match their
+  validation level, native and browser evidence must come from distinct runtimes,
+  and model/weight/ruleset/architecture/encoder identities are bound to the
+  export. `--validate` is structural report inspection only; provenance and
+  acceptance policy are explicit, so a structural label cannot be edited into
+  competitive acceptance.
+- **Tournament harness:** role-balanced paired openings, canonical manifests
+  binding game IDs/pair indexes to openings, authoritative replay (including
+  failed-game prefixes), per-game seed/budget/deadline/move-limit validation,
+  canonical bootstrap recomputation, and a persistent newline-JSON process agent
+  with per-generation queues, request-id matching, bounded diagnostics and one
+  hard deadline covering writes, reads and recovery.
+- **Memory validation:** explicit budgets, timestamp-derived coverage, minimum
+  usable RSS coverage, missing-metric reasons without substitution, sustained
+  progress throughout the window, worker/cache/WASM limits and profile-specific
+  lifecycle events; structural, partial and acceptance outcomes are separate and
+  blocked/partial CLI runs exit nonzero. 10/30-minute profiles remain owner runs.
+- **Device/WebGPU:** physical matrix/runbook and per-combination evidence
+  validator; verified-GPU acceptance requires independent per-operator inventory
+  coverage, and WebGPU fallback/unverified/mixed placement cannot satisfy it.
 - **Copenhagen depth-5:** native measurements at 2/5/10/30 s still do not reach
   depth 5; requirement remains outstanding, browser evidence blocked.
 - **Evidence:** [Phase 3C-A report](../validation/browser-analysis-phase3c.md),
@@ -831,6 +844,7 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-24 | Phase 3C-A third review correction: competitive CLI/provenance orchestration, runtime-independent parity gates, persistent process-agent lifecycle, canonical tournament replay/budget validation, sustained-memory coverage and progress gates, per-combination device acceptance, malformed-input hardening, and documented native/browser collection-to-validation workflows. External gates remain blocked. |
 | 2026-11-23 | Phase 3C-A after merged PR #115: strict detach acknowledgment validation; competitive checkpoint validator; role-balanced paired tournament harness/validator; sustained-memory validator; physical device/WebGPU evidence schema/runbook; Copenhagen depth-5 native reassessment. External competitive/hardware/sustained-memory gates remain blocked; Phase 3C in progress. |
 | 2026-11-22 | Phase 3B PR #115 attachment cleanup hardening: direct ownership states pending/attached/detaching/released; failed attachment holds ownership until bounded detach; unacknowledged detach invalidates the worker; one detach implementation; provider switches/loads reject during uncertain cleanup and recover after safe release. |
 | 2026-11-22 | Phase 3B experimental PR #115, based on merged `main` `64ec43e`: authoritative nested best-move validation and coverage-identifier hardening; opt-in direct worker `MessageChannel`; bounded legal-only inference cache; bounded independent-search batching; actual-browser validation and smoke benchmarks. Single-tree batching/subtree reuse deferred; relay/cache/batching remain opt-in where benefit is conditional. Phase 3B in progress; 3C and external gates outstanding. |

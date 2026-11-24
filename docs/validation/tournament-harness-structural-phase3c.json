@@ -6,10 +6,26 @@
       "a": "scripted-first",
       "b": "scripted-last"
     },
+    "agent_config": {
+      "a": {
+        "label": "scripted-first",
+        "kind": "scripted",
+        "runtime": "in-process",
+        "provider": "in-process",
+        "model": null
+      },
+      "b": {
+        "label": "scripted-last",
+        "kind": "scripted",
+        "runtime": "in-process",
+        "provider": "in-process",
+        "model": null
+      }
+    },
     "settings": {
       "simulations": 8,
       "iterations": 8,
-      "time_limit": 1,
+      "time_limit": 1.0,
       "exploration": 1.4,
       "seed": 11,
       "max_plies": 24,
@@ -79,7 +95,8 @@
           "history": [
             "attackers:...A......A......D...AADKDAA...D......A......A..."
           ]
-        }
+        },
+        "starting_ply": 0
       },
       {
         "pair": 1,
@@ -142,20 +159,37 @@
           "winner": null,
           "reason": null,
           "history": []
-        }
+        },
+        "starting_ply": 0
       }
     ]
   },
-  "schema": 1,
+  "schema": 2,
   "ruleset": "brandubh",
   "agents": {
     "a": "scripted-first",
     "b": "scripted-last"
   },
+  "agent_config": {
+    "a": {
+      "label": "scripted-first",
+      "kind": "scripted",
+      "runtime": "in-process",
+      "provider": "in-process",
+      "model": null
+    },
+    "b": {
+      "label": "scripted-last",
+      "kind": "scripted",
+      "runtime": "in-process",
+      "provider": "in-process",
+      "model": null
+    }
+  },
   "settings": {
     "simulations": 8,
     "iterations": 8,
-    "time_limit": 1,
+    "time_limit": 1.0,
     "exploration": 1.4,
     "seed": 11,
     "max_plies": 24,
@@ -236,6 +270,7 @@
       "reason": "threefold_repetition",
       "starting_ply": 0,
       "plies": 10,
+      "move_limit": 24,
       "moves": [
         {
           "source": 3,
@@ -284,7 +319,7 @@
       "settings": {
         "algorithm": "mcts",
         "iterations": 8,
-        "time_limit": 1,
+        "time_limit": 1.0,
         "exploration": 1.4,
         "seed": 11
       },
@@ -366,6 +401,7 @@
       "reason": "threefold_repetition",
       "starting_ply": 0,
       "plies": 12,
+      "move_limit": 24,
       "moves": [
         {
           "source": 45,
@@ -422,7 +458,7 @@
       "settings": {
         "algorithm": "mcts",
         "iterations": 8,
-        "time_limit": 1,
+        "time_limit": 1.0,
         "exploration": 1.4,
         "seed": 12
       },
@@ -502,6 +538,7 @@
       "reason": "threefold_repetition",
       "starting_ply": 0,
       "plies": 10,
+      "move_limit": 24,
       "moves": [
         {
           "source": 2,
@@ -550,7 +587,7 @@
       "settings": {
         "algorithm": "mcts",
         "iterations": 8,
-        "time_limit": 1,
+        "time_limit": 1.0,
         "exploration": 1.4,
         "seed": 111
       },
@@ -630,6 +667,7 @@
       "reason": "threefold_repetition",
       "starting_ply": 0,
       "plies": 12,
+      "move_limit": 24,
       "moves": [
         {
           "source": 37,
@@ -686,7 +724,7 @@
       "settings": {
         "algorithm": "mcts",
         "iterations": 8,
-        "time_limit": 1,
+        "time_limit": 1.0,
         "exploration": 1.4,
         "seed": 112
       },
@@ -704,6 +742,7 @@
     "completed": 4,
     "draws": 4,
     "truncated": 0,
+    "move_limit_games": 0,
     "execution_errors": 0,
     "attacker_wins": 0,
     "defender_wins": 0,
@@ -741,18 +780,12 @@
     ],
     "pairs": 2
   },
-  "authoritative": false,
-  "ok": true,
   "structural_only": true,
+  "evidence_class": "structural",
   "playing_strength": {
     "status": "blocked",
-    "reason": "deterministic scripted agents are harness fixtures, not playing-strength evidence"
+    "reason": "structural tournament evidence is not playing-strength evidence"
   },
-  "validator": {
-    "kind": "browser-analysis-tournament-validation",
-    "ok": true,
-    "failures": [],
-    "games": 4,
-    "pairs": 2
-  }
+  "authoritative": false,
+  "ok": true
 }

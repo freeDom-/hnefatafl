@@ -1,7 +1,9 @@
-"""Sustained memory profile validator."""
+"""Sustained memory profile validator: coverage, progress and acceptance."""
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,17 +14,19 @@ if str(SPIKE) not in sys.path:
 import memory_validation as mv  # noqa: E402
 
 
-def _report():
-    return {
+def _report(profile="sustained-10m", samples=12, duration_ms=600000):
+    report = {
         "kind": "browser-analysis-memory-profile",
-        "schema": 1,
-        "profile": "sustained-10m",
+        "schema": 2,
+        "profile": profile,
         "status": "measured",
-        "duration_ms": 600000,
+        "duration_ms": duration_ms,
         "budgets": {
             "max_process_rss_bytes": 512 * 1024 * 1024,
             "max_js_heap_used_bytes": 256 * 1024 * 1024,
             "max_cache_bytes": 16 * 1024 * 1024,
+            "max_wasm_heap_capacity_bytes": 64 * 1024 * 1024,
+            "max_workers": 2,
         },
         "warmup_samples": 1,
         "samples": [
@@ -36,24 +40,98 @@ def _report():
                 "workers": 2,
                 "completed_requests": index,
             }
-            for index in range(12)
+            for index in range(samples)
         ],
     }
+    if profile == "cancel-restart":
+        report["events"] = {"cancellations": 2}
+    if profile == "model-reload":
+        report["events"] = {"reloads": 1}
+    if profile == "worker-replacement":
+        report["events"] = {"worker_replacements": 1}
+    return report
 
 
-def test_valid_measured_profile():
-    assert mv.validate_report(_report())["ok"] is True
+def test_valid_measured_profile_is_accepted():
+    result = mv.validate_report(_report())
+    assert result["structural_ok"] is True, result["failures"]
+    assert result["measurement_ok"] is True
+    assert result["acceptance_ok"] is True
+    assert result["status"] == "accepted"
 
 
-def test_blocked_profile_is_explicit():
+def test_blocked_profile_is_explicit_and_cannot_be_accepted():
     report = {
         "kind": "browser-analysis-memory-profile",
-        "schema": 1,
+        "schema": 2,
         "profile": "sustained-30m",
         "status": "blocked",
         "blocked_reasons": ["no 30-minute window"],
     }
-    assert mv.validate_report(report)["ok"] is True
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True
+    assert result["acceptance_ok"] is False
+    assert result["status"] == "blocked"
+
+
+def test_blocked_profile_cli_exit_code_is_not_success(tmp_path):
+    report = {
+        "kind": "browser-analysis-memory-profile",
+        "schema": 2,
+        "profile": "sustained-30m",
+        "status": "blocked",
+        "blocked_reasons": ["no 30-minute window"],
+    }
+    path = tmp_path / "blocked.json"
+    path.write_text(json.dumps(report))
+    result = subprocess.run(
+        [sys.executable, str(SPIKE / "memory_validation.py"), str(path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 2
+    assert json.loads(result.stdout)["acceptance_ok"] is False
+
+
+def test_one_valid_rss_sample_is_insufficient_for_acceptance():
+    report = _report()
+    for index, sample in enumerate(report["samples"]):
+        sample["process_rss_bytes"] = None
+        sample["rss_unavailable_reason"] = "process metrics were not exposed"
+    report["samples"][5]["process_rss_bytes"] = 100 * 1024 * 1024
+    report["unavailable_metrics"] = {
+        "process_rss_bytes": "only one process RSS observation was exposed"
+    }
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True, result["failures"]
+    assert result["acceptance_ok"] is False
+    assert any("RSS" in reason for reason in result["partial_reasons"])
+
+
+def test_missing_js_heap_and_cache_series_require_explanation():
+    report = _report()
+    for sample in report["samples"]:
+        sample.pop("js_heap_used_bytes")
+        sample.pop("cache_bytes")
+        sample.pop("cache_entries")
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("js_heap_used_bytes" in failure for failure in result["failures"])
+
+    report = _report()
+    for sample in report["samples"]:
+        sample.pop("js_heap_used_bytes")
+        sample.pop("cache_bytes")
+        sample.pop("cache_entries")
+    report["unavailable_metrics"] = {
+        "js_heap_used_bytes": "performance.memory is unavailable in headless Chromium",
+        "cache_bytes": "inference cache was not enabled",
+    }
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True
+    assert result["measurement_ok"] is False
+    assert result["acceptance_ok"] is False
 
 
 def test_unavailable_rss_must_be_explained_and_not_zero_substituted():
@@ -61,7 +139,7 @@ def test_unavailable_rss_must_be_explained_and_not_zero_substituted():
     for sample in report["samples"]:
         sample["process_rss_bytes"] = None
     result = mv.validate_report(report)
-    assert result["ok"] is False
+    assert result["structural_ok"] is False
     assert any("RSS" in failure for failure in result["failures"])
     for sample in report["samples"]:
         sample["rss_unavailable_reason"] = "playwright did not expose process RSS"
@@ -69,6 +147,81 @@ def test_unavailable_rss_must_be_explained_and_not_zero_substituted():
     structural = mv.validate_report(report)
     assert structural["structural_ok"] is True
     assert structural["acceptance_ok"] is False
+    report.pop("rss_acceptance_unavailable_reason")
+    assert mv.validate_report(report)["structural_ok"] is False
+
+
+def test_excessive_metric_gaps_are_rejected():
+    report = _report()
+    base = report["samples"][5]["timestamp_ms"]
+    for index in range(6, len(report["samples"])):
+        report["samples"][index]["timestamp_ms"] = base + 120000 + (index - 6) * 60000
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("gap" in failure for failure in result["failures"])
+
+
+def test_idle_workload_is_rejected_even_with_a_brief_activity_event():
+    report = _report()
+    for index, sample in enumerate(report["samples"]):
+        sample["completed_requests"] = 1 if index >= 1 else 0
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("brief workload activity" in failure for failure in result["failures"])
+
+    report = _report()
+    for sample in report["samples"]:
+        sample["completed_requests"] = 0
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+
+
+def test_activity_confined_to_one_half_is_rejected():
+    report = _report()
+    for index, sample in enumerate(report["samples"]):
+        sample["completed_requests"] = index if index <= 6 else 6
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("not distributed" in failure for failure in result["failures"])
+
+
+def test_zero_baseline_growth_is_evaluated():
+    report = _report()
+    report["samples"][0]["process_rss_bytes"] = 0
+    for index, sample in enumerate(report["samples"]):
+        sample["process_rss_bytes"] = index * 400 * 1024
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("grew" in failure for failure in result["failures"])
+
+
+def test_worker_and_cache_budgets_are_enforced():
+    report = _report()
+    report["samples"][4]["workers"] = 9
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("worker budget" in failure for failure in result["failures"])
+
+    report = _report()
+    report["samples"][4]["cache_bytes"] = 32 * 1024 * 1024
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("cache_bytes exceeds" in failure for failure in result["failures"])
+
+    report = _report()
+    report["samples"][4]["wasm_heap_capacity_bytes"] = 128 * 1024 * 1024
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("wasm_heap_capacity_bytes exceeds" in failure for failure in result["failures"])
+
+
+def test_profile_specific_lifecycle_requirements_are_enforced():
+    report = _report("worker-replacement")
+    assert mv.validate_report(report)["structural_ok"] is True
+    report.pop("events")
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("worker_replacements" in failure for failure in result["failures"])
 
 
 def test_growth_and_budget_are_rejected():
@@ -88,6 +241,11 @@ def test_timestamps_and_counters_are_validated():
     assert any("strictly increasing" in failure for failure in result["failures"])
     assert any("cache_entries" in failure for failure in result["failures"])
 
+    for invalid in (True, "17", float("nan"), float("inf")):
+        report = _report()
+        report["samples"][3]["process_rss_bytes"] = invalid
+        assert mv.validate_report(report)["ok"] is False, invalid
+
 
 def test_short_duration_and_insufficient_warmup_are_rejected():
     report = _report()
@@ -105,12 +263,44 @@ def test_positive_observable_budgets_are_required():
     assert mv.validate_report(report)["ok"] is False
 
     report = _report()
-    for sample in report["samples"]:
-        sample["process_rss_bytes"] = None
-        sample["rss_unavailable_reason"] = "not exposed"
-    report["rss_acceptance_unavailable_reason"] = "process RSS not exposed by harness"
-    structural = mv.validate_report(report)
-    assert structural["structural_ok"] is True
-    assert structural["acceptance_ok"] is False
-    report.pop("rss_acceptance_unavailable_reason")
-    assert mv.validate_report(report)["structural_ok"] is False
+    report["budgets"].pop("max_workers")
+    assert mv.validate_report(report)["ok"] is False
+
+
+def test_malformed_reports_are_structured(tmp_path):
+    raw = tmp_path / "raw.json"
+    raw.write_text("[1, 2, 3]")
+    result = subprocess.run(
+        [sys.executable, str(SPIKE / "memory_validation.py"), str(raw)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert json.loads(result.stdout)["ok"] is False
+
+    for malformed in (
+        {
+            "kind": "browser-analysis-memory-profile",
+            "schema": 2,
+            "profile": [],
+            "status": "measured",
+        },
+        {
+            "kind": "browser-analysis-memory-profile",
+            "schema": 2,
+            "profile": "sustained-10m",
+            "status": "measured",
+            "budgets": [],
+            "samples": [],
+        },
+        {
+            "kind": "browser-analysis-memory-profile",
+            "schema": 2,
+            "profile": "sustained-10m",
+            "status": "measured",
+            "samples": [{"timestamp_ms": 0, "process_rss_bytes": "big", "workers": True}],
+        },
+    ):
+        assert mv.validate_report(malformed)["ok"] is False
