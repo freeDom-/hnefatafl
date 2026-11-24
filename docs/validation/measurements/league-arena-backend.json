@@ -1,96 +1,10 @@
 {
-  "main": {
-    "git_revision": "27a3193bb1abd1fd98d26428d48b14fe14cb5bdf",
+  "league": {
+    "git_revision": "9f4aafe5b7ddc28366415f4ec9668091f4a8318a",
     "source_tree_dirty": false,
     "source_sha256": {
-      "online_core.py": "0bca1c99a71c13c28b5d3a8e895d5b21c66060fafc7ddab0f272144b847ee303",
-      "player_tournaments.py": "0bd270d61e7c248dd0710f28fe0c204430de2eaf3dc297cf56afe08bed63e53e",
-      "player_tournament_settlement.py": "40a1b572ebd67f1463ec105358b12e6df338b1afc7f64b5f31a168158d6ea4af"
-    },
-    "environment": {
-      "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
-      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
-      "logical_cpus": 3,
-      "affinity_cpus": 3,
-      "cpu_quota_cores": null,
-      "python": "3.12.14",
-      "sqlite": "3.53.1"
-    },
-    "workload": {
-      "players": 4096,
-      "historical_games": 1200,
-      "samples": 30,
-      "writers": 6
-    },
-    "mixed_common": {
-      "seconds": 0.17414,
-      "concurrency": 6,
-      "operations_per_second": 344.55,
-      "work_units_per_second": 344.55,
-      "by_operation": {
-        "online_move": {
-          "operations": 30,
-          "work_units": 30,
-          "errors": {},
-          "latency_ms": {
-            "p50": 3.2526,
-            "p95": 83.8465,
-            "p99": 133.5105
-          },
-          "sql_statements": {
-            "total": 600,
-            "p50": 20,
-            "p95": 20,
-            "p99": 20
-          },
-          "writer_transactions": 30,
-          "writer_wait_ms": {
-            "p50": 0.0849,
-            "p95": 78.8896,
-            "p99": 130.1742
-          },
-          "writer_hold_ms": {
-            "p50": 2.3275,
-            "p95": 3.1079,
-            "p99": 4.2004
-          }
-        },
-        "tournament_drain": {
-          "operations": 30,
-          "work_units": 30,
-          "errors": {},
-          "latency_ms": {
-            "p50": 10.1235,
-            "p95": 21.6672,
-            "p99": 21.8894
-          },
-          "sql_statements": {
-            "total": 750,
-            "p50": 25,
-            "p95": 25,
-            "p99": 25
-          },
-          "writer_transactions": 30,
-          "writer_wait_ms": {
-            "p50": 1.0935,
-            "p95": 4.2847,
-            "p99": 8.2717
-          },
-          "writer_hold_ms": {
-            "p50": 1.8835,
-            "p95": 3.337,
-            "p99": 4.6734
-          }
-        }
-      }
-    }
-  },
-  "league": {
-    "git_revision": "371bc31854d39900a841cfc2ce7e09bc569a4d19",
-    "source_tree_dirty": true,
-    "source_sha256": {
       "online_core.py": "c81afbd9a2bf9bbd2a02484df43922b1dd240fde0f3cd03381785ba73fb112b7",
-      "player_tournaments.py": "0bd270d61e7c248dd0710f28fe0c204430de2eaf3dc297cf56afe08bed63e53e",
+      "player_tournaments.py": "87b730627eebd8bdcc38eba2476ff73caa270e77835655180062e53a2d1a689f",
       "player_tournament_settlement.py": "40a1b572ebd67f1463ec105358b12e6df338b1afc7f64b5f31a168158d6ea4af",
       "league_administration.py": "792d8e52d2bf6dea0d3333b36326fd96777ee394c87b01cdb5905809c418088d",
       "league_api.py": "f9655ae91212ccb8b18554e901fa5ab3ebcecf186e3a49d47db61cd7939dc6d1",
@@ -118,19 +32,19 @@
       "writers": 6
     },
     "mixed_common": {
-      "seconds": 0.18429,
+      "seconds": 0.16101,
       "concurrency": 6,
-      "operations_per_second": 325.58,
-      "work_units_per_second": 325.58,
+      "operations_per_second": 372.65,
+      "work_units_per_second": 372.65,
       "by_operation": {
         "online_move": {
           "operations": 30,
           "work_units": 30,
           "errors": {},
           "latency_ms": {
-            "p50": 2.9955,
-            "p95": 21.2514,
-            "p99": 107.5976
+            "p50": 2.9761,
+            "p95": 58.8291,
+            "p99": 82.428
           },
           "sql_statements": {
             "total": 600,
@@ -140,14 +54,14 @@
           },
           "writer_transactions": 30,
           "writer_wait_ms": {
-            "p50": 0.0284,
-            "p95": 18.5294,
-            "p99": 104.235
+            "p50": 0.0559,
+            "p95": 53.7732,
+            "p99": 78.7087
           },
           "writer_hold_ms": {
-            "p50": 2.5806,
-            "p95": 3.8032,
-            "p99": 4.3745
+            "p50": 2.4335,
+            "p95": 3.303,
+            "p99": 4.2365
           }
         },
         "tournament_drain": {
@@ -155,9 +69,9 @@
           "work_units": 30,
           "errors": {},
           "latency_ms": {
-            "p50": 24.1125,
-            "p95": 46.0933,
-            "p99": 48.8437
+            "p50": 23.0511,
+            "p95": 33.6133,
+            "p99": 43.3848
           },
           "sql_statements": {
             "total": 750,
@@ -167,49 +81,49 @@
           },
           "writer_transactions": 30,
           "writer_wait_ms": {
-            "p50": 1.106,
-            "p95": 3.1823,
-            "p99": 33.9106
+            "p50": 1.0887,
+            "p95": 8.3016,
+            "p99": 19.6633
           },
           "writer_hold_ms": {
-            "p50": 1.6831,
-            "p95": 2.2089,
-            "p99": 3.9247
+            "p50": 1.5899,
+            "p95": 2.0125,
+            "p99": 2.232
           }
         }
       }
     },
     "mixed_with_league": {
-      "seconds": 0.43458,
+      "seconds": 0.43218,
       "concurrency": 6,
-      "operations_per_second": 276.13,
-      "work_units_per_second": 345.16,
+      "operations_per_second": 277.66,
+      "work_units_per_second": 347.08,
       "by_operation": {
         "league_drain": {
           "operations": 30,
           "work_units": 30,
           "errors": {},
           "latency_ms": {
-            "p50": 41.5762,
-            "p95": 78.273,
-            "p99": 85.4231
+            "p50": 37.0785,
+            "p95": 87.6183,
+            "p99": 94.0099
           },
           "sql_statements": {
-            "total": 742,
+            "total": 721,
             "p50": 23,
             "p95": 35,
             "p99": 35
           },
-          "writer_transactions": 36,
+          "writer_transactions": 33,
           "writer_wait_ms": {
-            "p50": 1.1118,
-            "p95": 33.5131,
-            "p99": 37.9536
+            "p50": 1.1169,
+            "p95": 33.4561,
+            "p99": 78.6157
           },
           "writer_hold_ms": {
-            "p50": 1.3304,
-            "p95": 2.798,
-            "p99": 2.9435
+            "p50": 1.4242,
+            "p95": 3.4335,
+            "p99": 3.5982
           }
         },
         "league_join_cancel": {
@@ -217,26 +131,26 @@
           "work_units": 60,
           "errors": {},
           "latency_ms": {
-            "p50": 4.4193,
-            "p95": 39.0864,
-            "p99": 56.9689
+            "p50": 4.2109,
+            "p95": 29.7269,
+            "p99": 37.2224
           },
           "sql_statements": {
-            "total": 1268,
+            "total": 1260,
             "p50": 42,
-            "p95": 46,
-            "p99": 46
+            "p95": 42,
+            "p99": 42
           },
           "writer_transactions": 60,
           "writer_wait_ms": {
-            "p50": 0.013,
-            "p95": 18.5851,
-            "p99": 53.6827
+            "p50": 0.0127,
+            "p95": 3.2582,
+            "p99": 33.485
           },
           "writer_hold_ms": {
-            "p50": 1.4867,
-            "p95": 3.3086,
-            "p99": 3.7875
+            "p50": 1.4502,
+            "p95": 3.1485,
+            "p99": 5.5747
           }
         },
         "online_move": {
@@ -244,9 +158,9 @@
           "work_units": 30,
           "errors": {},
           "latency_ms": {
-            "p50": 2.9539,
-            "p95": 56.1227,
-            "p99": 57.5311
+            "p50": 2.2495,
+            "p95": 35.4176,
+            "p99": 83.1676
           },
           "sql_statements": {
             "total": 600,
@@ -256,14 +170,14 @@
           },
           "writer_transactions": 30,
           "writer_wait_ms": {
-            "p50": 0.0139,
-            "p95": 53.5737,
-            "p99": 53.9151
+            "p50": 0.0168,
+            "p95": 33.6288,
+            "p99": 79.3989
           },
           "writer_hold_ms": {
-            "p50": 2.1299,
-            "p95": 3.2193,
-            "p99": 8.5982
+            "p50": 1.689,
+            "p95": 3.4559,
+            "p99": 7.1972
           }
         },
         "tournament_drain": {
@@ -271,9 +185,9 @@
           "work_units": 30,
           "errors": {},
           "latency_ms": {
-            "p50": 22.3153,
-            "p95": 84.8904,
-            "p99": 85.3929
+            "p50": 29.1558,
+            "p95": 57.6914,
+            "p99": 61.1038
           },
           "sql_statements": {
             "total": 750,
@@ -283,14 +197,14 @@
           },
           "writer_transactions": 30,
           "writer_wait_ms": {
-            "p50": 1.0975,
-            "p95": 33.4541,
-            "p99": 78.7765
+            "p50": 1.0902,
+            "p95": 33.4035,
+            "p99": 33.5362
           },
           "writer_hold_ms": {
-            "p50": 2.0029,
-            "p95": 3.7682,
-            "p99": 3.8529
+            "p50": 1.8957,
+            "p95": 3.8128,
+            "p99": 4.1177
           }
         }
       }
@@ -300,15 +214,15 @@
         "starting_queue": 8,
         "matched_pairs": 4,
         "cycles": 4,
-        "pairs_per_second": 248.53,
-        "seconds": 0.01609,
+        "pairs_per_second": 241.43,
+        "seconds": 0.01657,
         "operations": 4,
         "work_units": 4,
         "errors": {},
         "latency_ms": {
-          "p50": 3.7715,
-          "p95": 4.3745,
-          "p99": 4.3745
+          "p50": 3.9549,
+          "p95": 4.3636,
+          "p99": 4.3636
         },
         "sql_statements": {
           "total": 164,
@@ -318,29 +232,29 @@
         },
         "writer_transactions": 4,
         "writer_wait_ms": {
-          "p50": 0.0397,
-          "p95": 0.0642,
-          "p99": 0.0642
+          "p50": 0.038,
+          "p95": 0.0417,
+          "p99": 0.0417
         },
         "writer_hold_ms": {
-          "p50": 1.6613,
-          "p95": 2.0577,
-          "p99": 2.0577
+          "p50": 1.7441,
+          "p95": 2.1791,
+          "p99": 2.1791
         }
       },
       "large": {
         "starting_queue": 4096,
         "matched_pairs": 30,
         "cycles": 30,
-        "pairs_per_second": 220.54,
-        "seconds": 0.13603,
+        "pairs_per_second": 239.38,
+        "seconds": 0.12533,
         "operations": 30,
         "work_units": 30,
         "errors": {},
         "latency_ms": {
-          "p50": 4.4066,
-          "p95": 5.3651,
-          "p99": 7.7486
+          "p50": 4.1029,
+          "p95": 4.8504,
+          "p99": 5.5021
         },
         "sql_statements": {
           "total": 1230,
@@ -350,29 +264,29 @@
         },
         "writer_transactions": 30,
         "writer_wait_ms": {
-          "p50": 0.0403,
-          "p95": 0.0692,
-          "p99": 0.0944
+          "p50": 0.0404,
+          "p95": 0.0479,
+          "p99": 0.7039
         },
         "writer_hold_ms": {
-          "p50": 1.8934,
-          "p95": 2.3966,
-          "p99": 3.3363
+          "p50": 1.8216,
+          "p95": 2.0803,
+          "p99": 2.4783
         }
       },
       "deep_tail": {
         "starting_queue": 130,
         "matched_pairs": 1,
         "cycles": 17,
-        "pairs_per_second": 11.47,
-        "seconds": 0.08721,
+        "pairs_per_second": 10.86,
+        "seconds": 0.09207,
         "operations": 17,
         "work_units": 1,
         "errors": {},
         "latency_ms": {
-          "p50": 4.0559,
-          "p95": 4.6975,
-          "p99": 4.6975
+          "p50": 3.9723,
+          "p95": 5.5588,
+          "p99": 5.5588
         },
         "sql_statements": {
           "total": 761,
@@ -382,14 +296,14 @@
         },
         "writer_transactions": 17,
         "writer_wait_ms": {
-          "p50": 0.0394,
-          "p95": 0.0433,
-          "p99": 0.0433
+          "p50": 0.039,
+          "p95": 0.2701,
+          "p99": 0.2701
         },
         "writer_hold_ms": {
-          "p50": 1.4545,
-          "p95": 2.2892,
-          "p99": 2.2892
+          "p50": 1.6382,
+          "p95": 3.0243,
+          "p99": 3.0243
         }
       }
     },
@@ -400,19 +314,19 @@
       "deep_page_query_plan": [
         "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses=? AND account_id>?)"
       ],
-      "seconds": 0.10558,
+      "seconds": 0.08941,
       "concurrency": 1,
-      "operations_per_second": 568.27,
-      "work_units_per_second": 14206.77,
+      "operations_per_second": 671.1,
+      "work_units_per_second": 16777.5,
       "by_operation": {
         "deep_page": {
           "operations": 30,
           "work_units": 750,
           "errors": {},
           "latency_ms": {
-            "p50": 1.6146,
-            "p95": 2.4908,
-            "p99": 2.6217
+            "p50": 1.4557,
+            "p95": 1.6842,
+            "p99": 1.7029
           },
           "sql_statements": {
             "total": 240,
@@ -429,9 +343,9 @@
           "work_units": 750,
           "errors": {},
           "latency_ms": {
-            "p50": 1.5713,
-            "p95": 2.5038,
-            "p99": 6.0496
+            "p50": 1.4474,
+            "p95": 1.6637,
+            "p99": 1.7498
           },
           "sql_statements": {
             "total": 240,
@@ -446,19 +360,19 @@
       }
     },
     "personal_history": {
-      "seconds": 0.12297,
+      "seconds": 0.11022,
       "concurrency": 1,
-      "operations_per_second": 487.91,
-      "work_units_per_second": 12197.79,
+      "operations_per_second": 544.38,
+      "work_units_per_second": 13609.52,
       "by_operation": {
         "deep_page": {
           "operations": 30,
           "work_units": 750,
           "errors": {},
           "latency_ms": {
-            "p50": 1.8981,
-            "p95": 2.6203,
-            "p99": 5.4857
+            "p50": 1.7903,
+            "p95": 2.2726,
+            "p99": 2.4724
           },
           "sql_statements": {
             "total": 240,
@@ -475,9 +389,9 @@
           "work_units": 750,
           "errors": {},
           "latency_ms": {
-            "p50": 1.8582,
-            "p95": 2.7918,
-            "p99": 3.3146
+            "p50": 1.7845,
+            "p95": 2.0808,
+            "p99": 2.1017
           },
           "sql_statements": {
             "total": 240,
@@ -510,19 +424,19 @@
       ]
     },
     "result_processing": {
-      "seconds": 0.11913,
+      "seconds": 0.1021,
       "concurrency": 1,
-      "operations_per_second": 251.82,
-      "work_units_per_second": 251.82,
+      "operations_per_second": 293.83,
+      "work_units_per_second": 293.83,
       "by_operation": {
         "append": {
           "operations": 30,
           "work_units": 30,
           "errors": {},
           "latency_ms": {
-            "p50": 3.8389,
-            "p95": 4.6344,
-            "p99": 5.0799
+            "p50": 3.2985,
+            "p95": 3.9015,
+            "p99": 4.5377
           },
           "sql_statements": {
             "total": 690,
@@ -532,29 +446,29 @@
           },
           "writer_transactions": 30,
           "writer_wait_ms": {
-            "p50": 0.0112,
-            "p95": 0.0895,
-            "p99": 0.1059
+            "p50": 0.0102,
+            "p95": 0.0116,
+            "p99": 0.0146
           },
           "writer_hold_ms": {
-            "p50": 1.5892,
-            "p95": 2.293,
-            "p99": 2.3733
+            "p50": 1.303,
+            "p95": 1.5709,
+            "p99": 1.7013
           }
         }
       }
     },
     "result_processing_full_replay": {
       "using_same_results": true,
-      "operations_per_second_excluding_fixture_writes": 167.22,
-      "elapsed_seconds_including_fixture_writes": 0.22202,
+      "operations_per_second_excluding_fixture_writes": 200.1,
+      "elapsed_seconds_including_fixture_writes": 0.18776,
       "operations": 30,
       "work_units": 30,
       "errors": {},
       "latency_ms": {
-        "p50": 5.6593,
-        "p95": 7.3197,
-        "p99": 11.8732
+        "p50": 4.9553,
+        "p95": 5.5174,
+        "p99": 5.9144
       },
       "sql_statements": {
         "total": 720,
@@ -564,30 +478,30 @@
       },
       "writer_transactions": 30,
       "writer_wait_ms": {
-        "p50": 0.0109,
-        "p95": 0.017,
-        "p99": 0.0469
+        "p50": 0.0099,
+        "p95": 0.0112,
+        "p99": 0.0116
       },
       "writer_hold_ms": {
-        "p50": 3.2082,
-        "p95": 4.7829,
-        "p99": 4.8264
+        "p50": 2.9433,
+        "p95": 3.5367,
+        "p99": 3.8632
       }
     },
     "settlement_throughput": {
-      "seconds": 0.0507,
+      "seconds": 0.04418,
       "concurrency": 1,
-      "operations_per_second": 19.73,
-      "work_units_per_second": 591.77,
+      "operations_per_second": 22.63,
+      "work_units_per_second": 679.01,
       "by_operation": {
         "batch": {
           "operations": 1,
           "work_units": 30,
           "errors": {},
           "latency_ms": {
-            "p50": 50.6885,
-            "p95": 50.6885,
-            "p99": 50.6885
+            "p50": 44.1748,
+            "p95": 44.1748,
+            "p99": 44.1748
           },
           "sql_statements": {
             "total": 545,
@@ -597,32 +511,32 @@
           },
           "writer_transactions": 30,
           "writer_wait_ms": {
-            "p50": 0.0121,
-            "p95": 0.019,
-            "p99": 0.0206
+            "p50": 0.0116,
+            "p95": 0.013,
+            "p99": 0.0154
           },
           "writer_hold_ms": {
-            "p50": 1.4342,
-            "p95": 1.8998,
-            "p99": 2.1901
+            "p50": 1.2837,
+            "p95": 1.759,
+            "p99": 1.7859
           }
         }
       }
     },
     "official_correction": {
-      "seconds": 0.88233,
+      "seconds": 0.69468,
       "concurrency": 1,
-      "operations_per_second": 11.33,
-      "work_units_per_second": 11.33,
+      "operations_per_second": 14.4,
+      "work_units_per_second": 14.4,
       "by_operation": {
         "online_void": {
           "operations": 10,
           "work_units": 10,
           "errors": {},
           "latency_ms": {
-            "p50": 83.9037,
-            "p95": 111.0238,
-            "p99": 111.0238
+            "p50": 68.695,
+            "p95": 73.8262,
+            "p99": 73.8262
           },
           "sql_statements": {
             "total": 151120,
@@ -632,32 +546,32 @@
           },
           "writer_transactions": 10,
           "writer_wait_ms": {
-            "p50": 0.0117,
-            "p95": 0.0147,
-            "p99": 0.0147
+            "p50": 0.0114,
+            "p95": 0.0129,
+            "p99": 0.0129
           },
           "writer_hold_ms": {
-            "p50": 81.8848,
-            "p95": 109.1644,
-            "p99": 109.1644
+            "p50": 67.0572,
+            "p95": 72.2447,
+            "p99": 72.2447
           }
         }
       }
     },
     "withdrawal_projection": {
-      "seconds": 0.05095,
+      "seconds": 0.04789,
       "concurrency": 1,
-      "operations_per_second": 196.26,
-      "work_units_per_second": 196.26,
+      "operations_per_second": 208.83,
+      "work_units_per_second": 208.83,
       "by_operation": {
         "withdrawal": {
           "operations": 10,
           "work_units": 10,
           "errors": {},
           "latency_ms": {
-            "p50": 4.8218,
-            "p95": 7.0025,
-            "p99": 7.0025
+            "p50": 4.7223,
+            "p95": 5.2989,
+            "p99": 5.2989
           },
           "sql_statements": {
             "total": 220,
@@ -667,14 +581,14 @@
           },
           "writer_transactions": 10,
           "writer_wait_ms": {
-            "p50": 0.0104,
-            "p95": 0.0529,
-            "p99": 0.0529
+            "p50": 0.01,
+            "p95": 0.011,
+            "p99": 0.011
           },
           "writer_hold_ms": {
-            "p50": 2.8587,
-            "p95": 3.651,
-            "p99": 3.651
+            "p50": 2.7396,
+            "p95": 2.9943,
+            "p99": 2.9943
           }
         }
       }
@@ -683,16 +597,16 @@
       "official_games": 1260,
       "batch_limit": 50,
       "active_transactions": 155,
-      "seconds_without_worker_wait": 0.44333,
-      "games_per_second_without_worker_wait": 2842.14,
+      "seconds_without_worker_wait": 0.43643,
+      "games_per_second_without_worker_wait": 2887.04,
       "request": {
         "operations": 1,
         "work_units": 1,
         "errors": {},
         "latency_ms": {
-          "p50": 1.0291,
-          "p95": 1.0291,
-          "p99": 1.0291
+          "p50": 1.2211,
+          "p95": 1.2211,
+          "p99": 1.2211
         },
         "sql_statements": {
           "total": 8,
@@ -702,14 +616,14 @@
         },
         "writer_transactions": 1,
         "writer_wait_ms": {
-          "p50": 0.0121,
-          "p95": 0.0121,
-          "p99": 0.0121
+          "p50": 0.0135,
+          "p95": 0.0135,
+          "p99": 0.0135
         },
         "writer_hold_ms": {
-          "p50": 0.945,
-          "p95": 0.945,
-          "p99": 0.945
+          "p50": 1.049,
+          "p95": 1.049,
+          "p99": 1.049
         }
       },
       "steps": {
@@ -717,9 +631,9 @@
         "work_units": 155,
         "errors": {},
         "latency_ms": {
-          "p50": 2.6433,
-          "p95": 4.7404,
-          "p99": 5.1438
+          "p50": 2.3302,
+          "p95": 4.8711,
+          "p99": 6.6462
         },
         "sql_statements": {
           "total": 13708,
@@ -729,25 +643,111 @@
         },
         "writer_transactions": 155,
         "writer_wait_ms": {
-          "p50": 0.0103,
-          "p95": 0.0156,
-          "p99": 0.0614
+          "p50": 0.0101,
+          "p95": 0.015,
+          "p99": 0.0362
         },
         "writer_hold_ms": {
-          "p50": 1.3599,
-          "p95": 3.7369,
-          "p99": 4.1787
+          "p50": 1.3495,
+          "p95": 3.6561,
+          "p99": 4.8774
         }
       }
     },
     "idle_worker": {
-      "seconds": 8.00287,
-      "process_cpu_ms": 41.892,
-      "process_rss_before_bytes": 53448704,
-      "process_rss_after_bytes": 53682176,
+      "seconds": 8.00303,
+      "process_cpu_ms": 93.315,
+      "process_rss_before_bytes": 53469184,
+      "process_rss_after_bytes": 53882880,
       "sql_statements": 42,
       "writer_transactions": 0,
       "errors": 0
+    }
+  },
+  "main": {
+    "git_revision": "f2590b993cab24d7d3ab89249174ac052af5d2e6",
+    "source_tree_dirty": false,
+    "source_sha256": {
+      "online_core.py": "0bca1c99a71c13c28b5d3a8e895d5b21c66060fafc7ddab0f272144b847ee303",
+      "player_tournaments.py": "87b730627eebd8bdcc38eba2476ff73caa270e77835655180062e53a2d1a689f",
+      "player_tournament_settlement.py": "40a1b572ebd67f1463ec105358b12e6df338b1afc7f64b5f31a168158d6ea4af"
+    },
+    "environment": {
+      "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "logical_cpus": 3,
+      "affinity_cpus": 3,
+      "cpu_quota_cores": null,
+      "python": "3.12.14",
+      "sqlite": "3.53.1"
+    },
+    "workload": {
+      "players": 4096,
+      "historical_games": 1200,
+      "samples": 30,
+      "writers": 6
+    },
+    "mixed_common": {
+      "seconds": 0.14228,
+      "concurrency": 6,
+      "operations_per_second": 421.71,
+      "work_units_per_second": 421.71,
+      "by_operation": {
+        "online_move": {
+          "operations": 30,
+          "work_units": 30,
+          "errors": {},
+          "latency_ms": {
+            "p50": 2.8384,
+            "p95": 11.6118,
+            "p99": 21.7275
+          },
+          "sql_statements": {
+            "total": 600,
+            "p50": 20,
+            "p95": 20,
+            "p99": 20
+          },
+          "writer_transactions": 30,
+          "writer_wait_ms": {
+            "p50": 0.0541,
+            "p95": 9.0939,
+            "p99": 20.1895
+          },
+          "writer_hold_ms": {
+            "p50": 1.8088,
+            "p95": 3.0872,
+            "p99": 3.1454
+          }
+        },
+        "tournament_drain": {
+          "operations": 30,
+          "work_units": 30,
+          "errors": {},
+          "latency_ms": {
+            "p50": 20.8895,
+            "p95": 27.7513,
+            "p99": 27.8249
+          },
+          "sql_statements": {
+            "total": 750,
+            "p50": 25,
+            "p95": 25,
+            "p99": 25
+          },
+          "writer_transactions": 30,
+          "writer_wait_ms": {
+            "p50": 1.0869,
+            "p95": 8.2529,
+            "p99": 10.4614
+          },
+          "writer_hold_ms": {
+            "p50": 1.5022,
+            "p95": 2.1363,
+            "p99": 2.8458
+          }
+        }
+      }
     }
   }
 }

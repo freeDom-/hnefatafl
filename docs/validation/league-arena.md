@@ -48,19 +48,14 @@ workloads exercise bounded application paths on this host. Concurrent tails
 vary with local scheduling. The common writer arm compares the online move and
 tournament settlement paths available on current main.
 
-The runs used a Linux x86-64 cloud host with three visible AMD EPYC 9V74 vCPUs,
-Python 3.12.14, SQLite 3.53.1, Node.js 24.19.0 and Chromium 154. The measured
-backend runtime was commit `371bc31854d39900a841cfc2ce7e09bc569a4d19`, with
-validation and documentation changes pending. The backend source hashes match
-its Git blobs. The browser run used the clean compact-navigation fix at
-`e6f7af5c20c53d7ba401cc3e192d301f29f1400b`. The main comparison used an archive
-at `27a3193bb1abd1fd98d26428d48b14fe14cb5bdf`. The raw files include query plans,
+The runs used a Linux x86-64 cloud host with three visible AMD EPYC 9V74
+vCPUs, Python 3.12.14, SQLite 3.53.1, Node.js 24.19.0 and Chromium 156.0.8078.4.
+The measured League runtime and build used the clean commit
+`9f4aafe5b7ddc28366415f4ec9668091f4a8318a`. The main comparison used an archive
+at `f2590b993cab24d7d3ab89249174ac052af5d2e6`. The raw files include query plans,
 per-operation errors and the production bundle fingerprint.
 [Backend measurements](measurements/league-arena-backend.json) ·
 [Browser measurements](measurements/league-arena-browser.json)
-
-The baseline and the subsequently integrated main at `a4edb70` share the same
-production Python and frontend sources and dependency locks.
 
 ```sh
 work=$(mktemp -d)
@@ -107,36 +102,36 @@ unavailable during recovery and that the repair reproduces the prior standing.
 
 | Operation | Samples | p50 ms | p95 ms | p99 ms | Median SQL statements |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Match cycle, 8 compatible accounts | 4 | 3.77 | 4.37 | 4.37 | 41 |
-| Match cycle, 4,096 compatible accounts | 30 | 4.41 | 5.37 | 7.75 | 41 |
-| Match cycle, 130 accounts with a compatible pair at the tail | 17 | 4.06 | 4.70 | 4.70 | 45 |
-| Standings, first page | 30 | 1.57 | 2.50 | 6.05 | 8 |
-| Standings, after 3,275 rows | 30 | 1.61 | 2.49 | 2.62 | 8 |
-| Personal history, first page | 30 | 1.86 | 2.79 | 3.31 | 8 |
-| Personal history, after 950 rows | 30 | 1.90 | 2.62 | 5.49 | 8 |
-| Settlement append | 30 | 3.84 | 4.63 | 5.08 | 23 |
-| Same settlement with exact ledger replay | 30 | 5.66 | 7.32 | 11.87 | 24 |
-| Official void and Elo recalculation | 10 | 83.90 | 111.02 | 111.02 | 15,106 |
-| League withdrawal projection | 10 | 4.82 | 7.00 | 7.00 | 22 |
-| Administrative rebuild batch | 155 writes plus one final read | 2.64 | 4.74 | 5.14 | 8 |
+| Match cycle, 8 compatible accounts | 4 | 3.95 | 4.36 | 4.36 | 41 |
+| Match cycle, 4,096 compatible accounts | 30 | 4.10 | 4.85 | 5.50 | 41 |
+| Match cycle, 130 accounts with a compatible pair at the tail | 17 | 3.97 | 5.56 | 5.56 | 45 |
+| Standings, first page | 30 | 1.45 | 1.66 | 1.75 | 8 |
+| Standings, after 3,275 rows | 30 | 1.46 | 1.68 | 1.70 | 8 |
+| Personal history, first page | 30 | 1.78 | 2.08 | 2.10 | 8 |
+| Personal history, after 950 rows | 30 | 1.79 | 2.27 | 2.47 | 8 |
+| Settlement append | 30 | 3.30 | 3.90 | 4.54 | 23 |
+| Same settlement with exact ledger replay | 30 | 4.96 | 5.52 | 5.91 | 24 |
+| Official void and Elo recalculation | 10 | 68.69 | 73.83 | 73.83 | 15,106 |
+| League withdrawal projection | 10 | 4.72 | 5.30 | 5.30 | 22 |
+| Administrative rebuild batch | 155 writes plus one final read | 2.33 | 4.87 | 6.65 | 8 |
 
-The small and large compatible queues committed 4 and 30 pairs, at 248.53 and
-220.54 pairs per second of measured service time. The deep-tail pair committed
-on cycle 17 after 87 ms of total service and status checks. Its discovery
-writer held SQLite for 2.29 ms at p99. The standings plan seeks the qualified
-ordering index through the complete cursor key. Personal history seeks both
-participant indexes and sorts their two bounded result sets before the final
-page limit.
+The small and large compatible queues committed 4 and 30 pairs, at
+241.43 and 239.38 pairs per second of measured service time. The deep-tail
+pair committed on cycle 17 after 92 ms of total service and status checks.
+Its discovery writer held SQLite for 3.02 ms at p99. The standings plan
+seeks the qualified ordering index through the complete cursor key. Personal
+history seeks both participant indexes and sorts their two bounded result sets
+before the final page limit.
 
-Append settlement processed 251.82 results per second, with a median writer
-hold of 1.59 ms. Forced replay processed 167.22 results per second and held the
-writer for 3.21 ms at the median. A single subsequent batch settled 30 results
-in 50.69 ms. The 1,260-game rebuild used 155 short writes before the final
-empty check, with 0.443 seconds of work excluding the worker's scheduled waits.
+Append settlement processed 293.83 results per second, with a median writer
+hold of 1.30 ms. Forced replay processed 200.10 results per second and held the
+writer for 2.94 ms at the median. A single subsequent batch settled 30 results
+in 44.17 ms. The 1,260-game rebuild used 155 short writes before the final
+empty check, with 0.436 seconds of work excluding the worker's scheduled waits.
 The live worker executes one rebuild batch per cycle, so this fixture takes
 about 155 seconds at the normal one-second cadence. The empty worker spent
-41.89 ms of process CPU over 8.00 seconds, ran 42 SQL statements and acquired
-zero writer transactions. Process RSS rose by 228 KiB in that sample.
+93.31 ms of process CPU over 8.00 seconds, ran 42 SQL statements and acquired
+zero writer transactions. Process RSS changed by +404 KiB in that sample.
 
 ### Shared SQLite writers
 
@@ -148,18 +143,18 @@ operation. The reported SQL writer waits exclude the benchmark dispatch time.
 
 | Source and operation | p50 ms | p95 ms | p99 ms | Median SQL statements | Writer wait p99 ms |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Main online move | 3.25 | 83.85 | 133.51 | 20 | 130.17 |
-| Main tournament settlement | 10.12 | 21.67 | 21.89 | 25 | 8.27 |
-| League branch online move, common load | 3.00 | 21.25 | 107.60 | 20 | 104.24 |
-| League branch tournament settlement, common load | 24.11 | 46.09 | 48.84 | 25 | 33.91 |
-| League branch online move, mixed load | 2.95 | 56.12 | 57.53 | 20 | 53.92 |
-| League branch tournament settlement, mixed load | 22.32 | 84.89 | 85.39 | 25 | 78.78 |
-| League branch join and cancel, mixed load | 4.42 | 39.09 | 56.97 | 42 | 53.68 |
-| League branch settlement, mixed load | 41.58 | 78.27 | 85.42 | 23 | 37.95 |
+| Main online move | 2.84 | 11.61 | 21.73 | 20 | 20.19 |
+| Main tournament settlement | 20.89 | 27.75 | 27.82 | 25 | 10.46 |
+| League branch online move, common load | 2.98 | 58.83 | 82.43 | 20 | 78.71 |
+| League branch tournament settlement, common load | 23.05 | 33.61 | 43.38 | 25 | 19.66 |
+| League branch online move, mixed load | 2.25 | 35.42 | 83.17 | 20 | 79.40 |
+| League branch tournament settlement, mixed load | 29.16 | 57.69 | 61.10 | 25 | 33.54 |
+| League branch join and cancel, mixed load | 4.21 | 29.73 | 37.22 | 42 | 33.48 |
+| League branch settlement, mixed load | 37.08 | 87.62 | 94.01 | 23 | 78.62 |
 
-The common load completed 344.55 operations per second on main and 325.58 on
-the League branch. The mixed load completed 276.13 operations per second, or
-345.16 individual moves, mutations and settlements per second. All workloads
+The common load completed 421.71 operations per second on main and 372.65 on
+the League branch. The mixed load completed 277.66 operations per second, or
+347.08 individual moves, mutations and settlements per second. All workloads
 recorded zero errors. These are single local trials on disposable storage.
 
 ## Browser requests and assets
@@ -168,7 +163,7 @@ Opening League from the authenticated dashboard transferred 3,507 response
 bytes over four League API reads. During the next 17 seconds idle it issued
 zero League requests. An explicit join issued one POST, followed by four queue
 status reads in 17 seconds, transferring 3,748 response bytes. Those four reads
-measured 13.03 ms p50 and 14.28 ms p95/p99 on loopback. During the 4.5 seconds
+measured 9.70 ms p50 and 13.03 ms p95/p99 on loopback. During the 4.5 seconds
 after navigation away, it issued zero League requests. The browser recorded
 zero HTTP or network errors.
 
@@ -179,9 +174,9 @@ use level 9, as in the bundle-budget check.
 
 | Asset group | Raw bytes | Gzip bytes |
 | --- | ---: | ---: |
-| Main initial JavaScript | 573,702 | 183,136 |
-| League branch initial JavaScript | 582,988 | 185,953 |
+| Main initial JavaScript | 573,936 | 183,181 |
+| League branch initial JavaScript | 583,222 | 186,009 |
 | Main initial CSS | 115,904 | 24,194 |
-| League branch initial CSS | 115,832 | 24,170 |
-| Deferred League JavaScript | 27,432 | 8,567 |
+| League branch initial CSS | 115,551 | 24,114 |
+| Deferred League JavaScript | 27,432 | 8,565 |
 | Deferred League CSS | 1,782 | 629 |
