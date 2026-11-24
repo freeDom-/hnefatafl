@@ -574,3 +574,30 @@ def test_genuine_multi_ruleset_direct_relay_evidence_is_validated():
 
     _, failures = cv._validate_direct_relay(documents, "c" * 64, provenance)
     assert any("model digest" in failure for failure in failures)
+
+
+def test_genuine_native_and_browser_benchmark_evidence_is_validated():
+    paths = [
+        GENUINE / "mcts-benchmark-native-quick-r4.json",
+        GENUINE / "mcts-benchmark-browser-quick-r4.json",
+    ]
+    provenance = {
+        "ruleset": "brandubh",
+        "size": 7,
+        "source_weights_sha256": "028517cc28bbb6f8715fef7751c70a4dd4ea0164ef9b835aa8389b0ea17bcb48",
+    }
+    records, failures = cv._validate_benchmark_evidence(
+        paths,
+        "512ae93b9900f918438510b089b59ca21701decc5149d17ab277ca67aa8e6f2c",
+        provenance,
+    )
+    assert failures == [], failures
+    assert {record["runtime"] for record in records} == {"native-cpython", "browser-pyodide"}
+    assert {record["mode"] for record in records} == {"fixed_simulations", "fixed_time"}
+
+    _, failures = cv._validate_benchmark_evidence(
+        [paths[0], paths[0]],
+        "512ae93b9900f918438510b089b59ca21701decc5149d17ab277ca67aa8e6f2c",
+        provenance,
+    )
+    assert any("native and browser" in failure for failure in failures)

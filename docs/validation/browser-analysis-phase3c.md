@@ -393,8 +393,9 @@ requirement remains **outstanding**, not silently reduced. Evidence:
 
 ## 7. Test summary
 
-- Competitive validation: 14 tests including the real CLI integration with a
-  disposable checkpoint/export and genuine committed browser Level B evidence.
+- Competitive validation: 15 tests including the real CLI integration with a
+  disposable checkpoint/export and genuine committed browser Level B and benchmark
+  evidence.
 - Persistent process agents: 7 same-instance lifecycle/protocol tests.
 - Tournament harness/validator: 28 tests.
 - Memory validation: 17 tests; collection workflow test.
