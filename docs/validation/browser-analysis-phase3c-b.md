@@ -513,6 +513,18 @@ commands and small fixture-based tournaments; it is not full acceptance. The
 tournament CLI rejects playing-strength runs with fewer than ten opening pairs
 before launching, and generated corpora record generator/seed/corpus identity.
 
+## I.1 Local verification
+
+- Focused Python regression across the Phase 3C-B suites, competitive/device
+  validators, malformed-input suites and existing MCTS validation/benchmarks:
+  **226 passed, 3 skipped** (browser opt-in gates).
+- Node lifecycle regressions: 67/67, 7/7, 30/30, 21/21, 8/8.
+- Optional actual-browser sustained-driver runs passed repeated, cancel/restart,
+  model reload, worker replacement, cache churn, batching and model replacement
+  with an alternate validated model; the telemetry-only driver test exercised the
+  ready handshake and clean shutdown.
+- `make lint`, `make typecheck` and `make docs` pass.
+
 ## J. Readiness recommendation
 
 | Area | Status |
