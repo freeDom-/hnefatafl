@@ -9,16 +9,22 @@ and the [historical release index](docs/README.md#rulesets-release-history-and-h
 ## Arena completion status
 
 The [post-PR #84 audit](docs/designs/arena-completion.md) is a historical snapshot.
-At that baseline, Portrait Hall, signed-out spectator UI and human tournament UI
+At that baseline, Hall of Renown, signed-out spectator UI and human tournament UI
 were missing, tournament settlement was manually invoked and leagues were not
-implemented; schema is 18. Later work ships separately: Portrait Hall and portrait
-selection originated in PR #86, automatic progression is delivered in PR #94, the
-signed-out public spectator frontend is delivered in PR #87, and PR #90 supplies
-the human tournament UI, durable settlement and indexed scheduled starts, creator
+implemented; that snapshot's schema was 18. Later work is merged separately: Hall
+of Renown and portrait selection originate in PR #86, automatic progression in PR
+#94, the signed-out public spectator frontend in PR #87, and PR #90 supplies the
+human tournament UI, durable settlement, indexed scheduled starts, creator
 ownership and quotas, shared online clocks, and sequential/parallel matches.
-Leagues, Workshop consolidation and local-analysis research remain separate
-workstreams. See the [current Arena contracts](docs/designs/arena-v2-contracts.md)
-and [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
+Workshop consolidation is merged in PR #92, deferred feature loading and bundle
+budgets in PR #93, and the disposable backend read benchmark in PR #97 with
+benchmark hardening in PR #105. Leagues remain a draft implementation in PR #99.
+Browser analysis is a merged isolated prototype (#89) plus merged Phase 1 research
+(#104); it is not a production analysis executor. The canonical migration
+head on current `main` is schema 21. See the
+[current completeness matrix](docs/designs/arena-current-completeness.md),
+[current Arena contracts](docs/designs/arena-v2-contracts.md) and
+[release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
 remove obsolete formats after a tested development-data recovery path; it must not
 silently delete games, jobs, checkpoints or model files.
 
@@ -50,7 +56,9 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [ai.py](hnefatafl/ai.py) | Bounded heuristic/alpha-beta/MCTS with bounded transposition tables and full-state symmetry pruning, neural wrappers, cooperative MCTS contexts, seeded headless tournaments |
 | [shield_maiden.py](hnefatafl/shield_maiden.py) | Versioned one-ply royal geometry, escape routes and piece-safety evaluation; reused by the Jarl alpha-beta and Seer MCTS model-free paths |
 | [heuristic_benchmark.py](hnefatafl/heuristic_benchmark.py) | Paired heuristic strength, matched-position timing and actual training-evaluation runtime |
+| [encoding.py](hnefatafl/encoding.py) | PyTorch-independent six-plane position encoder and policy action indexing; one implementation shared by native inference and the browser search worker |
 | [models.py](hnefatafl/models.py) | Ruleset-specific policy/value network, safe checkpoints and a content-addressed model registry that is idempotent by inference-weight fingerprint |
+| [mcts_driver.py](hnefatafl/mcts_driver.py) | Cooperative neural MCTS driver: bounded request validation, exact external-evaluation association, result envelope and generator ownership; no tensor/HTTP dependency |
 | [training.py](hnefatafl/training.py), [training_identity.py](hnefatafl/training_identity.py), [training_presets.py](hnefatafl/training_presets.py) | Learning, replay, optimizer state, evaluation, resume, Optuna and validated budgets |
 | [training_augmentation.py](hnefatafl/training_augmentation.py), [symmetry_benchmark.py](hnefatafl/symmetry_benchmark.py) | Tensor-level D4 transforms of replay examples (input, action ids, legal mask), cached action permutations, minibatch collation and evidence tooling; no engine, search or inference dependency |
 | [self_play.py](hnefatafl/self_play.py), [inference.py](hnefatafl/inference.py) | Concurrent game scheduling, shared legal-policy inference batches and activity metrics |
@@ -214,9 +222,12 @@ inside the same write transaction, and derives advancement from the authoritativ
 online result revision. A corrected or voided result marks the affected match
 `disputed` instead of silently rewriting advancement; an administrator `rebuild`
 re-derives the whole bracket from the authoritative games and unlinks legs whose
-participants no longer match. This branch carries both schema 17 (progression:
-achievement/portrait catalogs, awards, entitlements and the selected portrait),
-schema 18 (player tournaments) and schema 20 (account-scoped replay-analysis receipts).
+participants no longer match. The canonical migration chain carries schema 17
+(progression: achievement/portrait catalogs, awards, entitlements and the selected
+portrait), schema 18 (player tournaments), schema 19 (tournament queue and planned
+dates), schema 20 (account-scoped replay-analysis receipts) and schema 21
+(automatic award reconciliation). Draft PR #99 proposes schema 22 on its own
+branch; that number is not reserved on `main`.
 See [Player tournaments](docs/PLAYER_TOURNAMENTS.md).
 
 ## Training execution and inference
@@ -767,6 +778,44 @@ on one UTC date per leaderboard response (February 29 advances March 1 in common
 years). The compact table, ranking calculations, game records and permission
 inventory are unchanged. See [account profile](docs/PROFILE.md).
 
+## Frontend feature loading
+
+The authenticated shell and live board remain immediately available. Workshop,
+AI tournaments, model-bearing setup, online management, profile/statistics,
+recorded review, Markdown rules and rich analysis load on first use.
+`deferredFeature` shares code-loading promises only; account data and component
+state remain owned by each mounted component. Failed imports offer retry and
+reload, and unmounted loaders cannot commit late state. Vite's preload state is
+document-wide and a shared deferred stylesheet such as `analysis-*.css` is
+imported by several features, so the loader tracks every stylesheet link added by
+a deferred import until it settles and only lets a module enter the cache once no
+stylesheet is pending; a concurrent import can therefore not mount while a shared
+stylesheet is still loading. A failed stylesheet is recorded document-wide, the
+panel states that a reload is required, and only an explicit Reload re-requests
+the failed link. The conservative policy blocks every deferred feature until
+reload because dependency ownership is not reliably available to the client.
+JavaScript and component-render failures keep Retry. This avoids coupling feature
+readiness to paused gameplay clocks. The canonical `useGameAnalysis` hook remains
+independent of the deferred analysis presentation.
+
+The New Game dialog keeps its shared modal shell eager and defers only the form,
+so close, Escape, focus management and cancellation work while the form loads or
+fails. `useNewGameSetup` owns the asynchronous setup with a generation counter
+and abort controller: fetched options publish only through an owned commit, only
+the newest operation may open the dialog, and cancelling, navigating, switching
+account, logging out or unmounting invalidates it and aborts the pending request.
+A game-creation completion is bound to the session that opened its dialog, so a
+late completion cannot affect a newer dialog, while the committed server game
+stays in the account's history.
+
+Production builds enforce budgets across the complete transitive eager manifest
+graph, including the first-paint appearance script. The production probe compares
+actual first-load JavaScript and CSS with that manifest graph, checks
+public/authenticated entry isolation and verifies Retry and Reload recovery
+against real hashed chunks. A build-only module ownership map lets the probe
+reject a prohibited feature folded into an eager shared chunk even without its
+filename prefix. See the
+[measurement scope and validation](docs/validation/frontend-feature-splitting.md).
 
 ## Human tournament scheduling and compatibility
 
@@ -782,7 +831,13 @@ Registration writes invalidate reviewed versions. The lifespan-owned settlement
 worker consumes an explicitly indexed partial due range and the transactional
 result outbox; it needs no request to start or advance a full due competition.
 Unfilled due rows are consumed and re-armed by later full registrations. Retries
-survive restart with bounded backoff. Sequential return games are seated only
-after game one's terminal state, using the normal online lifecycle and clocks.
+survive restart with bounded backoff. Startup reconciliation is synchronous when
+the shared deployment gate is free; expected exclusive-gate contention during an
+updater activation is deferred to this same worker, which retries once after the
+lock is released. Genuine errors are not treated as deployment contention.
+Historical `0.41.0` remains an unsafe rollback target because it predates this
+split; the corrected updater rejects it before service stop, snapshot restore or
+release replacement. Sequential return games are seated only after game one's
+terminal state, using the normal online lifecycle and clocks.
 Published capabilities never grant global administrative authority. See
 [player tournaments](docs/PLAYER_TOURNAMENTS.md) for limits, migration and recovery.

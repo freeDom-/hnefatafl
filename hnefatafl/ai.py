@@ -1736,16 +1736,28 @@ def choose_move(
 
 
 def analysis_from_search(
-    state: State, config: dict | None, move: Move | None, details: dict
+    state: State,
+    config: dict | None,
+    move: Move | None,
+    details: dict,
+    *,
+    model_backed: bool | None = None,
 ) -> dict:
-    """Build a report from actual search diagnostics without evaluating again."""
+    """Build a report from actual search diagnostics without evaluating again.
+
+    ``model_backed`` lets an external inference owner (the browser search worker)
+    identify a neural search without inventing a native model path or placeholder
+    model object. When omitted, classification is derived from the native model
+    configuration exactly as before.
+    """
     if state.winner:
         return {"value": evaluate(state), "source": "terminal", "best_move": None}
     configuration = _profile_configuration(config)
     algorithm = configuration.get("algorithm", configuration.get("profile_id", "baseline"))
-    model_backed = algorithm in {"alpha_beta", "alphabeta", "mcts", "neural"} and (
-        bool(configuration.get("model_path")) or configuration.get("_model") is not None
-    )
+    if model_backed is None:
+        model_backed = algorithm in {"alpha_beta", "alphabeta", "mcts", "neural"} and (
+            bool(configuration.get("model_path")) or configuration.get("_model") is not None
+        )
     source = (
         "neural_search" if model_backed else "mcts_rollout" if algorithm == "mcts" else "heuristic"
     )

@@ -190,7 +190,14 @@ award milestones; schema 21 reconciles historical evidence once. Portrait
 selection checks existing entitlement and never awards achievements. Awards and
 entitlements are append-only and unique. Existing origin, CSRF, bounded-body and
 deployment-freeze protection applies to the underlying game/analysis/selection
-mutations. See [portraits and achievements](PROGRESSION.md).
+mutations. Tournament startup reconciliation also respects that freeze: expected
+deployment-gate contention is deferred to the existing background worker rather
+than opening a second write path or bypassing the gate. The corrected updater also
+refuses known-incompatible `0.41.0` rollback/interrupted-recovery targets before
+service stop, data restore or symlink replacement; it never weakens the gate or
+data-authority checks to force a downgrade. See
+[portraits and achievements](PROGRESSION.md) and
+[deployment recovery](DEPLOYMENT.md#rollback-and-recovery).
 
 ## Coverage and explicit exceptions
 
@@ -242,20 +249,22 @@ privacy/retention and operational recovery policy require owner validation befor
 enabling signup. These are tested controls, not a claim of immunity.
 
 Browser-local guest play is removed. `/`, `/login`, the registration/verification/
-reset shells and the immutable build assets are the public documents; every other
-page, including an anonymous `GET /guest`, goes through the authenticated shell and
-redirects to `/login?next=%2Fguest`. All documents and APIs
+reset shells, the immutable build assets and the three fixed legal files
+(`/LICENSE.txt`, `/THIRD_PARTY_NOTICES.txt`, `/THIRD_PARTY_LICENSES.txt`) are the
+public documents; every other page, including an anonymous `GET /guest`, goes
+through the authenticated shell and redirects to `/login?next=%2Fguest`. The legal
+files are exact allowlist entries, not a path prefix. All documents and APIs
 share one strict content-security policy; no route receives `wasm-unsafe-eval`.
 
 The Phase 5 history refinement adds read-only `/api/history/games` and
 `/api/history/{category}/{game_id}/replay`. Current trusted `all_data` permits
 administrator-wide server history filters/review. Normal users remain scoped to
 online participation; account categories/name filters are denied and unauthorized
-object lookups return 404. Dashboard always adds own-account and completed eligible
+object lookups return 404. The Great Hall always adds own-account and completed eligible
 scope before its three-row limit, including administrators. List/count/category
 statistics and direct canonical review recheck current sessions in read transactions.
 No history route adds mutation, exports, assistance or public access. See
-[Dashboard](DASHBOARD.md) and the [API inventory](API_PERMISSIONS.json).
+[The Great Hall](DASHBOARD.md) and the [API inventory](API_PERMISSIONS.json).
 
 Signed-out visitors may read online games and completed replays through the
 additive `/api/public/online/*` namespace described in

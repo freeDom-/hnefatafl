@@ -2,6 +2,12 @@
 
 2026-11-15. Read-only source/model audit plus bounded native/capability probes. **Production browser-neural execution is not implemented or validated; keep it optional/deferred.** No dependencies installed, no models downloaded/trained, no valuable data modified, no tracked edits/branch/commit changes.
 
+> Phase 1B implements the export/parity/browser-inference tooling this audit
+> calls for and validates it with a tiny trained smoke checkpoint. See the
+> [browser-side analysis roadmap](../designs/browser-analysis-roadmap.md) and
+> [Phase 1 validation](browser-analysis-phase1.md). Representative trained
+> weights and physical WebGPU remain open; this audit's findings are preserved.
+
 [Documentation index](../README.md) · [Classical browser prototype](browser-analysis-prototype.md)
 
 ## Evidence location and reproducibility
@@ -103,6 +109,11 @@ Headless cloud Chromium156.0.8078.4; secure intercepted HTTPS fixture:
 Probe used the current policy literal on a test response; it did not validate a deployed HTTPS/reverse-proxy site. No ORT session, model operator support, Safari/Firefox/WebGPU device, physical mobile, cold/cache initialization, cancellation/memory-pressure behavior or actual neural inference was exercised in the browser.
 
 ## Upstream documentation and licensing
+
+> Current repository status (2026-11-22): the project now uses the PolyForm
+> Noncommercial License 1.0.0 and maintains third-party notices. The observations
+> below record the earlier browser-neural assessment; they do not describe the
+> current project license. See [project licensing](../LICENSING.md).
 
 Primary sources reviewed2026-11-15:
 - [PyTorch2.14 ONNX documentation](https://docs.pytorch.org/docs/2.14/onnx.html): use an explicitly supported conversion path and required tooling for the installed framework version.

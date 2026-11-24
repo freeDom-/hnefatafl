@@ -43,6 +43,10 @@ async function geometry(page: Page, dashboard = false) {
     };
   });
   expect(m.scroll).toBeLessThanOrEqual(m.width);
+  const footerText = await page.locator('.site-footer').innerText();
+  expect(footerText).toContain('ᛟ HNEFATAFL');
+  expect(footerText).not.toContain('An ancient game. An open horizon.');
+  expect(footerText).not.toContain('Made for thoughtful moves.');
   expect(m.rail?.left).toBe(0);
   expect(m.header?.left).toBeGreaterThanOrEqual(m.rail!.right - 1);
   expect(m.main?.left).toBeGreaterThanOrEqual(m.rail!.right - 1);
@@ -95,7 +99,7 @@ for (const theme of themes)
       await capture(page, `${name}-dashboard-empty`);
       await page.locator('.arena-sidebar [data-destination="play"]').click();
       await expect(page).toHaveURL(/\/play$/);
-      await expect(page.getByRole('heading', { name: 'Play', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Battlefield', exact: true })).toBeVisible();
       await geometry(page);
       await capture(page, `${name}-play`);
       await seedOnlineHistory(page, activeOnlineHistory());

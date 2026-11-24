@@ -14,6 +14,11 @@
  * entries, incomplete/erroring audit reports, metadata count mismatches, stale
  * exceptions, missing approval metadata and expired exceptions. This is an
  * explicit exception mechanism, not an audit suppression switch.
+ *
+ * A clean audit needs no acceptance: an empty `exceptions` array is valid and
+ * requires no owner approval metadata, because no risk is being accepted. The
+ * owner approval metadata is mandatory and strictly validated only while at
+ * least one exception is active.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -74,6 +79,21 @@ function validHttpsUrl(value) {
   } catch {
     return false;
   }
+}
+
+// These identifiers must be strings before their patterns are applied. Relying
+// on RegExp.test() alone would coerce arrays, numbers and booleans into matching
+// strings (for example ['freeDom-'] -> 'freeDom-').
+function validGitHubHandle(value) {
+  return typeof value === 'string' && GITHUB_HANDLE.test(value);
+}
+
+function validGhsaId(value) {
+  return typeof value === 'string' && GHSA.test(value);
+}
+
+function validCveId(value) {
+  return typeof value === 'string' && CVE.test(value);
 }
 
 function ghsaFromUrl(url) {
@@ -309,22 +329,45 @@ function validateExceptionFile(exceptions, today) {
   for (const key of Object.keys(exceptions)) {
     if (!TOP_LEVEL_KEYS.has(key)) problems.push(`Unknown top-level exception field ${key}.`);
   }
-  if (!GITHUB_HANDLE.test(exceptions.approvedBy ?? '')) {
-    problems.push('Exception file needs a GitHub-handle approvedBy value.');
+  // A missing or non-array `exceptions` field is a malformed configuration and
+  // always fails, even when the audits are clean.
+  if (!Array.isArray(exceptions.exceptions)) {
+    problems.push('Exception file needs an exceptions array.');
+    return problems;
   }
-  if (!validDate(exceptions.approvedAt ?? '')) {
-    problems.push('Exception file needs a valid ISO approvedAt date.');
-  } else if (exceptions.approvedAt > today) {
-    problems.push('Exception approvedAt cannot be in the future.');
-  }
-  if (!validHttpsUrl(exceptions.reviewReference)) {
-    problems.push('Exception file needs an https reviewReference.');
+  const accepting = exceptions.exceptions.length > 0;
+  if (accepting) {
+    // Owner approval is mandatory while any risk is being accepted.
+    if (!validGitHubHandle(exceptions.approvedBy)) {
+      problems.push('Exception file needs a GitHub-handle approvedBy value.');
+    }
+    if (!validDate(exceptions.approvedAt ?? '')) {
+      problems.push('Exception file needs a valid ISO approvedAt date.');
+    } else if (exceptions.approvedAt > today) {
+      problems.push('Exception approvedAt cannot be in the future.');
+    }
+    if (!validHttpsUrl(exceptions.reviewReference)) {
+      problems.push('Exception file needs an https reviewReference.');
+    }
+  } else {
+    // No risk is accepted, so approval metadata is not required. If it is still
+    // present it must remain well formed rather than silently ignored.
+    if (exceptions.approvedBy !== undefined && !validGitHubHandle(exceptions.approvedBy)) {
+      problems.push('Exception approvedBy must be a GitHub handle when present.');
+    }
+    if (exceptions.approvedAt !== undefined) {
+      if (!validDate(exceptions.approvedAt ?? '')) {
+        problems.push('Exception approvedAt must be a valid ISO date when present.');
+      } else if (exceptions.approvedAt > today) {
+        problems.push('Exception approvedAt cannot be in the future.');
+      }
+    }
+    if (exceptions.reviewReference !== undefined && !validHttpsUrl(exceptions.reviewReference)) {
+      problems.push('Exception reviewReference must be an https URL when present.');
+    }
   }
   if (exceptions.approvalReference !== undefined && !validHttpsUrl(exceptions.approvalReference)) {
     problems.push('Exception approvalReference must be an https URL when present.');
-  }
-  if (!Array.isArray(exceptions.exceptions) || exceptions.exceptions.length === 0) {
-    problems.push('Exception file needs at least one exception.');
   }
   return problems;
 }
@@ -335,8 +378,8 @@ function validateExceptionEntry(entry, exceptions, today) {
   for (const key of Object.keys(entry)) {
     if (!EXCEPTION_KEYS.has(key)) problems.push(`Unknown exception field ${key}.`);
   }
-  if (!GHSA.test(entry.advisory ?? '')) problems.push('Exception advisory must be a GHSA id.');
-  if (entry.cve !== undefined && !CVE.test(entry.cve)) {
+  if (!validGhsaId(entry.advisory)) problems.push('Exception advisory must be a GHSA id.');
+  if (entry.cve !== undefined && !validCveId(entry.cve)) {
     problems.push(`Exception ${entry.advisory} has an invalid CVE id.`);
   }
   if (typeof entry.package !== 'string' || !entry.package) {
@@ -446,7 +489,8 @@ export function assessAudit({
     const exception = configured.find(
       (entry) =>
         isPlainObject(entry) &&
-        entry.advisory?.toUpperCase() === advisory.id.toUpperCase() &&
+        validGhsaId(entry.advisory) &&
+        entry.advisory.toUpperCase() === advisory.id.toUpperCase() &&
         entry.package === advisory.package,
     );
     if (!exception) {
@@ -603,7 +647,11 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  console.log('Dependency audit accepted the configured exception(s); all other checks passed.');
+  console.log(
+    verdict.accepted.length
+      ? 'Dependency audit accepted the configured exception(s); all other checks passed.'
+      : 'Dependency audit clean; no exceptions used.',
+  );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

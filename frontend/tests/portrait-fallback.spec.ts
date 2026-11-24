@@ -26,7 +26,7 @@ const leaderboard = {
 };
 
 /**
- * The shared Portrait fallback must be styled without the lazy Portrait Hall
+ * The shared Portrait fallback must be styled without the lazy Hall of Renown
  * chunk. Check that the placeholder is visible, contained by its context and
  * centred, using only the shared stylesheet plus the context rule.
  */
@@ -96,7 +96,7 @@ test('shared portrait fallback is styled on direct routes without the gallery ch
         ),
       theme,
     );
-    // Direct navigation: never open Portrait Hall first.
+    // Direct navigation: never open Hall of Renown first.
     await page.goto('/profile');
     await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
     await expectContainedFallback(page, '.profile-portrait', { width: 88, height: 88 });

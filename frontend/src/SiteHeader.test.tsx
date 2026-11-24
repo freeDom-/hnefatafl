@@ -19,10 +19,10 @@ afterEach(() => {
 
 it('uses the shared authenticated navigation without a Guest play or login action', () => {
   render(<SiteHeader account={account} />);
-  expect(screen.getByRole('button', { name: 'Dashboard' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'The Great Hall' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Hall of records' })).toBeVisible();
   expect(screen.queryByRole('button', { name: 'AI workshop' })).toBeNull();
   expect(screen.queryByRole('link', { name: /Guest play|Log in/ })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+  fireEvent.click(screen.getByRole('button', { name: 'The Great Hall' }));
   expect(location.pathname).toBe('/dashboard');
 });

@@ -4,6 +4,12 @@
 [Validation](../../docs/validation/online-phase0.md) ·
 [Measured browser evidence](../../docs/validation/browser-offline-phase0.json)
 
+> Phase 1 (full-strength Jarl and trained-model browser inference) and Phase 2
+> (browser-side neural MCTS) build on this prototype. See the
+> [browser-side analysis roadmap](../../docs/designs/browser-analysis-roadmap.md),
+> [Phase 1 validation](../../docs/validation/browser-analysis-phase1.md) and
+> [Phase 2 validation](../../docs/validation/browser-analysis-phase2.md).
+
 Isolated static experiment: unchanged Python engine and baseline AI in a Pyodide
 worker. No production routes, account bypass, application build changes, database,
 new production dependency or downloaded models. Reusing Python proved feasible;
@@ -19,6 +25,236 @@ cache, bounded scheduling and termination-based cancellation. See the
 for fresh measurements, native/browser differential tests and production gates.
 The Phase 0 measurements and limitations below describe the original baseline-only
 experiment; they are retained as historical evidence, not new validation.
+
+### Phase 1: full-strength Jarl and neural inference
+
+The worker exposes the production-equivalent Jarl preset (depth 5, 2 s, Shield
+maiden, optimized search) and named benchmark workloads
+(quick/interactive/standard/deep/extended) through a shared `jarl_benchmark.py`
+runner used identically by native CPython and Pyodide. `jarl_compare.py` is the
+single comparison implementation behind both the browser verifier and the
+standalone comparator.
+
+Corrected contract (revision 3):
+
+- Every measured **repetition** is validated: record keys include the repetition
+  index, duplicates are rejected, and expected coverage is derived independently
+  from the workload cases × configurations × declared repetitions. Both reports
+  omitting the same position, empty reports and mismatched repetition counts fail.
+- Record-level position hash, ruleset, mode, seed and effective-settings digest
+  must match the workload. The settings digest is numeric-normalised so it
+  survives the Python/JavaScript JSON boundary.
+- **Execution validity**, **parity at equal completed work** and **acceptance
+  completion** are reported separately. A finite value, a legal workload move and
+  the correct defender-relative terminal value are mandatory; parity is compared
+  only when completed depth, interruption state and available node/evaluation
+  counters agree. Asymmetric or limited cases are listed as unresolved acceptance
+  targets, not regressions.
+- Fixed-time differences remain informational; terminal, unsupported, failed and
+  non-equivalent cases are excluded from equal-work latency ratios.
+- Each benchmark case is an independently bounded request (75 s), so a later
+  failure cannot discard earlier records. Ordinary analysis keeps a 5 s watchdog;
+  a legitimate cooperative deadline up to 10 s derives a watchdog up to 20 s.
+
+```sh
+.venv/bin/python spikes/browser_offline/native_jarl_benchmark.py \
+  --mode fixed_work --suite quick --warmup 1 --repetitions 2 --output /tmp/jarl-native.json
+.venv/bin/python spikes/browser_offline/prepare.py --output /tmp/hnefatafl-analysis
+node spikes/browser_offline/verify_jarl.mjs /tmp/hnefatafl-analysis \
+  --mode fixed_work --suite quick --warmup 1 --reps 2 \
+  --native /tmp/jarl-native.json --output /tmp/jarl-browser.json
+.venv/bin/python spikes/browser_offline/compare_jarl_benchmarks.py \
+  /tmp/jarl-native.json /tmp/jarl-browser.json --output /tmp/jarl-comparison.json
+```
+
+The neural side stages a *validated* export only: the ONNX graph, metadata,
+reference vectors and parity report are bound by digests, and a forced replacement
+invalidates the old marker before publishing. Browser parity validates the complete
+inference response the runtime actually returned (model/ruleset and request/position
+identity, logits, value, legal indices/order, probabilities, shapes, dtypes) and
+independently verifies batch count, result count, per-result index and position
+association. Missing response fields fail; deliberate corruption kinds must fail.
+
+Inference requests are bound to the exact model they were prepared for: callers
+capture `client.modelIdentity()` (digest, ruleset, size) when preparing a workload,
+and both the client and worker reject a stale or mismatched identity before
+execution. Loading requires a supported ruleset, and batch requests carry model
+metadata once at batch level. Reference vectors are written as compact JSON so
+Copenhagen remains within the unchanged 16 MiB experimental budget.
+
+```sh
+uv pip install --python .venv/bin/python -r spikes/browser_offline/requirements-onnx.txt
+.venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/model-export
+.venv/bin/python spikes/browser_offline/prepare_neural.py \
+  --model-dir /tmp/model-export --output /tmp/neural-spike
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --output /tmp/neural-parity-wasm.json
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --corrupt reorder --output /tmp/neural-corrupt.json   # exit 1 = detected
+# Request-identity corruption names one exact boundary and asserts the code:
+#   request-model, request-ruleset, request-size   -> single, client
+#   request-model-worker                           -> single, worker
+#   request-model-batch                            -> batch, client
+#   request-model-batch-worker                     -> batch, worker
+# Exit 1 means the intended rejection was observed; exit 3 means it was not.
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider wasm --corrupt request-model-worker --output /tmp/neural-identity.json
+node spikes/browser_offline/neural_benchmark.mjs /tmp/neural-spike \
+  --provider wasm --sustained 200 --output /tmp/neural-wasm.json
+node spikes/browser_offline/test_neural_ui.mjs /tmp/neural-spike \
+  --output /tmp/neural-ui.json
+node spikes/browser_offline/test_neural_identity.mjs
+node spikes/browser_offline/test_neural_tensors.mjs
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider webgpu --require-webgpu
+node spikes/browser_offline/neural_parity.mjs /tmp/neural-spike \
+  --provider webgpu --require-gpu-execution   # fails without a placement API
+node spikes/browser_offline/test_browser_lifecycle.mjs
+```
+
+### Phase 3A: legal-only MCTS inference transport
+
+Browser neural MCTS no longer transfers a complete policy row per simulation. The
+inference worker decodes the search worker's base64 planes directly into a
+`Float32Array`, reads the legal softmax from the output tensor and returns only
+legal probabilities, value and request association. Full logits remain available
+through `infer`/parity/benchmark paths; `coordinator.compactInference = false`
+preserves the previous transport for controlled A/B runs. Browser evaluation
+events also omit the duplicate serialized position, and pending context no longer
+retains the unused serialization. The comparator independently recomputes the
+workload identity, all accumulated counters must be non-negative, and the
+inference-delay capability lives only in the separate `neural-worker-test.js`
+entry point, which normal staging never includes. The normal worker rejects every
+test action, including direct `configureTestHooks`/test-only inference calls.
+
+```sh
+node spikes/browser_offline/mcts_benchmark.mjs /tmp/neural-spike \
+  --provider wasm --simulations 512,1024 --time-budgets 2,5 \
+  --repetitions 2 --payload-mode compact --output /tmp/compact.json
+node spikes/browser_offline/mcts_benchmark.mjs /tmp/neural-spike \
+  --provider wasm --simulations 512,1024 --time-budgets 2,5 \
+  --repetitions 2 --payload-mode full --output /tmp/full.json
+```
+
+The dedicated `test_search_path_parity.mjs` gate runs the same browser search
+with full-logit and legal-only inference, requiring exact fixed-work parity and
+valid deadline behavior under fixed time. Phase 3A evidence and limitations are
+recorded in the
+[Phase 3 validation](../../docs/validation/browser-analysis-phase3.md). Phase 3B
+(caching, independent/single-tree batching, subtree reuse) and Phase 3C
+(competitive checkpoints, tournaments, physical hardware) are outstanding.
+
+`--require-webgpu` requires an obtained adapter, a created session, a successful
+inference and an observed placement of `webgpu-session-verified` (WebGPU providers
+only). A session created for WebGPU without observable per-node placement is
+reported as `webgpu-session-unverified`; a mixed list is `webgpu-mixed`; WASM-only
+is `cpu-fallback`. No WASM fallback is ever labelled GPU.
+
+See the [roadmap](../../docs/designs/browser-analysis-roadmap.md) and
+[Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
+
+### Phase 2: browser-side neural MCTS
+
+The existing Python `mcts_context()` generator now runs unchanged inside a
+Pyodide *search worker*. The browser never reimplements the rules engine or the
+search:
+
+- `hnefatafl/encoding.py` is the single PyTorch-free six-plane encoder, shared by
+  native inference and the browser worker.
+- `hnefatafl/mcts_driver.py` owns one generator, validates each external
+  evaluation (legal-index association, finite non-negative priors, defender-relative
+  value in `[-1, 1]`) and produces the established analysis result plus a
+  versioned `search` envelope (requested/completed simulations, root visits,
+  requests, prediction reuses, deadline cutoff, completion reason, model/provider,
+  full position identity).
+- `search-worker.js` executes one bounded `search_bridge.py` slice per message, so
+  it never blocks its event loop waiting for inference. The coordinator
+  (`search-client.js`) relays each dependent evaluation to the persistent neural
+  worker and resumes the same generator.
+- Deadlines are explicit and separate: runtime initialization, model load,
+  cooperative search deadline, per-step/inference timeouts, a bounded watchdog and
+  a cancellation acknowledgement deadline. Cancellation is cooperative first;
+  termination is the bounded recovery path. Repeated searches reuse the Pyodide
+  runtime and ORT session.
+- `neural.html` gained a position-analysis panel: Jarl or neural MCTS, ruleset and
+  position, provider, 128–4096 simulations, 0.25–10 s budget, exploration, seed,
+  progress, cancel and machine-readable export. Jarl never creates the ORT worker
+  or loads a model.
+
+Level A parity uses a shared deterministic evaluator and requires exact equality
+of the complete search payload and evaluation trace. Level B compares actual
+model-backed searches and reports best-move, value, visit and completed-work
+differences instead of demanding equal trees. Both comparators validate the
+reports independently: reproducible fixture coverage (a case omitted from both
+reports is detected), schema/level/engine/workload/model identity, budgets,
+terminal and immediate-win semantics, legal moves, visit integrity and raw
+benchmark repetition coverage. Checkpoint weight fingerprints bind the native
+PyTorch evaluator to the exported ONNX artifact.
+
+Review-correction guarantees: search ownership is reserved before any await and
+validated at every asynchronous boundary (the worker's actual search id is never
+overwritten); cancellation drains or terminates the owned inference without
+killing newer work; cancellation covers model download/session/worker
+initialization; `pagehide`/`pageshow` restore usable clients; nothing neural is
+fetched for Jarl; every mandatory staged Python source requires a valid digest.
+Revision 3 adds exact terminal/best-move semantics and recomputed position
+identity, a versioned built-in/custom workload contract (`--positions` with
+`--positions-file` verification), interpreted abandoned-inference outcomes, and
+replacement admissions that await bounded cancellation cleanup (immediate restart
+without delays, healthy session reuse, unhealthy-drain replacement). Revision 4
+completes fresh-page position initialization/retry, per-runtime fixed-work
+completion validation, owner-bound pending requests with an inherited cleanup
+barrier, real pending-inference cancellation coverage, structured CLI failures and
+file-backed vs intentionally embedded custom sources with mandatory digests.
+
+```sh
+# Structural smoke checkpoint (not competitive) -> validated ONNX export -> stage
+.venv/bin/python spikes/browser_offline/smoke_checkpoint.py \
+  --ruleset brandubh --output /tmp/smoke-brandubh.pt
+.venv/bin/python spikes/browser_offline/onnx_export.py /tmp/smoke-brandubh.pt /tmp/model-export
+.venv/bin/python spikes/browser_offline/prepare_neural.py \
+  --model-dir /tmp/model-export --output /tmp/neural-spike
+
+# Level A (exact) and Level B (model-backed) parity
+.venv/bin/python spikes/browser_offline/native_mcts_parity.py --level a \
+  --iterations 128 --output /tmp/mcts-native-a.json
+node spikes/browser_offline/mcts_parity.mjs /tmp/neural-spike \
+  --native /tmp/mcts-native-a.json --level a --output /tmp/mcts-browser-a.json
+.venv/bin/python spikes/browser_offline/native_mcts_parity.py --level b \
+  --evaluator onnx --model-export /tmp/model-export --rulesets brandubh \
+  --iterations 256 --output /tmp/mcts-native-b.json
+node spikes/browser_offline/mcts_parity.mjs /tmp/neural-spike \
+  --native /tmp/mcts-native-b.json --level b --provider wasm \
+  --output /tmp/mcts-browser-b.json
+
+# Complete-search benchmarks and equal-work comparison
+.venv/bin/python spikes/browser_offline/native_mcts_benchmark.py \
+  --model-export /tmp/model-export --evaluator onnx --quick --output /tmp/mcts-native-bench.json
+node spikes/browser_offline/mcts_benchmark.mjs /tmp/neural-spike \
+  --provider wasm --quick --native /tmp/mcts-native-bench.json \
+  --output /tmp/mcts-browser-bench.json
+
+# Analysis UI and cancellation/lifecycle checks
+node spikes/browser_offline/test_mcts_ui.mjs /tmp/neural-spike --output /tmp/mcts-ui.json
+node spikes/browser_offline/test_search_lifecycle.mjs
+node spikes/browser_offline/test_browser_lifecycle.mjs
+node spikes/browser_offline/test_search_assets.mjs
+
+# Native encoding comparison against the previous tensor-assignment path
+.venv/bin/python spikes/browser_offline/encoding_benchmark.py --repetitions 5
+
+# Custom owner-style positions (native first, browser consumes the same workload)
+.venv/bin/python spikes/browser_offline/native_mcts_parity.py --level a \
+  --positions /path/to/positions.json --output /tmp/native-custom.json
+node spikes/browser_offline/mcts_parity.mjs /tmp/neural-spike \
+  --native /tmp/native-custom.json --level a --positions-file /path/to/positions.json \
+  --output /tmp/browser-custom.json
+```
+
+Owner-supplied private checkpoints use the same commands with the export produced
+from that checkpoint. Physical WebGPU and Windows/Android/Safari runs use the
+provider and hardware instructions in
+[Phase 2 validation](../../docs/validation/browser-analysis-phase2.md).
 
 ### Lifecycle and scheduling corrections
 
@@ -169,6 +405,91 @@ It displays a runtime-loading error while the UI response control still works.
   busy in the worker, and the full fixture/gameplay sequence after offline reload.
   It blocks nonlocal requests and asserts no application API requests occur.
 
+### Physical-device validation (owner hardware)
+
+Privately supplied trained weights must stay local. Do **not** bind a file server
+to `0.0.0.0` or open a LAN HTTP address: that can expose the model artifacts and
+does not provide the secure context required by WebGPU and Web Crypto.
+
+#### WSL to a native Windows browser (safe loopback)
+
+```sh
+# 1. Export and stage in WSL (private checkpoint stays local).
+.venv/bin/python spikes/browser_offline/onnx_export.py /path/to/last.pt /tmp/model-export
+.venv/bin/python spikes/browser_offline/prepare_neural.py \
+  --model-dir /tmp/model-export --output /tmp/neural-spike
+# 2. Loopback only. WSL2 normally forwards http://localhost:8765 to Windows.
+.venv/bin/python -m http.server 8765 --bind 127.0.0.1 --directory /tmp/neural-spike
+```
+
+Open `http://localhost:8765/neural.html` in Windows Chrome/Edge and verify in the
+DevTools console:
+
+```js
+window.isSecureContext          // must be true
+!!crypto.subtle                 // must be true
+navigator.gpu                   // may be undefined on unsupported browsers
+await navigator.gpu?.requestAdapter()   // null/undefined means no GPU adapter
+```
+
+If Windows localhost forwarding is unavailable, use an SSH tunnel or trusted
+HTTPS. Do not disable browser security.
+
+```powershell
+# From Windows, tunnel the WSL loopback port and open http://localhost:8765.
+ssh -N -L 8765:127.0.0.1:8765 <wsl-user>@<wsl-host>
+```
+
+For a non-loopback origin, serve through a reverse proxy with a certificate the
+Windows browser already trusts (for example a local development CA). HTTP over a
+LAN address is not a valid WebGPU/Web Crypto test.
+
+#### Native Windows automated parity and benchmark
+
+Copy the staged directory to a Windows-accessible path (for example
+`C:\work\neural-spike`). Use a Windows checkout of this repository, Node.js 22+,
+and either the Playwright Chromium or an installed Chrome/Edge.
+
+```powershell
+cd C:\path\to\hnefatafl
+npm --prefix frontend ci
+npx --prefix frontend playwright install chromium   # or use installed Chrome below
+
+# Resolve the Windows Python interpreter explicitly (no Unix .venv path).
+$env:SPIKE_PYTHON = (Get-Command py -ErrorAction SilentlyContinue).Source
+if (-not $env:SPIKE_PYTHON) { $env:SPIKE_PYTHON = (Get-Command python).Source }
+$env:SPIKE_CHROMIUM = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+# Edge alternative:
+# $env:SPIKE_CHROMIUM = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+
+node spikes\browser_offline\neural_parity.mjs C:\work\neural-spike `
+  --provider wasm --output C:\work\parity-wasm.json
+node spikes\browser_offline\neural_parity.mjs C:\work\neural-spike `
+  --provider webgpu --require-webgpu --output C:\work\parity-webgpu.json
+node spikes\browser_offline\neural_benchmark.mjs C:\work\neural-spike `
+  --provider webgpu --require-webgpu --output C:\work\bench-webgpu.json
+node spikes\browser_offline\test_neural_ui.mjs C:\work\neural-spike `
+  --output C:\work\ui.json
+```
+
+`--require-webgpu` requires a WebGPU-requested session and successful numerical
+inference. It does **not** claim per-operator GPU execution.
+`--require-gpu-execution` requires independently verified actual GPU execution;
+the pinned ORT Web build exposes no per-operator placement API, so it currently
+fails explicitly even on GPU hardware. Report `execution_placement` verbatim.
+
+#### Firefox, Safari and physical mobile
+
+The automated harness launches Chromium only. `--provider wasm` selects the
+execution provider; it does **not** run the harness on Firefox or Safari.
+
+- Firefox/Safari: open the loopback (or trusted HTTPS) page manually, choose
+  `wasm`, and use Capabilities → Load → Infer / Infer distinct batch /
+  Benchmark. Copy the `#output` JSON as evidence, or run the harness with
+  `SPIKE_CHROMIUM` pointed at a Chromium-based browser only.
+- Physical mobile: use trusted HTTPS or a secure tunnel to the loopback origin;
+  do not expose the model directory over plain LAN HTTP.
+
 ## Actual environment and measurements
 
 2026-10-25: Linux x86_64 cloud container, kernel 6.18.55/glibc 2.41, Intel Xeon
@@ -212,6 +533,11 @@ for a new run. Exact asset digests and individual measurements are retained in
 the linked JSON evidence.
 
 ## Network, packaging, licensing and limitations
+
+> Current repository status (2026-11-22): the project now has a root PolyForm
+> Noncommercial License 1.0.0 and third-party notices. This section preserves the
+> assessment baseline and its observation that no top-level LICENSE existed at
+> that time. See [project licensing](../../docs/LICENSING.md) for current terms.
 
 Initial preparation needs the CDN through the configured network proxy. No network
 dependencies were observed after browser installation/caching; the core runtime's

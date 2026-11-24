@@ -1,14 +1,72 @@
-# Hnefatafl — The King's Table
+<h1 align="center">⚔️ Hnefatafl — The King's Table</h1>
 
-Play Brandubh, Tablut and Copenhagen in a responsive browser application. Challenge
-search opponents, compare them in tournaments, or train a policy/value network
-from scratch with real self-play learning.
+<p align="center">
+  <strong>Ancient Viking strategy. Modern browser play.</strong><br>
+  Play Brandubh, Tablut and Copenhagen with friends or AI, challenge rival agents
+  in tournaments, and train your own neural opponents.
+</p>
 
-![Brandubh gameplay with the Wood theme, Carved wood tokens and Old walnut board](docs/screenshots/readme-gameplay.png)
+<p align="center">
+  <a href="https://github.com/freeDom-/hnefatafl/releases"><img src="https://img.shields.io/github/v/release/freeDom-/hnefatafl?label=latest%20release&amp;style=for-the-badge&amp;color=8B5E3C" alt="Latest Hnefatafl release"></a>
+  <a href="https://buymeacoffee.com/free.dom"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support%20the%20Project-FFDD00?style=for-the-badge&amp;logo=buymeacoffee&amp;logoColor=000000" alt="Support Hnefatafl on Buy Me a Coffee"></a>
+</p>
 
-[Documentation](docs/README.md) · [Quick start](#quick-start) · [Training](docs/TRAINING.md) · [Deployment](docs/DEPLOYMENT.md)
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#install-and-start">Quick start</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/TRAINING.md">AI training</a> ·
+  <a href="docs/DEPLOYMENT.md">Deployment</a> ·
+  <a href="#licensing">Licensing</a> ·
+  <a href="#support-development">Support</a>
+</p>
 
 <a id="features"></a>
+
+## Licensing
+
+Hnefatafl is **source-available** software licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE), SPDX identifier
+`PolyForm-Noncommercial-1.0.0`. It is **not** OSI-approved open-source software.
+
+The license permits private use, noncommercial self-hosting, noncommercial
+modification and redistribution, and qualifying use by charitable, educational,
+public research, public safety/health, environmental and government
+organizations, as the license defines those terms. Fair-use rights are preserved.
+The summary in this section does not replace the license; the
+[license text](LICENSE) controls, including its definitions and exceptions.
+
+Commercial use not permitted by the license requires separate explicit
+authorization from the relevant rights holders. Hnefatafl does not offer a
+commercial licensing program, sales channel or entitlement to commercial terms;
+no authorization is offered or implied through GitHub Issues. Examples that
+generally require separate authorization include:
+
+- Selling copies of the software.
+- Providing commercial managed hosting.
+- Operating a commercial Hnefatafl platform based on the software.
+- Offering paid subscriptions or premium features using the software.
+- Commercial redistribution.
+- Incorporating the software into commercial products or services.
+
+Third-party components and assets keep their own terms; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Contributors retain copyright in
+their contributions; no CLA is active and a deferred proposal is documented in
+[CONTRIBUTING.md](CONTRIBUTING.md) and
+[the CLA proposal](docs/CONTRIBUTOR_LICENSING.md). The full scope, previous-release
+position, AI-model distinctions and unresolved ownership questions are documented
+in [Licensing](docs/LICENSING.md). Earlier releases contained no root license;
+this change does not retroactively revoke rights or relicense older archives.
+
+## Support development
+
+Financial support is completely voluntary through
+[Buy Me a Coffee](https://buymeacoffee.com/free.dom). Hnefatafl remains free for
+permitted noncommercial use whether or not anyone donates. All gameplay and AI
+features remain free. Donations are not a software license purchase and unlock
+no features, privileges, ranking, matchmaking or training advantages; non-donors
+have identical access. The project makes no tax-deductible charitable-status
+claim. See the [donation policy](docs/DONATIONS.md) for details.
 
 ## What you can do
 
@@ -105,7 +163,7 @@ for administration, prerequisites and retained-container recovery.
 
 ## Play or train
 
-On **Dashboard**, choose **New single-player game**, then a battlefield, mode, sides and opponents. Select a piece,
+On **The Great Hall**, choose **New single-player game**, then a battlefield, mode, sides and opponents. Select a piece,
 then a highlighted legal destination. Arrow keys navigate, Enter/Space selects,
 and Escape clears selection. **Hall of records** opens read-only history; **Resume single-player** reconnects account play. **Analytics**
 below move history configures an advisor. See [Gameplay](docs/GAMEPLAY.md).
@@ -145,17 +203,18 @@ see [Development](docs/DEVELOPMENT.md) for that workflow and
 A server connection is required. The public Watch Hall at `/watch` offers
 read-only online discovery, live viewing and completed replay without an account;
 playing games, private history and profiles require authentication. The
-authenticated Portrait Hall and portrait selection originated in PR #86, and
+authenticated Hall of Renown and portrait selection originated in PR #86, and
 PR #94 adds automatic tiered achievements and portrait progression. See the
-[completion audit](docs/designs/arena-completion.md)
-and [public release-readiness checklist](docs/RELEASE_READINESS.md). Verified accounts
+[current completeness and roadmap](docs/designs/arena-current-completeness.md),
+[historical post-PR #84 audit](docs/designs/arena-completion.md) and
+[public release-readiness checklist](docs/RELEASE_READINESS.md). Verified accounts
 can create/join games in the online lobby when the operator enables admission;
 registration and online admission default off. Automatic timeout losses and rating
 updates are enabled by default; operators can explicitly pause finalization during maintenance or recovery. See
 [online operations](docs/ONLINE.md) and [registration](docs/REGISTRATION.md).
 Use the production HTTPS/proxy configuration before public exposure. Offline play,
-automatic opponent matchmaking, distributed self-play and PostgreSQL migration
-tools are not implemented. Installation requires a published stable release with
+league seasons with automated queue matchmaking, distributed self-play and PostgreSQL
+migration tools are not part of the released application. Installation requires a published stable release with
 a verified asset.
 
 CPU workflows are verified. CUDA/MPS execution, GPU throughput and target-host

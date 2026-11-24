@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import NewGame from './NewGame';
+import NewGameForm from './NewGameForm';
 import { setLanguage } from './i18n';
 import { NotificationProvider, clearNotifications } from './notifications';
 import { useModelCatalogue } from './useModelCatalogue';
@@ -118,7 +118,7 @@ function Harness({
   }, [seed, refresh]);
   return (
     <NotificationProvider>
-      <NewGame
+      <NewGameForm
         rulesets={rulesets}
         profiles={profiles}
         models={models}

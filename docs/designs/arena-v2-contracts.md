@@ -1,14 +1,17 @@
 # Arena v2 contracts and integration plan
 
-Status: current implementation boundaries after PR #84, audited at
+Status: contract boundaries frozen after PR #84, audited at
 `2579a86b82ed1eca91f39e7d8064196597e873ed` on 2026-11-15. This replaces the
 proposed-only contract from PR #73. It distinguishes implemented authority from
-planned UI; it does not implement the remaining features. Portrait Hall,
-portrait selection originated in the separate Portrait Hall PR
-(#86), whose authenticated `/portraits` route reuses the contracts below; the other
-remaining deliveries are unchanged.
+planned UI; it does not implement features. Hall of Renown and portrait selection
+(PR #86) reuse the contracts below through the authenticated `/portraits` route;
+the signed-out spectator surfaces ship in PR #87 and the human tournament UI in
+PR #90. Leagues remain draft work in PR #99. Consult the
+[current completeness matrix](arena-current-completeness.md) for current status
+rather than treating this frozen contract as a feature list.
 
-See the [verified feature matrix and completion plan](arena-completion.md),
+See the [current completeness matrix and roadmap](arena-current-completeness.md),
+the [historical post-PR #84 audit](arena-completion.md),
 [current architecture](../../ARCHITECTURE.md), [design system](../DESIGN_SYSTEM.md)
 and [original contract](https://github.com/freeDom-/hnefatafl/blob/c8b99c6fcaf6775e924e6f4eda65328a02f87f3b/docs/designs/arena-v2-contracts.md).
 The original contract remains historical evidence, not the current feature list.
@@ -37,13 +40,14 @@ it does **not** redirect to Dashboard. `/tournaments` is administrative AI
 benchmarking, never the human tournament page. The public API and the signed-out
 spectator page ship with PR #87. At the audited baseline, Portrait Hall, human
 tournaments and leagues were sidebar placeholders; Portrait Hall is delivered by
-PR #86.
+PR #86, and the human tournament UI is delivered by PR #90. Leagues remain a
+draft implementation in PR #99, not a shipped route.
 
-Shipped canonical frontend routes include `/watch`, `/watch/games/{id}` and
-`/watch/games/{id}/replay` (PR #87). Planned canonical frontend routes are
-`/player-tournaments`, `/player-tournaments/{id}` and
-`/leagues`. These are reservations, not shipped routes; `/portraits` is no longer
-planned and ships in PR #86. Shared navigation,
+Shipped canonical frontend routes include `/watch`, `/watch/games/{id}`,
+`/watch/games/{id}/replay` (PR #87) and `/player-tournaments`,
+`/player-tournaments/{id}` (PR #90). `/leagues` is a reservation carried by draft
+PR #99 and is not a shipped route. `/portraits` is no longer planned and ships in
+PR #86. Shared navigation,
 `safeDestination`, route focus and Browser Back handling have one integration
 owner per PR. Public routes must render without mounting authenticated `App` or
 making protected startup requests.

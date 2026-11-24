@@ -65,7 +65,7 @@ test.describe('Play auto-resume respects newer navigation', () => {
     });
 
     await page.goto('/play');
-    await expect(page.getByRole('heading', { name: 'Play', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Battlefield', exact: true })).toBeVisible();
     await page.evaluate(() => history.pushState(null, '', '/statistics'));
     release();
     await didFulfill;
@@ -147,7 +147,7 @@ test.describe('Play auto-resume respects newer navigation', () => {
       route.fulfill({ json: inProgress('backresume') }),
     );
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
     await openDestination(page, 'play');
     await expect(page).toHaveURL(/\/games\/backresume$/);
     await page.goBack();

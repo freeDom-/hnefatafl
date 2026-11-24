@@ -12,7 +12,7 @@ game reads, statistics and runes; no historical data is deleted.
 
 ## AI configurations in the Hall of records
 
-[Dashboard and Hall](DASHBOARD.md) now share compact read-only recorded-game rows.
+[The Great Hall and Hall of records](DASHBOARD.md) now share compact read-only recorded-game rows.
 Normal users browse participating online records; administrators can filter all
 server-recorded online and account-single-player games by category, player name,
 ruleset, lifecycle and result. Counts and category totals match the server filter.

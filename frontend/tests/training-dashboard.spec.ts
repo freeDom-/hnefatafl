@@ -538,9 +538,8 @@ async function refuseTrainingFields(page: Page) {
 }
 
 async function rejectTrainingFields(page: Page) {
-  // With a job present the workshop starts collapsed, so open it first.
-  const disclosure = page.getByRole('button', { name: /Forge a new strategist/ });
-  if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click();
+  // Initial job loading determines the disclosure default.
+  await openCreation(page);
   // The button carries an aria-hidden arrow, so match its name loosely.
   await page.getByRole('button', { name: /Start training/ }).click();
   const alert = page.getByRole('alert');

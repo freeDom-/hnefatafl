@@ -8,7 +8,7 @@ Commands assume the repository root unless a different directory is shown.
 
 - [Repository introduction and quick start](../README.md)
 - [Online lobby, multiplayer controls, clocks and replay](ONLINE_PLAY.md)
-- [Personal dashboard, statistics and read-only history](DASHBOARD.md)
+- [The Great Hall, statistics and read-only history](DASHBOARD.md)
 - [Gameplay: ruleset comparison, controls, replay and persistence](GAMEPLAY.md)
 - [Profiles, records, model suggestions, language and appearance](PERSONALIZATION.md)
 - [Account menu, private profile details, password changes and leaderboard sharing](PROFILE.md)
@@ -66,8 +66,9 @@ Commands assume the repository root unless a different directory is shown.
 ## Architecture, development and testing
 
 - [Current architecture and module boundaries](../ARCHITECTURE.md)
-- [Arena completion audit, verified feature matrix and PR dependencies](designs/arena-completion.md)
+- [Current Arena Phase 0–4 completeness, roadmap and remaining dependencies](designs/arena-current-completeness.md): primary roadmap reference
 - [Initial public release readiness and outstanding gates](RELEASE_READINESS.md)
+- [Historical post-PR #84 Arena completion audit and baseline matrix](designs/arena-completion.md): historical snapshot, not current status
 - [Arena v2 contracts, feature preservation inventory and integration plan](designs/arena-v2-contracts.md)
 - [Shared frontend notification layer, migrated surfaces and exceptions](NOTIFICATIONS.md)
 - [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)
@@ -76,15 +77,31 @@ Commands assume the repository root unless a different directory is shown.
 - [League policy and implementation contract](LEAGUES.md)
 - [Repository working conventions](../AGENTS.md)
 - [Validation overview and historical evidence](VALIDATION.md)
+- [Workshop presentation and bounded rendering](validation/workshop-consolidation.md)
 - [Player tournament Arena and settlement validation](validation/player-tournaments-arena.md)
 - [Scheduled starts, creator permissions and themed calendar validation](validation/player-tournament-scheduling.md)
 - [Tournament final review, compact popup and two-game creation validation](validation/player-tournament-refinement.md)
+- [Disposable backend read workload](validation/backend-read-baseline.md)
 - [Dashboard polling policy and measurement](validation/dashboard-polling.md)
 - [Current-engine browser analysis feasibility](validation/browser-analysis-prototype.md)
 - [Browser neural execution and CSP feasibility](validation/browser-neural-feasibility.md)
+- [Browser analysis Phase 1 validation (Jarl and neural inference)](validation/browser-analysis-phase1.md)
+- [Browser analysis Phase 2 validation (browser-side neural MCTS)](validation/browser-analysis-phase2.md)
+- [Browser analysis Phase 3 validation (optimization, Phase 3A)](validation/browser-analysis-phase3.md)
+- [Browser analysis Phase 3B validation (transport, cache, batching)](validation/browser-analysis-phase3b.md)
+- [Browser-side analysis roadmap](designs/browser-analysis-roadmap.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)
 
+- [Frontend feature splitting and initial bundle evidence](validation/frontend-feature-splitting.md)
 - [Arena theme completion and visual checks](validation/arena-theme-completion.md)
+
+## Licensing and contributions
+
+- [Project licensing scope, previous releases, AI models and open ownership questions](LICENSING.md)
+- [Third-party notices and dependency compatibility](../THIRD_PARTY_NOTICES.md)
+- [Contributing rules and current CLA status](../CONTRIBUTING.md)
+- [Deferred Harmony CLA proposal and GitHub automation](CONTRIBUTOR_LICENSING.md)
+- [Voluntary donations, donor policy and the support link](DONATIONS.md)
 
 ## Online foundations and offline feasibility
 
@@ -122,6 +139,8 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.41.1](releases/0.41.1.md) | Deployment-gate-safe deferred tournament recovery, sanitized readiness diagnostics and mandatory startup-under-lock regression coverage |
+| [0.41.0](releases/0.41.0.md) | Arena v2 four-theme shell, Local 1v1, human player tournaments, automatic portraits and achievements, public spectator Arena, and frontend/backend performance work |
 | [0.40.0](releases/0.40.0.md) | Persistent Champion-aware HyperController, selectable learning metrics with portable parameter history, and configurable neural analytics budgets |
 | [0.39.0](releases/0.39.0.md) | Schedule-Free AdamW, tournament role analytics and legal openings, evaluation-series fitting |
 | [0.38.0](releases/0.38.0.md) | Account profiles, automatic optional-field publication and current player identities |

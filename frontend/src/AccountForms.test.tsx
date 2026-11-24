@@ -56,6 +56,26 @@ it('does not consume a fragment token on GET or StrictMode mount and removes it 
   dispatched.mockRestore();
 });
 
+it('keeps legal notices and support available without a commercial licensing link', async () => {
+  const paths = ['/login', '/register', '/forgot-password', '/verify-email', '/reset-password'];
+  for (const path of paths) {
+    cleanup();
+    history.replaceState(null, '', path);
+    mount(vi.fn(() => response({ enabled: false, email_available: false })));
+    await screen.findByRole('link', { name: 'License terms' });
+    expect(screen.getByRole('link', { name: 'Third-party notices' })).toHaveAttribute(
+      'href',
+      '/THIRD_PARTY_NOTICES.txt',
+    );
+    expect(
+      screen.getByRole('link', {
+        name: 'Support development on Buy Me a Coffee (opens in a new tab)',
+      }),
+    ).toHaveAttribute('href', 'https://buymeacoffee.com/free.dom');
+    expect(screen.queryByRole('link', { name: /commercial licensing/i })).toBeNull();
+  }
+});
+
 it('focuses the identity field and has no redundant Log in heading', async () => {
   history.replaceState(null, '', '/login');
   mount(vi.fn(() => response({ enabled: false, email_available: false })));

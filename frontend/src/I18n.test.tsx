@@ -62,7 +62,7 @@ describe('English and German localization', () => {
       .mockResolvedValue({ ok: true, json: async () => ({ id: 'localized-game' }) });
     vi.stubGlobal('fetch', fetcher);
     const view = render(form());
-    expect(screen.getByRole('button', { name: 'To the table' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'To the table' })).toBeVisible();
     fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), {
       target: { value: 'de' },
     });

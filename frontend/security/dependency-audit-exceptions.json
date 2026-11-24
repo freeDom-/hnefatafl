@@ -1,34 +1,5 @@
 {
   "schema": 3,
-  "approvedBy": "freeDom-",
-  "approvedAt": "2026-11-18",
-  "reviewReference": "https://github.com/freeDom-/hnefatafl/pull/95",
-  "notes": "The durable owner approval is the PR #95 approval comment recorded in each exception's approvalReference. The JSON is a machine-readable record of that decision, not the evidence itself.",
-  "exceptions": [
-    {
-      "advisory": "GHSA-fc5q-39xc-vjpf",
-      "cve": "CVE-2026-112366",
-      "package": "picomatch",
-      "severity": "high",
-      "scope": "development",
-      "expires": "2026-12-17",
-      "advisoryRange": "<=4.0.7",
-      "approvalReference": "https://github.com/freeDom-/hnefatafl/pull/95#issuecomment-6976788744",
-      "affectedPackages": ["fdir", "picomatch", "tinyglobby", "vite", "vitest"],
-      "packageVersions": {
-        "fdir": "6.5.0",
-        "picomatch": "4.0.7",
-        "tinyglobby": "0.2.17",
-        "vite": "7.3.7",
-        "vitest": "4.1.12"
-      },
-      "rationale": "GitHub keeps this advisory reviewed and high with no patched release. Every affected package is dev-only, the production-only audit is clean, the built bundle contains no picomatch, and repository glob inputs do not contain the vulnerable single-branch extglob shape. No untrusted runtime input reaches glob compilation. The exception covers only this advisory and expires for re-review.",
-      "paths": [
-        "vite@7.3.7 -> picomatch@4.0.7",
-        "vite@7.3.7 -> fdir@6.5.0 -> picomatch@4.0.7",
-        "vite@7.3.7 -> tinyglobby@0.2.17 -> picomatch@4.0.7",
-        "vitest@4.1.12 -> picomatch@4.0.7"
-      ]
-    }
-  ]
+  "notes": "No active risk exceptions. GitHub withdrew GHSA-fc5q-39xc-vjpf (CVE-2026-112366) on 2026-11-18, and the full and production-only lockfile audits both reported zero findings, so the previous picomatch acceptance was removed as unused. The historical owner approval and risk assessment remain in docs/validation/test-toolchain-security.md. No approval metadata is recorded here because no risk is being accepted; any future exception must be reviewed and approved, and the audit script requires the approval metadata again as soon as one is added.",
+  "exceptions": []
 }

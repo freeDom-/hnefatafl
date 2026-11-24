@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api, apiFetch, errorMessage } from './api';
 import { notify } from './notifications';
+import { useAuth } from './Auth';
+import { surfaceLink } from './surfaceNavigation';
+import { workspaceDestinations } from './workspaceNavigation';
 import Board, { coordinate, Crown } from './Board';
 import RecordsConfirm from './RecordsConfirm';
 import RecordsParameters, { parameterSummary } from './RecordsParameters';
@@ -33,6 +36,7 @@ import type {
 } from './tournamentTypes';
 import './features.css';
 import './tournaments.css';
+import './workshopConsolidation.css';
 
 const date = (value: string, locale: string) =>
   new Date(value).toLocaleDateString(locale, {
@@ -191,6 +195,10 @@ export default function Tournaments({
   onError: (message: string) => void;
 }) {
   const { locale, language } = useI18n();
+  const { account } = useAuth();
+  const trainingDestination = workspaceDestinations('workshop', account?.permissions ?? []).find(
+    (destination) => destination.id === 'training',
+  );
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [selected, setSelected] = useState<Tournament | null>(null);
   const sideStats = useMemo(
@@ -554,13 +562,27 @@ export default function Tournaments({
 
   return (
     <>
-      <section className="page-toolbar tournament-intro">
+      <section className="page-toolbar tournament-intro workshop-comparison-intro arena-surface">
         <PageHeading
           title={t('The tournament hall.')}
           subtitle={t(
             'Set your strategists against each other. Every result becomes part of their saga.',
           )}
         />
+        <div className="workshop-heading">
+          <p className="arena-kicker">{t('AI COMPARISONS')}</p>
+          <h2 className="arena-hero-headline">{t('Measure your strategists.')}</h2>
+          <p>
+            {t(
+              'Compare computer opponents with repeatable matches. These benchmarks are separate from human player tournaments.',
+            )}
+          </p>
+          {trainingDestination && (
+            <a href={trainingDestination.href} onClick={surfaceLink}>
+              {t('Return to the AI workshop')}
+            </a>
+          )}
+        </div>
         <div className="tournament-create">
           <button className="button primary" onClick={openSetup} disabled={loading || running}>
             <span aria-hidden="true">＋</span>
@@ -591,7 +613,9 @@ export default function Tournaments({
             {t('{count} completed · saved on this server', { count: completed })}
           </p>
           {loading ? (
-            <p className="empty-copy">{t('Opening the hall…')}</p>
+            <p className="empty-copy" role="status">
+              {t('Opening the hall…')}
+            </p>
           ) : !tournaments.length ? (
             <div className="tournament-history-empty">
               <span aria-hidden="true">ᛟ</span>
@@ -692,20 +716,22 @@ export default function Tournaments({
                     {t('Explore every result')}
                   </span>
                 </div>
-                <button
-                  className="button secondary"
-                  onClick={openSetup}
-                  disabled={loading || running}
-                >
-                  {t('Set up a tournament')}
-                </button>
-                <button
-                  className="button secondary"
-                  onClick={openFixedSetup}
-                  disabled={loading || running}
-                >
-                  {t('Fixed-role comparison')}
-                </button>
+                <div className="tournament-welcome-actions">
+                  <button
+                    className="button secondary"
+                    onClick={openSetup}
+                    disabled={loading || running}
+                  >
+                    {t('Set up a tournament')}
+                  </button>
+                  <button
+                    className="button secondary"
+                    onClick={openFixedSetup}
+                    disabled={loading || running}
+                  >
+                    {t('Fixed-role comparison')}
+                  </button>
+                </div>
                 <small>{t('Saved automatically. Come back whenever you like.')}</small>
               </section>
             )
@@ -1516,8 +1542,12 @@ function FixedRoleSetup({
   const [importingConfig, setImportingConfig] = useState(false);
   useEffect(() => {
     const dialog = ref.current;
+    const previous = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, []);
   const incompatibleModel = players.some(
     (player) =>
@@ -1816,8 +1846,12 @@ function TournamentSetup({
   const [importingConfig, setImportingConfig] = useState(false);
   useEffect(() => {
     const dialog = ref.current;
+    const previous = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, []);
   const battlefieldKey = config.rulesets.join(',');
   useEffect(() => {

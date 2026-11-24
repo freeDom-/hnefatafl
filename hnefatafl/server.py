@@ -447,40 +447,51 @@ def create_app(
                     raise RuntimeError(
                         "Provision the initial administrator using the local CLI before startup"
                     )
-        if account_background:
-            registration.start()
-        if online_background:
-            await asyncio.to_thread(online.sweep)
-            online.start()
-            await asyncio.to_thread(tournament_settlement.recover)
-            tournament_settlement.start()
+        workers = {"account": False, "online": False, "settlement": False}
         try:
+            if account_background:
+                registration.start()
+                workers["account"] = True
+            if online_background:
+                await asyncio.to_thread(online.sweep)
+                online.start()
+                workers["online"] = True
+                # The updater holds the exclusive deployment gate across
+                # activation and readiness. Startup reconciliation therefore
+                # defers expected lock contention to the worker instead of
+                # failing the lifespan; genuine database errors still raise.
+                await asyncio.to_thread(tournament_settlement.recover)
+                tournament_settlement.start()
+                workers["settlement"] = True
             yield
         finally:
-            await asyncio.to_thread(tournament_settlement.shutdown)
-            await asyncio.to_thread(online.shutdown)
-            await asyncio.to_thread(registration.shutdown)
-        await asyncio.to_thread(tournaments.shutdown)
-        await asyncio.to_thread(analyses.shutdown)
-        # A server shutdown stops workers it started, preserving completed
-        # checkpoints. Restored tasks must explicitly resume retained files.
-        for identifier, process in list(processes.items()):
-            if process.poll() is not None:
-                continue
-            job = store.get_job(identifier)
-            if job and job["status"] in {"running", "cancelling"}:
-                job["status"] = "cancelling"
-                store.save_job(job)
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
+            if workers["settlement"]:
+                await asyncio.to_thread(tournament_settlement.shutdown)
+            if workers["online"]:
+                await asyncio.to_thread(online.shutdown)
+            if workers["account"]:
+                await asyncio.to_thread(registration.shutdown)
+            await asyncio.to_thread(tournaments.shutdown)
+            await asyncio.to_thread(analyses.shutdown)
+            # A server shutdown stops workers it started, preserving completed
+            # checkpoints. Restored tasks must explicitly resume retained files.
+            for identifier, process in list(processes.items()):
+                if process.poll() is not None:
+                    continue
+                job = store.get_job(identifier)
+                if job and job["status"] in {"running", "cancelling"}:
+                    job["status"] = "cancelling"
+                    store.save_job(job)
                 try:
-                    await asyncio.to_thread(process.wait, timeout=10)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    await asyncio.to_thread(process.wait, timeout=5)
-            except ProcessLookupError:
-                pass
-            read_job(identifier)
+                    os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        await asyncio.to_thread(process.wait, timeout=10)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        await asyncio.to_thread(process.wait, timeout=5)
+                except ProcessLookupError:
+                    pass
+                read_job(identifier)
 
     app.router.lifespan_context = lifespan
 

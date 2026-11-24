@@ -1,0 +1,839 @@
+{
+  "kind": "browser-jarl-benchmark",
+  "generated": "2026-11-19T13:06:47.331Z",
+  "suite": "standard",
+  "mode": "fixed_work",
+  "configs": [
+    "standard"
+  ],
+  "repetitions": 2,
+  "profile": "desktop",
+  "browser": "156.0.8078.4",
+  "startup_ms": 2082.163463,
+  "request_timeout_ms": 180000,
+  "worker_info": {
+    "python": "3.12.7 (main, Jun  4 2025, 22:38:17) [Clang 19.0.0git (https:/github.com/llvm/llvm-project 0a8cd1ed1f4f35905df318015b",
+    "strategy": "baseline",
+    "time_limit": 0.1,
+    "max_analysis_time": 10,
+    "max_depth": 8,
+    "max_iterations": 4096,
+    "heap_capacity_bytes": 20971520
+  },
+  "plan": {
+    "configs": {
+      "quick": {
+        "depth": 3,
+        "time_limit": 0.25
+      },
+      "interactive": {
+        "depth": 5,
+        "time_limit": 1
+      },
+      "standard": {
+        "depth": 5,
+        "time_limit": 2
+      },
+      "deep": {
+        "depth": 8,
+        "time_limit": 5
+      },
+      "extended": {
+        "depth": 10,
+        "time_limit": 10
+      }
+    },
+    "production_jarl": {
+      "depth": 5,
+      "time_limit": 2
+    },
+    "engine_max_depth": 8,
+    "unsupported": {
+      "extended": "engine alpha-beta depth cap is 8"
+    },
+    "modes": [
+      "fixed_work",
+      "fixed_time"
+    ],
+    "search": {
+      "legacy": false,
+      "transposition": true,
+      "move_ordering": true,
+      "symmetry_transposition": false,
+      "symmetry_pruning": false,
+      "table_capacity": 100000
+    },
+    "heap_capacity_bytes": 20971520
+  },
+  "cancellation": {
+    "cancel_ack_ms": 0.2999999523162842,
+    "outcome": "AbortError",
+    "restart_ms": 1845.5
+  },
+  "responsiveness": {
+    "click_ms": 0.20000004768371582,
+    "pulses": "1"
+  },
+  "memory": {
+    "heap_capacity_bytes": 20971520
+  },
+  "records": [
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 9957.3,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 9065,
+      "evaluations": 116923,
+      "cutoffs": 6326,
+      "successors": 127858,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11742.440219738282,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-opening",
+      "kind": "opening",
+      "phase": "measured",
+      "repetition": 0,
+      "wall_ms": 32204.779012999996
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 11020.899999000001,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 26,
+        "target": 33
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 11157,
+      "evaluations": 120328,
+      "cutoffs": 8211,
+      "successors": 133973,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 10918.164579201168,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-midgame",
+      "kind": "midgame",
+      "phase": "measured",
+      "repetition": 0,
+      "wall_ms": 32204.779012999996
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 466.89999999999895,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 5
+      },
+      "value": 1,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1339,
+      "evaluations": 2320,
+      "cutoffs": 1230,
+      "successors": 3764,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4968.944099378893,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-endgame",
+      "kind": "endgame",
+      "phase": "measured",
+      "repetition": 0,
+      "wall_ms": 32204.779012999996
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 921.5000000000018,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 37,
+        "target": 41
+      },
+      "value": 1,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 2551,
+      "evaluations": 4545,
+      "cutoffs": 2390,
+      "successors": 7408,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4932.175800325546,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-tactical",
+      "kind": "tactical",
+      "phase": "measured",
+      "repetition": 0,
+      "wall_ms": 32204.779012999996
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 149.20000000000044,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value": 1,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 337,
+      "evaluations": 1197,
+      "cutoffs": 218,
+      "successors": 1521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 8022.788203753327,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-king-escape",
+      "kind": "king-escape",
+      "phase": "measured",
+      "repetition": 0,
+      "wall_ms": 32204.779012999996
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 0,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": null,
+      "value": 1,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-terminal",
+      "kind": "terminal",
+      "phase": "measured",
+      "repetition": 0,
+      "wall_ms": 32204.779012999996
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 9673.599998999996,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 45,
+        "target": 46
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 8836,
+      "evaluations": 114742,
+      "cutoffs": 6153,
+      "successors": 125557,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11861.354615847398,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-repetition",
+      "kind": "repetition",
+      "phase": "measured",
+      "repetition": 0,
+      "wall_ms": 32204.779012999996
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 9953.099998999996,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 9065,
+      "evaluations": 116923,
+      "cutoffs": 6326,
+      "successors": 127858,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11747.395285061684,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-opening",
+      "kind": "opening",
+      "phase": "measured",
+      "repetition": 1,
+      "wall_ms": 32883.65751299999
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 11597.199999000004,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 26,
+        "target": 33
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 11157,
+      "evaluations": 120328,
+      "cutoffs": 8211,
+      "successors": 133973,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 10375.607906251127,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-midgame",
+      "kind": "midgame",
+      "phase": "measured",
+      "repetition": 1,
+      "wall_ms": 32883.65751299999
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 444.89999999999696,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 3,
+        "target": 5
+      },
+      "value": 1,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 1339,
+      "evaluations": 2320,
+      "cutoffs": 1230,
+      "successors": 3764,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 5214.654978646922,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-endgame",
+      "kind": "endgame",
+      "phase": "measured",
+      "repetition": 1,
+      "wall_ms": 32883.65751299999
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 925.4999999999995,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 37,
+        "target": 41
+      },
+      "value": 1,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 2551,
+      "evaluations": 4545,
+      "cutoffs": 2390,
+      "successors": 7408,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 4910.858995137766,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-tactical",
+      "kind": "tactical",
+      "phase": "measured",
+      "repetition": 1,
+      "wall_ms": 32883.65751299999
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 153.20000100000186,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 2,
+        "target": 0
+      },
+      "value": 1,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 337,
+      "evaluations": 1197,
+      "cutoffs": 218,
+      "successors": 1521,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 7813.315875892099,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-king-escape",
+      "kind": "king-escape",
+      "phase": "measured",
+      "repetition": 1,
+      "wall_ms": 32883.65751299999
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 0,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": null,
+      "value": 1,
+      "source": "terminal",
+      "completed_depth": null,
+      "interrupted_depth": null,
+      "nodes": null,
+      "evaluations": null,
+      "cutoffs": null,
+      "successors": null,
+      "transposition_lookups": null,
+      "transposition_hits": null,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": null,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-terminal",
+      "kind": "terminal",
+      "phase": "measured",
+      "repetition": 1,
+      "wall_ms": 32883.65751299999
+    },
+    {
+      "config": "standard",
+      "mode": "fixed_work",
+      "ruleset": "brandubh",
+      "seed": 7,
+      "elapsed_ms": 9795.000000000002,
+      "time_limit_ms": 60000,
+      "deadline_overshoot_ms": null,
+      "best_move": {
+        "source": 45,
+        "target": 46
+      },
+      "value": -0.04829573112443868,
+      "source": "heuristic",
+      "completed_depth": 5,
+      "interrupted_depth": null,
+      "nodes": 8836,
+      "evaluations": 114742,
+      "cutoffs": 6153,
+      "successors": 125557,
+      "transposition_lookups": null,
+      "transposition_hits": 0,
+      "transposition_hit_rate": null,
+      "nodes_per_second": null,
+      "evaluations_per_second": 11714.344053088309,
+      "deadline_limited": false,
+      "error": null,
+      "position": "brandubh-repetition",
+      "kind": "repetition",
+      "phase": "measured",
+      "repetition": 1,
+      "wall_ms": 32883.65751299999
+    }
+  ],
+  "summary": [
+    {
+      "config": "standard",
+      "ruleset": "brandubh",
+      "samples": 14,
+      "errors": 0,
+      "elapsed_ms_median": 923.5000000000007,
+      "elapsed_ms_p90": 10701.819999300002,
+      "completed_depth_median": 5
+    }
+  ],
+  "comparison": {
+    "plan_match": true,
+    "comparable_cases": 14,
+    "move_agreement": 1,
+    "value_agreement": 1,
+    "rows": [
+      {
+        "position": "brandubh-opening",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 3,
+          "target": 2
+        },
+        "browser_best_move": {
+          "source": 3,
+          "target": 2
+        },
+        "move_match": true,
+        "native_value": -0.04829573112443868,
+        "browser_value": -0.04829573112443868,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 9957.3,
+        "native_elapsed_ms": 4540.541608817875
+      },
+      {
+        "position": "brandubh-midgame",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 26,
+          "target": 33
+        },
+        "browser_best_move": {
+          "source": 26,
+          "target": 33
+        },
+        "move_match": true,
+        "native_value": -0.04829573112443868,
+        "browser_value": -0.04829573112443868,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 11020.899999000001,
+        "native_elapsed_ms": 5232.853674795479
+      },
+      {
+        "position": "brandubh-endgame",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 3,
+          "target": 5
+        },
+        "browser_best_move": {
+          "source": 3,
+          "target": 5
+        },
+        "move_match": true,
+        "native_value": 1,
+        "browser_value": 1,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 466.89999999999895,
+        "native_elapsed_ms": 192.50124506652355
+      },
+      {
+        "position": "brandubh-tactical",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 37,
+          "target": 41
+        },
+        "browser_best_move": {
+          "source": 37,
+          "target": 41
+        },
+        "move_match": true,
+        "native_value": 1,
+        "browser_value": 1,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 921.5000000000018,
+        "native_elapsed_ms": 422.64841706492007
+      },
+      {
+        "position": "brandubh-king-escape",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 2,
+          "target": 0
+        },
+        "browser_best_move": {
+          "source": 2,
+          "target": 0
+        },
+        "move_match": true,
+        "native_value": 1,
+        "browser_value": 1,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 149.20000000000044,
+        "native_elapsed_ms": 92.391402926296
+      },
+      {
+        "position": "brandubh-terminal",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": null,
+        "browser_best_move": null,
+        "move_match": true,
+        "native_value": 1,
+        "browser_value": 1,
+        "value_match": true,
+        "native_completed_depth": null,
+        "browser_completed_depth": null,
+        "browser_elapsed_ms": 0,
+        "native_elapsed_ms": 0.001118052750825882
+      },
+      {
+        "position": "brandubh-repetition",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 45,
+          "target": 46
+        },
+        "browser_best_move": {
+          "source": 45,
+          "target": 46
+        },
+        "move_match": true,
+        "native_value": -0.04829573112443868,
+        "browser_value": -0.04829573112443868,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 9673.599998999996,
+        "native_elapsed_ms": 4423.814638983458
+      },
+      {
+        "position": "brandubh-opening",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 3,
+          "target": 2
+        },
+        "browser_best_move": {
+          "source": 3,
+          "target": 2
+        },
+        "move_match": true,
+        "native_value": -0.04829573112443868,
+        "browser_value": -0.04829573112443868,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 9953.099998999996,
+        "native_elapsed_ms": 4540.541608817875
+      },
+      {
+        "position": "brandubh-midgame",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 26,
+          "target": 33
+        },
+        "browser_best_move": {
+          "source": 26,
+          "target": 33
+        },
+        "move_match": true,
+        "native_value": -0.04829573112443868,
+        "browser_value": -0.04829573112443868,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 11597.199999000004,
+        "native_elapsed_ms": 5232.853674795479
+      },
+      {
+        "position": "brandubh-endgame",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 3,
+          "target": 5
+        },
+        "browser_best_move": {
+          "source": 3,
+          "target": 5
+        },
+        "move_match": true,
+        "native_value": 1,
+        "browser_value": 1,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 444.89999999999696,
+        "native_elapsed_ms": 192.50124506652355
+      },
+      {
+        "position": "brandubh-tactical",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 37,
+          "target": 41
+        },
+        "browser_best_move": {
+          "source": 37,
+          "target": 41
+        },
+        "move_match": true,
+        "native_value": 1,
+        "browser_value": 1,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 925.4999999999995,
+        "native_elapsed_ms": 422.64841706492007
+      },
+      {
+        "position": "brandubh-king-escape",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 2,
+          "target": 0
+        },
+        "browser_best_move": {
+          "source": 2,
+          "target": 0
+        },
+        "move_match": true,
+        "native_value": 1,
+        "browser_value": 1,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 153.20000100000186,
+        "native_elapsed_ms": 92.391402926296
+      },
+      {
+        "position": "brandubh-terminal",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": null,
+        "browser_best_move": null,
+        "move_match": true,
+        "native_value": 1,
+        "browser_value": 1,
+        "value_match": true,
+        "native_completed_depth": null,
+        "browser_completed_depth": null,
+        "browser_elapsed_ms": 0,
+        "native_elapsed_ms": 0.001118052750825882
+      },
+      {
+        "position": "brandubh-repetition",
+        "config": "standard",
+        "ruleset": "brandubh",
+        "native_best_move": {
+          "source": 45,
+          "target": 46
+        },
+        "browser_best_move": {
+          "source": 45,
+          "target": 46
+        },
+        "move_match": true,
+        "native_value": -0.04829573112443868,
+        "browser_value": -0.04829573112443868,
+        "value_match": true,
+        "native_completed_depth": 5,
+        "browser_completed_depth": 5,
+        "browser_elapsed_ms": 9795.000000000002,
+        "native_elapsed_ms": 4423.814638983458
+      }
+    ]
+  }
+}

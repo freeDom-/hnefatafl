@@ -1,0 +1,103 @@
+{
+  "kind": "browser-neural-benchmark",
+  "schema": 3,
+  "generated": "2026-11-19T20:17:54.294Z",
+  "profile": "desktop",
+  "browser": "156.0.8078.4",
+  "ort_version": "1.22.0",
+  "requested_provider": "webgpu",
+  "batch_sizes": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32
+  ],
+  "reps": 5,
+  "warmup": 2,
+  "switches": 3,
+  "sustained": 100,
+  "failures": [
+    "model load failed: page.evaluate: Error: WebGPU requested but no adapter is available: null adapter\n    at worker.onmessage (http://127.0.0.1:36427/neural-client.js:115:23)",
+    "--require-webgpu: no GPU session could be created"
+  ],
+  "notes": [],
+  "model": {
+    "file": "model/model.onnx",
+    "ruleset": "brandubh",
+    "size": 7,
+    "sha256": "959578236ead3fa9c04843bb4143a9e3d033a594287c4ffc5756ae94575c51a3",
+    "bytes": 46924,
+    "gzip_bytes": 6926,
+    "validated": true,
+    "reference": "model/reference.json",
+    "reference_sha256": "4baa8ac682c53323d0c295b8958ed32a266579360c5613ec14718f9a1d975b20"
+  },
+  "runtime_inventory": [
+    {
+      "path": "ort/ort-wasm-simd-threaded.jsep.mjs",
+      "bytes": 44677,
+      "gzip_bytes": 15376,
+      "sha256": "1cbcba8f2c769c1eecbab66a1b1e55ef11704515bf4306373e3db3c37cf6dcd8"
+    },
+    {
+      "path": "ort/ort-wasm-simd-threaded.jsep.wasm",
+      "bytes": 21872216,
+      "gzip_bytes": 5087851,
+      "sha256": "b45970d0632383a057c27ca5b660b216f8e00c17cf8db9f6207b5e4abc839368"
+    },
+    {
+      "path": "ort/ort-wasm-simd-threaded.mjs",
+      "bytes": 20856,
+      "gzip_bytes": 8392,
+      "sha256": "30dd851d9c00622940500f71ddd2ff8820c5cb65270816080175b958705385a8"
+    },
+    {
+      "path": "ort/ort-wasm-simd-threaded.wasm",
+      "bytes": 11210254,
+      "gzip_bytes": 2864351,
+      "sha256": "71aef04959c5c1b6de461b6538e2058e306610034a85aad2742d0c7fd4533fe4"
+    },
+    {
+      "path": "ort/ort.min.js",
+      "bytes": 357641,
+      "gzip_bytes": 94558,
+      "sha256": "924e4fcdfdf69acccff3d024d6e1ad3f41ca858d27fc4dd59fc4927dd933e7db"
+    },
+    {
+      "path": "ort/ort.webgpu.min.js",
+      "bytes": 357648,
+      "gzip_bytes": 94561,
+      "sha256": "4dec2f5e74de2ec0f496d39ef55ec23762e8c6ca58cb958e691c9f2350a7b1c8"
+    }
+  ],
+  "capabilities": {
+    "crossOriginIsolated": false,
+    "sharedArrayBuffer": false,
+    "webAssembly": true,
+    "webGPUAPI": true,
+    "webGPUAdapter": false,
+    "webGPUAdapterError": null,
+    "adapterInfo": null,
+    "hardwareConcurrency": 4,
+    "deviceMemoryGiBHint": 32,
+    "memory": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    }
+  },
+  "load_error": "page.evaluate: Error: WebGPU requested but no adapter is available: null adapter\n    at worker.onmessage (http://127.0.0.1:36427/neural-client.js:115:23)",
+  "initialization_ms": 23.229258000000073,
+  "memory_after_load": {
+    "js_heap_size_limit_bytes": null,
+    "js_heap_used_bytes": null,
+    "wasm_heap_capacity_bytes": null,
+    "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+  },
+  "page_errors": [],
+  "external_requests": [],
+  "ok": false
+}

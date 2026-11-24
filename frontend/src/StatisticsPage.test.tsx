@@ -89,8 +89,10 @@ it('offers a separate non-Elo local 1v1 category and reads the rated ledger for 
   vi.stubGlobal('fetch', fetcher);
   render(<StatisticsPage />);
   expect(await screen.findByRole('heading', { name: 'Rating history' })).toBeVisible();
-  expect(paths).toContain('/api/personal/progress');
-  expect(paths).toContain('/api/personal/ratings/tablut/history?limit=100');
+  await waitFor(() => {
+    expect(paths).toContain('/api/personal/progress');
+    expect(paths).toContain('/api/personal/ratings/tablut/history?limit=100');
+  });
   fireEvent.click(screen.getByRole('tab', { name: 'Local 1v1' }));
   await waitFor(() => expect(paths).toContain('/api/personal/local?limit=1'));
   expect(location.search).toContain('mode=local');

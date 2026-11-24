@@ -11,6 +11,10 @@ node_modules/
 frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
+# Reproducible license artifacts generated before dev/build.
+frontend/public/LICENSE.txt
+frontend/public/THIRD_PARTY_NOTICES.txt
+frontend/public/THIRD_PARTY_LICENSES.txt
 data/
 *.sqlite*
 .env

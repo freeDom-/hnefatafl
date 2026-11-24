@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import App from './App';
+import fixture from './onlineFixture.testdata.json';
 vi.mock('./Auth', () => ({
   useAuth: () => ({ account: { id: 'archer', permissions: ['play'] }, logout: vi.fn() }),
 }));
@@ -41,9 +42,10 @@ it('redirects / to the Dashboard account setup without mounting play/analysis', 
   render(<App />);
   expect(location.pathname).toBe('/dashboard');
   expect(location.search).toBe('');
-  await screen.findByRole('heading', { name: 'Dashboard' });
-  expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Online' })).toBeNull();
+  await screen.findByRole('heading', { name: 'The Great Hall' });
+  expect(screen.getByRole('button', { name: 'Battlefield' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Online Play' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Online Play' })).not.toHaveAttribute('aria-current');
   expect(fetcher.mock.calls.some(([url]) => /\/api\/games\/|analytics|analysis/.test(url))).toBe(
     false,
   );
@@ -60,14 +62,55 @@ it('keeps the authenticated lobby listing at /online without losing query or mou
   expect(location.pathname).toBe('/online');
   expect(location.search).toContain('mine=true');
   await screen.findByText('No games on this page.');
-  expect(screen.getByRole('button', { name: 'Play' })).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Online' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Battlefield' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Online Play' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
   expect(fetcher.mock.calls.some(([url]) => /\/api\/games\/|analytics|analysis/.test(url))).toBe(
     false,
   );
   expect(localStorage.getItem('hnefatafl-game')).toBe('retained-local');
   fireEvent.click(screen.getByRole('button', { name: 'Hall of records' }));
   await waitFor(() => expect(location.pathname).toBe('/archive'));
+});
+it('opens the online lobby from the permanent navigation entry', async () => {
+  history.replaceState(null, '', '/dashboard');
+  const fetcher = lobbyFetcher();
+  vi.stubGlobal('fetch', fetcher);
+  render(<App />);
+  const online = await screen.findByRole('button', { name: 'Online Play' });
+  expect(online).toBeVisible();
+  fireEvent.click(online);
+  await waitFor(() => expect(location.pathname).toBe('/online'));
+  expect(screen.getByRole('button', { name: 'Online Play' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  expect(screen.getByRole('button', { name: 'Battlefield' })).not.toHaveAttribute('aria-current');
+});
+it('keeps Online Play active on online game and review routes', async () => {
+  const id = (fixture.active as { id: string }).id;
+  const base = lobbyFetcher();
+  const fetcher = vi.fn((url: string) =>
+    url.endsWith(`/online/games/${id}`) || url.endsWith(`/personal/online/${id}`)
+      ? Promise.resolve({ ok: true, status: 200, json: async () => fixture.active } as Response)
+      : base(url),
+  );
+  vi.stubGlobal('fetch', fetcher);
+
+  for (const path of [`/online/games/${id}`, `/online/games/${id}/review`]) {
+    history.replaceState(null, '', path);
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Online Play' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      ),
+    );
+    expect(screen.getByRole('button', { name: 'Battlefield' })).not.toHaveAttribute('aria-current');
+    cleanup();
+  }
 });
 it('keeps Play as a page and shows creation actions when there are no running games', async () => {
   history.replaceState(null, '', '/play');
@@ -86,4 +129,9 @@ it('keeps Play as a page and shows creation actions when there are no running ga
     'href',
     '/online',
   );
+  expect(screen.getByRole('button', { name: 'Battlefield' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  expect(screen.getByRole('button', { name: 'Online Play' })).not.toHaveAttribute('aria-current');
 });

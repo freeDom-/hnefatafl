@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hnefatafl neural inference spike</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1rem;
+        max-width: 72rem;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 0.75rem;
+        overflow: auto;
+        max-height: 30rem;
+      }
+      .row {
+        margin: 0.5rem 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      label {
+        margin-right: 0.25rem;
+      }
+      [aria-live="polite"] {
+        min-height: 1.5rem;
+      }
+      .state {
+        font-weight: 600;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.15rem 0.75rem;
+        margin: 0.5rem 0;
+      }
+      dt {
+        font-weight: 600;
+      }
+      dd {
+        margin: 0;
+      }
+      button:disabled,
+      select:disabled,
+      input:disabled {
+        opacity: 0.55;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Neural inference spike</h1>
+    <p>
+      Experimental ORT Web inference for an exported policy/value model. This page
+      is isolated from the production application and downloads no production
+      dependency. Cancel is always available while a job is running.
+    </p>
+    <div class="row">
+      <label>
+        Provider
+        <select id="provider">
+          <option value="wasm">wasm (single-threaded)</option>
+          <option value="webgpu">webgpu</option>
+        </select>
+      </label>
+      <button id="capabilities">Capabilities</button>
+      <button id="load">Load model</button>
+      <button id="infer">Infer</button>
+      <button id="inferMany">Infer distinct batch</button>
+      <button id="benchmark">Benchmark batches</button>
+      <button id="cancel">Cancel</button>
+    </div>
+    <p aria-live="polite">
+      State: <span id="state" class="state">idle</span>
+      <span id="status"></span>
+    </p>
+    <pre id="output" aria-live="polite"></pre>
+
+    <section aria-labelledby="analysis-heading">
+      <h2 id="analysis-heading">Position analysis</h2>
+      <p>
+        Run the production-equivalent Jarl alpha-beta agent or browser-local neural
+        MCTS. Jarl needs only the Python engine; neural MCTS loads the staged model
+        and ORT runtime lazily. Results are experimental and never authoritative.
+      </p>
+      <div class="row">
+        <label>
+          Ruleset
+          <select id="analysis-ruleset">
+            <option value="brandubh">Brandubh</option>
+            <option value="tablut">Tablut</option>
+            <option value="copenhagen">Copenhagen</option>
+          </select>
+        </label>
+        <label>
+          Position
+          <select id="analysis-position"></select>
+        </label>
+        <button id="analysis-reload">Reload positions</button>
+        <label>
+          Agent
+          <select id="analysis-agent">
+            <option value="jarl">Jarl (depth 5 alpha-beta)</option>
+            <option value="neural">Neural MCTS (staged model)</option>
+          </select>
+        </label>
+        <label>
+          Provider
+          <select id="analysis-provider">
+            <option value="wasm">wasm (single-threaded)</option>
+            <option value="webgpu">webgpu</option>
+          </select>
+        </label>
+        <label>
+          Simulations
+          <select id="analysis-simulations">
+            <option value="128">128 (quick)</option>
+            <option value="256" selected>256 (interactive)</option>
+            <option value="512">512 (standard)</option>
+            <option value="1024">1024 (strong)</option>
+            <option value="2048">2048 (deep)</option>
+            <option value="4096">4096 (extended)</option>
+          </select>
+        </label>
+        <label>
+          Time budget (s)
+          <select id="analysis-time">
+            <option value="0.25">0.25</option>
+            <option value="0.5">0.5</option>
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+          </select>
+        </label>
+        <label>
+          Exploration
+          <input id="analysis-exploration" type="number" min="0" max="10" step="0.1" value="1.4" />
+        </label>
+        <label>
+          Seed
+          <input id="analysis-seed" type="number" min="0" step="1" value="7" />
+        </label>
+        <label>
+          <input id="analysis-cache" type="checkbox" />
+          Inference cache
+        </label>
+        <label>
+          <input id="analysis-direct" type="checkbox" />
+          Direct worker transport
+        </label>
+        <button id="analysis-start">Start analysis</button>
+        <button id="analysis-cancel">Cancel analysis</button>
+        <button id="analysis-export">Export result</button>
+      </div>
+      <p aria-live="polite">
+        Analysis state: <span id="analysis-state" class="state">idle</span>
+        <span id="analysis-status"></span>
+      </p>
+      <dl id="analysis-summary">
+        <dt>Best move</dt><dd id="analysis-best">—</dd>
+        <dt>Defender value</dt><dd id="analysis-value">—</dd>
+        <dt>Completed simulations</dt><dd id="analysis-simulations-completed">—</dd>
+        <dt>Simulations/second</dt><dd id="analysis-rate">—</dd>
+        <dt>Duration</dt><dd id="analysis-duration">—</dd>
+        <dt>Model</dt><dd id="analysis-model">—</dd>
+        <dt>Provider</dt><dd id="analysis-provider-info">—</dd>
+        <dt>Inference payload</dt><dd id="analysis-payload">—</dd>
+        <dt>Inference cache</dt><dd id="analysis-cache-info">—</dd>
+        <dt>Transport</dt><dd id="analysis-transport">—</dd>
+        <dt>Completion</dt><dd id="analysis-completion">—</dd>
+      </dl>
+      <pre id="analysis-output" aria-live="polite"></pre>
+    </section>
+    <script type="module">
+      import { NeuralClient } from "./neural-client.js";
+      import {
+        NeuralSearchCoordinator,
+        normalizeSearchSettings,
+      } from "./search-client.js";
+      import { LocalAnalysisClient } from "./analysis-client.js";
+      // The runtime instances are recreated after a back-forward cache restore:
+      // a disposed coordinator can never be reused, so restoration must install
+      // fresh clients rather than expose a permanently retired instance.
+      let client;
+      let coordinator;
+      let jarl;
+      function createRuntime() {
+        // The delay hook exists only in the dedicated test worker entry point,
+        // which is injected by the browser-test harness and never staged for the
+        // normal experimental page.
+        const testWorkerUrl = globalThis.__NEURAL_TEST_WORKER_URL__ ?? null;
+        client = new NeuralClient({
+          testHooks:
+            globalThis.__NEURAL_TEST_HOOKS__ === true && typeof testWorkerUrl === "string",
+          workerUrl: typeof testWorkerUrl === "string" ? testWorkerUrl : null,
+        });
+        // Browser neural MCTS: the coordinator owns the Pyodide search worker and
+        // relays each dependent leaf evaluation to the neural inference worker.
+        coordinator = new NeuralSearchCoordinator({ neural: client });
+        // Jarl runs on the shared Python engine; it never loads the neural runtime.
+        jarl = new LocalAnalysisClient();
+      }
+      createRuntime();
+      const JARL_CONFIG = {
+        algorithm: "alpha_beta",
+        depth: 5,
+        heuristic: "shield_maiden",
+        search: {
+          legacy: false,
+          transposition: true,
+          move_ordering: true,
+          symmetry_transposition: false,
+          symmetry_pruning: false,
+          table_capacity: 100000,
+        },
+      };
+      const status = document.querySelector("#status");
+      const output = document.querySelector("#output");
+      const providerSelect = document.querySelector("#provider");
+      // Only the raw inference controls are governed by the inference busy flag;
+      // the analysis controls have their own ownership state.
+      const controls = ["capabilities", "load", "infer", "inferMany", "benchmark"].map(
+        (id) => document.querySelector(`#${id}`),
+      );
+      let assets = null;
+      let inputs = null;
+      let manifestPromise = null;
+      let referencePromise = null;
+      let positionsPromise = null;
+      let active = null;
+      let shuttingDown = false;
+      // Counts worker creations so tests can prove that a page-lifecycle
+      // shutdown or cancellation cannot start a replacement worker.
+      const diagnostics = { workerSpawns: 0, pagehide: 0 };
+
+      function setState(state, text = "") {
+        document.querySelector("#state").textContent = state;
+        status.textContent = text;
+      }
+      function setBusy(busy) {
+        for (const button of controls) button.disabled = busy;
+        providerSelect.disabled = busy;
+        syncAnalysisControls();
+      }
+      function show(value) {
+        output.textContent = JSON.stringify(value, null, 2);
+      }
+      function ensureCurrent(token) {
+        if (shuttingDown)
+          throw new DOMException("Page is shutting down", "AbortError");
+        if (active !== token) throw new DOMException("Operation superseded", "AbortError");
+      }
+      async function run(action) {
+        if (active) return undefined;
+        if (analysisToken) {
+          // The raw inference controls and neural MCTS share one neural client;
+          // incompatible operations must not compete for it.
+          setState("failed", "an analysis operation is running");
+          return undefined;
+        }
+        const token = Symbol("run");
+        active = token;
+        setBusy(true);
+        setState("running");
+        try {
+          // A replacement operation waits for the previous cancellation's bounded
+          // cleanup instead of failing on a still-draining worker.
+          await awaitCleanup("analysis");
+          await awaitCleanup("inference");
+          if (active !== token) throw new DOMException("Operation superseded", "AbortError");
+          const value = await action(token);
+          if (active !== token) return undefined;
+          setState("completed");
+          return value;
+        } catch (error) {
+          if (active !== token) return undefined;
+          const kind = error?.name ?? "Error";
+          setState(
+            kind === "AbortError" ? "cancelled" : kind === "TimeoutError" ? "timed out" : "failed",
+            error?.message ?? String(error),
+          );
+          if (kind !== "AbortError") show({ name: kind, message: error?.message ?? String(error) });
+          return undefined;
+        } finally {
+          if (active === token) {
+            active = null;
+            setBusy(false);
+          }
+        }
+      }
+      // One shared implementation serves both the eager warm-up and every
+      // on-demand load. A failed load clears its cached promise so a later
+      // operation can retry without reloading the page, while successful
+      // immutable assets stay cached for the lifetime of the page.
+      function fetchJson(url) {
+        return fetch(url).then(async (response) => {
+          if (!response.ok)
+            throw new Error(`Cannot load ${url}: HTTP ${response.status}`);
+          try {
+            return await response.json();
+          } catch (error) {
+            throw new Error(`Malformed JSON in ${url}: ${error?.message ?? error}`);
+          }
+        });
+      }
+      function resetable(fetchOnce, clear) {
+        return fetchOnce().catch((error) => {
+          clear();
+          throw error;
+        });
+      }
+      // Nothing neural is fetched eagerly: Jarl runs with no neural network
+      // requests at all, neural MCTS loads only the model manifest, and the large
+      // numerical reference vectors are loaded only by raw inference/benchmarks.
+      function sharedManifest() {
+        if (!manifestPromise) {
+          manifestPromise = resetable(
+            () => fetchJson("./neural-assets.json"),
+            () => {
+              manifestPromise = null;
+            },
+          ).then((value) => {
+            assets = value;
+            return value;
+          });
+        }
+        return manifestPromise;
+      }
+      function sharedReference() {
+        if (!referencePromise) {
+          referencePromise = resetable(
+            () => fetchJson("./model/reference.json"),
+            () => {
+              referencePromise = null;
+            },
+          ).then((value) => {
+            inputs = value;
+            return value;
+          });
+        }
+        return referencePromise;
+      }
+      // Shared fetches may be cached, but a cancelled or shut-down operation
+      // must not resume when a shared fetch completes: ownership is re-checked
+      // after the await, so no worker or model can be created afterwards.
+      async function manifestFor(check) {
+        const value = await sharedManifest();
+        check();
+        return value;
+      }
+      async function referenceFor(check) {
+        const value = await sharedReference();
+        check();
+        return value;
+      }
+      async function assetsFor(check) {
+        await manifestFor(check);
+        await referenceFor(check);
+        return { assets, inputs };
+      }
+      function ensureAssets(token) {
+        return assetsFor(() => ensureCurrent(token));
+      }
+      function ensureManifest(token) {
+        return manifestFor(() => ensureCurrent(token));
+      }
+      function identityOf(loaded) {
+        const identity = {
+          sha256: loaded.model_sha256,
+          ruleset: loaded.model_ruleset,
+          size: loaded.size,
+        };
+        if (!identity.sha256 || !identity.ruleset || !Number.isInteger(identity.size))
+          throw new Error("Loaded model did not return a complete identity");
+        return identity;
+      }
+      // Internal load used inside an operation already owned by run(). It never
+      // calls run(), and it re-checks ownership after every asynchronous step.
+      async function ensureLoaded(token, { force = false } = {}) {
+        await ensureManifest(token);
+        ensureCurrent(token);
+        const provider = providerSelect.value;
+        if (!force && client.model && client.model.provider === provider) return client.model;
+        setState("loading", `Loading ${provider}…`);
+        diagnostics.workerSpawns += 1;
+        const value = await client.load("./" + assets.model.file, {
+          provider,
+          size: assets.model.size,
+          ruleset: assets.model.ruleset,
+          expectedSha256: assets.model.sha256,
+        });
+        ensureCurrent(token);
+        setState("running", `Loaded with ${value.execution_placement}`);
+        return value;
+      }
+      function casesForBatch(count) {
+        const cases = inputs.cases.filter((entry) => !entry.terminal);
+        return Array.from({ length: count }, (_, index) => {
+          const entry = cases[index % cases.length];
+          return {
+            planes: entry.planes,
+            legal: entry.legal,
+            request_id: entry.position,
+            position_digest: entry.position_digest,
+          };
+        });
+      }
+      // ---------- position analysis (Jarl and browser neural MCTS) ----------
+      const analysisUi = {
+        ruleset: document.querySelector("#analysis-ruleset"),
+        position: document.querySelector("#analysis-position"),
+        agent: document.querySelector("#analysis-agent"),
+        provider: document.querySelector("#analysis-provider"),
+        simulations: document.querySelector("#analysis-simulations"),
+        time: document.querySelector("#analysis-time"),
+        exploration: document.querySelector("#analysis-exploration"),
+        seed: document.querySelector("#analysis-seed"),
+        cache: document.querySelector("#analysis-cache"),
+        direct: document.querySelector("#analysis-direct"),
+        start: document.querySelector("#analysis-start"),
+        reload: document.querySelector("#analysis-reload"),
+        cancel: document.querySelector("#analysis-cancel"),
+        export: document.querySelector("#analysis-export"),
+      };
+      let analysisPositions = null;
+      let analysisPositionsError = null;
+      let positionsRequestId = 0;
+      let analysisInitToken = null;
+      let analysisToken = null;
+      let analysisResult = null;
+      // Bounded cleanup owned by a cancelled operation. Replacement admissions
+      // wait for it instead of racing a still-draining worker.
+      let analysisCleanup = null;
+      let inferenceCleanup = null;
+
+      function trackCleanup(kind, promise) {
+        let tracked;
+        tracked = Promise.resolve(promise)
+          .catch(() => ({}))
+          .finally(() => {
+            if (kind === "analysis" && analysisCleanup === tracked)
+              analysisCleanup = null;
+            if (kind === "inference" && inferenceCleanup === tracked)
+              inferenceCleanup = null;
+            syncAnalysisControls();
+          });
+        if (kind === "analysis") analysisCleanup = tracked;
+        else inferenceCleanup = tracked;
+        return tracked;
+      }
+      async function awaitCleanup(kind) {
+        const pending =
+          kind === "analysis"
+            ? analysisCleanup
+            : kind === "inference"
+              ? inferenceCleanup
+              : null;
+        if (pending) await pending;
+      }
+
+      function setAnalysisState(state, text = "") {
+        document.querySelector("#analysis-state").textContent = state;
+        document.querySelector("#analysis-status").textContent = text;
+      }
+      function setText(id, value) {
+        document.querySelector(id).textContent = value ?? "—";
+      }
+      function syncAnalysisControls() {
+        const busy = analysisToken !== null || active !== null;
+        const neural = analysisUi.agent.value === "neural";
+        const ready = Boolean(analysisPositions && analysisPositions.length);
+        for (const control of [analysisUi.ruleset, analysisUi.position, analysisUi.agent])
+          control.disabled = busy || !ready;
+        for (const control of [
+          analysisUi.provider,
+          analysisUi.simulations,
+          analysisUi.exploration,
+        ])
+          control.disabled = busy || !neural;
+        analysisUi.time.disabled = busy || !ready;
+        analysisUi.seed.disabled = busy || !ready;
+        analysisUi.cache.disabled = busy || !neural;
+        analysisUi.direct.disabled = busy || !neural;
+        analysisUi.start.disabled = busy || !ready;
+        analysisUi.reload.disabled = busy;
+        analysisUi.cancel.disabled = analysisToken === null;
+        analysisUi.export.disabled = analysisResult === null || busy;
+      }
+      function ensureAnalysisCurrent(token) {
+        if (shuttingDown) throw new DOMException("Page is shutting down", "AbortError");
+        if (analysisToken !== token)
+          throw new DOMException("Analysis superseded", "AbortError");
+      }
+      function selectAnalysisPositions() {
+        const ruleset = analysisUi.ruleset.value;
+        const previous = analysisUi.position.value;
+        const options = (analysisPositions ?? []).filter(
+          (entry) => entry.ruleset === ruleset,
+        );
+        analysisUi.position.replaceChildren(
+          ...options.map((entry) => {
+            const option = document.createElement("option");
+            option.value = entry.name;
+            option.textContent = `${entry.name} (${entry.kind})`;
+            return option;
+          }),
+        );
+        // Refreshing already loaded options must not silently reset the user's
+        // selection; only fall back to the first option when it is unavailable.
+        if (options.some((entry) => entry.name === previous))
+          analysisUi.position.value = previous;
+      }
+      async function loadAnalysisPositions() {
+        if (!analysisPositions) {
+          const requestId = ++positionsRequestId;
+          if (!positionsPromise)
+            positionsPromise = resetable(
+              () => fetchJson("./mcts-positions.json"),
+              () => {
+                positionsPromise = null;
+              },
+            );
+          const data = await positionsPromise;
+          // A newer retry supersedes this response; never let obsolete position
+          // data overwrite the newer selection dataset.
+          if (requestId !== positionsRequestId)
+            return analysisPositions ?? data;
+          analysisPositions = data;
+          analysisPositionsError = null;
+          selectAnalysisPositions();
+        }
+        return analysisPositions;
+      }
+
+      async function initializeAnalysisPositions({ force = false } = {}) {
+        const token = Symbol("positions");
+        analysisInitToken = token;
+        if (force) {
+          analysisPositions = null;
+          positionsPromise = null;
+          positionsRequestId += 1;
+        }
+        if (analysisPositions && analysisPositions.length) {
+          selectAnalysisPositions();
+          analysisPositionsError = null;
+          syncAnalysisControls();
+          return analysisPositions;
+        }
+        setAnalysisState("loading", "loading analysis positions…");
+        analysisUi.start.disabled = true;
+        try {
+          const positions = await loadAnalysisPositions();
+          if (analysisInitToken !== token) return positions;
+          if (!positions || !positions.length)
+            throw new Error("no analysis positions were provided");
+          analysisPositionsError = null;
+          if (analysisToken === null && active === null)
+            setAnalysisState("idle", "");
+          return positions;
+        } catch (error) {
+          if (analysisInitToken !== token) return null;
+          analysisPositionsError = error?.message ?? String(error);
+          setAnalysisState(
+            "failed",
+            `analysis positions unavailable: ${analysisPositionsError}`,
+          );
+          return null;
+        } finally {
+          if (analysisInitToken === token) syncAnalysisControls();
+        }
+      }
+      function publishAnalysis(result) {
+        analysisResult = result;
+        const analysis = result.analysis ?? {};
+        setText("#analysis-best", analysis.best_move
+          ? `source ${analysis.best_move.source} → target ${analysis.best_move.target}`
+          : "—");
+        setText(
+          "#analysis-value",
+          typeof analysis.value === "number" ? analysis.value.toFixed(6) : "—",
+        );
+        if (result.agent === "neural-mcts") {
+          const search = result.search ?? {};
+          const coordinator = search.coordinator ?? {};
+          setText("#analysis-simulations-completed", search.completed_simulations);
+          setText(
+            "#analysis-rate",
+            coordinator.simulations_per_second
+              ? `${coordinator.simulations_per_second.toFixed(1)} /s`
+              : "—",
+          );
+          setText(
+            "#analysis-duration",
+            coordinator.end_to_end_ms ? `${coordinator.end_to_end_ms.toFixed(0)} ms` : "—",
+          );
+          setText(
+            "#analysis-model",
+            search.model?.sha256 ? search.model.sha256.slice(0, 16) + "…" : "—",
+          );
+          setText(
+            "#analysis-provider-info",
+            search.provider
+              ? `${search.provider.requested} → ${search.provider.execution_placement}` +
+                (search.provider.gpu_execution_verified ? " (GPU verified)" : "")
+              : "unknown",
+          );
+          setText(
+            "#analysis-payload",
+            coordinator.inference_payload_mode
+              ? `${coordinator.inference_payload_mode} (${coordinator.response_policy_values ?? 0} logits)`
+              : "—",
+          );
+          const hits = coordinator.cache_hits ?? 0;
+          const misses = coordinator.cache_misses ?? 0;
+          setText(
+            "#analysis-cache-info",
+            analysisUi.cache.checked
+              ? `${hits} hit(s), ${misses} miss(es)`
+              : "disabled",
+          );
+          setText(
+            "#analysis-transport",
+            coordinator.direct ? "direct worker channel" : "coordinator relay",
+          );
+          setText("#analysis-completion", search.completion_reason ?? "—");
+        } else {
+          setText("#analysis-simulations-completed", "n/a (alpha-beta)");
+          setText("#analysis-rate", "—");
+          setText("#analysis-duration", `${Math.round(result.elapsed_ms ?? 0)} ms`);
+          setText("#analysis-model", "—");
+          setText("#analysis-provider-info", "local Python engine (no model)");
+          setText("#analysis-payload", "n/a (alpha-beta)");
+          setText("#analysis-cache-info", "n/a (alpha-beta)");
+          setText("#analysis-transport", "n/a (alpha-beta)");
+          setText("#analysis-completion", result.analysis?.source ?? "—");
+        }
+        document.querySelector("#analysis-output").textContent = JSON.stringify(
+          result,
+          null,
+          2,
+        );
+      }
+      function publishProgress(snapshot) {
+        setText("#analysis-best", snapshot.best_move
+          ? `source ${snapshot.best_move.source} → target ${snapshot.best_move.target}`
+          : "…");
+        setText(
+          "#analysis-value",
+          typeof snapshot.value === "number" ? snapshot.value.toFixed(6) : "…",
+        );
+        setText("#analysis-simulations-completed", snapshot.simulations ?? "…");
+        setText(
+          "#analysis-duration",
+          `${Math.round(snapshot.elapsed_ms ?? 0)} ms elapsed`,
+        );
+        setAnalysisState("running", `${snapshot.simulations ?? 0} completed simulations`);
+      }
+      async function runJarlAnalysis(token, position, settings) {
+        ensureAnalysisCurrent(token);
+        setAnalysisState("running", "initializing local Python runtime");
+        const config = {
+          ...JARL_CONFIG,
+          time_limit: settings.time_limit,
+          seed: settings.seed,
+        };
+        const result = await jarl.analyze(position.state, config, {
+          ceilingMs: LocalAnalysisClient.watchdogFor(config),
+        });
+        ensureAnalysisCurrent(token);
+        if (result.analysis?.source === "terminal") {
+          return { agent: "jarl", analysis: result.analysis, elapsed_ms: result.elapsed_ms };
+        }
+        return { agent: "jarl", ...result };
+      }
+      async function runNeuralAnalysis(token, position, settings, provider) {
+        // The analysis owns its own operation token, so it must not be checked
+        // against the inference operation's ownership. Neural MCTS needs only
+        // the model manifest, never the large numerical reference vectors.
+        await manifestFor(() => ensureAnalysisCurrent(token));
+        ensureAnalysisCurrent(token);
+        if (!client.model || client.model.provider !== provider) {
+          setAnalysisState("loading", `loading ${provider} model…`);
+          await client.load("./" + assets.model.file, {
+            provider,
+            size: assets.model.size,
+            ruleset: assets.model.ruleset,
+            expectedSha256: assets.model.sha256,
+          });
+          ensureAnalysisCurrent(token);
+        }
+        await client.configureInferenceCache({
+          enabled: analysisUi.cache.checked,
+          maxEntries: 8192,
+          maxBytes: 64 * 1024 * 1024,
+        });
+        const identity = client.modelIdentity();
+        if (identity.ruleset !== position.ruleset)
+          throw Object.assign(
+            new Error(
+              `The staged model covers ${identity.ruleset}; no ${position.ruleset} model is staged`,
+            ),
+            { name: "ProviderError" },
+          );
+        const searchSettings = normalizeSearchSettings(settings);
+        coordinator.directInference = analysisUi.direct.checked;
+        setAnalysisState("running", "cooperative neural MCTS");
+        const outcome = await coordinator.search({
+          state: position.state,
+          settings: searchSettings,
+          model: identity,
+          provider: { requested: provider },
+          onProgress: (snapshot) => {
+            if (analysisToken === token) publishProgress(snapshot);
+          },
+        });
+        ensureAnalysisCurrent(token);
+        return { agent: "neural-mcts", ...outcome };
+      }
+      async function runAnalysis() {
+        if (analysisToken) return undefined;
+        if (shuttingDown) return undefined;
+        if (active) {
+          setAnalysisState("failed", "an inference operation is running");
+          return undefined;
+        }
+        const token = Symbol("analysis");
+        analysisToken = token;
+        analysisResult = null;
+        setBusy(true);
+        document.querySelector("#analysis-output").textContent = "";
+        syncAnalysisControls();
+        const capture = () => ({
+          ruleset: analysisUi.ruleset.value,
+          position: analysisUi.position.value,
+          agent: analysisUi.agent.value,
+          provider: analysisUi.provider.value,
+          settings: {
+            iterations: Number(analysisUi.simulations.value),
+            time_limit: Number(analysisUi.time.value),
+            seed: Number(analysisUi.seed.value),
+            exploration: Number(analysisUi.exploration.value),
+          },
+        });
+        const started = performance.now();
+        try {
+          // The small shared position dataset is initialized with the interface;
+          // a direct admission before it settles waits for the same retryable
+          // loader (selectors are disabled by ownership from here on).
+          if (!analysisPositions || !analysisPositions.length) {
+            setAnalysisState("running", "loading analysis positions…");
+            await initializeAnalysisPositions();
+            ensureAnalysisCurrent(token);
+          }
+          // Capture the exact position and settings at admission. A later selector
+          // change must never redirect a running analysis to another position.
+          const requested = capture();
+          setAnalysisState("running", "finishing previous cancellation");
+          await awaitCleanup("analysis");
+          await awaitCleanup("inference");
+          ensureAnalysisCurrent(token);
+          const positions = analysisPositions;
+          ensureAnalysisCurrent(token);
+          const position = positions.find(
+            (entry) =>
+              entry.name === requested.position && entry.ruleset === requested.ruleset,
+          );
+          if (!position)
+            throw new Error(
+              `The selected ${requested.ruleset} position is not available`,
+            );
+          const settings = requested.settings;
+          const result =
+            requested.agent === "jarl"
+              ? await runJarlAnalysis(token, position, settings)
+              : await runNeuralAnalysis(token, position, settings, requested.provider);
+          ensureAnalysisCurrent(token);
+          result.elapsed_ms = result.elapsed_ms ?? performance.now() - started;
+          result.ruleset = position.ruleset;
+          result.position = position.name;
+          result.settings = settings;
+          result.authoritative = false;
+          publishAnalysis(result);
+          setAnalysisState("completed", result.agent);
+        } catch (error) {
+          if (analysisToken !== token) return undefined;
+          const kind = error?.name ?? "Error";
+          setAnalysisState(
+            kind === "AbortError" ? "cancelled" : "failed",
+            error?.message ?? String(error),
+          );
+          if (kind !== "AbortError")
+            document.querySelector("#analysis-output").textContent = JSON.stringify(
+              { name: kind, code: error?.code ?? null, message: error?.message ?? String(error) },
+              null,
+              2,
+            );
+          return undefined;
+        } finally {
+          if (analysisToken === token) {
+            analysisToken = null;
+            setBusy(false);
+            syncAnalysisControls();
+          }
+        }
+        return analysisResult;
+      }
+      function cancelAnalysis(reason = "Cancelled by user") {
+        if (!analysisToken) return analysisCleanup ?? Promise.resolve({ cancelled: false });
+        // Immediate user feedback and immediate loss of publication authority.
+        // Cleanup is tracked separately and awaited by the next admission.
+        analysisToken = null;
+        setAnalysisState("cancelled", "cancelled by user");
+        setBusy(false);
+        syncAnalysisControls();
+        try {
+          jarl.cancel(reason);
+        } catch {
+          // idempotent cancellation
+        }
+        const cleanup = (async () => {
+          const [search, inference] = await Promise.all([
+            coordinator.cancel(reason).catch(() => ({ cancelled: true })),
+            client.cancelWork({ reason }).catch(() => ({
+              state: "failed",
+              sessionRetained: false,
+            })),
+          ]);
+          return { cancelled: true, search, inference };
+        })();
+        return trackCleanup("analysis", cleanup);
+      }
+      analysisUi.ruleset.addEventListener("change", () => {
+        selectAnalysisPositions();
+        syncAnalysisControls();
+      });
+      analysisUi.agent.addEventListener("change", syncAnalysisControls);
+      analysisUi.reload.addEventListener("click", () => {
+        if (analysisToken !== null || active !== null) return;
+        initializeAnalysisPositions({ force: true });
+      });
+      analysisUi.start.addEventListener("click", () => {
+        runAnalysis().catch((error) =>
+          setAnalysisState("failed", error?.message ?? String(error)),
+        );
+      });
+      analysisUi.cancel.addEventListener("click", () => cancelAnalysis());
+      analysisUi.export.addEventListener("click", () => {
+        if (analysisResult) publishAnalysis(analysisResult);
+      });
+      const analysisApi = {
+        start: () => runAnalysis(),
+        cancel: cancelAnalysis,
+        result: () => analysisResult,
+        positions: () => analysisPositions,
+        ui: analysisUi,
+        setRuleset(value) {
+          analysisUi.ruleset.value = value;
+          selectAnalysisPositions();
+          syncAnalysisControls();
+        },
+        setPosition(name) {
+          analysisUi.position.value = name;
+        },
+        setAgent(value) {
+          analysisUi.agent.value = value;
+          syncAnalysisControls();
+        },
+        setProvider(value) {
+          analysisUi.provider.value = value;
+        },
+        setBudget({ simulations, time, seed, exploration }) {
+          if (simulations !== undefined) analysisUi.simulations.value = String(simulations);
+          if (time !== undefined) analysisUi.time.value = String(time);
+          if (seed !== undefined) analysisUi.seed.value = String(seed);
+          if (exploration !== undefined) analysisUi.exploration.value = String(exploration);
+        },
+        loadPositions: () => loadAnalysisPositions(),
+      };
+      syncAnalysisControls();
+      // Initialize only the small shared position dataset; neural assets stay lazy.
+      initializeAnalysisPositions();
+
+      const api = {
+        get client() {
+          return client;
+        },
+        get coordinator() {
+          return coordinator;
+        },
+        get jarl() {
+          return jarl;
+        },
+        normalizeSearchSettings,
+        // Shared experimental position fixtures (all three rulesets).
+        positions: async () => fetchJson("./mcts-positions.json"),
+        analysis: analysisApi,
+        capabilities: () =>
+          run(async () => {
+            const value = await client.capabilities();
+            show(value);
+            setState(
+              "idle",
+              value.webGPUAdapter ? "WebGPU adapter available" : "no WebGPU adapter",
+            );
+            return value;
+          }),
+        load: (providerOverride) =>
+          run(async (token) => {
+            if (providerOverride) providerSelect.value = providerOverride;
+            const value = await ensureLoaded(token, { force: true });
+            show(value);
+            setState("idle", `loaded with ${value.execution_placement}`);
+            return value;
+          }),
+        infer: () =>
+          run(async (token) => {
+            const loaded = await ensureLoaded(token);
+            await referenceFor(() => ensureCurrent(token));
+            const model = identityOf(loaded);
+            const entry = inputs.cases.find((candidate) => !candidate.terminal);
+            const value = await client.infer({
+              planes: entry.planes,
+              size: model.size,
+              legal: entry.legal,
+              ruleset: model.ruleset,
+              request_id: entry.position,
+              position_digest: entry.position_digest,
+              model,
+            });
+            ensureCurrent(token);
+            show({
+              provider_requested: value.provider_requested,
+              execution_placement: value.execution_placement,
+              model_sha256: value.model_sha256,
+              model_ruleset: value.model_ruleset,
+              run_ms: value.run_ms,
+              value: value.value,
+              legal_count: value.legal.length,
+              legal_probability_sum: value.legal_probabilities.reduce((a, b) => a + b, 0),
+              illegal_mass_raw: value.illegal_mass_raw,
+            });
+            return value;
+          }),
+        inferMany: (batch = 8) =>
+          run(async (token) => {
+            const loaded = await ensureLoaded(token);
+            await referenceFor(() => ensureCurrent(token));
+            const model = identityOf(loaded);
+            const value = await client.inferMany({ cases: casesForBatch(batch), model });
+            ensureCurrent(token);
+            show({
+              provider_requested: value.provider_requested,
+              execution_placement: value.execution_placement,
+              model_ruleset: value.model_ruleset,
+              batch: value.batch,
+              results_count: value.results.length,
+              run_ms: value.run_ms,
+              per_position_ms: value.per_position_ms,
+              sums: value.results.map((row) =>
+                row.legal_probabilities.reduce((a, b) => a + b, 0),
+              ),
+            });
+            return value;
+          }),
+        benchmark: (batchSizes = [1, 2, 4, 8, 16, 32], reps = 5) =>
+          run(async (token) => {
+            const loaded = await ensureLoaded(token);
+            await referenceFor(() => ensureCurrent(token));
+            const model = identityOf(loaded);
+            const value = await client.benchmark({
+              cases: casesForBatch(32),
+              batchSizes,
+              warmup: 2,
+              reps,
+              model,
+            });
+            ensureCurrent(token);
+            show(value);
+            return value;
+          }),
+        cancel: () => {
+          if (!active && !inferenceCleanup) return Promise.resolve({ cancelled: false });
+          // Immediate feedback and ownership loss; cleanup is bounded and the
+          // next operation waits for it.
+          active = null;
+          setBusy(false);
+          setState("cancelled", "cancelled by user");
+          const cleanup = client
+            .cancelWork({ reason: "Cancelled by user" })
+            .catch(() => ({ state: "failed", sessionRetained: false }));
+          return trackCleanup("inference", cleanup);
+        },
+        diagnostics: () => ({ ...diagnostics }),
+        exportReport: () => output.textContent ?? "",
+        // Manifest-only accessor for neural MCTS/parity harnesses; the large
+        // reference vectors are never needed for an actual search.
+        meta: () => manifestFor(() => {}),
+        assets: async () => {
+          await manifestFor(() => {});
+          await referenceFor(() => {});
+          return { assets, inputs };
+        },
+        setState,
+        show,
+      };
+      window.neural = api;
+      providerSelect.addEventListener("change", () => {
+        if (active) return setState("running", "provider change ignored during active operation");
+        if (client.model && client.model.provider !== providerSelect.value) {
+          setState("idle", "provider changed; reload required (Infer/Load will reload)");
+        }
+      });
+      for (const [id, action] of Object.entries({
+        capabilities: api.capabilities,
+        load: () => api.load(),
+        infer: api.infer,
+        inferMany: () => api.inferMany(8),
+        benchmark: () => api.benchmark(),
+        cancel: api.cancel,
+      })) {
+        document.querySelector(`#${id}`).onclick = () => {
+          Promise.resolve(action()).catch((error) =>
+            setState("failed", error?.message ?? String(error)),
+          );
+        };
+      }
+      // Page lifecycle cleanup reuses the cancellation path: ownership is
+      // invalidated *before* the client is disposed, so pending asset loads,
+      // model downloads or session creation cannot publish or spawn a
+      // replacement worker after the page has gone away.
+      function shutdown(reason) {
+        shuttingDown = true;
+        diagnostics.pagehide += 1;
+        active = null;
+        analysisToken = null;
+        analysisCleanup = null;
+        inferenceCleanup = null;
+        try {
+          jarl.dispose();
+        } catch {
+          // already disposed
+        }
+        try {
+          coordinator.dispose();
+        } catch {
+          // already disposed
+        }
+        try {
+          client.dispose();
+        } catch {
+          // already disposed
+        }
+        setBusy(false);
+        setState("cancelled", reason);
+        setAnalysisState("cancelled", reason);
+      }
+      api.shutdown = shutdown;
+      function restoreAfterBfcache() {
+        // The disposed clients are permanently retired. Install fresh instances
+        // so the restored page is actually usable, and drop operation ownership
+        // so nothing resumes. Successful immutable manifest caches may persist.
+        createRuntime();
+        shuttingDown = false;
+        active = null;
+        analysisToken = null;
+        analysisResult = null;
+        analysisCleanup = null;
+        inferenceCleanup = null;
+        // The immutable model manifest and analysis positions may be reused; the
+        // large numerical reference vectors and every operation are dropped.
+        inputs = null;
+        referencePromise = null;
+        if (analysisPositions) selectAnalysisPositions();
+        syncAnalysisControls();
+        setBusy(false);
+        setAnalysisState("idle", "restored");
+        if (!analysisPositions || !analysisPositions.length)
+          initializeAnalysisPositions();
+        setState("idle", "restored from the back-forward cache");
+        syncAnalysisControls();
+      }
+      api.restoreAfterBfcache = restoreAfterBfcache;
+      window.addEventListener("pagehide", () => shutdown("page hidden"));
+      window.addEventListener("pageshow", (event) => {
+        if (!event.persisted) return;
+        restoreAfterBfcache();
+      });
+      // No neural asset is fetched eagerly: Jarl must work with zero neural
+      // requests, and neural assets are loaded on demand with retryable caching.
+      // `ready` describes page-script readiness, not network readiness.
+      api.ready = Promise.resolve(true);
+      window.neural = api;
+    </script>
+  </body>
+</html>

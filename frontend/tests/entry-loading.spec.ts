@@ -7,6 +7,6 @@ test('protected entry initializes while application timers are paused', async ({
   await page.goto('/dashboard');
   // Do not advance the fake clock to make loading succeed: advisor regressions
   // need a frozen debounce clock before they mount the protected application.
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   await expect(page.locator('.personal-dashboard')).toBeVisible();
 });

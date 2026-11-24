@@ -1,3 +1,4 @@
+import './analysis.css';
 import { useEffect, useId, useRef, useState } from 'react';
 import { notify } from './notifications';
 import {

@@ -33,6 +33,18 @@ class OnlineError(ValueError):
         super().__init__(message)
 
 
+class DeploymentLocked(OnlineError):
+    """The updater holds the exclusive write gate for activation/recovery.
+
+    This is expected contention rather than a failed transaction. Background
+    reconciliation can defer and retry, while a genuine database or integrity
+    failure must still surface to its caller.
+    """
+
+    def __init__(self):
+        super().__init__(503, "Deployment in progress. Please retry shortly.")
+
+
 def micros(moment: datetime) -> int:
     if moment.tzinfo is None or moment.utcoffset() is None:
         raise OnlineError(503, "Authoritative time is unavailable.")
@@ -84,7 +96,7 @@ class OnlineCore:
             try:
                 fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise OnlineError(503, "Deployment in progress. Please retry shortly.") from None
+                raise DeploymentLocked() from None
             with self.store.connection() as c:
                 c.execute("PRAGMA foreign_keys=ON")
                 c.execute("BEGIN IMMEDIATE")

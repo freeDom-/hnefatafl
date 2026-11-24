@@ -961,7 +961,7 @@ function GameRoom({
     >
       {reviewOnly && (
         <button className="button" onClick={lobby}>
-          {t('Back to dashboard')}
+          {t('Back to the Great Hall')}
         </button>
       )}
       {reviewOnly && <p>{t('Read-only review. Replay controls change only your view.')}</p>}

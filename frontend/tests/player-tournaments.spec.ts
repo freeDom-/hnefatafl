@@ -534,7 +534,7 @@ test('tournament page and calendar load only after navigating away from the dash
       /PlayerTournaments\.tsx|LocalDateTimePicker\.tsx|react-day-picker\.js/.test(url),
     );
   await page.goto('/dashboard');
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
   expect(tournamentModules()).toEqual([]);
   await page.goto('/player-tournaments');
   await expect(

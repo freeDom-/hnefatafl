@@ -33,6 +33,16 @@ are refused. See [release packaging](RELEASING.md#production-updater-assets).
 Neither installer publishes a release. Installation requires an already available
 compatible published stable release; files on `main` alone are insufficient.
 
+The committed source archive includes `LICENSE` and `THIRD_PARTY_NOTICES.md`.
+The frontend license files are Git-ignored build outputs, not source-archive
+members: the frontend prebuild writes `LICENSE.txt`, `THIRD_PARTY_NOTICES.txt`
+and the generated `THIRD_PARTY_LICENSES.txt` into `frontend/public`, and Vite
+copies them into `frontend/dist` during the normal build. Installation and update
+do not require license acceptance and do not add license keys, remote activation
+or telemetry. The software remains source-available under the PolyForm
+Noncommercial License 1.0.0; see [Licensing](LICENSING.md) and the root
+[LICENSE](../LICENSE).
+
 ## Proxmox one-line installation
 
 As **root on a Proxmox VE host**, from any working directory:
@@ -351,6 +361,45 @@ activation, recovery and backup, new mutations receive 503; health/authenticated
 read probes remain available. The lock's inode survives data restoration. This
 prevents a new training request from racing the update's graceful service stop.
 
+### Deferred tournament recovery during activation
+
+The updater holds that exclusive lock from before shutdown until activation,
+readiness verification, commit or rollback. Player-tournament settlement must not
+make the new service's lifespan require the same lock: that would create a cycle
+where readiness needs a lock the updater cannot release until readiness passes.
+Startup therefore attempts the one-time reconciliation synchronously. If, and only
+if, it observes genuine deployment-gate contention, it leaves durable queue rows
+untouched and starts the normal settlement worker. The worker retries after the
+gate is released, performs the reconciliation exactly once in that worker
+lifecycle, then resumes due scheduled starts and settlement. Database, integrity
+and programming errors are not treated as deployment contention; a synchronous
+startup attempt still raises them, and worker retries remain incomplete with
+bounded backoff. No browser request, administrator action or extra restart is
+required.
+
+This preserves all existing write protection: tournament settlement, scheduled
+starts, online timeouts and account mail still take the shared gate and return or
+defer while the exclusive deployment gate is held. The gate is never bypassed,
+disabled or replaced. An update started by an already installed `0.40.0` updater
+needs no changes in the updater: it holds the same lock, starts the corrected
+service and probes health as before.
+
+Readiness failures now report sanitized operator diagnostics: the original
+deployment target, previous, currently probed and installed releases, failure
+phase (stop/snapshot/migration/activation/startup/readiness/commit), probe and
+transport category (connection refused/timeout/error, truncated response, HTTP
+protocol error, invalid JSON or unexpected health response), last HTTP status,
+attempt count and elapsed time, allowlisted systemd state/exit result, the failed
+automatic-recovery step, and journal/transaction locations. Health probing retries
+truncated and protocol responses within the existing budget. Credentials, cookies,
+CSRF values, response bodies, exception payloads, configuration secrets and GitHub
+tokens are never included.
+
+These enhanced diagnostics and the rollback policy below exist only in the
+corrected updater. An update initiated by the already installed `0.40.0` updater
+gains the corrected application startup fix but still uses the old updater's
+generic readiness message and lacks the new preflight policy.
+
 ## Rollback and recovery
 
 ```sh
@@ -366,6 +415,56 @@ sessions are invalidated and restored worker credentials are revoked. Re-login
 and re-enroll workers. A changed/incompatible account schema requires explicit
 manual recovery; the updater refuses to overwrite security state blindly.
 
+`0.41.0` is a known-incompatible rollback target: its application cannot start
+while the updater holds the exclusive deployment gate. The corrected updater
+refuses a recorded `--rollback` or interrupted-recovery target of `0.41.0` before
+stopping the service, restoring data or switching the release symlink. During
+automatic recovery from a failed update it stops the failed target service, then
+refuses rollback to `0.41.0` without restoring the snapshot or switching/starting
+the incompatible release; the journal, backup reference, activated target and
+persistent data remain for reviewed manual recovery. Ordinary rollback to `0.40.0`
+remains supported where schema/data-authority rules permit, as does rollback
+between corrected releases with tournament workers. The command exits nonzero with
+the journal and log locations; inspect them before any manual action.
+
+### Cross-schema automatic recovery is fail-closed
+
+Creating an automatic pre-deployment snapshot is **not** a guarantee that an
+automatic rollback can complete. After a successful migration the live database
+uses a newer schema than the pre-deployment snapshot. Existing account/online
+schema-authority checks refuse to replace a schema-21 live database with a
+schema-15/schema-20 snapshot, because that would silently downgrade authoritative
+online, tournament and security state. The corrected updater performs a read-only
+compatibility preflight before stopping a healthy service for an explicit
+`--rollback`; a schema mismatch is refused before service stop, data replacement or
+release switching. During automatic recovery it performs the same preflight and
+retains the activated target, migrated live database, verified snapshot, model and
+checkpoint files, installed state and transaction journal.
+
+The historical `0.40.0` updater also fails closed after migrating to schema 21:
+its `retain_online_on_restore` check reports `Online schema changed; manual
+recovery is required` before replacing live authority. It does not start the old
+application against the newer database. In that situation the target release may
+already be activated and the service stopped; the old release is not automatically
+started, and the transaction remains unrecovered. Do not force a downgrade.
+
+Supported automatic recovery:
+
+- a failed deployment whose snapshot and live database have compatible schemas
+  and whose previous release is not `0.41.0`;
+- rollback between corrected releases with matching schemas and compatible data;
+- the historical updater restoring a compatible snapshot when its own schema
+  checks permit it.
+
+Manual recovery is required when the live database was migrated to a newer schema
+than the snapshot, when account/online columns differ, when `0.41.0` is the
+previous release, or when backup verification/integrity fails. Preserve
+`/etc/hnefatafl/transaction.json`, the referenced snapshot and
+`/var/lib/hnefatafl.retained-*` directories. Restore the snapshot and matching old
+release only after a reviewed compatibility plan; otherwise keep the corrected
+target release and recover forward. There is no general database downgrade
+mechanism in this hotfix.
+
 With matching current overall schemas, recovery retains live authoritative online
 matches, games, moves/results, audit, rating history and start-rating snapshots, then pauses the timeout
 gate with an audit entry. It does not rewind accepted online play to the snapshot. A changed
@@ -379,9 +478,12 @@ Data created after the snapshot is kept in a sibling
 Other local game/model data is not silently merged. Application configuration
 is preserved; each snapshot also contains its prior protected configuration.
 Failed migration/readiness normally restores the previous code/data and starts it.
-If recovery itself fails, the command exits nonzero, preserves artifacts and prints
-journal/log locations. Do not restart arbitrary old code against an unknown schema.
-An initial failed install has no previous release and stays stopped.
+The readiness error reports the probe/category/transport, attempts, service state
+and whether that automatic recovery succeeded. If recovery itself fails, the
+command exits nonzero, preserves artifacts and reports the failed recovery plus
+the journal and transaction locations. Do not restart arbitrary old code against
+an unknown schema. An initial failed install has no previous release and stays
+stopped.
 
 Backups contain account hashes, sessions, worker credentials and private
 configuration: keep root-only and copy encrypted off the container. Container

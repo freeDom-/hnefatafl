@@ -2,6 +2,85 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## Deployment-safe tournament recovery (`0.41.1` preparation)
+
+The [0.41.1 hotfix notes](releases/0.41.1.md) record the `0.41.0` startup
+deadlock root cause and the deferred recovery lifecycle. Regression coverage now
+starts a real FastAPI lifespan while a real exclusive `.deployment-gate` flock is
+held, for both empty and populated tournament databases. It verifies health and
+authenticated reads, anonymous rejection, 503 mutation blocking, no reconciliation
+writes under the gate, automatic recovery after release, idempotent repeated
+recovery, restart/shutdown while deferred, due scheduled starts, full
+account/online/tournament worker startup, partial-startup cleanup and genuine
+database-error propagation. Fast in-process updater integration exercises fresh
+installation, ordinary restart, failed activation rollback and explicit
+interrupted recovery with the real lifespan and snapshot/restore path; these are
+labeled simulations because each release directory executes the current checkout.
+
+Genuine cross-version tests fetch pinned `0.40.0` updater/application, `0.41.0`
+application and schema-20 historical commit objects from the trusted origin (never
+committed source copies), verify their commit IDs, generate authentic schema-15 and
+schema-20 databases with historical code, and launch real Uvicorn subprocesses.
+They verify the old updater's exclusive lock, activation/probe/commit of the
+corrected app, direct schema 15→21 and schema 20→21 migration, preservation of
+representative accounts/permissions, models, jobs, checkpoints, games and (for
+schema 20) online/tournament records, plus post-commit authentication and a
+protected mutation through the activated target release. A separate genuine test
+reproduces historical `0.41.0` startup failure under the exclusive gate.
+
+A deterministic post-migration readiness failure (administrator deactivation after
+the target becomes healthy) exercises the actual historical `0.40.0` updater. Its
+schema-authority check refuses `Online schema changed` rather than replacing live
+schema 21 with the schema-15/20 snapshot. Tests verify the target remains
+activated, the live database remains schema 21, the original verified snapshot,
+models, checkpoints and transaction metadata are retained, and the old application
+is not started. The corrected updater's read-only rollback preflight refuses the
+same mismatch before service stop/data/symlink changes; matching-schema rollback
+between corrected releases succeeds. Rollback-policy tests prove `0.41.0` is
+rejected for explicit rollback, interrupted recovery and automatic recovery.
+
+Readiness diagnostics cover connection refusal, timeout, truncated responses, HTTP
+protocol errors, unexpected status, invalid health bodies, transient recovery,
+release/phase identification, malformed metadata, safe schema/preflight errors,
+successful rollback and failed rollback. Tests prove deliberate operator-facing
+schema-refusal messages remain visible while unexpected exception strings
+containing synthetic credentials/session values are not exposed. Harness cleanup
+tests use the exact PID-file derivation and verify the application process is gone
+after success, readiness failure and timeout.
+
+`make deployment-check` is mandatory in the Python CI job before the full backend
+suite. A dedicated CI job builds the frontend, runs `scripts/fetch_historical_refs.py`
+and executes the cross-version suite with the real updater/application processes.
+Local focused results for this preparation: deployment/lifecycle **63 passed**,
+cross-version **6 passed**, player-tournament/security **149 passed**; Ruff,
+format, mypy, documentation and the production frontend build passed. Exact CI
+counts and any target-host exceptions are recorded in the release pull request;
+the tests use disposable data and do not exercise real systemd, proxying or a live
+Proxmox update.
+
+## Arena v2 delivery, player tournaments, automatic progression and public spectators (`0.41.0` preparation)
+
+The [0.41.0 release notes](releases/0.41.0.md#validation) identify integration
+coverage for the 30 pull requests merged since `0.40.0`. Coverage includes the
+four-theme responsive Arena, persisted Local 1v1, human double-elimination
+tournaments with durable start/settlement workers, signed-out public discovery
+and replay, automatic tiered achievements with schema-21 reconciliation, rating
+history and streaks, Workshop consolidation, frontend feature splitting and
+polling reductions, fail-closed dependency auditing, and disposable backend and
+progression benchmarks. Isolated browser-analysis research also records Phase 1A
+(Jarl) and Phase 1B (ONNX/browser inference) parity and lifecycle evidence; it
+ships no production route, CSP change or neural MCTS implementation. The online
+schema advances 15 → 21; account schema 9, checkpoint tensor format 1 and
+job-archive schema 3 are unchanged.
+
+Release preparation records its exact local checks and release-PR Verify result
+separately from the feature-PR integration evidence. Successful release-PR and
+exact merged-main Verify remain required before tagging and stable publication.
+The milestone is not a `1.0` public-readiness declaration: leagues, production
+browser/neural analysis, licensing, physical-device/Safari and CUDA/MPS coverage,
+production capacity and target-host deployment remain outstanding. Historical
+evidence below is unchanged.
+
 ## Persistent Champion adaptation, learning metrics and analytics budgets (`0.40.0` preparation)
 
 The [0.40.0 release notes](releases/0.40.0.md#validation) identify integration

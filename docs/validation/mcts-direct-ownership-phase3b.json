@@ -1,0 +1,98 @@
+{
+  "kind": "mcts-direct-ownership",
+  "schema": 1,
+  "checks": [
+    {
+      "firstError": {
+        "name": "AbortError",
+        "code": "AbortError"
+      },
+      "secondError": {
+        "name": "DIRECT_BUSY",
+        "code": "DIRECT_BUSY",
+        "message": "A direct channel already owns the session"
+      },
+      "replacement_completed": 64,
+      "replacement_direct": true,
+      "fourthError": {
+        "name": "AbortError",
+        "code": "AbortError"
+      },
+      "modelAfterTermination": null,
+      "recovered_completed": 64,
+      "attachFailure": {
+        "name": "TimeoutError"
+      },
+      "neuralAttachSucceeded": true,
+      "neuralDetachAcknowledged": true,
+      "after_attach_failure_completed": 64,
+      "setupCancel": {
+        "name": "AbortError",
+        "code": "AbortError"
+      },
+      "after_setup_cancel_completed": 64,
+      "rawFirst": "infer_result",
+      "rawSecond": "infer_result",
+      "staleDetach": {
+        "kind": "direct_port_detached",
+        "pending": false,
+        "stale": true
+      },
+      "modelBeforeRejectedLoad": {
+        "sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+        "ruleset": "brandubh",
+        "size": 7
+      },
+      "modelAfterRejectedLoad": {
+        "sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+        "ruleset": "brandubh",
+        "size": 7
+      },
+      "workerBeforeRejectedLoad": {},
+      "workerAfterRejectedLoad": {},
+      "modelLoadError": "DIRECT_BUSY",
+      "providerSwitchError": "DIRECT_BUSY",
+      "statsBeforeRaw": {
+        "accepted": 130,
+        "stale_rejected": 0,
+        "busy_rejected": 0
+      },
+      "statsAfterFirst": {
+        "accepted": 131,
+        "stale_rejected": 0,
+        "busy_rejected": 0
+      },
+      "statsAfterStale": {
+        "accepted": 131,
+        "stale_rejected": 0,
+        "busy_rejected": 0
+      },
+      "normalInferError": "DIRECT_BUSY",
+      "releaseError": "DIRECT_BUSY",
+      "cacheConfigError": "DIRECT_BUSY",
+      "capabilitiesDuringDirect": true,
+      "statsAfterRecovery": {
+        "accepted": 132,
+        "stale_rejected": 0,
+        "busy_rejected": 0
+      },
+      "failedDetachState": {
+        "result": {
+          "kind": "direct_port_detached",
+          "pending": true,
+          "timedOut": true
+        },
+        "workerTerminated": false,
+        "workerNull": true,
+        "model": null,
+        "directChannel": null
+      },
+      "normalAttachError": "SESSION_BUSY",
+      "sustainedError": null,
+      "testClientLoadError": null,
+      "finalLoadError": null
+    }
+  ],
+  "failures": [],
+  "ok": true
+}
