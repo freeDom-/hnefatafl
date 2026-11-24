@@ -125,7 +125,13 @@ def run_historical_script(
     timeout: int = 180,
     cwd: Path | None = None,
 ) -> subprocess.CompletedProcess:
-    env = {**os.environ, "PYTHONPATH": str(tree), "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(tree),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        # A module-level historical ASGI app must open its own schema.
+        "HNEFATAFL_DATA_DIR": str(tree / ".fixture-app-data"),
+    }
     try:
         return subprocess.run(
             [sys.executable, str(script), *args],

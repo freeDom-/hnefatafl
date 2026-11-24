@@ -324,11 +324,15 @@ def test_authentic_schema21_upgrade_preserves_running_modern_tournament(tmp_path
         assert not c.execute("PRAGMA foreign_key_check").fetchall()
 
 
-def test_historical_041_fails_under_exclusive_gate(tmp_path):
+def test_historical_041_fails_under_exclusive_gate(tmp_path, monkeypatch):
     support.require_inputs()
     historical = support.extract(support.REF_041, tmp_path / "historical-0.41.0")
     assert support.package_version(historical) == "0.41.0"
     assert support.schema_version(historical) == 21
+    current_data = tmp_path / "current-module-data"
+    current_data.mkdir()
+    Store(current_data / "hnefatafl.sqlite3")
+    monkeypatch.setenv("HNEFATAFL_DATA_DIR", str(current_data))
     data = tmp_path / "data"
     data.mkdir()
     result_path = tmp_path / "result.json"
