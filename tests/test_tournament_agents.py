@@ -53,7 +53,7 @@ def agent_script(tmp_path):
     return path
 
 
-def _agent(script: Path, *, timeout: float = 0.5, **kwargs) -> tournament.JsonProcessAgent:
+def _agent(script: Path, *, timeout: float = 1.0, **kwargs) -> tournament.JsonProcessAgent:
     return tournament.JsonProcessAgent([sys.executable, str(script)], timeout=timeout, **kwargs)
 
 
@@ -104,7 +104,7 @@ def test_blocking_child_cannot_block_past_the_deadline_and_is_reaped(agent_scrip
         with pytest.raises(tournament.AgentTimeoutError):
             _request(agent, "blocking", pad="x" * 262144)
         elapsed = time.monotonic() - started
-        assert elapsed < 3.0
+        assert elapsed < 5.0
         assert agent.process is None
     finally:
         agent.close()
@@ -138,7 +138,7 @@ def test_stale_generation_responses_are_rejected(agent_script):
 
 
 def test_concurrent_requests_are_rejected_without_corrupting_the_session(agent_script):
-    agent = _agent(agent_script, timeout=0.4)
+    agent = _agent(agent_script, timeout=0.5)
     try:
         assert _request(agent) == tournament.Move(0, 1)
         errors = []

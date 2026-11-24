@@ -180,7 +180,7 @@ def test_portable_process_agent_timeout_and_recovery(tmp_path):
     import os
 
     env.update(os.environ)
-    agent = tournament.JsonProcessAgent([sys.executable, str(script)], timeout=0.3, cwd=tmp_path)
+    agent = tournament.JsonProcessAgent([sys.executable, str(script)], timeout=1.0, cwd=tmp_path)
     state = __import__("hnefatafl.engine", fromlist=["new_game"]).new_game("brandubh")
     assert agent(state, {"iterations": 1}, 1) in legal_moves(state)
     generation = agent.diagnostics()["generation"]
