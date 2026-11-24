@@ -404,6 +404,67 @@ def test_restore_retains_live_online_results_return_games_and_pauses_timeout_gat
     assert recovered == finished
 
 
+def test_restore_retains_new_official_league_results_and_pending_settlement(deployment):
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from hnefatafl.auth import digest
+    from hnefatafl.league_migrations import LEAGUE_TABLES
+    from hnefatafl.leagues import Leagues
+    from hnefatafl.online_core import OnlineCore
+    from hnefatafl.online_settings import OnlineSettings
+
+    backup = deployment.snapshot()
+    opponent = deployment.auth.create_account(
+        "Raven", "raven@example.test", "online-deployment-password"
+    )
+    with deployment.store.connection() as c:
+        c.execute("UPDATE accounts SET email_verified_at=123")
+    _, admin_token, _ = deployment.auth.login("Odin", "deployment-fixture-password", "first")
+    _, other_token, _ = deployment.auth.login("Raven", "online-deployment-password", "second")
+    credentials = {
+        deployment.admin["id"]: digest(admin_token),
+        opponent["id"]: digest(other_token),
+    }
+    core = OnlineCore(
+        deployment.auth,
+        OnlineSettings(enabled=True, creation_policy_approved=True, timeout_policy_approved=True),
+        lambda: datetime(2026, 11, 24, tzinfo=timezone.utc),
+    )
+    league = Leagues(core)
+    admin = credentials[deployment.admin["id"]]
+    league.join(admin, "brandubh", str(uuid4()))
+    matched = league.join(credentials[opponent["id"]], "brandubh", str(uuid4()))
+    game = core.read(admin, matched["game_id"])
+    loser = game["participants"][game["position"]["turn"]]["account_id"]
+    core.mutate(credentials[loser], game["id"], game["version"], "concede")
+
+    retained = (*LEAGUE_TABLES, "rating_events", "online_results")
+    with deployment.store.connection() as c:
+        before = {
+            table: [tuple(row) for row in c.execute(f"SELECT * FROM {table} ORDER BY 1,2")]
+            for table in retained
+        }
+        assert before["league_settlement_queue"]
+        assert before["league_games"]
+        assert before["rating_events"]
+
+    deployment.restore(backup)
+    with deployment.store.connection() as c:
+        assert before == {
+            table: [tuple(row) for row in c.execute(f"SELECT * FROM {table} ORDER BY 1,2")]
+            for table in retained
+        }
+        assert not c.execute("PRAGMA foreign_key_check").fetchall()
+        assert c.execute("SELECT enabled FROM online_timeout_gate").fetchone()[0] == 0
+    assert deployment.auth.session(admin_token) is None
+    assert deployment.auth.session(other_token) is None
+    assert Leagues(core).drain()["settled"] == 1
+    with deployment.store.connection() as c:
+        assert c.execute("SELECT sum(points) FROM league_standings").fetchone()[0] == 3
+        assert c.execute("SELECT count(*) FROM rating_events").fetchone()[0] == 1
+
+
 def test_online_schema_downgrade_restore_refuses_live_root_replacement(deployment):
     from hnefatafl.online_migrations import ONLINE_TABLES
 
