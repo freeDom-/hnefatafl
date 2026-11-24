@@ -1,0 +1,197 @@
+{
+  "build_revision": {
+    "schema": 1,
+    "revision": "371bc31854d39900a841cfc2ce7e09bc569a4d19",
+    "dirty": true,
+    "git": true,
+    "fingerprint": "3ff997334ba5383076bdbb42ea0624e5e258f151f94fc1abec4df5aadcf33863",
+    "builtAt": "2026-11-24T14:45:43.694Z"
+  },
+  "chromium": "154.0.8037.57",
+  "node": "v24.19.0",
+  "gzip_level": 9,
+  "sample_seconds_per_idle_or_queued_phase": 17,
+  "sample_seconds_after_route_leave": 4.5,
+  "league_api": {
+    "first_visit": {
+      "/api/leagues/current": {
+        "requests": 1,
+        "completed": 1,
+        "http_errors": 0,
+        "network_errors": 0,
+        "cancelled": 0,
+        "bytes": 1816,
+        "latency_ms": {
+          "p50": 8.435,
+          "p95": 8.435,
+          "p99": 8.435
+        }
+      },
+      "/api/leagues/history": {
+        "requests": 1,
+        "completed": 1,
+        "http_errors": 0,
+        "network_errors": 0,
+        "cancelled": 0,
+        "bytes": 631,
+        "latency_ms": {
+          "p50": 20.093,
+          "p95": 20.093,
+          "p99": 20.093
+        }
+      },
+      "/api/leagues/seasons": {
+        "requests": 1,
+        "completed": 1,
+        "http_errors": 0,
+        "network_errors": 0,
+        "cancelled": 0,
+        "bytes": 429,
+        "latency_ms": {
+          "p50": 15.287,
+          "p95": 15.287,
+          "p99": 15.287
+        }
+      },
+      "/api/leagues/standings": {
+        "requests": 1,
+        "completed": 1,
+        "http_errors": 0,
+        "network_errors": 0,
+        "cancelled": 0,
+        "bytes": 631,
+        "latency_ms": {
+          "p50": 22.325,
+          "p95": 22.325,
+          "p99": 22.325
+        }
+      }
+    },
+    "idle": {},
+    "join": {
+      "/api/leagues/queue": {
+        "requests": 1,
+        "completed": 1,
+        "http_errors": 0,
+        "network_errors": 0,
+        "cancelled": 0,
+        "bytes": 937,
+        "latency_ms": {
+          "p50": 8.36,
+          "p95": 8.36,
+          "p99": 8.36
+        }
+      }
+    },
+    "queued": {
+      "/api/leagues/queue": {
+        "requests": 4,
+        "completed": 4,
+        "http_errors": 0,
+        "network_errors": 0,
+        "cancelled": 0,
+        "bytes": 3748,
+        "latency_ms": {
+          "p50": 8.541,
+          "p95": 13.81,
+          "p99": 13.81
+        }
+      }
+    },
+    "leave": {}
+  },
+  "first_visit_feature_transfer": {
+    "/assets/Leagues-DF000Spz.css": {
+      "requests": 1,
+      "completed": 1,
+      "http_errors": 0,
+      "network_errors": 0,
+      "cancelled": 0,
+      "bytes": 2299,
+      "latency_ms": {
+        "p50": 36.427,
+        "p95": 36.427,
+        "p99": 36.427
+      }
+    },
+    "/assets/Leagues-DFyt9P7h.js": {
+      "requests": 1,
+      "completed": 1,
+      "http_errors": 0,
+      "network_errors": 0,
+      "cancelled": 0,
+      "bytes": 27957,
+      "latency_ms": {
+        "p50": 37.302,
+        "p95": 37.302,
+        "p99": 37.302
+      }
+    },
+    "/assets/arena-v2/assets/portraits/shieldbearer.webp": {
+      "requests": 1,
+      "completed": 1,
+      "http_errors": 0,
+      "network_errors": 0,
+      "cancelled": 0,
+      "bytes": 24127,
+      "latency_ms": {
+        "p50": 18.225,
+        "p95": 18.225,
+        "p99": 18.225
+      }
+    }
+  },
+  "route_assets": [
+    {
+      "file": "assets/Leagues-DF000Spz.css",
+      "bytes": 1782,
+      "gzip_bytes": 629
+    },
+    {
+      "file": "assets/Leagues-DFyt9P7h.js",
+      "bytes": 27432,
+      "gzip_bytes": 8567
+    }
+  ],
+  "initial_assets": {
+    "scripts": [
+      {
+        "file": "assets/AuthenticatedArena-C6HDFqMm.js",
+        "bytes": 106117,
+        "gzip_bytes": 32943
+      },
+      {
+        "file": "assets/appearance-init.js",
+        "bytes": 1862,
+        "gzip_bytes": 698
+      },
+      {
+        "file": "assets/arenaTopBar-daT_QufX.js",
+        "bytes": 6445,
+        "gzip_bytes": 2632
+      },
+      {
+        "file": "assets/index-vVBAJ15C.js",
+        "bytes": 468564,
+        "gzip_bytes": 149689
+      }
+    ],
+    "styles": [
+      {
+        "file": "assets/AuthenticatedArena-BBls_3MK.css",
+        "bytes": 38574,
+        "gzip_bytes": 7709
+      },
+      {
+        "file": "assets/arenaTopBar-DEZM5DEj.css",
+        "bytes": 3153,
+        "gzip_bytes": 1029
+      },
+      {
+        "file": "assets/index-CfVJSv5_.css",
+        "bytes": 73876,
+        "gzip_bytes": 15380
+      }
+    ]
+  }
+}

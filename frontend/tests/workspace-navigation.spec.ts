@@ -141,6 +141,7 @@ test('the compact bottom navigation reaches every destination in both workspaces
   for (const [destination, path] of [
     ['play', null],
     ['online', '/online'],
+    ['leagues', '/leagues'],
     ['statistics', '/statistics'],
     ['leaderboard', '/leaderboard'],
     ['archive', '/archive'],
@@ -282,6 +283,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'The Great Hall',
       play: 'Battlefield',
       online: 'Online Play',
+      leagues: 'Leagues',
       statistics: 'Statistics',
       leaderboard: 'Leaderboard',
       'player-tournaments': 'Player tournaments',
@@ -292,6 +294,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'Die große Halle',
       play: 'Schlachtfeld',
       online: 'Online spielen',
+      leagues: 'Ligen',
       statistics: 'Statistik',
       leaderboard: 'Rangliste',
       'player-tournaments': 'Spielerturniere',
@@ -304,6 +307,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'The Great Hall',
       play: 'Battlefield',
       online: 'Online Play',
+      leagues: 'Leagues',
       statistics: 'Statistics',
       leaderboard: 'Leaderboard',
       archive: 'Hall of records',
@@ -312,6 +316,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'Die große Halle',
       play: 'Schlachtfeld',
       online: 'Online spielen',
+      leagues: 'Ligen',
       statistics: 'Statistik',
       leaderboard: 'Rangliste',
       archive: 'Halle der Aufzeichnungen',
@@ -322,6 +327,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'Great Hall',
       play: 'Battlefield',
       online: 'Online',
+      leagues: 'Leagues',
       statistics: 'Stats',
       leaderboard: 'Trials',
       archive: 'Replays',
@@ -330,6 +336,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'Große Halle',
       play: 'Schlachtfeld',
       online: 'Online',
+      leagues: 'Ligen',
       statistics: 'Statistik',
       leaderboard: 'Wettstreit',
       archive: 'Wiederholungen',
@@ -704,7 +711,7 @@ test('compact navigation height tracks text resize and keeps Workshop unchanged'
         await page.locator('.language-select select').selectOption(language);
         const context = `${width}px-root-${rootSize}-${language}`;
         const nav = primaryNavigation(page);
-        await expect(nav.locator('a'), `${context}: all Arena destinations`).toHaveCount(6);
+        await expect(nav.locator('a'), `${context}: all Arena destinations`).toHaveCount(7);
         const metrics = await bottomNavigationMetrics(page);
         expect(metrics, `${context}: bottom navigation geometry`).not.toBeNull();
         expect(
