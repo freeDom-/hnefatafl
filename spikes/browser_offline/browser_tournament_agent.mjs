@@ -35,6 +35,7 @@ if (!["wasm", "webgpu"].includes(provider)) {
   console.error("browser_tournament_agent: --provider must be wasm or webgpu");
   process.exit(2);
 }
+const PROTOCOL_VERSION = 2;
 
 let server = null;
 let browser = null;
@@ -113,6 +114,32 @@ async function start() {
     },
     { ...staged.model, provider },
   );
+  const sidecar = JSON.parse(
+    await readFile(resolve(root, "model", "model.json"), "utf8"),
+  );
+  const engine = await page.evaluate(async () => {
+    const info = await window.neural.coordinator.infoAction();
+    return info.python.engine_identity;
+  });
+  const handshake = {
+    kind: "handshake",
+    protocol: PROTOCOL_VERSION,
+    agent: {
+      protocol: PROTOCOL_VERSION,
+      kind: "browser-neural",
+      runtime: "browser-pyodide",
+      provider: model.provider_requested,
+      execution_placement: model.execution_placement,
+      algorithm: "mcts",
+      engine_sha256: engine?.sha256 ?? null,
+      model_sha256: model.sha256,
+      weights_sha256: sidecar?.source?.weights_sha256 ?? null,
+      ruleset: model.ruleset,
+      size: model.size,
+      settings_support: { iterations: true, time_limit: true, depth: false },
+    },
+  };
+  process.stdout.write(JSON.stringify(handshake) + "\n");
   console.error(
     `browser_tournament_agent: ready model=${model.sha256.slice(0, 12)} ` +
       `placement=${model.execution_placement}`,
@@ -128,6 +155,10 @@ async function handle(line) {
   }
   try {
     if (typeof request.id !== "string" || !request.id) throw new Error("request id is missing");
+    if (!Number.isInteger(request.seed) || request.seed < 0)
+      throw new Error("request seed is missing");
+    const settings = { ...(request.settings ?? {}), seed: request.seed };
+    const started = Date.now();
     const result = await page.evaluate(
       async (payload) => {
         const outcome = await window.neural.coordinator.search({
@@ -138,10 +169,26 @@ async function handle(line) {
         });
         return { best_move: outcome.analysis?.best_move, search: outcome.search };
       },
-      { state: request.state, settings: request.settings ?? {}, model },
+      { state: request.state, settings, model },
     );
     if (!result?.best_move) throw new Error("search produced no best move");
-    respond({ id: request.id, move: result.best_move });
+    const evidence = {
+      settings: {
+        iterations: settings.iterations,
+        time_limit: settings.time_limit,
+        exploration: settings.exploration,
+        seed: request.seed,
+      },
+      seed: request.seed,
+      algorithm: "mcts",
+      provider: model.provider_requested,
+      model_sha256: model.sha256,
+      completed_simulations: result.search?.completed_simulations ?? null,
+      depth: null,
+      completion_reason: result.search?.completion_reason ?? "completed",
+      elapsed_ms: Date.now() - started,
+    };
+    respond({ id: request.id, move: result.best_move, evidence });
   } catch (error) {
     console.error(`browser_tournament_agent: ${error?.message ?? error}`);
     process.exit(2);

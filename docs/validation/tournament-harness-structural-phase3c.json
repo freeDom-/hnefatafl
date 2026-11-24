@@ -3,23 +3,53 @@
   "manifest": {
     "ruleset": "brandubh",
     "agents": {
-      "a": "scripted-first",
+      "a": "scripted-a",
       "b": "scripted-last"
     },
     "agent_config": {
       "a": {
-        "label": "scripted-first",
+        "label": "scripted-a",
         "kind": "scripted",
-        "runtime": "in-process",
-        "provider": "in-process",
+        "runtime": "native-cpython",
+        "provider": "cpu",
+        "algorithm": "scripted",
         "model": null
       },
       "b": {
         "label": "scripted-last",
         "kind": "scripted",
-        "runtime": "in-process",
-        "provider": "in-process",
+        "runtime": "native-cpython",
+        "provider": "cpu",
+        "algorithm": "scripted",
         "model": null
+      }
+    },
+    "agent_handshakes": {
+      "a": {
+        "protocol": 2,
+        "kind": "scripted",
+        "runtime": "native-cpython",
+        "provider": "cpu",
+        "algorithm": "scripted",
+        "engine_sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
+        "settings_support": {
+          "iterations": false,
+          "time_limit": true,
+          "depth": false
+        }
+      },
+      "b": {
+        "protocol": 2,
+        "kind": "scripted",
+        "runtime": "native-cpython",
+        "provider": "cpu",
+        "algorithm": "scripted",
+        "engine_sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
+        "settings_support": {
+          "iterations": false,
+          "time_limit": true,
+          "depth": false
+        }
       }
     },
     "settings": {
@@ -29,7 +59,8 @@
       "exploration": 1.4,
       "seed": 11,
       "max_plies": 24,
-      "agent_timeout_s": 1.0
+      "agent_timeout_s": 1.0,
+      "mode": "fixed-work"
     },
     "openings": [
       {
@@ -167,23 +198,53 @@
   "schema": 2,
   "ruleset": "brandubh",
   "agents": {
-    "a": "scripted-first",
+    "a": "scripted-a",
     "b": "scripted-last"
   },
   "agent_config": {
     "a": {
-      "label": "scripted-first",
+      "label": "scripted-a",
       "kind": "scripted",
-      "runtime": "in-process",
-      "provider": "in-process",
+      "runtime": "native-cpython",
+      "provider": "cpu",
+      "algorithm": "scripted",
       "model": null
     },
     "b": {
       "label": "scripted-last",
       "kind": "scripted",
-      "runtime": "in-process",
-      "provider": "in-process",
+      "runtime": "native-cpython",
+      "provider": "cpu",
+      "algorithm": "scripted",
       "model": null
+    }
+  },
+  "agent_handshakes": {
+    "a": {
+      "protocol": 2,
+      "kind": "scripted",
+      "runtime": "native-cpython",
+      "provider": "cpu",
+      "algorithm": "scripted",
+      "engine_sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
+      "settings_support": {
+        "iterations": false,
+        "time_limit": true,
+        "depth": false
+      }
+    },
+    "b": {
+      "protocol": 2,
+      "kind": "scripted",
+      "runtime": "native-cpython",
+      "provider": "cpu",
+      "algorithm": "scripted",
+      "engine_sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
+      "settings_support": {
+        "iterations": false,
+        "time_limit": true,
+        "depth": false
+      }
     }
   },
   "settings": {
@@ -193,7 +254,8 @@
     "exploration": 1.4,
     "seed": 11,
     "max_plies": 24,
-    "agent_timeout_s": 1.0
+    "agent_timeout_s": 1.0,
+    "mode": "fixed-work"
   },
   "openings": [
     "brandubh-opening",
@@ -264,7 +326,7 @@
         ]
       },
       "ruleset": "brandubh",
-      "attacker_agent": "scripted-first",
+      "attacker_agent": "scripted-a",
       "defender_agent": "scripted-last",
       "winner": "draw",
       "reason": "threefold_repetition",
@@ -321,12 +383,206 @@
         "iterations": 8,
         "time_limit": 1.0,
         "exploration": 1.4,
-        "seed": 11
+        "seed": 11,
+        "mode": "fixed-work"
       },
+      "mode": "fixed-work",
       "agent_timeout_s": 1.0,
+      "execution_evidence": [
+        {
+          "agent": "scripted-a",
+          "ply": 0,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 11
+          },
+          "seed": 11,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.3274199552834034,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 1,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 12
+          },
+          "seed": 12,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.2968030166812241,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 2,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 13
+          },
+          "seed": 13,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.05594402318820357,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 3,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 14
+          },
+          "seed": 14,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.03527197986841202,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 4,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 15
+          },
+          "seed": 15,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.04185503348708153,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 5,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 16
+          },
+          "seed": 16,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.032952986657619476,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 6,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 17
+          },
+          "seed": 17,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.04495400935411453,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 7,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 18
+          },
+          "seed": 18,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.030790979508310556,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 8,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 19
+          },
+          "seed": 19,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.03943004412576556,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 9,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 20
+          },
+          "seed": 20,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.0297880033031106,
+          "provider": "cpu",
+          "model_sha256": null
+        }
+      ],
       "game_id": "pair-0-ab",
       "pair": 0,
-      "agent_a": "scripted-first",
+      "agent_a": "scripted-a",
       "agent_b": "scripted-last",
       "agent_a_side": "attackers",
       "agent_b_side": "defenders"
@@ -396,7 +652,7 @@
       },
       "ruleset": "brandubh",
       "attacker_agent": "scripted-last",
-      "defender_agent": "scripted-first",
+      "defender_agent": "scripted-a",
       "winner": "draw",
       "reason": "threefold_repetition",
       "starting_ply": 0,
@@ -460,12 +716,244 @@
         "iterations": 8,
         "time_limit": 1.0,
         "exploration": 1.4,
-        "seed": 12
+        "seed": 12,
+        "mode": "fixed-work"
       },
+      "mode": "fixed-work",
       "agent_timeout_s": 1.0,
+      "execution_evidence": [
+        {
+          "agent": "scripted-last",
+          "ply": 0,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 12
+          },
+          "seed": 12,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.03977800952270627,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 1,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 13
+          },
+          "seed": 13,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.03159098559990525,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 2,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 14
+          },
+          "seed": 14,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.042760977521538734,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 3,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 15
+          },
+          "seed": 15,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.030549010261893272,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 4,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 16
+          },
+          "seed": 16,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.041651015635579824,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 5,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 17
+          },
+          "seed": 17,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.032283016480505466,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 6,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 18
+          },
+          "seed": 18,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.04005600931122899,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 7,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 19
+          },
+          "seed": 19,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.02964801387861371,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 8,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 20
+          },
+          "seed": 20,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.045043008867651224,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 9,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 21
+          },
+          "seed": 21,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.028067035600543022,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 10,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 22
+          },
+          "seed": 22,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.03818899858742952,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 11,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 23
+          },
+          "seed": 23,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.026470981538295746,
+          "provider": "cpu",
+          "model_sha256": null
+        }
+      ],
       "game_id": "pair-0-ba",
       "pair": 0,
-      "agent_a": "scripted-first",
+      "agent_a": "scripted-a",
       "agent_b": "scripted-last",
       "agent_a_side": "defenders",
       "agent_b_side": "attackers"
@@ -532,7 +1020,7 @@
         "history": []
       },
       "ruleset": "brandubh",
-      "attacker_agent": "scripted-first",
+      "attacker_agent": "scripted-a",
       "defender_agent": "scripted-last",
       "winner": "draw",
       "reason": "threefold_repetition",
@@ -589,12 +1077,206 @@
         "iterations": 8,
         "time_limit": 1.0,
         "exploration": 1.4,
-        "seed": 111
+        "seed": 111,
+        "mode": "fixed-work"
       },
+      "mode": "fixed-work",
       "agent_timeout_s": 1.0,
+      "execution_evidence": [
+        {
+          "agent": "scripted-a",
+          "ply": 0,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 111
+          },
+          "seed": 111,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.025378947611898184,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 1,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 112
+          },
+          "seed": 112,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.029560993425548077,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 2,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 113
+          },
+          "seed": 113,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.029964023269712925,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 3,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 114
+          },
+          "seed": 114,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.02984004095196724,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 4,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 115
+          },
+          "seed": 115,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.02792297163978219,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 5,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 116
+          },
+          "seed": 116,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.02857798244804144,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 6,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 117
+          },
+          "seed": 117,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.028304988518357277,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 7,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 118
+          },
+          "seed": 118,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.0346270389854908,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 8,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 119
+          },
+          "seed": 119,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.03134500002488494,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 9,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 120
+          },
+          "seed": 120,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.03412499791011214,
+          "provider": "cpu",
+          "model_sha256": null
+        }
+      ],
       "game_id": "pair-1-ab",
       "pair": 1,
-      "agent_a": "scripted-first",
+      "agent_a": "scripted-a",
       "agent_b": "scripted-last",
       "agent_a_side": "attackers",
       "agent_b_side": "defenders"
@@ -662,7 +1344,7 @@
       },
       "ruleset": "brandubh",
       "attacker_agent": "scripted-last",
-      "defender_agent": "scripted-first",
+      "defender_agent": "scripted-a",
       "winner": "draw",
       "reason": "threefold_repetition",
       "starting_ply": 0,
@@ -726,12 +1408,244 @@
         "iterations": 8,
         "time_limit": 1.0,
         "exploration": 1.4,
-        "seed": 112
+        "seed": 112,
+        "mode": "fixed-work"
       },
+      "mode": "fixed-work",
       "agent_timeout_s": 1.0,
+      "execution_evidence": [
+        {
+          "agent": "scripted-last",
+          "ply": 0,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 112
+          },
+          "seed": 112,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.026823021471500397,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 1,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 113
+          },
+          "seed": 113,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.036135956179350615,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 2,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 114
+          },
+          "seed": 114,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.027709000278264284,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 3,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 115
+          },
+          "seed": 115,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.0277829822152853,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 4,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 116
+          },
+          "seed": 116,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.02734799636527896,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 5,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 117
+          },
+          "seed": 117,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.030813971534371376,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 6,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 118
+          },
+          "seed": 118,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.02727197716012597,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 7,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 119
+          },
+          "seed": 119,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.027807021979242563,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 8,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 120
+          },
+          "seed": 120,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.02637202851474285,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 9,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 121
+          },
+          "seed": 121,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.029951974283903837,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-last",
+          "ply": 10,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 122
+          },
+          "seed": 122,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.02705102087929845,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 11,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 8,
+            "time_limit": 1.0,
+            "exploration": 1.4,
+            "seed": 123
+          },
+          "seed": 123,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.027144968044012785,
+          "provider": "cpu",
+          "model_sha256": null
+        }
+      ],
       "game_id": "pair-1-ba",
       "pair": 1,
-      "agent_a": "scripted-first",
+      "agent_a": "scripted-a",
       "agent_b": "scripted-last",
       "agent_a_side": "defenders",
       "agent_b_side": "attackers"
@@ -747,7 +1661,7 @@
     "attacker_wins": 0,
     "defender_wins": 0,
     "by_agent": {
-      "scripted-first": {
+      "scripted-a": {
         "wins": 0,
         "losses": 0,
         "draws": 4,

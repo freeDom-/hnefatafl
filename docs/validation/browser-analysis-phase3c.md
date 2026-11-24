@@ -33,6 +33,17 @@ opt-in. Single-tree batching and subtree reuse remain deferred.
 | N7 | All four validators and CLIs validate nested container types, identifier types, numeric types (including booleans/non-finite/negative values), digests and file/JSON errors; diagnostics are structured; checkpoint paths are not echoed. | `tests/test_phase3c_malformed_inputs.py` plus the public-function tests in each module (including 30,000-case nested-mutation fuzzing during development). |
 | N8 | This report, the device runbook and the spike README document executable collection and validation commands plus schemas for export/parity/benchmarks/manifest, native+browser process tournament adapters, sustained-memory collection and the physical-device matrix. | `tests/test_phase3c_workflow.py` runs the tournament and memory collector CLIs end-to-end; competitive CLI integration runs export→evidence→validation. |
 
+## 0.1 Fourth review correction (Q1–Q6)
+
+| Finding | Correction | Regression proof |
+| --- | --- | --- |
+| Q1 | The collector now completes `--warmup-duration` before collecting the full `--duration` acceptance window (schema 3, timestamp-excluded warmup). It consumes live JSONL telemetry incrementally, associates values by Unix timestamp and session/model/workload identity, detects stale/missing/malformed/identity-mismatched telemetry, verifies the root process start time/cmdline (PID reuse), distinguishes browser workers from OS processes, and reports only telemetry-observed lifecycle events. | `tests/test_phase3c_workflow.py`: warmup/acceptance separation, live telemetry appended after start, identity change, stale/missing telemetry, process disappearance, PID-replacement, browser-worker vs OS-process distinction and observed events. The reviewed collector measured only the total duration and read telemetry files once. |
+| Q2 | Process shutdown now terminates the owned process group/tree *before* stream cleanup, tracks writer threads as well as readers, closes stdin only when no writer is stuck, bounds cleanup (deadline + 2 s allowance + 1 s kill grace), reports cleanup/reaping failures, and uses POSIX sessions/Windows process groups. | `tests/bounded_adapter_probe.py` (external subprocess watchdog) starts a child that never reads stdin, spawns a descendant and writes a request larger than the pipe capacity: timeout, bounded cleanup, child reaped, descendant terminated, no thread leaks, same-instance recovery. The reviewed `_stop_generation()` closed buffered stdin before terminating the child. |
+| Q3 | Competitive provenance now binds checkpoint metadata digest and distinguishes owner attestation from independently verified training facts. Competitive-trained requires ≥32 channels/≥2 residual blocks, rejects known structural-smoke checkpoints, and enforces an independent workload policy (all five position kinds, fixed-work budgets 128/256/512/1024, fixed-time 0.5/1/2/5 s, ≥2 repetitions, ≥1 warmup) using `compare_reports()` for native/browser workload/settings compatibility. | `tests/test_competitive_validation.py`: smoke relabelled competitive, insufficient architecture, missing/inconsistent checkpoint metadata and attestation, reduced quick benchmark workload, incompatible native/browser configurations and altered workload identity. |
+| Q4 | Agents now use a version-2 initialization handshake and per-move evidence. Handshake reports kind/runtime/engine identity/algorithm/model/provider/depth; every move reports effective settings, seed, completed simulations/depth, completion reason and elapsed time. Mismatched command/config identities abort the tournament; fixed-work/fixed-time modes are explicit; unknown budgets cannot be equal-work evidence. | `tests/test_tournament_execution.py`: real native Jarl handshake/evidence integration, scripted-configured-as-Jarl rejection, incorrect adapter model identity, seed/provider/algorithm/depth/evidence mutations, and no playing-strength acceptance for invalid reports. Actual browser adapter run also validates. |
+| Q5 | Device evidence now requires explicit `physical`/`emulated` provenance and a session identity, binds GPU session model/browser/runtime/workload/session identity, requires ordered observed cancellation timestamps, and keeps verified-GPU evidence through a code-controlled runtime registry that is empty for the pinned ORT Web runtime. Manually supplied matching operator lists cannot become acceptance. | `tests/test_device_evidence.py`: emulated matrix cannot satisfy physical acceptance, matching manual lists rejected as unsupported runtime claims, session/model/browser identity mismatches, missing/out-of-order cancellation timestamps. |
+| Q6 | Memory validation enforces per-metric coverage (RSS ≥80 %, ≥5 usable; JS heap/cache/WASM/workers ≥80 %, ≥5 usable), longest usable-observation gaps, complete acceptance-window coverage, explicit inapplicability rules and telemetry-observed lifecycle events. Missing mandatory metrics make the result partial/blocked, never accepted. | `tests/test_memory_validation.py`: warmup-only RSS, shortened window, sparse JS heap, longest-gap, worker/cache/WASM coverage, manual lifecycle events, schema-3 window boundaries. |
+
 ## 1. Strict detach acknowledgments (preserved)
 
 `NeuralClient.detachDirectPort()` accepts only a matching request id on the
@@ -83,7 +94,16 @@ Acceptance policy and provenance are explicit, not inferred from a label:
     "source_weights_sha256": "<64 hex>",
     "ruleset": "brandubh",
     "architecture": {"channels": 32, "blocks": 2},
-    "encoder_version": "six-plane-v1"
+    "encoder_version": "six-plane-v1",
+    "training": {
+      "classification": "competitive-trained",
+      "checkpoint_metadata_sha256": "<digest of the checkpoint metadata>",
+      "attestation": {
+        "source": "owner",
+        "statement": "Owner attests the training provenance.",
+        "recorded_at": "2026-11-24T00:00:00Z"
+      }
+    }
   },
   "evidence": {
     "level_a": {"native": "native-a.json", "browser": "browser-a.json"},
@@ -99,7 +119,25 @@ Acceptance policy and provenance are explicit, not inferred from a label:
 ```
 
 `structural-smoke` evidence must use `acceptance_policy: structural`; its result
-is `structural-validated` with `competitive_acceptance: false`. A structural
+is `structural-validated` with `competitive_acceptance: false`.
+
+Training classification is never inferred from the manifest label. The verified
+checkpoint metadata digest is bound to `provenance.training`, and known structural
+smoke checkpoints (metadata name/note containing "smoke"/"structural") are rejected
+for competitive classification. An owner attestation is explicitly reported as
+`classification_source: owner-attestation` with
+`training_facts_independently_verified: false`; it is not an independently verified
+training fact. Competitive-trained evidence also requires at least 32 channels and
+two residual blocks.
+
+The competitive benchmark workload policy is independent of the workload's own
+declared repetitions: all five position kinds (`opening`, `midgame`, `endgame`,
+`tactical`, `repetition`), fixed-work budgets 128/256/512/1024, fixed-time budgets
+0.5/1/2/5 s, at least two repetitions and one warmup run. Native and browser
+reports are compared with `mcts_benchmark.compare_reports()`, so their workload
+identity, effective settings and completed-work semantics must agree. A reduced
+quick workload cannot satisfy competitive acceptance even when its own repetitions
+are complete. A structural
 manifest whose label/policy is edited to `competitive-trained` is rejected because
 Level B, direct/relay and benchmark evidence are missing. Additional
 `direct_relay` documents are supported; keys `fixed`, `fixed_*` imply fixed work
@@ -186,19 +224,39 @@ prefix, and terminal reasons/move-limit outcomes are recomputed. Summary totals,
 role/agent statistics and bootstrap values are recomputed from the games after
 canonical pair ordering.
 
-Process protocol (persistent, newline-delimited JSON):
+Process protocol (persistent, newline-delimited JSON, version 2):
 
 ```text
-request:  {"id": "<unique>", "state": {...}, "settings": {...}, "seed": 7}
-response: {"id": "<same>", "move": {"source": 0, "target": 1}}
+handshake: {"kind": "handshake", "protocol": 2, "agent": {
+             "kind": "native-jarl", "runtime": "native-cpython",
+             "provider": "cpu", "algorithm": "alpha_beta", "depth": 5,
+             "engine_sha256": "<64 hex>", "settings_support": {...}}}
+request:   {"id": "<unique>", "state": {...}, "settings": {...}, "seed": 7}
+response:  {"id": "<same>", "move": {"source": 0, "target": 1},
+            "evidence": {"settings": {...}, "seed": 7, "algorithm": "alpha_beta",
+                         "depth": 5, "completed_simulations": null,
+                         "completion_reason": "completed", "elapsed_ms": 12.5,
+                         "provider": "cpu", "model_sha256": null}}
 ```
+
+The adapter requires the handshake before admitting the agent and compares kind,
+runtime, provider, algorithm, depth and model/weight/ruleset/size identities with
+the declared configuration. A scripted adapter configured as Jarl, or any other
+command/config mismatch, aborts the tournament instead of being recorded as a
+game failure. Every move's evidence must match the request seed and effective
+settings; MCTS reports completed simulations, alpha-beta reports its completed
+depth. `--mode fixed-work|fixed-time` is explicit in the manifest and per game;
+fixed-work requires equal completed work, fixed-time requires deadline termination
+and records the elapsed time. Unknown budgets are not equal-work evidence.
 
 The adapter creates a new response queue per subprocess generation, rejects
 stale/duplicate/unexpected/malformed responses, bounds responses and stderr, and
-enforces one hard deadline over writes, reads and recovery. Timed-out or
-protocol-breaking children are terminated and reaped. The same adapter instance
-recovers with a replacement process; use it as a context manager (or call
-`close()`) to guarantee cleanup.
+enforces one hard deadline over writes, reads and recovery. Shutdown terminates the
+owned process group/tree before touching buffered streams, joins writer and reader
+threads within a bounded cleanup allowance, and reports reaping failures. The same
+adapter instance recovers with a replacement process; use it as a context manager
+(or call `close()`) to guarantee cleanup. A child that never reads stdin therefore
+cannot hang timeout recovery.
 
 Agent configuration schema:
 
@@ -208,6 +266,7 @@ Agent configuration schema:
   "kind": "native-neural",
   "runtime": "native-cpython",
   "provider": "onnxruntime-cpu",
+  "algorithm": "mcts",
   "model": {
     "onnx_sha256": "<64 hex>",
     "weights_sha256": "<64 hex>",
@@ -217,9 +276,10 @@ Agent configuration schema:
 }
 ```
 
-Kinds: `scripted`, `native-jarl`, `native-neural`, `browser-jarl`,
-`browser-neural`. Neural kinds require model identity; browser kinds require
-`wasm` or `webgpu`; scripted agents must not declare a model. Playing-strength
+Kinds: `scripted`, `native-jarl`, `native-seer`, `native-neural`, `browser-jarl`,
+`browser-neural`. Non-scripted kinds declare `algorithm` (`mcts` or `alpha_beta`);
+alpha-beta also declares `depth`. Neural kinds require model identity; browser
+kinds require `wasm` or `webgpu`; scripted agents must not declare a model. Playing-strength
 evidence requires non-scripted agents, no failed/truncated games and at least ten
 complete pairs; the validator reports eligibility, never a strength claim.
 
@@ -227,16 +287,17 @@ Collect and validate:
 
 ```sh
 cat > /tmp/agent-a.json <<'JSON'
-{"label":"native-jarl","kind":"native-jarl","runtime":"native-cpython","provider":"cpu","model":null}
+{"label":"native-jarl","kind":"native-jarl","runtime":"native-cpython","provider":"cpu","algorithm":"alpha_beta","depth":5,"model":null}
 JSON
 cat > /tmp/agent-b.json <<'JSON'
 {"label":"browser-neural","kind":"browser-neural","runtime":"browser-pyodide","provider":"wasm",
+ "algorithm":"mcts",
  "model":{"onnx_sha256":"<64 hex>","weights_sha256":"<64 hex>","ruleset":"brandubh","size":7}}
 JSON
 
 .venv/bin/python spikes/browser_offline/tournament.py --run \
   --ruleset brandubh --simulations 128 --time-limit 2 --seed 7 \
-  --max-plies 200 --agent-timeout 30 \
+  --max-plies 200 --agent-timeout 30 --mode fixed-work \
   --agent-a-command ".venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine jarl --depth 5" \
   --agent-b-command "node spikes/browser_offline/browser_tournament_agent.mjs /tmp/neural-spike --provider wasm" \
   --agent-a-config /tmp/agent-a.json --agent-b-config /tmp/agent-b.json \
@@ -273,10 +334,12 @@ Schema (`schema: 2`):
 ```json
 {
   "kind": "browser-analysis-memory-profile",
-  "schema": 2,
+  "schema": 3,
   "profile": "sustained-10m",
   "status": "measured",
+  "warmup_ms": 60000,
   "duration_ms": 600000,
+  "total_duration_ms": 660500,
   "budgets": {
     "max_process_rss_bytes": 1073741824,
     "max_js_heap_used_bytes": 536870912,
@@ -285,19 +348,25 @@ Schema (`schema: 2`):
     "max_workers": 32
   },
   "features": {"inference_cache": true},
-  "warmup_samples": 1,
-  "events": {},
+  "events": {"cancellations": 0, "worker_replacements": 0},
+  "events_source": "telemetry",
+  "telemetry": {"records": 600, "malformed": 0, "identity_mismatch": 0},
   "unavailable_metrics": {"js_heap_used_bytes": "not exposed by harness"},
   "samples": [
     {
       "timestamp_ms": 0,
+      "wall_time_ms": 1700000000000,
       "process_rss_bytes": 123456789,
+      "os_processes": 9,
       "js_heap_used_bytes": null,
-      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_bytes": 67108864,
       "cache_entries": 12,
       "cache_bytes": 4096,
       "workers": 4,
-      "completed_requests": 0
+      "completed_requests": 0,
+      "telemetry": {"timestamp_ms": 1700000000000, "session_id": "s",
+                    "model_sha256": "<64 hex>", "workload": "mcts-benchmark"},
+      "telemetry_lag_ms": 2.5
     }
   ]
 }
@@ -305,35 +374,64 @@ Schema (`schema: 2`):
 
 Rules enforced:
 
+- `warmup_ms` is completed first and excluded by timestamp; `duration_ms` is the
+  required post-warmup acceptance window, and the collector runs until that full
+  window has been observed (schema 2 reports use index-based `warmup_samples`);
 - at least ten samples, positive warmup, strict timestamps, sampling gaps no
-  larger than one tenth of the sustained window;
+  larger than one tenth of the sustained window, a complete acceptance window and
+  no acceptance window that starts late or ends early;
 - RSS is the only process-memory metric; JS heap/WASM capacity are never
   substituted; unavailable values stay `null` with a reason;
+- every applicable mandatory metric (RSS, JS heap, cache entries/bytes when the
+  cache is enabled, WASM capacity when budgeted/observed, browser workers) needs
+  at least 80 % observation coverage, five usable observations and no usable-value
+  gap longer than the sampling-gap policy; a declared budget is not proof that the
+  metric was observed;
 - acceptance requires usable RSS in at least 80 % of post-warmup samples and at
   least five usable observations; one RSS observation is never sufficient;
-- every budgeted metric needs sufficient usable observations or an explicit
-  unavailable reason (which makes the measurement partial, not accepted);
+- missing mandatory metrics leave the result partial (structural but not accepted)
+  or blocked; genuinely inapplicable metrics require an explicit feature/limitation
+  declaration;
 - `completed_requests` is mandatory on every post-warmup sample, monotonic and
   must advance across both halves of the window (idle/brief-activity reports
   fail);
 - budgets cover RSS, JS heap, cache bytes, WASM capacity (when observed) and
   active worker count; growth is evaluated from zero baselines too;
 - `cancel-restart`, `model-reload`, `worker-replacement` and
-  `independent-batching` profiles require their corresponding lifecycle events.
+  `independent-batching` profiles require their corresponding lifecycle events,
+  observed from live telemetry (`events_source: telemetry`), not declared counts.
+- `workers` is the actual browser-worker count from runtime telemetry;
+  `os_processes` is reported separately and never used as the worker metric.
 
 Collection command (Linux `/proc`, Windows/macOS with `psutil`; process-tree RSS):
 
 ```sh
-# Point --pid at the browser (or workload) process tree root and --progress-file
-# at the completed-request counter the workload updates.
+# Telemetry is appended live by the workload; the collector reads it incrementally.
+# --duration is the acceptance window AFTER the 60 s warmup.
 .venv/bin/python spikes/browser_offline/memory_profile_collect.py \
-  --pid "$BROWSER_PID" --profile sustained-10m --duration 600 --interval 1 \
+  --pid "$BROWSER_PID" --profile sustained-10m \
+  --warmup-duration 60 --duration 600 --interval 1 \
   --progress-file /tmp/completed-requests.txt \
-  --js-heap-file /tmp/js-heap.jsonl --cache-bytes-file /tmp/cache-bytes.jsonl \
-  --events-json '{}' --output /tmp/memory-profile.json
+  --telemetry-file /tmp/browser-telemetry.jsonl \
+  --telemetry-session-id "$SESSION_ID" \
+  --telemetry-model-sha256 "$MODEL_SHA256" \
+  --telemetry-workload mcts-benchmark --inference-cache \
+  --output /tmp/memory-profile.json
 .venv/bin/python spikes/browser_offline/memory_validation.py \
   /tmp/memory-profile.json --output /tmp/memory-validation.json
+
+# The browser benchmark can produce this telemetry live:
+node spikes/browser_offline/mcts_benchmark.mjs /tmp/neural-spike \
+  --provider wasm --simulations 128,256 --time-budgets 0.5,1 \
+  --telemetry /tmp/browser-telemetry.jsonl --telemetry-session "$SESSION_ID" \
+  --telemetry-workload mcts-benchmark --output /tmp/browser-bench.json
 ```
+
+`workers` requires the staged search client that exposes `workerStats()`; if it is
+unavailable the value stays `null` with a reason and worker coverage prevents
+acceptance. Headless Chromium does not expose `performance.memory`, so JS heap may
+remain unavailable and identical collection runs finish partial rather than
+fabricating a value.
 
 A 10/30-minute profile was **not executed** here. CI validates the
 monitor/report contract with simulated timestamps; it does not claim sustained
@@ -345,28 +443,42 @@ records the gap.
 `spikes/browser_offline/device_evidence.py` validates the mandatory
 platform/provider matrix and derives results per combination:
 
-- `structural_ok`: every measured record is complete and self-consistent;
+- `structural_ok`: every measured record is complete, self-consistent, declares
+  explicit `device_origin` (`physical`/`emulated`) and a session identity;
 - `measurement_acceptance`: every mandatory combination is measured and honours
   its requested provider (an explicit CPU fallback is a valid measurement but
   never satisfies a WebGPU entry);
+- `physical_device_acceptance`: every mandatory combination is measured on a
+  physical device; browser mobile emulation never satisfies physical acceptance;
 - `webgpu_session_acceptance`: every mandatory WebGPU entry actually created a
   WebGPU session;
 - `verified_gpu_acceptance`/`acceptance`: every mandatory WebGPU entry carries
-  independent per-operator placement evidence covering a declared operator
-  inventory and a matching session identity (model, ONNX digest, runtime,
-  workload, architecture, requested provider).
+  independently instrumented per-operator placement evidence covering the actual
+  executed graph (including fusion/optimization accounting) and matching session
+  identity (model, ONNX digest, browser, runtime, workload, architecture,
+  requested provider).
 
 Contradictory combinations are rejected: WASM request without WASM placement,
 silent WebGPU→WASM fallback, GPU claims for WASM/CPU/mixed/unverified placement,
 and verified placement without independent evidence. Duplicate matrix entries are
 rejected; additional optional devices are allowed but validated. Blocked records
 need a reason. `all_operators_covered: true` is never trusted on its own — the
-declared inventory must be covered exactly.
+declared inventory must be covered exactly **and** be produced by runtime
+instrumentation registered by code. Manually supplied matching inventory/placement
+lists do not establish verification.
+
+Verified-GPU evidence is admitted only through
+`SUPPORTED_GPU_EVIDENCE_SOURCES` (an extension point for a future runtime with
+supported placement diagnostics). It is intentionally empty for the pinned ORT Web
+runtime, so claims such as `ort-web-per-operator-v1` are rejected as unsupported
+and verified-GPU acceptance remains blocked. No profiler or new runtime is
+implemented in this PR.
 
 Physical records also require model/ONNX digests, architecture, workload, MCTS
-budget, positive finite init/inference/throughput measurements, and explicit
-cancellation evidence (`cancel_acknowledged`, `restart_completed`,
-`post_cancel_inference`).
+budget, positive finite init/inference/throughput measurements, and ordered
+observed cancellation timestamps (`cancel_requested_at_ms`,
+`cancel_acknowledged_at_ms`, `restart_completed_at_ms`,
+`post_cancel_inference_at_ms`) in addition to the boolean acknowledgement flags.
 
 Runbook and matrix: [device-matrix-phase3c.md](device-matrix-phase3c.md). No
 physical run was available. The committed
@@ -393,16 +505,20 @@ requirement remains **outstanding**, not silently reduced. Evidence:
 
 ## 7. Test summary
 
-- Competitive validation: 15 tests including the real CLI integration with a
-  disposable checkpoint/export and genuine committed browser Level B and benchmark
-  evidence.
-- Persistent process agents: 7 same-instance lifecycle/protocol tests.
-- Tournament harness/validator: 28 tests.
-- Memory validation: 17 tests; collection workflow test.
-- Device evidence: 14 tests including the complete unverified/CPU-fallback matrix.
+- Competitive validation: 19 tests, including the real CLI integration with a
+  disposable checkpoint/export, genuine committed browser Level B and benchmark
+  evidence, and training/architecture/workload-policy negatives.
+- Persistent process agents: 8 tests, including the externally watched
+  blocked-write/process-tree cleanup probe.
+- Tournament harness/validator: 28 tests; manifest-to-execution binding: 8 tests
+  (real Jarl handshake/evidence, command/config mismatch, evidence mutations).
+- Memory validation: 22 tests; collection-to-validation workflow: 7 CLI
+  integration tests (warmup separation, live telemetry, identity/staleness,
+  disappearance, PID replacement).
+- Device evidence: 16 tests, including the complete unverified/CPU-fallback
+  matrix, emulated-device rejection and unsupported GPU-evidence claims.
 - Cross-validator malformed input: 8 tests here plus the existing 23-case
   malformed suite (and development fuzzing).
-- Collection-to-validation workflow: 3 CLI integration tests.
 - Existing Phase 3B browser/UI/parity/cache/batching, neural lifecycle and detach
   regressions remain mandatory. Relay default; direct/cache/batching opt-in;
   sequential Python MCTS reference unchanged.

@@ -39,6 +39,14 @@ ACCEPTING_LEVELS = ("representative-architecture", "competitive-trained")
 REQUIRED_PARITY = ("level_a", "level_b", "direct_relay")
 GATES = {"level_a": "a", "level_b": "b"}
 POLICIES = ("structural", "competitive")
+COMPETITIVE_ARCHITECTURE = {"channels": 32, "blocks": 2}
+COMPETITIVE_BENCHMARK_POLICY = {
+    "kinds": {"opening", "midgame", "endgame", "tactical", "repetition"},
+    "simulation_budgets": {128, 256, 512, 1024},
+    "time_budgets": {0.5, 1.0, 2.0, 5.0},
+    "repetitions": 2,
+    "warmup": 1,
+}
 NATIVE_RUNTIME_PREFIX = "native"
 BROWSER_RUNTIME_PREFIX = "browser"
 OWNERSHIP = "independently-verified-evidence"
@@ -150,18 +158,41 @@ def model_provenance(export_dir: Path, checkpoint: Path | None = None) -> dict:
     if not _positive_int(size):
         raise ValueError("export does not record a valid board size")
     checkpoint_digest = None
+    metadata_digest = None
+    metadata_summary = None
+    structural_smoke = False
     if checkpoint is not None:
         try:
             checkpoint_bytes = checkpoint.read_bytes()
         except OSError as error:
             raise ValueError(f"cannot read checkpoint: {error}") from None
         checkpoint_digest = hashlib.sha256(checkpoint_bytes).hexdigest()
-        loaded, metadata = load_checkpoint(checkpoint.resolve(), device="cpu")
+        loaded, payload = load_checkpoint(checkpoint.resolve(), device="cpu")
         actual = weights_fingerprint(loaded)
         if actual != fingerprint:
             raise ValueError("checkpoint weights do not match the exported model")
+        raw_metadata = payload.get("metadata") if isinstance(payload, dict) else None
+        metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
         if metadata.get("ruleset", sidecar["ruleset"]) != sidecar["ruleset"]:
             raise ValueError("checkpoint ruleset does not match the exported model")
+        try:
+            canonical_metadata = json.dumps(
+                metadata, sort_keys=True, separators=(",", ":"), allow_nan=False
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"checkpoint metadata is not canonicalisable: {error}") from None
+        metadata_digest = hashlib.sha256(canonical_metadata.encode()).hexdigest()
+        descriptor = " ".join(
+            str(metadata.get(field) or "") for field in ("name", "note", "description")
+        ).lower()
+        structural_smoke = "smoke" in descriptor or "structural" in descriptor
+        metadata_summary = {
+            "keys": sorted(key for key in metadata if isinstance(key, str)),
+            "name": metadata.get("name"),
+            "note": metadata.get("note"),
+            "created_at": metadata.get("created_at"),
+            "version": metadata.get("version"),
+        }
     return {
         "ruleset": sidecar["ruleset"],
         "size": size,
@@ -171,6 +202,12 @@ def model_provenance(export_dir: Path, checkpoint: Path | None = None) -> dict:
         "onnx_sha256": onnx_digest,
         "onnx_bytes": onnx.stat().st_size,
         "checkpoint_sha256": checkpoint_digest,
+        "checkpoint_metadata_sha256": metadata_digest,
+        "checkpoint_metadata": metadata_summary,
+        "structural_smoke_checkpoint": structural_smoke,
+        "training_classification": (
+            "structural-smoke" if structural_smoke else "unclassified-owner-weights"
+        ),
         "validated_export": True,
         "checkpoint_supplied": checkpoint is not None,
     }
@@ -426,6 +463,23 @@ def _load_manifest(path: Path) -> dict:
         type(architecture.get("blocks")) is int and architecture["blocks"] >= 0
     ):
         raise ValueError("provenance architecture is malformed")
+    if level == "competitive-trained":
+        training = provenance.get("training")
+        if not isinstance(training, dict):
+            raise ValueError("competitive evidence requires explicit training provenance")
+        if training.get("classification") != "competitive-trained":
+            raise ValueError("training provenance does not classify competitive training")
+        if not _hex64(training.get("checkpoint_metadata_sha256")):
+            raise ValueError("training provenance lacks the checkpoint metadata digest")
+        attestation = training.get("attestation")
+        if not isinstance(attestation, dict):
+            raise ValueError("competitive training provenance requires an owner attestation")
+        if attestation.get("source") != "owner":
+            raise ValueError("training attestation must identify the owner as its source")
+        if not isinstance(attestation.get("statement"), str) or not attestation["statement"]:
+            raise ValueError("training attestation requires a statement")
+        if not isinstance(attestation.get("recorded_at"), str) or not attestation["recorded_at"]:
+            raise ValueError("training attestation requires a recorded_at value")
     evidence = manifest.get("evidence")
     if not isinstance(evidence, dict):
         raise ValueError("evidence manifest lacks evidence paths")
@@ -461,7 +515,12 @@ def _load_manifest(path: Path) -> dict:
     return {"level": level, "policy": policy, "provenance": provenance, "paths": resolved}
 
 
-def _bind_provenance(provenance: dict, declared: dict) -> list[str]:
+def _bind_provenance(
+    provenance: dict,
+    declared: dict,
+    *,
+    level: str,
+) -> list[str]:
     failures = []
     for field in ("ruleset", "encoder_version", "source_weights_sha256", "onnx_sha256"):
         if declared.get(field) != provenance.get(field):
@@ -472,6 +531,29 @@ def _bind_provenance(provenance: dict, declared: dict) -> list[str]:
         failures.append("manifest provenance requires an independently verified checkpoint")
     elif declared.get("checkpoint_sha256") != provenance.get("checkpoint_sha256"):
         failures.append("manifest checkpoint digest does not match the supplied checkpoint")
+    if level == "competitive-trained":
+        training = declared.get("training")
+        if not isinstance(training, dict):
+            failures.append("competitive evidence lacks training provenance")
+        else:
+            if training.get("checkpoint_metadata_sha256") != provenance.get(
+                "checkpoint_metadata_sha256"
+            ):
+                failures.append(
+                    "training provenance metadata digest does not match the checkpoint"
+                )
+        if provenance.get("structural_smoke_checkpoint"):
+            failures.append(
+                "a known structural smoke checkpoint cannot be classified as competitive-trained"
+            )
+        architecture = provenance.get("architecture") or {}
+        if (
+            architecture.get("channels", 0) < COMPETITIVE_ARCHITECTURE["channels"]
+            or architecture.get("blocks", 0) < COMPETITIVE_ARCHITECTURE["blocks"]
+        ):
+            failures.append(
+                "competitive-trained evidence requires at least 32 channels and two residual blocks"
+            )
     return failures
 
 
@@ -640,16 +722,70 @@ def _validate_direct_relay(
     return validated, failures
 
 
+def _benchmark_policy_failures(document: dict, level: str) -> list[str]:
+    import mcts_benchmark
+
+    failures: list[str] = []
+    workload = document.get("workload") if isinstance(document.get("workload"), dict) else {}
+    positions = [
+        entry for entry in workload.get("positions") or [] if isinstance(entry, dict)
+    ]
+    cases = [entry for entry in workload.get("cases") or [] if isinstance(entry, dict)]
+    kinds = {entry.get("kind") for entry in positions}
+    simulations = {
+        entry.get("budget")
+        for entry in cases
+        if entry.get("mode") == "fixed_simulations"
+    }
+    times = {
+        entry.get("budget") for entry in cases if entry.get("mode") == "fixed_time"
+    }
+    repetitions = workload.get("repetitions")
+    warmup = workload.get("warmup")
+    policy = COMPETITIVE_BENCHMARK_POLICY
+    if level == "competitive-trained":
+        missing_kinds = policy["kinds"] - kinds
+        if missing_kinds:
+            failures.append(
+                "competitive benchmark policy requires position kinds "
+                + ", ".join(sorted(missing_kinds))
+            )
+        missing_simulations = policy["simulation_budgets"] - simulations
+        if missing_simulations:
+            failures.append(
+                "competitive benchmark policy requires fixed-work budgets "
+                + ", ".join(str(value) for value in sorted(missing_simulations))
+            )
+        missing_times = policy["time_budgets"] - times
+        if missing_times:
+            failures.append(
+                "competitive benchmark policy requires fixed-time budgets "
+                + ", ".join(str(value) for value in sorted(missing_times))
+            )
+        if type(repetitions) is not int or repetitions < policy["repetitions"]:
+            failures.append(
+                f"competitive benchmark policy requires at least {policy['repetitions']} repetitions"
+            )
+        if type(warmup) is not int or warmup < policy["warmup"]:
+            failures.append(
+                f"competitive benchmark policy requires at least {policy['warmup']} warmup run"
+            )
+    return failures
+
+
 def _validate_benchmark_evidence(
     paths: list[Path],
     model_digest: str,
     provenance: dict,
+    *,
+    level: str,
 ) -> tuple[list[dict], list[str]]:
     import mcts_benchmark
 
     failures: list[str] = []
     records: list[dict] = []
     coverage: dict[str, set[str]] = {}
+    documents: dict[str, list[dict]] = {"native": [], "browser": []}
     for path in paths:
         document = _read_json(path)
         side = _runtime_kind(document)
@@ -682,6 +818,11 @@ def _validate_benchmark_evidence(
                 failures.append(f"benchmark evidence {path.name} model ruleset mismatch")
             if root_model.get("size") != provenance["size"]:
                 failures.append(f"benchmark evidence {path.name} model size mismatch")
+        failures.extend(
+            f"benchmark evidence {path.name}: {message}"
+            for message in _benchmark_policy_failures(document, level)
+        )
+        documents[side].append(document)
         modes = coverage.setdefault(side, set())
         rulesets: set[str] = set()
         for record in result["records"]:
@@ -695,6 +836,24 @@ def _validate_benchmark_evidence(
     for side, modes in coverage.items():
         if modes != {"fixed_simulations", "fixed_time"}:
             failures.append(f"{side} benchmark evidence must cover fixed work and fixed time")
+    if level != "structural-smoke" and (
+        len(documents["native"]) != 1 or len(documents["browser"]) != 1
+    ):
+        failures.append(
+            "validated benchmark evidence requires exactly one native and one browser report"
+        )
+    if documents["native"] and documents["browser"]:
+        comparison = mcts_benchmark.compare_reports(
+            documents["native"][0], documents["browser"][0]
+        )
+        if comparison.get("acceptance") is not True:
+            failures.append(
+                "native and browser benchmark workloads or effective settings are incompatible"
+            )
+            failures.extend(
+                f"benchmark comparison: {message}"
+                for message in (comparison.get("failures") or [])[:3]
+            )
     return records, failures
 
 
@@ -723,7 +882,7 @@ def validate_evidence_manifest(
     policy = manifest["policy"]
     provenance = manifest["provenance"]
     paths = manifest["paths"]
-    failures = _bind_provenance(provenance_full, provenance)
+    failures = _bind_provenance(provenance_full, provenance, level=level)
     require_independent_runtime = level != "structural-smoke"
     result = {
         "kind": "browser-competitive-validation",
@@ -742,9 +901,18 @@ def validate_evidence_manifest(
         "model": provenance_full,
         "provenance": {
             "training_status": provenance["training_status"],
+            "classification_source": (
+                "owner-attestation"
+                if level == "competitive-trained"
+                else "structural-declaration"
+            ),
+            "training_facts_independently_verified": False,
             "checkpoint_sha256": provenance["checkpoint_sha256"],
             "onnx_sha256": provenance["onnx_sha256"],
             "source_weights_sha256": provenance["source_weights_sha256"],
+            "checkpoint_metadata_sha256": provenance.get("checkpoint_metadata_sha256"),
+            "checkpoint_metadata": provenance_full.get("checkpoint_metadata"),
+            "structural_smoke_checkpoint": provenance_full.get("structural_smoke_checkpoint"),
             "ruleset": provenance["ruleset"],
             "architecture": provenance["architecture"],
             "encoder_version": provenance["encoder_version"],
@@ -802,7 +970,7 @@ def validate_evidence_manifest(
         else:
             try:
                 records, benchmark_failures = _validate_benchmark_evidence(
-                    benchmark_paths, model_digest, provenance_full
+                    benchmark_paths, model_digest, provenance_full, level=level
                 )
             except ValueError as error:
                 failures.append(f"benchmarks: {error}")
@@ -812,7 +980,7 @@ def validate_evidence_manifest(
     elif paths.get("benchmarks"):
         try:
             records, benchmark_failures = _validate_benchmark_evidence(
-                paths["benchmarks"], model_digest, provenance_full
+                paths["benchmarks"], model_digest, provenance_full, level=level
             )
         except ValueError as error:
             failures.append(f"benchmarks: {error}")

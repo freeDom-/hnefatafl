@@ -220,3 +220,24 @@ def test_adapter_deadline_must_match_the_recorded_tournament_setting(agent_scrip
     finally:
         agent_a.close()
         agent_b.close()
+
+
+def test_blocked_write_cleanup_is_bounded_and_reaps_descendants(tmp_path):
+    """External watchdog: a child that never reads stdin cannot hang CI."""
+    import json
+    import subprocess
+
+    probe = Path(__file__).resolve().parent / "bounded_adapter_probe.py"
+    result = subprocess.run(
+        [sys.executable, str(probe)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True, payload
+    assert payload["descendant_alive"] is False
+    assert payload["leaked_threads"] == []
+    assert payload["process_after_close"] is False
+    assert payload["recovered_move"] == {"source": 0, "target": 1}

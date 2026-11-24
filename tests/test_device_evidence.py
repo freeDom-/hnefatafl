@@ -21,6 +21,9 @@ ONNX = "b" * 64
 def _gpu_evidence(**overrides):
     evidence = {
         "evidence_source": "ort-web-per-operator-v1",
+        "operator_inventory_source": "runtime-instrumentation",
+        "placement_source": "runtime-instrumentation",
+        "graph_optimization": {"level": "extended", "fusion_applied": True},
         "all_operators_covered": True,
         "gpu_execution_verified": True,
         "operator_inventory": ["Conv", "MatMul", "Relu"],
@@ -28,8 +31,10 @@ def _gpu_evidence(**overrides):
             "model_sha256": MODEL,
             "onnx_sha256": ONNX,
             "runtime": "ort-web-1.22",
+            "browser_version": "1.0",
             "workload": "brandubh-opening",
             "architecture": "brandubh-32x2",
+            "session_id": "session-1",
             "provider_requested": "webgpu",
         },
         "per_operator_placement": [
@@ -52,6 +57,8 @@ def _record(platform, provider, **overrides):
         "cpu": "Test CPU",
         "ram_bytes": 8 * 1024**3,
         "runtime": "ort-web-1.22",
+        "device_origin": "physical",
+        "session_id": "session-1",
         "architecture": "brandubh-32x2",
         "model_sha256": MODEL,
         "onnx_sha256": ONNX,
@@ -62,6 +69,10 @@ def _record(platform, provider, **overrides):
             "cancel_acknowledged": True,
             "restart_completed": True,
             "post_cancel_inference": True,
+            "cancel_requested_at_ms": 1000,
+            "cancel_acknowledged_at_ms": 1050,
+            "restart_completed_at_ms": 1800,
+            "post_cancel_inference_at_ms": 2200,
         },
         "provider_requested": provider,
         "execution_placement": placement,
@@ -137,7 +148,7 @@ def test_complete_matrix_with_cpu_fallback_cannot_satisfy_webgpu():
     assert result["acceptance"] is False
 
 
-def test_verified_gpu_requires_independent_operator_inventory_and_coverage():
+def test_verified_gpu_requires_supported_runtime_instrumentation():
     record = _record(
         "windows-chrome",
         "webgpu",
@@ -145,29 +156,26 @@ def test_verified_gpu_requires_independent_operator_inventory_and_coverage():
         gpu_execution_verified=True,
         gpu_evidence=_gpu_evidence(),
     )
-    report = _matrix()
-    report["records"][0] = record
     failures, gate = de._record_failures(record, 0)
-    assert failures == []
-    assert gate["verified_gpu"] is True
-
-    incomplete = copy.deepcopy(record)
-    incomplete["gpu_evidence"]["per_operator_placement"] = [
-        {"operator": "Conv", "provider": "webgpu"}
-    ]
-    failures, gate = de._record_failures(incomplete, 0)
-    assert any("does not cover the inventory" in failure for failure in failures)
+    assert any("pinned runtime" in failure for failure in failures)
     assert gate["verified_gpu"] is False
 
-    lying = copy.deepcopy(record)
-    lying["gpu_evidence"]["operator_inventory"] = ["Conv"]
-    failures, gate = de._record_failures(lying, 0)
-    assert any("does not cover the inventory" in failure for failure in failures)
-
-    missing_inventory = copy.deepcopy(record)
-    missing_inventory["gpu_evidence"].pop("operator_inventory")
-    failures, _ = de._record_failures(missing_inventory, 0)
-    assert any("operator inventory" in failure for failure in failures)
+    # Even a future registered source cannot turn manually supplied matching lists
+    # into acceptance unless the runtime contract is registered by code.
+    de.register_gpu_evidence_source("ort-web-per-operator-v1", "ort-web")
+    try:
+        failures, gate = de._record_failures(record, 0)
+        assert failures == [], failures
+        assert gate["verified_gpu"] is True
+        incomplete = copy.deepcopy(record)
+        incomplete["gpu_evidence"]["per_operator_placement"] = [
+            {"operator": "Conv", "provider": "webgpu"}
+        ]
+        failures, gate = de._record_failures(incomplete, 0)
+        assert any("does not cover the inventory" in failure for failure in failures)
+        assert gate["verified_gpu"] is False
+    finally:
+        de.SUPPORTED_GPU_EVIDENCE_SOURCES.clear()
 
 
 def test_webgpu_verified_claim_without_evidence_is_rejected():
@@ -354,3 +362,32 @@ def test_device_cli_distinguishes_invalid_and_blocked_acceptance(tmp_path):
     )
     assert result.returncode == 1
     assert "Traceback" not in result.stderr
+
+
+def test_emulated_devices_cannot_satisfy_physical_acceptance():
+    report = _matrix()
+    for record in report["records"]:
+        record["device_origin"] = "emulated"
+    result = de.validate_report(report)
+    assert result["structural_ok"] is True
+    assert result["measurement_acceptance"] is True
+    assert result["physical_device_acceptance"] is False
+    assert result["acceptance"] is False
+    assert result["emulated_records"] == len(de.REQUIRED_MATRIX)
+
+
+def test_verified_gpu_claims_require_observed_cancellation_timestamps():
+    record = _record(
+        "windows-chrome",
+        "webgpu",
+        execution_placement="webgpu-session-verified",
+        gpu_execution_verified=True,
+        gpu_evidence=_gpu_evidence(),
+    )
+    record["recovery_evidence"].pop("restart_completed_at_ms")
+    failures, _ = de._record_failures(record, 0)
+    assert any("observed timestamps" in failure for failure in failures)
+
+    record["recovery_evidence"]["restart_completed_at_ms"] = 900
+    failures, _ = de._record_failures(record, 0)
+    assert any("not ordered" in failure for failure in failures)

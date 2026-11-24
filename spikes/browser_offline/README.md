@@ -550,13 +550,14 @@ executable workflows:
 
 # 2. Structural tournament (collection -> validation) using the process protocol
 cat > /tmp/agent-a.json <<'JSON'
-{"label":"scripted-first","kind":"scripted","runtime":"in-process","provider":"in-process","model":null}
+{"label":"scripted-first","kind":"scripted","runtime":"native-cpython","provider":"cpu","algorithm":"scripted","model":null}
 JSON
 cat > /tmp/agent-b.json <<'JSON'
-{"label":"scripted-last","kind":"scripted","runtime":"in-process","provider":"in-process","model":null}
+{"label":"scripted-last","kind":"scripted","runtime":"native-cpython","provider":"cpu","algorithm":"scripted","model":null}
 JSON
 .venv/bin/python spikes/browser_offline/tournament.py --run --ruleset brandubh \
   --limit 1 --simulations 4 --time-limit 0.2 --max-plies 6 --agent-timeout 5 \
+  --mode fixed-work \
   --agent-a-command ".venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine scripted" \
   --agent-b-command ".venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine scripted-last" \
   --agent-a-config /tmp/agent-a.json --agent-b-config /tmp/agent-b.json \
@@ -567,10 +568,16 @@ JSON
 node spikes/browser_offline/browser_tournament_agent.mjs /tmp/neural-spike \
   --provider wasm
 
-# 4. Sustained-memory collection and validation
+# 4. Sustained-memory collection and validation (warmup is separate from the
+# 600 s acceptance window; telemetry is consumed live)
 .venv/bin/python spikes/browser_offline/memory_profile_collect.py \
-  --pid "$BROWSER_PID" --profile sustained-10m --duration 600 --interval 1 \
-  --progress-file /tmp/completed-requests.txt --output /tmp/memory-profile.json
+  --pid "$BROWSER_PID" --profile sustained-10m \
+  --warmup-duration 60 --duration 600 --interval 1 \
+  --progress-file /tmp/completed-requests.txt \
+  --telemetry-file /tmp/browser-telemetry.jsonl \
+  --telemetry-session-id "$SESSION_ID" --telemetry-model-sha256 "$MODEL_SHA256" \
+  --telemetry-workload mcts-benchmark --inference-cache \
+  --output /tmp/memory-profile.json
 .venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-profile.json
 
 # 5. Physical-device/provider matrix validation

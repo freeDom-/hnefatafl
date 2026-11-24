@@ -3,15 +3,16 @@
   "manifest": {
     "ruleset": "brandubh",
     "agents": {
-      "a": "scripted-first",
+      "a": "scripted-a",
       "b": "browser-neural"
     },
     "agent_config": {
       "a": {
-        "label": "scripted-first",
+        "label": "scripted-a",
         "kind": "scripted",
-        "runtime": "in-process",
-        "provider": "in-process",
+        "runtime": "native-cpython",
+        "provider": "cpu",
+        "algorithm": "scripted",
         "model": null
       },
       "b": {
@@ -19,11 +20,45 @@
         "kind": "browser-neural",
         "runtime": "browser-pyodide",
         "provider": "wasm",
+        "algorithm": "mcts",
         "model": {
           "onnx_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
           "weights_sha256": "028517cc28bbb6f8715fef7751c70a4dd4ea0164ef9b835aa8389b0ea17bcb48",
           "ruleset": "brandubh",
           "size": 7
+        }
+      }
+    },
+    "agent_handshakes": {
+      "a": {
+        "protocol": 2,
+        "kind": "scripted",
+        "runtime": "native-cpython",
+        "provider": "cpu",
+        "algorithm": "scripted",
+        "engine_sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
+        "settings_support": {
+          "iterations": false,
+          "time_limit": true,
+          "depth": false
+        }
+      },
+      "b": {
+        "protocol": 2,
+        "kind": "browser-neural",
+        "runtime": "browser-pyodide",
+        "provider": "wasm",
+        "execution_placement": "wasm",
+        "algorithm": "mcts",
+        "engine_sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
+        "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+        "weights_sha256": "028517cc28bbb6f8715fef7751c70a4dd4ea0164ef9b835aa8389b0ea17bcb48",
+        "ruleset": "brandubh",
+        "size": 7,
+        "settings_support": {
+          "iterations": true,
+          "time_limit": true,
+          "depth": false
         }
       }
     },
@@ -33,8 +68,9 @@
       "time_limit": 0.5,
       "exploration": 1.4,
       "seed": 5,
-      "max_plies": 4,
-      "agent_timeout_s": 120.0
+      "max_plies": 2,
+      "agent_timeout_s": 120.0,
+      "mode": "fixed-work"
     },
     "openings": [
       {
@@ -108,15 +144,16 @@
   "schema": 2,
   "ruleset": "brandubh",
   "agents": {
-    "a": "scripted-first",
+    "a": "scripted-a",
     "b": "browser-neural"
   },
   "agent_config": {
     "a": {
-      "label": "scripted-first",
+      "label": "scripted-a",
       "kind": "scripted",
-      "runtime": "in-process",
-      "provider": "in-process",
+      "runtime": "native-cpython",
+      "provider": "cpu",
+      "algorithm": "scripted",
       "model": null
     },
     "b": {
@@ -124,11 +161,45 @@
       "kind": "browser-neural",
       "runtime": "browser-pyodide",
       "provider": "wasm",
+      "algorithm": "mcts",
       "model": {
         "onnx_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
         "weights_sha256": "028517cc28bbb6f8715fef7751c70a4dd4ea0164ef9b835aa8389b0ea17bcb48",
         "ruleset": "brandubh",
         "size": 7
+      }
+    }
+  },
+  "agent_handshakes": {
+    "a": {
+      "protocol": 2,
+      "kind": "scripted",
+      "runtime": "native-cpython",
+      "provider": "cpu",
+      "algorithm": "scripted",
+      "engine_sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
+      "settings_support": {
+        "iterations": false,
+        "time_limit": true,
+        "depth": false
+      }
+    },
+    "b": {
+      "protocol": 2,
+      "kind": "browser-neural",
+      "runtime": "browser-pyodide",
+      "provider": "wasm",
+      "execution_placement": "wasm",
+      "algorithm": "mcts",
+      "engine_sha256": "e9205727aba87f7d2ba7badf712f44e261800a91826c236597b40e0d7065cbc5",
+      "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
+      "weights_sha256": "028517cc28bbb6f8715fef7751c70a4dd4ea0164ef9b835aa8389b0ea17bcb48",
+      "ruleset": "brandubh",
+      "size": 7,
+      "settings_support": {
+        "iterations": true,
+        "time_limit": true,
+        "depth": false
       }
     }
   },
@@ -138,8 +209,9 @@
     "time_limit": 0.5,
     "exploration": 1.4,
     "seed": 5,
-    "max_plies": 4,
-    "agent_timeout_s": 120.0
+    "max_plies": 2,
+    "agent_timeout_s": 120.0,
+    "mode": "fixed-work"
   },
   "openings": [
     "brandubh-opening"
@@ -209,13 +281,13 @@
         ]
       },
       "ruleset": "brandubh",
-      "attacker_agent": "scripted-first",
+      "attacker_agent": "scripted-a",
       "defender_agent": "browser-neural",
       "winner": null,
       "reason": "move_limit",
       "starting_ply": 0,
-      "plies": 4,
-      "move_limit": 4,
+      "plies": 2,
+      "move_limit": 2,
       "moves": [
         {
           "source": 3,
@@ -223,15 +295,7 @@
         },
         {
           "source": 25,
-          "target": 4
-        },
-        {
-          "source": 2,
-          "target": 9
-        },
-        {
-          "source": 23,
-          "target": 30
+          "target": 46
         }
       ],
       "completed": false,
@@ -242,12 +306,54 @@
         "iterations": 4,
         "time_limit": 0.5,
         "exploration": 1.4,
-        "seed": 5
+        "seed": 5,
+        "mode": "fixed-work"
       },
+      "mode": "fixed-work",
       "agent_timeout_s": 120.0,
+      "execution_evidence": [
+        {
+          "agent": "scripted-a",
+          "ply": 0,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 4,
+            "time_limit": 0.5,
+            "exploration": 1.4,
+            "seed": 5
+          },
+          "seed": 5,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.3036339767277241,
+          "provider": "cpu",
+          "model_sha256": null
+        },
+        {
+          "agent": "browser-neural",
+          "ply": 1,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 4,
+            "time_limit": 0.5,
+            "exploration": 1.4,
+            "seed": 6
+          },
+          "seed": 6,
+          "algorithm": "mcts",
+          "completed_simulations": 4,
+          "depth": null,
+          "completion_reason": "simulations",
+          "elapsed_ms": 42.0,
+          "provider": "wasm",
+          "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78"
+        }
+      ],
       "game_id": "pair-0-ab",
       "pair": 0,
-      "agent_a": "scripted-first",
+      "agent_a": "scripted-a",
       "agent_b": "browser-neural",
       "agent_a_side": "attackers",
       "agent_b_side": "defenders"
@@ -317,12 +423,12 @@
       },
       "ruleset": "brandubh",
       "attacker_agent": "browser-neural",
-      "defender_agent": "scripted-first",
+      "defender_agent": "scripted-a",
       "winner": null,
       "reason": "move_limit",
       "starting_ply": 0,
-      "plies": 4,
-      "move_limit": 4,
+      "plies": 2,
+      "move_limit": 2,
       "moves": [
         {
           "source": 38,
@@ -331,14 +437,6 @@
         {
           "source": 17,
           "target": 16
-        },
-        {
-          "source": 36,
-          "target": 37
-        },
-        {
-          "source": 16,
-          "target": 9
         }
       ],
       "completed": false,
@@ -349,12 +447,54 @@
         "iterations": 4,
         "time_limit": 0.5,
         "exploration": 1.4,
-        "seed": 6
+        "seed": 6,
+        "mode": "fixed-work"
       },
+      "mode": "fixed-work",
       "agent_timeout_s": 120.0,
+      "execution_evidence": [
+        {
+          "agent": "browser-neural",
+          "ply": 0,
+          "turn": "attackers",
+          "settings": {
+            "iterations": 4,
+            "time_limit": 0.5,
+            "exploration": 1.4,
+            "seed": 6
+          },
+          "seed": 6,
+          "algorithm": "mcts",
+          "completed_simulations": 4,
+          "depth": null,
+          "completion_reason": "simulations",
+          "elapsed_ms": 21.0,
+          "provider": "wasm",
+          "model_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78"
+        },
+        {
+          "agent": "scripted-a",
+          "ply": 1,
+          "turn": "defenders",
+          "settings": {
+            "iterations": 4,
+            "time_limit": 0.5,
+            "exploration": 1.4,
+            "seed": 7
+          },
+          "seed": 7,
+          "algorithm": "scripted",
+          "completed_simulations": null,
+          "depth": null,
+          "completion_reason": "completed",
+          "elapsed_ms": 0.04107301356270909,
+          "provider": "cpu",
+          "model_sha256": null
+        }
+      ],
       "game_id": "pair-0-ba",
       "pair": 0,
-      "agent_a": "scripted-first",
+      "agent_a": "scripted-a",
       "agent_b": "browser-neural",
       "agent_a_side": "defenders",
       "agent_b_side": "attackers"
@@ -370,7 +510,7 @@
     "attacker_wins": 0,
     "defender_wins": 0,
     "by_agent": {
-      "scripted-first": {
+      "scripted-a": {
         "wins": 0,
         "losses": 0,
         "draws": 0,
@@ -407,5 +547,5 @@
     "reason": "structural tournament evidence is not playing-strength evidence"
   },
   "authoritative": false,
-  "ok": true
+  "ok": false
 }

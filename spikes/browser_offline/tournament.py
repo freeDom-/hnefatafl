@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
 import queue
 import random
 import shlex
@@ -43,6 +45,19 @@ SCHEMA = 2
 AGENT = Callable[[State, dict, int], Move]
 SIDES = ("attackers", "defenders")
 DEFAULT_AGENT_TIMEOUT = 30.0
+PROTOCOL_VERSION = 2
+EVIDENCE_REASONS = {
+    "simulations",
+    "deadline",
+    "immediate_win",
+    "terminal",
+    "insufficient_budget",
+    "completed",
+}
+# Bounded allowance for termination, descendant cleanup, stream closure and
+# reader/writer thread joins after a request deadline has expired.
+CLEANUP_ALLOWANCE = 2.0
+PROCESS_KILL_GRACE = 1.0
 MAX_RESPONSE_BYTES = 1 << 20
 MAX_STDERR_BYTES = 64 * 1024
 MIN_STRENGTH_PAIRS = 10
@@ -58,6 +73,7 @@ TERMINAL_REASONS = {
 AGENT_KINDS = (
     "scripted",
     "native-jarl",
+    "native-seer",
     "native-neural",
     "browser-neural",
     "browser-jarl",
@@ -72,6 +88,89 @@ class AgentTimeoutError(TimeoutError):
 
 class AgentProtocolError(RuntimeError):
     """Raised when a process agent violates the line protocol or lifecycle."""
+
+
+class AgentConfigurationError(AgentProtocolError):
+    """Raised when the observed adapter identity contradicts the declaration."""
+
+
+def _close_stream(stream) -> str | None:
+    try:
+        if stream is not None:
+            stream.close()
+    except (OSError, ValueError) as error:
+        return f"stream close failed: {error}"
+    return None
+
+
+def _terminate_process_tree(process: subprocess.Popen, allowance: float) -> list[str]:
+    """Terminate the owned process group/tree before any stream cleanup.
+
+    The child is started in its own session/process group on POSIX and in a new
+    process group on Windows, so descendants cannot escape termination and no
+    unrelated process is signalled.
+    """
+    failures: list[str] = []
+    pid = getattr(process, "pid", None)
+    if type(pid) is not int or pid <= 0:
+        return ["process has no valid pid"]
+    deadline = time.monotonic() + allowance
+    if os.name == "posix":
+        try:
+            pgid = os.getpgid(pid)
+        except (ProcessLookupError, OSError):
+            pgid = None
+        if pgid == pid and pgid != os.getpgrp():
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                failures.append(f"process-group terminate failed: {error}")
+        else:
+            try:
+                process.terminate()
+            except (ProcessLookupError, OSError):
+                pass
+    elif os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=max(0.1, allowance / 2),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            failures.append(f"taskkill failed: {error}")
+    try:
+        process.wait(timeout=max(0.05, min(PROCESS_KILL_GRACE, deadline - time.monotonic())))
+    except subprocess.TimeoutExpired:
+        if os.name == "posix":
+            try:
+                pgid = os.getpgid(pid)
+            except (ProcessLookupError, OSError):
+                pgid = None
+            if pgid == pid and pgid != os.getpgrp():
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+            else:
+                try:
+                    process.kill()
+                except (ProcessLookupError, OSError):
+                    pass
+        else:
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+        try:
+            process.wait(timeout=max(0.05, min(PROCESS_KILL_GRACE, deadline - time.monotonic())))
+        except subprocess.TimeoutExpired:
+            failures.append("process could not be reaped within the cleanup allowance")
+    return failures
 
 
 class JsonProcessAgent:
@@ -94,6 +193,7 @@ class JsonProcessAgent:
         timeout: float = DEFAULT_AGENT_TIMEOUT,
         cwd: str | Path | None = None,
         max_stderr_bytes: int = MAX_STDERR_BYTES,
+        expected_identity: dict | None = None,
     ):
         if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
             raise ValueError("agent timeout must be positive")
@@ -116,7 +216,12 @@ class JsonProcessAgent:
         self._lock = threading.Lock()
         self._closed = False
         self._threads: list[threading.Thread] = []
+        self._writers: list[threading.Thread] = []
+        self._cleanup_failures: deque[str] = deque(maxlen=8)
         self._failure: str | None = None
+        self.expected_identity = dict(expected_identity) if expected_identity else None
+        self.handshake: dict | None = None
+        self.last_evidence: dict | None = None
 
     # -- lifecycle ---------------------------------------------------------
     def __enter__(self) -> "JsonProcessAgent":
@@ -127,44 +232,62 @@ class JsonProcessAgent:
         return False
 
     def close(self) -> None:
-        self._closed = True
-        self._stop_generation()
+        # Bounded close/request serialization: a request can hold the lock for at
+        # most its own deadline. If that cannot be acquired, force termination of
+        # the owned tree but retain the reported cleanup failure.
+        if not self._lock.acquire(timeout=self.timeout + CLEANUP_ALLOWANCE):
+            self._closed = True
+            process = self.process
+            self._cleanup_failures.append("close could not acquire adapter ownership")
+            if process is not None:
+                for failure in _terminate_process_tree(process, CLEANUP_ALLOWANCE):
+                    self._cleanup_failures.append(failure)
+            return
+        try:
+            self._closed = True
+            self._stop_generation()
+        finally:
+            self._lock.release()
 
     def _stop_generation(self) -> None:
         process = self.process
         self.process = None
         threads = self._threads
         self._threads = []
+        writers = self._writers
+        self._writers = []
+        cleanup_deadline = time.monotonic() + CLEANUP_ALLOWANCE
+        # Terminate the owned process tree BEFORE touching buffered streams: a
+        # writer thread may hold the stdin lock or be blocked on a full pipe.
         if process is not None:
-            try:
-                if process.stdin is not None:
-                    process.stdin.close()
-            except (OSError, ValueError):
-                pass
-            if process.poll() is None:
-                try:
-                    process.terminate()
-                except OSError:
-                    pass
-                try:
-                    process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    try:
-                        process.kill()
-                    except OSError:
-                        pass
-                    try:
-                        process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                        pass
+            for failure in _terminate_process_tree(process, CLEANUP_ALLOWANCE):
+                self._cleanup_failures.append(failure)
+        for writer in writers:
+            writer.join(timeout=max(0.0, min(PROCESS_KILL_GRACE, cleanup_deadline - time.monotonic())))
+        stuck_writers = [writer for writer in writers if writer.is_alive()]
+        if stuck_writers:
+            self._cleanup_failures.append(
+                f"{len(stuck_writers)} writer thread(s) did not terminate within the allowance"
+            )
+        if process is not None:
+            # Only close stdin once the writer cannot be holding its lock. If a
+            # writer is still stuck, leaving the handle to process teardown is
+            # safer than blocking cleanup indefinitely.
+            if not stuck_writers:
+                failure = _close_stream(process.stdin)
+                if failure:
+                    self._cleanup_failures.append(failure)
             for stream in (process.stdout, process.stderr):
-                try:
-                    if stream is not None:
-                        stream.close()
-                except (OSError, ValueError):
-                    pass
+                failure = _close_stream(stream)
+                if failure:
+                    self._cleanup_failures.append(failure)
         for thread in threads:
-            thread.join(timeout=1)
+            thread.join(timeout=max(0.0, min(PROCESS_KILL_GRACE, cleanup_deadline - time.monotonic())))
+        stuck_threads = [thread for thread in threads if thread.is_alive()]
+        if stuck_threads:
+            self._cleanup_failures.append(
+                f"{len(stuck_threads)} reader thread(s) did not terminate within the allowance"
+            )
 
     def _record_stderr(self, line: str) -> None:
         encoded = len(line.encode("utf-8", "replace"))
@@ -182,6 +305,9 @@ class JsonProcessAgent:
         responses = self.responses
         self._failure = None
         try:
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             process = subprocess.Popen(
                 self.command,
                 stdin=subprocess.PIPE,
@@ -190,6 +316,8 @@ class JsonProcessAgent:
                 text=True,
                 bufsize=1,
                 cwd=self.cwd,
+                start_new_session=os.name == "posix",
+                creationflags=creationflags,
             )
         except OSError as error:
             raise AgentProtocolError(f"cannot start agent process: {error}") from None
@@ -243,6 +371,56 @@ class JsonProcessAgent:
         self._threads = [stdout_thread, stderr_thread]
         stdout_thread.start()
         stderr_thread.start()
+        if self.expected_identity is not None:
+            self._await_handshake(generation, responses)
+
+    def _await_handshake(self, generation: int, responses: queue.Queue) -> None:
+        deadline = time.monotonic() + self.timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._stop_generation()
+                raise AgentConfigurationError("agent did not send an initialization handshake")
+            try:
+                entry = responses.get(timeout=remaining)
+            except queue.Empty:
+                self._stop_generation()
+                raise AgentProtocolError(
+                    "agent did not send an initialization handshake"
+                ) from None
+            if not isinstance(entry, dict) or entry.get("generation") != generation:
+                self._stop_generation()
+                raise AgentConfigurationError("agent sent a stale handshake generation")
+            if entry.get("eof") or entry.get("error"):
+                self._stop_generation()
+                detail = entry.get("error") or "process exited"
+                raise AgentConfigurationError(f"agent failed before its handshake: {detail}")
+            line = entry.get("line")
+            try:
+                payload = json.loads(line) if isinstance(line, str) else None
+            except ValueError:
+                payload = None
+            if not isinstance(payload, dict) or payload.get("kind") != "handshake":
+                self._stop_generation()
+                raise AgentConfigurationError("agent did not begin with a protocol handshake")
+            if payload.get("protocol") != PROTOCOL_VERSION:
+                self._stop_generation()
+                raise AgentConfigurationError(
+                    f"agent handshake protocol is not {PROTOCOL_VERSION}"
+                )
+            agent = payload.get("agent")
+            if not isinstance(agent, dict):
+                self._stop_generation()
+                raise AgentConfigurationError("agent handshake lacks an agent description")
+            for key, expected in self.expected_identity.items():
+                if agent.get(key) != expected:
+                    self._stop_generation()
+                    raise AgentConfigurationError(
+                        f"agent handshake {key}={agent.get(key)!r} does not match "
+                        f"the declared configuration {expected!r}"
+                    )
+            self.handshake = agent
+            return
 
     # -- protocol ----------------------------------------------------------
     def _fail(self, message: str) -> AgentProtocolError:
@@ -300,13 +478,20 @@ class JsonProcessAgent:
             daemon=True,
             name=f"agent-write-{request_id}",
         )
+        self._writers.append(writer)
         writer.start()
         remaining = deadline - time.monotonic()
         if remaining > 0:
             writer.join(remaining)
+        if not writer.is_alive() and writer in self._writers:
+            self._writers.remove(writer)
         if writer.is_alive():
             self._stop_generation()
-            raise AgentTimeoutError(f"agent write exceeded {self.timeout:g}s deadline")
+            detail = "; ".join(self._cleanup_failures)
+            raise AgentTimeoutError(
+                f"agent write exceeded {self.timeout:g}s deadline"
+                + (f" (cleanup: {detail})" if detail else "")
+            )
         if "error" in outcome:
             raise self._fail(f"agent process write failed: {outcome['error']}")
         while True:
@@ -347,8 +532,75 @@ class JsonProcessAgent:
             source, target = move.get("source"), move.get("target")
             if type(source) is not int or type(target) is not int:
                 raise self._fail("agent response move is malformed")
+            evidence = None
+            if self.expected_identity is not None:
+                evidence = self._validate_evidence(payload.get("evidence"), settings, seed)
+            self.last_evidence = evidence
             self._failure = None
             return Move(source, target)
+
+    def _validate_evidence(self, evidence, settings: dict, seed: int) -> dict:
+        if not isinstance(evidence, dict):
+            raise self._fail("agent response lacks per-move execution evidence")
+        effective = evidence.get("settings")
+        if not isinstance(effective, dict):
+            raise self._fail("agent evidence lacks effective settings")
+        for field in ("iterations", "time_limit", "exploration"):
+            if field in settings and effective.get(field) != settings.get(field):
+                raise self._fail(f"agent evidence {field} does not match the request")
+        if effective.get("seed") != seed or evidence.get("seed") != seed:
+            raise self._fail("agent evidence seed does not match the request")
+        algorithm = evidence.get("algorithm")
+        if not isinstance(algorithm, str) or algorithm != self.expected_identity.get("algorithm"):
+            raise self._fail("agent evidence algorithm does not match the handshake")
+        completed = evidence.get("completed_simulations")
+        if completed is not None:
+            if type(completed) is not int or completed < 0:
+                raise self._fail("agent evidence completed_simulations is invalid")
+            iterations = settings.get("iterations")
+            if type(iterations) is int and completed > iterations:
+                raise self._fail("agent evidence completed work exceeds the requested budget")
+        depth = evidence.get("depth")
+        if depth is not None and (type(depth) is not int or depth < 0):
+            raise self._fail("agent evidence depth is invalid")
+        if algorithm in ("mcts", "neural-mcts-puct-v1") and completed is None:
+            raise self._fail("MCTS evidence lacks completed simulations")
+        if algorithm in ("alpha_beta", "alpha-beta") and depth is None:
+            raise self._fail("alpha-beta evidence lacks the completed depth")
+        reason = evidence.get("completion_reason")
+        if reason not in EVIDENCE_REASONS:
+            raise self._fail("agent evidence completion reason is invalid")
+        elapsed = evidence.get("elapsed_ms")
+        if (
+            isinstance(elapsed, bool)
+            or not isinstance(elapsed, (int, float))
+            or not math.isfinite(float(elapsed))
+            or elapsed < 0
+        ):
+            raise self._fail("agent evidence elapsed_ms is invalid")
+        provider = evidence.get("provider")
+        if provider != self.expected_identity.get("provider"):
+            raise self._fail("agent evidence provider does not match the handshake")
+        model_digest = evidence.get("model_sha256")
+        expected_digest = self.expected_identity.get("model_sha256")
+        if expected_digest is not None and model_digest != expected_digest:
+            raise self._fail("agent evidence model identity does not match the handshake")
+        return {
+            "settings": {
+                "iterations": effective.get("iterations"),
+                "time_limit": effective.get("time_limit"),
+                "exploration": effective.get("exploration"),
+                "seed": effective.get("seed"),
+            },
+            "seed": seed,
+            "algorithm": algorithm,
+            "completed_simulations": completed,
+            "depth": depth,
+            "completion_reason": reason,
+            "elapsed_ms": float(elapsed),
+            "provider": provider,
+            "model_sha256": model_digest,
+        }
 
     # -- diagnostics -------------------------------------------------------
     def diagnostics(self) -> dict:
@@ -357,6 +609,10 @@ class JsonProcessAgent:
             "stderr_bytes": self.stderr_bytes,
             "stderr_lines": len(self.stderr_lines),
             "running": self.process is not None and self.process.poll() is None,
+            "cleanup_failures": list(self._cleanup_failures),
+            "handshake": self.handshake,
+            "request_deadline_s": self.timeout,
+            "cleanup_allowance_s": CLEANUP_ALLOWANCE,
         }
 
 
@@ -484,6 +740,9 @@ def play_game(
     seed: int,
     max_plies: int = 200,
     agent_timeout: float = DEFAULT_AGENT_TIMEOUT,
+    mode: str = "fixed-work",
+    attacker_label: str | None = None,
+    defender_label: str | None = None,
 ) -> dict:
     state = State.from_dict(opening["state"])
     if state.ruleset != ruleset:
@@ -512,8 +771,10 @@ def play_game(
         "completed": False,
         "error": None,
         "seed": seed,
-        "settings": dict(settings),
+        "settings": {**settings, "mode": mode},
+        "mode": mode,
         "agent_timeout_s": float(agent_timeout),
+        "execution_evidence": [],
     }
     try:
         while state.winner is None and state.ply < max_plies:
@@ -525,12 +786,25 @@ def play_game(
                     move = _move(agent(state, settings, seed + state.ply))
             if move not in legal_moves(state):
                 raise ValueError(f"agent selected an illegal move {move.to_dict()}")
+            evidence = getattr(agent, "last_evidence", None)
+            if isinstance(evidence, dict):
+                label = attacker_label if state.turn == "attackers" else defender_label
+                game["execution_evidence"].append(
+                    {
+                        "agent": label,
+                        "ply": state.ply,
+                        "turn": state.turn,
+                        **evidence,
+                    }
+                )
             state = apply_move(state, move)
             game["moves"].append(move.to_dict())
         game["plies"] = state.ply
         game["winner"] = state.winner
         game["reason"] = state.reason or ("move_limit" if state.winner is None else None)
         game["completed"] = state.winner is not None
+    except AgentConfigurationError:
+        raise
     except Exception as error:  # noqa: BLE001 - one failed game must not abort the report
         game["error"] = f"{type(error).__name__}: {error}"
         game["plies"] = state.ply
@@ -576,9 +850,12 @@ def run_paired_openings(
     agent_timeout: float = DEFAULT_AGENT_TIMEOUT,
     agent_config: dict | None = None,
     evidence_class: str = "structural",
+    mode: str = "fixed-work",
 ) -> dict:
     if evidence_class not in ("structural", "playing-strength"):
         raise ValueError("evidence_class must be structural or playing-strength")
+    if mode not in ("fixed-work", "fixed-time"):
+        raise ValueError("mode must be fixed-work or fixed-time")
     if not isinstance(labels, tuple) or len(labels) != 2:
         raise ValueError("labels must contain two agent identity strings")
     if any(not isinstance(label, str) or not label for label in labels):
@@ -616,6 +893,7 @@ def run_paired_openings(
         "seed": seed,
         "max_plies": max_plies,
         "agent_timeout_s": float(agent_timeout),
+        "mode": mode,
     }
     games = []
     for pair, opening in enumerate(validated_openings):
@@ -633,6 +911,9 @@ def run_paired_openings(
                 seed=game_seed,
                 max_plies=max_plies,
                 agent_timeout=agent_timeout,
+                mode=mode,
+                attacker_label=labels[1] if swap else labels[0],
+                defender_label=labels[0] if swap else labels[1],
             )
             game.update(
                 {
@@ -647,10 +928,15 @@ def run_paired_openings(
                 }
             )
             games.append(game)
+    handshakes = {
+        "a": getattr(agent_a, "handshake", None),
+        "b": getattr(agent_b, "handshake", None),
+    }
     manifest = {
         "ruleset": ruleset,
         "agents": {"a": labels[0], "b": labels[1]},
         "agent_config": config,
+        "agent_handshakes": handshakes,
         "settings": settings,
         "openings": [
             {
@@ -678,6 +964,7 @@ def run_paired_openings(
         "ruleset": ruleset,
         "agents": {"a": labels[0], "b": labels[1]},
         "agent_config": config,
+        "agent_handshakes": handshakes,
         "settings": settings,
         "openings": [entry["name"] for entry in validated_openings],
         "games": games,
@@ -843,7 +1130,7 @@ def _validate_agent_config(config: Any, agents: dict, ruleset: str, failures: li
         if kind == "scripted":
             if model is not None:
                 failures.append(f"agent_config.{key} scripted agent cannot declare a model")
-            if provider not in (None, "in-process"):
+            if provider not in (None, "in-process", "cpu"):
                 failures.append(f"agent_config.{key} scripted provider is inconsistent")
             continue
         if kind in NEURAL_KINDS:
@@ -863,6 +1150,179 @@ def _validate_agent_config(config: Any, agents: dict, ruleset: str, failures: li
             failures.append(f"agent_config.{key} browser provider is invalid")
         if kind not in BROWSER_KINDS and not isinstance(provider, str):
             failures.append(f"agent_config.{key} provider is invalid")
+        algorithm = entry.get("algorithm")
+        if kind == "scripted":
+            if algorithm not in (None, "scripted"):
+                failures.append(f"agent_config.{key} scripted algorithm is inconsistent")
+        elif algorithm not in ("mcts", "alpha_beta"):
+            failures.append(f"agent_config.{key} algorithm is missing or unsupported")
+        if algorithm == "alpha_beta" and not _positive_int(entry.get("depth")):
+            failures.append(f"agent_config.{key} alpha-beta depth is missing")
+
+
+def _validate_agent_handshakes(config, handshakes, failures: list[str]) -> None:
+    if not isinstance(config, dict):
+        return
+    both_scripted = all(
+        isinstance(config.get(key), dict) and config[key].get("kind") == "scripted"
+        for key in ("a", "b")
+    )
+    if handshakes is None and both_scripted:
+        return
+    if not isinstance(handshakes, dict) or set(handshakes) != {"a", "b"}:
+        failures.append("agent_handshakes must describe both agents")
+        return
+    for key in ("a", "b"):
+        entry = config.get(key) if isinstance(config.get(key), dict) else {}
+        kind = entry.get("kind")
+        handshake = handshakes.get(key)
+        if kind == "scripted":
+            if handshake is not None and not isinstance(handshake, dict):
+                failures.append(f"agent_handshakes.{key} is malformed")
+            elif handshake is not None:
+                if handshake.get("kind") != "scripted":
+                    failures.append(f"agent_handshakes.{key} contradicts the scripted kind")
+                if handshake.get("protocol") != PROTOCOL_VERSION:
+                    failures.append(f"agent_handshakes.{key} protocol version is unsupported")
+            continue
+        if not isinstance(handshake, dict):
+            failures.append(f"agent_handshakes.{key} is missing")
+            continue
+        if handshake.get("protocol") != PROTOCOL_VERSION:
+            failures.append(f"agent_handshakes.{key} protocol version is unsupported")
+        for field in ("kind", "runtime", "provider", "algorithm"):
+            if handshake.get(field) != entry.get(field):
+                failures.append(f"agent_handshakes.{key} {field} contradicts the configuration")
+        model = entry.get("model")
+        if isinstance(model, dict):
+            if handshake.get("model_sha256") != model.get("onnx_sha256"):
+                failures.append(
+                    f"agent_handshakes.{key} model onnx_sha256 contradicts the configuration"
+                )
+            if handshake.get("weights_sha256") != model.get("weights_sha256"):
+                failures.append(
+                    f"agent_handshakes.{key} model weights_sha256 contradicts the configuration"
+                )
+            for field in ("ruleset", "size"):
+                if handshake.get(field) != model.get(field):
+                    failures.append(
+                        f"agent_handshakes.{key} model {field} contradicts the configuration"
+                    )
+        engine = handshake.get("engine_sha256")
+        if engine is not None and not _hex64(engine):
+            failures.append(f"agent_handshakes.{key} engine identity is malformed")
+
+
+def _validate_execution_evidence(
+    game: dict,
+    config: dict,
+    settings: dict,
+    mode: str,
+    failures: list[str],
+) -> None:
+    label = game.get("game_id")
+    entry_a = config.get("a") if isinstance(config.get("a"), dict) else {}
+    entry_b = config.get("b") if isinstance(config.get("b"), dict) else {}
+    kind_a = entry_a.get("kind")
+    kind_b = entry_b.get("kind")
+    if kind_a == "scripted" and kind_b == "scripted":
+        return
+    evidence = game.get("execution_evidence")
+    if not isinstance(evidence, list):
+        failures.append(f"{label}: per-move execution evidence is missing")
+        return
+    moves = game.get("moves")
+    if not isinstance(moves, list):
+        return
+    opening_state = game.get("opening_state")
+    if not isinstance(opening_state, dict):
+        return
+    try:
+        state = State.from_dict(opening_state)
+    except (ValueError, KeyError, TypeError):
+        return
+    turns = []
+    for move in moves:
+        turns.append(state.turn)
+        try:
+            state = apply_move(state, _move(move))
+        except (ValueError, KeyError, TypeError):
+            return
+    by_ply = {}
+    for entry in evidence:
+        if not isinstance(entry, dict):
+            failures.append(f"{label}: execution evidence entry is not an object")
+            continue
+        ply = entry.get("ply")
+        if type(ply) is not int or ply in by_ply:
+            failures.append(f"{label}: execution evidence ply is invalid or duplicated")
+            continue
+        by_ply[ply] = entry
+    game_seed = game.get("seed")
+    for ply, turn in enumerate(turns):
+        side = "a" if turn == "attackers" else "b"
+        # Determine which declared agent played this turn from the role mapping.
+        if game.get("agent_a_side") == turn:
+            side = "a"
+        elif game.get("agent_b_side") == turn:
+            side = "b"
+        entry = config.get(side) if isinstance(config.get(side), dict) else {}
+        if entry.get("kind") == "scripted":
+            continue
+        observation = by_ply.get(ply)
+        if observation is None:
+            failures.append(f"{label}: missing execution evidence for ply {ply}")
+            continue
+        if observation.get("agent") != (game.get(f"agent_{side}")):
+            failures.append(f"{label}: execution evidence agent identity mismatch")
+        if type(game_seed) is not int:
+            failures.append(f"{label}: game seed is invalid for execution evidence")
+            break
+        if observation.get("seed") != game_seed + ply:
+            failures.append(f"{label}: execution evidence seed does not match the move seed")
+        if observation.get("algorithm") != entry.get("algorithm"):
+            failures.append(f"{label}: execution evidence algorithm mismatch")
+        if observation.get("provider") != entry.get("provider"):
+            failures.append(f"{label}: execution evidence provider mismatch")
+        model = entry.get("model")
+        if isinstance(model, dict):
+            if observation.get("model_sha256") != model.get("onnx_sha256"):
+                failures.append(f"{label}: execution evidence model identity mismatch")
+        effective = observation.get("settings")
+        if not isinstance(effective, dict):
+            failures.append(f"{label}: execution evidence settings are missing")
+            continue
+        for field in ("iterations", "time_limit", "exploration"):
+            if effective.get(field) != settings.get(field):
+                failures.append(f"{label}: execution evidence {field} mismatch")
+        completed = observation.get("completed_simulations")
+        reason = observation.get("completion_reason")
+        if reason not in EVIDENCE_REASONS:
+            failures.append(f"{label}: execution evidence completion reason is invalid")
+        if entry.get("algorithm") == "alpha_beta":
+            if observation.get("depth") != entry.get("depth"):
+                failures.append(f"{label}: execution evidence depth mismatch")
+        else:
+            if type(completed) is not int or completed < 0:
+                failures.append(f"{label}: execution evidence completed work is unknown")
+            elif completed > settings["iterations"]:
+                failures.append(f"{label}: execution evidence exceeds the simulation budget")
+            elif mode == "fixed-work" and completed != settings["iterations"]:
+                if reason not in ("immediate_win", "terminal"):
+                    failures.append(f"{label}: fixed-work agent completed unequal work")
+        elapsed = observation.get("elapsed_ms")
+        if (
+            isinstance(elapsed, bool)
+            or not isinstance(elapsed, (int, float))
+            or not math.isfinite(float(elapsed))
+            or elapsed < 0
+        ):
+            failures.append(f"{label}: execution evidence elapsed time is invalid")
+        elif mode == "fixed-time":
+            if reason not in ("deadline", "immediate_win", "terminal"):
+                failures.append(f"{label}: fixed-time agent did not stop at its deadline")
+            if float(elapsed) > settings["time_limit"] * 1000.0 + 2000.0:
+                failures.append(f"{label}: fixed-time agent exceeded its time budget")
 
 
 def validate_report(report: dict) -> dict:
@@ -906,6 +1366,10 @@ def validate_report(report: dict) -> dict:
             fail("manifest agent identities do not match report")
         if _canonical(manifest.get("agent_config")) != _canonical(report.get("agent_config")):
             fail("manifest agent configuration does not match report")
+        if _canonical(manifest.get("agent_handshakes")) != _canonical(
+            report.get("agent_handshakes")
+        ):
+            fail("manifest agent handshakes do not match report")
         if _canonical(manifest.get("settings")) != _canonical(report.get("settings")):
             fail("manifest settings do not match report")
         manifest_openings = manifest.get("openings")
@@ -959,6 +1423,9 @@ def validate_report(report: dict) -> dict:
             fail(f"settings.{field} must be positive")
     if settings.get("simulations") != settings.get("iterations"):
         fail("settings.simulations and settings.iterations must agree")
+    mode = settings.get("mode", "fixed-work")
+    if mode not in ("fixed-work", "fixed-time"):
+        fail("settings.mode must be fixed-work or fixed-time")
     seed = settings.get("seed")
     if type(seed) is not int or seed < 0:
         fail("settings.seed must be a non-negative integer")
@@ -970,6 +1437,7 @@ def validate_report(report: dict) -> dict:
     _validate_agent_config(
         report.get("agent_config"), agents, ruleset if isinstance(ruleset, str) else "", failures
     )
+    _validate_agent_handshakes(report.get("agent_config"), report.get("agent_handshakes"), failures)
     manifest_openings = manifest.get("openings") if isinstance(manifest.get("openings"), list) else []
     opening_by_name = {
         entry.get("name"): entry
@@ -1033,7 +1501,7 @@ def validate_report(report: dict) -> dict:
         else:
             if game_settings.get("algorithm") != "mcts":
                 fail(f"{label}: algorithm identity is missing or unexpected")
-            for field in ("iterations", "time_limit", "exploration"):
+            for field in ("iterations", "time_limit", "exploration", "mode"):
                 if game_settings.get(field) != settings.get(field):
                     fail(f"{label}: {field} differs from manifest")
             game_seed = game_settings.get("seed")
@@ -1167,6 +1635,15 @@ def validate_report(report: dict) -> dict:
     }
     if set(ids) != expected_pairs:
         fail("game identifiers do not cover every opening pair and role swap exactly once")
+    for game in games:
+        if isinstance(game, dict):
+            _validate_execution_evidence(
+                game,
+                report.get("agent_config") if isinstance(report.get("agent_config"), dict) else {},
+                settings,
+                mode,
+                failures,
+            )
     summary = report.get("summary")
     if not isinstance(summary, dict):
         fail("summary must be an object")
@@ -1206,7 +1683,8 @@ def validate_report(report: dict) -> dict:
         if summary.get("pairs", 0) < MIN_STRENGTH_PAIRS:
             fail(f"playing-strength evidence needs at least {MIN_STRENGTH_PAIRS} complete pairs")
         strength_acceptance = (
-            playing_strength.get("status") == "measured"
+            not failures
+            and playing_strength.get("status") == "measured"
             and not summary.get("execution_errors", 0)
             and not summary.get("truncated", 0)
             and summary.get("pairs", 0) >= MIN_STRENGTH_PAIRS
@@ -1265,8 +1743,51 @@ def _load_openings(path: Path | None, ruleset: str, limit: int | None) -> list[d
     return entries
 
 
-def _agent_from_command(agent_command: list[str], timeout: float, cwd) -> JsonProcessAgent:
-    return JsonProcessAgent(agent_command, timeout=timeout, cwd=cwd)
+def _expected_identity(entry: dict) -> dict:
+    if not isinstance(entry, dict):
+        raise ValueError("agent configuration must be an object")
+    kind = entry.get("kind")
+    algorithm = entry.get("algorithm")
+    if kind == "scripted":
+        algorithm = algorithm or "scripted"
+    if algorithm not in ("scripted", "mcts", "alpha_beta"):
+        raise ValueError("non-scripted agent configuration must declare a supported algorithm")
+    identity = {
+        "kind": kind,
+        "runtime": entry.get("runtime"),
+        "provider": entry.get("provider"),
+        "algorithm": algorithm,
+    }
+    if algorithm == "alpha_beta":
+        if not _positive_int(entry.get("depth")):
+            raise ValueError("alpha-beta agent configuration must declare its depth")
+        identity["depth"] = entry["depth"]
+    model = entry.get("model")
+    if isinstance(model, dict):
+        identity.update(
+            {
+                "model_sha256": model.get("onnx_sha256"),
+                "weights_sha256": model.get("weights_sha256"),
+                "ruleset": model.get("ruleset"),
+                "size": model.get("size"),
+            }
+        )
+    return identity
+
+
+def _agent_from_command(
+    agent_command: list[str],
+    timeout: float,
+    cwd,
+    *,
+    expected_identity: dict | None = None,
+) -> JsonProcessAgent:
+    return JsonProcessAgent(
+        agent_command,
+        timeout=timeout,
+        cwd=cwd,
+        expected_identity=expected_identity,
+    )
 
 
 def _run_cli(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
@@ -1283,9 +1804,15 @@ def _run_cli(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         labels = (config["a"].get("label"), config["b"].get("label"))
         deadline = float(args.agent_timeout)
         with _agent_from_command(
-            shlex.split(args.agent_a_command), deadline, args.cwd
+            shlex.split(args.agent_a_command),
+            deadline,
+            args.cwd,
+            expected_identity=_expected_identity(config["a"]),
         ) as agent_a, _agent_from_command(
-            shlex.split(args.agent_b_command), deadline, args.cwd
+            shlex.split(args.agent_b_command),
+            deadline,
+            args.cwd,
+            expected_identity=_expected_identity(config["b"]),
         ) as agent_b:
             report = run_paired_openings(
                 agent_a,
@@ -1300,8 +1827,9 @@ def _run_cli(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
                 agent_timeout=deadline,
                 agent_config=config,
                 evidence_class=args.evidence_class,
+                mode=args.mode,
             )
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, AgentProtocolError, AgentTimeoutError) as error:
         print(json.dumps({"ok": False, "failures": [str(error)]}, indent=2))
         return 1
     if args.output:
@@ -1339,6 +1867,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agent-a-config", type=Path)
     parser.add_argument("--agent-b-config", type=Path)
     parser.add_argument("--cwd", type=Path)
+    parser.add_argument(
+        "--mode", choices=("fixed-work", "fixed-time"), default="fixed-work"
+    )
     parser.add_argument(
         "--evidence-class", choices=("structural", "playing-strength"), default="structural"
     )

@@ -304,3 +304,150 @@ def test_malformed_reports_are_structured(tmp_path):
         },
     ):
         assert mv.validate_report(malformed)["ok"] is False
+
+
+def _schema3_report(**overrides):
+    report = {
+        "kind": "browser-analysis-memory-profile",
+        "schema": 3,
+        "profile": "cancel-restart",
+        "status": "measured",
+        "warmup_ms": 60000,
+        "duration_ms": 120000,
+        "total_duration_ms": 180000,
+        "budgets": {
+            "max_process_rss_bytes": 512 * 1024 * 1024,
+            "max_js_heap_used_bytes": 256 * 1024 * 1024,
+            "max_cache_bytes": 16 * 1024 * 1024,
+            "max_wasm_heap_capacity_bytes": 64 * 1024 * 1024,
+            "max_workers": 8,
+        },
+        "features": {"inference_cache": True},
+        "events": {"cancellations": 1},
+        "events_source": "telemetry",
+        "samples": [
+            {
+                "timestamp_ms": index * 12000,
+                "process_rss_bytes": 100 * 1024 * 1024 + index * 1024,
+                "js_heap_used_bytes": 20 * 1024 * 1024,
+                "wasm_heap_capacity_bytes": 32 * 1024 * 1024,
+                "cache_entries": 10,
+                "cache_bytes": 1000,
+                "workers": 3,
+                "os_processes": 9,
+                "completed_requests": index,
+            }
+            for index in range(16)
+        ],
+    }
+    report.update(overrides)
+    return report
+
+
+def test_warmup_window_is_excluded_by_timestamp():
+    report = _schema3_report()
+    assert mv.validate_report(report)["acceptance_ok"] is True
+    # Only the warmup samples carry RSS: the acceptance window is unobservable.
+    for sample in report["samples"]:
+        if sample["timestamp_ms"] >= 60000:
+            sample["process_rss_bytes"] = None
+            sample["rss_unavailable_reason"] = "not sampled after warmup"
+    report["unavailable_metrics"] = {"process_rss_bytes": "warmup-only RSS"}
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True
+    assert result["acceptance_ok"] is False
+
+
+def test_acceptance_window_must_be_complete():
+    report = _schema3_report()
+    for index, sample in enumerate(report["samples"]):
+        sample["timestamp_ms"] = index * 7000
+        sample["completed_requests"] = index
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any(
+        "ends before" in failure or "do not cover" in failure for failure in result["failures"]
+    )
+
+    report = _schema3_report()
+    report["duration_ms"] = 160000
+    assert mv.validate_report(report)["structural_ok"] is False
+
+
+def test_per_metric_coverage_and_longest_gap_are_enforced():
+    report = _schema3_report()
+    for index, sample in enumerate(report["samples"]):
+        if index not in (2, 10):
+            sample.pop("js_heap_used_bytes")
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("js_heap_used_bytes coverage" in failure for failure in result["failures"])
+
+    report = _schema3_report()
+    for index, sample in enumerate(report["samples"]):
+        if index not in (2, 10):
+            sample.pop("js_heap_used_bytes")
+    report["unavailable_metrics"] = {"js_heap_used_bytes": "sparse browser sampling"}
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True
+    assert result["measurement_ok"] is False
+    assert result["acceptance_ok"] is False
+
+    report = _schema3_report()
+    report["samples"] = report["samples"][:14]
+    for index, sample in enumerate(report["samples"]):
+        sample["timestamp_ms"] = [
+            0,
+            12000,
+            24000,
+            36000,
+            48000,
+            60000,
+            72000,
+            84000,
+            96000,
+            120000,
+            132000,
+            144000,
+            156000,
+            180000,
+        ][index]
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("gap between usable observations" in failure for failure in result["failures"])
+
+
+def test_worker_cache_and_wasm_coverage_policies():
+    report = _schema3_report()
+    for index, sample in enumerate(report["samples"]):
+        if index not in (1, 9):
+            sample.pop("workers")
+    report["unavailable_metrics"] = {"workers": "worker telemetry was sparse"}
+    result = mv.validate_report(report)
+    assert result["measurement_ok"] is False
+    assert any("workers coverage" in reason for reason in result["partial_reasons"])
+
+    report = _schema3_report(features={"inference_cache": True})
+    for sample in report["samples"]:
+        sample.pop("cache_bytes")
+        sample.pop("cache_entries")
+    assert mv.validate_report(report)["structural_ok"] is False
+    report["unavailable_metrics"] = {"cache_bytes": "cache counters unavailable"}
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True
+    assert result["acceptance_ok"] is False
+
+    report = _schema3_report()
+    for sample in report["samples"]:
+        sample.pop("wasm_heap_capacity_bytes")
+    assert mv.validate_report(report)["structural_ok"] is False
+    report["unavailable_metrics"] = {"wasm_heap_capacity_bytes": "not exposed"}
+    assert mv.validate_report(report)["acceptance_ok"] is False
+
+
+def test_lifecycle_events_must_be_observed_from_telemetry():
+    report = _schema3_report()
+    report["events_source"] = "manual"
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("live telemetry" in failure for failure in result["failures"])

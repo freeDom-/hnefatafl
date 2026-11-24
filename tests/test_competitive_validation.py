@@ -474,7 +474,13 @@ def test_competitive_validation_cli_integration_with_real_export(tmp_path):
     assert upgraded_report["status"] == "invalid"
     assert upgraded_report["acceptance"] is False
     assert upgraded_report["competitive_acceptance"] is False
-    assert any("level_b" in failure for failure in upgraded_report["failures"])
+    assert any(
+        "level_b" in failure
+        or "structural smoke" in failure
+        or "32 channels" in failure
+        or "training provenance" in failure
+        for failure in upgraded_report["failures"]
+    )
 
     # Structural evidence still cannot use the competitive acceptance policy.
     policy_mismatch = _structural_manifest(export, checkpoint, native)
@@ -590,6 +596,7 @@ def test_genuine_native_and_browser_benchmark_evidence_is_validated():
         paths,
         "512ae93b9900f918438510b089b59ca21701decc5149d17ab277ca67aa8e6f2c",
         provenance,
+        level="representative-architecture",
     )
     assert failures == [], failures
     assert {record["runtime"] for record in records} == {"native-cpython", "browser-pyodide"}
@@ -599,5 +606,221 @@ def test_genuine_native_and_browser_benchmark_evidence_is_validated():
         [paths[0], paths[0]],
         "512ae93b9900f918438510b089b59ca21701decc5149d17ab277ca67aa8e6f2c",
         provenance,
+        level="representative-architecture",
     )
     assert any("native and browser" in failure for failure in failures)
+
+
+# ---------------------------------------------------------------------------
+# Q3: training provenance, architecture and competitive workload policy
+# ---------------------------------------------------------------------------
+
+
+def _manifest_with_training(export: Path, checkpoint: Path, native: Path, level: str) -> dict:
+    manifest = _structural_manifest(export, checkpoint, native)
+    import sys as _sys
+
+    if str(SPIKE) not in _sys.path:
+        _sys.path.insert(0, str(SPIKE))
+    from hnefatafl.models import load_checkpoint
+
+    _, payload = load_checkpoint(checkpoint.resolve(), device="cpu")
+    metadata = payload.get("metadata") if isinstance(payload, dict) else {}
+    canonical = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+    manifest["validation_level"] = level
+    manifest["acceptance_policy"] = (
+        "competitive" if level == "competitive-trained" else "structural"
+    )
+    manifest["provenance"]["training_status"] = level
+    if level == "competitive-trained":
+        manifest["provenance"]["training"] = {
+            "classification": "competitive-trained",
+            "checkpoint_metadata_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+            "attestation": {
+                "source": "owner",
+                "statement": "Owner attests this checkpoint is competitively trained.",
+                "recorded_at": "2026-11-24T00:00:00Z",
+            },
+        }
+    return manifest
+
+
+def _exported_checkpoint(
+    tmp_path: Path, *, channels: int, blocks: int, name: str
+) -> tuple[Path, Path]:
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    import torch
+
+    from hnefatafl.models import PolicyValueNet, save_checkpoint
+
+    checkpoint = tmp_path / f"{name}.pt"
+    torch.manual_seed(7)
+    model = PolicyValueNet(ruleset="brandubh", channels=channels, blocks=blocks)
+    save_checkpoint(
+        checkpoint,
+        model,
+        {"ruleset": "brandubh", "name": name, "note": "test fixture checkpoint"},
+    )
+    export = tmp_path / f"{name}-export"
+    subprocess.run(
+        [sys.executable, str(SPIKE / "onnx_export.py"), str(checkpoint), str(export)],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
+    return checkpoint, export
+
+
+def _level_a_report(tmp_path: Path, name: str) -> Path:
+    report = tmp_path / f"{name}-native-a.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "native_mcts_parity.py"),
+            "--level",
+            "a",
+            "--iterations",
+            "8",
+            "--limit",
+            "1",
+            "--output",
+            str(report),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+    return report
+
+
+def test_smoke_checkpoint_cannot_be_relabelled_competitive(tmp_path):
+    checkpoint = tmp_path / "smoke.pt"
+    export = tmp_path / "smoke-export"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "smoke_checkpoint.py"),
+            "--ruleset",
+            "brandubh",
+            "--channels",
+            "32",
+            "--blocks",
+            "2",
+            "--output",
+            str(checkpoint),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+    subprocess.run(
+        [sys.executable, str(SPIKE / "onnx_export.py"), str(checkpoint), str(export)],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
+    native = _level_a_report(tmp_path, "smoke")
+    manifest = _manifest_with_training(export, checkpoint, native, "competitive-trained")
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    result = cv.validate_evidence_manifest(checkpoint, export, path)
+    assert result["status"] == "invalid"
+    assert result["competitive_acceptance"] is False
+    assert any("structural smoke checkpoint" in failure for failure in result["failures"])
+
+
+def test_competitive_architecture_minimum_is_enforced(tmp_path):
+    checkpoint, export = _exported_checkpoint(
+        tmp_path, channels=4, blocks=0, name="owner-small-model"
+    )
+    native = _level_a_report(tmp_path, "small")
+    manifest = _manifest_with_training(export, checkpoint, native, "competitive-trained")
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    result = cv.validate_evidence_manifest(checkpoint, export, path)
+    assert result["status"] == "invalid"
+    assert any("32 channels" in failure for failure in result["failures"])
+    assert not any("structural smoke" in failure for failure in result["failures"])
+
+
+def test_competitive_training_provenance_is_required_and_bound(tmp_path):
+    checkpoint, export = _exported_checkpoint(
+        tmp_path, channels=32, blocks=2, name="owner-large-model"
+    )
+    native = _level_a_report(tmp_path, "large")
+    manifest = _manifest_with_training(export, checkpoint, native, "competitive-trained")
+    path = tmp_path / "manifest.json"
+
+    missing = copy.deepcopy(manifest)
+    missing["provenance"].pop("training")
+    path.write_text(json.dumps(missing))
+    result = cv.validate_evidence_manifest(checkpoint, export, path)
+    assert result["status"] == "invalid"
+    assert result["competitive_acceptance"] is False
+    assert any("training provenance" in failure for failure in result["failures"])
+
+    mismatched = copy.deepcopy(manifest)
+    mismatched["provenance"]["training"]["checkpoint_metadata_sha256"] = "c" * 64
+    path.write_text(json.dumps(mismatched))
+    result = cv.validate_evidence_manifest(checkpoint, export, path)
+    assert result["status"] == "invalid"
+    assert any("metadata digest" in failure for failure in result["failures"])
+
+    no_attestation = copy.deepcopy(manifest)
+    no_attestation["provenance"]["training"].pop("attestation")
+    path.write_text(json.dumps(no_attestation))
+    result = cv.validate_evidence_manifest(checkpoint, export, path)
+    assert result["status"] == "invalid"
+    assert any("owner attestation" in failure for failure in result["failures"])
+
+    representative = _manifest_with_training(
+        export, checkpoint, native, "representative-architecture"
+    )
+    path.write_text(json.dumps(representative))
+    result = cv.validate_evidence_manifest(checkpoint, export, path)
+    assert any("missing level_b evidence" in failure for failure in result["failures"])
+
+
+def test_reduced_or_incompatible_benchmark_workloads_are_rejected():
+    quick_native = GENUINE / "mcts-benchmark-native-quick-r4.json"
+    quick_browser = GENUINE / "mcts-benchmark-browser-quick-r4.json"
+    strong_browser = GENUINE / "mcts-benchmark-browser-strong-r4.json"
+    provenance = {
+        "ruleset": "brandubh",
+        "size": 7,
+        "source_weights_sha256": "028517cc28bbb6f8715fef7751c70a4dd4ea0164ef9b835aa8389b0ea17bcb48",
+    }
+    digest = "512ae93b9900f918438510b089b59ca21701decc5149d17ab277ca67aa8e6f2c"
+    _, failures = cv._validate_benchmark_evidence(
+        [quick_native, quick_browser], digest, provenance, level="competitive-trained"
+    )
+    assert any("position kinds" in failure for failure in failures)
+    assert any("fixed-work budgets" in failure for failure in failures)
+    assert any("repetitions" in failure for failure in failures)
+
+    _, failures = cv._validate_benchmark_evidence(
+        [quick_native, strong_browser],
+        digest,
+        provenance,
+        level="representative-architecture",
+    )
+    assert any("incompatible" in failure for failure in failures)
+
+    browser_doc = json.loads(quick_browser.read_text())
+    native_doc = json.loads(quick_native.read_text())
+    native_doc["workload_digest"] = "0" * 64
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        native_path = Path(directory) / "native.json"
+        native_path.write_text(json.dumps(native_doc))
+        browser_path = Path(directory) / "browser.json"
+        browser_path.write_text(json.dumps(browser_doc))
+        _, failures = cv._validate_benchmark_evidence(
+            [native_path, browser_path],
+            digest,
+            provenance,
+            level="representative-architecture",
+        )
+    assert any("workload" in failure for failure in failures)

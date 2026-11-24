@@ -19,6 +19,8 @@ validation.
   "cpu": "Intel i7-12700",
   "ram_bytes": 34359738368,
   "runtime": "ort-web-1.22",
+  "device_origin": "physical",
+  "session_id": "session-windows-chrome-1",
   "architecture": "brandubh-32x2",
   "model_sha256": "<64 hex>",
   "onnx_sha256": "<64 hex>",
@@ -28,7 +30,11 @@ validation.
   "recovery_evidence": {
     "cancel_acknowledged": true,
     "restart_completed": true,
-    "post_cancel_inference": true
+    "post_cancel_inference": true,
+    "cancel_requested_at_ms": 1700000000000,
+    "cancel_acknowledged_at_ms": 1700000000050,
+    "restart_completed_at_ms": 1700000000800,
+    "post_cancel_inference_at_ms": 1700000001200
   },
   "provider_requested": "webgpu",
   "execution_placement": "webgpu-session-verified",
@@ -39,7 +45,10 @@ validation.
   "warm_inference_ms": 4.8,
   "mcts_simulations_per_second": 212.3,
   "gpu_evidence": {
-    "evidence_source": "ort-web-per-operator-v1",
+    "evidence_source": "future-supported-runtime-source",
+    "operator_inventory_source": "runtime-instrumentation",
+    "placement_source": "runtime-instrumentation",
+    "graph_optimization": {"level": "extended", "fusion_applied": true},
     "all_operators_covered": true,
     "gpu_execution_verified": true,
     "operator_inventory": ["Conv", "MatMul", "Softmax"],
@@ -47,8 +56,10 @@ validation.
       "model_sha256": "<64 hex>",
       "onnx_sha256": "<64 hex>",
       "runtime": "ort-web-1.22",
+      "browser_version": "Chromium 131",
       "workload": "brandubh-opening",
       "architecture": "brandubh-32x2",
+      "session_id": "session-windows-chrome-1",
       "provider_requested": "webgpu"
     },
     "per_operator_placement": [
@@ -74,10 +85,13 @@ Acceptance semantics:
 | `acceptance` | Requires all of the above. |
 
 `all_operators_covered: true` is never trusted alone; the inventory must be
-covered exactly. `webgpu-mixed` and `webgpu-session-unverified` cannot satisfy the
-verified-GPU gate, and `cpu-fallback` cannot satisfy a WebGPU gate. The pinned ORT
-Web runtime exposes no supported per-operator diagnostic, so verified-GPU
+covered exactly and come from runtime instrumentation registered by code. The
+pinned ORT Web runtime registers no supported per-operator source, so claims such
+as `ort-web-per-operator-v1` are rejected as unsupported and verified-GPU
 acceptance remains **blocked** even when all physical sessions are measured.
+`webgpu-mixed` and `webgpu-session-unverified` cannot satisfy the verified-GPU
+gate, and `cpu-fallback` cannot satisfy a WebGPU gate. Emulated devices
+(`device_origin: "emulated"`) never satisfy `physical_device_acceptance`.
 
 Validate with:
 
@@ -132,11 +146,15 @@ node spikes/browser_offline/neural_parity.mjs /tmp/device-spike-webgpu \
 node spikes/browser_offline/browser_tournament_agent.mjs /tmp/device-spike-wasm \
   --provider wasm   # speaks the persistent JSON line protocol on stdin/stdout
 
-# Sustained-memory collection while the browser workload runs
+# Sustained-memory collection while the browser workload runs. --duration is the
+# acceptance window after the 60 s warmup; telemetry is appended live.
 .venv/bin/python spikes/browser_offline/memory_profile_collect.py \
-  --pid "$BROWSER_PID" --profile sustained-10m --duration 600 --interval 1 \
+  --pid "$BROWSER_PID" --profile sustained-10m \
+  --warmup-duration 60 --duration 600 --interval 1 \
   --progress-file /tmp/completed-requests.txt \
-  --js-heap-file /tmp/js-heap.jsonl --cache-bytes-file /tmp/cache-bytes.jsonl \
+  --telemetry-file /tmp/browser-telemetry.jsonl \
+  --telemetry-session-id "$SESSION_ID" --telemetry-model-sha256 "$MODEL_SHA256" \
+  --telemetry-workload mcts-benchmark --inference-cache \
   --output /tmp/memory-profile.json
 .venv/bin/python spikes/browser_offline/memory_validation.py \
   /tmp/memory-profile.json --output /tmp/memory-validation.json

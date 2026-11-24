@@ -6,13 +6,14 @@ before samples are evaluated.
 
 Three outcomes are reported separately:
 
-* ``structural_ok`` - the profile is internally consistent and complete enough to
-  interpret;
-* ``measurement_ok`` - every budgeted metric has sufficient usable observations;
+* ``structural_ok`` - the profile is internally consistent and interpretable;
+* ``measurement_ok`` - every applicable mandatory metric has adequate temporal
+  coverage and usable observations;
 * ``acceptance_ok`` - the sustained process-memory profile is accepted.
 
-A single RSS sample, sparse sampling or gaps, an idle workload, missing budgeted
-series or a blocked profile can never produce acceptance.
+Schema 3 separates the warmup and acceptance windows explicitly:
+``warmup_ms`` is excluded and ``duration_ms`` is the required post-warmup window.
+Schema 2 reports remain readable using index-based ``warmup_samples``.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import sys
 from pathlib import Path
 
 SPIKE = Path(__file__).resolve().parent
-SCHEMA = 2
+SCHEMA = 3
 PROFILES = (
     "sustained-10m",
     "sustained-30m",
@@ -47,25 +48,24 @@ MIN_DURATION = {
 MIN_SAMPLES = 10
 MIN_WARMUP_SAMPLES = 1
 MIN_RSS_COVERAGE = 0.8
+MIN_METRIC_COVERAGE = 0.8
 MIN_USABLE_RSS = 5
-MIN_USABLE_METRIC = 2
+MIN_USABLE_METRIC = 5
 MIN_ACTIVE_FRACTION = 0.25
+WINDOW_TOLERANCE_MS = 1000.0
 PROFILE_EVENTS = {
     "cancel-restart": ("cancellations", 1),
     "model-reload": ("reloads", 1),
     "worker-replacement": ("worker_replacements", 1),
     "independent-batching": ("batches", 1),
 }
+LIFECYCLE_PROFILES = ("cancel-restart", "model-reload", "worker-replacement")
 
 
 def _number(value, allow_none=True):
     if value is None:
         return allow_none
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
-
-
-def _non_negative_int(value) -> bool:
-    return type(value) is int and value >= 0
 
 
 def _positive_int(value) -> bool:
@@ -90,6 +90,55 @@ def _reason_map(value, failures: list[str]) -> dict:
     return reasons
 
 
+def _coverage(
+    metric: str,
+    measured: list[dict],
+    *,
+    min_usable: int,
+    min_coverage: float,
+    max_gap_ms: float,
+    reason: str | None,
+    failures: list[str],
+    partial: list[str],
+) -> dict:
+    points = []
+    for sample in measured:
+        value = sample.get(metric)
+        timestamp = sample.get("timestamp_ms")
+        if _number(value, allow_none=False) and _number(timestamp, allow_none=False):
+            points.append((float(timestamp), value))
+    coverage = len(points) / len(measured) if measured else 0.0
+    gaps = [
+        points[index][0] - points[index - 1][0] for index in range(1, len(points))
+    ]
+    longest_gap = max(gaps) if gaps else None
+    info = {
+        "usable": len(points),
+        "of": len(measured),
+        "coverage": coverage,
+        "longest_usable_gap_ms": longest_gap,
+    }
+    if not points:
+        if reason:
+            partial.append(f"{metric}: {reason}")
+        else:
+            failures.append(f"{metric} has no usable observations and no explanatory reason")
+        return info
+    deficient = len(points) < min_usable or coverage < min_coverage
+    gapped = longest_gap is not None and longest_gap > max_gap_ms
+    if deficient or gapped:
+        message = (
+            f"{metric} coverage is insufficient ({len(points)}/{len(measured)} samples)"
+            if deficient
+            else f"{metric} has a {longest_gap:.0f} ms gap between usable observations"
+        )
+        if reason:
+            partial.append(f"{message}: {reason}")
+        else:
+            failures.append(message)
+    return info
+
+
 def validate_report(report: dict) -> dict:
     failures: list[str] = []
 
@@ -107,11 +156,14 @@ def validate_report(report: dict) -> dict:
             "failures": ["report must be an object"],
             "blocked_reasons": [],
         }
-    if report.get("kind") != "browser-analysis-memory-profile" or report.get("schema") not in (
+    schema = report.get("schema")
+    if report.get("kind") != "browser-analysis-memory-profile" or schema not in (
         SCHEMA,
         SCHEMA - 1,
+        2,
     ):
         fail("unsupported memory profile schema")
+        schema = 0
     profile = report.get("profile")
     if profile not in PROFILES:
         fail("unknown memory profile")
@@ -134,9 +186,9 @@ def validate_report(report: dict) -> dict:
             "acceptance": False,
             "status": "blocked" if not failures else "invalid",
             "failures": failures,
-            "blocked_reasons": report.get("blocked_reasons") if isinstance(
-                report.get("blocked_reasons"), list
-            ) else [],
+            "blocked_reasons": report.get("blocked_reasons")
+            if isinstance(report.get("blocked_reasons"), list)
+            else [],
         }
     required_duration = MIN_DURATION.get(profile, 0.0) if isinstance(profile, str) else 0.0
     duration_ms = report.get("duration_ms")
@@ -165,16 +217,11 @@ def validate_report(report: dict) -> dict:
         fail("features must be an object")
         features = {}
     features = features or {}
+    cache_feature = features.get("inference_cache")
     samples = report.get("samples")
     if not isinstance(samples, list) or len(samples) < MIN_SAMPLES:
         fail(f"measured profile needs at least {MIN_SAMPLES} samples")
         samples = [] if not isinstance(samples, list) else samples
-    warmup = report.get("warmup_samples", 1)
-    if type(warmup) is not int or warmup < MIN_WARMUP_SAMPLES:
-        fail("warmup_samples must be a positive integer")
-        warmup = 0
-    if samples and warmup >= len(samples) - 1:
-        fail("warmup leaves insufficient post-warmup measurements")
     previous = None
     for index, sample in enumerate(samples):
         if not isinstance(sample, dict):
@@ -190,10 +237,17 @@ def validate_report(report: dict) -> dict:
         for metric in METRICS:
             if metric in sample and not _number(sample[metric]):
                 fail(f"sample {index} {metric} is invalid")
-        for counter in ("cache_entries", "cache_bytes", "workers", "completed_requests"):
-            if counter in sample and (
-                type(sample[counter]) is not int or sample[counter] < 0
-            ):
+        for counter in (
+            "cache_entries",
+            "cache_bytes",
+            "workers",
+            "os_processes",
+            "completed_requests",
+        ):
+            value = sample.get(counter)
+            if value is None:
+                continue
+            if type(value) is not int or value < 0:
                 fail(f"sample {index} {counter} is invalid")
         for metric in METRICS:
             value = sample.get(metric)
@@ -202,7 +256,7 @@ def validate_report(report: dict) -> dict:
         workers = sample.get("workers")
         if type(workers) is int and not isinstance(workers, bool):
             if workers < 1:
-                fail(f"sample {index} reports no active workers")
+                fail(f"sample {index} reports no active browser worker")
             elif _positive_int(max_workers) and workers > max_workers:
                 fail(f"sample {index} exceeds the declared worker budget")
         cache_bytes = sample.get("cache_bytes")
@@ -216,21 +270,52 @@ def validate_report(report: dict) -> dict:
             fail(f"sample {index} wasm_heap_capacity_bytes exceeds the declared budget")
         if sample.get("process_rss_bytes") is None and not sample.get("rss_unavailable_reason"):
             fail(f"sample {index} must explain unavailable RSS")
-    measured = []
-    for sample in samples[warmup:]:
-        if isinstance(sample, dict):
-            measured.append(sample)
+    # Separate the warmup window from the acceptance window. Schema 3 uses explicit
+    # timestamps; schema 2 uses the historical warmup sample count.
+    if schema >= 3:
+        warmup_ms = report.get("warmup_ms")
+        if not _number(warmup_ms, allow_none=False) or warmup_ms < 0:
+            fail("schema 3 requires a non-negative warmup_ms")
+            warmup_ms = 0.0
+        warmup_samples = sum(
+            1
+            for sample in samples
+            if isinstance(sample, dict)
+            and _number(sample.get("timestamp_ms"), allow_none=False)
+            and float(sample["timestamp_ms"]) < float(warmup_ms)
+        )
+        if warmup_samples < MIN_WARMUP_SAMPLES:
+            fail("warmup_ms must exclude at least one measured warmup sample")
+        measured = [
+            sample
+            for sample in samples
+            if isinstance(sample, dict)
+            and _number(sample.get("timestamp_ms"), allow_none=False)
+            and float(sample["timestamp_ms"]) >= float(warmup_ms)
+        ]
+        window_start = float(warmup_ms)
+    else:
+        warmup = report.get("warmup_samples", 1)
+        if type(warmup) is not int or warmup < MIN_WARMUP_SAMPLES:
+            fail("warmup_samples must be a positive integer")
+            warmup = 0
+        if samples and warmup >= len(samples) - 1:
+            fail("warmup leaves insufficient post-warmup measurements")
+        measured = [sample for sample in samples[warmup:] if isinstance(sample, dict)]
+        warmup_samples = warmup
+        first_ts = measured[0].get("timestamp_ms") if measured else 0
+        window_start = float(first_ts) if _number(first_ts, allow_none=False) else 0.0
+        warmup_ms = window_start
     if len(measured) < 2:
         fail("insufficient post-warmup measurements")
-        measured = measured or []
     observed_span = 0.0
+    window_ms = required_duration * 1000.0 if required_duration else float(duration_ms or 0.0)
     if measured:
         first_ts = measured[0].get("timestamp_ms")
         last_ts = measured[-1].get("timestamp_ms")
         if _number(first_ts, allow_none=False) and _number(last_ts, allow_none=False):
             observed_span = float(last_ts) - float(first_ts)
-            if required_duration and observed_span < required_duration * 1000.0:
-                fail("sample timestamps do not cover the requested sustained window")
+        max_gap = max(1000.0, window_ms / 10.0) if window_ms else 60_000.0
         gaps = []
         for index in range(1, len(measured)):
             left = measured[index - 1].get("timestamp_ms")
@@ -239,9 +324,21 @@ def validate_report(report: dict) -> dict:
                 gaps.append(float(right) - float(left))
         if any(gap <= 0 for gap in gaps):
             fail("sample timestamps are not strictly increasing")
-        max_gap = max(1000.0, required_duration * 1000.0 / 10.0) if required_duration else 60_000.0
         if any(gap > max_gap for gap in gaps):
             fail("sampling gap is too large for the acceptance window")
+        if window_ms:
+            window_end = window_start + window_ms
+            if observed_span < window_ms - WINDOW_TOLERANCE_MS:
+                fail("sample timestamps do not cover the requested sustained window")
+            if schema >= 3:
+                if _number(first_ts, allow_none=False) and float(first_ts) > (
+                    window_start + max_gap
+                ):
+                    fail("acceptance window starts after the declared warmup boundary")
+                if _number(last_ts, allow_none=False) and float(last_ts) < (
+                    window_end - max_gap
+                ):
+                    fail("acceptance window ends before the requested measurement window")
         progress = [sample.get("completed_requests") for sample in measured]
         if any(type(value) is not int for value in progress):
             fail("every post-warmup sample must report completed_requests")
@@ -250,7 +347,9 @@ def validate_report(report: dict) -> dict:
             fail("completed-request counters are non-monotonic")
             progress = []
         elif profile in SUSTAINED_PROFILES:
-            active = sum(1 for index in range(1, len(progress)) if progress[index] > progress[index - 1])
+            active = sum(
+                1 for index in range(1, len(progress)) if progress[index] > progress[index - 1]
+            )
             minimum_active = max(2, math.ceil((len(progress) - 1) * MIN_ACTIVE_FRACTION))
             if active < minimum_active:
                 fail("sustained profile shows only brief workload activity")
@@ -259,6 +358,8 @@ def validate_report(report: dict) -> dict:
             second_half = progress[-1] > progress[half]
             if not (first_half and second_half):
                 fail("sustained workload progress is not distributed across the window")
+    else:
+        max_gap = 60_000.0
     events = report.get("events")
     if events is not None and not isinstance(events, dict):
         fail("events must be an object")
@@ -267,76 +368,130 @@ def validate_report(report: dict) -> dict:
     for name, value in events.items():
         if not isinstance(name, str) or not name:
             fail("event names must be non-empty strings")
-        elif not _non_negative_int(value):
+        elif type(value) is not int or value < 0:
             fail(f"event {name} must be a non-negative integer")
     required_event = PROFILE_EVENTS.get(profile) if isinstance(profile, str) else None
     if required_event is not None:
         name, minimum = required_event
         value = events.get(name)
         if type(value) is not int or value < minimum:
-            fail(f"profile {profile} requires at least {minimum} recorded {name}")
-    if profile in ("cancel-restart", "model-reload", "worker-replacement"):
-        workers = [sample.get("workers") for sample in measured if type(sample.get("workers")) is int]
+            fail(f"profile {profile} requires at least {minimum} observed {name}")
+        if schema >= 3 and report.get("events_source") != "telemetry":
+            fail("lifecycle events must be observed from live telemetry, not declared manually")
+    if profile in LIFECYCLE_PROFILES:
+        workers = [
+            sample.get("workers") for sample in measured if type(sample.get("workers")) is int
+        ]
         if workers and min(workers) < 1:
             fail("lifecycle profile reports a period without an active worker")
-        if required_event is not None and events.get(required_event[0], 0) < 1:
-            fail("lifecycle profile lacks its required replacement/reload event")
-    cache_enabled = features.get("inference_cache") is True or any(
-        type(sample.get("cache_entries")) is int for sample in measured
-    )
-    coverage: dict[str, dict] = {}
     partial_reasons: list[str] = []
-    for metric in ("process_rss_bytes", "js_heap_used_bytes", "cache_bytes"):
+    coverage: dict[str, dict] = {}
+    coverage["process_rss_bytes"] = _coverage(
+        "process_rss_bytes",
+        measured,
+        min_usable=MIN_USABLE_RSS,
+        min_coverage=MIN_RSS_COVERAGE,
+        max_gap_ms=max_gap,
+        reason=unavailable.get("process_rss_bytes")
+        or report.get("rss_acceptance_unavailable_reason"),
+        failures=failures,
+        partial=partial_reasons,
+    )
+    observed_rss = coverage["process_rss_bytes"]["usable"] > 0
+    js_reason = unavailable.get("js_heap_used_bytes") or report.get(
+        "js_heap_acceptance_unavailable_reason"
+    )
+    if js_reason is None and features.get("js_heap") is False:
+        js_reason = "JS heap measurement was explicitly disabled for this profile"
+    coverage["js_heap_used_bytes"] = _coverage(
+        "js_heap_used_bytes",
+        measured,
+        min_usable=MIN_USABLE_METRIC,
+        min_coverage=MIN_METRIC_COVERAGE,
+        max_gap_ms=max_gap,
+        reason=js_reason,
+        failures=failures,
+        partial=partial_reasons,
+    )
+    cache_reason = unavailable.get("cache_bytes") or unavailable.get("cache_entries")
+    cache_values = any(
+        _number(sample.get("cache_bytes"), allow_none=False) for sample in measured
+    )
+    cache_applicable = cache_feature is True or cache_values
+    if cache_feature is False and not cache_values:
+        coverage["cache_bytes"] = {
+            "usable": 0,
+            "of": len(measured),
+            "coverage": 0.0,
+            "not_applicable": True,
+            "reason": "inference cache was explicitly disabled",
+        }
+        coverage["cache_entries"] = coverage["cache_bytes"]
+    else:
+        coverage["cache_bytes"] = _coverage(
+            "cache_bytes",
+            measured,
+            min_usable=MIN_USABLE_METRIC,
+            min_coverage=MIN_METRIC_COVERAGE,
+            max_gap_ms=max_gap,
+            reason=cache_reason,
+            failures=failures,
+            partial=partial_reasons,
+        )
+        coverage["cache_entries"] = _coverage(
+            "cache_entries",
+            measured,
+            min_usable=MIN_USABLE_METRIC,
+            min_coverage=MIN_METRIC_COVERAGE,
+            max_gap_ms=max_gap,
+            reason=cache_reason,
+            failures=failures,
+            partial=partial_reasons,
+        )
+    wasm_values = any(
+        _number(sample.get("wasm_heap_capacity_bytes"), allow_none=False) for sample in measured
+    )
+    wasm_applicable = max_wasm is not None or wasm_values
+    wasm_reason = unavailable.get("wasm_heap_capacity_bytes")
+    if not wasm_applicable and wasm_reason is None:
+        fail("WASM heap capacity needs a budget, observations or an explanatory reason")
+    elif not wasm_applicable and wasm_reason:
+        partial_reasons.append(f"wasm_heap_capacity_bytes: {wasm_reason}")
+    elif wasm_applicable:
+        coverage["wasm_heap_capacity_bytes"] = _coverage(
+            "wasm_heap_capacity_bytes",
+            measured,
+            min_usable=MIN_USABLE_METRIC,
+            min_coverage=MIN_METRIC_COVERAGE,
+            max_gap_ms=max_gap,
+            reason=wasm_reason,
+            failures=failures,
+            partial=partial_reasons,
+        )
+    coverage["workers"] = _coverage(
+        "workers",
+        measured,
+        min_usable=MIN_USABLE_METRIC,
+        min_coverage=MIN_METRIC_COVERAGE,
+        max_gap_ms=max_gap,
+        reason=unavailable.get("workers") or "browser worker telemetry was not reported",
+        failures=failures,
+        partial=partial_reasons,
+    )
+    for metric, budget in (
+        ("process_rss_bytes", budgets.get("max_process_rss_bytes")),
+        ("js_heap_used_bytes", budgets.get("max_js_heap_used_bytes")),
+        ("cache_bytes", budgets.get("max_cache_bytes")),
+    ):
         values = [
             sample.get(metric)
             for sample in measured
             if _number(sample.get(metric), allow_none=False)
         ]
-        budget_field = dict(BUDGET_METRICS).get(metric)
-        budget = budgets.get(budget_field) if budget_field else None
-        coverage[metric] = {
-            "usable": len(values),
-            "of": len(measured),
-            "coverage": (len(values) / len(measured)) if measured else 0.0,
-        }
-        if metric == "cache_bytes" and not cache_enabled and not values:
-            coverage[metric]["not_applicable"] = True
-            continue
         if not values:
-            reason = unavailable.get(metric)
-            if metric == "process_rss_bytes":
-                reason = reason or report.get("rss_acceptance_unavailable_reason")
-            if reason:
-                partial_reasons.append(f"{metric}: {reason}")
-            else:
-                fail(f"{metric} has no usable observations and no explanatory reason")
             continue
-        if len(values) < MIN_USABLE_METRIC and metric != "process_rss_bytes":
-            reason = unavailable.get(metric)
-            if reason:
-                partial_reasons.append(f"{metric}: {reason}")
-            else:
-                fail(f"{metric} has too few usable observations")
-        if metric == "process_rss_bytes" and len(values) < MIN_USABLE_RSS:
-            reason = unavailable.get(metric) or report.get("rss_acceptance_unavailable_reason")
-            if reason:
-                partial_reasons.append(f"process RSS coverage is insufficient: {reason}")
-            else:
-                fail("process RSS has too few usable observations")
-        if metric == "process_rss_bytes" and measured:
-            ratio = len(values) / len(measured)
-            if ratio < MIN_RSS_COVERAGE:
-                reason = unavailable.get(metric) or report.get("rss_acceptance_unavailable_reason")
-                if reason:
-                    partial_reasons.append(
-                        f"process RSS covers only {ratio:.0%} of measured samples: {reason}"
-                    )
-                else:
-                    fail("process RSS coverage is insufficient for acceptance")
         if not _number(budget, allow_none=False) or budget <= 0:
-            if metric == "process_rss_bytes" and not values:
-                continue
-            fail(f"positive {budget_field} budget is required for observed {metric}")
+            fail(f"positive {dict(BUDGET_METRICS).get(metric)} budget is required")
             continue
         if max(values) > budget:
             fail(f"{metric} exceeded declared budget")
@@ -345,49 +500,29 @@ def validate_report(report: dict) -> dict:
         threshold = max(1024 * 1024, baseline * 0.25)
         if growth > threshold:
             fail(f"{metric} grew by more than the sustained-memory growth threshold")
-    wasm_values = [
-        sample.get("wasm_heap_capacity_bytes")
-        for sample in measured
-        if _number(sample.get("wasm_heap_capacity_bytes"), allow_none=False)
-    ]
-    if not wasm_values and max_wasm is None and not unavailable.get("wasm_heap_capacity_bytes"):
-        fail("WASM heap capacity needs a budget or an explanatory reason")
-    if measured:
-        workers = [sample.get("workers") for sample in measured if type(sample.get("workers")) is int]
-        if not workers:
-            fail("worker counts are missing from every post-warmup sample")
-        elif max_workers is not None and max(workers) < 1:
-            fail("no active worker was observed")
     if samples and duration_ms:
         last = samples[-1].get("timestamp_ms") if isinstance(samples[-1], dict) else None
-        first = samples[warmup].get("timestamp_ms") if warmup < len(samples) and isinstance(
-            samples[warmup], dict
-        ) else None
-        if _number(last, allow_none=False) and _number(first, allow_none=False):
-            if float(last) - float(first) > duration_ms:
-                fail("sample timestamps exceed reported duration")
-    observed_rss = coverage["process_rss_bytes"]["usable"] > 0
+        if (
+            _number(last, allow_none=False)
+            and float(last) > float(warmup_ms) + duration_ms + WINDOW_TOLERANCE_MS
+        ):
+            fail("sample timestamps exceed reported duration after warmup")
     structural_ok = not failures
     measurement_ok = (
         structural_ok
         and not partial_reasons
         and coverage["process_rss_bytes"]["coverage"] >= MIN_RSS_COVERAGE
-        and coverage["js_heap_used_bytes"]["usable"] >= MIN_USABLE_METRIC
+        and coverage["js_heap_used_bytes"]["coverage"] >= MIN_METRIC_COVERAGE
+        and coverage["workers"]["coverage"] >= MIN_METRIC_COVERAGE
     )
     acceptance_ok = measurement_ok and observed_rss
     if not observed_rss and structural_ok:
-        failure_message = "process-memory acceptance is blocked without observable RSS"
-        failures.append(failure_message)
-        structural_ok = True
+        failures.append("process-memory acceptance is blocked without observable RSS")
         measurement_ok = False
         acceptance_ok = False
     if partial_reasons:
         failures.extend(f"partial measurement: {reason}" for reason in partial_reasons)
-    outcome = (
-        "invalid"
-        if not structural_ok
-        else ("accepted" if acceptance_ok else "partial")
-    )
+    outcome = "invalid" if not structural_ok else ("accepted" if acceptance_ok else "partial")
     return {
         "ok": structural_ok,
         "structural_ok": structural_ok,
@@ -396,9 +531,14 @@ def validate_report(report: dict) -> dict:
         "acceptance": acceptance_ok,
         "status": outcome,
         "failures": failures,
-        "blocked_reasons": [] if acceptance_ok else ["sustained process-memory acceptance blocked"],
+        "blocked_reasons": []
+        if acceptance_ok
+        else ["sustained process-memory acceptance blocked"],
         "samples": len(samples),
-        "warmup_samples": warmup,
+        "warmup_samples": warmup_samples,
+        "warmup_ms": warmup_ms,
+        "window_start_ms": window_start,
+        "window_end_ms": window_start + (duration_ms or 0),
         "observed_window_ms": observed_span,
         "coverage": coverage,
         "partial_reasons": partial_reasons,

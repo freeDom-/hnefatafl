@@ -55,6 +55,14 @@ PLACEMENTS = (
 )
 WEBGPU_SESSION_PLACEMENTS = ("webgpu-session-unverified", "webgpu-mixed", "webgpu-session-verified")
 PROVIDERS = ("wasm", "webgpu")
+DEVICE_ORIGINS = ("physical", "emulated")
+# Extension point: only instrumentation supported by the pinned runtime may be
+# registered here. The pinned ORT Web build exposes no supported per-operator GPU
+# placement diagnostic, so this registry is intentionally empty and verified-GPU
+# acceptance stays blocked. A future runtime integration registers an explicit
+# source *and* independently produced operator inventory/placement observations.
+SUPPORTED_GPU_EVIDENCE_SOURCES: dict[str, set[str]] = {}
+PINNED_RUNTIME_PREFIX = "ort-web"
 
 
 def _hex64(value):
@@ -87,17 +95,40 @@ def _object(value, label, failures):
     return {}
 
 
+def register_gpu_evidence_source(source: str, runtime_prefix: str) -> None:
+    """Extension point for a future runtime with supported placement diagnostics."""
+    SUPPORTED_GPU_EVIDENCE_SOURCES.setdefault(runtime_prefix, set()).add(source)
+
+
 def _gpu_evidence(record: dict, index: int) -> tuple[bool, list[str]]:
     failures: list[str] = []
     evidence = _object(record.get("gpu_evidence"), f"record {index} gpu_evidence", failures)
     if not evidence:
         return False, failures
-    if evidence.get("evidence_source") != "ort-web-per-operator-v1":
-        failures.append(f"record {index} GPU evidence source is unsupported")
+    runtime = record.get("runtime")
+    source = evidence.get("evidence_source")
+    supported = {
+        registered
+        for prefix, sources in SUPPORTED_GPU_EVIDENCE_SOURCES.items()
+        if isinstance(runtime, str) and runtime.startswith(prefix)
+        for registered in sources
+    }
+    source_supported = isinstance(source, str) and source in supported
+    if not source_supported:
+        failures.append(
+            f"record {index} claims a GPU placement source the pinned runtime "
+            "does not support"
+        )
     if evidence.get("gpu_execution_verified") is not True:
         failures.append(f"record {index} GPU evidence is not verified")
     if evidence.get("all_operators_covered") is not True:
         failures.append(f"record {index} GPU evidence does not claim full operator coverage")
+    graph = _object(evidence.get("graph_optimization"), f"record {index} graph optimization", failures)
+    if graph:
+        if not isinstance(graph.get("level"), str) or not graph["level"]:
+            failures.append(f"record {index} GPU evidence lacks an optimization level")
+        if not isinstance(graph.get("fusion_applied"), bool):
+            failures.append(f"record {index} GPU evidence lacks fusion accounting")
     session = _object(evidence.get("session"), f"record {index} GPU session", failures)
     for field in ("model_sha256", "onnx_sha256"):
         if session.get(field) != record.get(field):
@@ -105,8 +136,16 @@ def _gpu_evidence(record: dict, index: int) -> tuple[bool, list[str]]:
     for field in ("runtime", "workload", "architecture"):
         if session.get(field) != record.get(field):
             failures.append(f"record {index} GPU session {field} does not match the record")
+    if session.get("browser_version") != record.get("browser_version"):
+        failures.append(f"record {index} GPU session browser_version does not match the record")
+    if session.get("session_id") != record.get("session_id"):
+        failures.append(f"record {index} GPU session session_id does not match the record")
     if session.get("provider_requested") != "webgpu":
         failures.append(f"record {index} GPU session did not request WebGPU")
+    if evidence.get("operator_inventory_source") != "runtime-instrumentation":
+        failures.append(f"record {index} operator inventory is not runtime instrumentation")
+    if evidence.get("placement_source") != "runtime-instrumentation":
+        failures.append(f"record {index} placement observations are not runtime instrumentation")
     inventory = evidence.get("operator_inventory")
     placements = evidence.get("per_operator_placement")
     if not isinstance(inventory, list) or not inventory:
@@ -137,7 +176,7 @@ def _gpu_evidence(record: dict, index: int) -> tuple[bool, list[str]]:
         failures.append(f"record {index} per-operator placement does not cover the inventory")
     if inventory and len(observed) != len(inventory):
         failures.append(f"record {index} per-operator placement count does not match inventory")
-    return (not failures and bool(inventory)), failures
+    return (not failures and bool(inventory) and source_supported), failures
 
 
 def _record_failures(record: dict, index: int) -> tuple[list[str], dict]:
@@ -162,6 +201,10 @@ def _record_failures(record: dict, index: int) -> tuple[list[str], dict]:
     for field in ("browser_version", "os", "cpu", "runtime", "architecture", "workload"):
         if not _identifier(record.get(field)):
             failures.append(f"record {index} lacks {field}")
+    if record.get("device_origin") not in DEVICE_ORIGINS:
+        failures.append(f"record {index} lacks explicit physical/emulated device provenance")
+    if not _identifier(record.get("session_id")):
+        failures.append(f"record {index} lacks an execution session identity")
     if not _positive_int(record.get("ram_bytes")):
         failures.append(f"record {index} has invalid ram_bytes")
     if not _hex64(record.get("model_sha256")) or not _hex64(record.get("onnx_sha256")):
@@ -182,6 +225,29 @@ def _record_failures(record: dict, index: int) -> tuple[list[str], dict]:
             or recovery.get("post_cancel_inference") is not True
         ):
             failures.append(f"record {index} cancellation/recovery evidence is incomplete")
+        timestamps = [
+            recovery.get(field)
+            for field in (
+                "cancel_requested_at_ms",
+                "cancel_acknowledged_at_ms",
+                "restart_completed_at_ms",
+                "post_cancel_inference_at_ms",
+            )
+        ]
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or value < 0
+            for value in timestamps
+        ):
+            failures.append(
+                f"record {index} cancellation/recovery evidence lacks observed timestamps"
+            )
+        elif timestamps != sorted(timestamps):
+            failures.append(
+                f"record {index} cancellation/recovery timestamps are not ordered"
+            )
     requested = record.get("provider_requested")
     observed = record.get("execution_placement")
     if requested not in PROVIDERS:
@@ -337,7 +403,21 @@ def validate_report(report: dict) -> dict:
         for platform, provider in REQUIRED_MATRIX
         if provider == "webgpu"
     )
-    acceptance = bool(structural_ok and measurement_complete and verified_gpu)
+    physical_complete = measurement_complete and all(
+        next(
+            (
+                record.get("device_origin")
+                for record in records
+                if isinstance(record, dict)
+                and (record.get("platform"), record.get("provider_requested"))
+                == (platform, provider)
+            ),
+            None,
+        )
+        == "physical"
+        for platform, provider in REQUIRED_MATRIX
+    )
+    acceptance = bool(structural_ok and measurement_complete and physical_complete and verified_gpu)
     if report.get("acceptance") is True and not acceptance:
         failures.append("submitted acceptance contradicts computed device acceptance")
         structural_ok = False
@@ -355,8 +435,14 @@ def validate_report(report: dict) -> dict:
         "ok": structural_ok,
         "structural_ok": structural_ok,
         "measurement_acceptance": bool(measurement_complete),
+        "physical_device_acceptance": bool(physical_complete),
         "webgpu_session_acceptance": bool(webgpu_complete),
         "verified_gpu_acceptance": bool(verified_gpu),
+        "emulated_records": sum(
+            1
+            for record in records
+            if isinstance(record, dict) and record.get("device_origin") == "emulated"
+        ),
         "verified_gpu_blocked_reason": verified_gpu_reason,
         "acceptance": acceptance,
         "failures": failures,

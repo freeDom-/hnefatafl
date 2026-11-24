@@ -24,14 +24,45 @@
     "onnx_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
     "onnx_bytes": 47540,
     "checkpoint_sha256": "1bd02344e570ff071d5682a6c0e88938c8042ac957a6f4103d9e0e1bfde3fb3a",
+    "checkpoint_metadata_sha256": "75c584485007530efc08ed21e5ef8f2a9385c9a50e7a3831d7c43a04490a004f",
+    "checkpoint_metadata": {
+      "keys": [
+        "created_at",
+        "name",
+        "note",
+        "ruleset"
+      ],
+      "name": "structural-smoke-4x0",
+      "note": "minimal synthetic training; structural validation only",
+      "created_at": "2026-11-24T01:01:15.070626+00:00",
+      "version": null
+    },
+    "structural_smoke_checkpoint": true,
+    "training_classification": "structural-smoke",
     "validated_export": true,
     "checkpoint_supplied": true
   },
   "provenance": {
     "training_status": "structural-smoke",
+    "classification_source": "structural-declaration",
+    "training_facts_independently_verified": false,
     "checkpoint_sha256": "1bd02344e570ff071d5682a6c0e88938c8042ac957a6f4103d9e0e1bfde3fb3a",
     "onnx_sha256": "71cd1bf62b6da27f70bbc06c41ab7e2055b630979fab68a563328da132ea7b78",
     "source_weights_sha256": "028517cc28bbb6f8715fef7751c70a4dd4ea0164ef9b835aa8389b0ea17bcb48",
+    "checkpoint_metadata_sha256": null,
+    "checkpoint_metadata": {
+      "keys": [
+        "created_at",
+        "name",
+        "note",
+        "ruleset"
+      ],
+      "name": "structural-smoke-4x0",
+      "note": "minimal synthetic training; structural validation only",
+      "created_at": "2026-11-24T01:01:15.070626+00:00",
+      "version": null
+    },
+    "structural_smoke_checkpoint": true,
     "ruleset": "brandubh",
     "architecture": {
       "channels": 4,
