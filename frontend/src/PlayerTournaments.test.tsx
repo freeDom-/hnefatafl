@@ -40,7 +40,6 @@ const detailFixture: PlayerTournamentDetail = {
   created_at: '2035-01-01T00:00:00Z',
   started_at: '2035-02-01T00:00:00Z',
   completed_at: null,
-  registration_deadline: null,
   scheduled_start_at: null,
   official_winner: null,
   entrants: players.map((player, index) => ({
@@ -385,6 +384,7 @@ it('requires a private administrator reason and uses the actual match participan
 it('rejects duplicate seeds before submitting and leaves the server in control of the bracket', async () => {
   identity.permissions = ['play', 'tournaments'];
   tournament.status = 'registration';
+  tournament.capabilities = { can_create: true, can_start: true, can_moderate: true };
   render(<PlayerTournaments tournamentId="cup-1" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Start tournament' }));
   const dialog = screen.getByRole('dialog');
@@ -469,15 +469,13 @@ it('creates a tournament with a planned start serialized as UTC', async () => {
   fireEvent.change(within(dialog).getByLabelText('Tournament name'), {
     target: { value: 'Winter cup' },
   });
-  for (const [label, time] of [
-    ['Planned start (your local time, optional)', '19:00'],
-  ]) {
-    const picker = within(within(dialog).getByRole('group', { name: label }));
-    fireEvent.change(picker.getByLabelText('Date (YYYY-MM-DD)'), {
-      target: { value: '2035-02-01' },
-    });
-    fireEvent.change(picker.getByLabelText('Time (HH:MM)'), { target: { value: time } });
-  }
+  const picker = within(
+    within(dialog).getByRole('group', { name: 'Planned start (your local time, optional)' }),
+  );
+  fireEvent.change(picker.getByLabelText('Date (YYYY-MM-DD)'), {
+    target: { value: '2035-02-01' },
+  });
+  fireEvent.change(picker.getByLabelText('Time (HH:MM)'), { target: { value: '19:00' } });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Create player tournament' }));
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith(
@@ -563,10 +561,136 @@ it('offers eligible ordinary players creation when the server grants it and subm
 });
 
 it('shows a pending sequential return without inventing a playable link', async () => {
-  bracket.upper[0].matches[1].pending_games = 1;
+  bracket.upper[0].matches[1].return_game_state = 'waiting_for_game';
   render(<PlayerTournaments tournamentId="cup-1" />);
   expect(
     await screen.findByText('Next game available after the previous game finishes.'),
   ).toBeVisible();
   expect(screen.queryByRole('link', { name: 'Game 2' })).not.toBeInTheDocument();
+});
+
+it.each([
+  ['waiting_for_entrants', 'Waiting for more registrations.'],
+  ['waiting_for_start', 'Waiting for the planned start.'],
+  ['start_pending', 'Automatic start pending.'],
+  ['missed_start', /Planned start missed/],
+] as const)('shows the server scheduling state %s', async (state, label) => {
+  tournament.status = 'registration';
+  tournament.scheduled_start_at = '2035-02-01T00:00:00Z';
+  tournament.start_state = state;
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(await screen.findByText(label)).toBeVisible();
+});
+
+it('renders server round counts, held matches and return-game settlement in both bracket views', async () => {
+  bracket.round_progress = { number: 1, finished_matches: 1, outstanding_matches: 1 };
+  bracket.upper[1].matches[0].waiting_for_round = true;
+  bracket.upper[0].matches[1].return_game_state = 'awaiting_settlement';
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(await screen.findByText('Tournament round 1 · 1 finished · 1 outstanding')).toBeVisible();
+  expect(screen.getByText('Waiting for the current round to finish')).toBeVisible();
+  expect(screen.getByText('Next game awaiting settlement of the previous game.')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Accessible match list' }));
+  expect(screen.getByText('Waiting for the current round to finish')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Game 2' })).not.toBeInTheDocument();
+});
+
+it('identifies unassigned bracket slots and omits links in the provisional list and graph', async () => {
+  tournament.status = bracket.status = 'registration';
+  tournament.capabilities = { can_create: false, can_start: false, can_moderate: false };
+  bracket.preview = true;
+  bracket.upper[0].matches = [match('u1', 'upper', 1, 'seed:1', 'seed:4')];
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(await screen.findByText(/Provisional bracket based on maximum entrants/)).toBeVisible();
+  expect(screen.getByText('Unassigned seed 1')).toBeVisible();
+  expect(screen.queryByRole('link', { name: /Game \d/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Accessible match list' }));
+  expect(screen.getByText('Unassigned seed 1')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Reschedule tournament' })).not.toBeInTheDocument();
+});
+
+it('requires a future replacement and submits UTC once when an eligible creator reschedules', async () => {
+  tournament.status = 'registration';
+  tournament.scheduled_start_at = '2035-02-01T00:00:00Z';
+  tournament.capabilities = {
+    can_create: false,
+    can_start: false,
+    can_moderate: false,
+    can_reschedule: true,
+  };
+  const original = vi.mocked(api).getMockImplementation()!;
+  let resolve: () => void = () => {};
+  vi.mocked(api).mockImplementation((path, ...rest) =>
+    path.endsWith('/reschedule')
+      ? new Promise((done) => {
+          resolve = () => done(tournament as never);
+        })
+      : original(path, ...rest),
+  );
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Reschedule tournament' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText(/^Current planned start is /)).toBeVisible();
+  const button = dialog.getByRole('button', { name: 'Reschedule tournament' });
+  const date = dialog.getByLabelText('Date (YYYY-MM-DD)');
+  const time = dialog.getByLabelText('Time (HH:MM)');
+  expect(date).toHaveValue('');
+  fireEvent.click(button);
+  expect(dialog.getByRole('alert')).toHaveTextContent('Enter a valid date and time.');
+  fireEvent.change(date, { target: { value: '2000-02-01' } });
+  fireEvent.click(button);
+  expect(dialog.getByRole('alert')).toHaveTextContent('The planned start must be in the future.');
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/reschedule'))).toHaveLength(
+    0,
+  );
+  fireEvent.change(date, { target: { value: '2035-02-02' } });
+  fireEvent.change(time, { target: { value: '19:30' } });
+  fireEvent.submit(button.closest('form')!);
+  fireEvent.submit(button.closest('form')!);
+  expect(button).toBeDisabled();
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/reschedule'))).toEqual([
+    [
+      '/player-tournaments/cup-1/reschedule',
+      { version: 7, scheduled_start_at: new Date('2035-02-02T19:30').toISOString() },
+      'POST',
+      expect.any(AbortSignal),
+    ],
+  ]);
+  await act(async () => resolve());
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+it('keeps the schedule and version under review while polling and reports a stale reschedule', async () => {
+  tournament.status = 'registration';
+  tournament.scheduled_start_at = '2035-02-01T00:00:00Z';
+  tournament.capabilities = {
+    can_create: false,
+    can_start: false,
+    can_moderate: false,
+    can_reschedule: true,
+  };
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, ...rest) =>
+    path.endsWith('/reschedule')
+      ? Promise.reject(new Error('This tournament changed. Reload before retrying.'))
+      : original(path, ...rest),
+  );
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Reschedule tournament' }));
+  const dialog = within(screen.getByRole('dialog'));
+  const currentStart = dialog.getByText(/^Current planned start is /).textContent;
+  tournament.version = bracket.version = 8;
+  tournament.scheduled_start_at = '2035-02-03T00:00:00Z';
+  fireEvent.change(dialog.getByLabelText('Date (YYYY-MM-DD)'), { target: { value: '2035-02-02' } });
+  fireEvent.click(dialog.getByRole('button', { name: 'Reschedule tournament' }));
+  expect(await dialog.findByRole('alert')).toHaveTextContent(
+    'This tournament changed. Reload before retrying.',
+  );
+  expect(dialog.getByText(/^Current planned start is /)).toHaveTextContent(currentStart!);
+  expect(api).toHaveBeenCalledWith(
+    '/player-tournaments/cup-1/reschedule',
+    expect.objectContaining({ version: 7 }),
+    'POST',
+    expect.any(AbortSignal),
+  );
 });

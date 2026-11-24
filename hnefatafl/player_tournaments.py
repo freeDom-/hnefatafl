@@ -45,6 +45,7 @@ MAX_DAILY_CREATED = 5
 DISPLACED_GAME_NOTE = "Tournament bracket rebuild detached this game."
 
 BRACKET_ORDER = {"upper": 0, "lower": 1, "grand_final": 2, "reset": 3}
+TERMINAL_MATCHES = ("complete", "bye")
 
 
 def power_of_two_at_least(value: int) -> int:
@@ -263,7 +264,7 @@ class PlayerTournaments:
                 raise OnlineError(422, "The planned start must be in the future.")
             identifier = "ptournament-" + uuid4().hex
             c.execute(
-                "INSERT INTO player_tournaments(id,name,ruleset,format,status,review_state,capacity,match_legs,time_per_move,registration_deadline,created_by,created_at,version) VALUES(?,?,?,'double_elimination','registration','ok',?,?,?,?,?,?,0)",
+                "INSERT INTO player_tournaments(id,name,ruleset,format,status,review_state,capacity,match_legs,time_per_move,created_by,created_at,version) VALUES(?,?,?,'double_elimination','registration','ok',?,?,?,?,?,0)",
                 (
                     identifier,
                     name,
@@ -271,7 +272,6 @@ class PlayerTournaments:
                     capacity,
                     2,
                     time_per_move,
-                    None,
                     account["id"],
                     micros(now),
                 ),
@@ -313,30 +313,31 @@ class PlayerTournaments:
             and count >= row["capacity"]
         )
 
-    def _capabilities(self, c, account, row=None, *, entrant_count=None):
+    def _capabilities(self, c, account, row=None, *, entrants=(), now=None):
         admin = allowed(account, "tournaments")
         eligible = online_eligible(account)
-        creator_can_start = False
-        now = self._now()
-        if row is not None and eligible and row["created_by"] == account["id"]:
-            if entrant_count is None:
-                entrant_count = c.execute(
-                    "SELECT COUNT(*) FROM player_tournament_entrants WHERE tournament_id=? AND status='registered'",
-                    (row["id"],),
-                ).fetchone()[0]
-            creator_can_start = not self._creator_must_wait(row, entrant_count, now)
+        now = now if now is not None else self._now()
+        registration = row is not None and row["status"] == "registration"
+        creator = row is not None and eligible and row["created_by"] == account["id"]
         return {
             "can_create": (admin or eligible) and self._creation_available(c, account, now),
             "can_start": bool(
-                row is not None and row["status"] == "registration" and (admin or creator_can_start)
+                registration
+                and len(entrants) >= 2
+                and (admin or (creator and not self._creator_must_wait(row, len(entrants), now)))
+                and all(online_eligible(entry) for entry in entrants)
             ),
-            "can_reschedule": bool(
-                row is not None
-                and row["status"] == "registration"
-                and (admin or (eligible and row["created_by"] == account["id"]))
-            ),
+            "can_reschedule": registration and (admin or creator),
             "can_moderate": admin,
         }
+
+    @staticmethod
+    def _consume_schedule(c, identifier: str) -> None:
+        c.execute(
+            """UPDATE player_tournaments SET start_due_at=NULL,start_attempts=0,start_error=NULL
+            WHERE id=? AND start_due_at IS NOT NULL""",
+            (identifier,),
+        )
 
     def register(self, credential: str, identifier: str) -> dict:
         with self._write() as c:
@@ -375,10 +376,7 @@ class PlayerTournaments:
             # Missing the planned start requires a new schedule or a manual start.
             # Do not re-arm a consumed start when a later entrant fills the cup.
             if row["scheduled_start_at"] is not None and micros(now) > row["scheduled_start_at"]:
-                c.execute(
-                    "UPDATE player_tournaments SET start_due_at=NULL,start_error=NULL WHERE id=?",
-                    (identifier,),
-                )
+                self._consume_schedule(c, identifier)
             self._audit(c, identifier, account["id"], "registered", now)
             return self._detail(c, identifier, account)
 
@@ -400,10 +398,7 @@ class PlayerTournaments:
                 (micros(now), identifier, account["id"]),
             )
             if row["scheduled_start_at"] is not None and micros(now) >= row["scheduled_start_at"]:
-                c.execute(
-                    "UPDATE player_tournaments SET start_due_at=NULL,start_error=NULL WHERE id=?",
-                    (identifier,),
-                )
+                self._consume_schedule(c, identifier)
             self._audit(c, identifier, account["id"], "withdrawn", now)
             self._bump(c, identifier, row["version"])
             return self._detail(c, identifier, account)
@@ -433,12 +428,16 @@ class PlayerTournaments:
                 raise OnlineError(422, "The planned start must be in the future.")
             c.execute(
                 """UPDATE player_tournaments SET scheduled_start_at=?,start_due_at=?,
-                start_attempts=0,start_error=NULL WHERE id=?""",
+                schedule_version=schedule_version+1,start_attempts=0,start_error=NULL WHERE id=?""",
                 (scheduled, scheduled, identifier),
             )
             self._bump(c, identifier, version)
             self._audit(
-                c, identifier, account["id"], "rescheduled", now,
+                c,
+                identifier,
+                account["id"],
+                "rescheduled",
+                now,
                 details={"scheduled_start_at": stamp(instant(scheduled))},
             )
             return self._detail(c, identifier, account)
@@ -474,6 +473,14 @@ class PlayerTournaments:
             (identifier,),
         ).fetchall()
         registered = [entry["id"] for entry in entrants]
+        if source == "automatic" and (
+            row["scheduled_start_at"] is None
+            or row["scheduled_start_at"] > micros(now)
+            or row["start_due_at"] is None
+            or row["start_due_at"] > micros(now)
+            or len(registered) != row["capacity"]
+        ):
+            raise OnlineError(409, "This tournament is not due to start automatically.")
         if len(registered) < 2:
             raise OnlineError(409, "At least two registered entrants are required.")
         if any(not online_eligible(dict(entry)) for entry in entrants):
@@ -499,10 +506,16 @@ class PlayerTournaments:
                 (index, identifier, account_id),
             )
         size = power_of_two_at_least(len(ordered))
+        progression = (
+            "synchronized"
+            if row["match_mode"] in ("sequential", "simultaneous") and row["match_legs"] == 2
+            else "independent"
+        )
         c.execute(
             """UPDATE player_tournaments SET status='running',started_at=?,bracket_size=?,
-                  start_due_at=NULL,start_error=NULL,version=version+1 WHERE id=? AND version=? AND status='registration'""",
-            (micros(now), size, identifier, row["version"]),
+                  progression_policy=?,start_due_at=NULL,start_attempts=0,start_error=NULL,
+                  version=version+1 WHERE id=? AND version=? AND status='registration'""",
+            (micros(now), size, progression, identifier, row["version"]),
         )
         if c.execute("SELECT changes()").fetchone()[0] != 1:
             raise OnlineError(409, "This tournament changed. Reload before retrying.")
@@ -515,7 +528,7 @@ class PlayerTournaments:
             now,
             details={"entrants": len(ordered), "bracket_size": size, "source": source},
         )
-        self._advance(c, identifier, actor_id, now)
+        self._advance(c, identifier, now)
 
     def cancel(self, credential: str, identifier: str, version: int) -> dict:
         with self._write() as c:
@@ -553,11 +566,11 @@ class PlayerTournaments:
             )
             return self._detail(c, identifier, account)
 
-    def settle_committed(self, c, identifier: str, actor_id: str | None, now: datetime):
+    def settle_committed(self, c, identifier: str, now: datetime):
         """Advance and invalidate reviewed snapshots only when bracket data changes."""
         version = self._load(c, identifier)["version"]
         before = c.total_changes
-        self._advance(c, identifier, actor_id, now)
+        self._advance(c, identifier, now)
         if c.total_changes != before and self._load(c, identifier)["version"] == version:
             self._bump(c, identifier, version)
 
@@ -586,7 +599,7 @@ class PlayerTournaments:
                     (identifier,),
                 ).fetchone()
             ):
-                self.settle_committed(c, identifier, account["id"], self._now())
+                self.settle_committed(c, identifier, self._now())
                 c.execute(
                     "DELETE FROM player_tournament_settlement_queue WHERE tournament_id=?",
                     (identifier,),
@@ -611,7 +624,7 @@ class PlayerTournaments:
             ).fetchone()
             if match is None:
                 raise OnlineError(404, "Tournament match not found.")
-            if match["status"] == "disputed":
+            if row["review_state"] == "disputed":
                 raise OnlineError(409, "Rebuild the bracket before overriding a disputed match.")
             if match["status"] != "ready":
                 raise OnlineError(409, "Only a ready match can be overridden.")
@@ -623,7 +636,10 @@ class PlayerTournaments:
             actor = lifecycle.Actor(account["id"], True)
             void_note = ("Tournament match override: " + note)[:1000]
             for leg in c.execute(
-                "SELECT game_id FROM player_tournament_legs WHERE match_id=?", (match_id,)
+                """SELECT l.game_id FROM player_tournament_legs l
+                JOIN online_games g ON g.id=l.game_id
+                WHERE l.match_id=? AND g.status IN ('waiting','active')""",
+                (match_id,),
             ).fetchall():
                 self.online.void_game(c, leg["game_id"], actor, void_note, now)
             loser = (
@@ -648,7 +664,7 @@ class PlayerTournaments:
                 note=note,
                 details={"winner": winner},
             )
-            self._advance(c, identifier, account["id"], now)
+            self._advance(c, identifier, now)
             return self._detail(c, identifier, account)
 
     def rebuild(self, credential: str, identifier: str, version: int, note: str) -> dict:
@@ -662,39 +678,14 @@ class PlayerTournaments:
             if row["status"] != "running":
                 raise OnlineError(409, "Only a running tournament can be rebuilt.")
             now = self._now()
-            # Deterministic match identities keep valid legs attached; only the
-            # derived participants/results and any bracket reset are discarded.
-            # A reset's outstanding game is detached here, so retire it before
-            # the reset is deleted or it would stay playable outside the bracket.
-            reset_games = [
-                leg["game_id"]
-                for leg in c.execute(
-                    """SELECT l.game_id FROM player_tournament_legs l
-                       JOIN player_tournament_matches m ON m.id=l.match_id
-                       WHERE m.tournament_id=? AND m.bracket='reset'""",
-                    (identifier,),
-                )
-            ]
-            c.execute(
-                "DELETE FROM player_tournament_legs WHERE match_id IN (SELECT id FROM player_tournament_matches WHERE tournament_id=? AND bracket='reset')",
-                (identifier,),
-            )
-            c.execute(
-                "DELETE FROM player_tournament_matches WHERE tournament_id=? AND bracket='reset'",
-                (identifier,),
-            )
-            retired = self._retire(c, reset_games, account["id"], now)
-            c.execute(
-                "UPDATE player_tournament_matches SET status='pending',participant_a=NULL,participant_b=NULL,winner=NULL,loser=NULL,decided_by=NULL,settled_at=NULL WHERE tournament_id=?",
-                (identifier,),
-            )
+            retired = self._reconcile_bracket(c, row, account["id"], now)
             c.execute(
                 "UPDATE player_tournaments SET review_state='ok',version=version+1 WHERE id=? AND version=?",
                 (identifier, version),
             )
             if c.execute("SELECT changes()").fetchone()[0] != 1:
                 raise OnlineError(409, "This tournament changed. Reload before retrying.")
-            retired += self._advance(c, identifier, account["id"], now)
+            self._advance(c, identifier, now)
             self._audit(
                 c,
                 identifier,
@@ -718,22 +709,24 @@ class PlayerTournaments:
         def new(bracket, round_, slot, source_a, source_b):
             match_id = f"{identifier}:{bracket}:{round_}:{slot}"
             if preview:
-                preview_matches.append({
-                    "id": match_id,
-                    "bracket": bracket,
-                    "round": round_,
-                    "slot": slot,
-                    "source_a": source_a,
-                    "source_b": source_b,
-                    "status": "pending",
-                    "participant_a": None,
-                    "participant_b": None,
-                    "winner": None,
-                    "loser": None,
-                    "decided_by": None,
-                    "created_at": at,
-                    "settled_at": None,
-                })
+                preview_matches.append(
+                    {
+                        "id": match_id,
+                        "bracket": bracket,
+                        "round": round_,
+                        "slot": slot,
+                        "source_a": source_a,
+                        "source_b": source_b,
+                        "status": "pending",
+                        "participant_a": None,
+                        "participant_b": None,
+                        "winner": None,
+                        "loser": None,
+                        "decided_by": None,
+                        "created_at": at,
+                        "settled_at": None,
+                    }
+                )
                 return match_id
             c.execute(
                 "INSERT INTO player_tournament_matches(id,tournament_id,bracket,round,slot,status,source_a,source_b,created_at) VALUES(?,?,?,?,?,'pending',?,?,?)",
@@ -827,15 +820,35 @@ class PlayerTournaments:
     # -- advancement ------------------------------------------------------
 
     @staticmethod
-    def _match_wave(match, size: int) -> int:
-        """Global play rounds: upper N and lower N-1 share a wave."""
+    def _global_round(match, size: int) -> int:
+        """Upper round N and lower round N-1 share a global round."""
         bracket = match["bracket"]
         if bracket == "upper":
             return match["round"]
         if bracket == "lower":
             return match["round"] + 1
-        final_wave = max(_rounds(size), len(_lower_rounds(size)) + 1) + 1
-        return final_wave + (bracket == "reset")
+        final_round = 2 * _rounds(size)
+        return final_round + (bracket == "reset")
+
+    @staticmethod
+    def _ordered_matches(c, identifier: str) -> list[sqlite3.Row]:
+        return sorted(
+            c.execute(
+                "SELECT * FROM player_tournament_matches WHERE tournament_id=?", (identifier,)
+            ),
+            key=lambda row: (BRACKET_ORDER[row["bracket"]], row["round"], row["slot"]),
+        )
+
+    @staticmethod
+    def _seeded_entrants(c, identifier: str) -> tuple[list[str], dict[str, int]]:
+        seeds = {
+            entry["account_id"]: entry["seed"]
+            for entry in c.execute(
+                "SELECT account_id,seed FROM player_tournament_entrants WHERE tournament_id=? AND seed IS NOT NULL ORDER BY seed",
+                (identifier,),
+            )
+        }
+        return list(seeds), seeds
 
     def _resolve(self, c, ordered: list[str], source: str):
         kind, _, value = source.partition(":")
@@ -847,13 +860,20 @@ class PlayerTournaments:
         ).fetchone()
         if feeder is None:
             raise OnlineError(409, "Stored tournament state requires operator review.")
-        if feeder["status"] not in ("bye", "complete"):
+        if feeder["status"] not in TERMINAL_MATCHES:
             return UNRESOLVED
         return feeder["winner"] if kind == "winner" else feeder["loser"]
 
     def _resolve_sources(self, c, ordered, row):
         if row["bracket"] == "reset":
-            return row["participant_a"], row["participant_b"]
+            final = c.execute(
+                "SELECT * FROM player_tournament_matches WHERE id=?",
+                (row["source_a"].partition(":")[2],),
+            ).fetchone()
+            if final is not None and final["status"] == "complete":
+                if final["winner"] == final["participant_b"]:
+                    return final["participant_a"], final["participant_b"]
+            return None
         first = self._resolve(c, ordered, row["source_a"])
         if first is UNRESOLVED:
             return None
@@ -862,52 +882,57 @@ class PlayerTournaments:
             return None
         return first, second
 
-    def _retire(self, c, game_ids: list[str], actor_id: str | None, now: datetime) -> int:
-        """Void live games that a rebuild or reseat detached from the bracket.
+    @staticmethod
+    def _leg_seats(participants, leg: int):
+        return participants if leg % 2 == 1 else participants[::-1]
 
-        Displaced games are retired through the authoritative online lifecycle so
-        they can no longer be played, settled or expired. A game that already
-        reached a terminal state keeps its immutable result and audit history;
-        only the leg link is removed.
-        """
-        if game_ids and actor_id is None:
-            raise OnlineError(409, "Displaced tournament games require administrator review.")
-        actor = lifecycle.Actor(actor_id, True) if actor_id is not None else None
+    def _reconcile_legs(self, c, match, participants, tournament, actor, now: datetime) -> int:
+        """Keep proven role assignments and retire displaced live games before commit."""
         retired = 0
-        for game_id in game_ids:
-            row = c.execute("SELECT status FROM online_games WHERE id=?", (game_id,)).fetchone()
-            if row is None or row["status"] not in ("waiting", "active"):
-                continue
-            assert actor is not None
-            if self.online.void_game(c, game_id, actor, DISPLACED_GAME_NOTE, now):
-                retired += 1
-        return retired
-
-    def _prepare_legs(
-        self, c, identifier: str, match, actor_id: str | None, now: datetime, *, tournament=None
-    ) -> int:
-        participants = {match["participant_a"], match["participant_b"]}
-        displaced: list[str] = []
-        existing = set()
-        statuses = {}
+        finished_legs: set[int] = set()
         for leg in c.execute(
             """SELECT l.*,g.attackers_id AS game_attackers,g.defenders_id AS game_defenders,g.status AS game_status
             FROM player_tournament_legs l LEFT JOIN online_games g ON g.id=l.game_id WHERE l.match_id=? ORDER BY l.leg""",
             (match["id"],),
         ).fetchall():
-            if {leg["game_attackers"], leg["game_defenders"]} != participants:
-                c.execute(
-                    "DELETE FROM player_tournament_legs WHERE match_id=? AND leg=?",
-                    (match["id"], leg["leg"]),
+            index, status = leg["leg"], leg["game_status"]
+            seats = self._leg_seats(participants, index) if participants else None
+            live = status in ("waiting", "active")
+            if (
+                seats is not None
+                and None not in seats
+                and index <= tournament["match_legs"]
+                and seats == (leg["game_attackers"], leg["game_defenders"])
+                and seats == (leg["attackers_id"], leg["defenders_id"])
+                and (
+                    not live
+                    or tournament["match_mode"] != "sequential"
+                    or index == 1
+                    or index - 1 in finished_legs
                 )
-                displaced.append(leg["game_id"])
-            else:
-                existing.add(leg["leg"])
-                statuses[leg["leg"]] = leg["game_status"]
-        retired = self._retire(c, displaced, actor_id, now)
-        tournament = tournament if tournament is not None else self._load(c, identifier)
+            ):
+                if status in ("completed", "voided"):
+                    finished_legs.add(index)
+                continue
+            c.execute(
+                "DELETE FROM player_tournament_legs WHERE match_id=? AND leg=?",
+                (match["id"], index),
+            )
+            if live and self.online.void_game(c, leg["game_id"], actor, DISPLACED_GAME_NOTE, now):
+                retired += 1
+        return retired
+
+    def _prepare_legs(self, c, tournament, match, now: datetime) -> None:
+        statuses = dict(
+            c.execute(
+                """SELECT l.leg,g.status FROM player_tournament_legs l
+                JOIN online_games g ON g.id=l.game_id WHERE l.match_id=?""",
+                (match["id"],),
+            )
+        )
+        participants = (match["participant_a"], match["participant_b"])
         for index in range(1, tournament["match_legs"] + 1):
-            if index in existing:
+            if index in statuses:
                 continue
             if tournament["match_mode"] == "sequential" and index > 1:
                 if statuses.get(index - 1) not in ("completed", "voided"):
@@ -927,13 +952,10 @@ class PlayerTournaments:
                 now=now,
                 request_id=f"tournament:{match['id']}:{index}:{uuid4().hex}",
             )
-            attackers = match["participant_a"] if side == "attackers" else match["participant_b"]
-            defenders = match["participant_b"] if side == "attackers" else match["participant_a"]
             c.execute(
                 "INSERT INTO player_tournament_legs(match_id,leg,game_id,attackers_id,defenders_id,created_at) VALUES(?,?,?,?,?,?)",
-                (match["id"], index, game_id, attackers, defenders, micros(now)),
+                (match["id"], index, game_id, *self._leg_seats(participants, index), micros(now)),
             )
-        return retired
 
     def _settle_legs(self, c, match, now: datetime) -> bool:
         changed = False
@@ -1006,12 +1028,10 @@ class PlayerTournaments:
         if c.execute("SELECT 1 FROM player_tournament_matches WHERE id=?", (reset_id,)).fetchone():
             return
         c.execute(
-            "INSERT INTO player_tournament_matches(id,tournament_id,bracket,round,slot,status,participant_a,participant_b,source_a,source_b,created_at) VALUES(?,?,'reset',1,0,'ready',?,?,?,?,?)",
+            "INSERT INTO player_tournament_matches(id,tournament_id,bracket,round,slot,status,source_a,source_b,created_at) VALUES(?,?,'reset',1,0,'pending',?,?,?)",
             (
                 reset_id,
                 identifier,
-                final["participant_a"],
-                final["participant_b"],
                 f"grand_final:{final['id']}",
                 f"grand_final:{final['id']}",
                 micros(now),
@@ -1044,111 +1064,127 @@ class PlayerTournaments:
             details={"reason": "authoritative result revision changed"},
         )
 
-    def _advance(self, c, identifier: str, actor_id: str | None, now: datetime) -> int:
-        """Derive the bracket; returns the number of displaced games retired."""
+    def _record_participants(self, c, match, participants, now: datetime):
+        first, second = participants
+        if first is None or second is None:
+            c.execute(
+                """UPDATE player_tournament_matches SET participant_a=?,participant_b=?,
+                   status='bye',winner=?,loser=NULL,decided_by='bye',settled_at=? WHERE id=?""",
+                (first, second, first or second, micros(now), match["id"]),
+            )
+            return None
+        if participants != (match["participant_a"], match["participant_b"]):
+            c.execute(
+                "UPDATE player_tournament_matches SET participant_a=?,participant_b=? WHERE id=?",
+                (first, second, match["id"]),
+            )
+        return dict(match, participant_a=first, participant_b=second)
+
+    def _finish_match(self, c, tournament, match, seeds, now: datetime) -> bool:
+        self._settle_legs(c, match, now)
+        legs = c.execute(
+            "SELECT * FROM player_tournament_legs WHERE match_id=? ORDER BY leg",
+            (match["id"],),
+        ).fetchall()
+        if len(legs) == tournament["match_legs"] and all(
+            leg["outcome"] is not None for leg in legs
+        ):
+            self._decide_from_legs(c, tournament["id"], match, legs, seeds, now)
+            return True
+        return False
+
+    def _reconcile_bracket(self, c, tournament, actor_id: str, now: datetime) -> int:
+        """Re-derive proven seats and results in feeder order, without seating new games."""
+        identifier = tournament["id"]
+        ordered, seeds = self._seeded_entrants(c, identifier)
+        actor = lifecycle.Actor(actor_id, True)
+        replay_reset = c.execute(
+            """SELECT 1 FROM player_tournament_matches
+            WHERE tournament_id=? AND bracket='reset' AND status='disputed'""",
+            (identifier,),
+        ).fetchone()
+        c.execute(
+            """UPDATE player_tournament_matches SET status='pending',participant_a=NULL,
+            participant_b=NULL,winner=NULL,loser=NULL,decided_by=NULL,settled_at=NULL
+            WHERE tournament_id=?""",
+            (identifier,),
+        )
+        retired = 0
+        for match in self._ordered_matches(c, identifier):
+            participants = self._resolve_sources(c, ordered, match)
+            is_reset = match["bracket"] == "reset"
+            # A correction to the deciding reset itself requires replay. An
+            # unaffected reset can keep its original games if still required.
+            retained_seats = None if is_reset and replay_reset else participants
+            retired += self._reconcile_legs(c, match, retained_seats, tournament, actor, now)
+            if participants is None:
+                if is_reset:
+                    c.execute("DELETE FROM player_tournament_matches WHERE id=?", (match["id"],))
+                continue
+            resolved = self._record_participants(c, match, participants, now)
+            if resolved is not None:
+                self._finish_match(c, tournament, resolved, seeds, now)
+        return retired
+
+    def _current_round(self, tournament, matches) -> int | None:
+        if tournament["progression_policy"] != "synchronized" or tournament["status"] != "running":
+            return None
+        return min(
+            (
+                self._global_round(match, tournament["bracket_size"])
+                for match in matches
+                if match["status"] not in TERMINAL_MATCHES
+            ),
+            default=None,
+        )
+
+    def _advance(self, c, identifier: str, now: datetime) -> None:
+        """Open eligible matches and apply authoritative results under the writer lock."""
         tournament = self._load(c, identifier)
         if tournament["review_state"] != "ok":
-            # Bracket-wide freeze: a disputed tournament creates no new games or
-            # downstream matches and does not advance any branch, including
-            # unaffected ones, until a rebuild re-derives it.
-            return 0
-        retired = 0
-        seeds = {
-            entry["account_id"]: entry["seed"]
-            for entry in c.execute(
-                "SELECT account_id,seed FROM player_tournament_entrants WHERE tournament_id=?",
-                (identifier,),
-            )
-        }
-        assigned = [value for value in seeds.values() if value is not None]
-        ordered: list[str] = [""] * (max(assigned) if assigned else 0)
-        for account_id, seed in seeds.items():
-            if seed is not None:
-                ordered[seed - 1] = account_id
-        total = c.execute(
-            "SELECT COUNT(*) FROM player_tournament_matches WHERE tournament_id=?", (identifier,)
-        ).fetchone()[0]
-        changed, guard = True, 0
-        while changed and guard <= 2 * total + 16:
-            changed = False
-            guard += 1
-            rows = c.execute(
-                "SELECT * FROM player_tournament_matches WHERE tournament_id=? ORDER BY CASE bracket WHEN 'upper' THEN 0 WHEN 'lower' THEN 1 WHEN 'grand_final' THEN 2 ELSE 3 END, round, slot",
-                (identifier,),
-            ).fetchall()
-            # Legacy formats keep their historical independent advancement.
-            # Modern matches open in global waves, not as soon as an individual
-            # feeder happens to finish. Already active games can still settle.
-            wave = None
-            if tournament["match_mode"] in ("sequential", "simultaneous"):
-                wave = min(
-                    (
-                        self._match_wave(match, tournament["bracket_size"])
-                        for match in rows
-                        if match["status"] not in ("complete", "bye")
-                    ),
-                    default=None,
-                )
-            for row in rows:
-                if row["status"] == "complete":
-                    # An administrative decision is independent of the recorded
-                    # legs, so settling them never reopens it.
-                    if self._settle_legs(c, row, now) and row["decided_by"] != "admin_override":
-                        self._dispute(c, identifier, row, now)
-                        # Freeze the whole bracket now that review is required.
-                        return retired
-                    continue
-                if row["status"] in ("bye", "disputed"):
+            return
+        ordered, seeds = self._seeded_entrants(c, identifier)
+        rows = self._ordered_matches(c, identifier)
+        # Check corrections before opening any games, including on another
+        # branch whose last result arrived in the same settlement batch.
+        for match in rows:
+            if match["status"] != "complete":
+                continue
+            if self._settle_legs(c, match, now) and match["decided_by"] != "admin_override":
+                self._dispute(c, identifier, match, now)
+                return
+        while True:
+            current_round = self._current_round(tournament, rows)
+            decided = False
+            for match in rows:
+                if match["status"] not in ("pending", "ready"):
                     continue
                 if (
-                    wave is not None
-                    and row["status"] == "pending"
-                    and self._match_wave(row, tournament["bracket_size"]) > wave
+                    current_round is not None
+                    and self._global_round(match, tournament["bracket_size"]) != current_round
                 ):
                     continue
-                resolution = self._resolve_sources(c, ordered, row)
-                if resolution is None:
+                participants = self._resolve_sources(c, ordered, match)
+                if participants is None:
                     continue
-                first, second = resolution
-                if (first, second) != (row["participant_a"], row["participant_b"]):
-                    c.execute(
-                        "UPDATE player_tournament_matches SET participant_a=?,participant_b=? WHERE id=?",
-                        (first, second, row["id"]),
-                    )
-                    row = c.execute(
-                        "SELECT * FROM player_tournament_matches WHERE id=?", (row["id"],)
-                    ).fetchone()
-                    changed = True
-                if first is None or second is None:
-                    c.execute(
-                        "UPDATE player_tournament_matches SET status='bye',winner=?,loser=NULL,decided_by='bye',settled_at=? WHERE id=?",
-                        (first or second, micros(now), row["id"]),
-                    )
-                    changed = True
+                resolved = self._record_participants(c, match, participants, now)
+                if resolved is None:
+                    decided = True
                     continue
-                if row["status"] == "pending":
+                if match["status"] == "pending":
                     c.execute(
                         "UPDATE player_tournament_matches SET status='ready' WHERE id=?",
-                        (row["id"],),
+                        (match["id"],),
                     )
-                    changed = True
-                    continue
-                retired += self._prepare_legs(
-                    c, identifier, row, actor_id, now, tournament=tournament
-                )
-                if self._settle_legs(c, row, now):
-                    changed = True
-                legs = c.execute(
-                    "SELECT * FROM player_tournament_legs WHERE match_id=? ORDER BY leg",
-                    (row["id"],),
-                ).fetchall()
-                if len(legs) == tournament["match_legs"] and all(
-                    leg["outcome"] is not None for leg in legs
-                ):
-                    self._decide_from_legs(c, identifier, row, legs, seeds, now)
-                    changed = True
+                self._prepare_legs(c, tournament, resolved, now)
+                if self._finish_match(c, tournament, resolved, seeds, now):
+                    decided = True
+            # The next pass can only open if this one decided a match or bye.
+            # Reading again also includes a reset just created by the final.
+            if not decided:
+                break
+            rows = self._ordered_matches(c, identifier)
         self._finalize(c, identifier, now)
-        return retired
 
     def _finalize(self, c, identifier: str, now: datetime) -> None:
         row = self._load(c, identifier)
@@ -1193,7 +1229,21 @@ class PlayerTournaments:
             return None
         return {"account_id": account_id, **accounts.get(account_id, {"name": ""})}
 
-    def _summary(self, c, row, accounts=None) -> dict:
+    @staticmethod
+    def _start_state(row, entrants: int, now: datetime) -> str | None:
+        if row["status"] != "registration":
+            return None
+        planned = row["scheduled_start_at"]
+        if planned is None:
+            return "waiting_for_entrants" if entrants < 2 else "manual_start"
+        full = entrants == row["capacity"]
+        if row["start_due_at"] is None or (not full and micros(now) > planned):
+            return "missed_start"
+        if not full:
+            return "waiting_for_entrants"
+        return "waiting_for_start" if micros(now) < planned else "start_pending"
+
+    def _summary(self, c, row, accounts=None, *, now: datetime) -> dict:
         entrants = (
             row["entrant_count"]
             if "entrant_count" in row.keys()
@@ -1218,10 +1268,11 @@ class PlayerTournaments:
             "increment_seconds": row["increment_seconds"],
             "match_mode": row["match_mode"],
             "created_by": row["created_by"],
+            "progression_policy": row["progression_policy"],
             "bracket_size": row["bracket_size"],
             "entrant_count": entrants,
-            "registration_open": row["status"] == "registration"
-            and entrants < row["capacity"],
+            "registration_open": row["status"] == "registration" and entrants < row["capacity"],
+            "start_state": self._start_state(row, entrants, now),
             "version": row["version"],
             "created_at": stamp(instant(row["created_at"])),
             "started_at": stamp(instant(row["started_at"])) if row["started_at"] else None,
@@ -1237,14 +1288,17 @@ class PlayerTournaments:
     def _detail(self, c, identifier: str, account=None) -> dict:
         row = self._load(c, identifier)
         entrants = c.execute(
-            "SELECT * FROM player_tournament_entrants WHERE tournament_id=? AND status='registered' ORDER BY seed,registered_at,account_id",
+            """SELECT e.*,a.active,a.role,a.email_verified_at FROM player_tournament_entrants e
+            JOIN accounts a ON a.id=e.account_id WHERE e.tournament_id=? AND e.status='registered'
+            ORDER BY e.seed,e.registered_at,e.account_id""",
             (identifier,),
         ).fetchall()
+        now = self._now()
         accounts = self._accounts(c, [row["official_winner"], *[e["account_id"] for e in entrants]])
-        detail = self._summary(c, row, accounts)
+        detail = self._summary(c, row, accounts, now=now)
         if account is not None:
             detail["capabilities"] = self._capabilities(
-                c, account, row, entrant_count=detail["entrant_count"]
+                c, account, row, entrants=[dict(entry) for entry in entrants], now=now
             )
         losses = dict(
             c.execute(
@@ -1291,6 +1345,7 @@ class PlayerTournaments:
         with self.store.connection() as c:
             c.execute("BEGIN")
             account = self._identity(c, credential)
+            now = self._now()
             clauses, params = [], []
             if status is not None:
                 clauses.append("status=?")
@@ -1300,7 +1355,7 @@ class PlayerTournaments:
                 params.append(ruleset)
             if phase == "upcoming":
                 clauses.append("status='registration' AND scheduled_start_at>?")
-                params.append(micros(self._now()))
+                params.append(micros(now))
             if cursor is not None:
                 created, identifier = listing_cursor(cursor, status, ruleset, phase)
                 clauses.append("(created_at,id) < (?,?)")
@@ -1318,7 +1373,7 @@ class PlayerTournaments:
             has_more = len(rows) > limit
             rows = rows[:limit]
             accounts = self._accounts(c, [row["official_winner"] for row in rows])
-            items = [self._summary(c, row, accounts) for row in rows]
+            items = [self._summary(c, row, accounts, now=now) for row in rows]
             next_cursor = (
                 encode_cursor(
                     {
@@ -1337,7 +1392,7 @@ class PlayerTournaments:
                 "items": items,
                 "next_cursor": next_cursor,
                 "limit": limit,
-                "capabilities": self._capabilities(c, account),
+                "capabilities": self._capabilities(c, account, now=now),
             }
 
     def detail(self, credential: str, identifier: str) -> dict:
@@ -1367,6 +1422,18 @@ class PlayerTournaments:
             ).fetchall()
         )
         tournament = tournament if tournament is not None else self._load(c, match["tournament_id"])
+        pending_games = (
+            max(0, tournament["match_legs"] - len(legs))
+            if tournament["match_mode"] == "sequential" and match["status"] == "ready"
+            else 0
+        )
+        return_game_state = None
+        if pending_games and legs and tournament["review_state"] == "ok":
+            return_game_state = (
+                "awaiting_settlement"
+                if games.get(legs[-1]["game_id"]) in ("completed", "voided")
+                else "waiting_for_game"
+            )
         return {
             "id": match["id"],
             "bracket": match["bracket"],
@@ -1382,9 +1449,11 @@ class PlayerTournaments:
             },
             "winner": self._public(accounts, match["winner"]),
             "loser": self._public(accounts, match["loser"]),
-            "pending_games": max(0, tournament["match_legs"] - len(legs))
-            if tournament["match_mode"] == "sequential" and match["status"] == "ready"
-            else 0,
+            "global_round": self._global_round(match, tournament["bracket_size"])
+            if tournament["progression_policy"] == "synchronized"
+            else None,
+            "pending_games": pending_games,
+            "return_game_state": return_game_state,
             "legs": [
                 {
                     "leg": leg["leg"],
@@ -1412,6 +1481,8 @@ class PlayerTournaments:
             matches = self._build_bracket(
                 c, identifier, size, instant(row["created_at"]), preview=True
             )
+        current_round = self._current_round(row, matches)
+        finished = outstanding = 0
         accounts = self._accounts(
             c,
             [
@@ -1443,6 +1514,18 @@ class PlayerTournaments:
                 tournament=row,
                 saved_legs=saved_legs.get(match["id"], []),
             )
+            global_round = projection["global_round"]
+            projection["waiting_for_round"] = bool(
+                current_round is not None
+                and global_round > current_round
+                and match["status"] == "pending"
+                and row["review_state"] == "ok"
+            )
+            if current_round is not None and global_round == current_round:
+                if match["status"] in TERMINAL_MATCHES:
+                    finished += 1
+                else:
+                    outstanding += 1
             if match["bracket"] in ("upper", "lower"):
                 groups[match["bracket"]].setdefault(match["round"], []).append(projection)
             elif match["bracket"] == "grand_final":
@@ -1456,6 +1539,13 @@ class PlayerTournaments:
             "review_state": row["review_state"],
             "bracket_size": size,
             "preview": preview,
+            "round_progress": {
+                "number": current_round,
+                "finished_matches": finished,
+                "outstanding_matches": outstanding,
+            }
+            if current_round is not None
+            else None,
             "upper": [
                 {"round": round_, "matches": entries}
                 for round_, entries in sorted(groups["upper"].items())

@@ -1,5 +1,11 @@
 /** Published human-tournament DTOs; no private account or moderation fields. */
 export type PlayerTournamentStatus = 'registration' | 'running' | 'complete' | 'cancelled';
+export type TournamentStartState =
+  | 'waiting_for_entrants'
+  | 'waiting_for_start'
+  | 'start_pending'
+  | 'missed_start'
+  | 'manual_start';
 export type TournamentPlayer = {
   account_id: string;
   name: string;
@@ -33,11 +39,10 @@ export type PlayerTournament = {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
-  /** Deprecated: registration no longer has a separate deadline. */
-  registration_deadline?: string | null;
-  /** Server clock/capacity projection, not account eligibility. */
+  /** Server registration availability. */
   registration_open?: boolean;
   scheduled_start_at?: string | null;
+  start_state?: TournamentStartState | null;
   official_winner: TournamentPlayer | null;
 };
 export type TournamentEntrant = TournamentPlayer & {
@@ -64,7 +69,9 @@ export type TournamentMatch = {
   participants: { a: TournamentPlayer | null; b: TournamentPlayer | null };
   winner: TournamentPlayer | null;
   loser: TournamentPlayer | null;
-  pending_games?: number;
+  global_round?: number | null;
+  waiting_for_round?: boolean;
+  return_game_state?: 'waiting_for_game' | 'awaiting_settlement' | null;
   legs: {
     leg: number;
     game_id: string;
@@ -84,6 +91,7 @@ export type PlayerTournamentBracket = {
   status: PlayerTournamentStatus;
   review_state: 'ok' | 'disputed';
   bracket_size: number | null;
+  round_progress?: { number: number; finished_matches: number; outstanding_matches: number } | null;
   upper: TournamentRound[];
   lower: TournamentRound[];
   final: TournamentMatch | null;

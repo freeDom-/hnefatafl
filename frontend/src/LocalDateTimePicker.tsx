@@ -234,10 +234,12 @@ export default function LocalDateTimePicker({
   name,
   label,
   value = '',
+  required = false,
 }: {
   name: string;
   label: string;
   value?: string;
+  required?: boolean;
 }) {
   const { t, locale } = useI18n();
   const initial = value ? localDateTimeValue(new Date(value)) : '';
@@ -363,6 +365,7 @@ export default function LocalDateTimePicker({
               aria-expanded={!!popup}
               aria-controls={`${id}-calendar`}
               aria-invalid={!!dateError}
+              aria-required={required || undefined}
               aria-describedby={`${id}-help${error ? ` ${id}-error` : ''}`}
             />
             <span className="datetime-input-actions">
@@ -436,6 +439,7 @@ export default function LocalDateTimePicker({
               handleSeparatorKey(event, time, ':', applyTimeInput);
             }}
             aria-invalid={!!timeError}
+            aria-required={required || undefined}
             aria-describedby={`${id}-help${error ? ` ${id}-error` : ''}`}
           />
         </label>

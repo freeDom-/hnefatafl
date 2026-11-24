@@ -15,7 +15,7 @@ from hnefatafl.accounts import main as account_cli
 from hnefatafl.auth import COOKIE, POLICY, SecuritySettings, password_hash, verify
 from hnefatafl.security_context import PERMISSIONS
 from hnefatafl.server import create_app
-from hnefatafl.storage import Store
+from hnefatafl.storage import SCHEMA_VERSION, Store
 
 PASSWORD = "only-a-test-password-123"
 ORIGIN = {"Origin": "http://testserver"}
@@ -347,7 +347,7 @@ def test_legacy_migration_preserves_data_and_has_no_invented_ownership(tmp_path)
     assert migrated.players()[0]["id"] == "historical"
     assert migrated.players()[0]["owner_account_id"] is None
     with migrated.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
 
 

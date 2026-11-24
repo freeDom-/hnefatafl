@@ -39,6 +39,8 @@ const translations: Record<string, string> = {
   '{seconds} seconds per player': '{seconds} Sekunden pro Spieler',
   'Next game available after the previous game finishes.':
     'Die nächste Partie wird nach Abschluss der vorherigen verfügbar.',
+  'Next game awaiting settlement of the previous game.':
+    'Die nächste Partie wartet auf die Auswertung der vorherigen Partie.',
   'Date (YYYY-MM-DD)': 'Datum (JJJJ-MM-TT)',
   'Time (HH:MM)': 'Uhrzeit (HH:MM)',
   'Choose date': 'Datum auswählen',
@@ -58,8 +60,18 @@ const translations: Record<string, string> = {
   'Only the creator or an administrator may start this tournament.':
     'Nur der Ersteller oder ein Administrator darf dieses Turnier starten.',
   'The planned start must be in the future.': 'Der geplante Start muss in der Zukunft liegen.',
-  'The registration deadline must be in the future.':
-    'Der Anmeldeschluss muss in der Zukunft liegen.',
+  'The planned start must include a timezone.':
+    'Für den geplanten Start ist eine Zeitzone erforderlich.',
+  'At least two registered entrants are required.':
+    'Mindestens zwei Anmeldungen sind erforderlich.',
+  'This tournament changed. Reload before retrying.':
+    'Dieses Turnier hat sich geändert. Lade die aktuellen Daten, bevor du es erneut versuchst.',
+  'Invalid tournament request.': 'Die Turnieranfrage ist ungültig.',
+  'Player tournament not found.': 'Das Spielerturnier wurde nicht gefunden.',
+  'Deployment in progress. Please retry shortly.':
+    'Eine Aktualisierung läuft. Versuche es in Kürze erneut.',
+  'Tournament state could not be committed. Reload before retrying.':
+    'Die Turnierdaten konnten nicht gespeichert werden. Lade die aktuellen Daten und versuche es erneut.',
   'All entrants must have active, verified accounts before starting.':
     'Vor dem Start müssen alle Teilnehmenden aktive, verifizierte Konten haben.',
   'A supported match mode is required.': 'Ein unterstützter Begegnungsmodus ist erforderlich.',
@@ -98,6 +110,17 @@ const translations: Record<string, string> = {
   'Start tournament': 'Turnier starten',
   'Reschedule tournament': 'Turnier verschieben',
   'New planned start (your local time)': 'Neuer geplanter Beginn (deine Ortszeit)',
+  'Current planned start is {date}.': 'Der aktuelle geplante Beginn ist {date}.',
+  'No planned start is set.': 'Es ist kein Beginn geplant.',
+  'Waiting for more registrations.': 'Weitere Anmeldungen stehen aus.',
+  'Waiting for the planned start.': 'Der geplante Beginn steht aus.',
+  'Automatic start pending.': 'Der automatische Start steht aus.',
+  'Planned start missed. The creator or an administrator can reschedule or start the tournament.':
+    'Der geplante Beginn wurde verpasst. Der Ersteller oder ein Administrator kann das Turnier verschieben oder starten.',
+  'Tournament round {round} · {finished} finished · {outstanding} outstanding':
+    'Turnierrunde {round} · {finished} entschieden · {outstanding} offen',
+  'Waiting for the current round to finish': 'Die laufende Turnierrunde muss zuerst enden',
+  'Unassigned seed {seed}': 'Unbesetzter Setzplatz {seed}',
   'Provisional bracket based on maximum entrants. Seeds and byes are determined at start.':
     'Vorläufiger Turnierbaum basierend auf der maximalen Teilnehmerzahl. Setzliste und Freilose werden beim Start bestimmt.',
   'Only the creator or an administrator may reschedule this tournament.':
@@ -148,7 +171,6 @@ const translations: Record<string, string> = {
   'Open online lobby': 'Onlinelobby öffnen',
   '{ruleset} · {count} / {capacity} entrants': '{ruleset} · {count} / {capacity} Teilnehmende',
   'Planned start: {date}': 'Geplanter Beginn: {date}',
-  'Registration closes: {date}': 'Anmeldeschluss: {date}',
   'Bracket under review': 'Turnierbaum wird geprüft',
   'Champion: {player}': 'Turniersieg: {player}',
   'Tournament pages': 'Turnierseiten',
@@ -183,7 +205,6 @@ const translations: Record<string, string> = {
   'Tournament name': 'Turniername',
   'Maximum entrants': 'Maximale Teilnehmerzahl',
   'Seconds per move': 'Sekunden pro Zug',
-  'Registration deadline (your local time, optional)': 'Anmeldeschluss (deine Ortszeit, optional)',
   'Planned start (your local time, optional)': 'Geplanter Beginn (deine Ortszeit, optional)',
   'Register your account for this competition? Games are played through the normal online board.':
     'Dein Konto für diesen Wettbewerb anmelden? Die Partien werden auf dem normalen Onlinebrett gespielt.',

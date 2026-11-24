@@ -22,6 +22,7 @@ class TournamentCreation(BaseModel):
     increment_seconds: StrictInt = Field(default=0, ge=0, le=1209600)
     time_per_move: StrictInt = Field(default=259200, ge=60, le=1209600)
     scheduled_start_at: datetime | None = None
+    registration_deadline: datetime | None = Field(default=None, deprecated=True)
 
 
 class ExpectedVersion(BaseModel):

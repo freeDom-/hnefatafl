@@ -88,7 +88,8 @@ headers, query parameters and machine tokens cannot upgrade browser permissions.
 Double-elimination player tournaments (`/api/player-tournaments/*`) use the same
 model: authenticated accounts may read tournaments; active, verified accounts
 may register and create within persisted active/rolling quotas. The stored creator
-can start their own eligible tournament, and administrators retain an override.
+can start their own eligible tournament or reschedule it while registration is
+open. Administrators can reschedule and can override planned start restrictions.
 Cancellation, rebuilding and match overrides require the administrator-only
 `tournaments` permission; the audit trail requires `accounts`. Explicit settlement
 requests from ordinary players are read-only, while server workers consume the

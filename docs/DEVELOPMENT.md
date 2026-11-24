@@ -112,7 +112,7 @@ make deployment-cross-version
 `historical-refs` fetches only the pinned `0.40.0`, `0.41.0` and schema-20 commits
 from `origin` into local refs and verifies their commit IDs. Tests extract them
 into disposable directories; do not commit historical source trees. Cross-version
-coverage includes direct authentic schema 15→21 and schema 20→21 upgrades,
+coverage includes direct authentic upgrades from schemas 15, 20 and 21,
 cross-schema recovery refusal, process cleanup and post-commit authenticated
 mutation. The dedicated CI job performs the same sequence. See
 [online operations](ONLINE.md) and the

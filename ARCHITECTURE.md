@@ -21,7 +21,7 @@ budgets in PR #93, and the disposable backend read benchmark in PR #97 with
 benchmark hardening in PR #105. Leagues remain a draft implementation in PR #99.
 Browser analysis is a merged isolated prototype (#89) plus merged Phase 1 research
 (#104); it is not a production analysis executor. The canonical migration
-head on current `main` is schema 21. See the
+head is schema 22. See the
 [current completeness matrix](docs/designs/arena-current-completeness.md),
 [current Arena contracts](docs/designs/arena-v2-contracts.md) and
 [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
@@ -827,17 +827,25 @@ side-swapped games; stored single and legacy 1–5-leg execution stays intact.
 The shared start operation and capability projection reject early creator starts
 of full future-scheduled tournaments, retaining administrator overrides and early
 creator starts of unfilled tournaments with at least two eligible entrants.
-Registration writes invalidate reviewed versions. The lifespan-owned settlement
-worker consumes an explicitly indexed partial due range and the transactional
-result outbox; it needs no request to start or advance a full due competition.
-Unfilled due rows are consumed and re-armed by later full registrations. Retries
-survive restart with bounded backoff. Startup reconciliation is synchronous when
+Registration writes invalidate reviewed versions. The lifespan worker consumes
+the indexed due range and the transactional result outbox. A schedule missed
+while unfilled stays consumed until rescheduled. Automatic starts recheck the
+planned time under the writer lock. Schema 22 records a schedule generation so
+an older failed attempt cannot write its retry metadata after rescheduling.
+Startup reconciliation is synchronous when
 the shared deployment gate is free; expected exclusive-gate contention during an
 updater activation is deferred to this same worker, which retries once after the
 lock is released. Genuine errors are not treated as deployment contention.
 Historical `0.41.0` remains an unsafe rollback target because it predates this
 split; the corrected updater rejects it before service stop, snapshot restore or
-release replacement. Sequential return games are seated only after game one's
-terminal state, using the normal online lifecycle and clocks.
+release replacement. Schema 22 records independent progression for started
+tournaments and synchronized progression when modern two-game tournaments
+start after the upgrade. A synchronized round seats eligible matches together
+and advances after each match reaches a terminal decision. Sequential returns
+open independently within that round using the normal online lifecycle and
+clocks. Administrative rebuilds reconcile attached games in feeder order
+across all rounds before the barrier can open new games. Invalid live games
+are retired in the rebuild transaction. Registration brackets are read-only
+projections of capacity and unassigned seeds.
 Published capabilities never grant global administrative authority. See
 [player tournaments](docs/PLAYER_TOURNAMENTS.md) for limits, migration and recovery.

@@ -18,7 +18,7 @@ import pytest
 
 import historical_release_support as support
 from hnefatafl.deployment import Deployment, DeploymentError
-from hnefatafl.storage import Store
+from hnefatafl.storage import SCHEMA_VERSION, Store
 
 FIXTURE = Path(__file__).with_name("historical_fixture.py")
 LIFESPAN = Path(__file__).with_name("historical_lifespan_under_lock.py")
@@ -178,7 +178,7 @@ def test_historical_040_updater_activates_corrected_app(tmp_path, schema):
     assert transaction["phase"] == "committed"
     assert transaction["target"] == str(target)
     with sqlite3.connect(data / "hnefatafl.sqlite3") as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         for name, identifier in manifest["accounts"].items():
             row = c.execute(
                 "SELECT username,role,email_verified_at FROM accounts WHERE id=?",
@@ -246,7 +246,7 @@ def test_historical_040_failed_activation_refuses_cross_schema_rollback(tmp_path
     assert "Online schema changed; manual recovery is required" in result["error"]
     assert_cleanup(result, log)
     # The historical updater activated the target, then its schema-authority
-    # check refused to replace live schema 21 with the snapshot. It did not start
+    # check refused to replace the upgraded schema with the snapshot. It did not start
     # the old application against the newer database.
     assert (base / "current").resolve() == target
     assert result["actions"].count("service start") == 1
@@ -255,7 +255,7 @@ def test_historical_040_failed_activation_refuses_cross_schema_rollback(tmp_path
     assert transaction["phase"] == "activated"
     backup = Path(transaction["backup"])
     with sqlite3.connect(data / "hnefatafl.sqlite3") as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert_snapshot(backup, data, manifest, schema)
     assert_preserved(data, manifest)
 
@@ -273,18 +273,55 @@ def test_corrected_updater_rejects_explicit_rollback_with_incompatible_schema(tm
         deployment.state,
         {"version": "0.41.1", "previous": str(old), "backup": str(backup)},
     )
-    Store(data / "hnefatafl.sqlite3")  # live database advances to schema 21
+    Store(data / "hnefatafl.sqlite3")  # live database advances to the current schema
     with sqlite3.connect(data / "hnefatafl.sqlite3") as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     deployment.actions.clear()
-    with pytest.raises(DeploymentError, match="Snapshot schema 20 differs from live schema 21"):
+    with pytest.raises(
+        DeploymentError, match=f"Snapshot schema 20 differs from live schema {SCHEMA_VERSION}"
+    ):
         deployment.recover(rollback=True)
     assert deployment.actions == []
     assert (base / "current").resolve() == target
     with sqlite3.connect(data / "hnefatafl.sqlite3") as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert_snapshot(backup, data, manifest, 20)
     assert_preserved(data, manifest)
+
+
+def test_authentic_schema21_upgrade_preserves_running_modern_tournament(tmp_path):
+    support.require_inputs()
+    old = support.extract(support.REF_040, tmp_path / "historical-0.40.0")
+    previous = support.extract(support.REF_041, tmp_path / "historical-0.41.0")
+    data, manifest_path = tmp_path / "data", tmp_path / "manifest.json"
+    support.fixture(FIXTURE, old, "create-0.40", data, manifest_path)
+    support.fixture(FIXTURE, previous, "upgrade-schema21", data, manifest_path)
+    manifest = json.loads(manifest_path.read_text())
+    identifier = manifest["player_tournament_id"]
+    database = data / "hnefatafl.sqlite3"
+    with sqlite3.connect(database) as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        active_games = c.execute(
+            "SELECT * FROM online_games WHERE status='active' ORDER BY id"
+        ).fetchall()
+        assert len(active_games) == 2
+        audit = c.execute("SELECT * FROM player_tournament_audit ORDER BY id").fetchall()
+    store = Store(database)
+    with store.connection() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        tournament = c.execute(
+            "SELECT match_mode,progression_policy,status FROM player_tournaments WHERE id=?",
+            (identifier,),
+        ).fetchone()
+        assert tuple(tournament) == ("sequential", "independent", "running")
+        assert [
+            tuple(row)
+            for row in c.execute("SELECT * FROM online_games WHERE status='active' ORDER BY id")
+        ] == active_games
+        assert [
+            tuple(row) for row in c.execute("SELECT * FROM player_tournament_audit ORDER BY id")
+        ] == audit
+        assert not c.execute("PRAGMA foreign_key_check").fetchall()
 
 
 def test_historical_041_fails_under_exclusive_gate(tmp_path):

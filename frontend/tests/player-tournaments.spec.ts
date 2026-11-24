@@ -49,6 +49,7 @@ function fixture(owner: string) {
     ...match('u2', 'upper', 1, 'seed:2', 'seed:3'),
     slot: 1,
     status: 'ready' as const,
+    return_game_state: 'waiting_for_game' as const,
     participants: { a: players[1], b: players[2] },
     legs: [
       {
@@ -69,7 +70,8 @@ function fixture(owner: string) {
     status: 'running',
     review_state: 'ok',
     capacity: 4,
-    match_legs: 1,
+    match_legs: 2,
+    match_mode: 'sequential',
     time_per_move: 3600,
     bracket_size: 4,
     entrant_count: 4,
@@ -77,7 +79,6 @@ function fixture(owner: string) {
     created_at: '2035-01-01T00:00:00Z',
     started_at: '2035-02-01T00:00:00Z',
     completed_at: null,
-    registration_deadline: '2035-02-01T00:00:00Z',
     scheduled_start_at: '2035-02-02T00:00:00Z',
     official_winner: null,
     entrants: players.map((player, index) => ({
@@ -95,9 +96,15 @@ function fixture(owner: string) {
     status: 'running',
     review_state: 'ok',
     bracket_size: 4,
+    round_progress: { number: 1, finished_matches: 1, outstanding_matches: 1 },
     upper: [
       { round: 1, matches: [first, second] },
-      { round: 2, matches: [match('u3', 'upper', 2, 'winner:u1', 'winner:u2')] },
+      {
+        round: 2,
+        matches: [
+          { ...match('u3', 'upper', 2, 'winner:u1', 'winner:u2'), waiting_for_round: true },
+        ],
+      },
     ],
     lower: [
       { round: 1, matches: [match('l1', 'lower', 1, 'loser:u1', 'loser:u2')] },
@@ -174,6 +181,13 @@ for (const theme of ['kings-table', 'iron-ash', 'saga-hall', 'classic-table']) {
         await expect(page.getByRole('heading', { name: 'Fjord championship' })).toBeVisible();
         await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
         const region = page.locator('.player-bracket-scroll');
+        await expect(
+          page.getByText(
+            language === 'en'
+              ? 'Tournament round 1 · 1 finished · 1 outstanding'
+              : 'Turnierrunde 1 · 1 entschieden · 1 offen',
+          ),
+        ).toBeVisible();
         await expect(region).toHaveAttribute('tabindex', '0');
         await expect(region.locator('.player-match')).toHaveCount(6);
         await expect(region.locator('svg path')).toHaveCount(8);
@@ -227,6 +241,56 @@ for (const theme of ['kings-table', 'iron-ash', 'saga-hall', 'classic-table']) {
           `/online/games/online-${'a'.repeat(32)}`,
         );
       }
+    }
+  });
+}
+
+for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
+  test(`maximum tournament preview scrolls within the page in ${theme}`, async ({
+    page,
+    request,
+  }, info) => {
+    const response = await request.post('http://127.0.0.1:8001/api/player-tournaments', {
+      data: { name: 'Open championship', capacity: 64, match_mode: 'sequential' },
+    });
+    expect(response.status()).toBe(201);
+    const { id } = await response.json();
+    await page.addInitScript((theme) => {
+      localStorage.setItem('hnefatafl-appearance', JSON.stringify({ version: 2, uiTheme: theme }));
+      localStorage.setItem('hnefatafl-language', 'en');
+    }, theme);
+    const mobile = info.project.name === 'mobile';
+    for (const width of mobile ? [320, 390] : [1920, 3840]) {
+      await page.setViewportSize({ width, height: mobile ? 844 : width === 1920 ? 1080 : 2160 });
+      await page.goto(`/player-tournaments/${id}`);
+      await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
+      await expect(page.getByText(/Provisional bracket based on maximum entrants/)).toBeVisible();
+      const region = page.getByRole('region', { name: 'Double-elimination bracket' });
+      await expect(region.getByRole('article')).toHaveCount(126);
+      await expect(region.getByText('Unassigned seed 64', { exact: true })).toHaveCount(1);
+      await expect(region.getByRole('link', { name: /^Game \d/ })).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        width + 1,
+      );
+      expect(await region.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+      await region.focus();
+      await page.keyboard.press('ArrowRight');
+      await expect.poll(() => region.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+      if (width === 390 || width === 1920) {
+        await region.evaluate((node) => {
+          node.scrollLeft = 0;
+        });
+        await page.locator('#player-bracket-heading').evaluate((node) => node.scrollIntoView());
+        mkdirSync('test-results/player-tournaments', { recursive: true });
+        await page.screenshot({
+          path: `test-results/player-tournaments/${theme}-preview-${width}.png`,
+        });
+      }
+      await page.getByRole('button', { name: 'Accessible match list' }).click();
+      await expect(page.locator('.player-bracket-list').getByRole('article')).toHaveCount(126);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        width + 1,
+      );
     }
   });
 }
@@ -338,7 +402,7 @@ test('moderation failure retains the confirmation and announced error instead of
 
 for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
   test(`tournament calendar supports keyboard input and theme ${theme}`, async ({ page }, info) => {
-    // Each case checks both fields, two languages and two viewport sizes with one browser worker.
+    // Each case checks the planned start in two languages and two viewport sizes.
     test.setTimeout(180000);
     await page
       .context()
@@ -373,149 +437,143 @@ for (const theme of ['classic-table', 'kings-table', 'iron-ash', 'saga-hall']) {
         const opener = page.getByRole('button', { name: createName, exact: true });
         await opener.click();
         const dialog = page.getByRole('dialog', { name: createName, exact: true });
-        for (const kind of ['start']) {
-          const picker = dialog.getByRole('group', {
-            name:
-              kind === 'start'
-                ? language === 'en'
-                  ? 'Planned start (your local time, optional)'
-                  : 'Geplanter Beginn (deine Ortszeit, optional)'
-                : language === 'en'
-                  ? 'Registration deadline (your local time, optional)'
-                  : 'Anmeldeschluss (deine Ortszeit, optional)',
-          });
-          const date = picker.getByRole('textbox', {
-            name: language === 'en' ? 'Date (YYYY-MM-DD)' : 'Datum (JJJJ-MM-TT)',
-          });
-          const time = picker.getByRole('textbox', {
-            name: language === 'en' ? 'Time (HH:MM)' : 'Uhrzeit (HH:MM)',
-          });
-          const toggle = picker.getByRole('button', {
-            name: language === 'en' ? 'Open calendar' : 'Kalender öffnen',
-          });
-          const clear = picker.getByRole('button', {
-            name: language === 'en' ? 'Clear date' : 'Datum löschen',
-          });
-          await expect(clear).toHaveCount(0);
-          await expect(
-            picker.getByRole('button', {
-              name: language === 'en' ? 'Choose date' : 'Datum wählen',
-              exact: true,
-            }),
-          ).toHaveCount(0);
-          await date.fill('');
-          await date.pressSequentially('20350201');
-          await time.fill('');
-          await time.pressSequentially('1830');
-          await expect(date).toHaveValue('2035-02-01');
-          await expect(time).toHaveValue('18:30');
-          // Real-browser check for caret-aware middle editing and separator deletion.
-          await date.fill('2035-02-01');
-          await date.evaluate((node) => (node as HTMLInputElement).setSelectionRange(5, 7));
-          await page.keyboard.type('12');
-          await expect(date).toHaveValue('2035-12-01');
-          await date.evaluate((node) => (node as HTMLInputElement).setSelectionRange(5, 5));
-          await page.keyboard.press('Backspace');
-          await expect(date).toHaveValue('203-12-01');
-          await page.keyboard.type('5');
-          await expect(date).toHaveValue('2035-12-01');
-          await date.fill('2035-02-01');
-          await date.scrollIntoViewIfNeeded();
-          const before = await dialog.evaluate((node) => ({
+        const picker = dialog.getByRole('group', {
+          name:
+            language === 'en'
+              ? 'Planned start (your local time, optional)'
+              : 'Geplanter Beginn (deine Ortszeit, optional)',
+        });
+        const date = picker.getByRole('textbox', {
+          name: language === 'en' ? 'Date (YYYY-MM-DD)' : 'Datum (JJJJ-MM-TT)',
+        });
+        const time = picker.getByRole('textbox', {
+          name: language === 'en' ? 'Time (HH:MM)' : 'Uhrzeit (HH:MM)',
+        });
+        const toggle = picker.getByRole('button', {
+          name: language === 'en' ? 'Open calendar' : 'Kalender öffnen',
+        });
+        const clear = picker.getByRole('button', {
+          name: language === 'en' ? 'Clear date' : 'Datum löschen',
+        });
+        await expect(clear).toHaveCount(0);
+        await expect(
+          picker.getByRole('button', {
+            name: language === 'en' ? 'Choose date' : 'Datum wählen',
+            exact: true,
+          }),
+        ).toHaveCount(0);
+        await date.fill('');
+        await date.pressSequentially('20350201');
+        await time.fill('');
+        await time.pressSequentially('1830');
+        await expect(date).toHaveValue('2035-02-01');
+        await expect(time).toHaveValue('18:30');
+        // Real-browser check for caret-aware middle editing and separator deletion.
+        await date.fill('2035-02-01');
+        await date.evaluate((node) => (node as HTMLInputElement).setSelectionRange(5, 7));
+        await page.keyboard.type('12');
+        await expect(date).toHaveValue('2035-12-01');
+        await date.evaluate((node) => (node as HTMLInputElement).setSelectionRange(5, 5));
+        await page.keyboard.press('Backspace');
+        await expect(date).toHaveValue('203-12-01');
+        await page.keyboard.type('5');
+        await expect(date).toHaveValue('2035-12-01');
+        await date.fill('2035-02-01');
+        await date.scrollIntoViewIfNeeded();
+        const before = await dialog.evaluate((node) => ({
+          height: node.getBoundingClientRect().height,
+          scroll: node.scrollHeight,
+        }));
+        if (info.project.name === 'mobile') {
+          // Touching the field starts manual entry instead of covering it with the popup.
+          await date.click();
+          await expect(picker.getByRole('dialog')).toHaveCount(0);
+          await date.press('ArrowDown');
+        } else {
+          await date.click();
+        }
+        const popup = picker.getByRole('dialog');
+        await expect(popup).toBeVisible();
+        if (info.project.name === 'mobile') {
+          await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
+        } else {
+          await expect(date).toBeFocused();
+        }
+        expect(await popup.evaluate((node) => !!node.closest('dialog[open]'))).toBe(true);
+        const bounds = await popup.boundingBox();
+        expect(bounds).not.toBeNull();
+        expect(bounds!.x).toBeGreaterThanOrEqual(0);
+        expect(bounds!.y).toBeGreaterThanOrEqual(0);
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(size.width + 1);
+        expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(size.height + 1);
+        expect(
+          await popup.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            return node.contains(
+              document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
+            );
+          }),
+        ).toBe(true);
+        expect(
+          await dialog.evaluate((node) => ({
             height: node.getBoundingClientRect().height,
             scroll: node.scrollHeight,
-          }));
-          if (info.project.name === 'mobile') {
-            // Touching the field starts manual entry instead of covering it with the popup.
-            await date.click();
-            await expect(picker.getByRole('dialog')).toHaveCount(0);
-            await date.press('ArrowDown');
-          } else {
-            await date.click();
-          }
-          const popup = picker.getByRole('dialog');
-          await expect(popup).toBeVisible();
-          if (info.project.name === 'mobile') {
-            await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
-          } else {
-            await expect(date).toBeFocused();
-          }
-          expect(await popup.evaluate((node) => !!node.closest('dialog[open]'))).toBe(true);
-          const bounds = await popup.boundingBox();
-          expect(bounds).not.toBeNull();
-          expect(bounds!.x).toBeGreaterThanOrEqual(0);
-          expect(bounds!.y).toBeGreaterThanOrEqual(0);
-          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(size.width + 1);
-          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(size.height + 1);
-          expect(
-            await popup.evaluate((node) => {
-              const rect = node.getBoundingClientRect();
-              return node.contains(
-                document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
-              );
-            }),
-          ).toBe(true);
-          expect(
-            await dialog.evaluate((node) => ({
-              height: node.getBoundingClientRect().height,
-              scroll: node.scrollHeight,
-            })),
-          ).toEqual(before);
-          const calendar = popup.locator('.themed-calendar');
-          const colors = await calendar.evaluate((node) => ({
-            background: getComputedStyle(node).backgroundColor,
-            color: getComputedStyle(node).color,
-          }));
-          expect(contrast(colors.color, colors.background)).toBeGreaterThanOrEqual(4.5);
-          await expect(popup.getByRole('grid')).toHaveAccessibleName(
-            language === 'en' ? 'February 2035' : 'Februar 2035',
-          );
-          if (info.project.name !== 'mobile') {
-            await page.keyboard.press('ArrowDown');
-            await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
-          }
-          await date.focus();
+          })),
+        ).toEqual(before);
+        const calendar = popup.locator('.themed-calendar');
+        const colors = await calendar.evaluate((node) => ({
+          background: getComputedStyle(node).backgroundColor,
+          color: getComputedStyle(node).color,
+        }));
+        expect(contrast(colors.color, colors.background)).toBeGreaterThanOrEqual(4.5);
+        await expect(popup.getByRole('grid')).toHaveAccessibleName(
+          language === 'en' ? 'February 2035' : 'Februar 2035',
+        );
+        if (info.project.name !== 'mobile') {
           await page.keyboard.press('ArrowDown');
           await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
-          await page.keyboard.press('ArrowRight');
-          await page.keyboard.press('Enter');
-          await expect(popup).toHaveCount(0);
-          await expect(date).toHaveValue('2035-02-02');
-          await expect(date).toBeFocused();
-          await expect(time).toHaveValue('18:30');
-          await toggle.click();
-          await popup
-            .getByRole('button', { name: language === 'en' ? 'Next month' : 'Nächster Monat' })
-            .click();
-          await expect(popup.getByRole('grid')).toHaveAccessibleName(
-            language === 'en' ? 'March 2035' : 'März 2035',
-          );
-          await page.keyboard.press('Tab');
-          expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
-          if (language === 'en') {
-            mkdirSync('test-results/player-tournaments-compact-calendar', { recursive: true });
-            await page.screenshot({
-              path: `test-results/player-tournaments-compact-calendar/${theme}-${kind}-${size.width}.png`,
-            });
-          }
-          await page.keyboard.press('Escape');
-          await expect(popup).toHaveCount(0);
-          await expect(dialog).toBeVisible();
-          await expect(date).toBeFocused();
-          await toggle.click();
-          await time.click();
-          await expect(popup).toHaveCount(0);
-          await expect(time).toBeFocused();
-          await expect(date).toHaveValue('2035-02-02');
-          await clear.focus();
-          await page.keyboard.press('Enter');
-          await expect(date).toHaveValue('');
-          await expect(date).toBeFocused();
-          await expect(time).toHaveValue('18:30');
-          expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(
-            true,
-          );
         }
+        await date.focus();
+        await page.keyboard.press('ArrowDown');
+        await expect(popup.locator('[aria-selected=true] button')).toBeFocused();
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('Enter');
+        await expect(popup).toHaveCount(0);
+        await expect(date).toHaveValue('2035-02-02');
+        await expect(date).toBeFocused();
+        await expect(time).toHaveValue('18:30');
+        await toggle.click();
+        await popup
+          .getByRole('button', { name: language === 'en' ? 'Next month' : 'Nächster Monat' })
+          .click();
+        await expect(popup.getByRole('grid')).toHaveAccessibleName(
+          language === 'en' ? 'March 2035' : 'März 2035',
+        );
+        await page.keyboard.press('Tab');
+        expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+        if (language === 'en') {
+          mkdirSync('test-results/player-tournaments-compact-calendar', { recursive: true });
+          await page.screenshot({
+            path: `test-results/player-tournaments-compact-calendar/${theme}-start-${size.width}.png`,
+          });
+        }
+        await page.keyboard.press('Escape');
+        await expect(popup).toHaveCount(0);
+        await expect(dialog).toBeVisible();
+        await expect(date).toBeFocused();
+        await toggle.click();
+        await time.click();
+        await expect(popup).toHaveCount(0);
+        await expect(time).toBeFocused();
+        await expect(date).toHaveValue('2035-02-02');
+        await clear.focus();
+        await page.keyboard.press('Enter');
+        await expect(date).toHaveValue('');
+        await expect(date).toBeFocused();
+        await expect(time).toHaveValue('18:30');
+        expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(
+          true,
+        );
         await page.keyboard.press('Escape');
         await expect(dialog).not.toBeVisible();
         await expect(opener).toBeFocused();

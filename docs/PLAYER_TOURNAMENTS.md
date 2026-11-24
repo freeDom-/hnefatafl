@@ -2,13 +2,9 @@
 
 [Documentation index](README.md) · [Online play](ONLINE_PLAY.md) · [Rated games](RATINGS.md)
 
-Human player competitions live under `/api/player-tournaments/*` and are stored
-in their own tournament tables. Schema 20 adds persistent scheduled starts,
-creator admission, clock configuration and explicit match modes. They are
-deliberately **separate** from the
-workshop [AI tournaments](TOURNAMENTS.md) (`/api/tournaments/*`, the
-`tournaments` table, model strength comparisons). Neither namespace reads or
-writes the other's storage, and neither can grant the other's entitlements.
+Human player competitions live under `/api/player-tournaments/*` and use their
+own tournament tables. Workshop [AI tournaments](TOURNAMENTS.md) use a separate
+API, database table and permission boundary for model comparisons.
 
 ## Frozen competition policy
 
@@ -60,6 +56,33 @@ Every match has a deterministic identity
 (`<tournament>:<bracket>:<round>:<slot>`), so re-deriving the bracket never
 duplicates matches or legs.
 
+### Global tournament rounds
+
+When a modern two-game tournament starts, it records synchronized progression.
+Upper bracket round 1 plays in global round 1. Upper bracket round N and lower
+bracket round N−1 share global round N whenever both exist. Remaining lower
+bracket rounds each play in their own global round. The grand final follows the
+last bracket round, and a required reset has the next global round. The
+eight-entrant schedule follows.
+
+| Global round | Matches |
+| --- | --- |
+| 1 | Upper 1 |
+| 2 | Upper 2, lower 1 |
+| 3 | Upper 3, lower 2 |
+| 4 | Lower 3 |
+| 5 | Lower 4 |
+| 6 | Grand final |
+| 7 | Reset, if needed |
+
+All playable matches in a global round open in a single advancement
+transaction. Completed matches, administrative decisions and byes count toward
+the round's terminal decisions. The next round opens after the last outstanding
+match is decided. The same transaction can pass through rounds consisting
+entirely of byes. Already-started tournaments from before synchronized
+progression and historical single-game or legacy formats retain independent
+advancement as their individual feeder matches finish.
+
 ## State model
 
 Tournament status:
@@ -85,9 +108,9 @@ game invalidates a settled leg. A disputed bracket stops advancing until an
 administrator rebuilds it; a tournament that had already completed reopens to
 `running` with no official winner so the correction can be reviewed.
 
-Match status: `pending` (sources unresolved) → `ready` (both participants known,
-legs materialised) → `complete`, or `bye` (a participant is missing), or
-`disputed`.
+A match is `pending` until its participants and round are ready. A `ready`
+match has two known participants and can seat games. A decision records
+`complete` or `bye`. A correction to a decided match can mark it `disputed`.
 
 Leg outcome: `a`, `b`, `draw`, `void`, or unset while the game is unfinished.
 
@@ -101,11 +124,19 @@ seeding, losses, rules and clocks, champion, playable online legs and results.
 Clock summaries use the shared days/hours/minutes/seconds formatter, preserving
 historical second precision, and show the time-control type, increment and mode.
 The upper/lower bracket, grand final and reset have source-based progression paths,
-horizontal touch scrolling and an accessible list alternative. Registration and
-withdrawal use server authority. Details return account-specific capabilities;
-creators see their start control when the server permits it, and administrators
-retain moderation controls. The route and calendar load on tournament navigation,
-using the existing lazy-route/Suspense pattern.
+horizontal touch scrolling and an accessible list alternative. Before starting,
+the bracket uses capacity to show a provisional tree with unassigned seed slots.
+It creates no persistent matches, games or playable links. Starting replaces it
+with the seeded bracket sized for the actual entrant count.
+
+The detail and discovery responses provide `start_state` for registration and
+scheduled-start status. The bracket response provides `round_progress` with
+the global round number and counts of finished and outstanding matches. It also
+shows which future matches are held by the round barrier and which sequential
+return games are waiting for the previous result. Game and match reads remain
+server-authoritative. Account-specific capabilities govern creator controls and
+administrative moderation. The route and calendar load on tournament navigation
+through the existing lazy-route/Suspense pattern.
 
 ## Scheduling and creator permissions
 
@@ -127,29 +158,42 @@ or a reviewed custom seed list. Registration and withdrawal increment the
 version; repeated successful registration is a no-op. A changed entrant set
 makes reviewed creator/admin starts and custom seed submissions return HTTP 409.
 
-An optional future planned instant is stored as UTC microseconds. The persistent
-worker starts a full tournament at or after that instant without any browser,
-client polling or administrator session. If unfilled, it remains in registration
-for a manual creator/admin start with at least two entrants. A later registration may fill it but does not re-arm the consumed start. The
-creator or administrator can reschedule to a future instant using the reviewed
-version or start manually with at least two entrants. Fullness before the planned
-instant never starts it early. Registration has no separate deadline.
+Registration stays open until capacity or start. A planned start is optional and
+stored as UTC microseconds. The persistent worker starts a full tournament at or
+after that instant without a browser or an administrator session.
 
-The partial due index excludes historical and consumed/unfilled starts. Each
-bounded worker pass samples server time after acquiring the deployment gate and
-`BEGIN IMMEDIATE`, then shares exactly the same internal start operation as
-manual requests. Seeds, bracket, games, start audit and due-row consumption commit
-atomically. Concurrent workers, creator starts and administrator starts cannot
-produce duplicate games. The audit records `source=automatic`, `creator` or
-`administrator`; automatic events have no account actor.
+| Event at the server's write transaction | Automatic start |
+| --- | --- |
+| The last place fills before the planned time | Waits for the planned time |
+| The last place fills at the exact planned time | Eligible if registration commits before an unfilled start is consumed |
+| The last place fills after the planned time | Missed, even if the worker has yet to process the schedule |
+| A withdrawal commits at or after the planned time while the tournament is in registration | Missed, including if the place is filled again |
+| The server is down at the planned time | On recovery, an armed cup filled by the cutoff can start. An unfilled cup remains in registration. |
+| Deployment holds the exclusive gate | Due work resumes once the gate is released |
 
-Due work survives shutdown, downtime and compatible restore. Failed starts roll
-back fully, retain a sanitized failure code, and retry with exponential backoff
-capped at 300 seconds. Disabled/unverified entrants defer a start until they are
-eligible again or an administrator resolves the registration. Logs and public
-projections never contain private exception payloads or administrator notes.
+Once missed, the schedule stays consumed. Later registrations can fill the
+tournament. A creator or administrator can set a new future schedule or start
+manually with at least two entrants. Discovery and detail use the server clock
+for `waiting_for_entrants`, `waiting_for_start`, `start_pending`,
+`missed_start` and `manual_start`.
 
-The planned start uses compact adjacent date/time controls. Activating
+A partial index bounds the due-start query. Under the deployment gate and
+`BEGIN IMMEDIATE`, the worker samples server time, reloads the schedule and
+checks the planned time and latest registration. Automatic and manual starts
+share the transaction that seeds the bracket, seats games, consumes the due
+start and records one start audit. The audit source is `automatic`, `creator`
+or `administrator`. Automatic events have no account actor.
+
+Failed starts roll back and retry with exponential backoff capped at 300
+seconds. Retry writes require the same schedule generation, planned instant and
+retry metadata that the failed attempt read under the writer lock. Rescheduling
+increments the generation and clears the backoff. A concurrent start or missed
+schedule also invalidates the older retry. Disabled or unverified entrants defer
+a full cup until the accounts are eligible or the registration changes. Due work
+survives downtime and compatible restore.
+
+The reschedule dialog shows the planned start being reviewed and requires a
+future replacement. The planned start uses compact adjacent date/time controls. Activating
 the date field or its integrated calendar icon opens a themed, anchored React
 DayPicker popup. It occupies the native top layer while remaining a DOM descendant
 of the existing Modal, escaping the scrolling container without expanding it.
@@ -174,13 +218,13 @@ independent progression. Registration details show a read-only capacity-based
 bracket preview with unassigned seeds; no games are created before the start.
 
 When a match becomes ready, the service seats games through the online core
-inside the same transaction and records each returned `game_id`. Parallel modes
-seat both immediately, each with an independent clock. Sequential mode creates
-only game one initially. Its terminal result enqueues advancement, which creates
-the side-swapped return game with a fresh authoritative clock. A restart between
-games resumes through the persistent outbox and startup reconciliation. Pending
-return games have no playable game ID and are shown as pending. A match settles
-only when its complete configured set of games has terminal results.
+inside the same transaction and records each returned `game_id`. Simultaneous
+mode seats both immediately with independent clocks. Sequential mode creates
+the first game, then opens the side-swapped return with a fresh clock once that
+game is terminal. Each match in the current global round can open its return
+independently. A restart between games resumes through the persistent outbox
+and startup reconciliation. Pending return games have no playable game ID.
+A match settles when its complete configured set of games has terminal results.
 
 Both per-move and total-player clocks use `lifecycle.TimeControl`, the existing
 integer-second base/increment bounds (60–1209600 base; 0–1209600 increment),
@@ -243,26 +287,27 @@ authoritative revision changes (including a void after the match was decided):
    until a rebuild re-derives the bracket.
 
 `POST /api/player-tournaments/{id}/rebuild` (administrator, with a private note)
-re-derives the bracket from the authoritative results: it clears every derived
-participant, winner and settlement, deletes any bracket reset, re-resolves the
-bracket and re-settles the legs. Legs whose recorded game no longer matches the
-recomputed participants are unlinked, so a game played by the wrong pairing can
-never be credited twice. A displaced leg whose game is still `waiting` or
-`active` is retired in the same transaction through the authoritative online
-lifecycle and recorded in `online_void_audit`, so an obsolete game can neither be
-played, settled nor expired into a result; a leg that already reached a terminal
-state keeps its immutable result. Because match identities are deterministic,
-legs that are still valid stay attached.
+clears derived decisions and previous overrides, then reconciles attached legs
+in feeder order across the whole bracket. A leg stays attached when its pairing
+and attacker/defender assignments still match. Games whose participants cannot
+yet be determined, or whose positions in the bracket have changed, are detached.
+Displaced live games are voided through the online lifecycle and recorded in
+`online_void_audit` in the same transaction. Detached terminal games keep their
+immutable move and result history. A valid reset can retain its games. A
+disputed reset is replayed if the rebuilt final still requires one.
 
-Rebuild is the only safe path after a dispute, and it clears earlier
-administrative overrides, which must be re-applied afterwards. Overriding a
-`disputed` match is refused for exactly this reason.
+Reconciliation preserves proven results before normal advancement resumes.
+Any replacement games are seated only when their global round is eligible. An
+unaffected game already in progress can keep its original clock if its pairing
+is still valid. The rebuild, its audit and any retirements roll back together on
+failure. Automatic settlement resumes without an administrator actor after a
+successful rebuild. Overriding any match while the bracket is disputed returns
+HTTP 409.
 
 An override is an administrative decision independent of the recorded legs. It
-voids the match's outstanding games (recorded in `online_void_audit`) and is never
-reopened by a later settlement, so no live game can contradict it and no leg can
-credit a second result. Downstream legs it displaces by reseating a match are
-retired the same way.
+voids the match's outstanding games and records those voids in
+`online_void_audit`. Completed games retain their results. A later settlement
+keeps the administrative decision until a rebuild.
 
 ## API
 
@@ -286,21 +331,22 @@ capabilities are derived for the current authenticated viewer.
 | `POST` | `/api/player-tournaments/{id}/withdraw` | play | Withdraw before the start |
 | `POST` | `/api/player-tournaments/{id}/settle` | play | Read detail; administrators can retry pending outbox work |
 | `POST` | `/api/player-tournaments/{id}/start` | creator / tournaments | Seed the bracket and start |
+| `POST` | `/api/player-tournaments/{id}/reschedule` | verified creator / tournaments | Replace the planned start during registration |
 | `POST` | `/api/player-tournaments/{id}/cancel` | tournaments | Cancel a tournament |
 | `POST` | `/api/player-tournaments/{id}/rebuild` | tournaments | Re-derive a disputed bracket |
 | `POST` | `/api/player-tournaments/{id}/matches/{match_id}/override` | tournaments | Force a ready match winner |
 
-Creator start and administrative mutations take the tournament `version` from the last read and
-return `409` when it is stale. Creation quotas return `429`. List endpoints use opaque cursor pagination
-(`items`, `next_cursor`) and never omit list fields on an empty page.
+Creator start, rescheduling and administrative mutations take the reviewed
+tournament `version` and return `409` when it is stale. Creation quotas return
+`429`. List endpoints use opaque cursor pagination with `items` and
+`next_cursor`, including when a page is empty.
 
 ### Request bodies
 
 ```json
 { "name": "Spring cup", "ruleset": "brandubh", "capacity": 8, "match_mode": "sequential",
   "time_per_move": 259200, "time_control": "total", "increment_seconds": 30,
-  "scheduled_start_at": "2028-02-01T19:00:00Z",
-  "registration_deadline": "2028-02-01T18:00:00Z" }
+  "scheduled_start_at": "2028-02-01T19:00:00Z" }
 ```
 
 Creation requires an explicit `match_mode` of `sequential` or `simultaneous`.
@@ -308,6 +354,18 @@ Missing/null modes, `single`, `legacy`, and every supplied `match_legs` value
 (including `2` or `null`) return `422`. The server stores exactly two games.
 Ordinary online-game creation still supports `single`. Existing tournament
 records with historical modes/counts remain readable and playable.
+
+Registration has no separate deadline. Older clients can temporarily include
+`registration_deadline` as null or a datetime in the creation request. The
+server ignores it and returns the deprecated field as null. Historical stored
+deadlines are retained and have no effect on registration.
+
+`POST /reschedule` returns the updated tournament detail. Send the reviewed
+version and a timezone-aware future datetime.
+
+```json
+{ "version": 7, "scheduled_start_at": "2028-02-02T19:00:00Z" }
+```
 
 `POST /start` accepts an optional `seeds` array that must list every registered
 entrant exactly once; otherwise registration order is used. `POST /rebuild` and
@@ -322,6 +380,11 @@ failures, `403` for missing permission and `401` for a missing session.
 A creator's early start of a full scheduled tournament also returns `409` without
 creating games or changing the tournament version.
 
+Rescheduling returns `403` for a caller other than the eligible creator or an
+administrator, `409` for a stale version or a tournament outside registration,
+and `422` for a missing, invalid, timezone-free or non-future replacement. The
+deployment gate returns `503` while writes are paused.
+
 ## Schema
 
 Schema 18 introduced the tournament, entrant, match, leg and append-only audit
@@ -333,11 +396,17 @@ Schema 20 adds nullable due-start/retry fields, clock fields and a `match_mode`
 column defaulting to `legacy`, with supporting indexes. Existing game rows, leg
 counts, brackets and results are not rewritten. Existing registration-phase
 scheduled tournaments are queued once on upgrade, including overdue full cups.
-The refinement of the creation contract requires no further schema change or
-data rewrite: schema 20 continues to execute stored `single` and 1–5-leg legacy
-records. Clients creating new tournaments must send a supported explicit mode
-and omit `match_legs`. Fresh installations initialize the same schema. Keep a backup before upgrading;
-restore compatibility still requires matching schemas.
+Schema 22 adds `progression_policy` and a schedule generation. Existing rows
+default to `independent`. At start the service records `synchronized` for a
+two-game sequential or simultaneous tournament, including one created before
+the upgrade that was still in registration. Stored `single` and legacy formats
+remain independent. Migration leaves game associations, clocks and completed
+history intact. Fresh installations initialize the same schema.
+
+Backups and compatible restores retain both fields and queued work alongside the
+online games. Automatic rollback and restore across schema 21 and schema 22 are
+refused by the existing schema-authority check. See
+[deployment and recovery](DEPLOYMENT.md#cross-schema-automatic-recovery-is-fail-closed).
 
 ## Limitations
 
