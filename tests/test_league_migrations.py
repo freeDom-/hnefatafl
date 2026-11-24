@@ -5,11 +5,12 @@ import sqlite3
 import pytest
 
 from hnefatafl.league_migrations import LEAGUE_TABLES
-from hnefatafl.online_migrations import retain_online_on_restore
+from hnefatafl.online_migrations import SCHEMA_VERSION, retain_online_on_restore
 from hnefatafl.storage import Store
 
 
-def test_upgrade_from_21_preserves_games_jobs_and_checkpoint_bytes(tmp_path):
+@pytest.mark.parametrize("previous_schema", [21, 22])
+def test_upgrade_preserves_games_jobs_and_checkpoint_bytes(tmp_path, previous_schema):
     store = Store(tmp_path / "dev-fixture.sqlite3")
     game = {"id": "valuable-game", "version": 7, "created_at": "2026-01-01", "retained": True}
     job = {"id": "valuable-job", "created_at": "2026-01-01", "status": "completed", "updates": 2}
@@ -21,13 +22,13 @@ def test_upgrade_from_21_preserves_games_jobs_and_checkpoint_bytes(tmp_path):
     with store.connection() as c:
         for table in reversed(LEAGUE_TABLES):
             c.execute(f"DROP TABLE {table}")
-        c.execute("PRAGMA user_version=21")
+        c.execute(f"PRAGMA user_version={previous_schema}")
     upgraded = Store(store.path)
     assert upgraded.get_game(game["id"]) == game
     assert upgraded.get_job(job["id"]) == job
     assert checkpoint.read_bytes() == before
     with upgraded.connection() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         names = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert set(LEAGUE_TABLES) <= names
         assert tuple(c.execute("SELECT paused,version FROM league_settings").fetchone()) == (0, 0)
