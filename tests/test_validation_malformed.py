@@ -17,7 +17,7 @@ import device_evidence as de  # noqa: E402
 import memory_validation as mv  # noqa: E402
 import tournament  # noqa: E402
 from test_competitive_validation import _valid as competitive_report  # noqa: E402
-from test_device_evidence import _measured as device_report  # noqa: E402
+from test_device_evidence import _matrix as device_report  # noqa: E402
 from test_memory_validation import _report as memory_report  # noqa: E402
 from test_tournament import _report as tournament_report  # noqa: E402
 
