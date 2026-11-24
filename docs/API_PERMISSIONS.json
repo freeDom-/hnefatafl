@@ -257,6 +257,118 @@
   },
   {
     "method": "GET",
+    "route": "/api/leagues/active-game",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/leagues/admin/audit",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": false,
+    "user_specific": false
+  },
+  {
+    "method": "GET",
+    "route": "/api/leagues/admin/health",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": false,
+    "user_specific": false
+  },
+  {
+    "method": "POST",
+    "route": "/api/leagues/admin/matchmaking",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": true,
+    "user_specific": false
+  },
+  {
+    "method": "POST",
+    "route": "/api/leagues/admin/queue/cancel",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": true,
+    "user_specific": false
+  },
+  {
+    "method": "POST",
+    "route": "/api/leagues/admin/seasons/{season_id}/rebuild",
+    "authentication": "session",
+    "permission": "accounts",
+    "persistent_state": true,
+    "user_specific": false
+  },
+  {
+    "method": "GET",
+    "route": "/api/leagues/current",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/leagues/history",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/leagues/progress",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/leagues/queue",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/leagues/queue",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "POST",
+    "route": "/api/leagues/queue/cancel",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": true,
+    "user_specific": true
+  },
+  {
+    "method": "GET",
+    "route": "/api/leagues/seasons",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": false
+  },
+  {
+    "method": "GET",
+    "route": "/api/leagues/standings",
+    "authentication": "session",
+    "permission": "play",
+    "persistent_state": false,
+    "user_specific": false
+  },
+  {
+    "method": "GET",
     "route": "/api/models",
     "authentication": "session",
     "permission": "play",
