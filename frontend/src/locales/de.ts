@@ -129,6 +129,8 @@ const translations: Record<string, string> = {
   'Each match starts as soon as its preceding matches are decided.':
     'Jede Begegnung beginnt, sobald ihre Vorgängerbegegnungen entschieden sind.',
   'Unassigned seed {seed}': 'Unbesetzter Setzplatz {seed}',
+  'Tournament cancelled before the start. No seeds were assigned.':
+    'Das Turnier wurde vor dem Start abgesagt. Es wurden keine Setzplätze ausgelost.',
   'Provisional bracket based on maximum entrants. Player seeds and byes will be randomized when the tournament starts.':
     'Vorläufiger Turnierbaum basierend auf der maximalen Teilnehmerzahl. Setzliste und Freilose werden beim Turnierstart zufällig ausgelost.',
   'Only the creator or an administrator may reschedule this tournament.':
@@ -202,6 +204,7 @@ const translations: Record<string, string> = {
   'No entrants yet. Be the first to register.':
     'Noch keine Anmeldungen. Sei die erste teilnehmende Person.',
   'Seed pending randomization': 'Setzplatz wird beim Start zugelost',
+  'Not seeded': 'Nicht gesetzt',
   'Match losses: {count}': 'Verlorene Begegnungen: {count}',
   Eliminated: 'Ausgeschieden',
   'Tournament bracket': 'Turnierbaum',

@@ -434,6 +434,11 @@ it('shows pending seed labels before the start and server-assigned seeds afterwa
   ).toBeVisible();
   expect(screen.getAllByText(/Seed pending randomization/)).toHaveLength(4);
   expect(screen.queryByText('Seed 1')).not.toBeInTheDocument();
+  const registrationSection = screen
+    .getByRole('heading', { name: 'Entrants and seeds' })
+    .closest('section')!;
+  expect(registrationSection.querySelector('ul')).not.toBeNull();
+  expect(registrationSection.querySelector('ol')).toBeNull();
   view.unmount();
   tournament.status = 'running';
   tournament.entrants = tournament.entrants.map((entry, index) => ({
@@ -444,6 +449,89 @@ it('shows pending seed labels before the start and server-assigned seeds afterwa
   expect(await screen.findByText(/Seed 1/)).toBeVisible();
   expect(screen.getByText(/Seed 4/)).toBeVisible();
   expect(screen.queryByText('Seed pending randomization')).not.toBeInTheDocument();
+});
+it('uses neutral seed labels and explains a provisional bracket after cancellation before the start', async () => {
+  tournament.status = 'cancelled';
+  tournament.started_at = null;
+  tournament.bracket_size = null;
+  tournament.entrants = tournament.entrants.map((entry) => ({ ...entry, seed: null }));
+  bracket.status = 'cancelled';
+  bracket.preview = true;
+  bracket.bracket_size = 4;
+  bracket.round_progress = null;
+  bracket.upper = [
+    {
+      round: 1,
+      matches: [
+        match('u1', 'upper', 1, 'seed:1', 'seed:4'),
+        { ...match('u2', 'upper', 1, 'seed:2', 'seed:3'), slot: 1 },
+      ],
+    },
+  ];
+  bracket.lower = [];
+  bracket.final = null;
+  bracket.reset = null;
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(await screen.findAllByText(/Not seeded/)).toHaveLength(4);
+  expect(screen.queryByText(/Seed pending randomization/)).not.toBeInTheDocument();
+  expect(
+    screen.queryByText('Player seeds will be assigned randomly when the tournament starts.'),
+  ).not.toBeInTheDocument();
+  const cancelledSection = screen
+    .getByRole('heading', { name: 'Entrants and seeds' })
+    .closest('section')!;
+  expect(cancelledSection.querySelector('ul')).not.toBeNull();
+  expect(cancelledSection.querySelector('ol')).toBeNull();
+  const cancelledNotice = 'Tournament cancelled before the start. No seeds were assigned.';
+  expect(screen.getByText(cancelledNotice)).toBeVisible();
+  expect(screen.queryByText(/Player seeds and byes will be randomized/)).not.toBeInTheDocument();
+  expect(screen.getByText('Unassigned seed 1')).toBeVisible();
+  expect(screen.queryByRole('link', { name: /Game \d/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Accessible match list' }));
+  expect(screen.getByText(cancelledNotice)).toBeVisible();
+  expect(screen.getByText('Unassigned seed 1')).toBeVisible();
+  expect(screen.queryByRole('link', { name: /Game \d/ })).not.toBeInTheDocument();
+});
+it('localizes neutral cancelled-before-start labels and the provisional bracket notice', async () => {
+  setLanguage('de');
+  tournament.status = 'cancelled';
+  tournament.started_at = null;
+  tournament.bracket_size = null;
+  tournament.entrants = tournament.entrants.map((entry) => ({ ...entry, seed: null }));
+  bracket.status = 'cancelled';
+  bracket.preview = true;
+  bracket.round_progress = null;
+  bracket.upper[0].matches = [match('u1', 'upper', 1, 'seed:1', 'seed:4')];
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(await screen.findAllByText(/Nicht gesetzt/)).toHaveLength(4);
+  expect(
+    screen.getByText(
+      'Das Turnier wurde vor dem Start abgesagt. Es wurden keine Setzplätze ausgelost.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/Setzplatz wird beim Start zugelost/)).not.toBeInTheDocument();
+});
+it('preserves assigned seeds and bracket history after cancellation following the start', async () => {
+  tournament.status = 'cancelled';
+  bracket.status = 'cancelled';
+  render(<PlayerTournaments tournamentId="cup-1" />);
+  expect(await screen.findByText(/Seed 1/)).toBeVisible();
+  expect(screen.getByText(/Seed 4/)).toBeVisible();
+  expect(screen.queryByText(/Not seeded/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Tournament cancelled before the start/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Seed pending randomization/)).not.toBeInTheDocument();
+  const startedSection = screen
+    .getByRole('heading', { name: 'Entrants and seeds' })
+    .closest('section')!;
+  expect(startedSection.querySelector('ol')).not.toBeNull();
+  expect(startedSection.querySelector('ul')).toBeNull();
+  expect(screen.getByRole('link', { name: 'Game 1' })).toHaveAttribute(
+    'href',
+    '/online/games/online-game-1',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Accessible match list' }));
+  expect(screen.getByText(/Seed 1/)).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Game 1' })).toBeVisible();
 });
 it('rejects a late old-account mutation response and notification', async () => {
   tournament.status = 'registration';

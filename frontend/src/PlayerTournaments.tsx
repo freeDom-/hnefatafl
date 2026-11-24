@@ -644,7 +644,11 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
   const canOverride =
     canModerate && tournament?.review_state === 'ok' && tournament.status === 'running';
   if (!account) return null;
-  const EntrantList = tournament?.status === 'registration' ? ('ul' as const) : ('ol' as const);
+  const unorderedEntrants =
+    tournament?.status === 'registration' ||
+    (tournament?.status === 'cancelled' &&
+      tournament.entrants.every((entry) => entry.seed === null));
+  const EntrantList = unorderedEntrants ? ('ul' as const) : ('ol' as const);
   return (
     <section
       className="player-tournaments"
@@ -990,7 +994,9 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
                     <strong>{playerName(entry, t)}</strong>
                     <p>
                       {entry.seed === null
-                        ? t('Seed pending randomization')
+                        ? tournament.status === 'cancelled'
+                          ? t('Not seeded')
+                          : t('Seed pending randomization')
                         : t('Seed {seed}', { seed: entry.seed })}
                       {typeof entry.losses === 'number' && (
                         <>
@@ -1033,9 +1039,11 @@ export default function PlayerTournaments({ tournamentId }: { tournamentId?: str
               </header>
               {bracket.preview && (
                 <p>
-                  {t(
-                    'Provisional bracket based on maximum entrants. Player seeds and byes will be randomized when the tournament starts.',
-                  )}
+                  {tournament.status === 'cancelled'
+                    ? t('Tournament cancelled before the start. No seeds were assigned.')
+                    : t(
+                        'Provisional bracket based on maximum entrants. Player seeds and byes will be randomized when the tournament starts.',
+                      )}
                 </p>
               )}
               {bracket.round_progress && (
