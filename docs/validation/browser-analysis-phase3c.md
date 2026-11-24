@@ -16,7 +16,32 @@ opt-in. Single-tree batching and subtree reuse remain deferred.
   process memory and statistically meaningful playing-strength tournaments are
   **blocked** in this environment.
 
-## 0. Review-correction hardening
+## 0. Second review-correction hardening
+
+- Competitive validation now has an integrated `--checkpoint/--export-dir/
+  --report` pipeline: checkpoint fingerprint + validated ONNX provenance are
+  independently verified, and supplied Level A/B reports are re-run through the
+  real comparator; structural smoke is marked `structural-validated` with
+  competitive acceptance false. CLI exit 0 validated, 1 invalid, 2 blocked.
+- Memory observed duration is derived from timestamps (not declared duration
+  alone), warmup is excluded, sample gaps/duplicates/progress/counter
+  monotonicity and positive observable budgets are enforced. RSS-unavailable
+  reports are structurally valid but process-memory acceptance remains false.
+- Tournament reports now carry a canonical manifest (ordered openings, states,
+  pair indices, agents, settings/seeds/budgets); both legs bind to it, failed
+  histories are replayed, absolute ply/initial ply are distinguished, and every
+  summary/paired bootstrap value is recomputed. A portable line-protocol process
+  agent with a hard deadline and bounded restart provides Windows/Linux owner
+  execution; unresponsive agents are terminated/recovered.
+- Device validation derives acceptance from the mandatory platform/provider
+  matrix, complete model/runtime/workload/init/inference/cancellation evidence,
+  and per-operator GPU evidence bound to the model/runtime/session. Manual
+  placement lists, mixed execution and WASM fallback cannot claim GPU-only
+  acceptance; blocked mandatory combinations prevent acceptance.
+- Malformed nested reports are guarded across all validators with structured
+  failures.
+
+## 0.1 Earlier review-correction hardening
 
 - Competitive validation requires embedded comparator evidence: Level A
   deterministic parity, Level B best-move parity, direct/relay fixed+f fixed-time
@@ -168,10 +193,11 @@ rerun. The requirement remains **outstanding**, not silently reduced. Evidence:
 
 - Neural lifecycle is 67/67; one
   `detachDirectPort()` implementation remains.
-- Tournament harness/validator: 13 tests.
-- Competitive validation: 6 tests.
+- Tournament harness/validator: 16 tests.
+- Competitive validation: 9 tests.
 - Memory validation: 7 tests.
 - Device evidence: 7 tests.
+- Cross-validator malformed-input tests: 23.
 - Existing Phase 3B browser/UI/parity/cache/batching tests remain the mandatory
   regression suite; no production API/auth/DB/CSP/frontend changes.
 - Relay default; direct/cache/batching opt-in; sequential Python MCTS reference

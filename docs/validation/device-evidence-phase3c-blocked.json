@@ -1,28 +1,72 @@
 {
   "kind": "browser-device-evidence",
   "schema": 1,
-  "records": [
-    {
-      "platform": "windows-chrome",
-      "status": "blocked",
-      "blocked_reason": "No physical Windows GPU device was available to this implementation environment."
-    },
-    {
-      "platform": "android-chrome",
-      "status": "blocked",
-      "blocked_reason": "No physical Android device was available; mobile emulation is not accepted."
-    },
-    {
-      "platform": "safari",
-      "status": "blocked",
-      "blocked_reason": "No supported Apple hardware was available."
-    }
-  ],
-  "authoritative": false,
+  "acceptance": false,
   "required_platforms": [
     "windows-chrome",
     "android-chrome",
     "safari"
   ],
-  "acceptance": false
+  "records": [
+    {
+      "platform": "android-chrome",
+      "provider_requested": "wasm",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "android-chrome",
+      "provider_requested": "webgpu",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "linux-chromium",
+      "provider_requested": "wasm",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "linux-firefox",
+      "provider_requested": "wasm",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "safari",
+      "provider_requested": "wasm",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "safari",
+      "provider_requested": "webgpu",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "windows-chrome",
+      "provider_requested": "wasm",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "windows-chrome",
+      "provider_requested": "webgpu",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "windows-edge",
+      "provider_requested": "wasm",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    },
+    {
+      "platform": "windows-edge",
+      "provider_requested": "webgpu",
+      "status": "blocked",
+      "blocked_reason": "No physical hardware was available to this implementation environment."
+    }
+  ]
 }
