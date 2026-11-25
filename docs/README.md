@@ -144,6 +144,7 @@ Commands assume the repository root unless a different directory is shown.
 
 | Release | Delivered scope and original evidence |
 | --- | --- |
+| [0.42](releases/0.42.md) | League Arena with seasonal matchmaking and durable settlement, randomised player-tournament seeding and synchronised rounds, role win rates, manual portrait unlocking, Online Play navigation, noncommercial licensing and the opt-in browser neural MCTS research phases |
 | [0.41.1](releases/0.41.1.md) | Deployment-gate-safe deferred tournament recovery, sanitized readiness diagnostics and mandatory startup-under-lock regression coverage |
 | [0.41.0](releases/0.41.0.md) | Arena v2 four-theme shell, Local 1v1, human player tournaments, automatic portraits and achievements, public spectator Arena, and frontend/backend performance work |
 | [0.40.0](releases/0.40.0.md) | Persistent Champion-aware HyperController, selectable learning metrics with portable parameter history, and configurable neural analytics budgets |

@@ -58,7 +58,8 @@ def override(client, identifier, enabled=True):
         ("", False, "unknown_application_version"),
         ("unknown", False, "unknown_application_version"),
         ("0+local", False, "unknown_application_version"),
-        ("0.26", False, "unknown_application_version"),
+        ("0.26", False, "application_version_mismatch"),
+        ("0.26.0.1", False, "unknown_application_version"),
         ("v0.26.0", False, "unknown_application_version"),
         (26, False, "unknown_application_version"),
         ({"version": "0.26.0"}, False, "unknown_application_version"),
@@ -367,3 +368,12 @@ def test_worker_reports_installed_identity_in_heartbeat(tmp_path, monkeypatch, s
             "hyper_adaptation_iteration_dwell": True,
         }
     ]
+
+
+def test_canonical_release_identity_accepts_a_two_part_stable_version():
+    # A release identifier may omit the patch component; it stays an exact
+    # identity for worker matching rather than widening to a version range.
+    assert versioning.known_version("0.42") == "0.42"
+    assert versioning.known_version("0.42.0") == "0.42.0"
+    for invalid in ("v0.42", "0.42-rc1", "0.42.0.1", "0+local", "main"):
+        assert versioning.known_version(invalid) is None

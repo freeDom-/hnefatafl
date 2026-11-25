@@ -1193,3 +1193,66 @@ local checks separately and requires successful release-PR and exact merged-main
 Verify before an annotated tag and stable publication. See
 [0.41.0 release notes](docs/releases/0.41.0.md) for complete scope, compatibility,
 measurements and installation. Historical release records remain unchanged.
+
+## League Arena, tournament seeding, progression refinements and browser analysis phases (`0.42` preparation)
+
+Release preparation starts from merged `main` at `1a0381a`, covering every change
+since published `0.41.1`: 13 pull requests (#99, #108, #112, #113, #115, #116,
+#117, #118, #119, #120, #121, #122 and #123) with their review fixes.
+Python/npm metadata and both lockfiles move together to `0.42` on `release/0.42`.
+
+The authenticated Arena adds the **League Arena** at `/leagues`: UTC monthly
+seasons, five point tiers, a ruleset-aware queue with widening rating windows,
+guarded pairing onto the unchanged rated online engine, server-owned scoring with
+sequence-corrected revisions and voids, durable settlement without an open browser,
+and permission-gated pause, stale-queue cancellation and audited season rebuilds.
+Browser recovery resolves unresolved joins by their original request UUID and
+fences superseded generations. Shared SQLite writer leases are scoped to the
+application lifecycle.
+
+Human player tournaments now draw a secure random seed permutation at start for
+creator, administrator and scheduled starts, remove the registration deadline,
+allow a version-checked reschedule, and persist synchronised two-game progression
+in schema 22. Round projections are shared by bracket, paged and individual match
+reads, and rebuilds reconcile retained games in feeder order.
+
+Statistics ruleset cards show overall, attacker and defender win rates from
+existing aggregates without migration. Achievement cards drop redundant threshold
+and highest-achieved labels. Eligible Hall of Renown cards offer an authenticated,
+idempotent **Unlock portrait** claim with a feathered five-mask reveal, reduced
+motion support and localised eligible/claimed notifications. **Online Play** is a
+permanent Arena destination at `/online`, and the compact navigation derives its
+row height so labels, targets and page clearance stay correct at phone widths and
+enlarged text.
+
+The browser-side analysis research merged in this milestone runs the unchanged
+Python neural MCTS in a Pyodide search worker against an ONNX Runtime Web inference
+worker: Phase 2 sequential parity, Phase 3A legal-only transport, the opt-in Phase
+3B direct transport, exact cache and independent batching, and the Phase 3C-A/3C-B
+competitive, tournament, memory and device validation platform. It adds no
+production route, API, CSP, database or bundle dependency; competitive checkpoints,
+verified GPU/WebGPU, physical devices, sustained memory and playing strength remain
+blocked external gates, and smoke-fixture numbers are not competitive claims.
+
+The project now ships under the PolyForm Noncommercial License 1.0.0 with notices,
+in-app acknowledgement, contributor licensing documentation and a voluntary Buy Me
+a Coffee link. No payment processing, donor privileges, telemetry, DRM or runtime
+licence enforcement is added.
+
+The online database schema advances **21 → 23**; account schema **9**, checkpoint
+tensor format **1**, job-archive schema **3**, training configuration and worker
+capabilities are unchanged. The upgrade is additive but forward-only: back up with
+stopped writers, keep matching `0.41.1` code with the backup, and require matching
+schemas for restore. This release uses the two-part identifier `0.42` verbatim as
+tag, package version and asset name (`hnefatafl-0.42.tar.gz`); the updater and
+publish workflow accept `X.Y` as well as `X.Y.Z` and never rename a published tag.
+Workers must run the same `0.42` identifier. The deprecated tournament `seeds` and
+`registration_deadline` inputs are accepted and ignored.
+
+Combined capacity, recovery, physical-device/Safari, verified-GPU and
+target-host deployment acceptance remain outstanding. `0.42` is a stable milestone
+preview, not a `1.0` public-readiness declaration. Release preparation records
+local checks separately and requires successful release-PR and exact merged-main
+Verify before an annotated tag and stable publication. See
+[0.42 release notes](docs/releases/0.42.md) for complete scope, compatibility,
+measurements and installation. Historical release records remain unchanged.

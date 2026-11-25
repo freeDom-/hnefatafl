@@ -28,6 +28,18 @@ before assigning or duplicating work.
 > describe the implementation branch, which integrates main's schema 22. The
 > original merge and benchmark provenance remains tied to the recorded revisions.
 
+> **Later update (2026-11-25), 0.42 preparation:** PR #99 (League Arena, schema
+> 23) and the browser-analysis research phases #108, #112, #115, #118 and #121 are
+> now merged on `main`. League Arena is implemented behind the online authority
+> and covered by its own API, worker, browser and restore evidence. The browser
+> neural MCTS work remains an isolated, opt-in spike with no production route,
+> competitive checkpoint or strength claim. The rows below stay as the
+> 2026-11-20 snapshot; see [release readiness](../RELEASE_READINESS.md),
+> [League validation](../validation/league-arena.md) and the
+> [browser analysis roadmap](browser-analysis-roadmap.md) for current status.
+> No combined release acceptance or deployment authorization follows from the
+> merges.
+
 [Release readiness](../RELEASE_READINESS.md) ·
 [Historical audit](arena-completion.md) ·
 [Contracts](arena-v2-contracts.md) ·

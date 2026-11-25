@@ -31,7 +31,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+# Stable identifiers are used verbatim as the release tag and package version. A
+# release may omit the patch component (for example 0.42, meaning 0.42.0).
+VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 DOWNLOAD_HOSTS = {
     "api.github.com",
@@ -70,8 +72,9 @@ class DeploymentError(ValueError):
 def version_key(tag: str) -> tuple[int, ...]:
     match = VERSION.fullmatch(tag)
     if match is None:
-        raise ValueError("Use a stable version identifier such as 1.2.3")
-    return tuple(int(part) for part in match.groups())
+        raise ValueError("Use a stable version identifier such as 1.2.3 or 1.2")
+    major, minor, patch = match.groups()
+    return (int(major), int(minor), int(patch or 0))
 
 
 def repository(value: str) -> str:
