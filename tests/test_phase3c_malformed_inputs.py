@@ -27,6 +27,7 @@ import tournament as tr  # noqa: E402
 from test_competitive_validation import _valid as competitive_report  # noqa: E402
 from test_device_evidence import _matrix as device_report  # noqa: E402
 from test_memory_validation import _report as memory_report  # noqa: E402
+from test_memory_validation import _schema3_report as schema3_memory_report  # noqa: E402
 from test_tournament import _report as tournament_report  # noqa: E402
 
 WEIRD = (None, [], {}, "x", 1, True, 1.5, [1], {"a": 1}, float("nan"), -1)
@@ -58,6 +59,7 @@ def _paths(value, prefix=()):
     [
         (cv.validate_report, competitive_report()),
         (mv.validate_report, memory_report()),
+        (mv.validate_report, schema3_memory_report()),
         (de.validate_report, device_report()),
         (tr.validate_report, tournament_report()),
     ],

@@ -90,6 +90,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Browser analysis Phase 3 validation (optimization, Phase 3A)](validation/browser-analysis-phase3.md)
 - [Browser analysis Phase 3B validation (transport, cache, batching)](validation/browser-analysis-phase3b.md)
 - [Browser analysis Phase 3C-A validation platform](validation/browser-analysis-phase3c.md)
+- [Browser analysis Phase 3C-B competitive measurements and readiness](validation/browser-analysis-phase3c-b.md)
 - [Physical browser/WebGPU validation matrix](validation/device-matrix-phase3c.md)
 - [Browser-side analysis roadmap](designs/browser-analysis-roadmap.md)
 - [Release procedure](RELEASING.md) (only for an explicitly authorized release)

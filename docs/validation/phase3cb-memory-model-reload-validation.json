@@ -1,0 +1,55 @@
+{
+  "ok": true,
+  "structural_ok": true,
+  "measurement_ok": false,
+  "acceptance_ok": false,
+  "acceptance": false,
+  "status": "partial",
+  "failures": [
+    "partial measurement: wasm_heap_capacity_bytes: the pinned ORT Web runtime does not expose WASM heap capacity"
+  ],
+  "blocked_reasons": [
+    "sustained process-memory acceptance blocked"
+  ],
+  "samples": 111,
+  "warmup_samples": 20,
+  "warmup_ms": 20000.0,
+  "window_start_ms": 20000.0,
+  "window_end_ms": 110000.0,
+  "observed_window_ms": 89875.99299999999,
+  "coverage": {
+    "process_rss_bytes": {
+      "usable": 91,
+      "of": 91,
+      "coverage": 1.0,
+      "longest_usable_gap_ms": 1015.265999999996
+    },
+    "js_heap_used_bytes": {
+      "usable": 91,
+      "of": 91,
+      "coverage": 1.0,
+      "longest_usable_gap_ms": 1015.265999999996
+    },
+    "cache_bytes": {
+      "usable": 91,
+      "of": 91,
+      "coverage": 1.0,
+      "longest_usable_gap_ms": 1015.265999999996
+    },
+    "cache_entries": {
+      "usable": 91,
+      "of": 91,
+      "coverage": 1.0,
+      "longest_usable_gap_ms": 1015.265999999996
+    },
+    "workers": {
+      "usable": 91,
+      "of": 91,
+      "coverage": 1.0,
+      "longest_usable_gap_ms": 1015.265999999996
+    }
+  },
+  "partial_reasons": [
+    "wasm_heap_capacity_bytes: the pinned ORT Web runtime does not expose WASM heap capacity"
+  ]
+}

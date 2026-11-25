@@ -1,0 +1,26 @@
+{
+  "kind": "browser-sustained-workload",
+  "schema": 1,
+  "session_id": "p3cb-worker-replacement",
+  "mode": "worker-replacement",
+  "runtime": "browser-pyodide",
+  "model": {
+    "sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+    "ruleset": "brandubh",
+    "size": 7,
+    "file": "model/model.onnx",
+    "provider_requested": "wasm",
+    "execution_placement": "wasm"
+  },
+  "provider_requested": "wasm",
+  "execution_placement": "wasm",
+  "provider_observed": true,
+  "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+  "duration_s": 141.694,
+  "completed_requests": 391,
+  "cancellations": 0,
+  "reloads": 0,
+  "worker_replacements": 26,
+  "failures": 0,
+  "authoritative": false
+}

@@ -323,6 +323,7 @@ def _schema3_report(**overrides):
             "max_workers": 8,
         },
         "features": {"inference_cache": True},
+        "approved_model_sha256": ["a" * 64],
         "events": {"cancellations": 1},
         "events_source": "telemetry",
         "telemetry": {
@@ -333,6 +334,172 @@ def _schema3_report(**overrides):
             }
         },
         "progress_consistency": {"verified": True},
+        "expected_identity": {
+            "session_id": "session-a",
+            "model_sha256": "a" * 64,
+            "workload": "brandubh-opening",
+        },
+        "root_process": {
+            "pid": 1234,
+            "identity": {
+                "pid": 1234,
+                "start_time": "100",
+                "cmdline_sha256": "d" * 64,
+            },
+        },
+        "completion_evidence": {
+            "kind": "browser-sustained-workload-completion",
+            "schema": 1,
+            "actual_process_exit_status": 0,
+            "reported_exit_status": 0,
+            "exit_status_consistent": True,
+            "pid": 1234,
+            "process_identity": {
+                "pid": 1234,
+                "start_time": "100",
+                "cmdline_sha256": "d" * 64,
+            },
+            "session_id": "session-a",
+            "workload": "brandubh-opening",
+            "profile": "cancel-restart",
+            "mode": "cancel-restart",
+            "model_sha256": "a" * 64,
+            "summary_sha256": "f" * 64,
+            "summary_reconciled": True,
+            "finalized_at_ms": 180000,
+            "source": "parent-wait",
+        },
+        "workload_telemetry": {
+            "successful_searches": 15,
+            "workload_failures": 0,
+            "neural_searches": 15,
+            "completed_simulations": 960,
+            "neural_inferences": 960,
+            "no_inference_shortcuts": 0,
+            "client_disposals": 0,
+            "model_replacements": 0,
+            "cache_evictions": 0,
+            "cache_invalidation_failures": 0,
+            "batches": 0,
+            "multi_request_batches": 0,
+            "batch_rounds": 0,
+            "batch_successful_rounds": 0,
+            "batch_counter_resets": 0,
+            "observed_max_batch": 0,
+            "peak_search_workers": 2,
+            "peak_inference_workers": 1,
+            "peak_total_workers": 3,
+            "batch_elapsed_ms_total": 0,
+            "batch_max_elapsed_ms": 0,
+            "batch_search_elapsed_ms_total": 0,
+            "batch_search_max_elapsed_ms": 0,
+            "cleanup_failures": 0,
+            "provider_placements": ["wasm"],
+            "model_transitions": [],
+            "model_transition_history": {
+                "limit": 1024,
+                "total": 0,
+                "retained": 0,
+                "truncated": False,
+                "first_retained_sequence": None,
+                "first_retained_from": None,
+                "last_sequence": None,
+                "final_model": "a" * 64,
+                "last_timestamp_ms": None,
+                "chain_digest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "retained_chain_digest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            },
+            "workload_complete": True,
+            "workload_exit_status": 0,
+            "cleanup_complete": True,
+            "session_id": "session-a",
+            "model_sha256": "a" * 64,
+            "workload": "brandubh-opening",
+            "acceptance_window": {
+                "start_ms": 60000,
+                "end_ms": 180000,
+                "duration_ms": 120000,
+                "counters": {
+                    "completed_requests": 15,
+                    "successful_searches": 15,
+                    "workload_failures": 0,
+                    "neural_searches": 15,
+                    "completed_simulations": 960,
+                    "neural_inferences": 960,
+                    "no_inference_shortcuts": 0,
+                    "client_disposals": 0,
+                    "model_replacements": 0,
+                    "cache_evictions": 0,
+                    "cache_invalidation_failures": 0,
+                    "cleanup_failures": 0,
+                    "batches": 0,
+                    "multi_request_batches": 0,
+                    "batch_rounds": 0,
+                    "batch_successful_rounds": 0,
+                    "batch_counter_resets": 0,
+                    "observed_max_batch": 0,
+                    "peak_search_workers": 2,
+                    "peak_inference_workers": 1,
+                    "peak_total_workers": 3,
+                    "batch_elapsed_ms_total": 0,
+                    "batch_max_elapsed_ms": 0,
+                    "batch_search_elapsed_ms_total": 0,
+                    "batch_search_max_elapsed_ms": 0,
+                },
+                "model_transitions": [],
+                "provider_placements": ["wasm"],
+                "completion_reasons": {"simulations": 15},
+            },
+            "final_session": {
+                "profile": "cancel-restart",
+                "session_id": "session-a",
+                "model_sha256": "a" * 64,
+                "workload": "brandubh-opening",
+                "recorded_at_ms": 180000,
+                "after_last_sample": False,
+                "workload_complete": True,
+                "workload_exit_status": 0,
+                "cleanup_complete": True,
+                "counters": {
+                    "completed_requests": 15,
+                    "successful_searches": 15,
+                    "workload_failures": 0,
+                    "neural_searches": 15,
+                    "completed_simulations": 960,
+                    "neural_inferences": 960,
+                    "no_inference_shortcuts": 0,
+                    "client_disposals": 0,
+                    "model_replacements": 0,
+                    "cache_evictions": 0,
+                    "cache_invalidation_failures": 0,
+                    "cleanup_failures": 0,
+                    "batches": 0,
+                    "multi_request_batches": 0,
+                    "batch_rounds": 0,
+                    "batch_successful_rounds": 0,
+                    "batch_counter_resets": 0,
+                    "observed_max_batch": 0,
+                    "peak_search_workers": 2,
+                    "peak_inference_workers": 1,
+                    "peak_total_workers": 3,
+                    "batch_elapsed_ms_total": 0,
+                    "batch_max_elapsed_ms": 0,
+                    "batch_search_elapsed_ms_total": 0,
+                    "batch_search_max_elapsed_ms": 0,
+                },
+                "provider_placements": ["wasm"],
+                "completion_reasons": {"simulations": 15},
+                "actual_process_exit_status": 0,
+                "actual_process_exit_status_source": "parent-wait",
+            },
+            "process_observation": {
+                "root_alive_at_end": False,
+                "final_cleanup_incomplete": False,
+                "premature_termination": False,
+                "actual_process_exit_status": 0,
+                "actual_process_exit_status_source": "parent-wait",
+            },
+        },
         "samples": [
             {
                 "timestamp_ms": index * 12000,
@@ -345,6 +512,26 @@ def _schema3_report(**overrides):
                 "os_processes": 9,
                 "completed_requests": index,
                 "completed_requests_source": "telemetry",
+                "successful_searches": index,
+                "workload_failures": 0,
+                "neural_searches": index,
+                "completed_simulations": index * 64,
+                "neural_inferences": index * 64,
+                "no_inference_shortcuts": 0,
+                "client_disposals": 0,
+                "model_replacements": 0,
+                "cache_evictions": 0,
+                "cache_invalidation_failures": 0,
+                "batches": 0,
+                "batch_rounds": 0,
+                "batch_successful_rounds": 0,
+                "observed_max_batch": 0,
+                "peak_search_workers": 2,
+                "peak_inference_workers": 1,
+                "peak_total_workers": 3,
+                "multi_request_batches": 0,
+                "cleanup_failures": 0,
+                "workload_complete": index == 15,
                 "telemetry": {
                     "session_id": "session-a",
                     "model_sha256": "a" * 64,
@@ -502,3 +689,160 @@ def test_boundary_gap_at_the_permitted_maximum_is_accepted():
     assert result["structural_ok"] is True, result["failures"]
     assert result["measurement_ok"] is True, result["partial_reasons"]
     assert result["acceptance_ok"] is True
+
+
+def test_cache_fill_is_bounded_by_the_cache_budget_not_growth_threshold():
+    report = _schema3_report()
+    for index, sample in enumerate(report["samples"]):
+        sample["cache_bytes"] = 1024 + index * 512 * 1024
+        sample["cache_entries"] = index * 100
+    report["budgets"]["max_cache_bytes"] = 16 * 1024 * 1024
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True, result["failures"]
+    assert result["acceptance_ok"] is True
+
+    report["samples"][-1]["cache_bytes"] = 32 * 1024 * 1024
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("cache_bytes exceeded" in failure for failure in result["failures"])
+
+
+def _sustained_report(neural_series=None):
+    report = _schema3_report(profile="sustained-10m", duration_ms=600000)
+    report["samples"] = []
+    for index in range(12):
+        report["samples"].append(
+            {
+                "timestamp_ms": index * 60000,
+                "process_rss_bytes": 100 * 1024 * 1024 + index * 1024,
+                "js_heap_used_bytes": 20 * 1024 * 1024,
+                "wasm_heap_capacity_bytes": 32 * 1024 * 1024,
+                "cache_entries": 10,
+                "cache_bytes": 1000,
+                "workers": 3,
+                "os_processes": 9,
+                "completed_requests": index,
+                "completed_requests_source": "telemetry",
+                "successful_searches": (
+                    neural_series[index] if neural_series is not None else index
+                ),
+                "workload_failures": 0,
+                "neural_searches": (neural_series[index] if neural_series is not None else index),
+                "completed_simulations": index * 64,
+                "neural_inferences": index * 64,
+                "no_inference_shortcuts": 0,
+                "client_disposals": 0,
+                "model_replacements": 0,
+                "cache_evictions": 0,
+                "cache_invalidation_failures": 0,
+                "batches": 0,
+                "batch_rounds": 0,
+                "batch_successful_rounds": 0,
+                "observed_max_batch": 0,
+                "peak_search_workers": 2,
+                "peak_inference_workers": 1,
+                "peak_total_workers": 3,
+                "workload_complete": index == 11,
+                "telemetry": {
+                    "session_id": "session-a",
+                    "model_sha256": "a" * 64,
+                    "workload": "brandubh-opening",
+                },
+            }
+        )
+    report["workload_telemetry"].update(
+        {
+            "successful_searches": report["samples"][-1]["successful_searches"],
+            "neural_searches": report["samples"][-1]["neural_searches"],
+            "completed_simulations": report["samples"][-1]["completed_simulations"],
+            "neural_inferences": report["samples"][-1]["neural_inferences"],
+            "workload_complete": True,
+            "workload_exit_status": 0,
+        }
+    )
+    counters = {field: 0 for field in mv.WORKLOAD_COUNTERS}
+    for field in mv.WORKLOAD_COUNTERS:
+        values = [
+            sample[field] for sample in report["samples"][1:] if type(sample.get(field)) is int
+        ]
+        if values:
+            counters[field] = max(values)
+    report["workload_telemetry"]["acceptance_window"].update(
+        {
+            "start_ms": 60000,
+            "end_ms": 600000,
+            "duration_ms": 540000,
+            "counters": counters,
+        }
+    )
+    final = report["workload_telemetry"]["final_session"]
+    final["profile"] = report["profile"]
+    report["completion_evidence"]["profile"] = report["profile"]
+    report["completion_evidence"]["mode"] = mv.PROFILE_MODES[report["profile"]]
+    final.update(
+        {
+            "recorded_at_ms": 660000,
+            "counters": dict(counters),
+            "workload_complete": True,
+            "workload_exit_status": 0,
+            "cleanup_complete": True,
+        }
+    )
+    return report
+
+
+def test_warmup_only_neural_activity_cannot_accept_sustained_profile():
+    series = [0, 1, 2, 3, 4, 5, 5, 5, 5, 5, 5, 5]
+    report = _sustained_report(series)
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True, result["failures"]
+    assert result["acceptance_ok"] is False
+    assert any("neural search activity" in reason for reason in result["partial_reasons"])
+
+
+def test_workload_completion_consistency_and_cache_invalidation_are_required():
+    report = _sustained_report()
+    assert mv.validate_report(report)["acceptance_ok"] is True
+    report["workload_telemetry"]["final_session"]["workload_complete"] = False
+    assert mv.validate_report(report)["acceptance_ok"] is False
+
+    report = _sustained_report()
+    report["workload_telemetry"]["final_session"]["counters"]["cache_invalidation_failures"] = 1
+    result = mv.validate_report(report)
+    assert result["acceptance_ok"] is False
+    assert any("cache" in reason.lower() for reason in result["partial_reasons"])
+
+    report = _sustained_report()
+    report["workload_telemetry"]["final_session"]["counters"]["successful_searches"] += 1
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("successful searches" in failure for failure in result["failures"])
+
+
+def test_peak_worker_budget_uses_actual_peak_not_ordinary_samples():
+    report = _schema3_report()
+    assert mv.validate_report(report)["structural_ok"] is True
+    report["workload_telemetry"]["peak_total_workers"] = 9
+    report["workload_telemetry"]["final_session"]["counters"]["peak_total_workers"] = 9
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("peak worker" in failure for failure in result["failures"])
+
+
+def test_peak_and_worker_classification_types_are_validated():
+    report = _schema3_report()
+    report["workload_telemetry"]["peak_search_workers"] = True
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    report = _schema3_report()
+    report["samples"][4]["search_workers"] = -1
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+
+
+def test_cleanup_failure_blocks_acceptance():
+    report = _schema3_report()
+    report["workload_telemetry"]["final_session"]["counters"]["cleanup_failures"] = 1
+    result = mv.validate_report(report)
+    assert result["acceptance_ok"] is False
+    assert any("cleanup" in reason.lower() for reason in result["partial_reasons"])

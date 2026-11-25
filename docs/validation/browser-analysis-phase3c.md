@@ -1,6 +1,7 @@
 # Browser analysis — Phase 3C-A validation platform
 
-Phase 3C-A builds reusable competitive-validation, tournament, memory and
+Phase 3C-B measurements and readiness are recorded in the
+[Phase 3C-B report](browser-analysis-phase3c-b.md). Phase 3C-A builds reusable competitive-validation, tournament, memory and
 physical-device infrastructure on merged Phase 3A/3B. It does **not** claim
 competitive strength or physical-hardware acceptance. Relay remains the default
 transport; direct transport, inference caching and independent batching remain

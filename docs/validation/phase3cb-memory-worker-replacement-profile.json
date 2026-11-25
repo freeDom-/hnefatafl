@@ -1,0 +1,2170 @@
+{
+  "kind": "browser-analysis-memory-profile",
+  "schema": 3,
+  "profile": "worker-replacement",
+  "status": "measured",
+  "warmup_ms": 20000.0,
+  "duration_ms": 90000.0,
+  "total_duration_ms": 110002.93969298946,
+  "budgets": {
+    "max_process_rss_bytes": 1073741824,
+    "max_js_heap_used_bytes": 536870912,
+    "max_cache_bytes": 67108864,
+    "max_workers": 32
+  },
+  "features": {
+    "inference_cache": true
+  },
+  "events": {
+    "cancellations": 0,
+    "reloads": 0,
+    "worker_replacements": 16,
+    "batches": 0
+  },
+  "events_source": "telemetry",
+  "progress_consistency": {
+    "verified": true,
+    "file_mismatches": 0,
+    "telemetry_samples": 111,
+    "progress_file_samples": 0,
+    "measured_telemetry_samples": 91,
+    "measured_samples": 91
+  },
+  "telemetry": {
+    "records": 315,
+    "history_limit": 4096,
+    "malformed": 0,
+    "identity_mismatch": 0,
+    "progress_resets": 0,
+    "event_resets": 0,
+    "last_error": null,
+    "identity": {
+      "session_id": "p3cb-worker-replacement",
+      "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+      "workload": "sustained-analysis"
+    }
+  },
+  "unavailable_metrics": {
+    "wasm_heap_capacity_bytes": "the pinned ORT Web runtime does not expose WASM heap capacity"
+  },
+  "root_process": {
+    "pid": 262041,
+    "identity": {
+      "pid": 262041,
+      "start_time": "35508941",
+      "cmdline_sha256": "2b7c6d5257dc9b2e8dfb3dfd8821b2d8358fd63fbf076755c5578d0cc9aebeaf"
+    }
+  },
+  "samples": [
+    {
+      "timestamp_ms": 0.001,
+      "wall_time_ms": 1795541360402.925,
+      "process_rss_bytes": 878014464,
+      "os_processes": 7,
+      "completed_requests": 15,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541358566.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1836.925
+    },
+    {
+      "timestamp_ms": 1004.26,
+      "wall_time_ms": 1795541361407.185,
+      "process_rss_bytes": 872284160,
+      "os_processes": 7,
+      "completed_requests": 15,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541358566.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2841.185
+    },
+    {
+      "timestamp_ms": 2007.291,
+      "wall_time_ms": 1795541362410.216,
+      "process_rss_bytes": 878661632,
+      "os_processes": 7,
+      "completed_requests": 22,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 163,
+      "cache_bytes": 259816,
+      "telemetry": {
+        "timestamp_ms": 1795541362329.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 81.216
+    },
+    {
+      "timestamp_ms": 3010.55,
+      "wall_time_ms": 1795541363413.476,
+      "process_rss_bytes": 774209536,
+      "os_processes": 7,
+      "completed_requests": 29,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 302,
+      "cache_bytes": 481248,
+      "telemetry": {
+        "timestamp_ms": 1795541362941.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 472.476
+    },
+    {
+      "timestamp_ms": 4013.842,
+      "wall_time_ms": 1795541364416.769,
+      "process_rss_bytes": 963629056,
+      "os_processes": 7,
+      "completed_requests": 30,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541363890.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 526.769
+    },
+    {
+      "timestamp_ms": 5020.572,
+      "wall_time_ms": 1795541365423.498,
+      "process_rss_bytes": 992915456,
+      "os_processes": 7,
+      "completed_requests": 30,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541363890.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1533.498
+    },
+    {
+      "timestamp_ms": 6026.996,
+      "wall_time_ms": 1795541366429.921,
+      "process_rss_bytes": 901529600,
+      "os_processes": 7,
+      "completed_requests": 30,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541363890.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2539.921
+    },
+    {
+      "timestamp_ms": 7029.68,
+      "wall_time_ms": 1795541367432.605,
+      "process_rss_bytes": 888766464,
+      "os_processes": 7,
+      "completed_requests": 31,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 33,
+      "cache_bytes": 47348,
+      "telemetry": {
+        "timestamp_ms": 1795541367417.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 15.605
+    },
+    {
+      "timestamp_ms": 8032.913,
+      "wall_time_ms": 1795541368435.838,
+      "process_rss_bytes": 714403840,
+      "os_processes": 7,
+      "completed_requests": 44,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 308,
+      "cache_bytes": 490512,
+      "telemetry": {
+        "timestamp_ms": 1795541368339.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 96.838
+    },
+    {
+      "timestamp_ms": 9036.233,
+      "wall_time_ms": 1795541369439.159,
+      "process_rss_bytes": 992636928,
+      "os_processes": 7,
+      "completed_requests": 45,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541368983.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 456.159
+    },
+    {
+      "timestamp_ms": 10044.953,
+      "wall_time_ms": 1795541370447.879,
+      "process_rss_bytes": 1009156096,
+      "os_processes": 7,
+      "completed_requests": 45,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541368983.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1464.879
+    },
+    {
+      "timestamp_ms": 11053.325,
+      "wall_time_ms": 1795541371456.251,
+      "process_rss_bytes": 882868224,
+      "os_processes": 7,
+      "completed_requests": 45,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541368983.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2473.251
+    },
+    {
+      "timestamp_ms": 12056.782,
+      "wall_time_ms": 1795541372459.708,
+      "process_rss_bytes": 884862976,
+      "os_processes": 7,
+      "completed_requests": 45,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541368983.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3476.708
+    },
+    {
+      "timestamp_ms": 13059.763,
+      "wall_time_ms": 1795541373462.688,
+      "process_rss_bytes": 889737216,
+      "os_processes": 7,
+      "completed_requests": 56,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 217,
+      "cache_bytes": 346288,
+      "telemetry": {
+        "timestamp_ms": 1795541373421.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 41.688
+    },
+    {
+      "timestamp_ms": 14064.604,
+      "wall_time_ms": 1795541374467.532,
+      "process_rss_bytes": 813858816,
+      "os_processes": 7,
+      "completed_requests": 59,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 297,
+      "cache_bytes": 474596,
+      "telemetry": {
+        "timestamp_ms": 1795541373727.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 740.532
+    },
+    {
+      "timestamp_ms": 15080.025,
+      "wall_time_ms": 1795541375482.951,
+      "process_rss_bytes": 974262272,
+      "os_processes": 7,
+      "completed_requests": 60,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541374756.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 726.951
+    },
+    {
+      "timestamp_ms": 16090.583,
+      "wall_time_ms": 1795541376493.509,
+      "process_rss_bytes": 990437376,
+      "os_processes": 7,
+      "completed_requests": 60,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541374756.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1737.509
+    },
+    {
+      "timestamp_ms": 17118.567,
+      "wall_time_ms": 1795541377521.493,
+      "process_rss_bytes": 908742656,
+      "os_processes": 7,
+      "completed_requests": 60,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541374756.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2765.493
+    },
+    {
+      "timestamp_ms": 18122.217,
+      "wall_time_ms": 1795541378525.142,
+      "process_rss_bytes": 895156224,
+      "os_processes": 7,
+      "completed_requests": 60,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541374756.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3769.142
+    },
+    {
+      "timestamp_ms": 19125.04,
+      "wall_time_ms": 1795541379527.965,
+      "process_rss_bytes": 896090112,
+      "os_processes": 7,
+      "completed_requests": 65,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 96,
+      "cache_bytes": 159742,
+      "telemetry": {
+        "timestamp_ms": 1795541379528.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": -0.035
+    },
+    {
+      "timestamp_ms": 20127.661,
+      "wall_time_ms": 1795541380530.586,
+      "process_rss_bytes": 802304000,
+      "os_processes": 7,
+      "completed_requests": 74,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 300,
+      "cache_bytes": 479272,
+      "telemetry": {
+        "timestamp_ms": 1795541380187.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 343.586
+    },
+    {
+      "timestamp_ms": 21132.228,
+      "wall_time_ms": 1795541381535.153,
+      "process_rss_bytes": 996503552,
+      "os_processes": 7,
+      "completed_requests": 75,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541380758.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 777.153
+    },
+    {
+      "timestamp_ms": 22145.338,
+      "wall_time_ms": 1795541382548.265,
+      "process_rss_bytes": 907075584,
+      "os_processes": 7,
+      "completed_requests": 75,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541380758.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1790.265
+    },
+    {
+      "timestamp_ms": 23150.838,
+      "wall_time_ms": 1795541383553.763,
+      "process_rss_bytes": 870088704,
+      "os_processes": 7,
+      "completed_requests": 75,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541380758.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2795.763
+    },
+    {
+      "timestamp_ms": 24154.938,
+      "wall_time_ms": 1795541384557.865,
+      "process_rss_bytes": 872423424,
+      "os_processes": 7,
+      "completed_requests": 75,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541380758.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3799.865
+    },
+    {
+      "timestamp_ms": 25176.273,
+      "wall_time_ms": 1795541385579.199,
+      "process_rss_bytes": 878579712,
+      "os_processes": 7,
+      "completed_requests": 76,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541385149.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 430.199
+    },
+    {
+      "timestamp_ms": 26183.574,
+      "wall_time_ms": 1795541386586.5,
+      "process_rss_bytes": 885465088,
+      "os_processes": 7,
+      "completed_requests": 80,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 131,
+      "cache_bytes": 210374,
+      "telemetry": {
+        "timestamp_ms": 1795541386573.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 13.5
+    },
+    {
+      "timestamp_ms": 27196.151,
+      "wall_time_ms": 1795541387599.076,
+      "process_rss_bytes": 880402432,
+      "os_processes": 7,
+      "completed_requests": 87,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 269,
+      "cache_bytes": 430844,
+      "telemetry": {
+        "timestamp_ms": 1795541387506.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 93.076
+    },
+    {
+      "timestamp_ms": 28213.892,
+      "wall_time_ms": 1795541388616.818,
+      "process_rss_bytes": 967143424,
+      "os_processes": 7,
+      "completed_requests": 90,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541388256.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 360.818
+    },
+    {
+      "timestamp_ms": 29221.672,
+      "wall_time_ms": 1795541389624.598,
+      "process_rss_bytes": 985333760,
+      "os_processes": 7,
+      "completed_requests": 90,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541388256.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1368.598
+    },
+    {
+      "timestamp_ms": 30229.208,
+      "wall_time_ms": 1795541390632.134,
+      "process_rss_bytes": 880177152,
+      "os_processes": 7,
+      "completed_requests": 90,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541388256.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2376.134
+    },
+    {
+      "timestamp_ms": 31231.62,
+      "wall_time_ms": 1795541391634.545,
+      "process_rss_bytes": 886779904,
+      "os_processes": 7,
+      "completed_requests": 93,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 96,
+      "cache_bytes": 159564,
+      "telemetry": {
+        "timestamp_ms": 1795541391620.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 14.545
+    },
+    {
+      "timestamp_ms": 32234.215,
+      "wall_time_ms": 1795541392637.141,
+      "process_rss_bytes": 776982528,
+      "os_processes": 7,
+      "completed_requests": 104,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 287,
+      "cache_bytes": 457120,
+      "telemetry": {
+        "timestamp_ms": 1795541392292.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 345.141
+    },
+    {
+      "timestamp_ms": 33236.781,
+      "wall_time_ms": 1795541393639.708,
+      "process_rss_bytes": 982597632,
+      "os_processes": 7,
+      "completed_requests": 105,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541392955.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 684.708
+    },
+    {
+      "timestamp_ms": 34240.487,
+      "wall_time_ms": 1795541394643.413,
+      "process_rss_bytes": 895447040,
+      "os_processes": 7,
+      "completed_requests": 105,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541392955.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1688.413
+    },
+    {
+      "timestamp_ms": 35243.326,
+      "wall_time_ms": 1795541395646.251,
+      "process_rss_bytes": 883122176,
+      "os_processes": 7,
+      "completed_requests": 105,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541392955.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2691.251
+    },
+    {
+      "timestamp_ms": 36246.024,
+      "wall_time_ms": 1795541396648.951,
+      "process_rss_bytes": 890073088,
+      "os_processes": 7,
+      "completed_requests": 112,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 165,
+      "cache_bytes": 262078,
+      "telemetry": {
+        "timestamp_ms": 1795541396613.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 35.951
+    },
+    {
+      "timestamp_ms": 37250.195,
+      "wall_time_ms": 1795541397653.121,
+      "process_rss_bytes": 789037056,
+      "os_processes": 7,
+      "completed_requests": 119,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 296,
+      "cache_bytes": 471874,
+      "telemetry": {
+        "timestamp_ms": 1795541397180.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 473.121
+    },
+    {
+      "timestamp_ms": 38253.552,
+      "wall_time_ms": 1795541398656.478,
+      "process_rss_bytes": 982388736,
+      "os_processes": 7,
+      "completed_requests": 120,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541397864.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 792.478
+    },
+    {
+      "timestamp_ms": 39259.978,
+      "wall_time_ms": 1795541399662.904,
+      "process_rss_bytes": 885411840,
+      "os_processes": 7,
+      "completed_requests": 120,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541397864.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1798.904
+    },
+    {
+      "timestamp_ms": 40262.621,
+      "wall_time_ms": 1795541400665.546,
+      "process_rss_bytes": 886370304,
+      "os_processes": 7,
+      "completed_requests": 120,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541397864.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2801.546
+    },
+    {
+      "timestamp_ms": 41265.473,
+      "wall_time_ms": 1795541401668.4,
+      "process_rss_bytes": 884678656,
+      "os_processes": 7,
+      "completed_requests": 127,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 160,
+      "cache_bytes": 253536,
+      "telemetry": {
+        "timestamp_ms": 1795541401571.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 97.4
+    },
+    {
+      "timestamp_ms": 42274.343,
+      "wall_time_ms": 1795541402677.271,
+      "process_rss_bytes": 887394304,
+      "os_processes": 7,
+      "completed_requests": 132,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 238,
+      "cache_bytes": 376268,
+      "telemetry": {
+        "timestamp_ms": 1795541402510.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 167.271
+    },
+    {
+      "timestamp_ms": 43297.809,
+      "wall_time_ms": 1795541403700.736,
+      "process_rss_bytes": 704954368,
+      "os_processes": 7,
+      "completed_requests": 134,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 296,
+      "cache_bytes": 472428,
+      "telemetry": {
+        "timestamp_ms": 1795541403148.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 552.736
+    },
+    {
+      "timestamp_ms": 44312.689,
+      "wall_time_ms": 1795541404715.616,
+      "process_rss_bytes": 800948224,
+      "os_processes": 7,
+      "completed_requests": 134,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 296,
+      "cache_bytes": 472428,
+      "telemetry": {
+        "timestamp_ms": 1795541403148.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1567.616
+    },
+    {
+      "timestamp_ms": 45322.57,
+      "wall_time_ms": 1795541405725.497,
+      "process_rss_bytes": 952762368,
+      "os_processes": 7,
+      "completed_requests": 135,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541405171.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 554.497
+    },
+    {
+      "timestamp_ms": 46335.591,
+      "wall_time_ms": 1795541406738.518,
+      "process_rss_bytes": 1005924352,
+      "os_processes": 7,
+      "completed_requests": 135,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541405171.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1567.518
+    },
+    {
+      "timestamp_ms": 47344.636,
+      "wall_time_ms": 1795541407747.562,
+      "process_rss_bytes": 903655424,
+      "os_processes": 7,
+      "completed_requests": 135,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541405171.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2576.562
+    },
+    {
+      "timestamp_ms": 48347.611,
+      "wall_time_ms": 1795541408750.536,
+      "process_rss_bytes": 897740800,
+      "os_processes": 7,
+      "completed_requests": 135,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541405171.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3579.536
+    },
+    {
+      "timestamp_ms": 49349.822,
+      "wall_time_ms": 1795541409752.748,
+      "process_rss_bytes": 904056832,
+      "os_processes": 7,
+      "completed_requests": 148,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 272,
+      "cache_bytes": 431978,
+      "telemetry": {
+        "timestamp_ms": 1795541409749.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3.748
+    },
+    {
+      "timestamp_ms": 50353.582,
+      "wall_time_ms": 1795541410756.508,
+      "process_rss_bytes": 925065216,
+      "os_processes": 7,
+      "completed_requests": 150,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541410533.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 223.508
+    },
+    {
+      "timestamp_ms": 51357.617,
+      "wall_time_ms": 1795541411760.545,
+      "process_rss_bytes": 1002909696,
+      "os_processes": 7,
+      "completed_requests": 150,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541410533.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1227.545
+    },
+    {
+      "timestamp_ms": 52365.511,
+      "wall_time_ms": 1795541412768.437,
+      "process_rss_bytes": 911253504,
+      "os_processes": 7,
+      "completed_requests": 150,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541410533.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2235.437
+    },
+    {
+      "timestamp_ms": 53376.108,
+      "wall_time_ms": 1795541413779.033,
+      "process_rss_bytes": 897310720,
+      "os_processes": 7,
+      "completed_requests": 150,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541410533.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3246.033
+    },
+    {
+      "timestamp_ms": 54378.334,
+      "wall_time_ms": 1795541414781.259,
+      "process_rss_bytes": 900550656,
+      "os_processes": 7,
+      "completed_requests": 157,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 162,
+      "cache_bytes": 258346,
+      "telemetry": {
+        "timestamp_ms": 1795541414754.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 27.259
+    },
+    {
+      "timestamp_ms": 55380.862,
+      "wall_time_ms": 1795541415783.788,
+      "process_rss_bytes": 805511168,
+      "os_processes": 7,
+      "completed_requests": 164,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 297,
+      "cache_bytes": 473026,
+      "telemetry": {
+        "timestamp_ms": 1795541415270.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 513.788
+    },
+    {
+      "timestamp_ms": 56383.565,
+      "wall_time_ms": 1795541416786.49,
+      "process_rss_bytes": 1001533440,
+      "os_processes": 7,
+      "completed_requests": 165,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541415953.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 833.49
+    },
+    {
+      "timestamp_ms": 57390.459,
+      "wall_time_ms": 1795541417793.385,
+      "process_rss_bytes": 893317120,
+      "os_processes": 7,
+      "completed_requests": 165,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541415953.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1840.385
+    },
+    {
+      "timestamp_ms": 58393.828,
+      "wall_time_ms": 1795541418796.754,
+      "process_rss_bytes": 898584576,
+      "os_processes": 7,
+      "completed_requests": 165,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541415953.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2843.754
+    },
+    {
+      "timestamp_ms": 59396.385,
+      "wall_time_ms": 1795541419799.311,
+      "process_rss_bytes": 904757248,
+      "os_processes": 7,
+      "completed_requests": 175,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 194,
+      "cache_bytes": 311532,
+      "telemetry": {
+        "timestamp_ms": 1795541419722.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 77.311
+    },
+    {
+      "timestamp_ms": 60413.869,
+      "wall_time_ms": 1795541420816.794,
+      "process_rss_bytes": 910893056,
+      "os_processes": 7,
+      "completed_requests": 180,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541420649.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 167.794
+    },
+    {
+      "timestamp_ms": 61419.571,
+      "wall_time_ms": 1795541421822.497,
+      "process_rss_bytes": 1000886272,
+      "os_processes": 7,
+      "completed_requests": 180,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541420649.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1173.497
+    },
+    {
+      "timestamp_ms": 62428.054,
+      "wall_time_ms": 1795541422830.979,
+      "process_rss_bytes": 902483968,
+      "os_processes": 7,
+      "completed_requests": 180,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541420649.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2181.979
+    },
+    {
+      "timestamp_ms": 63430.425,
+      "wall_time_ms": 1795541423833.351,
+      "process_rss_bytes": 911347712,
+      "os_processes": 7,
+      "completed_requests": 181,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541423630.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 203.351
+    },
+    {
+      "timestamp_ms": 64434.101,
+      "wall_time_ms": 1795541424837.027,
+      "process_rss_bytes": 900415488,
+      "os_processes": 7,
+      "completed_requests": 190,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 220,
+      "cache_bytes": 354118,
+      "telemetry": {
+        "timestamp_ms": 1795541424818.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 19.027
+    },
+    {
+      "timestamp_ms": 65443.568,
+      "wall_time_ms": 1795541425846.493,
+      "process_rss_bytes": 845889536,
+      "os_processes": 7,
+      "completed_requests": 194,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 305,
+      "cache_bytes": 486612,
+      "telemetry": {
+        "timestamp_ms": 1795541425195.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 651.493
+    },
+    {
+      "timestamp_ms": 66449.229,
+      "wall_time_ms": 1795541426852.154,
+      "process_rss_bytes": 994672640,
+      "os_processes": 7,
+      "completed_requests": 195,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541425937.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 915.154
+    },
+    {
+      "timestamp_ms": 67452.358,
+      "wall_time_ms": 1795541427855.283,
+      "process_rss_bytes": 897843200,
+      "os_processes": 7,
+      "completed_requests": 195,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541425937.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1918.283
+    },
+    {
+      "timestamp_ms": 68455.004,
+      "wall_time_ms": 1795541428857.929,
+      "process_rss_bytes": 902197248,
+      "os_processes": 7,
+      "completed_requests": 195,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541425937.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2920.929
+    },
+    {
+      "timestamp_ms": 69457.454,
+      "wall_time_ms": 1795541429860.379,
+      "process_rss_bytes": 908042240,
+      "os_processes": 7,
+      "completed_requests": 206,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 276,
+      "cache_bytes": 442464,
+      "telemetry": {
+        "timestamp_ms": 1795541429853.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 7.379
+    },
+    {
+      "timestamp_ms": 70460.348,
+      "wall_time_ms": 1795541430863.274,
+      "process_rss_bytes": 907345920,
+      "os_processes": 7,
+      "completed_requests": 210,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541430639.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 224.274
+    },
+    {
+      "timestamp_ms": 71467.728,
+      "wall_time_ms": 1795541431870.655,
+      "process_rss_bytes": 1006739456,
+      "os_processes": 7,
+      "completed_requests": 210,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541430639.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1231.655
+    },
+    {
+      "timestamp_ms": 72474.869,
+      "wall_time_ms": 1795541432877.794,
+      "process_rss_bytes": 900198400,
+      "os_processes": 7,
+      "completed_requests": 210,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541430639.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2238.794
+    },
+    {
+      "timestamp_ms": 73477.537,
+      "wall_time_ms": 1795541433880.462,
+      "process_rss_bytes": 904847360,
+      "os_processes": 7,
+      "completed_requests": 210,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541430639.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3241.462
+    },
+    {
+      "timestamp_ms": 74480.231,
+      "wall_time_ms": 1795541434883.156,
+      "process_rss_bytes": 903188480,
+      "os_processes": 7,
+      "completed_requests": 223,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 267,
+      "cache_bytes": 426198,
+      "telemetry": {
+        "timestamp_ms": 1795541434777.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 106.156
+    },
+    {
+      "timestamp_ms": 75483.401,
+      "wall_time_ms": 1795541435886.327,
+      "process_rss_bytes": 919216128,
+      "os_processes": 7,
+      "completed_requests": 225,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541435583.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 303.327
+    },
+    {
+      "timestamp_ms": 76487.585,
+      "wall_time_ms": 1795541436890.511,
+      "process_rss_bytes": 997531648,
+      "os_processes": 7,
+      "completed_requests": 225,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541435583.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1307.511
+    },
+    {
+      "timestamp_ms": 77492.551,
+      "wall_time_ms": 1795541437895.477,
+      "process_rss_bytes": 916484096,
+      "os_processes": 7,
+      "completed_requests": 225,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541435583.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2312.477
+    },
+    {
+      "timestamp_ms": 78495.564,
+      "wall_time_ms": 1795541438898.489,
+      "process_rss_bytes": 904585216,
+      "os_processes": 7,
+      "completed_requests": 225,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541435583.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3315.489
+    },
+    {
+      "timestamp_ms": 79498.001,
+      "wall_time_ms": 1795541439900.926,
+      "process_rss_bytes": 905461760,
+      "os_processes": 7,
+      "completed_requests": 237,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 238,
+      "cache_bytes": 378988,
+      "telemetry": {
+        "timestamp_ms": 1795541439880.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 20.926
+    },
+    {
+      "timestamp_ms": 80513.827,
+      "wall_time_ms": 1795541440916.753,
+      "process_rss_bytes": 921272320,
+      "os_processes": 7,
+      "completed_requests": 240,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541440725.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 191.753
+    },
+    {
+      "timestamp_ms": 81517.182,
+      "wall_time_ms": 1795541441920.108,
+      "process_rss_bytes": 1003806720,
+      "os_processes": 7,
+      "completed_requests": 240,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541440725.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1195.108
+    },
+    {
+      "timestamp_ms": 82520.223,
+      "wall_time_ms": 1795541442923.148,
+      "process_rss_bytes": 916398080,
+      "os_processes": 7,
+      "completed_requests": 240,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541440725.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2198.148
+    },
+    {
+      "timestamp_ms": 83529.616,
+      "wall_time_ms": 1795541443932.543,
+      "process_rss_bytes": 908574720,
+      "os_processes": 7,
+      "completed_requests": 240,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541440725.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3207.543
+    },
+    {
+      "timestamp_ms": 84538.131,
+      "wall_time_ms": 1795541444941.057,
+      "process_rss_bytes": 904937472,
+      "os_processes": 7,
+      "completed_requests": 245,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 99,
+      "cache_bytes": 152628,
+      "telemetry": {
+        "timestamp_ms": 1795541444812.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 129.057
+    },
+    {
+      "timestamp_ms": 85543.595,
+      "wall_time_ms": 1795541445946.523,
+      "process_rss_bytes": 905990144,
+      "os_processes": 7,
+      "completed_requests": 251,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 220,
+      "cache_bytes": 344942,
+      "telemetry": {
+        "timestamp_ms": 1795541445900.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 46.523
+    },
+    {
+      "timestamp_ms": 86553.373,
+      "wall_time_ms": 1795541446956.299,
+      "process_rss_bytes": 802791424,
+      "os_processes": 7,
+      "completed_requests": 254,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 308,
+      "cache_bytes": 491102,
+      "telemetry": {
+        "timestamp_ms": 1795541446495.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 461.299
+    },
+    {
+      "timestamp_ms": 87557.6,
+      "wall_time_ms": 1795541447960.528,
+      "process_rss_bytes": 921780224,
+      "os_processes": 7,
+      "completed_requests": 255,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541447490.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 470.528
+    },
+    {
+      "timestamp_ms": 88570.584,
+      "wall_time_ms": 1795541448973.51,
+      "process_rss_bytes": 1008623616,
+      "os_processes": 7,
+      "completed_requests": 255,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541447490.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1483.51
+    },
+    {
+      "timestamp_ms": 89577.029,
+      "wall_time_ms": 1795541449979.955,
+      "process_rss_bytes": 900272128,
+      "os_processes": 7,
+      "completed_requests": 255,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541447490.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2489.955
+    },
+    {
+      "timestamp_ms": 90579.766,
+      "wall_time_ms": 1795541450982.691,
+      "process_rss_bytes": 909824000,
+      "os_processes": 7,
+      "completed_requests": 255,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541447490.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3492.691
+    },
+    {
+      "timestamp_ms": 91582.213,
+      "wall_time_ms": 1795541451985.138,
+      "process_rss_bytes": 908820480,
+      "os_processes": 7,
+      "completed_requests": 267,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 246,
+      "cache_bytes": 394588,
+      "telemetry": {
+        "timestamp_ms": 1795541451962.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 23.138
+    },
+    {
+      "timestamp_ms": 92585.231,
+      "wall_time_ms": 1795541452988.156,
+      "process_rss_bytes": 916729856,
+      "os_processes": 7,
+      "completed_requests": 270,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541452782.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 206.156
+    },
+    {
+      "timestamp_ms": 93589.401,
+      "wall_time_ms": 1795541453992.327,
+      "process_rss_bytes": 1029451776,
+      "os_processes": 7,
+      "completed_requests": 270,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541452782.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1210.327
+    },
+    {
+      "timestamp_ms": 94616.279,
+      "wall_time_ms": 1795541455019.205,
+      "process_rss_bytes": 912936960,
+      "os_processes": 7,
+      "completed_requests": 270,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541452782.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2237.205
+    },
+    {
+      "timestamp_ms": 95619.321,
+      "wall_time_ms": 1795541456022.246,
+      "process_rss_bytes": 907628544,
+      "os_processes": 7,
+      "completed_requests": 272,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 1,
+      "cache_bytes": 1272,
+      "telemetry": {
+        "timestamp_ms": 1795541455896.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 126.246
+    },
+    {
+      "timestamp_ms": 96622.174,
+      "wall_time_ms": 1795541457025.1,
+      "process_rss_bytes": 905801728,
+      "os_processes": 7,
+      "completed_requests": 284,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 303,
+      "cache_bytes": 483966,
+      "telemetry": {
+        "timestamp_ms": 1795541457023.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2.1
+    },
+    {
+      "timestamp_ms": 97625.463,
+      "wall_time_ms": 1795541458028.389,
+      "process_rss_bytes": 923828224,
+      "os_processes": 7,
+      "completed_requests": 285,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541457725.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 303.389
+    },
+    {
+      "timestamp_ms": 98629.342,
+      "wall_time_ms": 1795541459032.268,
+      "process_rss_bytes": 1020153856,
+      "os_processes": 7,
+      "completed_requests": 285,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541457725.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1307.268
+    },
+    {
+      "timestamp_ms": 99634.31,
+      "wall_time_ms": 1795541460037.236,
+      "process_rss_bytes": 905654272,
+      "os_processes": 7,
+      "completed_requests": 285,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541457725.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2312.236
+    },
+    {
+      "timestamp_ms": 100636.665,
+      "wall_time_ms": 1795541461039.59,
+      "process_rss_bytes": 909983744,
+      "os_processes": 7,
+      "completed_requests": 288,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 62,
+      "cache_bytes": 102540,
+      "telemetry": {
+        "timestamp_ms": 1795541460964.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 75.59
+    },
+    {
+      "timestamp_ms": 101639.362,
+      "wall_time_ms": 1795541462042.288,
+      "process_rss_bytes": 801615872,
+      "os_processes": 7,
+      "completed_requests": 299,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 297,
+      "cache_bytes": 475180,
+      "telemetry": {
+        "timestamp_ms": 1795541461737.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 305.288
+    },
+    {
+      "timestamp_ms": 102645.591,
+      "wall_time_ms": 1795541463048.519,
+      "process_rss_bytes": 996122624,
+      "os_processes": 7,
+      "completed_requests": 300,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541462357.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 691.519
+    },
+    {
+      "timestamp_ms": 103653.424,
+      "wall_time_ms": 1795541464056.35,
+      "process_rss_bytes": 1012256768,
+      "os_processes": 7,
+      "completed_requests": 300,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541462357.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1699.35
+    },
+    {
+      "timestamp_ms": 104661.798,
+      "wall_time_ms": 1795541465064.724,
+      "process_rss_bytes": 903270400,
+      "os_processes": 7,
+      "completed_requests": 300,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541462357.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2707.724
+    },
+    {
+      "timestamp_ms": 105665.952,
+      "wall_time_ms": 1795541466068.878,
+      "process_rss_bytes": 904232960,
+      "os_processes": 7,
+      "completed_requests": 300,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541462357.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 3711.878
+    },
+    {
+      "timestamp_ms": 106668.813,
+      "wall_time_ms": 1795541467071.739,
+      "process_rss_bytes": 908886016,
+      "os_processes": 7,
+      "completed_requests": 308,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 192,
+      "cache_bytes": 308352,
+      "telemetry": {
+        "timestamp_ms": 1795541467045.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 26.739
+    },
+    {
+      "timestamp_ms": 107675.55,
+      "wall_time_ms": 1795541468078.476,
+      "process_rss_bytes": 845783040,
+      "os_processes": 7,
+      "completed_requests": 314,
+      "completed_requests_source": "telemetry",
+      "workers": 2,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 300,
+      "cache_bytes": 479216,
+      "telemetry": {
+        "timestamp_ms": 1795541467417.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 661.476
+    },
+    {
+      "timestamp_ms": 108681.931,
+      "wall_time_ms": 1795541469084.857,
+      "process_rss_bytes": 1004269568,
+      "os_processes": 7,
+      "completed_requests": 315,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541468118.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 966.857
+    },
+    {
+      "timestamp_ms": 109685.626,
+      "wall_time_ms": 1795541470088.551,
+      "process_rss_bytes": 906416128,
+      "os_processes": 7,
+      "completed_requests": 315,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541468118.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 1970.551
+    },
+    {
+      "timestamp_ms": 110000.108,
+      "wall_time_ms": 1795541470403.032,
+      "process_rss_bytes": 909119488,
+      "os_processes": 7,
+      "completed_requests": 315,
+      "completed_requests_source": "telemetry",
+      "workers": 1,
+      "js_heap_used_bytes": 10000000,
+      "cache_entries": 0,
+      "cache_bytes": 0,
+      "telemetry": {
+        "timestamp_ms": 1795541468118.0,
+        "session_id": "p3cb-worker-replacement",
+        "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+        "workload": "sustained-analysis"
+      },
+      "telemetry_lag_ms": 2285.032
+    }
+  ],
+  "authoritative": false
+}
