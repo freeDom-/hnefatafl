@@ -2,6 +2,16 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## League Arena (PR #99)
+
+League tests exercise the guarded rated-online pairing and result transactions,
+the authenticated API, the lifespan worker, season recovery and the League
+route. The deployment suite includes fresh install, restart, retained live
+authority on restore and cross-schema rollback refusal. Genuine historical
+fixtures continue to use their original schema numbers while the target uses
+the schema 23 migration. The League workload evidence is recorded separately
+from release acceptance. See [League validation](validation/league-arena.md).
+
 ## Deployment-safe tournament recovery (`0.41.1` preparation)
 
 The [0.41.1 hotfix notes](releases/0.41.1.md) record the `0.41.0` startup

@@ -28,8 +28,19 @@ def owner_scope() -> str | None:
     return account["id"] if account and not allowed(account, "all_data") else None
 
 
+def online_ineligibility(account: dict | None) -> str | None:
+    """The admission policy shared by online play and League operations."""
+    if account is None:
+        return "ineligible"
+    active = account.get("active")
+    if type(active) not in {bool, int} or active != 1:
+        return "disabled"
+    if not allowed(account, "play"):
+        return "ineligible"
+    if account.get("email_verified_at") is None:
+        return "unverified"
+    return None
+
+
 def online_eligible(account: dict | None) -> bool:
-    """Future online gate only; existing single-player permissions stay unchanged."""
-    return bool(
-        allowed(account, "play") and account and account.get("email_verified_at") is not None
-    )
+    return online_ineligibility(account) is None

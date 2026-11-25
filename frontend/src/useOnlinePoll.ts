@@ -24,7 +24,11 @@ type Controls<T> = {
  * the cadence retunes the existing timer rather than restarting the read, so a
  * current snapshot survives route or policy transitions.
  */
-export type PollOptions = { intervalMs?: number };
+export type PollOptions<T = unknown> = {
+  intervalMs?: number;
+  /** A fresh snapshot already read by the same feature can seed a dedicated poll. */
+  initialData?: T;
+};
 
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const MAX_POLL_BACKOFF_MS = 30000;
@@ -33,13 +37,15 @@ const MAX_POLL_BACKOFF_MS = 30000;
 export function useOnlinePoll<T>(
   key: string,
   load: (signal: AbortSignal) => Promise<T>,
-  { intervalMs = DEFAULT_POLL_INTERVAL_MS }: PollOptions = {},
+  { intervalMs = DEFAULT_POLL_INTERVAL_MS, initialData }: PollOptions<T> = {},
 ) {
   const empty: Snapshot<T> = { key, data: null, phase: 'loading', error: null, refreshing: false };
   const [snapshot, setSnapshot] = useState<Snapshot<T>>(empty);
   const controls = useRef<Controls<T> | null>(null);
   const intervalRef = useRef(intervalMs);
   intervalRef.current = intervalMs;
+  const initialRef = useRef(initialData);
+  initialRef.current = initialData;
   useEffect(() => {
     let alive = true,
       running = false,
@@ -50,7 +56,14 @@ export function useOnlinePoll<T>(
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | null = null;
     let waiters: ((data: T | null) => void)[] = [];
-    setSnapshot({ key, data: null, phase: 'loading', error: null, refreshing: false });
+    const seed = initialRef.current;
+    setSnapshot({
+      key,
+      data: seed ?? null,
+      phase: seed === undefined ? 'loading' : 'ready',
+      error: null,
+      refreshing: false,
+    });
     const schedule = (delay: number) => {
       clearTimeout(timer);
       if (alive && !held && document.visibilityState !== 'hidden')
@@ -189,7 +202,8 @@ export function useOnlinePoll<T>(
     window.addEventListener('offline', offline);
     // Preserve the initial read for a background-opened route; only recurring
     // and wake reads pause. Returning to the tab always requests a fresh snapshot.
-    void run(true);
+    if (seed === undefined) void run(true);
+    else active.retune();
     return () => {
       alive = false;
       revision++;

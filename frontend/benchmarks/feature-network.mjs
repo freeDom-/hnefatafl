@@ -442,6 +442,7 @@ try {
     'src/Online.tsx',
     'src/PortraitHall.tsx',
     'src/PlayerTournaments.tsx',
+    'src/Leagues.tsx',
     'node_modules/react-markdown/',
   ];
   const eagerFiles = [...expected.scripts].map(normalizeAssetPath);

@@ -6,7 +6,7 @@ proposed-only contract from PR #73. It distinguishes implemented authority from
 planned UI; it does not implement features. Hall of Renown and portrait selection
 (PR #86) reuse the contracts below through the authenticated `/portraits` route;
 the signed-out spectator surfaces ship in PR #87 and the human tournament UI in
-PR #90. Leagues remain draft work in PR #99. Consult the
+PR #90. PR #99 implements the [League contract](../LEAGUES.md). Consult the
 [current completeness matrix](arena-current-completeness.md) for current status
 rather than treating this frozen contract as a feature list.
 
@@ -27,7 +27,7 @@ The original contract remains historical evidence, not the current feature list.
 | Ratings | Immutable ledger and applied revisions, three pools | League progress is a separate policy, never an Elo replacement |
 | Progression | Catalog, automatic achievements and portrait selection APIs | Portrait Hall and selection originated in PR #86; PR #94 automatically awards milestones; keep awards and selection server-owned |
 | Human tournaments | Double elimination, schema 18, real casual online legs | UI, hierarchical bracket and reliable server settlement |
-| Leagues | None | Explicit policy, queue, ledger, season lifecycle and UI |
+| Leagues | Rated online games, durable season ledger and matchmaking in PR #99 | Review branch validation and preserve the [League policy](../LEAGUES.md) |
 | Workshop | Existing training, tuning, models, workers and AI tournaments | Visual consolidation, progressive disclosure and lazy loading |
 
 ## Routes and permissions
@@ -40,14 +40,12 @@ it does **not** redirect to Dashboard. `/tournaments` is administrative AI
 benchmarking, never the human tournament page. The public API and the signed-out
 spectator page ship with PR #87. At the audited baseline, Portrait Hall, human
 tournaments and leagues were sidebar placeholders; Portrait Hall is delivered by
-PR #86, and the human tournament UI is delivered by PR #90. Leagues remain a
-draft implementation in PR #99, not a shipped route.
+PR #86, and the human tournament UI is delivered by PR #90.
 
 Shipped canonical frontend routes include `/watch`, `/watch/games/{id}`,
 `/watch/games/{id}/replay` (PR #87) and `/player-tournaments`,
-`/player-tournaments/{id}` (PR #90). `/leagues` is a reservation carried by draft
-PR #99 and is not a shipped route. `/portraits` is no longer planned and ships in
-PR #86. Shared navigation,
+`/player-tournaments/{id}` (PR #90). PR #99 adds `/leagues` to canonical
+workspace navigation. Shared navigation,
 `safeDestination`, route focus and Browser Back handling have one integration
 owner per PR. Public routes must render without mounting authenticated `App` or
 making protected startup requests.
@@ -91,8 +89,9 @@ desktop sidebar during gameplay/replay. Reference screenshots are in
 The audited baseline used schema **18**: 16 introduced account-game categories,
 17 progression and 18 human tournaments. Subsequent PR #90 uses schema 19 for
 the settlement outbox and schema 20 for scheduled starts, clocks and match modes;
-see [player tournament migrations](../PLAYER_TOURNAMENTS.md#schema). No league
-migration is implemented or assigned by this change.
+see [player tournament migrations](../PLAYER_TOURNAMENTS.md#schema). Main uses
+schema 22 for synchronized tournament rounds and PR #99 introduces the league
+tables at schema 23.
 One owner controls migrations and restore table inventories. Do not allocate
 competing versions on parallel branches.
 
@@ -139,10 +138,10 @@ Settlement currently requires a start/settle/moderation call. The next tournamen
 PR must add bounded server-owned result settlement and startup catch-up so it
 works with no browser open. Never advance winners in frontend state.
 
-League tier names are Midgard, Nidavellir, Alfheim, Asgard and Valhalla. AI league
-matching is disabled. Season/LP/matching defaults must be documented before schema
-implementation; see the proposed policy in the completion plan. No fabricated
-opponents, ranks, season history or league progress is permitted.
+League play follows the [approved League policy](../LEAGUES.md). It uses monthly
+UTC seasons, five tiers, separate standings by ruleset and human-only matching
+through the rated online game authority. All standing, result and history rows
+come from server-owned records.
 
 ## Ownership and dependency gates
 

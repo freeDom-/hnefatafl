@@ -22,6 +22,7 @@ from .engine import RULESETS, Move, State, apply_move, new_game
 from .online_ratings import Ratings
 from .online_settings import OnlineSettings
 from .security_context import allowed, online_eligible
+from .storage import SQLITE_BUSY_MS
 
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 LOGGER = logging.getLogger(__name__)
@@ -91,14 +92,15 @@ class OnlineCore:
         self.thread: threading.Thread | None = None
 
     @contextmanager
-    def _write(self):
+    def _write(self, *, wait_ms: int | None = None):
         with self.auth.gate_path.open("rb") as gate:
             try:
                 fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise DeploymentLocked() from None
-            with self.store.connection() as c:
-                c.execute("PRAGMA foreign_keys=ON")
+            with self.store.connection(
+                reuse_writer=True, wait_ms=wait_ms if wait_ms is not None else SQLITE_BUSY_MS
+            ) as c:
                 c.execute("BEGIN IMMEDIATE")
                 yield c
 
@@ -310,13 +312,18 @@ class OnlineCore:
         control: lifecycle.TimeControl,
         now: datetime,
         request_id: str,
+        rated: bool = False,
     ) -> str:
-        """Insert an active, unrated online game for a server-owned match.
+        """Insert an active online game in the caller's authoritative transaction.
 
-        Called only from the player-tournament write transaction, which already
-        holds the writer lock, so the game, its match and the bracket commit
-        together. Tournament games are casual: they never write rating events.
+        Tournament callers retain the unrated default. League callers explicitly
+        opt into existing rated authority, with both seats revalidated here.
         """
+        if rated:
+            for account_id in (creator_id, opponent_id):
+                account = c.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+                if not online_eligible(dict(account) if account else None):
+                    raise OnlineError(403, "Rated games require active, verified accounts.")
         match_id = "match-" + uuid4().hex
         c.execute(
             "INSERT INTO online_matches(id,creator_id,opponent_id,side_selection,mode,ruleset,ruleset_version,time_per_move,created_at,activated_at,first_creator_side,rated,time_control,increment_seconds) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -332,7 +339,7 @@ class OnlineCore:
                 micros(now),
                 micros(now),
                 creator_side,
-                0,
+                int(rated),
                 control.mode,
                 control.increment_seconds,
             ),
@@ -347,6 +354,8 @@ class OnlineCore:
         )
         game = lifecycle.join(game, lifecycle.Actor(opponent_id), now).game
         self._insert_game(c, game, request_id, match_id, 1, now, assigned_side=creator_side)
+        if rated:
+            self._capture_start_ratings(c, game, now)
         return game.id
 
     def void_game(
@@ -460,14 +469,14 @@ class OnlineCore:
         )
 
     def _return_game(self, c, row, game, now):
-        if row["leg"] != 1:
+        activating = row["status"] == "waiting" and game.status == lifecycle.Status.ACTIVE
+        completed = game.status == lifecycle.Status.COMPLETED
+        if row["leg"] != 1 or not (activating or completed):
             return
         match = c.execute("SELECT * FROM online_matches WHERE id=?", (row["match_id"],)).fetchone()
-        due = (
-            match["mode"] == "simultaneous"
-            and row["status"] == "waiting"
-            and game.status == lifecycle.Status.ACTIVE
-        ) or (match["mode"] == "sequential" and game.status == lifecycle.Status.COMPLETED)
+        due = (match["mode"] == "simultaneous" and activating) or (
+            match["mode"] == "sequential" and completed
+        )
         if (
             not due
             or c.execute(
@@ -522,7 +531,7 @@ class OnlineCore:
     def _persist(self, c, row, transition, now, move=None, actor=None, note=None):
         game = transition.game
         next_version = row["version"] + 1
-        c.execute(
+        updated = c.execute(
             "UPDATE online_games SET creator_side=?,attackers_id=?,defenders_id=?,status=?,version=?,updated_at=?,started_at=?,deadline=?,completed_at=?,position=?,result_revision=?,attackers_remaining_us=?,defenders_remaining_us=? WHERE id=? AND version=?",
             (
                 game.creator_side if row["creator_side"] is not None or game.started_at else None,
@@ -546,7 +555,7 @@ class OnlineCore:
                 row["version"],
             ),
         )
-        if c.execute("SELECT changes()").fetchone()[0] != 1:
+        if updated.rowcount != 1:
             raise OnlineError(409, "This game changed. Reload before retrying.")
         if row["status"] == "waiting" and game.status == lifecycle.Status.ACTIVE:
             self._capture_start_ratings(c, game, now)
@@ -600,6 +609,18 @@ class OnlineCore:
                 ON CONFLICT(tournament_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
                 (micros(now), game.id),
             )
+            league = c.execute(
+                "SELECT season_id FROM league_games WHERE game_id=?", (game.id,)
+            ).fetchone()
+            if league is not None:
+                c.execute(
+                    """INSERT INTO league_settlement_queue(game_id,season_id,due_at,pending_since)
+                    VALUES(?,?,?,?)
+                    ON CONFLICT(game_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
+                    (game.id, league["season_id"], micros(now), micros(now)),
+                )
+                # Release both seats in the same transaction as the official result.
+                c.execute("DELETE FROM league_active_players WHERE game_id=?", (game.id,))
         self._return_game(c, row, game, now)
         if actor is not None:
             c.execute(
@@ -708,7 +729,10 @@ class OnlineCore:
                     account["id"] if action == "void" else None,
                     note.strip() if action == "void" else None,
                 )
-            response = self._projection(c, *self._load(c, identifier))
+                row = c.execute("SELECT * FROM online_games WHERE id=?", (identifier,)).fetchone()
+            # Keep the response in the same snapshot as the mutation. The
+            # validated transition already has the position and result we wrote.
+            response = self._projection(c, row, transition.game)
         return {
             "game": response,
             "transition": transition_name,

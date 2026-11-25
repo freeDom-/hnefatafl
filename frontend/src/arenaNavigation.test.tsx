@@ -62,6 +62,7 @@ it('keeps Arena and Workshop destinations in separate workspace navigations', ()
     'Online Play',
     'Statistics',
     'Leaderboard',
+    'Leagues',
     'Hall of records',
   ]);
   expect(within(headerNav()).queryByRole('button', { name: 'Training' })).toBeNull();
@@ -114,6 +115,7 @@ it('uses the compact Workshop navigation instead of the Arena one on mobile', ()
     'Online',
     'Stats',
     'Trials',
+    'Leagues',
     'Replays',
   ]);
   expect(within(bottomNav()).queryByRole('link', { name: 'Training' })).toBeNull();
@@ -221,6 +223,7 @@ it('keeps the preserved routes reachable from the header navigation', () => {
     ['Online Play', '/online'],
     ['Statistics', '/statistics'],
     ['Leaderboard', '/leaderboard'],
+    ['Leagues', '/leagues'],
     ['Hall of records', '/archive'],
   ] as const) {
     fireEvent.click(within(headerNav()).getByRole('button', { name: label }));
@@ -249,6 +252,7 @@ it('localizes the Arena and Workshop navigation', () => {
     'Online spielen',
     'Statistik',
     'Rangliste',
+    'Ligen',
     'Halle der Aufzeichnungen',
   ]);
   expect(bottomLabels('Mobile Navigation')).toEqual([
@@ -257,6 +261,7 @@ it('localizes the Arena and Workshop navigation', () => {
     'Online',
     'Statistik',
     'Wettstreit',
+    'Ligen',
     'Wiederholungen',
   ]);
 
@@ -280,7 +285,7 @@ it('uses the approved Norse labels in the desktop Arena rail', () => {
   expect(within(nav).getByRole('button', { name: 'Trials of Valor' })).toBeVisible();
   expect(within(nav).getByRole('link', { name: 'Leaderboard' })).toBeVisible();
   expect(within(nav).getByRole('link', { name: 'Player tournaments' })).toBeVisible();
-  expect(within(nav).getByText('Leagues')).toBeVisible();
+  expect(within(nav).getByRole('link', { name: 'Leagues' })).toHaveAttribute('href', '/leagues');
   expect(within(nav).getByRole('link', { name: 'Hall of Renown' })).toHaveAttribute(
     'href',
     '/portraits',
@@ -307,5 +312,6 @@ it('uses the approved Norse labels in the desktop Arena rail', () => {
   expect(within(german).getByRole('link', { name: 'Schlachtfeld' })).toBeVisible();
   expect(within(german).getByRole('link', { name: 'Online spielen' })).toBeVisible();
   expect(within(german).getByRole('button', { name: 'Prüfungen des Mutes' })).toBeVisible();
+  expect(within(german).getByRole('link', { name: 'Ligen' })).toBeVisible();
   expect(within(german).getByRole('link', { name: 'Halle des Ruhms' })).toBeVisible();
 });

@@ -38,6 +38,7 @@ const Archive = deferredFeature(() => import('./Archive'));
 const Training = deferredFeature(() => import('./Training'));
 const Tournaments = deferredFeature(() => import('./Tournaments'));
 const Online = deferredFeature(() => import('./Online'));
+const Leagues = deferredFeature(() => import('./Leagues'));
 const StatisticsPage = deferredFeature(() => import('./StatisticsPage'));
 const ProfilePage = deferredFeature(() => import('./ProfilePage'));
 const PlayLanding = deferredFeature(() => import('./PlayLanding'));
@@ -60,6 +61,7 @@ type Tab =
   | 'portraits'
   | 'training'
   | 'tournaments'
+  | 'leagues'
   | 'player-tournaments';
 const titles: Record<Side, string> = { attackers: 'Attackers', defenders: 'Defenders' };
 
@@ -89,7 +91,9 @@ export default function App() {
                       ? 'training'
                       : path.startsWith('/tournaments') && permissions.includes('tournaments')
                         ? 'tournaments'
-                        : 'dashboard';
+                        : path.split('?')[0] === '/leagues'
+                          ? 'leagues'
+                          : 'dashboard';
   const playEntry = path.split('?')[0] === '/play';
   useEffect(() => {
     const changed = () => setPath(canonicalLocation());
@@ -730,6 +734,7 @@ export default function App() {
                 </PlayPage>
               ))}
             {tab === 'online' && <Online />}
+            {tab === 'leagues' && <Leagues />}
             {tab === 'leaderboard' && <Leaderboard />}
             {tab === 'player-tournaments' && (
               <Suspense

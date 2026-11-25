@@ -19,7 +19,7 @@ from hnefatafl.engine import RULESETS, State, legal_moves
 from hnefatafl.online_core import OnlineCore, OnlineError, instant, micros
 from hnefatafl.online_migrations import ONLINE_TABLES
 from hnefatafl.online_settings import OnlineSettings
-from hnefatafl.storage import Store
+from hnefatafl.storage import MAX_IDLE_ONLINE_WRITERS, SQLITE_BUSY_MS, Store
 
 POLICY = OnlineSettings(
     enabled=True,
@@ -595,6 +595,111 @@ def test_independent_process_expiry_races_do_not_duplicate_results(rig, contende
         assert c.execute("SELECT COUNT(*) FROM online_moves").fetchone()[0] == 0
 
 
+def test_online_writer_reuse_rolls_back_and_restores_the_normal_lock_timeout(rig):
+    with pytest.raises(RuntimeError, match="rollback fixture"):
+        with rig.core._write(wait_ms=20) as leased:
+            assert leased.execute("PRAGMA busy_timeout").fetchone()[0] == 20
+            leased.execute(
+                "UPDATE accounts SET active=0 WHERE id=?", (rig.accounts["Archer"]["id"],)
+            )
+            raise RuntimeError("rollback fixture")
+    with rig.core._write() as c:
+        assert c is leased
+        assert c.execute("PRAGMA busy_timeout").fetchone()[0] == 15_000
+        assert c.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert rig.core._identity(c, rig.credentials["Archer"])["active"]
+
+
+def test_concurrent_writer_leases_keep_independent_transactions(rig):
+    with rig.store.connection() as c:
+        c.execute("CREATE TABLE writer_sample(value INTEGER)")
+    written, observed, committed = threading.Event(), threading.Event(), threading.Event()
+
+    def first():
+        with rig.core._write() as c:
+            c.execute("INSERT INTO writer_sample VALUES(1)")
+            written.set()
+            assert observed.wait(5)
+        committed.set()
+        return c
+
+    def second():
+        assert written.wait(5)
+        with rig.store.connection(reuse_writer=True) as c:
+            assert c.execute("SELECT count(*) FROM writer_sample").fetchone()[0] == 0
+            observed.set()
+            assert committed.wait(5)
+            c.execute("BEGIN IMMEDIATE")
+            c.execute("INSERT INTO writer_sample VALUES(2)")
+        return c
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        earlier, later = pool.submit(first), pool.submit(second)
+        assert earlier.result() is not later.result()
+    with rig.store.connection() as c:
+        assert [row[0] for row in c.execute("SELECT value FROM writer_sample ORDER BY value")] == [
+            1,
+            2,
+        ]
+
+
+def test_writer_leases_clear_callbacks_and_session_defaults_and_discard_failed_handles(rig):
+    statements, checks, steps = [], [], []
+    with rig.store.connection(reuse_writer=True, wait_ms=20) as prior:
+        assert prior.execute("PRAGMA busy_timeout").fetchone()[0] == 20
+        prior.execute("PRAGMA foreign_keys=OFF")
+        prior.set_trace_callback(statements.append)
+        prior.set_authorizer(lambda *args: checks.append(args) or sqlite3.SQLITE_OK)
+        prior.set_progress_handler(lambda: steps.append(1) or 0, 1)
+        prior.row_factory = None
+        prior.text_factory = bytes
+        assert prior.execute("SELECT 'lease'").fetchone() == (b"lease",)
+    metrics = tuple(map(len, (statements, checks, steps)))
+    assert all(metrics)
+    with pytest.raises(sqlite3.IntegrityError), rig.core._write() as c:
+        assert c is prior
+        assert c.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_MS
+        assert c.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert c.execute("SELECT 'lease' AS name").fetchone()["name"] == "lease"
+        c.execute("INSERT INTO sessions VALUES('writer-fixture','missing-account',0,'csrf')")
+    assert tuple(map(len, (statements, checks, steps))) == metrics
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        prior.execute("SELECT 1")
+    with rig.core._write() as c:
+        assert c is not prior
+        assert not c.execute("SELECT 1 FROM sessions WHERE token_hash='writer-fixture'").fetchone()
+
+
+def test_writer_cache_bounds_idle_handles_and_invalidates_them_on_inode_change(rig):
+    count = MAX_IDLE_ONLINE_WRITERS + 2
+    ready = threading.Barrier(count)
+
+    def lease(_):
+        with rig.store.connection(reuse_writer=True) as c:
+            ready.wait(5)
+        return c
+
+    with ThreadPoolExecutor(max_workers=count) as pool:
+        handles = list(pool.map(lease, range(count)))
+    assert len(set(handles)) == count
+    idle = list(rig.store._idle_writers)
+    assert len(idle) == MAX_IDLE_ONLINE_WRITERS
+    for c in set(handles) - set(idle):
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            c.execute("SELECT 1")
+    replacement = rig.root / "replacement.sqlite3"
+    with sqlite3.connect(replacement) as c:
+        c.execute("CREATE TABLE replacement(value INTEGER)")
+        c.execute("INSERT INTO replacement VALUES(23)")
+    replacement.replace(rig.store.path)
+    with rig.store.connection(reuse_writer=True) as c:
+        assert c not in handles
+        assert c.execute("SELECT value FROM replacement").fetchone()[0] == 23
+    for c in idle:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            c.execute("SELECT 1")
+
+
 @pytest.mark.parametrize("revocation", ["session", "active", "role", "clock"])
 def test_permissions_and_time_are_rechecked_after_obtaining_write_lock(
     rig, monkeypatch, revocation
@@ -605,12 +710,15 @@ def test_permissions_and_time_are_rechecked_after_obtaining_write_lock(
     original = rig.store.connection
 
     @contextmanager
-    def observed_connection():
-        with original() as c:
+    def observed_connection(**options):
+        with original(**options) as c:
             c.set_trace_callback(
                 lambda statement: pending.set() if statement == "BEGIN IMMEDIATE" else None
             )
-            yield c
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
 
     credential = rig.credentials["Odin"] if revocation == "role" else actor(rig, game)
     with original() as blocker:
