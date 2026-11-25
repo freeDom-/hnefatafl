@@ -22,6 +22,7 @@ from .engine import RULESETS, Move, State, apply_move, new_game
 from .online_ratings import Ratings
 from .online_settings import OnlineSettings
 from .security_context import allowed, online_eligible
+from .storage import SQLITE_BUSY_MS
 
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 LOGGER = logging.getLogger(__name__)
@@ -97,10 +98,11 @@ class OnlineCore:
                 fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise DeploymentLocked() from None
-            with self.store.connection() as c:
+            with self.store.connection(reuse_writer=True) as c:
                 c.execute("PRAGMA foreign_keys=ON")
-                if wait_ms is not None:
-                    c.execute(f"PRAGMA busy_timeout={wait_ms}")
+                c.execute(
+                    f"PRAGMA busy_timeout={wait_ms if wait_ms is not None else SQLITE_BUSY_MS}"
+                )
                 c.execute("BEGIN IMMEDIATE")
                 yield c
 

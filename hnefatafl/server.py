@@ -476,6 +476,7 @@ def create_app(
                 await asyncio.to_thread(tournament_settlement.shutdown)
             if workers["online"]:
                 await asyncio.to_thread(online.shutdown)
+            await asyncio.to_thread(store.close_online_writers)
             if workers["account"]:
                 await asyncio.to_thread(registration.shutdown)
             await asyncio.to_thread(tournaments.shutdown)

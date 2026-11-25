@@ -595,6 +595,21 @@ def test_independent_process_expiry_races_do_not_duplicate_results(rig, contende
         assert c.execute("SELECT COUNT(*) FROM online_moves").fetchone()[0] == 0
 
 
+def test_online_writer_reuse_rolls_back_and_restores_the_normal_lock_timeout(rig):
+    with pytest.raises(RuntimeError, match="rollback fixture"):
+        with rig.core._write(wait_ms=20) as leased:
+            assert leased.execute("PRAGMA busy_timeout").fetchone()[0] == 20
+            leased.execute(
+                "UPDATE accounts SET active=0 WHERE id=?", (rig.accounts["Archer"]["id"],)
+            )
+            raise RuntimeError("rollback fixture")
+    with rig.core._write() as c:
+        assert c is leased
+        assert c.execute("PRAGMA busy_timeout").fetchone()[0] == 15_000
+        assert c.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert rig.core._identity(c, rig.credentials["Archer"])["active"]
+
+
 @pytest.mark.parametrize("revocation", ["session", "active", "role", "clock"])
 def test_permissions_and_time_are_rechecked_after_obtaining_write_lock(
     rig, monkeypatch, revocation
@@ -605,12 +620,15 @@ def test_permissions_and_time_are_rechecked_after_obtaining_write_lock(
     original = rig.store.connection
 
     @contextmanager
-    def observed_connection():
-        with original() as c:
+    def observed_connection(**options):
+        with original(**options) as c:
             c.set_trace_callback(
                 lambda statement: pending.set() if statement == "BEGIN IMMEDIATE" else None
             )
-            yield c
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
 
     credential = rig.credentials["Odin"] if revocation == "role" else actor(rig, game)
     with original() as blocker:

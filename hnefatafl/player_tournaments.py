@@ -17,20 +17,18 @@ administrator rebuilds it.
 from __future__ import annotations
 
 import base64
-import fcntl
 import json
 import secrets
 import sqlite3
 import time
 import unicodedata
-from contextlib import contextmanager
 from datetime import datetime
 from uuid import uuid4
 
 from . import lifecycle
 from .account_policy import BIDI_CONTROLS, resolve_accounts
 from .engine import RULESETS
-from .online_core import DeploymentLocked, OnlineCore, OnlineError, instant, micros, stamp
+from .online_core import OnlineCore, OnlineError, instant, micros, stamp
 from .security_context import allowed, online_eligible
 
 UNRESOLVED = object()
@@ -159,17 +157,8 @@ class PlayerTournaments:
         self.auth, self.store, self.online = auth, auth.store, online
         self.clock = clock or online.clock
 
-    @contextmanager
     def _write(self):
-        with self.auth.gate_path.open("rb") as gate:
-            try:
-                fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise DeploymentLocked() from None
-            with self.store.connection() as c:
-                c.execute("PRAGMA foreign_keys=ON")
-                c.execute("BEGIN IMMEDIATE")
-                yield c
+        return self.online._write()
 
     def _now(self) -> datetime:
         return instant(micros(self.clock()))

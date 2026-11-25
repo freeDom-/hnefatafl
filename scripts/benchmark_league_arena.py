@@ -120,7 +120,7 @@ class ObservedStore(Store):
         super().__init__(path)
 
     @contextmanager
-    def connection(self):
+    def connection(self, **options):
         probe = (
             getattr(self.recording, "probe", None)
             or self.by_thread.get(threading.current_thread().name)
@@ -128,13 +128,18 @@ class ObservedStore(Store):
         )
         observed = None
         try:
-            with super().connection() as connection:
+            with super().connection(**options) as connection:
                 if probe is None:
+                    if options.get("reuse_writer"):
+                        connection.set_trace_callback(None)
+                        connection.set_progress_handler(None, 0)
                     yield connection
                 else:
                     connection.set_trace_callback(probe.trace)
                     if probe.vm_quantum:
                         connection.set_progress_handler(probe.progress, probe.vm_quantum)
+                    elif options.get("reuse_writer"):
+                        connection.set_progress_handler(None, 0)
                     observed = ObservedConnection(connection, probe)
                     yield observed
         finally:
