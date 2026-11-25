@@ -875,3 +875,54 @@ licensing audit is therefore **not claimed complete**; the project must obtain a
 ship the applicable upstream notices, or obtain explicit owner/legal acceptance of
 the distribution basis, before a wider redistribution/release. No component is
 relicensed under the project license and no unrelated dependency was upgraded.
+
+## 20. I1–I2 cache-retirement and cleanup-barrier corrections
+
+### I1 — tracked cache verification and retirement accounting
+
+- `DownloadManager` now owns one deduplicated, tracked cache-verification path per
+  artifact key. Cache reads and digest verification are included in `occupancy`
+  (`cacheVerifications`), `whenIdle()` and `drain()`; they therefore keep managed
+  runtime admission and disposal outcomes occupied until the non-interruptible
+  browser operation genuinely settles.
+- Caller deadlines/cancellation only stop the caller's wait. A late cache result
+  cannot begin a transfer, activate a model or mutate newer runtime state; repeated
+  timed-out lookups join the same outstanding verification rather than accumulating
+  work. Authorization, ownership-token invalidation and generation checks remain.
+- `BrowserAnalysisRuntime.ensureModelBytes()` no longer performs a separate direct
+  `cache.getVerified()` lookup; it uses the same bounded/tracked download-manager
+  path. An ordinary cache miss performs exactly one lookup, an authorized cached
+  artifact initializes with zero model transfers, and an already healthy neural
+  session still performs no cache lookup or model hashing.
+
+Tests cover pending cache read/digest during managed disposal, caller timeout with
+outstanding verification, repeated timed-out lookups and occupancy, replacement
+rejection until retirement, creation afterwards, cancellation during cached-model
+initialization, cached initialization through the manager, one-lookup misses and
+healthy-session reuse.
+
+### I2 — cleanup-barrier recovery across invalidation and disposal
+
+- Captured clients from cancellation, account invalidation and disposal are tracked
+  in one retirement registry. Later disposal composes with the prior cleanup barrier
+  and includes earlier captured retirements; on timeout only captured resources from
+  that/older contexts are force-terminated (idempotently guarded), and the obsolete
+  barrier is replaced only while it is still current. A newer context or barrier is
+  never overwritten.
+- Account-invalidation timeout can no longer permanently block initialization:
+  affected workers are terminated, the stale barrier is removed, structured
+  retryable state is published, and a later initialize/search succeeds with exact
+  worker counts. Cancellation timeout and invalidation overlap use the same
+  mechanism. Disposal no longer releases managed admission while earlier
+  invalidation retirement is outstanding; the bounded disposal outcome still reports
+  non-interruptible download/cache work until it settles.
+
+### Validation at the I-correction head
+
+Browser-analysis Vitest: **134 passed** (72 runtime lifecycle/cache-retirement,
+38 download accounting/deadline/cache, 12 storage, 12 manifest); full frontend
+**1,734 passed (113 files)**. Actual production browser (final build): Jarl and
+neural runs plus live cancellation/recovery pass, one model artifact transfer,
+metadata revalidations 3; cold init 2.79 s (Jarl) / 4.37 s (neural), Jarl search
+272–325 ms, idempotent repeated init 0 ms. Initial bundle remains 585,756 raw /
+186,716 gzip with the lazy chunk absent. No sustained-memory rerun was required.

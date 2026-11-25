@@ -99,6 +99,7 @@ export class DownloadManager {
   private queue: Waiter[] = [];
   private transfers = new Set<SharedDownload>();
   private idleWaiters: Array<() => void> = [];
+  private lookups = new Map<string, { generation: number; promise: Promise<ArrayBuffer | null> }>();
 
   constructor(
     private readonly options: {
@@ -149,23 +150,27 @@ export class DownloadManager {
     reservedBytes: number;
     transfers: number;
     queued: number;
+    cacheVerifications: number;
   } {
     return {
       activeTransfers: this.activeTransfers,
       reservedBytes: this.reservedBytes,
       transfers: this.transfers.size,
       queued: this.queue.length,
+      cacheVerifications: this.lookups.size,
     };
   }
 
   /** Resolve once every transfer (including non-interruptible retirement) settles. */
   whenIdle(): Promise<void> {
-    if (this.transfers.size === 0 && this.queue.length === 0) return Promise.resolve();
+    if (this.transfers.size === 0 && this.queue.length === 0 && this.lookups.size === 0) {
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
   }
 
   private notifyIdle(): void {
-    if (this.transfers.size !== 0 || this.queue.length !== 0) return;
+    if (this.transfers.size !== 0 || this.queue.length !== 0 || this.lookups.size !== 0) return;
     const waiters = this.idleWaiters;
     this.idleWaiters = [];
     for (const resolve of waiters) resolve();
@@ -177,8 +182,9 @@ export class DownloadManager {
     reservedBytes: number;
     transfers: number;
     queued: number;
+    cacheVerifications: number;
   }> {
-    if (this.transfers.size === 0 && this.queue.length === 0) {
+    if (this.transfers.size === 0 && this.queue.length === 0 && this.lookups.size === 0) {
       return { drained: true, ...this.occupancy };
     }
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -190,7 +196,10 @@ export class DownloadManager {
     } finally {
       if (timer !== null) clearTimeout(timer);
     }
-    return { drained: this.transfers.size === 0 && this.queue.length === 0, ...this.occupancy };
+    return {
+      drained: this.transfers.size === 0 && this.queue.length === 0 && this.lookups.size === 0,
+      ...this.occupancy,
+    };
   }
 
   private acquire(
@@ -281,24 +290,20 @@ export class DownloadManager {
       throw abortError('Download cancelled');
     }
     if (this.options.cache) {
-      const cached = await this.raceDeadline(
-        this.options.cache.getVerified(spec.key, spec.sha256, this.digestFn, spec.expectedBytes),
-        deadline,
-        'Cache lookup',
-      );
+      const cached = await this.lookupCached(spec, deadline, hooks.signal);
       // Ownership is captured before the asynchronous cache lookup; a cancelAll
       // during the lookup must not start a new obsolete transfer afterwards.
       if (generation !== this.generation || hooks.signal?.aborted) {
         throw abortError('Download cancelled');
       }
+      if (now() > deadline) {
+        throw new BrowserAnalysisError(
+          'download-timeout',
+          'Cache lookup exceeded its deadline',
+          true,
+        );
+      }
       if (cached) {
-        if (now() > deadline) {
-          throw new BrowserAnalysisError(
-            'download-timeout',
-            'Cache lookup exceeded its deadline',
-            true,
-          );
-        }
         return {
           key: spec.key,
           bytes: cached,
@@ -333,27 +338,74 @@ export class DownloadManager {
     return this.subscribe(shared, hooks);
   }
 
-  private raceDeadline<T>(promise: Promise<T>, deadline: number, stage: string): Promise<T> {
+  /**
+   * Track one cache read/hash per key until the underlying non-interruptible
+   * operation genuinely settles. Caller timeouts/cancellation only stop waiting;
+   * they never start a second lookup or activate a late result.
+   */
+  private lookupCached(
+    spec: DownloadSpec,
+    deadline: number,
+    signal?: AbortSignal,
+  ): Promise<ArrayBuffer | null> {
+    if (!this.options.cache) return Promise.resolve(null);
+    const generation = this.generation;
+    let lookup = this.lookups.get(spec.key);
+    if (!lookup || lookup.generation !== generation) {
+      const promise = this.options.cache.getVerified(
+        spec.key,
+        spec.sha256,
+        this.digestFn,
+        spec.expectedBytes,
+      );
+      lookup = { generation, promise };
+      this.lookups.set(spec.key, lookup);
+      const clear = () => {
+        if (this.lookups.get(spec.key) === lookup) {
+          this.lookups.delete(spec.key);
+          this.notifyIdle();
+        }
+      };
+      promise.then(clear, clear);
+    }
+    return this.awaitCacheLookup(lookup.promise, deadline, signal);
+  }
+
+  private awaitCacheLookup(
+    promise: Promise<ArrayBuffer | null>,
+    deadline: number,
+    signal?: AbortSignal,
+  ): Promise<ArrayBuffer | null> {
     const remaining = deadline - now();
     if (remaining <= 0) {
-      promise.catch(() => undefined);
       return Promise.reject(
-        new BrowserAnalysisError('download-timeout', `${stage} exceeded its deadline`, true),
+        new BrowserAnalysisError('download-timeout', 'Cache lookup exceeded its deadline', true),
       );
     }
-    return new Promise<T>((resolve, reject) => {
+    if (signal?.aborted) return Promise.reject(abortError('Download cancelled'));
+    return new Promise<ArrayBuffer | null>((resolve, reject) => {
+      const finish = () => {
+        if (timer !== null) clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+      };
       const timer = setTimeout(() => {
+        finish();
         reject(
-          new BrowserAnalysisError('download-timeout', `${stage} exceeded its deadline`, true),
+          new BrowserAnalysisError('download-timeout', 'Cache lookup exceeded its deadline', true),
         );
       }, remaining);
+      const onAbort = () => {
+        finish();
+        reject(abortError('Download cancelled'));
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
       promise.then(
         (value) => {
-          clearTimeout(timer);
+          finish();
           resolve(value);
         },
         (error) => {
-          clearTimeout(timer);
+          finish();
           reject(error);
         },
       );

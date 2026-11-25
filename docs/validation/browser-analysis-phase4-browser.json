@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "baseUrl": "http://127.0.0.1:45962",
+  "baseUrl": "http://127.0.0.1:45951",
   "browser": "156.0.8078.4",
-  "entry": "/assets/entry-CExy2VMb.js",
+  "entry": "/assets/entry-D0z3EBJt.js",
   "checks": [
     {
       "name": "login succeeds",
@@ -109,7 +109,7 @@
     "runtimeAssets": 75,
     "modelArtifacts": 0,
     "modelMetadata": 0,
-    "ordinaryPage": 9
+    "ordinaryPage": 5
   },
   "recovery": {
     "cancelled": {
@@ -276,8 +276,8 @@
       "authoritative": false
     },
     "cycles": {
-      "coldInitMs": 2631.5,
-      "jarlSearchMs": 274.19999998807907,
+      "coldInitMs": 2787.2999999523163,
+      "jarlSearchMs": 271.9000000357628,
       "secondInitMs": 0
     },
     "storage": {

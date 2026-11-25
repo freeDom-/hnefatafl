@@ -731,3 +731,91 @@ describe('download manager — bounded caller outcomes (H3)', () => {
     expect(downloads.activeCount).toBe(0);
   });
 });
+
+describe('download manager — tracked cache verification (I1)', () => {
+  function gatedCache() {
+    const cache = new ArtifactCache(new MemoryArtifactStore());
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = cache.getVerified.bind(cache);
+    const spy = vi.fn(async (...args: Parameters<typeof original>) => {
+      await gate;
+      return original(...args);
+    });
+    cache.getVerified = spy;
+    return { cache, spy, release };
+  }
+
+  it('keeps pending cache lookup in occupancy after the caller times out', async () => {
+    const { cache, release } = gatedCache();
+    const fetchImpl = vi.fn(async () => streamResponse(['payload']));
+    const downloads = manager(fetchImpl, { cache, timeoutMs: 50 });
+    const request = spec('payload');
+    await expect(downloads.download(request)).rejects.toMatchObject({
+      code: 'download-timeout',
+    });
+    expect(downloads.occupancy.cacheVerifications).toBe(1);
+    const idle = downloads.whenIdle();
+    release();
+    await idle;
+    expect(downloads.occupancy.cacheVerifications).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(downloads.activeCount).toBe(0);
+    expect(downloads.outstandingBytes).toBe(0);
+  });
+
+  it('deduplicates repeated timed-out cache lookups for the same artifact', async () => {
+    const { cache, spy, release } = gatedCache();
+    const downloads = manager(async () => streamResponse(['payload']), {
+      cache,
+      timeoutMs: 30,
+    });
+    const request = spec('payload');
+    await expect(downloads.download(request)).rejects.toMatchObject({
+      code: 'download-timeout',
+    });
+    await expect(downloads.download(request)).rejects.toMatchObject({
+      code: 'download-timeout',
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(downloads.occupancy.cacheVerifications).toBe(1);
+    release();
+    await downloads.whenIdle();
+    expect(downloads.occupancy.cacheVerifications).toBe(0);
+  });
+
+  it('does not start a transfer when a late cache result arrives after cancellation', async () => {
+    const { cache, release } = gatedCache();
+    const fetchImpl = vi.fn(async () => streamResponse(['payload']));
+    const downloads = manager(fetchImpl, { cache });
+    const controller = new AbortController();
+    const pending = downloads.download(spec('payload'), { signal: controller.signal });
+    controller.abort();
+    release();
+    await expect(pending).rejects.toMatchObject({ code: 'download-aborted' });
+    await downloads.whenIdle();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(downloads.occupancy.cacheVerifications).toBe(0);
+  });
+
+  it('reports cache verification in drain status until it settles', async () => {
+    const { cache, release } = gatedCache();
+    const downloads = manager(async () => streamResponse(['payload']), {
+      cache,
+      timeoutMs: 20,
+    });
+    await expect(downloads.download(spec('payload'))).rejects.toMatchObject({
+      code: 'download-timeout',
+    });
+    const pendingDrain = downloads.drain(10);
+    await expect(pendingDrain).resolves.toMatchObject({
+      drained: false,
+      cacheVerifications: 1,
+    });
+    release();
+    await downloads.whenIdle();
+    expect(downloads.occupancy.cacheVerifications).toBe(0);
+  });
+});

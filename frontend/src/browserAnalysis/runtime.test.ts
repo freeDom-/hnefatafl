@@ -240,6 +240,9 @@ function harness(
       workers.jarlCreated += 1;
       this.info = { python: '3.12', engine_identity: { sha256: 'engine' } };
     }
+    async load() {
+      return { status: 'ready' };
+    }
     async request(payload: { action: string; config?: Record<string, unknown> }) {
       this.calls.push(payload);
       if (payload.action === 'info') {
@@ -1800,5 +1803,245 @@ describe('browser analysis runtime — managed disposal admission (H2)', () => {
     expect(await download).toBeInstanceOf(BrowserAnalysisError);
     const replacement = await waitForManagedCreate(env);
     await replacement.dispose();
+  }, 20000);
+});
+
+describe('browser analysis runtime — tracked cache verification (I1)', () => {
+  it('retains managed admission while a cached-model read is pending', async () => {
+    const env = harness();
+    const managed = await env.createManagedRuntime();
+    await managed.initialize();
+    let releaseLookup!: () => void;
+    const lookupGate = new Promise<void>((resolve) => {
+      releaseLookup = resolve;
+    });
+    const original = env.cache.getVerified.bind(env.cache);
+    let lookupStarted = false;
+    env.cache.getVerified = async (...args) => {
+      lookupStarted = true;
+      await lookupGate;
+      return original(...args);
+    };
+    const pending = managed
+      .runSearch({
+        state: STATE,
+        algorithm: 'neural_mcts',
+        model,
+        provider: 'wasm',
+        settings: { iterations: 8 },
+      })
+      .catch((error) => error);
+    await vi.waitFor(() => expect(lookupStarted).toBe(true));
+    const disposal = managed.dispose();
+    await expect(env.createManagedRuntime()).rejects.toMatchObject({ code: 'quota-exceeded' });
+    const outcome = await disposal;
+    expect(outcome.drained).toBe(false);
+    expect(outcome.cacheVerifications).toBe(1);
+    expect(await pending).toBeInstanceOf(BrowserAnalysisError);
+    releaseLookup();
+    const replacement = await waitForManagedCreate(env);
+    await replacement.dispose();
+  }, 20000);
+
+  it('retains managed admission while cached-model hashing is pending', async () => {
+    const env = harness();
+    const managed = await env.createManagedRuntime();
+    await managed.initialize();
+    const fixture = bytesFor(MODEL_BYTES);
+    await env.cache.admit(`model:${model.onnxSha256}`, fixture.bytes, {
+      publicationId: model.publicationId,
+    });
+    const digestGate = deferred();
+    env.setDigestGate(digestGate);
+    const pending = managed
+      .runSearch({
+        state: STATE,
+        algorithm: 'neural_mcts',
+        model,
+        provider: 'wasm',
+        settings: { iterations: 8 },
+      })
+      .catch((error) => error);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const disposal = managed.dispose();
+    const outcome = await disposal;
+    expect(outcome.drained).toBe(false);
+    expect(outcome.cacheVerifications).toBe(1);
+    expect(await pending).toBeInstanceOf(BrowserAnalysisError);
+    digestGate.resolve(undefined);
+    const replacement = await waitForManagedCreate(env);
+    await replacement.dispose();
+  }, 20000);
+
+  it('uses one bounded cache lookup for a miss and none for a healthy session', async () => {
+    const env = await ready();
+    const spy = vi.spyOn(env.cache, 'getVerified');
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(env.modelRequests).toBe(1);
+    const afterCold = spy.mock.calls.length;
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    expect(spy).toHaveBeenCalledTimes(afterCold);
+    expect(env.modelRequests).toBe(1);
+  });
+
+  it('initializes from a verified cached artifact through the download manager path', async () => {
+    const env = await ready();
+    const fixture = bytesFor(MODEL_BYTES);
+    await env.cache.admit(`model:${model.onnxSha256}`, fixture.bytes, {
+      publicationId: model.publicationId,
+    });
+    const spy = vi.spyOn(env.cache, 'getVerified');
+    const result = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    expect(result.model?.sha256).toBe(model.onnxSha256);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(env.modelRequests).toBe(0);
+  });
+
+  it('cancels cached-model initialization without starting a transfer', async () => {
+    const env = await ready();
+    let releaseLookup!: () => void;
+    const lookupGate = new Promise<void>((resolve) => {
+      releaseLookup = resolve;
+    });
+    const original = env.cache.getVerified.bind(env.cache);
+    env.cache.getVerified = async (...args) => {
+      await lookupGate;
+      return original(...args);
+    };
+    const controller = new AbortController();
+    const pending = env.runtime.runSearch(
+      { state: STATE, algorithm: 'neural_mcts', model, provider: 'wasm' },
+      { signal: controller.signal },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    releaseLookup();
+    await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
+    expect(env.modelRequests).toBe(0);
+  });
+});
+
+describe('browser analysis runtime — cleanup-barrier recovery (I2)', () => {
+  it('recovers initialization after account invalidation cleanup times out', async () => {
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    env.gates.search = deferred();
+    const searchPending = env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    await vi.waitFor(() => expect(env.workers.coordinatorCreated).toBe(1));
+    const hang = deferred();
+    env.setCancelWorkGate(hang);
+    const invalidation = env.runtime.invalidateAccountContext();
+    await settle(searchPending);
+    await invalidation;
+    expect(env.runtime.getStatus().state).toBe('error');
+    const initialized = await env.runtime.initialize();
+    expect(initialized.state).toBe('ready');
+    const recovered = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    expect(recovered.model?.sha256).toBe(model.onnxSha256);
+    hang.resolve(undefined);
+    expect(env.runtime.getStatus().state).toBe('ready');
+  }, 20000);
+
+  it('incorporates preceding invalidation retirement into runtime disposal', async () => {
+    const env = harness();
+    const managed = await env.createManagedRuntime();
+    await managed.initialize();
+    await managed.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    env.gates.search = deferred();
+    const pending = managed.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    await vi.waitFor(() => expect(env.workers.coordinatorCreated).toBe(1));
+    const hang = deferred();
+    env.setCancelWorkGate(hang);
+    const invalidation = managed.invalidateAccountContext();
+    const disposal = managed.dispose();
+    await settle(pending);
+    await invalidation;
+    const outcome = await disposal;
+    expect(outcome.drained).toBe(true);
+    const replacement = await env.createManagedRuntime();
+    await replacement.dispose();
+    hang.resolve(undefined);
+  }, 20000);
+
+  it('keeps worker counts exact through repeated invalidation retirement', async () => {
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    env.gates.search = deferred();
+    const searchPending = env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    await vi.waitFor(() => expect(env.workers.coordinatorCreated).toBe(1));
+    const hang = deferred();
+    env.setCancelWorkGate(hang);
+    const first = env.runtime.invalidateAccountContext();
+    const second = env.runtime.invalidateAccountContext();
+    await settle(searchPending);
+    await Promise.all([first, second]);
+    hang.resolve(undefined);
+    const initialized = await env.runtime.initialize();
+    expect(initialized.state).toBe('ready');
+    await expect(env.runtime.runSearch({ state: STATE, algorithm: 'jarl' })).resolves.toMatchObject(
+      { algorithm: 'jarl' },
+    );
+    expect(env.workers.neuralDisposed).toBe(1);
   }, 20000);
 });

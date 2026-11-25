@@ -55,6 +55,7 @@ type AnyRecord = Record<string, any>;
 let managedRuntimeInstances = 0;
 
 interface LocalAnalysisClientLike {
+  load?(): Promise<unknown>;
   request(payload: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
   cancel(reason?: string): void;
   dispose(): void;
@@ -370,6 +371,19 @@ export class BrowserAnalysisRuntime {
   private cleanupBarrier: Promise<void> = Promise.resolve();
   private availabilitySequence = 0;
   private availabilityApplied = 0;
+  private retirements = new Map<
+    number,
+    {
+      clients: {
+        jarl: LocalAnalysisClientLike | null;
+        neural: NeuralClientLike | null;
+        coordinator: CoordinatorLike | null;
+      };
+      context: number;
+    }
+  >();
+  private retirementSequence = 0;
+  private terminatedClients = new WeakSet<object>();
   private activeSearch: { op: Operation; promise: Promise<SearchResult> } | null = null;
 
   constructor(private readonly options: RuntimeOptions = {}) {
@@ -961,20 +975,13 @@ export class BrowserAnalysisRuntime {
 
   /** Return verified model bytes from the cache or one bounded download. */
   private async ensureModelBytes(model: ModelManifest, op: Operation): Promise<ArrayBuffer> {
-    if (this.cache) {
-      const cached = await this.cache.getVerified(
-        `model:${model.onnxSha256}`,
-        model.onnxSha256,
-        this.digestFn,
-        model.artifactBytes,
-      );
-      this.assertOwned(op, 'Cached model load was superseded');
-      if (cached) return cached;
-    }
+    // Verification and any required transfer share the download manager's
+    // bounded, tracked cache path. There is exactly one cache lookup and late
+    // cache work remains accounted until it settles.
     const result = await this.downloads.download(this.modelSpec(model), {
       signal: op.controller.signal,
     });
-    this.assertOwned(op, 'Model download was superseded');
+    this.assertOwned(op, 'Model byte acquisition was superseded');
     return result.bytes;
   }
 
@@ -1096,6 +1103,17 @@ export class BrowserAnalysisRuntime {
     op.controller.signal.addEventListener('abort', cancelJarl, { once: true });
     let response: AnyRecord;
     try {
+      // Exclude cold worker/Pyodide initialization from the search watchdog. A
+      // cancellation may have released the worker, and cold start is bounded by
+      // the separate initialization deadline.
+      if (client.load) {
+        await this.withTimeout(
+          client.load(),
+          LIMITS.initTimeoutMs,
+          'Jarl runtime initialization timed out',
+          op.controller.signal,
+        );
+      }
       response = (await this.withTimeout(
         client.request(
           { action: 'analysis', state: request.state, config: effective },
@@ -1477,6 +1495,11 @@ export class BrowserAnalysisRuntime {
       neural: this.neural,
       coordinator: this.coordinator,
     };
+    const retirementId = this.registerRetirement({
+      jarl: null,
+      neural: captured.neural,
+      coordinator: captured.coordinator,
+    });
     if (!search) {
       // A cancelled initialization must not be joined by a replacement call.
       this.initState = null;
@@ -1512,6 +1535,7 @@ export class BrowserAnalysisRuntime {
       .then(() => true)
       .catch(() => false);
     if (completed) {
+      this.settleRetirement(retirementId);
       if (
         this.context === context &&
         this.activeSearch === search &&
@@ -1526,24 +1550,12 @@ export class BrowserAnalysisRuntime {
     // release the admission barrier so future operations are not permanently
     // blocked on an obsolete unresolved promise.
     if (this.context === context) {
-      if (this.coordinator === captured.coordinator) {
-        try {
-          captured.coordinator?.dispose();
-        } catch {
-          // Bounded disposal is owned by the validated client.
-        }
-        this.coordinator = null;
-      }
-      if (this.neural === captured.neural) {
-        try {
-          captured.neural?.dispose?.();
-        } catch {
-          // Ignore disposal failures on an already-terminated worker.
-        }
-        this.neural = null;
-      }
+      this.terminateRetirements(context);
+      this.settleRetirement(retirementId);
+      if (this.coordinator === captured.coordinator) this.coordinator = null;
+      if (this.neural === captured.neural) this.neural = null;
       if (this.activeSearch === search) this.activeSearch = null;
-      this.cleanupBarrier = Promise.resolve();
+      if (this.cleanupBarrier === barrier) this.cleanupBarrier = Promise.resolve();
       this.setState('error', {
         error: {
           code: 'search-failed',
@@ -1615,20 +1627,38 @@ export class BrowserAnalysisRuntime {
     neural: NeuralClientLike | null;
     coordinator: CoordinatorLike | null;
   }): void {
-    try {
-      captured.coordinator?.dispose();
-    } catch {
-      // Bounded disposal is owned by the validated client.
+    for (const client of [captured.coordinator, captured.neural, captured.jarl]) {
+      if (!client) continue;
+      if (this.terminatedClients.has(client as object)) continue;
+      this.terminatedClients.add(client as object);
+      try {
+        (client as { dispose?: () => void }).dispose?.();
+      } catch {
+        // Bounded disposal is owned by the validated client.
+      }
     }
-    try {
-      captured.neural?.dispose?.();
-    } catch {
-      // Ignore disposal failures on an already-terminated worker.
-    }
-    try {
-      captured.jarl?.dispose();
-    } catch {
-      // Ignore disposal failures on an already-terminated worker.
+  }
+
+  private registerRetirement(clients: {
+    jarl: LocalAnalysisClientLike | null;
+    neural: NeuralClientLike | null;
+    coordinator: CoordinatorLike | null;
+  }): number {
+    const id = ++this.retirementSequence;
+    this.retirements.set(id, { clients, context: this.context });
+    return id;
+  }
+
+  private settleRetirement(id: number): void {
+    this.retirements.delete(id);
+  }
+
+  /** Terminate only captured resources from this or older contexts. */
+  private terminateRetirements(contextLimit: number): void {
+    for (const [id, retirement] of [...this.retirements]) {
+      if (retirement.context > contextLimit) continue;
+      this.disposeCaptured(retirement.clients);
+      this.retirements.delete(id);
     }
   }
 
@@ -1647,6 +1677,7 @@ export class BrowserAnalysisRuntime {
     const search = this.activeSearch;
     this.activeSearch = null;
     const captured = this.takeClients();
+    const retirementId = this.registerRetirement(captured);
     this.result = null;
     this.setState('idle', {
       runtimeId: this.runtimeId,
@@ -1683,7 +1714,10 @@ export class BrowserAnalysisRuntime {
       .then(() => true)
       .catch(() => false);
     this.disposeCaptured(captured);
+    this.settleRetirement(retirementId);
     if (!completed && this.context === context) {
+      this.terminateRetirements(context);
+      if (this.cleanupBarrier === barrier) this.cleanupBarrier = Promise.resolve();
       this.setState('error', {
         error: {
           code: 'search-failed',
@@ -1715,6 +1749,8 @@ export class BrowserAnalysisRuntime {
     const search = this.activeSearch;
     this.activeSearch = null;
     const captured = this.takeClients();
+    const context = this.context;
+    const retirementId = this.registerRetirement(captured);
     this.moduleCache.clear();
     this.manifest = null;
     this.runtimeId = null;
@@ -1744,17 +1780,27 @@ export class BrowserAnalysisRuntime {
     if (captured.neural?.cancelWork) {
       tasks.push(captured.neural.cancelWork({ reason: 'Runtime disposed' }).catch(() => undefined));
     }
-    const barrier = Promise.allSettled(tasks).then(() => undefined);
+    const prior = this.cleanupBarrier;
+    const barrier = prior.then(() => Promise.allSettled(tasks)).then(() => undefined);
     this.cleanupBarrier = barrier;
     this.disposalPromise = (async () => {
       let outcome: RuntimeDisposalOutcome;
       try {
-        await this.withTimeout(
+        const completed = await this.withTimeout(
           barrier,
           LIMITS.shutdownTimeoutMs,
           'Runtime disposal did not finish',
-        ).catch(() => undefined);
+        )
+          .then(() => true)
+          .catch(() => false);
         this.disposeCaptured(captured);
+        this.settleRetirement(retirementId);
+        if (!completed) {
+          // Terminate any earlier captured retirements and replace the obsolete
+          // barrier only while it is still ours.
+          this.terminateRetirements(context);
+          if (this.cleanupBarrier === barrier) this.cleanupBarrier = Promise.resolve();
+        }
         const drain = await this.downloads.drain(LIMITS.shutdownTimeoutMs);
         outcome = {
           drained: drain.drained,
@@ -1762,6 +1808,7 @@ export class BrowserAnalysisRuntime {
           reservedBytes: drain.reservedBytes,
           transfers: drain.transfers,
           queued: drain.queued,
+          cacheVerifications: drain.cacheVerifications,
         };
       } catch {
         // Never leak the managed reservation on an unexpected disposal failure.

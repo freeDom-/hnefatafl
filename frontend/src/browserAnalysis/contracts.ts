@@ -241,6 +241,7 @@ export interface RuntimeDisposalOutcome {
   reservedBytes: number;
   transfers: number;
   queued: number;
+  cacheVerifications: number;
 }
 
 export interface ModelDownloadResult {
