@@ -152,15 +152,32 @@
   font-size: var(--text-subsection);
 }
 .statistics-headline {
-  display: grid;
-  justify-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: var(--gap-inline) var(--gap-stack);
   font-size: 0.8rem;
   color: var(--muted);
+}
+.statistics-headline-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: end;
+  min-width: 0;
+}
+.statistics-headline-metric span {
+  text-align: end;
 }
 .statistics-headline strong {
   color: var(--green);
   font-size: 1.8rem;
   line-height: 1.2;
+  white-space: nowrap;
+}
+.statistics-headline > small {
+  flex-basis: 100%;
+  text-align: end;
 }
 .outcome-bar {
   display: flex;
@@ -250,6 +267,19 @@
   color: var(--ui-heading, #26352e);
 }
 @media (max-width: 600px) {
+  .statistics-headline {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: var(--gap-inline);
+  }
+  .statistics-headline-metric span {
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+  .statistics-headline > small {
+    grid-column: 1 / -1;
+  }
   .statistics-table {
     min-width: 0;
   }
@@ -292,6 +322,23 @@
     font-size: 0.7rem;
     font-weight: normal;
     color: var(--muted);
+  }
+}
+/* A 320px phone at Large scale leaves too little width for three readable
+   percentage columns. Keep the third metric full width instead of shrinking
+   values below the label size or allowing adjacent metrics to overlap. */
+@media (max-width: 420px) {
+  :root[data-density='large'] .statistics-headline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :root[data-density='large'] .statistics-headline-metric:last-of-type {
+    grid-column: 1 / -1;
+  }
+  :root[data-density='large'] .statistics-headline strong {
+    font-size: 1.4rem;
+  }
+  :root[data-density='large'] .statistics-table tbody tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
