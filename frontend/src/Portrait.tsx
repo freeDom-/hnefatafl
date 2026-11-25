@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type Ref } from 'react';
 import { PORTRAIT_ASSET_SOURCES } from './portraitAssets';
 import './portrait.css';
 
@@ -18,12 +18,14 @@ export default function Portrait({
   name = '',
   className = '',
   gallery = false,
+  imageRef,
 }: {
   id: string | null | undefined;
   /** Empty when the adjacent player/portrait name already labels the artwork. */
   name?: string;
   className?: string;
   gallery?: boolean;
+  imageRef?: Ref<HTMLImageElement>;
 }) {
   const safeId = id && Object.hasOwn(PORTRAIT_ASSET_SOURCES, id) ? id : 'shieldbearer';
   const asset = gallery
@@ -47,6 +49,7 @@ export default function Portrait({
     </span>
   ) : (
     <img
+      ref={imageRef}
       className={`portrait-art ${className}`}
       style={style}
       src={path}

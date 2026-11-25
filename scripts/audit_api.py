@@ -45,13 +45,21 @@ with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
                         "/api/health",
                         "/api/auth/registration",
                         "/api/auth/me",
+                        "/api/portraits/catalog",
                         "/api/games/{game_id}/analytics",
                         "/api/leaderboard",
                     }
                 ),
                 "user_specific": (
                     route.path.startswith(("/api/games", "/api/stats", "/api/auth/", "/api/online/", "/api/personal/", "/api/history/", "/api/profile", "/api/leagues/queue"))
-                    or route.path in {"/api/leaderboard", "/api/leagues/current", "/api/leagues/progress", "/api/leagues/history", "/api/leagues/active-game"}
+                    or route.path in {
+                        "/api/leaderboard",
+                        "/api/leagues/current",
+                        "/api/leagues/progress",
+                        "/api/leagues/history",
+                        "/api/leagues/active-game",
+                        "/api/portraits/unlock",
+                    }
                 ) and route.path not in {"/api/auth/registration", "/api/online/ratings/rebuild"},
             })
     target = Path(__file__).resolve().parents[1] / "docs/API_PERMISSIONS.json"

@@ -3,35 +3,53 @@
 [Documentation index](README.md) · [Rated games](RATINGS.md) · [Profile](PROFILE.md) ·
 [Accounts and API security](SECURITY.md)
 
-Achievement catalog **3**, portrait catalog **2**, schema **21** automatically
-award milestones from authoritative events. There are **77 milestones worth
-6,290 points**. No client supplies progress, points or reward amounts. Earned
+Achievement catalog **3** and portrait catalog **2** define **77 milestones worth
+6,290 points**. The server awards milestones automatically from authoritative
+events. Players unlock their eligible portraits in the Hall of Renown. Earned
 achievements and portrait entitlements are permanent, including after corrections.
 
 ## API contract
 
-- `GET /api/portraits/catalog`: authenticated code-owned catalog, in the explicit
-  gallery display order.
-- `GET /api/personal/achievements`: read-only own-account progress, permanent awards,
-  families, score and `unlocked_portrait_ids` (including grandfathered entitlements).
-- `PATCH /api/profile/portrait`: explicit selection of an already unlocked portrait,
-  protected by the existing session, origin, CSRF, deployment freeze and body checks.
+- `GET /api/portraits/catalog` returns the authenticated catalog in gallery order.
+- `GET /api/personal/achievements` returns read-only own-account progress, permanent
+  awards, families, score and `unlocked_portrait_ids`, including grandfathered
+  entitlements. A portrait is eligible when its `unlock_achievement_id` points to
+  an awarded milestone. The catalog identifies the always-available starter.
+- `POST /api/portraits/unlock` accepts `{"portrait_id":"shieldmaiden"}` and returns
+  `portrait_id` and `newly_unlocked`. The first successful claim returns `true`
+  after commit. Repeat claims and the starter portrait return `false`.
+- `PATCH /api/profile/portrait` equips an already unlocked portrait by its stable ID.
 
-There is no achievement confirmation endpoint or collection action. Selecting a
-portrait never awards achievements; unlocking never changes the selected avatar.
-Unknown/retired IDs return 422, locked portraits 403, missing sessions 401.
+Both writes use the authenticated session and existing origin, CSRF, deployment
+freeze and body checks. Unknown or retired IDs return 422, missing eligibility or
+entitlement returns 403, and missing sessions return 401. Claiming a portrait leaves
+the equipped avatar and achievement score as they were.
 
 ## Hall of Renown and player artwork
 
 The Hall presents the introduction, ordered portrait gallery, then Deeds of Valor.
-The achievement score, percentage and milestone count sit below that heading.
+Locked portraits show grayscale art and their milestone progress. Once the milestone
+is awarded, **Unlock portrait** takes the place of the progress bar. The artwork
+stays grayscale until the player claims it. The Hall enables **Use portrait** as
+soon as the server confirms the claim. A previous claim or a reload opens the
+standard colored portrait directly.
+
+A new claim reveals the original artwork through seeded, staggered Canvas 2D
+masks over the grayscale image. The first area starts at 120 ms. The areas merge
+and fill the frame over 2.4 seconds. A 1.05-second CSS glow and floating runes
+follow. The renderer feathers the same mask with a Canvas shadow where Canvas
+filters are unavailable. Reduced motion, backgrounding and renderer initialization
+failures resolve to the standard portrait. The effect reuses the loaded gallery
+image and allocates buffers and animation frames for active reveals. See the
+[Shieldmaiden capture sequence](validation/portrait-unlock.md).
+
+Deeds of Valor shows the achievement score, percentage and milestone count.
 Family cards show current recorded progress, the highest permanently awarded tier,
-next target and incremental reward. Threshold and highest-achieved values remain
-available in the API and drive eligibility, awards, scores and progress, but the
-cards do not repeat them as visible labels. The next target is the first threshold
-above current progress that has not already been awarded. A correction can reduce
-current progress without reducing an earned tier. A completed family has no
-further target or progress bar.
+next target and incremental reward. The API retains threshold and highest-achieved
+values for eligibility, awards, scores and progress. The next target is the first
+threshold above current progress that has not already been awarded. A correction
+can reduce current progress without reducing an earned tier. A completed family has
+no further target or progress bar.
 
 Engraved, bronze, silver, gold and legendary treatments use shared Arena theme
 tokens and stable family runes. Server responses determine all awards. English and
@@ -48,9 +66,13 @@ including an open local, single-player or online game board, keeps a 15-second
 visible-tab backstop: a game route only observes its own game and cannot see a
 separate rated completion. The recurring read is suspended while the page is
 hidden and resumes on visibility, so a remote completion eventually appears
-without navigation or refocus. A session baseline prevents historical
-notification storms; newly observed awards show points and newly available
-portraits. Notifications are not a durable notification history.
+without navigation or refocus. The first response for each account establishes
+the notification baseline. Newly awarded milestones show their points. A new
+award with an unclaimed `portrait_id` also contributes to **New portraits ready
+to unlock**. Newly observed claims show **New portraits unlocked**, including a
+claim from another device or one recovered by refreshing after a lost response.
+Both portrait notices count unique IDs. Confirmed local claims update the shared
+projection immediately, and older reads cannot repeat an announcement.
 
 ## Portrait catalog
 
@@ -76,8 +98,8 @@ display language.
 | One-Eyed Jarl | Best rated win streak of 10 | `rated-win-streak-10` |
 
 Existing portrait entitlements and selections survive increased requirements.
-New grants use the new requirements. The client uses durable portrait entitlements,
-not a join against today's unlock association, so grandfathered rewards remain usable.
+New claims use the current requirements. The client uses durable portrait entitlements
+to show which grandfathered rewards remain usable.
 
 ## Catalog integrity guarantees
 
@@ -136,9 +158,14 @@ progress, all definitions and the always-available default; GET creates no rows.
 
 One centralized `award_achievements` function runs inside the authoritative
 caller's existing transaction. Unique keys and `INSERT OR IGNORE` prevent duplicate
-awards/entitlements under retries, concurrent completions and ledger rebuilds.
+milestone awards under retries, concurrent completions and ledger rebuilds.
 All newly reached thresholds are inserted together. It skips existing awards and
 shares counters across criteria/scopes rather than querying every milestone.
+
+The unlock endpoint revalidates the session and checks its awarded milestone inside
+an SQLite write transaction. The existing account/portrait primary key and write lock
+ensure that concurrent requests yield one new claim. Eligibility follows the permanent
+milestone award even when a later result correction lowers the recorded progress.
 
 - Rated completion applies the rating ledger first, then awards affected accounts
   in that same transaction only when the ledger actually changed. Wins group by
@@ -167,7 +194,8 @@ shares counters across criteria/scopes rather than querying every milestone.
 Replay receipts have an account-leading composite key. Repeated successful
 requests validate scope/completion and use a read-only existing-receipt fast path;
 first insertions revalidate inside the writer transaction. Reads fetch awards and
-portrait entitlements in batches. No per-card requests or frontend reward logic exist.
+portrait entitlements in batches. The Hall sends a write only when the player
+acts on an unlock or selection button.
 
 `awarded_at` is the time of first durable award, not the original game timestamp.
 Result correction and void handling never delete earned rewards. Replay identity
@@ -178,9 +206,12 @@ includes category, preventing local/online game-ID collisions.
 Schema 20 introduced durable replay-analysis receipts. Schema 21 seeds the updated
 catalogs, then performs a controlled, idempotent reconciliation of historical
 account records inside the migration transaction before advancing `user_version`.
-It grants all currently proven milestones and portrait entitlements without visits
-to the Hall. Already earned awards/portraits remain untouched. Reopening an upgraded
-installation does not repeat the reconciliation. Back up before upgrading; a large
+That historical step still grants the milestones and portrait entitlements an older
+installation would receive on upgrade. Manual portrait unlocking reuses the existing
+`achievement_awards`, `account_portraits` and `account_portrait_selection` tables.
+Schema 21 and later keep their existing rows and normal upgrade paths. The existing
+SQLite backup and same-schema restore carry both claimed portraits and selections.
+Reopening an installation preserves unclaimed eligibility. A large pre-schema-21
 history may increase the one-time upgrade duration.
 
 Administrator rating-ledger rebuilds reconcile only actors present in the affected

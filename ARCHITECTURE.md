@@ -68,7 +68,7 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [profile_api.py](hnefatafl/profile_api.py), [profile_migrations.py](hnefatafl/profile_migrations.py) | Owned optional profiles, automatic publication with legacy privacy protection, private birth dates and additive schema-15 fields |
 | [online_core.py](hnefatafl/online_core.py), [online_api.py](hnefatafl/online_api.py), [online_migrations.py](hnefatafl/online_migrations.py) | Durable lifecycle/engine integration, authenticated safe adapters, atomic seats/moves/deadlines/results and side-swapped two-game matches |
 | [rating.py](hnefatafl/rating.py), [online_ratings.py](hnefatafl/online_ratings.py) | Pure versioned Elo policy and deterministic replay; durable rating events/applications, transactional rebuilds and leaderboard queries |
-| [progression.py](hnefatafl/progression.py), [progression_api.py](hnefatafl/progression_api.py) | Code-owned tier/portrait catalogs, points derived from permanent awards, account-scoped replay-analysis receipts (schema 20), transactional automatic awards (schema 21) and CSRF-protected portrait selection |
+| [progression.py](hnefatafl/progression.py), [progression_api.py](hnefatafl/progression_api.py) | Code-owned catalogs, points derived from permanent automatic awards, replay-analysis receipts and CSRF-protected portrait unlock and selection |
 | [server.py](hnefatafl/server.py), [analysis_service.py](hnefatafl/analysis_service.py) | Owned API paths, catalog/job coordination, bounded background analysis and stale-result guards |
 | [tournaments.py](hnefatafl/tournaments.py), [tournament_statistics.py](hnefatafl/tournament_statistics.py), [openings.py](hnefatafl/openings.py) | Separate tournament lifecycle, incremental role statistics and reproducible legal openings |
 | [player_tournament_settlement.py](hnefatafl/player_tournament_settlement.py) | Durable result outbox and indexed due-start consumer; bounded transactional starts/advancement and restart reconciliation without a browser |
@@ -753,9 +753,10 @@ Both are strictly self-scoped and add no schema or rating-math change; a durable
 login/activity-day streak remains deferred to a future progression migration.
 Schema 17 adds the read-only own-progress read `GET /api/personal/achievements`
 beside authenticated `GET /api/portraits/catalog` and the `profile`-scoped
-`PATCH /api/profile/portrait`. Schema 21 reconciles historical achievements once;
-authoritative game/rating/analysis transactions automatically grant permanent
-awards and portrait entitlements. Reads and selection never grant rewards.
+`PATCH /api/profile/portrait`. Schema 21 reconciles historical awards and
+entitlements once. Authoritative game, rating and analysis transactions award
+milestones automatically. `POST /api/portraits/unlock` checks the required award
+and records a permanent entitlement using the existing schema.
 See [portraits and achievements](docs/PROGRESSION.md). Two additional read-only `/api/history` routes use `history.py`:
 normal-user lists/review cover own account games and participating online games;
 trusted current `all_data` sessions can filter/review all server-recorded online/account records. Dashboard

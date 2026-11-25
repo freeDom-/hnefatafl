@@ -5,6 +5,7 @@ const empty: ProgressionValue = {
   achievements: null,
   phase: 'loading',
   refresh: () => Promise.resolve(null),
+  confirmPortraitUnlock: () => {},
 };
 
 const ProgressionContext = createContext<ProgressionValue>(empty);

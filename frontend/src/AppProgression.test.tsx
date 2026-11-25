@@ -48,7 +48,7 @@ const progress = (earned: boolean) => ({
   portrait_catalog_version: 2,
   as_of: '2035-01-01T00:00:00Z',
   families: [],
-  unlocked_portrait_ids: earned ? ['shieldmaiden'] : [],
+  unlocked_portrait_ids: [],
   summary: {
     unlocked: earned ? 1 : 0,
     total: 77,
@@ -126,7 +126,7 @@ it('reconciles a remote rated completion while a local game route stays open', a
 
   expect(location.pathname).toBe('/games/g1');
   expect(notify.success).toHaveBeenCalledWith('New milestones: 1 · +30 points');
-  expect(notify.success).toHaveBeenCalledWith('New portraits available: 1');
+  expect(notify.success).toHaveBeenCalledWith('New portraits ready to unlock: 1');
   expect(notify.success).toHaveBeenCalledTimes(2);
   expect(achievementReads()).toBeGreaterThan(1);
 });

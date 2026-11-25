@@ -167,7 +167,7 @@ budget. Invalid current passwords return a form error without ending the session
 | --- | --- |
 | `GET /api/profile` | Own optional fields, read-only legacy transition metadata, username, email, verification status, country catalog and the effective `portrait_id` |
 | `PATCH /api/profile` | Atomic update of explicitly supplied `display_name`, `country_code`, `city`, `date_of_birth`; omitted fields stay unchanged |
-| `PATCH /api/profile/portrait` | Select an earned portrait by stable catalog ID; the selection write also materializes eligible achievements; unknown, retired, unearned or URL-shaped IDs are rejected |
+| `PATCH /api/profile/portrait` | Equip an unlocked portrait by its stable catalog ID |
 | `POST /api/profile/password` | `current_password`, `new_password`, `confirm_password`; safe acknowledgment only |
 
 These routes use the existing `profile` permission for both ordinary users and
@@ -239,5 +239,6 @@ SMTP delivery.
 
 The profile displays the effective server-selected portrait and links to
 [Hall of Renown](PROGRESSION.md#hall-of-renown-and-player-artwork) at `/portraits`.
+Players unlock eligible portraits and choose which portrait to equip in the Hall.
 Only earned catalog IDs can be selected there. The selection appears in The Great Hall,
 online player cards and leaderboard; no private achievement progress is published.

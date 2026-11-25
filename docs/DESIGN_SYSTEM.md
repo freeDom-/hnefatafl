@@ -99,6 +99,13 @@ its CSS maximum accounts for device pixel ratio and the asset's native dimension
 Frames grow independently. Small avatar contexts retain the original 320px assets.
 See [artwork provenance](PORTRAIT_ARTWORK.md) for source and encoding details.
 
+The Hall uses the shared primary button for an eligible portrait. Its art stays
+grayscale while the request is pending. A new claim reveals the existing gallery
+image through feathered, irregular masks and adds a brief gold glow to the existing
+frame. Portrait actions share a reserved area to keep artwork and card geometry
+stable. Reduced motion displays the standard colored image as soon as the claim
+is confirmed. See [progression](PROGRESSION.md#hall-of-renown-and-player-artwork).
+
 Achievement cards sit inside the single Deeds of Valor `arena-surface` and reuse its
 shared border, spacing and typography tokens, deliberately without a second
 `arena-surface` per card: another panel would repeat the background, shadow and,

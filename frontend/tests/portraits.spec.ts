@@ -21,13 +21,14 @@ function contrast(foreground: string, background: string) {
   return (light + 0.05) / (dark + 0.05);
 }
 for (const theme of themes) {
-  test(`Hall of Renown has automatic rewards and accessible controls in ${theme}`, async ({
+  test(`Hall of Renown has manual portrait unlocks and accessible controls in ${theme}`, async ({
     page,
   }, info) => {
     // Four localized high-DPI viewport captures per theme need a larger image-encoding budget.
     test.setTimeout(240_000);
     let selected = 'shieldbearer';
     let awarded = false;
+    let claimed = false;
     const achievements = async () => {
       const response = await page.request.get('/api/personal/achievements');
       expect(response.ok()).toBe(true);
@@ -49,7 +50,7 @@ for (const theme of themes) {
             ? '2035-01-01T00:00:00Z'
             : null,
       }));
-      progress.unlocked_portrait_ids = ['wanderer', ...(awarded ? ['shieldmaiden'] : [])];
+      progress.unlocked_portrait_ids = ['wanderer', ...(claimed ? ['shieldmaiden'] : [])];
       return projectAchievements(progress);
     };
     await page.route('**/api/personal/achievements', async (route) =>
@@ -58,6 +59,13 @@ for (const theme of themes) {
     await page.route('**/api/profile', async (route) => {
       const response = await route.fetch();
       await route.fulfill({ json: { ...(await response.json()), portrait_id: selected } });
+    });
+    await page.route('**/api/portraits/unlock', async (route) => {
+      expect(route.request().postDataJSON()).toEqual({ portrait_id: 'shieldmaiden' });
+      expect(awarded).toBe(true);
+      const newlyUnlocked = !claimed;
+      claimed = true;
+      await route.fulfill({ json: { portrait_id: 'shieldmaiden', newly_unlocked: newlyUnlocked } });
     });
     await page.route('**/api/profile/portrait', async (route) => {
       expect(route.request().method()).toBe('PATCH');
@@ -79,9 +87,15 @@ for (const theme of themes) {
     for (const language of ['en', 'de']) {
       await page.addInitScript(
         ({ theme, language }) => {
+          const density =
+            language === 'de' && screen.width < 1024
+              ? screen.width < 500
+                ? 'large'
+                : 'compact'
+              : undefined;
           localStorage.setItem(
             'hnefatafl-appearance',
-            JSON.stringify({ version: 2, uiTheme: theme }),
+            JSON.stringify({ version: 2, uiTheme: theme, density }),
           );
           localStorage.setItem('hnefatafl-language', language);
         },
@@ -89,6 +103,7 @@ for (const theme of themes) {
       );
       for (const size of sizes) {
         awarded = false;
+        claimed = false;
         selected = 'shieldbearer';
         await page.setViewportSize(size);
         await page.goto('/portraits');
@@ -98,6 +113,13 @@ for (const theme of themes) {
             'page',
           );
         await expect(page.locator('html')).toHaveAttribute('data-ui-theme', theme);
+        const density =
+          size.width >= 3000 || (language === 'de' && size.width < 500)
+            ? 'large'
+            : language === 'de' && size.width < 1024
+              ? 'compact'
+              : 'default';
+        await expect(page.locator('html')).toHaveAttribute('data-density', density);
         const gallery = page.locator('.portrait-gallery');
         await expect(gallery.locator('> li')).toHaveCount(12);
         await expect(page.locator('.portrait-achievement-list > li')).toHaveCount(10);
@@ -192,6 +214,28 @@ for (const theme of themes) {
           'one-eyed-jarl',
         ]);
         await expect(page.locator('.portrait-achievements .achievement-score')).toBeVisible();
+        const shieldmaiden = gallery
+          .locator('li')
+          .filter({ has: page.locator('img[src$="/shieldmaiden-large.webp"]') });
+        const image = shieldmaiden.locator('img');
+        await expect(image).toHaveCSS('filter', 'grayscale(1)');
+        await expect(shieldmaiden.getByRole('progressbar')).toBeVisible();
+        await expect(shieldmaiden.getByRole('button')).toHaveCount(0);
+        const geometry = () =>
+          image.evaluate((element) => {
+            const artwork = element.getBoundingClientRect();
+            const card = element.closest('li')!.getBoundingClientRect();
+            const gallery = element.closest('.portrait-gallery')!.getBoundingClientRect();
+            return {
+              width: artwork.width,
+              height: artwork.height,
+              top: artwork.top - card.top,
+              left: artwork.left - card.left,
+              cardHeight: card.height,
+              cardTop: card.top - gallery.top,
+            };
+          });
+        const artBefore = await geometry();
         // Simulate a game-completion wake with an updated server-owned projection.
         awarded = true;
         await page.evaluate(() => window.dispatchEvent(new Event('progression-changed')));
@@ -201,12 +245,23 @@ for (const theme of themes) {
           'src',
           /shieldbearer-large.webp$/,
         );
-        const shieldmaiden = gallery
-          .locator('li')
-          .filter({ has: page.locator('img[src$="/shieldmaiden-large.webp"]') });
+        await expect(shieldmaiden).toHaveAttribute('data-portrait-state', 'ready');
+        await expect(shieldmaiden.getByRole('progressbar')).toHaveCount(0);
+        await expect(image).toHaveCSS('filter', 'grayscale(1)');
+        expect(await geometry()).toEqual(artBefore);
+        const unlock = shieldmaiden.getByRole('button', {
+          name: /Unlock portrait|Porträt freischalten/,
+        });
+        await unlock.focus();
+        expect(await unlock.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+        await page.keyboard.press('Enter');
+        await expect(shieldmaiden).toHaveAttribute('data-portrait-state', 'earned');
+        await expect(gallery.locator('[data-portrait-state="selected"] img')).toHaveAttribute(
+          'src',
+          /shieldbearer-large.webp$/,
+        );
         const select = shieldmaiden.getByRole('button');
-        await select.focus();
-        expect(await select.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+        await expect(select).toBeFocused();
         await page.keyboard.press('Enter');
         await expect(shieldmaiden).toHaveAttribute('data-portrait-state', 'selected');
         await expect(select).toBeDisabled();

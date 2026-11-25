@@ -28,6 +28,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Earnable portraits, achievement progress, catalog IDs and award permanence](PROGRESSION.md)
 - [Role win rates and compact achievement cards](validation/role-win-rates-and-achievement-cards.md)
 - [Portrait Hall implementation and visual acceptance](validation/portrait-hall.md)
+- [Manual portrait unlock validation and Shieldmaiden reveal frames](validation/portrait-unlock.md)
 - [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
 - [Double-elimination player tournaments, bracket policy and moderation](PLAYER_TOURNAMENTS.md)
 - [Hall of records and seed-independent AI statistics](PERSONALIZATION.md#ai-configurations-in-the-hall-of-records)
