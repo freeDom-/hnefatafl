@@ -162,6 +162,7 @@
 }
 .statistics-headline-metric {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: end;
   min-width: 0;
 }
@@ -172,6 +173,7 @@
   color: var(--green);
   font-size: 1.8rem;
   line-height: 1.2;
+  white-space: nowrap;
 }
 .statistics-headline > small {
   flex-basis: 100%;
@@ -320,6 +322,23 @@
     font-size: 0.7rem;
     font-weight: normal;
     color: var(--muted);
+  }
+}
+/* A 320px phone at Large scale leaves too little width for three readable
+   percentage columns. Keep the third metric full width instead of shrinking
+   values below the label size or allowing adjacent metrics to overlap. */
+@media (max-width: 420px) {
+  :root[data-density='large'] .statistics-headline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :root[data-density='large'] .statistics-headline-metric:last-child {
+    grid-column: 1 / -1;
+  }
+  :root[data-density='large'] .statistics-headline strong {
+    font-size: 1.4rem;
+  }
+  :root[data-density='large'] .statistics-table tbody tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
