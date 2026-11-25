@@ -11,42 +11,42 @@
   "blocked_reasons": [
     "sustained process-memory acceptance blocked"
   ],
-  "samples": 23,
-  "warmup_samples": 10,
-  "warmup_ms": 10000.0,
-  "window_start_ms": 10000.0,
-  "window_end_ms": 22000.0,
-  "observed_window_ms": 11975.046,
+  "samples": 21,
+  "warmup_samples": 8,
+  "warmup_ms": 8000.0,
+  "window_start_ms": 8000.0,
+  "window_end_ms": 20000.0,
+  "observed_window_ms": 11978.041999999998,
   "coverage": {
     "process_rss_bytes": {
       "usable": 13,
       "of": 13,
       "coverage": 1.0,
-      "longest_usable_gap_ms": 1027.7559999999994
+      "longest_usable_gap_ms": 1006.130000000001
     },
     "js_heap_used_bytes": {
       "usable": 13,
       "of": 13,
       "coverage": 1.0,
-      "longest_usable_gap_ms": 1027.7559999999994
+      "longest_usable_gap_ms": 1006.130000000001
     },
     "cache_bytes": {
       "usable": 13,
       "of": 13,
       "coverage": 1.0,
-      "longest_usable_gap_ms": 1027.7559999999994
+      "longest_usable_gap_ms": 1006.130000000001
     },
     "cache_entries": {
       "usable": 13,
       "of": 13,
       "coverage": 1.0,
-      "longest_usable_gap_ms": 1027.7559999999994
+      "longest_usable_gap_ms": 1006.130000000001
     },
     "workers": {
       "usable": 13,
       "of": 13,
       "coverage": 1.0,
-      "longest_usable_gap_ms": 1027.7559999999994
+      "longest_usable_gap_ms": 1006.130000000001
     }
   },
   "partial_reasons": [

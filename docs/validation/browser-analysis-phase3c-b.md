@@ -204,6 +204,52 @@ This revision resolves the review findings A1–A8:
   strings/lists/objects/null produce structured invalid or partial reports without
   uncaught exceptions.
 
+## A.4 Final ownership/completion/timeline corrections (D1–D4)
+
+- **D1 ownership persistence:** The readiness handshake writes a bounded
+  ownership document (`kind`, schema, pid, start-time/cmdline identity, session,
+  original model, mode, capture time) before waiting. `--terminate-only` requires
+  that persisted document and never establishes ownership from the current PID
+  occupant. It revalidates the original start-time identity before every signal,
+  uses pidfds where available, revalidates descendant parent relationships and
+  identities, reports ambiguous/incomplete cleanup, and treats an already-gone
+  original instance as clean without adopting a replacement. Repeated cleanup is
+  idempotent. The owner runbook reuses the same file for readiness failure,
+  collection failure, interruption and normal completion.
+- **D2 evicted timeline:** The validator no longer assumes that the retained
+  history anchor's source model was active before the anchor. When an earlier
+  interval is evicted it returns “unknown” for that interval; the collector emits
+  compact sample-aligned anchors (`timestamp`, model, transition sequence) so
+  earlier samples are checked against the observed anchor and approved set. The
+  affected historical interval is classified partial rather than assigned an
+  invented identity; the retained suffix remains strictly checked. A live
+  collector→validator regression exercises 1,100 A↔B transitions with samples
+  before and after the 1,024-entry boundary; digests are never treated as
+  reconstruction of unavailable transitions. The compressed actual report is
+  [phase3cb-d2-evicted-history-profile.json.gz](phase3cb-d2-evicted-history-profile.json.gz)
+  with a compact [summary](phase3cb-d2-evicted-history-summary.json); its earlier
+  interval is honestly partial, not assigned an invented model.
+- **D3 completion evidence:** `finalize_workload_evidence.py` is the minimal
+  executable parent-side step after `wait`. It requires the persisted ownership
+  document, actual wait status, final workload summary and collected profile;
+  reconciles session/workload/profile/mode/model/counters/cleanup/completion;
+  rejects contradictory actual/reported statuses and missing/malformed summary
+  output; writes completion evidence atomically. Validation requires explicit
+  successful parent-observed status for complete acceptance, while preserving
+  diagnostic partial profiles when parent-side evidence is unavailable. The
+  collector still never fabricates an actual exit status.
+- **D4 malformed live transitions:** Source/destination fingerprints, initial and
+  subsequent model identities, strict integer sequences, timestamps, recovery and
+  cache flags are validated before set membership/comparison. List/object/bool/
+  null/malformed-string values are rejected without committing identity or
+  transition state; later valid telemetry continues to process.
+
+**Python 3.11 baseline:** the six `tests/test_mcts_optimization.py` frozen-reference
+cases (`case1`, `case2`, `case5`, `case6`, `case9`, `case10`) fail identically on
+base `f2590b993cab24d7d3ab89249174ac052af5d2e6` and current head under the same
+Python 3.11.18/venv. They are pre-existing compatibility failures, not introduced
+by this PR; production MCTS and frozen digests were not modified.
+
 ## B. Software delivered in Phase 3C-B
 
 1. **V1 provider-evidence consistency.** Live process-agent validation and saved
@@ -589,12 +635,14 @@ JSON
 # 7. Sustained memory: telemetry-only progress, fresh files, ready handshake
 set -euo pipefail
 SESSION="owner-$(date +%s)"; TELEMETRY="/tmp/$SESSION.jsonl"; READY="/tmp/$SESSION.ready"
+SUMMARY="/tmp/$SESSION-workload.json"; OWNERSHIP="$READY.owner.json"
+COLLECTED="/tmp/$SESSION-memory-collected.json"; FINAL="/tmp/$SESSION-memory.json"
 BROWSER_PID=""
 cleanup_owner() {
   status=$?
   if [ -n "$BROWSER_PID" ]; then
     .venv/bin/python spikes/browser_offline/wait_for_ready.py --terminate-only \
-      --pid "$BROWSER_PID" || true
+      --ownership-file "$OWNERSHIP" || true
   fi
   trap - EXIT INT TERM
   exit "$status"
@@ -603,25 +651,27 @@ trap cleanup_owner EXIT INT TERM
 node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
   --duration 690 --mode repeated --session "$SESSION" --provider wasm \
   --telemetry "$TELEMETRY" --ready "$READY" --overwrite \
-  --iterations 128 --time-limit 2 --cache --output /tmp/workload-10m.json &
+  --iterations 128 --time-limit 2 --cache --output "$SUMMARY" &
 BROWSER_PID=$!
 # Readiness failure exits 3 and terminates the owned workload; set -e stops the run.
 .venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "$READY" \
-  --pid "$BROWSER_PID" --timeout 180 --session "$SESSION" \
-  --model-sha256 "<64 hex>" --mode repeated
+  --pid "$BROWSER_PID" --ownership-file "$OWNERSHIP" --timeout 180 \
+  --session "$SESSION" --model-sha256 "<64 hex>" --mode repeated
 .venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$BROWSER_PID" \
   --profile sustained-10m --warmup-duration 60 --duration 600 --interval 1 \
   --telemetry-file "$TELEMETRY" --telemetry-session-id "$SESSION" \
   --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
-  --inference-cache --final-summary-timeout 120 --output /tmp/memory-10m.json
+  --inference-cache --final-summary-timeout 120 --output "$COLLECTED"
 WORKLOAD_STATUS=0
 if wait "$BROWSER_PID"; then WORKLOAD_STATUS=0; else WORKLOAD_STATUS=$?; fi
 BROWSER_PID=""
-# The collector is not the workload parent; this wait status is the actual process
-# exit status. The final telemetry exit status is the workload's own prediction and
-# both must agree for acceptance.
+# The collector is not the parent. Persist the actual wait status and reconcile the
+# final summary before validation; the original ownership file is reused for cleanup.
+.venv/bin/python spikes/browser_offline/finalize_workload_evidence.py \
+  --profile "$COLLECTED" --workload-summary "$SUMMARY" \
+  --ownership-file "$OWNERSHIP" --exit-status "$WORKLOAD_STATUS" --output "$FINAL"
 test "$WORKLOAD_STATUS" -eq 0
-.venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json
+.venv/bin/python spikes/browser_offline/memory_validation.py "$FINAL"
 # Readiness/collection failures are cleaned up by wait_for_ready or the EXIT trap;
 # interrupted runs preserve the signal status.
 .venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json
@@ -641,6 +691,8 @@ test "$WORKLOAD_STATUS" -eq 0
 #     --replacement-model-sha256 "<alt digest>" [--replacement-model-file-2 ...]
 #   collector: --approved-model-sha256 "<original digest>" \
 #              --approved-model-sha256 "<alt digest>" ...
+#   readiness:  --ownership-file "$READY.owner.json" (reuse for terminate-only)
+#   completion: finalize_workload_evidence.py with the summary and actual wait status
 # Copy alternate validated ONNX artifacts into the staged root under models/ and
 # use --cache for transitions/cache-churn.
 # A bounded lifecycle sweep (short structural mode; use the full windows above for
@@ -650,21 +702,30 @@ for spec in "cancel-restart cancel-restart" "model-reload model-reload" \
             "cache-churn cache-churn" "batching independent-batching"; do
   set -- $spec
   SESSION="owner-$1-$(date +%s)"
+  OWNERSHIP="/tmp/$SESSION.ready.owner.json"
   node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
     --duration 60 --mode "$1" --session "$SESSION" --provider wasm \
     --telemetry "/tmp/$SESSION.jsonl" --ready "/tmp/$SESSION.ready" --overwrite \
     --iterations 64 --time-limit 1 --cache --output "/tmp/$SESSION-workload.json" &
   PID=$!
   if ! .venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "/tmp/$SESSION.ready" \
-    --pid "$PID" --timeout 180 --session "$SESSION" --model-sha256 "<64 hex>" --mode "$1"; then
+    --pid "$PID" --ownership-file "$OWNERSHIP" --timeout 180 --session "$SESSION" \
+    --model-sha256 "<64 hex>" --mode "$1"; then
     exit 3
   fi
   .venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$PID" \
     --profile "$2" --warmup-duration 10 --duration 30 \
     --telemetry-file "/tmp/$SESSION.jsonl" --telemetry-session-id "$SESSION" \
     --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
-    --inference-cache --final-summary-timeout 120 --output "/tmp/$SESSION-memory.json"
-  if ! wait "$PID"; then exit 2; fi
+    --inference-cache --final-summary-timeout 120 \
+    --output "/tmp/$SESSION-memory-collected.json"
+  WORKLOAD_STATUS=0
+  if wait "$PID"; then WORKLOAD_STATUS=0; else WORKLOAD_STATUS=$?; fi
+  .venv/bin/python spikes/browser_offline/finalize_workload_evidence.py \
+    --profile "/tmp/$SESSION-memory-collected.json" \
+    --workload-summary "/tmp/$SESSION-workload.json" --ownership-file "$OWNERSHIP" \
+    --exit-status "$WORKLOAD_STATUS" --output "/tmp/$SESSION-memory.json"
+  if [ "$WORKLOAD_STATUS" -ne 0 ]; then exit 2; fi
   .venv/bin/python spikes/browser_offline/memory_validation.py "/tmp/$SESSION-memory.json"
 done
 
@@ -686,7 +747,7 @@ before launching, and generated corpora record generator/seed/corpus identity.
 
 - Focused Python regression across the Phase 3C-B suites, competitive/device
   validators, malformed-input suites, readiness/manifest helpers and existing MCTS
-  validation/benchmarks: **289 passed, 3 browser opt-in gates skipped** in the focused C1–C6 regression.
+  validation/benchmarks: **304 passed, 3 browser opt-in gates skipped** in the focused C1–D4 regression.
 - Node lifecycle regressions: 67/67, 7/7, 30/30, 21/21, 8/8.
 - Optional actual-browser sustained-driver runs passed repeated, cancel/restart,
   reload, worker replacement, client disposal, cache churn, batching and A↔B↔A
@@ -698,7 +759,7 @@ before launching, and generated corpora record generator/seed/corpus identity.
 - Local `make check` backend run: **4,409 passed, 68 skipped, 6 failed** only in
   `tests/test_mcts_optimization.py` frozen-reference digests under this host's
   Python 3.11.18. No MCTS file is modified by this change; CI uses Python 3.12.
-  The focused C1–C6 regression is **289 passed, 3 browser gates skipped**, and the
+  The focused C1–D4 regression is **304 passed, 3 browser gates skipped**, and the
   optional actual-browser sustained suite passes.
 
 ## J. Readiness recommendation

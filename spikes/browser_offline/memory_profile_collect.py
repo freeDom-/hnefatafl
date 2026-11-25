@@ -298,6 +298,8 @@ class TelemetryStream:
                 None,
                 ("telemetry is missing established identity fields: " + ", ".join(missing)),
             )
+        if not _hex_digest(record.get("model_sha256")):
+            return None, None, "telemetry model identity is not a SHA-256 digest"
         identity = {field: record.get(field) for field in IDENTITY_FIELDS}
         if self.identity is None:
             if record.get("model_transition") is not None:
@@ -328,6 +330,8 @@ class TelemetryStream:
             timestamp = record.get("timestamp_ms")
             source = transition.get("from")
             destination = transition.get("to")
+            if not _hex_digest(source) or not _hex_digest(destination):
+                return None, None, "model transition fingerprints are malformed"
             if source != self.identity.get("model_sha256"):
                 return None, None, "model transition source is not the active model"
             if destination != record.get("model_sha256"):
@@ -336,7 +340,10 @@ class TelemetryStream:
                 return None, None, "model transition does not change model identity"
             if destination not in self.approved_models:
                 return None, None, "model transition destination is not approved"
-            if transition.get("sequence") != self._transition_sequence + 1:
+            sequence = transition.get("sequence")
+            if type(sequence) is not int or sequence <= 0:
+                return None, None, "model transition sequence is malformed"
+            if sequence != self._transition_sequence + 1:
                 return None, None, "model transition sequence is inconsistent"
             if transition.get("recovered") is not True:
                 return None, None, "model transition did not verify search recovery"
@@ -348,6 +355,8 @@ class TelemetryStream:
             if float(transition_timestamp) < self._transition_last_timestamp:
                 return None, None, "model transition timestamp moved backwards"
             cache_invalidated = transition.get("cache_invalidated")
+            if not isinstance(cache_invalidated, (bool, type(None))):
+                return None, None, "model transition cache evidence is malformed"
             if self.require_cache_invalidation:
                 if cache_invalidated is not True:
                     return None, None, "model transition did not verify cache invalidation"
@@ -643,6 +652,8 @@ def collect(args) -> dict:
     acceptance_seconds = args.duration
     acceptance_end = started + warmup_seconds + acceptance_seconds
     sample_errors: list[str] = []
+    sample_timeline: list[dict] = []
+    sample_timeline_limit = 4096
     previous_progress: int | None = None
     progress_reset_detected = False
     progress_mismatches = 0
@@ -734,6 +745,24 @@ def collect(args) -> dict:
         elif telemetry_reason:
             sample["telemetry_unavailable_reason"] = telemetry_reason
         samples.append(sample)
+        if (
+            record is not None
+            and isinstance(record.get("model_sha256"), str)
+            and _hex_digest(record.get("model_sha256"))
+        ):
+            anchor = {
+                "sample_timestamp_ms": sample["timestamp_ms"],
+                "telemetry_timestamp_ms": record["timestamp_ms"],
+                "model_sha256": record["model_sha256"],
+                "sequence": telemetry._transition_sequence,
+            }
+            if (
+                not sample_timeline
+                or sample_timeline[-1]["telemetry_timestamp_ms"] != anchor["telemetry_timestamp_ms"]
+            ):
+                sample_timeline.append(anchor)
+                if len(sample_timeline) > sample_timeline_limit:
+                    del sample_timeline[0 : len(sample_timeline) - sample_timeline_limit]
         if identity_problem:
             break
         now = time.monotonic()
@@ -961,6 +990,9 @@ def collect(args) -> dict:
         "events_source": "telemetry",
         "expected_identity": expected,
         "approved_model_sha256": sorted(approved_models),
+        "sample_timeline": sample_timeline,
+        "sample_timeline_limit": sample_timeline_limit,
+        "sample_timeline_truncated": len(sample_timeline) >= sample_timeline_limit,
         "workload_telemetry": {
             **workload_telemetry,
             "provider_placements": sorted(provider_placements),

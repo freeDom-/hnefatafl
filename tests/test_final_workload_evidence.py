@@ -51,8 +51,8 @@ def test_valid_continued_work_is_reconciled_with_final_session(tmp_path):
     assert final["cleanup_complete"] is True
     assert final["counters"]["successful_searches"] >= acceptance["successful_searches"]
     observation = workload["process_observation"]
-    assert observation["actual_process_exit_status"] is None
-    assert "not the workload's parent" in observation["actual_process_exit_status_reason"]
+    assert observation["actual_process_exit_status"] == 0
+    assert observation["actual_process_exit_status_source"] == "parent-wait"
     validation = mv.validate_report(report)
     assert validation["structural_ok"] is True, validation["failures"]
     assert validation["acceptance_ok"] is True, validation["partial_reasons"]

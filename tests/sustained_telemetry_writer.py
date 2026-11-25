@@ -40,6 +40,8 @@ def main() -> int:
     parser.add_argument("--cleanup-complete", choices=("true", "false"), default="true")
     parser.add_argument("--final-transition-to")
     parser.add_argument("--final-successful-offset", type=int, default=0)
+    parser.add_argument("--transition-count", type=int)
+    parser.add_argument("--transition-every", type=int, default=1)
     args = parser.parse_args()
     started = time.monotonic()
     completed = 0
@@ -60,6 +62,8 @@ def main() -> int:
             telemetry.write("not-json\n")
             telemetry.flush()
         index = 0
+        transition_sequence = 0
+        streamed_model = args.model_sha256
         while time.monotonic() - started < args.duration:
             index += 1
             completed += 1
@@ -75,36 +79,55 @@ def main() -> int:
             if args.progress_reset_at is not None and index >= args.progress_reset_at:
                 reported_progress = 0
             active_model = args.model_sha256
-            if args.transition_at is not None and index >= args.transition_at:
-                active_model = args.to_model_sha256
-            if args.transition_back_at is not None and index >= args.transition_back_at:
-                active_model = args.model_sha256
             transition = None
             model_replacements = 0
-            if args.transition_at is not None and index >= args.transition_at:
-                model_replacements = 1
-            if args.transition_back_at is not None and index >= args.transition_back_at:
-                model_replacements = 2
-            if args.transition_at is not None and index == args.transition_at:
-                transition = {
-                    "from": args.model_sha256,
-                    "to": args.to_model_sha256,
-                    "sequence": 1,
-                    "timestamp_ms": time.time() * 1000.0,
-                    "recovered": True,
-                    "cache_invalidated": True,
-                }
-                pass
-            elif args.transition_back_at is not None and index == args.transition_back_at:
-                transition = {
-                    "from": args.to_model_sha256,
-                    "to": args.model_sha256,
-                    "sequence": 2,
-                    "timestamp_ms": time.time() * 1000.0,
-                    "recovered": True,
-                    "cache_invalidated": True,
-                }
-                pass
+            if args.transition_count is not None:
+                if (
+                    transition_sequence < args.transition_count
+                    and index % args.transition_every == 0
+                ):
+                    destination = (
+                        args.to_model_sha256 if transition_sequence % 2 == 0 else args.model_sha256
+                    )
+                    transition_sequence += 1
+                    transition = {
+                        "from": streamed_model,
+                        "to": destination,
+                        "sequence": transition_sequence,
+                        "timestamp_ms": time.time() * 1000.0,
+                        "recovered": True,
+                        "cache_invalidated": True,
+                    }
+                    streamed_model = destination
+                active_model = streamed_model
+                model_replacements = transition_sequence
+            else:
+                if args.transition_at is not None and index >= args.transition_at:
+                    active_model = args.to_model_sha256
+                if args.transition_back_at is not None and index >= args.transition_back_at:
+                    active_model = args.model_sha256
+                if args.transition_at is not None and index >= args.transition_at:
+                    model_replacements = 1
+                if args.transition_back_at is not None and index >= args.transition_back_at:
+                    model_replacements = 2
+                if args.transition_at is not None and index == args.transition_at:
+                    transition = {
+                        "from": args.model_sha256,
+                        "to": args.to_model_sha256,
+                        "sequence": 1,
+                        "timestamp_ms": time.time() * 1000.0,
+                        "recovered": True,
+                        "cache_invalidated": True,
+                    }
+                elif args.transition_back_at is not None and index == args.transition_back_at:
+                    transition = {
+                        "from": args.to_model_sha256,
+                        "to": args.model_sha256,
+                        "sequence": 2,
+                        "timestamp_ms": time.time() * 1000.0,
+                        "recovered": True,
+                        "cache_invalidated": True,
+                    }
             record = {
                 "timestamp_ms": time.time() * 1000.0,
                 "workers": args.workers,

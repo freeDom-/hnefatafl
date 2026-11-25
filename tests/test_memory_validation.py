@@ -339,6 +339,36 @@ def _schema3_report(**overrides):
             "model_sha256": "a" * 64,
             "workload": "brandubh-opening",
         },
+        "root_process": {
+            "pid": 1234,
+            "identity": {
+                "pid": 1234,
+                "start_time": "100",
+                "cmdline_sha256": "d" * 64,
+            },
+        },
+        "completion_evidence": {
+            "kind": "browser-sustained-workload-completion",
+            "schema": 1,
+            "actual_process_exit_status": 0,
+            "reported_exit_status": 0,
+            "exit_status_consistent": True,
+            "pid": 1234,
+            "process_identity": {
+                "pid": 1234,
+                "start_time": "100",
+                "cmdline_sha256": "d" * 64,
+            },
+            "session_id": "session-a",
+            "workload": "brandubh-opening",
+            "profile": "cancel-restart",
+            "mode": "cancel-restart",
+            "model_sha256": "a" * 64,
+            "summary_sha256": "f" * 64,
+            "summary_reconciled": True,
+            "finalized_at_ms": 180000,
+            "source": "parent-wait",
+        },
         "workload_telemetry": {
             "successful_searches": 15,
             "workload_failures": 0,
@@ -459,15 +489,15 @@ def _schema3_report(**overrides):
                 },
                 "provider_placements": ["wasm"],
                 "completion_reasons": {"simulations": 15},
-                "actual_process_exit_status": None,
-                "actual_process_exit_status_reason": "collector is not the parent",
+                "actual_process_exit_status": 0,
+                "actual_process_exit_status_source": "parent-wait",
             },
             "process_observation": {
                 "root_alive_at_end": False,
                 "final_cleanup_incomplete": False,
                 "premature_termination": False,
-                "actual_process_exit_status": None,
-                "actual_process_exit_status_reason": "collector is not the parent",
+                "actual_process_exit_status": 0,
+                "actual_process_exit_status_source": "parent-wait",
             },
         },
         "samples": [
@@ -747,6 +777,8 @@ def _sustained_report(neural_series=None):
     )
     final = report["workload_telemetry"]["final_session"]
     final["profile"] = report["profile"]
+    report["completion_evidence"]["profile"] = report["profile"]
+    report["completion_evidence"]["mode"] = mv.PROFILE_MODES[report["profile"]]
     final.update(
         {
             "recorded_at_ms": 660000,

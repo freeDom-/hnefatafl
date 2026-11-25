@@ -132,6 +132,54 @@ def tournament_schema():
     return tournament.SCHEMA
 
 
+PROFILE_MODES = {
+    "sustained-10m": "repeated",
+    "sustained-30m": "repeated",
+    "cancel-restart": "cancel-restart",
+    "model-reload": "model-reload",
+    "worker-replacement": "worker-replacement",
+    "independent-batching": "batching",
+    "model-replacement": "model-replacement",
+    "client-disposal": "client-disposal",
+    "cache-churn": "cache-churn",
+}
+
+
+def _attach_simulated_parent_completion(report, actual=0):
+    """Test-only parent-side evidence; production evidence comes from the finalizer."""
+    final = (report.get("workload_telemetry") or {}).get("final_session") or {}
+    expected = report.get("expected_identity") or {}
+    root = report.get("root_process") or {}
+    identity = root.get("identity")
+    if not isinstance(identity, dict) or not isinstance(final, dict):
+        return report
+    report["completion_evidence"] = {
+        "kind": "browser-sustained-workload-completion",
+        "schema": 1,
+        "actual_process_exit_status": actual,
+        "reported_exit_status": final.get("workload_exit_status"),
+        "exit_status_consistent": actual == final.get("workload_exit_status"),
+        "pid": root.get("pid"),
+        "process_identity": identity,
+        "session_id": expected.get("session_id"),
+        "workload": expected.get("workload"),
+        "profile": report.get("profile"),
+        "mode": PROFILE_MODES.get(report.get("profile")),
+        "model_sha256": final.get("model_sha256"),
+        "summary_sha256": "f" * 64,
+        "summary_reconciled": True,
+        "finalized_at_ms": final.get("recorded_at_ms") or 0,
+        "source": "parent-wait",
+    }
+    observation = (report.get("workload_telemetry") or {}).get("process_observation")
+    if isinstance(observation, dict):
+        observation["actual_process_exit_status"] = actual
+        observation["actual_process_exit_status_source"] = "parent-wait"
+    final["actual_process_exit_status"] = actual
+    final["actual_process_exit_status_source"] = "parent-wait"
+    return report
+
+
 def _start_workload(tmp_path, *, telemetry_args=(), duration=3.0):
     import subprocess as sp
 
@@ -194,7 +242,11 @@ def _collect(tmp_path, workload_pid, telemetry, progress, **overrides):
             ]
         )
     result = sp.run(command, capture_output=True, text=True, timeout=60)
-    return result, json.loads(output.read_text()) if output.exists() else None
+    if output.exists():
+        report = json.loads(output.read_text())
+        _attach_simulated_parent_completion(report)
+        return result, report
+    return result, None
 
 
 def test_live_memory_collection_separates_warmup_and_acceptance(tmp_path):

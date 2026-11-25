@@ -188,6 +188,9 @@ def _report_with_transitions():
     workload["acceptance_window"]["counters"]["model_replacements"] = 1
     final = workload["final_session"]
     final["profile"] = report["profile"]
+    report["completion_evidence"]["profile"] = report["profile"]
+    report["completion_evidence"]["mode"] = mv.PROFILE_MODES[report["profile"]]
+    report["completion_evidence"]["model_sha256"] = B
     final["model_sha256"] = B
     final["recorded_at_ms"] = 180000
     final["counters"]["model_replacements"] = 1
@@ -332,3 +335,99 @@ def test_model_replacement_requires_explicit_approved_model_set(tmp_path):
     result = subprocess.run(command, capture_output=True, text=True, timeout=30)
     assert result.returncode == 2
     assert "only valid" in result.stderr
+
+
+def test_collector_and_validator_span_evicted_and_retained_history(tmp_path):
+    from test_phase3c_workflow import _collect, _start_workload
+
+    writer, telemetry, progress = _start_workload(
+        tmp_path,
+        telemetry_args=(
+            "--transition-count",
+            "1100",
+            "--transition-every",
+            "5",
+            "--interval",
+            "0.002",
+        ),
+        duration=14.0,
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            profile="model-replacement",
+            warmup=0.1,
+            duration=10.5,
+            interval=0.05,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    workload = report["workload_telemetry"]
+    history = workload["model_transition_history"]
+    assert history["total"] == 1100
+    assert history["retained"] == 1024
+    assert history["truncated"] is True
+    assert len(report["sample_timeline"]) >= 2
+    measured = [sample for sample in report["samples"] if sample["timestamp_ms"] >= 100]
+    first_retained = min(entry["timestamp_ms"] for entry in workload["model_transitions"])
+    assert any(
+        sample["telemetry"]["timestamp_ms"] < first_retained
+        for sample in measured
+        if sample.get("telemetry")
+    )
+    validation = mv.validate_report(report)
+    assert validation["structural_ok"] is True, validation["failures"]
+    assert any("retained transition history" in reason for reason in validation["partial_reasons"])
+
+    without_anchors = json.loads(json.dumps(report))
+    without_anchors.pop("sample_timeline")
+    missing = mv.validate_report(without_anchors)
+    assert missing["structural_ok"] is True, missing["failures"]
+    assert any("timeline evidence is missing" in reason for reason in missing["partial_reasons"])
+
+
+def test_malformed_transition_identities_are_rejected_safely(tmp_path):
+    stream = _stream(tmp_path)
+    stream._record(_record(100))
+    malformed_values = [
+        {"from": [A], "to": B},
+        {"from": A, "to": {"sha": B}},
+        {"from": A, "to": None},
+        {"from": A, "to": "not-a-digest"},
+        {"sequence": True},
+        {"sequence": 1.5},
+        {"timestamp_ms": float("nan")},
+        {"timestamp_ms": "later"},
+        {"cache_invalidated": []},
+        {"cache_invalidated": "true"},
+        {"recovered": "true"},
+    ]
+    for index, mutation in enumerate(malformed_values, start=1):
+        transition = _transition(index, A, B, 100 + index)
+        transition.update(mutation)
+        # Sequence mutations intentionally keep the otherwise valid transition
+        # shape so the rejected field is exercised.
+        stream._record(_record(100 + index, B, transition))
+        assert stream.identity["model_sha256"] == A
+        assert stream._transition_sequence == 0
+    assert stream.malformed + stream.identity_mismatch >= len(malformed_values)
+    stream._record(_record(500, B, _transition(1, A, B, 500)))
+    assert stream.identity["model_sha256"] == B
+    assert stream._transition_sequence == 1
+
+
+def test_malformed_initial_and_subsequent_model_identities_are_safe(tmp_path):
+    stream = _stream(tmp_path)
+    stream._record(_record(100, [A]))
+    assert stream.identity is None
+    stream._record(_record(200))
+    assert stream.identity["model_sha256"] == A
+    stream._record(_record(300, {"sha": B}))
+    assert stream.identity["model_sha256"] == A
+    stream._record(_record(400))
+    assert stream.identity["model_sha256"] == A

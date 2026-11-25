@@ -13,6 +13,19 @@ SESSION = "ready-test"
 MODEL = "a" * 64
 
 
+def _ownership_file(tmp_path, pid):
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import wait_for_ready as ready
+
+    identity = ready._process_identity(pid)
+    assert identity is not None
+    document = ready._ownership_document(pid, identity, SESSION, MODEL, "repeated")
+    path = tmp_path / "ownership.json"
+    assert ready._write_ownership(path, document) is None
+    return path
+
+
 def _run_ready(pid, ready, timeout=5.0):
     return subprocess.run(
         [
@@ -199,15 +212,16 @@ def test_owned_descendants_are_cleaned_up(tmp_path):
         child.wait(timeout=10)
 
 
-def test_terminate_only_cleans_owned_workload():
+def test_terminate_only_cleans_owned_workload(tmp_path):
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    ownership = _ownership_file(tmp_path, process.pid)
     result = subprocess.run(
         [
             sys.executable,
             str(HELPER),
-            "--pid",
-            str(process.pid),
             "--terminate-only",
+            "--ownership-file",
+            str(ownership),
         ],
         capture_output=True,
         text=True,
@@ -221,3 +235,123 @@ def test_terminate_only_cleans_owned_workload():
             process.wait(timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["workload_terminated"] is True
+
+
+def test_terminate_only_after_original_exit_does_not_adopt_pid(tmp_path):
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    ownership = _ownership_file(tmp_path, process.pid)
+    process.terminate()
+    process.wait(timeout=10)
+    for _ in range(2):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--terminate-only",
+                "--ownership-file",
+                str(ownership),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert json.loads(result.stdout)["workload_terminated"] is True
+
+
+def test_terminate_only_requires_valid_persisted_ownership(tmp_path):
+    for content in (None, "not-json", "[]", '{"kind":"wrong"}', "{}"):
+        path = tmp_path / "ownership.json"
+        if content is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_text(content)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--terminate-only",
+                "--ownership-file",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 3
+        assert "ownership" in result.stdout.lower()
+
+
+def test_terminate_only_rejects_contradictory_pid_and_identity(tmp_path):
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    ownership = _ownership_file(tmp_path, process.pid)
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--terminate-only",
+                "--ownership-file",
+                str(ownership),
+                "--pid",
+                str(process.pid + 1),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 3
+        assert "contradicts" in result.stdout
+        assert process.poll() is None
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+
+def test_malformed_ownership_is_never_signalled(tmp_path, monkeypatch):
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import wait_for_ready as ready
+
+    identity = {"pid": 9999, "start_time": "10", "cmdline_sha256": "a" * 64}
+    calls = []
+    monkeypatch.setattr(ready, "_process_identity", lambda pid: identity)
+    monkeypatch.setattr(ready, "_signal_verified", lambda *args: calls.append(args) or True)
+    path = tmp_path / "ownership.json"
+    path.write_text('{"kind":"sustained-workload-ownership","schema":1,"pid":9999}')
+    document, error = ready._read_ownership(path)
+    assert document is None
+    assert error
+    assert calls == []
+
+
+def test_descendant_identity_reuse_is_reported_not_signalled(monkeypatch):
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import wait_for_ready as ready
+
+    root = {"pid": 100, "start_time": "10", "cmdline_sha256": "a" * 64}
+    child = {"pid": 101, "start_time": "11", "cmdline_sha256": "b" * 64}
+    child_reused = {"pid": 101, "start_time": "99", "cmdline_sha256": "c" * 64}
+    current = {"root": root, "child": child}
+
+    def identity(pid):
+        return current["root"] if pid == 100 else current["child"]
+
+    signals = []
+    monkeypatch.setattr(ready, "_process_identity", identity)
+    monkeypatch.setattr(ready, "_descendants", lambda pid: [(101, child, 100)])
+    monkeypatch.setattr(ready, "_child_relationship_valid", lambda pid, parent: True)
+    monkeypatch.setattr(ready.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    if hasattr(ready.os, "pidfd_open"):
+        monkeypatch.setattr(
+            ready.os,
+            "pidfd_open",
+            lambda pid: (_ for _ in ()).throw(OSError("unavailable")),
+        )
+    current["child"] = child_reused
+    result = ready._terminate(100, root)
+    assert all(pid != 101 for pid, _ in signals)
+    assert any(
+        "descendant 101 identity changed" in failure for failure in result["cleanup_failures"]
+    )

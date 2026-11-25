@@ -66,6 +66,17 @@ PROFILE_EVENTS = {
     "cache-churn": ("cache_evictions", 1),
     "independent-batching": ("batch_successful_rounds", 2),
 }
+PROFILE_MODES = {
+    "sustained-10m": "repeated",
+    "sustained-30m": "repeated",
+    "cancel-restart": "cancel-restart",
+    "model-reload": "model-reload",
+    "worker-replacement": "worker-replacement",
+    "independent-batching": "batching",
+    "model-replacement": "model-replacement",
+    "client-disposal": "client-disposal",
+    "cache-churn": "cache-churn",
+}
 LIFECYCLE_PROFILES = (
     "cancel-restart",
     "model-reload",
@@ -608,14 +619,64 @@ def validate_report(report: dict) -> dict:
             ):
                 fail("model transition chain digest is malformed")
 
+        history_truncated = bool(isinstance(history, dict) and history.get("truncated"))
+        first_transition_timestamp = (
+            float(transitions[0]["timestamp_ms"])
+            if transitions
+            and isinstance(transitions[0], dict)
+            and _number(transitions[0].get("timestamp_ms"), allow_none=False)
+            else None
+        )
+        sample_anchors = report.get("sample_timeline")
+        anchors_by_timestamp = {}
+        anchor_sequences = []
+        if sample_anchors is None:
+            if history_truncated:
+                partial_reasons.append(
+                    "sample-aligned model timeline evidence is missing for evicted history"
+                )
+            sample_anchors = []
+        elif not isinstance(sample_anchors, list):
+            fail("sample_timeline must be a list")
+            sample_anchors = []
+        else:
+            for anchor_index, anchor in enumerate(sample_anchors):
+                if not isinstance(anchor, dict):
+                    fail(f"sample timeline anchor {anchor_index} is malformed")
+                    break
+                anchor_model = anchor.get("model_sha256")
+                anchor_timestamp = anchor.get("telemetry_timestamp_ms")
+                anchor_sequence = anchor.get("sequence")
+                if (
+                    not _hex_digest(anchor_model)
+                    or not _number(anchor_timestamp, allow_none=False)
+                    or not _non_negative_int(anchor_sequence)
+                    or anchor_model not in approved
+                ):
+                    fail(f"sample timeline anchor {anchor_index} is malformed")
+                    break
+                key = float(anchor_timestamp)
+                if key in anchors_by_timestamp:
+                    fail(f"sample timeline anchor {anchor_index} duplicates a timestamp")
+                    break
+                anchors_by_timestamp[key] = anchor
+                anchor_sequences.append(anchor_sequence)
+            if any(
+                anchor_sequences[index] < anchor_sequences[index - 1]
+                for index in range(1, len(anchor_sequences))
+            ):
+                fail("sample timeline transition sequences are non-monotonic")
+            limit = report.get("sample_timeline_limit")
+            if limit is not None and (not _positive_int(limit) or len(sample_anchors) > limit):
+                fail("sample timeline limit is invalid")
+
         def model_at(timestamp: float) -> str | None:
             if not transitions:
                 return expected.get("model_sha256")
-            current = (
-                previous_model
-                if isinstance(history, dict) and history.get("truncated")
-                else expected.get("model_sha256")
-            )
+            if history_truncated and first_transition_timestamp is not None:
+                if timestamp < first_transition_timestamp:
+                    return None
+            current = expected.get("model_sha256")
             for entry in transitions:
                 if (
                     isinstance(entry, dict)
@@ -627,6 +688,7 @@ def validate_report(report: dict) -> dict:
                     break
             return current
 
+        unverified_historical_interval = False
         for index, sample in enumerate(measured):
             telemetry_identity = sample.get("telemetry")
             if telemetry_identity is None:
@@ -656,9 +718,53 @@ def validate_report(report: dict) -> dict:
                 if _number(telemetry_identity.get("timestamp_ms"), allow_none=False)
                 else sample["timestamp_ms"]
             )
-            sample_model = model_at(float(timeline_timestamp))
-            if telemetry_identity.get("model_sha256") != sample_model:
+            timeline_timestamp = float(timeline_timestamp)
+            anchor = anchors_by_timestamp.get(timeline_timestamp)
+            if anchor is not None:
+                if anchor.get("model_sha256") != telemetry_identity.get("model_sha256"):
+                    fail(f"sample {index} model identity contradicts its sample timeline anchor")
+                if transitions:
+                    before_retained = bool(
+                        history_truncated
+                        and first_transition_timestamp is not None
+                        and timeline_timestamp < first_transition_timestamp
+                    )
+                    if before_retained:
+                        if anchor.get("sequence") >= first_retained_sequence:
+                            fail(
+                                f"sample {index} transition sequence contradicts the "
+                                "retained-history anchor"
+                            )
+                    else:
+                        retained_before = sum(
+                            1
+                            for entry in transitions
+                            if isinstance(entry, dict)
+                            and _number(entry.get("timestamp_ms"), allow_none=False)
+                            and float(entry["timestamp_ms"]) <= timeline_timestamp
+                        )
+                        expected_sequence = (
+                            first_retained_sequence - 1 + retained_before
+                            if history_truncated
+                            else retained_before
+                        )
+                        if anchor.get("sequence") != expected_sequence:
+                            fail(f"sample {index} transition sequence contradicts its anchor")
+            sample_model = model_at(timeline_timestamp)
+            if sample_model is None:
+                unverified_historical_interval = True
+                if anchor is None:
+                    partial_reasons.append(
+                        "samples precede the retained transition history and lack "
+                        "sample-aligned timeline evidence"
+                    )
+            elif telemetry_identity.get("model_sha256") != sample_model:
                 fail(f"sample {index} model identity contradicts the transition timeline")
+        if unverified_historical_interval:
+            partial_reasons.append(
+                "model identities before the retained transition history are "
+                "sample-anchored but the evicted interval is not independently verifiable"
+            )
         sources = {sample.get("completed_requests_source") for sample in measured}
         if sources != {"telemetry"}:
             partial_reasons.append(
@@ -865,6 +971,53 @@ def validate_report(report: dict) -> dict:
                 partial_reasons.append("workload process remained alive after final evidence")
             if process_observation.get("final_cleanup_incomplete") is True:
                 partial_reasons.append("workload cleanup was incomplete")
+        completion = report.get("completion_evidence")
+        if not isinstance(completion, dict):
+            partial_reasons.append("actual parent-observed process completion evidence is missing")
+        else:
+            for field, expected_value in (
+                ("session_id", expected.get("session_id")),
+                ("workload", expected.get("workload")),
+                ("profile", profile),
+                (
+                    "mode",
+                    PROFILE_MODES.get(profile) if isinstance(profile, str) else None,
+                ),
+                ("model_sha256", final_model),
+            ):
+                if completion.get(field) != expected_value:
+                    fail(f"completion evidence {field} does not match the profile")
+            root_process = report.get("root_process")
+            if not isinstance(root_process, dict):
+                fail("root process evidence is missing")
+                root_process = {}
+            identity = root_process.get("identity")
+            if completion.get("process_identity") != identity:
+                fail("completion evidence process identity does not match the profile")
+            if completion.get("pid") != root_process.get("pid"):
+                fail("completion evidence pid does not match the profile")
+            if completion.get("summary_reconciled") is not True:
+                fail("completion evidence final summary was not reconciled")
+            if not _hex_digest(completion.get("summary_sha256")):
+                fail("completion evidence summary digest is invalid")
+            actual = completion.get("actual_process_exit_status")
+            reported = completion.get("reported_exit_status")
+            if not _non_negative_int(actual):
+                fail("actual process exit status is invalid")
+            elif actual != 0:
+                partial_reasons.append(f"actual process exit status {actual} is not successful")
+            if not _non_negative_int(reported):
+                fail("reported process exit status is invalid")
+            if completion.get("exit_status_consistent") is not True or actual != reported:
+                fail("actual and reported process exit statuses contradict")
+            if isinstance(process_observation, dict):
+                if process_observation.get("actual_process_exit_status") != actual:
+                    fail("process observation does not match actual completion evidence")
+            if (
+                isinstance(final_session, dict)
+                and final_session.get("actual_process_exit_status") != actual
+            ):
+                fail("final session does not match actual completion evidence")
         if isinstance(transitions, list) and profile == "model-replacement" and history:
             if history.get("final_model") != workload.get("model_sha256"):
                 fail("final workload model identity does not match the transition history")
