@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ApiError } from './api';
+import { ApiError } from './api';
 import { useI18n } from './i18n';
-import { leagueError, RULESET_LABELS } from './leaguePresentation';
+import { leagueError, leagueMonth, RULESET_LABELS } from './leaguePresentation';
+import {
+  forgetJoin,
+  joinIntentPrefix,
+  pendingJoins,
+  rememberJoin,
+  type JoinIntent,
+} from './leagueQueueRequests';
 import type {
   LeaguePolicy,
   LeagueQueueEntry,
@@ -10,6 +17,7 @@ import type {
 } from './leagueTypes';
 import { formatRemaining, RemainingTime, remainingSeconds } from './remainingTime';
 import { surfaceLink } from './surfaceNavigation';
+import { leagueApi, useLeagueRefresh } from './useLeagueRefresh';
 import { useOnlinePoll } from './useOnlinePoll';
 
 export type ServerSample = { serverTime: number; receivedAt: number };
@@ -97,38 +105,54 @@ export const queueSnapshot = (status: LeagueQueueStatus): QueueSnapshot => ({
 
 const QUEUE_POLL_MS = 4000;
 const GAME_POLL_MS = 8000;
-const CHANNEL = 'hnefatafl-league-queue';
+const IDLE_POLL_MS = 60000;
 
 export default function LeagueQueue({
   accountId,
   ruleset,
   initial,
   policy,
-  refreshSignal,
+  currentSeasonStart,
   onGameChanged,
 }: {
   accountId: string;
   ruleset: LeagueRuleset;
   initial: QueueSnapshot;
   policy: LeaguePolicy;
-  refreshSignal: number;
+  currentSeasonStart?: string;
   onGameChanged: (active: boolean) => void;
 }) {
   const { t, locale } = useI18n();
   const number = new Intl.NumberFormat(locale);
-  const [cadence, setCadence] = useState(0);
+  const [cadence, setCadence] = useState(IDLE_POLL_MS);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const mutation = useRef<AbortController | null>(null);
-  const retries = useRef(new Map<LeagueRuleset, string>());
+  const [pending, setPending] = useState(() => pendingJoins(accountId));
+  const [retry, setRetry] = useState<JoinIntent | null>(null);
   const channel = useRef<BroadcastChannel | null>(null);
   const lastGame = useRef<string | null>(initial.status.active_game?.game_id ?? null);
-  const lastRefreshSignal = useRef(refreshSignal);
 
   const load = useCallback(
-    async (signal: AbortSignal) =>
-      queueSnapshot(await api<LeagueQueueStatus>('/leagues/queue', undefined, undefined, signal)),
-    [],
+    async (signal: AbortSignal) => {
+      // A reply can only reconcile metadata that existed before this read.
+      const unresolved = pendingJoins(accountId);
+      const status = await leagueApi<LeagueQueueStatus>(
+        accountId,
+        '/leagues/queue',
+        undefined,
+        undefined,
+        signal,
+      );
+      if (!signal.aborted) {
+        for (const intent of unresolved) {
+          if (intent.generation !== status.join_generation) forgetJoin(accountId, intent.requestId);
+        }
+        setPending(pendingJoins(accountId));
+      }
+      return queueSnapshot(status);
+    },
+    [accountId],
   );
   const poll = useOnlinePoll(`league-queue:${accountId}`, load, {
     intervalMs: cadence,
@@ -141,10 +165,12 @@ export default function LeagueQueue({
   const entry = status.queue?.status === 'queued' ? status.queue : null;
   const queueOutcome = status.queue?.status ?? status.status;
   const refresh = poll.refresh;
+  const resume = poll.resume;
   const refreshQueue = useCallback(() => void refresh(), [refresh]);
+  useLeagueRefresh(refreshQueue);
 
   useEffect(() => {
-    setCadence(active ? GAME_POLL_MS : entry ? QUEUE_POLL_MS : 0);
+    setCadence(active ? GAME_POLL_MS : entry ? QUEUE_POLL_MS : IDLE_POLL_MS);
   }, [active, entry]);
   useEffect(() => {
     const current = active?.game_id ?? null;
@@ -154,72 +180,108 @@ export default function LeagueQueue({
     }
   }, [active?.game_id, onGameChanged]);
   useEffect(() => {
-    if (lastRefreshSignal.current !== refreshSignal) {
-      lastRefreshSignal.current = refreshSignal;
-      refreshQueue();
-    }
-  }, [refreshQueue, refreshSignal]);
-  useEffect(() => {
-    if (typeof window.BroadcastChannel !== 'function') return;
-    const connection = new window.BroadcastChannel(CHANNEL);
+    const prefix = joinIntentPrefix(accountId);
+    if (pendingJoins(accountId).length) refreshQueue();
+    const connection =
+      typeof window.BroadcastChannel === 'function'
+        ? new window.BroadcastChannel(`${prefix}changes`)
+        : null;
     channel.current = connection;
-    const changed = () => refreshQueue();
-    connection.addEventListener('message', changed);
+    const stored = (event: StorageEvent) => {
+      if (event.key?.startsWith(prefix)) refreshQueue();
+    };
+    window.addEventListener('storage', stored);
+    connection?.addEventListener('message', refreshQueue);
     return () => {
-      connection.removeEventListener('message', changed);
-      connection.close();
+      window.removeEventListener('storage', stored);
+      connection?.close();
       channel.current = null;
     };
-  }, [refreshQueue]);
+  }, [accountId, refreshQueue]);
   // Route and account changes remove the whole queue scope. A new ruleset also
   // invalidates mutations for the previous selection; their writes can still
   // have committed, so reconcile a fresh canonical snapshot.
   useEffect(() => {
     setBusy(false);
     setFailure(null);
+    setRetry(null);
     return () => {
       const previous = mutation.current;
       if (previous) {
         mutation.current = null;
         previous.abort();
-        refreshQueue();
+        void resume();
       }
     };
-  }, [refreshQueue, ruleset]);
+  }, [resume, ruleset]);
 
-  async function write(kind: 'join' | 'cancel') {
-    if (mutation.current || (kind === 'cancel' && !entry)) return;
-    const requestId =
-      kind === 'cancel' ? entry!.request_id : (retries.current.get(ruleset) ?? crypto.randomUUID());
-    if (kind === 'join') retries.current.set(ruleset, requestId);
+  const retryable =
+    retry &&
+    retry.generation === status.join_generation &&
+    pending.some((intent) => intent.requestId === retry.requestId)
+      ? retry
+      : null;
+  useEffect(() => {
+    if (retry && !pending.some((intent) => intent.requestId === retry.requestId)) {
+      setRetry(null);
+      setFailure(null);
+    }
+  }, [pending, retry]);
+
+  async function write(kind: 'join' | 'retry' | 'cancel') {
+    if (mutation.current) return;
+    const intent =
+      kind === 'retry'
+        ? retryable
+        : kind === 'join'
+          ? { requestId: crypto.randomUUID(), ruleset, generation: status.join_generation }
+          : null;
+    const requestId = kind === 'cancel' ? entry?.request_id : intent?.requestId;
+    if (!requestId) return;
+    if (intent) rememberJoin(accountId, intent);
     const controller = new AbortController();
     mutation.current = controller;
+    poll.hold();
     setBusy(true);
     setFailure(null);
+    setRetry(null);
     try {
-      const next = await api<LeagueQueueStatus>(
-        kind === 'join' ? '/leagues/queue' : '/leagues/queue/cancel',
-        kind === 'join' ? { ruleset, request_id: requestId } : { request_id: requestId },
+      const next = await leagueApi<LeagueQueueStatus>(
+        accountId,
+        intent ? '/leagues/queue' : '/leagues/queue/cancel',
+        intent
+          ? {
+              ruleset: intent.ruleset,
+              request_id: requestId,
+              expected_generation: intent.generation,
+            }
+          : { request_id: requestId },
         'POST',
         AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
       );
       if (controller.signal.aborted) return;
-      if (kind === 'join') retries.current.delete(ruleset);
+      if (intent) forgetJoin(accountId, requestId);
       poll.accept(queueSnapshot(next));
       channel.current?.postMessage('queue-changed');
     } catch (error) {
       if (controller.signal.aborted) return;
-      // An HTTP rejection is a known result. A transport failure may have
-      // happened after commit and retains the original id for an explicit retry.
-      if (kind === 'join' && error instanceof ApiError && error.status < 500)
-        retries.current.delete(ruleset);
+      // A rejected retry does not establish the original request's outcome.
+      if (
+        kind === 'join' &&
+        error instanceof ApiError &&
+        error.status < 500 &&
+        error.status !== 408
+      )
+        forgetJoin(accountId, requestId);
+      else if (intent) setRetry(intent);
       setFailure(error);
-      refreshQueue();
       channel.current?.postMessage('queue-changed');
     } finally {
       if (mutation.current === controller) {
         mutation.current = null;
+        setPending(pendingJoins(accountId));
         setBusy(false);
+        void resume();
       }
     }
   }
@@ -245,6 +307,9 @@ export default function LeagueQueue({
   return (
     <section className="arena-surface league-panel" aria-labelledby="league-queue-heading">
       <h2 id="league-queue-heading">{t('Matchmaking')}</h2>
+      {currentSeasonStart && (
+        <p>{t('Current season · {season}', { season: leagueMonth(currentSeasonStart, locale) })}</p>
+      )}
       <p role="status">{t(notice)}</p>
       {unavailable && <p>{t(unavailable)}</p>}
       <p>
@@ -285,6 +350,9 @@ export default function LeagueQueue({
           })}
         </p>
       )}
+      {!active && !entry && pending.length > 0 && !busy && (
+        <p role="status">{t('A previous join is unconfirmed. Refresh to check the queue.')}</p>
+      )}
       {failure != null && (
         <p className="form-error" role="alert">
           {leagueError(failure, t)}
@@ -292,6 +360,7 @@ export default function LeagueQueue({
       )}
       {poll.error && (
         <div className="form-error" role="alert">
+          <p>{t('Queue status may be out of date.')}</p>
           <p>{leagueError(poll.error, t)}</p>
           <button className="button secondary" type="button" onClick={refreshQueue}>
             {t('Refresh queue status')}
@@ -320,10 +389,20 @@ export default function LeagueQueue({
           <button
             className="button primary"
             type="button"
-            disabled={busy || !!unavailable}
+            disabled={busy || !!unavailable || poll.phase === 'stale'}
             onClick={() => void write('join')}
           >
             {t(busy ? 'Joining…' : 'Join queue')}
+          </button>
+        )}
+        {!active && !entry && retryable && (
+          <button
+            className="button secondary"
+            type="button"
+            disabled={busy || !!unavailable || poll.phase === 'stale'}
+            onClick={() => void write('retry')}
+          >
+            {t('Retry previous join')}
           </button>
         )}
       </div>

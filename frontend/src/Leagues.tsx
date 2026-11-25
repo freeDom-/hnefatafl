@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from './api';
 import { LEAGUE_TIER_DECOR } from './arenaAssets';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
@@ -12,29 +11,39 @@ import {
   LeagueSeasonSelector,
   LeagueStandings,
 } from './LeagueTables';
-import { leagueDate, leagueMonth, RULESET_LABELS, TIER_LABELS } from './leaguePresentation';
+import {
+  leagueDate,
+  leagueMonth,
+  RULESET_LABELS,
+  SEASON_LABELS,
+  TIER_LABELS,
+} from './leaguePresentation';
 import type {
   CurrentLeague,
   LeaguePolicy,
   LeagueProgress,
   LeagueRuleset,
   LeagueSeason,
+  LeagueSeasonProgress,
 } from './leagueTypes';
+import { LeagueRefresh, leagueApi, useLeagueRefresh } from './useLeagueRefresh';
 import { useOnlinePoll } from './useOnlinePoll';
 import './leagues.css';
 
 function PersonalProgress({
   progress,
   policy,
+  archived = false,
 }: {
   progress: LeagueProgress | null;
   policy: LeaguePolicy;
+  archived?: boolean;
 }) {
   const { t, locale } = useI18n();
   if (!progress)
     return (
       <p className="empty-state compact">
-        {t('Standings will return after the season rebuild completes.')}
+        {t('Personal progression will return after the season rebuild completes.')}
       </p>
     );
   const number = new Intl.NumberFormat(locale);
@@ -72,7 +81,13 @@ function PersonalProgress({
           </div>
         </div>
       ) : (
-        <p>{t('Play a league game to begin your seasonal progress.')}</p>
+        <p>
+          {t(
+            archived
+              ? 'You have no eligible league results in this ruleset and season.'
+              : 'Play a league game to begin your seasonal progress.',
+          )}
+        </p>
       )}
       <dl className="league-metrics">
         {(
@@ -97,7 +112,7 @@ function PersonalProgress({
         })}
       </p>
       <div className="league-progression">
-        {tier && next && (
+        {!archived && tier && next && (
           <label>
             {t('{tier} · {points} of {minimum} points', {
               tier: t(TIER_LABELS[next.id]),
@@ -111,7 +126,9 @@ function PersonalProgress({
         {progress.qualified ? (
           <p>
             {progress.rank != null
-              ? t('Current rank #{rank}', { rank: number.format(progress.rank) })
+              ? t(archived ? 'Season rank #{rank}' : 'Current rank #{rank}', {
+                  rank: number.format(progress.rank),
+                })
               : t('Qualified for standings')}
           </p>
         ) : (
@@ -131,6 +148,58 @@ function PersonalProgress({
   );
 }
 
+function ArchivedProgress({
+  accountId,
+  seasonId,
+  ruleset,
+  policy,
+}: {
+  accountId: string;
+  seasonId: string;
+  ruleset: LeagueRuleset;
+  policy: LeaguePolicy;
+}) {
+  const { t, locale } = useI18n();
+  const load = useCallback(
+    (signal: AbortSignal) =>
+      leagueApi<LeagueSeasonProgress>(
+        accountId,
+        `/leagues/progress?${new URLSearchParams({ season: seasonId, ruleset })}`,
+        undefined,
+        undefined,
+        signal,
+      ),
+    [accountId, seasonId, ruleset],
+  );
+  const poll = useOnlinePoll(`league-progress:${accountId}:${seasonId}:${ruleset}`, load, {
+    intervalMs: 0,
+  });
+  useLeagueRefresh(poll.refresh);
+  const data = poll.data;
+  return (
+    <>
+      {data && (
+        <p>
+          {t('Archived season · {season}', { season: leagueMonth(data.season.starts_at, locale) })}
+          {' · '}
+          {t(SEASON_LABELS[data.season.status])}
+          {' · '}
+          {t('Revision {revision}', {
+            revision: new Intl.NumberFormat(locale).format(data.season.revision),
+          })}
+        </p>
+      )}
+      <LeagueReadState
+        error={poll.error}
+        loading={poll.phase === 'loading'}
+        retry={poll.refresh}
+        stale={!!data}
+      />
+      {data && <PersonalProgress progress={data.progress} policy={policy} archived />}
+    </>
+  );
+}
+
 type CurrentSnapshot = {
   model: CurrentLeague;
   clock: ServerSample;
@@ -144,10 +213,11 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
   const [displayedSeason, setDisplayedSeason] = useState<LeagueSeason | null>(null);
   const [cached, setCached] = useState<CurrentSnapshot | null>(null);
   const [historyActivity, setHistoryActivity] = useState(0);
-  const [adminActivity, setAdminActivity] = useState(0);
+  const [refreshSignal, setRefreshSignal] = useState(0);
   const load = useCallback(
     async (signal: AbortSignal): Promise<CurrentSnapshot> => {
-      const model = await api<CurrentLeague>(
+      const model = await leagueApi<CurrentLeague>(
+        accountId,
         `/leagues/current?ruleset=${ruleset}`,
         undefined,
         undefined,
@@ -159,7 +229,7 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
         initialQueue: queueSnapshot(model.queue),
       };
     },
-    [ruleset],
+    [accountId, ruleset],
   );
   const current = useOnlinePoll(`league-current:${accountId}:${ruleset}`, load, { intervalMs: 0 });
   useEffect(() => {
@@ -181,9 +251,8 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
     },
     [refreshCurrent],
   );
-  const administrationChanged = useCallback(() => {
-    setAdminActivity((previous) => previous + 1);
-    setHistoryActivity((previous) => previous + 1);
+  const refreshAll = useCallback(() => {
+    setRefreshSignal((previous) => previous + 1);
     refreshCurrent();
   }, [refreshCurrent]);
   useEffect(() => {
@@ -207,103 +276,127 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
         ? season
         : null;
   return (
-    <section className="leagues-page" aria-labelledby="leagues-heading">
-      <header className="arena-surface league-panel league-heading">
-        <h1 id="leagues-heading">{t('Leagues')}</h1>
-        <label className="league-filter">
-          {t('Ruleset')}
-          <select
-            value={ruleset}
-            onChange={(event) => setRuleset(event.currentTarget.value as LeagueRuleset)}
-          >
-            {(policy?.rulesets ?? (Object.keys(RULESET_LABELS) as LeagueRuleset[])).map((id) => (
-              <option value={id} key={id}>
-                {t(RULESET_LABELS[id])}
-              </option>
-            ))}
-          </select>
-        </label>
-      </header>
-      <div className="league-overview">
-        <section
-          className="arena-surface league-panel"
-          aria-labelledby="league-progression-heading"
-        >
-          <h2 id="league-progression-heading">{t('Personal progression')}</h2>
-          {season && snapshot && (
-            <p>
-              {t('Current season · {season}', { season: leagueMonth(season.starts_at, locale) })}
-              {' · '}
-              <LeagueCountdown
-                sample={snapshot.clock}
-                deadline={season.ends_at}
-                onElapsed={refreshCurrent}
-              />
-            </p>
-          )}
-          <LeagueReadState
-            error={current.error}
-            loading={current.phase === 'loading'}
-            retry={refreshCurrent}
-          />
-          {current.data && (
-            <PersonalProgress
-              progress={current.data.model.progress}
-              policy={current.data.model.policy}
+    <LeagueRefresh.Provider value={refreshSignal}>
+      <section className="leagues-page" aria-labelledby="leagues-heading">
+        <header className="arena-surface league-panel league-heading">
+          <h1 id="leagues-heading">{t('Leagues')}</h1>
+          <label className="league-filter">
+            {t('Ruleset')}
+            <select
+              value={ruleset}
+              onChange={(event) => setRuleset(event.currentTarget.value as LeagueRuleset)}
+            >
+              {(policy?.rulesets ?? (Object.keys(RULESET_LABELS) as LeagueRuleset[])).map((id) => (
+                <option value={id} key={id}>
+                  {t(RULESET_LABELS[id])}
+                </option>
+              ))}
+            </select>
+          </label>
+          {season && (
+            <LeagueSeasonSelector
+              key={season.id}
+              accountId={accountId}
+              current={season}
+              selected={selectedSeason}
+              onSelect={setSelectedSeason}
             />
           )}
-        </section>
-        {snapshot && policy && (
-          <LeagueQueue
-            accountId={accountId}
-            ruleset={ruleset}
-            initial={snapshot.initialQueue}
-            policy={policy}
-            refreshSignal={adminActivity}
-            onGameChanged={gameChanged}
-          />
-        )}
-      </div>
-      {season && scope && (
-        <>
+          <button
+            className="button secondary"
+            type="button"
+            onClick={refreshAll}
+            aria-busy={current.refreshing}
+          >
+            {t('Refresh leagues')}
+          </button>
+        </header>
+        <div className="league-overview">
           <section
             className="arena-surface league-panel"
-            aria-labelledby="league-standings-heading"
+            aria-labelledby="league-progression-heading"
           >
-            <header className="league-heading">
-              <h2 id="league-standings-heading">{t('League standings')}</h2>
-              <LeagueSeasonSelector
+            <h2 id="league-progression-heading">{t('Personal progression')}</h2>
+            {selectedSeason && policy ? (
+              <ArchivedProgress
                 accountId={accountId}
-                current={season}
-                selected={selectedSeason}
-                onSelect={setSelectedSeason}
+                seasonId={selectedSeason}
+                ruleset={ruleset}
+                policy={policy}
               />
-            </header>
-            <LeagueStandings
+            ) : (
+              <>
+                {season && snapshot && (
+                  <p>
+                    {t('Current season · {season}', {
+                      season: leagueMonth(season.starts_at, locale),
+                    })}
+                    {' · '}
+                    <LeagueCountdown
+                      sample={snapshot.clock}
+                      deadline={season.ends_at}
+                      onElapsed={refreshCurrent}
+                    />
+                  </p>
+                )}
+                <LeagueReadState
+                  error={current.error}
+                  loading={current.phase === 'loading'}
+                  retry={refreshCurrent}
+                  stale={!!current.data}
+                />
+                {current.data && (
+                  <PersonalProgress
+                    progress={current.data.model.progress}
+                    policy={current.data.model.policy}
+                  />
+                )}
+              </>
+            )}
+          </section>
+          {snapshot && policy && (
+            <LeagueQueue
+              accountId={accountId}
+              ruleset={ruleset}
+              initial={snapshot.initialQueue}
+              policy={policy}
+              currentSeasonStart={selectedSeason ? season?.starts_at : undefined}
+              onGameChanged={gameChanged}
+            />
+          )}
+        </div>
+        {season && scope && (
+          <>
+            <section
+              className="arena-surface league-panel"
+              aria-labelledby="league-standings-heading"
+            >
+              <h2 id="league-standings-heading">{t('League standings')}</h2>
+              <LeagueStandings
+                key={recordScope}
+                scope={scope}
+                revision={season.id === scope.season ? season.revision : -1}
+                onSeasonLoaded={setDisplayedSeason}
+              />
+            </section>
+            <LeagueHistory
               key={recordScope}
               scope={scope}
-              revision={season.id === scope.season ? season.revision : -1}
-              activity={adminActivity}
-              onSeasonLoaded={setDisplayedSeason}
+              currentSeason={season.id === scope.season}
+              activity={historyActivity}
+              onSettled={refreshCurrent}
             />
-          </section>
-          <LeagueHistory
-            key={recordScope}
-            scope={scope}
-            currentSeason={season.id === scope.season}
-            activity={historyActivity}
-            onSettled={refreshCurrent}
+          </>
+        )}
+        {canAdmin && (
+          <LeagueAdministration
+            accountId={accountId}
+            season={rebuildTarget ?? null}
+            onChanged={refreshAll}
           />
-        </>
-      )}
-      {canAdmin && (
-        <LeagueAdministration
-          accountId={accountId}
-          season={rebuildTarget ?? null}
-          onChanged={administrationChanged}
-        />
-      )}
-    </section>
+        )}
+      </section>
+    </LeagueRefresh.Provider>
   );
 }
 

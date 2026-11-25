@@ -1,10 +1,15 @@
 const leagues: Record<string, string> = {
   'Current season': 'Laufende Saison',
   'Current season · {season}': 'Laufende Saison · {season}',
+  'Archived season · {season}': 'Archivierte Saison · {season}',
   'Standings season': 'Saison für Tabelle und Partien',
   'Personal progression': 'Persönlicher Fortschritt',
   'Play a league game to begin your seasonal progress.':
     'Spiele eine Ligapartie, um deinen Saisonfortschritt zu beginnen.',
+  'You have no eligible league results in this ruleset and season.':
+    'Du hast keine gewerteten Ligaergebnisse in diesem Regelwerk und dieser Saison.',
+  'Personal progression will return after the season rebuild completes.':
+    'Der persönliche Fortschritt ist nach der Neuberechnung der Saison wieder verfügbar.',
   'Promoted to {tier}': 'Aufstieg nach {tier}',
   'Demoted to {tier}': 'Abstieg nach {tier}',
   '{tier} · {points} of {minimum} points': '{tier} · {points} von {minimum} Punkten',
@@ -12,6 +17,7 @@ const leagues: Record<string, string> = {
     'Qualifikation · {played} von {required} gewerteten Ergebnissen',
   'Highest league tier reached.': 'Höchste Ligastufe erreicht.',
   'Current rank #{rank}': 'Aktueller Rang {rank}',
+  'Season rank #{rank}': 'Saisonrang {rank}',
   'Qualified for standings': 'Für die Tabelle qualifiziert',
   Unranked: 'Ohne Rang',
   Points: 'Punkte',
@@ -28,6 +34,12 @@ const leagues: Record<string, string> = {
   'Cancel queue': 'Warteschlange verlassen',
   'Open league game': 'Ligapartie öffnen',
   'Refresh queue status': 'Warteschlangenstatus aktualisieren',
+  'Refresh leagues': 'Ligadaten aktualisieren',
+  'A previous join is unconfirmed. Refresh to check the queue.':
+    'Ein vorheriger Beitritt ist noch unbestätigt. Aktualisiere den Warteschlangenstatus.',
+  'Retry previous join': 'Vorherigen Beitritt wiederholen',
+  'Queue status may be out of date.': 'Der Warteschlangenstatus kann veraltet sein.',
+  'Displayed league data may be out of date.': 'Die angezeigten Ligadaten können veraltet sein.',
   'Joining…': 'Beitritt läuft…',
   'Cancelling…': 'Wird abgebrochen…',
   'League matchmaking is paused.': 'Die Liga-Spielersuche ist pausiert.',
@@ -76,11 +88,11 @@ const leagues: Record<string, string> = {
   'League administration': 'Ligaverwaltung',
   'Pause matchmaking': 'Spielersuche pausieren',
   'Resume matchmaking': 'Spielersuche fortsetzen',
-  'Cancel stale entry': 'Abgelaufenen Eintrag entfernen',
+  'Cancel stale entry': 'Ungültigen Eintrag entfernen',
   'Rebuild season': 'Saison neu berechnen',
   'Matchmaking paused': 'Spielersuche pausiert',
   'Matchmaking resumed': 'Spielersuche fortgesetzt',
-  'Stale entry cancelled': 'Abgelaufener Eintrag entfernt',
+  'Stale entry cancelled': 'Ungültiger Eintrag entfernt',
   'Rebuild requested': 'Neuberechnung angefordert',
   'Season rebuilt': 'Saison neu berechnet',
   'League policy updated': 'Ligaeinstellungen aktualisiert',
@@ -90,7 +102,13 @@ const leagues: Record<string, string> = {
   Paused: 'Pausiert',
   Enabled: 'Aktiv',
   Expired: 'Abgelaufen',
+  Expiry: 'Ablauf',
+  'Account disabled': 'Konto deaktiviert',
+  'Email unverified': 'E-Mail nicht bestätigt',
+  'Account ineligible': 'Konto nicht zugelassen',
+  'Stale queue pages': 'Seiten mit ungültigen Warteschlangeneinträgen',
   Worker: 'Worker',
+  'Worker activity': 'Worker-Aktivität',
   'League audit entries': 'Liga-Protokolleinträge',
   'No league administration actions have been recorded.':
     'Es wurden keine Maßnahmen der Ligaverwaltung aufgezeichnet.',
@@ -99,6 +117,7 @@ const leagues: Record<string, string> = {
   'Expired entries': 'Abgelaufene Einträge',
   'Pending settlements': 'Ausstehende Wertungen',
   'Failed settlements': 'Fehlgeschlagene Wertungen',
+  'Settlements awaiting retry': 'Wertungen mit ausstehendem Wiederholungsversuch',
   'Oldest pending settlement': 'Älteste ausstehende Wertung',
   '{brandubh} Brandubh · {tablut} Tablut · {copenhagen} Copenhagen in queue':
     '{brandubh} Brandubh · {tablut} Tablut · {copenhagen} Kopenhagen in der Warteschlange',
@@ -108,9 +127,29 @@ const leagues: Record<string, string> = {
     'Die letzte Prüfung des Workers ist fehlgeschlagen. Die Ergebnisse werden erneut verarbeitet.',
   'The league worker is waiting for the deployment lock.':
     'Der Liga-Worker wartet auf die Freigabe der Bereitstellungssperre.',
+  Starting: 'Startet',
+  Idle: 'Bereit',
+  'Processing succeeded': 'Verarbeitung erfolgreich',
+  'Waiting for deployment': 'Wartet auf Bereitstellung',
+  'Settlement retry': 'Wertung wird erneut versucht',
+  'Rebuild retry': 'Neuberechnung wird erneut versucht',
+  'Processing deferred': 'Verarbeitung verschoben',
+  'The last worker check encountered a processing failure.':
+    'Bei der letzten Prüfung ist ein Verarbeitungsfehler aufgetreten.',
+  '{count} consecutive worker failures': '{count} Verarbeitungsfehler in Folge',
+  'Next settlement retry {time} · up to {count} attempts':
+    'Nächster Wertungsversuch {time} · bis zu {count} Versuche',
+  'Rebuilds awaiting retry · {count}': 'Ausstehende Neuberechnungsversuche · {count}',
+  'Clearing contributions': 'Wertungsbeiträge werden geleert',
+  'Clearing standings': 'Ligatabelle wird geleert',
+  'Reading official games': 'Offizielle Partien werden eingelesen',
+  'Recalculating standings': 'Ligatabelle wird neu berechnet',
+  'Applying intervening results': 'Neue Ergebnisse werden nachgetragen',
+  '{count} retry attempts · next retry {time}':
+    '{count} Wiederholungsversuche · nächster Versuch {time}',
   'Rebuild in progress for {season}': 'Neuberechnung für {season} läuft',
   'Refresh league health': 'Ligastatus aktualisieren',
-  'Stale league queue entries': 'Abgelaufene Liga-Warteschlangeneinträge',
+  'Stale league queue entries': 'Ungültige Liga-Warteschlangeneinträge',
   'Private audit history': 'Privates Verwaltungsprotokoll',
   'Rebuild {season} from official results? Standings are unavailable until recovery finishes.':
     '{season} anhand der offiziellen Ergebnisse neu berechnen? Die Tabelle bleibt bis zum Abschluss der Neuberechnung ausgeblendet.',
@@ -124,6 +163,8 @@ const leagues: Record<string, string> = {
   'Sign in to continue.': 'Melde dich an, um fortzufahren.',
   'Your league state changed. Check the current status and try again.':
     'Dein Ligastatus hat sich geändert. Prüfe den aktuellen Status und versuche es erneut.',
+  'Your league session changed. Refresh to continue.':
+    'Deine Ligasitzung hat sich geändert. Aktualisiere die Daten, um fortzufahren.',
   'League request limit reached. Try again later.':
     'Das Limit für Ligaanfragen ist erreicht. Versuche es später erneut.',
   'Matchmaking requires an active, verified account with permission to play.':
@@ -141,7 +182,7 @@ const leagues: Record<string, string> = {
     'Dieser Ligaeintrag hat sich geändert. Prüfe den aktuellen Stand vor einem erneuten Versuch.',
   'A rebuild is already running for this season.':
     'Für diese Saison läuft bereits eine Neuberechnung.',
-  'This queue entry is no longer stale.': 'Dieser Warteschlangeneintrag ist nicht mehr abgelaufen.',
+  'This queue entry is no longer stale.': 'Dieser Warteschlangeneintrag ist wieder gültig.',
   'This league action is unavailable to your account.':
     'Diese Ligaaktion ist für dein Konto nicht verfügbar.',
   'The league request could not be completed. Try again.':

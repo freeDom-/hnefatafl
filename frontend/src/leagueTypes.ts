@@ -59,6 +59,7 @@ export type LeagueQueueStatus = {
   status: 'idle' | 'queued' | 'expired' | 'cancelled' | 'matched';
   active_game: { game_id: string; ruleset: LeagueRuleset } | null;
   queue: LeagueQueueEntry | null;
+  join_generation: string | null;
   eligible: boolean;
   paused: boolean;
   enabled: boolean;
@@ -104,10 +105,12 @@ export type LeagueGame = {
 export type LeaguePage<T> = { items: T[]; next_cursor: string | null };
 export type LeagueSeasonPage<T> = LeaguePage<T> & { season: LeagueSeason };
 
+export type LeagueSeasonProgress = { season: LeagueSeason; progress: LeagueProgress | null };
+
 export type StaleLeagueEntry = Pick<
   LeagueQueueEntry,
   'request_id' | 'ruleset' | 'joined_at' | 'expires_at'
->;
+> & { reason: 'expired' | 'disabled' | 'unverified' | 'ineligible' };
 
 export type LeagueHealth = {
   settings: { paused: boolean; version: number };
@@ -116,15 +119,33 @@ export type LeagueHealth = {
     last_checked_at: string | null;
     last_success_at: string | null;
     last_error: string | null;
+    state:
+      | 'starting'
+      | 'idle'
+      | 'processed'
+      | 'deployment_locked'
+      | 'settlement_retry'
+      | 'rebuild_retry'
+      | 'processing_deferred';
+    consecutive_failures: number;
   };
   queue: {
     total: number;
     expired: number;
     by_ruleset: Partial<Record<LeagueRuleset, number>>;
     stale: StaleLeagueEntry[];
+    stale_next_cursor: string | null;
   };
-  settlement: { pending: number; failed: number; oldest_pending_seconds: number | null };
-  rebuilds: { season_id: string; stage: string; attempts: number }[];
+  settlement: {
+    pending: number;
+    failed: number;
+    oldest_pending_seconds: number | null;
+    max_attempts: number;
+    next_retry_at: string | null;
+  };
+  rebuilds: { season_id: string; stage: string; attempts: number; due_at: string }[];
+  rebuild_pending: number;
+  rebuild_retries: number;
 };
 
 export type LeagueAudit = {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { accountName } from './accountIdentity';
-import { api, ApiError } from './api';
+import { ApiError } from './api';
 import { useI18n } from './i18n';
 import { avatarInitial } from './Leaderboard';
 import {
@@ -21,21 +21,25 @@ import type {
 } from './leagueTypes';
 import Portrait from './Portrait';
 import { surfaceLink } from './surfaceNavigation';
+import { leagueApi, useLeagueRefresh } from './useLeagueRefresh';
 import { useOnlinePoll } from './useOnlinePoll';
 
 export function LeagueReadState({
   error,
   loading,
   retry,
+  stale,
 }: {
   error: Error | null;
   loading: boolean;
   retry: () => void;
+  stale?: boolean;
 }) {
   const { t } = useI18n();
   if (error)
     return (
       <div className="form-error" role="alert">
+        {stale && <p>{t('Displayed league data may be out of date.')}</p>}
         <p>{leagueError(error, t)}</p>
         <button className="button secondary" type="button" onClick={retry}>
           {t('Retry')}
@@ -72,7 +76,7 @@ export function LeagueTable({ label, children }: { label: string; children: Reac
   );
 }
 
-export function useLeaguePages<T>(path: string, scope: string, intervalMs = 0) {
+export function useLeaguePages<T>(path: string, accountId: string, intervalMs = 0) {
   const [pages, setPages] = useState<Array<string | null>>([null]);
   const cursor = pages[pages.length - 1];
   const load = useCallback(
@@ -80,11 +84,20 @@ export function useLeaguePages<T>(path: string, scope: string, intervalMs = 0) {
       const url = new URL(`/api${path}`, location.origin);
       url.searchParams.set('limit', '20');
       if (cursor) url.searchParams.set('cursor', cursor);
-      return api<T>(url.pathname.slice(4) + url.search, undefined, undefined, signal);
+      return leagueApi<T>(
+        accountId,
+        url.pathname.slice(4) + url.search,
+        undefined,
+        undefined,
+        signal,
+      );
     },
-    [cursor, path],
+    [accountId, cursor, path],
   );
-  const poll = useOnlinePoll(`league-pages:${scope}:${path}:${cursor ?? ''}`, load, { intervalMs });
+  const poll = useOnlinePoll(`league-pages:${accountId}:${path}:${cursor ?? ''}`, load, {
+    intervalMs,
+  });
+  useLeagueRefresh(poll.refresh);
   const retry = () => {
     if (
       pages.length > 1 &&
@@ -153,10 +166,7 @@ export function LeagueSeasonSelector({
     items: [],
     next_cursor: null,
   });
-  const pages = useLeaguePages<LeaguePage<LeagueSeason>>(
-    '/leagues/seasons',
-    `${accountId}:${current.id}`,
-  );
+  const pages = useLeaguePages<LeaguePage<LeagueSeason>>('/leagues/seasons', accountId);
   useEffect(() => {
     const incoming = pages.data;
     if (!incoming) return;
@@ -199,6 +209,7 @@ export function LeagueSeasonSelector({
         error={pages.error}
         loading={pages.phase === 'loading'}
         retry={pages.retry}
+        stale={archive.items.length > 0}
       />
     </div>
   );
@@ -213,12 +224,10 @@ function recordsPath(kind: 'standings' | 'history', { season, ruleset }: RecordS
 export function LeagueStandings({
   scope,
   revision,
-  activity,
   onSeasonLoaded,
 }: {
   scope: RecordScope;
   revision: number;
-  activity: number;
   onSeasonLoaded: (season: LeagueSeason) => void;
 }) {
   const { t, locale } = useI18n();
@@ -228,13 +237,13 @@ export function LeagueStandings({
     scope.accountId,
   );
   const refresh = poll.refresh;
-  const seen = useRef({ revision, activity });
+  const seen = useRef(revision);
   useEffect(() => {
-    if (seen.current.revision !== revision || seen.current.activity !== activity) {
-      seen.current = { revision, activity };
+    if (seen.current !== revision) {
+      seen.current = revision;
       void refresh();
     }
-  }, [activity, revision, refresh]);
+  }, [revision, refresh]);
   const season = poll.data?.season;
   useEffect(() => {
     if (season) onSeasonLoaded(season);
@@ -249,7 +258,12 @@ export function LeagueStandings({
           {t('Revision {revision}', { revision: number.format(season.revision) })}
         </p>
       )}
-      <LeagueReadState error={poll.error} loading={poll.phase === 'loading'} retry={poll.retry} />
+      <LeagueReadState
+        error={poll.error}
+        loading={poll.phase === 'loading'}
+        retry={poll.retry}
+        stale={!!poll.data}
+      />
       {season?.status === 'rebuilding' ? (
         <div className="empty-state compact">
           <p>{t('Standings will return after the season rebuild completes.')}</p>
@@ -380,7 +394,12 @@ export function LeagueHistory({
           </button>
         </div>
       )}
-      <LeagueReadState error={poll.error} loading={poll.phase === 'loading'} retry={poll.retry} />
+      <LeagueReadState
+        error={poll.error}
+        loading={poll.phase === 'loading'}
+        retry={poll.retry}
+        stale={!!poll.data}
+      />
       {poll.data && items.length === 0 ? (
         <p className="empty-state compact">
           {t('You have no official league games in this ruleset and season.')}

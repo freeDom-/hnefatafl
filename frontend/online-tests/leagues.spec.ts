@@ -86,6 +86,14 @@ test('the League route supports both shell layouts, four themes and keyboard nav
     page.getByText('You have no official league games in this ruleset and season.'),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Join queue', exact: true })).toBeEnabled();
+  const refresh = page.getByRole('button', { name: 'Refresh leagues' });
+  await refresh.focus();
+  await expect(refresh).toBeFocused();
+  expect(await refresh.evaluate((button) => button.matches(':focus-visible'))).toBe(true);
+  expect((await refresh.boundingBox())!.height).toBeGreaterThanOrEqual(24);
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(
+    true,
+  );
   for (const theme of themes) {
     if (await page.getByRole('combobox', { name: 'Theme', exact: true }).isVisible()) {
       await page.getByRole('combobox', { name: 'Theme', exact: true }).selectOption(theme);
@@ -109,6 +117,7 @@ test('the League route supports both shell layouts, four themes and keyboard nav
     'page',
   );
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  await expect(page.getByRole('button', { name: 'Ligadaten aktualisieren' })).toBeVisible();
   expect(queueMutations).toEqual([]);
   await watchQueue(page.request, 'idle');
 });
@@ -160,6 +169,113 @@ test('queue status survives reload, reconnect and tab cancellation, then reports
   } finally {
     await tab.close();
   }
+});
+
+test('a committed join whose response is lost survives route navigation and reload without a replay', async ({
+  page,
+}, info) => {
+  const solo = await login(page.request, `LeagueSolo${info.project.name}`);
+  await brandubh(page);
+  let posts = 0;
+  const pendingCount = () =>
+    page.evaluate(
+      (prefix) => Object.keys(localStorage).filter((key) => key.startsWith(prefix)).length,
+      `hnefatafl-league-join:${encodeURIComponent(solo.id)}:`,
+    );
+  const pattern = '**/api/leagues/queue';
+  page.on('request', (request) => {
+    if (request.url().endsWith(`${leagues}/queue`) && request.method() === 'POST') posts++;
+  });
+  for (const transition of ['navigation', 'reload']) {
+    let committed!: (id: string) => void;
+    const accepted = new Promise<string>((resolve) => {
+      committed = resolve;
+    });
+    let disconnected!: () => void;
+    const release = new Promise<void>((resolve) => {
+      disconnected = resolve;
+    });
+    const dropped: Parameters<Page['route']>[1] = async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      const outcome = await route.fetch();
+      expect(outcome.ok()).toBe(true);
+      committed((await outcome.json()).queue.request_id);
+      await release;
+      await route.abort().catch(() => {});
+    };
+    await page.route(pattern, dropped);
+    try {
+      await join(page);
+      const id = await accepted;
+      expect(await pendingCount()).toBe(1);
+      if (transition === 'navigation') {
+        await openDestination(page, 'dashboard');
+        await openDestination(page, 'leagues');
+      } else {
+        await page.reload();
+      }
+      disconnected();
+      await expect(page.getByText('Waiting for an opponent', { exact: true })).toBeVisible();
+      await expect.poll(pendingCount).toBe(0);
+      expect((await json(page.request, `${leagues}/queue`)).queue.request_id).toBe(id);
+    } finally {
+      disconnected();
+      await page.unroute(pattern, dropped);
+    }
+    await page.getByRole('button', { name: 'Cancel queue', exact: true }).click();
+    await watchQueue(page.request, 'cancelled');
+  }
+  expect(posts).toBe(2);
+});
+
+test('logout and an account switch preserve the right unresolved intent and fence late original joins', async ({
+  page,
+}, info) => {
+  const name = `LeagueSolo${info.project.name}`;
+  const solo = await login(page.request, name);
+  await brandubh(page);
+  let captured!: (body: {
+    ruleset: string;
+    request_id: string;
+    expected_generation: string | null;
+  }) => void;
+  const submitted = new Promise<Parameters<typeof captured>[0]>((resolve) => {
+    captured = resolve;
+  });
+  const pattern = '**/api/leagues/queue';
+  const dropped: Parameters<Page['route']>[1] = async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    captured(route.request().postDataJSON());
+    await route.abort('connectionreset');
+  };
+  await page.route(pattern, dropped);
+  await join(page);
+  const old = await submitted;
+  const key = `hnefatafl-league-join:${encodeURIComponent(solo.id)}:${old.request_id}`;
+  expect(await page.evaluate((id) => !!localStorage.getItem(id), key)).toBe(true);
+  await page.unroute(pattern, dropped);
+  await logoutFromAccount(page);
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
+  const other = await login(page.request, `LeagueAdmin${info.project.name}`);
+  await brandubh(page);
+  expect(await page.evaluate((id) => !!localStorage.getItem(id), key)).toBe(true);
+  await expect(page.getByText(/A previous join is unconfirmed/)).toHaveCount(0);
+  expect((await json(other.context, `${leagues}/queue`)).queue).toBeNull();
+  await logoutFromAccount(page);
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
+  const restored = await login(page.request, name);
+  await brandubh(page);
+  await expect(page.getByText(/A previous join is unconfirmed/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry previous join' })).toHaveCount(0);
+  await join(page);
+  await watchQueue(page.request, 'queued');
+  const replacement = (await json(page.request, `${leagues}/queue`)).queue.request_id;
+  expect(replacement).not.toBe(old.request_id);
+  await page.getByRole('button', { name: 'Cancel queue', exact: true }).click();
+  await watchQueue(page.request, 'cancelled');
+  expect((await restored.post(`${leagues}/queue`, old)).status()).toBe(409);
+  await expect.poll(() => page.evaluate((id) => localStorage.getItem(id), key)).toBeNull();
+  expect((await json(page.request, `${leagues}/queue`)).join_generation).toBe(replacement);
 });
 
 test('a real League game matches after mutual widening and settles Elo and points without an open League page', async ({
@@ -330,6 +446,24 @@ test('a real League game matches after mutual widening and settles Elo and point
     const before = await json(keeper.context, archive);
     expect(before.season.status).toBe('finalized');
     await expect(standings.getByText('Finalized standings', { exact: false })).toBeVisible();
+    const personal = opponent.getByRole('region', { name: 'Personal progression' });
+    await expect(personal.getByText('Season rank #1', { exact: true })).toBeVisible();
+    await expect(personal.locator('img')).toHaveAttribute('src', /league-nidavellir\.svg$/);
+    await expect(personal.getByText(/Archived season · January 2026/)).toHaveText(
+      new RegExp(`Revision ${before.season.revision}$`),
+    );
+    await expect(
+      opponent
+        .getByRole('region', { name: 'Matchmaking' })
+        .getByText(/Current season · February 2026/),
+    ).toBeVisible();
+    const ruleset = opponent.getByRole('combobox', { name: 'Ruleset', exact: true });
+    await ruleset.selectOption('tablut');
+    await expect(
+      personal.getByText('You have no eligible league results in this ruleset and season.'),
+    ).toBeVisible();
+    await ruleset.selectOption('brandubh');
+    await expect(personal.getByText('Season rank #1', { exact: true })).toBeVisible();
     const revoked = await admin.post(`${gamePath(id)}/void`, {
       version: finished.version,
       note: 'Disposable fixture: revise an archived League game',
@@ -338,15 +472,29 @@ test('a real League game matches after mutual widening and settles Elo and point
     await expect
       .poll(async () => (await json(keeper.context, archive)).season.revision)
       .toBeGreaterThan(before.season.revision);
-    await opponent.reload();
-    await opponent.getByRole('combobox', { name: 'Ruleset', exact: true }).selectOption('brandubh');
-    await opponent
-      .getByRole('combobox', { name: 'Standings season', exact: true })
-      .selectOption('2026-01');
+    const refresh = opponent.getByRole('button', { name: 'Refresh leagues' });
+    await refresh.click();
     await expect(standings.getByRole('row', { name: new RegExp(keeperName) })).toHaveCount(0);
     await expect(
       standings.getByText(`Revision ${before.season.revision + 1}`, { exact: false }),
     ).toBeVisible();
+    await expect(personal.getByText('Unranked', { exact: true })).toBeVisible();
+    await expect(personal.getByText(/Qualification · 2 of 3/)).toBeVisible();
+    const rebuild = await admin.post(`${leagues}/admin/seasons/2026-01/rebuild`, {
+      version: before.season.revision + 1,
+      reason: 'Disposable fixture: rebuild the archived projection',
+    });
+    expect(rebuild.status()).toBe(202);
+    await refresh.click();
+    await expect(
+      personal.getByText('Personal progression will return after the season rebuild completes.'),
+    ).toBeVisible();
+    await expect(personal.getByText('Unranked', { exact: true })).toHaveCount(0);
+    await expect
+      .poll(async () => (await json(keeper.context, archive)).season.revision)
+      .toBeGreaterThan(before.season.revision + 1);
+    await refresh.click();
+    await expect(personal.getByText('Unranked', { exact: true })).toBeVisible();
   } finally {
     await other.close();
     await adminContext.dispose();
@@ -440,7 +588,7 @@ test('League administration requires permission and records versioned pause and 
     await change('Resume matchmaking', 'Fixture: completed League worker maintenance');
     await section.getByText('Private audit history', { exact: true }).click();
     await expect(section.getByText(freeze, { exact: true }).first()).toBeVisible();
-    await player.reload();
+    await player.getByRole('button', { name: 'Refresh leagues' }).click();
     await expect(player.getByRole('button', { name: 'Join queue', exact: true })).toBeEnabled();
     await expect(player.getByText(freeze, { exact: true })).toHaveCount(0);
   } finally {

@@ -27,6 +27,7 @@ const errorLabels: Record<string, string> = {
   league_invalid_request: 'The league request is invalid.',
   league_deployment_locked: 'The league is temporarily read-only while deployment is in progress.',
   league_conflict: 'Your league state changed. Check the current status and try again.',
+  league_session_changed: 'Your league session changed. Refresh to continue.',
   league_rate_limited: 'League request limit reached. Try again later.',
   league_ineligible: 'Matchmaking requires an active, verified account with permission to play.',
   league_request_missing: 'This league queue request was not found.',

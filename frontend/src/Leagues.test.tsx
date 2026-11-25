@@ -5,6 +5,7 @@ import { api, ApiError } from './api';
 import type { Account } from './Auth';
 import { setLanguage } from './i18n';
 import Leagues from './Leagues';
+import { joinIntentPrefix, pendingJoins } from './leagueQueueRequests';
 import type {
   CurrentLeague,
   LeagueGame,
@@ -53,13 +54,19 @@ const idle: LeagueQueueStatus = {
   status: 'idle',
   active_game: null,
   queue: null,
+  join_generation: null,
   eligible: true,
   paused: false,
   enabled: true,
   clocks_enabled: true,
   server_time: serverTime,
 };
-const queued: LeagueQueueStatus = { ...idle, status: 'queued', queue: entry };
+const queued: LeagueQueueStatus = {
+  ...idle,
+  status: 'queued',
+  queue: entry,
+  join_generation: entry.request_id,
+};
 const officialId = 'online-' + 'a'.repeat(32);
 const gameHref = `/online/games/${officialId}`;
 const player = {
@@ -88,10 +95,20 @@ const health: LeagueHealth = {
     last_checked_at: serverTime,
     last_success_at: serverTime,
     last_error: null,
+    state: 'idle',
+    consecutive_failures: 0,
   },
-  queue: { total: 0, expired: 0, by_ruleset: {}, stale: [] },
-  settlement: { pending: 0, failed: 0, oldest_pending_seconds: null },
+  queue: { total: 0, expired: 0, by_ruleset: {}, stale: [], stale_next_cursor: null },
+  settlement: {
+    pending: 0,
+    failed: 0,
+    oldest_pending_seconds: null,
+    max_attempts: 0,
+    next_retry_at: null,
+  },
   rebuilds: [],
+  rebuild_pending: 0,
+  rebuild_retries: 0,
 };
 const empty: LeagueProgress = {
   tier: null,
@@ -172,6 +189,7 @@ function apiResponses(override?: RequestMock) {
     if (url.pathname === '/leagues/seasons')
       return { items: [season, archive], next_cursor: null } as never;
     if (url.pathname === '/leagues/queue') return queue as never;
+    if (url.pathname === '/leagues/progress') return { season: archive, progress: empty } as never;
     if (url.pathname === '/leagues/admin/health') return health as never;
     if (url.pathname === '/leagues/admin/audit') return { items: [], next_cursor: null } as never;
     return {
@@ -206,6 +224,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.resetAllMocks();
   vi.useRealTimers();
 });
@@ -234,6 +253,8 @@ it('loads bounded account-scoped reads without polling a second queue snapshot w
     '/leagues/seasons?limit=20',
     '/leagues/standings?season=2035-02&ruleset=copenhagen&limit=20',
   ]);
+  await act(async () => vi.advanceTimersByTimeAsync(31000));
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path === '/leagues/queue')).toHaveLength(1);
 });
 
 it('uses authoritative tier changes, route links and sporting ranks after a page change', async () => {
@@ -271,9 +292,9 @@ it('uses authoritative tier changes, route links and sporting ranks after a page
   expect(region('Personal progression').getByRole('progressbar')).toHaveAttribute('max', '9');
   await screen.findByRole('option', { name: 'January 2035' });
   await user.selectOptions(screen.getByLabelText('Standings season'), archive.id);
-  expect(await screen.findByText('Finalized standings', { exact: false })).toHaveTextContent(
-    'Revision 7',
-  );
+  expect(
+    await region('League standings').findByText('Finalized standings', { exact: false }),
+  ).toHaveTextContent('Revision 7');
   const first = await region('League standings').findByRole('row', { name: /Fjord Keeper/ });
   expect(within(first).getByRole('cell', { name: '2' })).toBeVisible();
   await user.click(region('League standings').getByRole('button', { name: 'Next page' }));
@@ -288,6 +309,7 @@ it('uses authoritative tier changes, route links and sporting ranks after a page
     `${gameHref}/review`,
   );
   progress = { ...promoted, tier: 'midgard', previous_tier: 'nidavellir', points: 5 };
+  await user.selectOptions(screen.getByLabelText('Standings season'), '');
   await act(async () => window.dispatchEvent(new Event('focus')));
   expect(await screen.findByText(/Demoted to Midgard/)).toBeVisible();
 });
@@ -298,11 +320,12 @@ it('retries a lost join with the original ID and accepts a matching cancellation
     if (url.pathname === '/leagues/queue' && method === 'POST') {
       requests.push(body);
       if (requests.length === 1) return Promise.reject(new TypeError('Network dropped'));
-      queue = queued;
+      const requestId = (body as { request_id: string }).request_id;
+      queue = { ...queued, join_generation: requestId, queue: { ...entry, request_id: requestId } };
       return queue;
     }
     if (url.pathname === '/leagues/queue/cancel') {
-      expect(body).toEqual({ request_id: entry.request_id });
+      expect(body).toEqual({ request_id: queue.join_generation });
       queue = {
         ...idle,
         status: 'matched',
@@ -318,7 +341,7 @@ it('retries a lost join with the original ID and accepts a matching cancellation
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'The league request could not be completed.',
   );
-  await user.click(screen.getByRole('button', { name: 'Join queue' }));
+  await user.click(await screen.findByRole('button', { name: 'Retry previous join' }));
   expect(await screen.findByText('Waiting for an opponent')).toBeVisible();
   expect(screen.getByText('Brandubh queue · ±300 Elo')).toBeVisible();
   expect(screen.getByText('1m 15s waiting', { exact: false })).toBeVisible();
@@ -352,6 +375,148 @@ it('uses canonical queue status when a reconnect reports expiry or a lost eligib
   expect(await screen.findByText('Your queue entry was cancelled.')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Join queue' })).toBeDisabled();
   expect(screen.queryByRole('button', { name: 'Cancel queue' })).toBeNull();
+});
+
+it('reconciles a committed join after navigation and keeps later intentions separate', async () => {
+  const accountId = auth.account!.id;
+  let delayed: ((value: LeagueQueueStatus) => void) | undefined;
+  const requests: { request_id: string; expected_generation: string | null }[] = [];
+  apiResponses((url, body, method) => {
+    if (url.pathname !== '/leagues/queue' || method !== 'POST') return;
+    const request = body as (typeof requests)[number];
+    requests.push(request);
+    queue = {
+      ...queued,
+      queue: { ...entry, request_id: request.request_id },
+      join_generation: request.request_id,
+    };
+    if (requests.length === 1)
+      return new Promise((resolve) => {
+        delayed = resolve;
+      });
+    return queue;
+  });
+  const user = userEvent.setup();
+  const original = render(<Leagues />);
+  await user.click(await screen.findByRole('button', { name: 'Join queue' }));
+  expect(pendingJoins(accountId)).toHaveLength(1);
+  const key = joinIntentPrefix(accountId) + requests[0].request_id;
+  expect(JSON.parse(localStorage.getItem(key)!)).toEqual({
+    ruleset: 'copenhagen',
+    generation: null,
+  });
+  original.unmount();
+  const revisited = render(<Leagues />);
+  await waitFor(() => expect(localStorage.getItem(key)).toBeNull());
+  expect(await screen.findByText('Waiting for an opponent')).toBeVisible();
+  expect(requests).toHaveLength(1);
+  const replacementAccount = { ...auth.account!, id: 'second-account' };
+  await act(async () => {
+    auth.account = replacementAccount;
+    queue = idle;
+    revisited.rerender(<Leagues />);
+    delayed?.(queued);
+  });
+  expect(screen.queryByText('Waiting for an opponent')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Retry previous join' })).toBeNull();
+  await user.click(await screen.findByRole('button', { name: 'Join queue' }));
+  expect(requests).toHaveLength(2);
+  expect(requests[1].request_id).not.toBe(requests[0].request_id);
+  expect(requests[1].expected_generation).toBeNull();
+  expect(
+    vi
+      .mocked(api)
+      .mock.calls.some(
+        ([, , method, , headers]) =>
+          method === 'POST' && headers?.['X-League-Account'] === replacementAccount.id,
+      ),
+  ).toBe(true);
+});
+
+it('refreshes a remote pause and account activity while the league page stays open', async () => {
+  queue = { ...idle, paused: true };
+  const user = userEvent.setup();
+  render(<Leagues />);
+  const join = await screen.findByRole('button', { name: 'Join queue' });
+  expect(join).toBeDisabled();
+  queue = idle;
+  await user.click(screen.getByRole('button', { name: 'Refresh leagues' }));
+  await waitFor(() => expect(join).toBeEnabled());
+  queue = queued;
+  await user.click(screen.getByRole('button', { name: 'Refresh leagues' }));
+  expect(await screen.findByRole('button', { name: 'Cancel queue' })).toBeVisible();
+});
+
+it('displays personal archived results, revisions, empty history and rebuilds in one progression panel', async () => {
+  progress = promoted;
+  let historic = { season: archive, progress: promoted as LeagueProgress | null };
+  apiResponses((url) => {
+    if (url.pathname === '/leagues/progress') return historic;
+  });
+  const user = userEvent.setup();
+  render(<Leagues />);
+  const panel = region('Personal progression');
+  const refreshed = () => user.click(screen.getByRole('button', { name: 'Refresh leagues' }));
+  await panel.findByText('Current rank #2');
+  await screen.findByRole('option', { name: 'January 2035' });
+  await user.selectOptions(screen.getByLabelText('Standings season'), archive.id);
+  expect(await panel.findByText('Season rank #2')).toBeVisible();
+  expect(panel.getByText(/Archived season · January 2035/)).toHaveTextContent('Revision 7');
+  expect(panel.queryByText('Current rank #2')).toBeNull();
+  expect(region('Matchmaking').getByText(/Current season · February 2035/)).toBeVisible();
+  historic = {
+    season: { ...archive, revision: 8 },
+    progress: {
+      ...promoted,
+      tier: 'midgard',
+      previous_tier: 'nidavellir',
+      qualified: false,
+      rank: null,
+      points: 5,
+      played: 2,
+      wins: 1,
+      draws: 1,
+    },
+  };
+  await refreshed();
+  expect(await panel.findByText('Unranked')).toBeVisible();
+  expect(panel.getByText(/Demoted to Midgard/)).toBeVisible();
+  expect(panel.getByText(/Archived season/)).toHaveTextContent('Revision 8');
+  historic = { season: { ...archive, status: 'rebuilding', revision: 8 }, progress: null };
+  await refreshed();
+  expect(await panel.findByText(/Personal progression will return/)).toBeVisible();
+  expect(panel.queryByText('Unranked')).toBeNull();
+  historic = { season: { ...archive, revision: 9 }, progress: empty };
+  await refreshed();
+  expect(await panel.findByText(/You have no eligible league results/)).toBeVisible();
+  expect(panel.getByText(/Archived season/)).toHaveTextContent('Revision 9');
+  await user.selectOptions(screen.getByLabelText('Standings season'), '');
+  expect(await panel.findByText('Current rank #2')).toBeVisible();
+  expect(panel.queryByText(/Archived season/)).toBeNull();
+});
+
+it('aborts archived progress when a ruleset, season or account scope changes', async () => {
+  const reads: AbortSignal[] = [];
+  apiResponses((url, _body, _method, signal) => {
+    if (url.pathname !== '/leagues/progress') return;
+    reads.push(signal!);
+    return new Promise(() => {});
+  });
+  const user = userEvent.setup();
+  const { rerender } = render(<Leagues />);
+  await screen.findByRole('option', { name: 'January 2035' });
+  await user.selectOptions(await screen.findByLabelText('Standings season'), archive.id);
+  await waitFor(() => expect(reads).toHaveLength(1));
+  await user.selectOptions(screen.getByLabelText('Ruleset'), 'brandubh');
+  await waitFor(() => expect(reads).toHaveLength(2));
+  expect(reads[0].aborted).toBe(true);
+  await user.selectOptions(screen.getByLabelText('Standings season'), '');
+  expect(reads[1].aborted).toBe(true);
+  await user.selectOptions(screen.getByLabelText('Standings season'), archive.id);
+  await waitFor(() => expect(reads).toHaveLength(3));
+  auth.account = { ...auth.account!, id: 'new-scope' };
+  rerender(<Leagues />);
+  expect(reads[2].aborted).toBe(true);
 });
 
 it('aborts stale reads on ruleset change and removes protected state at logout', async () => {
@@ -397,6 +562,7 @@ it('sends version-guarded admin commands with a reason and localizes denied stat
       { paused: true, version: 11, reason: 'Scheduled maintenance' },
       'POST',
       expect.any(AbortSignal),
+      { 'X-League-Account': auth.account!.id },
     ),
   );
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

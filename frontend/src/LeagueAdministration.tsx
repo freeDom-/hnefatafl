@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { api, ApiError } from './api';
+import { ApiError } from './api';
 import { useI18n } from './i18n';
 import { leagueDate, leagueError, leagueMonth, RULESET_LABELS } from './leaguePresentation';
 import { LeaguePageControls, LeagueReadState, LeagueTable, useLeaguePages } from './LeagueTables';
@@ -13,6 +13,7 @@ import type {
 import Modal from './Modal';
 import { notify } from './notifications';
 import { formatRemaining } from './remainingTime';
+import { leagueApi, useLeagueRefresh } from './useLeagueRefresh';
 import { useOnlinePoll } from './useOnlinePoll';
 
 const ADMIN_REASON_LIMIT = 1000;
@@ -38,6 +39,31 @@ const AUDIT_LABELS: Record<string, string> = {
   complete_rebuild: 'Season rebuilt',
 };
 
+const WORKER_LABELS: Record<LeagueHealth['worker']['state'], string> = {
+  starting: 'Starting',
+  idle: 'Idle',
+  processed: 'Processing succeeded',
+  deployment_locked: 'Waiting for deployment',
+  settlement_retry: 'Settlement retry',
+  rebuild_retry: 'Rebuild retry',
+  processing_deferred: 'Processing deferred',
+};
+
+const REBUILD_LABELS: Record<string, string> = {
+  clear_contributions: 'Clearing contributions',
+  clear_standings: 'Clearing standings',
+  restore_games: 'Reading official games',
+  fold_standings: 'Recalculating standings',
+  catch_up: 'Applying intervening results',
+};
+
+const STALE_LABELS: Record<StaleLeagueEntry['reason'], string> = {
+  expired: 'Expired',
+  disabled: 'Account disabled',
+  unverified: 'Email unverified',
+  ineligible: 'Account ineligible',
+};
+
 function AdminAudit({ accountId, changes }: { accountId: string; changes: number }) {
   const { t, locale } = useI18n();
   const audit = useLeaguePages<LeaguePage<LeagueAudit>>('/leagues/admin/audit', accountId);
@@ -55,6 +81,7 @@ function AdminAudit({ accountId, changes }: { accountId: string; changes: number
         error={audit.error}
         loading={audit.phase === 'loading'}
         retry={audit.retry}
+        stale={!!audit.data}
       />
       {audit.data && audit.data.items.length === 0 && (
         <p>{t('No league administration actions have been recorded.')}</p>
@@ -107,6 +134,8 @@ export default function LeagueAdministration({
   const [action, setAction] = useState<Action | null>(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [changes, setChanges] = useState(0);
+  const [stalePages, setStalePages] = useState<Array<string | null>>([null]);
+  const staleCursor = stalePages[stalePages.length - 1];
   const [monitor, setMonitor] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
@@ -114,18 +143,35 @@ export default function LeagueAdministration({
   const rebuilds = useRef<string[] | null>(null);
   const load = useCallback(
     (signal: AbortSignal) =>
-      api<LeagueHealth>('/leagues/admin/health', undefined, undefined, signal),
-    [],
+      leagueApi<LeagueHealth>(
+        accountId,
+        staleCursor
+          ? `/leagues/admin/health?${new URLSearchParams({ stale_cursor: staleCursor })}`
+          : '/leagues/admin/health',
+        undefined,
+        undefined,
+        signal,
+      ),
+    [accountId, staleCursor],
   );
-  const poll = useOnlinePoll(`league-health:${accountId}`, load, {
+  const poll = useOnlinePoll(`league-health:${accountId}:${staleCursor ?? ''}`, load, {
     intervalMs: monitor ? ADMIN_POLL_INTERVAL : 0,
   });
   const health = poll.data;
-  const refresh = () => void poll.refresh();
+  const refresh = useCallback(() => {
+    if (
+      staleCursor &&
+      poll.error instanceof ApiError &&
+      poll.error.code === 'league_invalid_cursor'
+    )
+      setStalePages([null]);
+    else void poll.refresh();
+  }, [poll.error, poll.refresh, staleCursor]);
+  useLeagueRefresh(refresh);
   useEffect(() => {
     if (!health) return;
     const pendingRebuilds = health.rebuilds.map((entry) => entry.season_id);
-    setMonitor(pendingRebuilds.length > 0 || health.settlement.pending > 0);
+    setMonitor(health.rebuild_pending > 0 || health.settlement.pending > 0);
     if (rebuilds.current?.some((id) => !pendingRebuilds.includes(id))) {
       onChanged();
       setChanges((previous) => previous + 1);
@@ -177,7 +223,8 @@ export default function LeagueAdministration({
     setBusy(true);
     setFailure(null);
     try {
-      await api(
+      await leagueApi(
+        accountId,
         path,
         payload,
         'POST',
@@ -214,7 +261,12 @@ export default function LeagueAdministration({
   return (
     <section className="arena-surface league-panel" aria-labelledby="league-admin-heading">
       <h2 id="league-admin-heading">{t('League administration')}</h2>
-      <LeagueReadState error={poll.error} loading={poll.phase === 'loading'} retry={refresh} />
+      <LeagueReadState
+        error={poll.error}
+        loading={poll.phase === 'loading'}
+        retry={refresh}
+        stale={!!health}
+      />
       {health && (
         <>
           <dl className="league-metrics">
@@ -225,6 +277,10 @@ export default function LeagueAdministration({
             <div>
               <dt>{t('Worker')}</dt>
               <dd>{t(health.worker.running ? 'Running' : 'Stopped')}</dd>
+            </div>
+            <div>
+              <dt>{t('Worker activity')}</dt>
+              <dd>{health.worker.running ? t(WORKER_LABELS[health.worker.state]) : '—'}</dd>
             </div>
             <div>
               <dt>{t('Queue entries')}</dt>
@@ -239,7 +295,7 @@ export default function LeagueAdministration({
               <dd>{number.format(health.settlement.pending)}</dd>
             </div>
             <div>
-              <dt>{t('Failed settlements')}</dt>
+              <dt>{t('Settlements awaiting retry')}</dt>
               <dd>{number.format(health.settlement.failed)}</dd>
             </div>
             <div>
@@ -277,8 +333,30 @@ export default function LeagueAdministration({
               {t(
                 health.worker.last_error === 'deployment_locked'
                   ? 'The league worker is waiting for the deployment lock.'
-                  : 'The last worker check failed. Results will be retried.',
+                  : 'The last worker check encountered a processing failure.',
               )}
+            </p>
+          )}
+          {health.worker.consecutive_failures > 1 && (
+            <p role="status">
+              {t('{count} consecutive worker failures', {
+                count: number.format(health.worker.consecutive_failures),
+              })}
+            </p>
+          )}
+          {health.settlement.next_retry_at && (
+            <p role="status">
+              {t('Next settlement retry {time} · up to {count} attempts', {
+                time: leagueDate(health.settlement.next_retry_at, locale),
+                count: number.format(health.settlement.max_attempts),
+              })}
+            </p>
+          )}
+          {health.rebuild_retries > 0 && (
+            <p role="status">
+              {t('Rebuilds awaiting retry · {count}', {
+                count: number.format(health.rebuild_retries),
+              })}
             </p>
           )}
           {health.rebuilds.length > 0 && (
@@ -286,6 +364,17 @@ export default function LeagueAdministration({
               {health.rebuilds.map((entry) => (
                 <li key={entry.season_id}>
                   {t('Rebuild in progress for {season}', { season: entry.season_id })}
+                  {' · '}
+                  {t(REBUILD_LABELS[entry.stage] ?? 'Processing')}
+                  {entry.attempts > 0 && (
+                    <>
+                      {' · '}
+                      {t('{count} retry attempts · next retry {time}', {
+                        count: number.format(entry.attempts),
+                        time: leagueDate(entry.due_at, locale),
+                      })}
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
@@ -325,7 +414,8 @@ export default function LeagueAdministration({
               <thead>
                 <tr>
                   <th scope="col">{t('Ruleset')}</th>
-                  <th scope="col">{t('Expired')}</th>
+                  <th scope="col">{t('Reason')}</th>
+                  <th scope="col">{t('Expiry')}</th>
                   <th scope="col">{t('Action')}</th>
                 </tr>
               </thead>
@@ -333,6 +423,7 @@ export default function LeagueAdministration({
                 {health.queue.stale.map((entry) => (
                   <tr key={entry.request_id}>
                     <th scope="row">{t(RULESET_LABELS[entry.ruleset])}</th>
+                    <td>{t(STALE_LABELS[entry.reason])}</td>
                     <td>
                       <time dateTime={entry.expires_at}>
                         {leagueDate(entry.expires_at, locale)}
@@ -351,6 +442,15 @@ export default function LeagueAdministration({
                 ))}
               </tbody>
             </LeagueTable>
+          )}
+          {(staleCursor || health.queue.stale_next_cursor) && (
+            <LeaguePageControls
+              label={t('Stale queue pages')}
+              hasPrevious={stalePages.length > 1}
+              previous={() => setStalePages((pages) => pages.slice(0, -1))}
+              nextCursor={health.queue.stale_next_cursor}
+              next={(cursor) => setStalePages((pages) => [...pages, cursor])}
+            />
           )}
           <details onToggle={(event) => setAuditOpen(event.currentTarget.open)}>
             <summary>{t('Private audit history')}</summary>
