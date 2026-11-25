@@ -6,6 +6,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -24,10 +25,11 @@ from benchmark_league_arena import (
 from hnefatafl.auth import COOKIE
 from hnefatafl.leagues import Leagues
 from hnefatafl.online_core import micros
-from hnefatafl.server import create_app
 
 
 def population(root, size):
+    from hnefatafl.server import create_app
+
     fixture = Fixture(root, str(size), filename="hnefatafl.sqlite3")
     core = Leagues(fixture.online)
     actors = fixture.actors("Rank", 4)
@@ -165,6 +167,8 @@ def main():
     ):
         parser.error("Use 1–5 distinct populations of 128–200,000, 10–200 samples and 2–16 readers")
     with tempfile.TemporaryDirectory(prefix="hnefatafl-league-rank-") as directory:
+        # Importing the server also constructs the module-level app.
+        os.environ["HNEFATAFL_DATA_DIR"] = str(Path(directory) / "bootstrap")
         records = {
             **source_evidence(args),
             "populations": {
