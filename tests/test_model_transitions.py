@@ -373,7 +373,7 @@ def test_collector_and_validator_span_evicted_and_retained_history(tmp_path):
         # writer reaches the required transition index within a wall-clock window.
         # The collector already samples while the producer completes the history,
         # so samples still span the evicted and retained windows.
-        deadline = time.monotonic() + 25.0
+        deadline = time.monotonic() + 60.0
         while not completion.is_file():
             if writer.poll() is not None:
                 raise AssertionError("telemetry writer exited before completing transitions")

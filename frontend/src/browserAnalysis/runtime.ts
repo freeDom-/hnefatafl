@@ -788,7 +788,7 @@ export class BrowserAnalysisRuntime {
   private modelSpec(model: ModelManifest): DownloadSpec {
     return {
       key: `model:${model.onnxSha256}`,
-      url: modelArtifactUrl(model),
+      url: `${modelArtifactUrl(model)}?version=${model.onnxSha256}`,
       expectedBytes: model.artifactBytes,
       sha256: model.onnxSha256,
       publicationId: model.publicationId,
@@ -1214,6 +1214,10 @@ export class BrowserAnalysisRuntime {
   /** Cooperative cancellation of the active search/initialization and inference work. */
   async cancel(reason = 'Search cancelled'): Promise<void> {
     const search = this.activeSearch;
+    if (!search) {
+      // A cancelled initialization must not be joined by a replacement call.
+      this.initState = null;
+    }
     if (search) {
       search.op.active = false;
       search.op.controller.abort();

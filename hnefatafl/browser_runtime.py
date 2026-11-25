@@ -623,19 +623,20 @@ class VerifiedFileCache:
         if stat.st_size != entry["bytes"]:
             raise RuntimeAssetError("size-mismatch", f"Runtime asset size mismatch: {relative}")
         signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        key = f"{directory}\0{relative}"
         with self._lock:
-            cached = self._entries.get(relative)
+            cached = self._entries.get(key)
         if cached is not None and cached[0] == signature and cached[1] == entry["sha256"]:
             return path
         actual = _digest(path)
         if actual != entry["sha256"]:
             with self._lock:
-                self._entries.pop(relative, None)
+                self._entries.pop(key, None)
             raise RuntimeAssetError("digest-mismatch", f"Runtime asset digest mismatch: {relative}")
         with self._lock:
-            if len(self._entries) >= self._max and relative not in self._entries:
+            if len(self._entries) >= self._max and key not in self._entries:
                 self._entries.pop(next(iter(self._entries)))
-            self._entries[relative] = (signature, actual)
+            self._entries[key] = (signature, actual)
         return path
 
 

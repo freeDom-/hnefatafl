@@ -262,11 +262,11 @@ try {
   report.requests = {
     runtimeAssets: observed.filter((url) => url.includes('/browser-analysis/runtime/')).length,
     modelArtifacts: observed.filter(
-      (url) => url.includes('/api/browser-analysis/models/') && url.endsWith('/artifact'),
+      (url) => url.includes('/api/browser-analysis/models/') && url.includes('/artifact'),
     ).length,
     modelMetadata: observed.filter(
       (url) =>
-        url.includes('/api/browser-analysis/models/') && !url.endsWith('/artifact'),
+        url.includes('/api/browser-analysis/models/') && !url.includes('/artifact'),
     ).length,
     ordinaryPage: ordinaryRequests.length,
   };

@@ -611,9 +611,9 @@ complete notice set. No new security advisory was introduced; the existing
 
 | Measurement | Jarl-only | Jarl + published neural model |
 | --- | --- | --- |
-| Cold runtime initialization | 2,530.2 ms | 2,672.6 ms |
-| Second initialization (idempotent ready) | 5.9 ms | 6.6 ms |
-| Jarl depth-3 search | 234.6 ms | 251.1 ms |
+| Cold runtime initialization | 2,530–3,291 ms | 2,620–2,673 ms |
+| Second initialization (idempotent ready) | 5.6–6.9 ms | 5.6–6.6 ms |
+| Jarl depth-3 search | 234.6–271.1 ms | 238.8–251.1 ms |
 | Runtime asset requests | 57 | 86 |
 | Model artifact transfers | 0 | **1** (explicit download reused by two searches) |
 | Model metadata/authorization requests | 0 | 3 |

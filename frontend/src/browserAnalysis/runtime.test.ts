@@ -156,7 +156,7 @@ function harness(
     if (url === `/api/browser-analysis/models/${model.publicationId}`) {
       return jsonResponse(modelWire());
     }
-    if (url === `/api/browser-analysis/models/${model.publicationId}/artifact`) {
+    if (url.startsWith(`/api/browser-analysis/models/${model.publicationId}/artifact`)) {
       modelRequests += 1;
       if (artifactFailure) throw artifactFailure;
       if (gates.artifact) {
