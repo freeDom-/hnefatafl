@@ -589,6 +589,55 @@ Structural tournaments are explicitly not playing-strength evidence. Unverified 
 mixed WebGPU placement and CPU fallback can never satisfy the verified-GPU gate,
 and blocked/partial memory profiles exit nonzero.
 
+## Phase 3C-B competitive measurements
+
+Phase 3C-B uses the Phase 3C-A platform rather than replacing it:
+
+- `native_tournament_agent.py --engine neural --checkpoint ... --model-export ...`
+  runs the production neural MCTS natively with the version-2 handshake and
+  per-move evidence, enabling browser-vs-native neural tournaments.
+- `sustained_workload.mjs` drives repeated real browser searches (and optional
+  cancel/restart, model reload or worker replacement) while emitting live
+  telemetry for `memory_profile_collect.py`.
+- Provider-evidence validation is shared between live and saved tournament
+  observations; WASM/CPU/mixed/unverified searches cannot claim verified GPU
+  execution.
+
+```sh
+# Native neural tournament agent (private checkpoint)
+.venv/bin/python spikes/browser_offline/native_tournament_agent.py --engine neural \
+  --checkpoint /private/brandubh.pt --model-export /private/export-brandubh
+
+# Reproducible 50-pair opening corpus
+.venv/bin/python spikes/browser_offline/tournament_openings.py \
+  --ruleset brandubh --pairs 50 --seed 20261124 --output /private/openings-brandubh.json
+
+# Sustained browser workload feeding the memory collector
+SESSION="owner-$(date +%s)"
+node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
+  --duration 690 --mode repeated --session "$SESSION" --provider wasm \
+  --telemetry "/tmp/$SESSION.jsonl" --ready "/tmp/$SESSION.ready" --overwrite \
+  --iterations 128 --time-limit 2 --cache --output /tmp/workload-10m.json &
+BROWSER_PID=$!
+while [ ! -s "/tmp/$SESSION.ready" ]; do sleep 0.2; done
+.venv/bin/python spikes/browser_offline/memory_profile_collect.py \
+  --pid "$BROWSER_PID" --profile sustained-10m --warmup-duration 60 --duration 600 \
+  --telemetry-file "/tmp/$SESSION.jsonl" --telemetry-session-id "$SESSION" \
+  --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
+  --inference-cache --output /tmp/memory-10m.json
+wait "$BROWSER_PID"
+.venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json
+# Lifecycle: --mode cancel-restart|model-reload|worker-replacement|client-disposal|
+# cache-churn|batching; model-replacement also needs --replacement-model-file and
+# --replacement-model-sha256. Telemetry is the recommended progress source; the
+# compatibility progress file remains optional.
+```
+
+The full runbook, acceptance matrix, measured results and remaining blockers are
+in the [Phase 3C-B report](../../docs/validation/browser-analysis-phase3c-b.md).
+Competitive checkpoints, physical devices and verified GPU execution remain
+owner-supplied external resources.
+
 ## Network, packaging, licensing and limitations
 
 > Current repository status (2026-11-22): the project now has a root PolyForm

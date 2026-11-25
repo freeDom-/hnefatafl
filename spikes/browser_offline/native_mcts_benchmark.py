@@ -139,6 +139,8 @@ def main() -> None:
     parser.add_argument("--extended", action="store_true")
     parser.add_argument("--simulations", default=None, help="Comma-separated budgets")
     parser.add_argument("--time-budgets", default=None, help="Comma-separated seconds")
+    parser.add_argument("--repetitions", type=int, default=None)
+    parser.add_argument("--warmup", type=int, default=None)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--exploration", type=float, default=1.4)
     parser.add_argument("--output", type=Path)
@@ -152,6 +154,10 @@ def main() -> None:
         else [sidecar["ruleset"]]
     )
     preset = mcts_benchmark.EXTENDED if args.extended else mcts_benchmark.QUICK
+    repetitions = preset["repetitions"] if args.repetitions is None else args.repetitions
+    warmup = preset["warmup"] if args.warmup is None else args.warmup
+    if repetitions < 1 or warmup < 0:
+        parser.error("--repetitions must be positive and --warmup non-negative")
     simulations = (
         [int(value) for value in args.simulations.split(",")]
         if args.simulations
@@ -211,7 +217,7 @@ def main() -> None:
                     exploration=args.exploration,
                 )
             )
-            for warmup in range(preset["warmup"]):
+            for warmup in range(warmup):
                 run_case(
                     position,
                     mode=case["mode"],
@@ -223,7 +229,7 @@ def main() -> None:
                     repetition=-(warmup + 1),
                     warm=True,
                 )
-            for repetition in range(preset["repetitions"]):
+            for repetition in range(repetitions):
                 records.append(
                     run_case(
                         position,
@@ -260,8 +266,8 @@ def main() -> None:
             "cases": cases,
             "seed": args.seed,
             "exploration": args.exploration,
-            "repetitions": preset["repetitions"],
-            "warmup": preset["warmup"],
+            "repetitions": repetitions,
+            "warmup": warmup,
         },
         "model": {"onnx_sha256": model_sha, "meta": model_meta},
         "cold_model_load_ms": model_load_ms,

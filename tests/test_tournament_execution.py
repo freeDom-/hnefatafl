@@ -455,7 +455,10 @@ def test_incomplete_fixed_work_and_bad_reasons_are_rejected(tmp_path):
     game["execution_evidence"][0]["provider"] = "wasm"
     validated = tournament.validate_report(report)
     assert validated["ok"] is False
-    assert any("provider" in failure for failure in validated["failures"])
+    assert any(
+        "placement" in failure or "CPU fallback" in failure or "provider" in failure
+        for failure in validated["failures"]
+    )
 
 
 def test_unsupported_agent_mode_is_rejected_before_launch(tmp_path):
@@ -547,7 +550,10 @@ def test_browser_search_evidence_uses_observed_provider_and_effective_settings()
     target["provider"] = "cpu-fallback"
     validated = tournament.validate_report(mutated)
     assert validated["ok"] is False
-    assert any("provider" in failure for failure in validated["failures"])
+    assert any(
+        "placement" in failure or "CPU fallback" in failure or "provider" in failure
+        for failure in validated["failures"]
+    )
 
     mutated = copy.deepcopy(report)
     target = next(
@@ -584,4 +590,266 @@ def test_no_inference_browser_shortcut_does_not_invent_placement():
     target["provider"] = "wasm"
     validated = tournament.validate_report(captured)
     assert validated["ok"] is False
-    assert any("without inference" in failure for failure in validated["failures"])
+    assert any(
+        "inference" in failure or "contradicts" in failure for failure in validated["failures"]
+    )
+
+
+def test_offline_wasm_evidence_cannot_claim_verified_gpu_execution():
+    report = _committed_browser_report()
+    target = next(
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "browser-neural"
+    )
+    assert target["provider"] == "wasm"
+    target["gpu_execution_verified"] = True
+    validated = tournament.validate_report(report)
+    assert validated["ok"] is False
+    assert any("WASM observation cannot claim" in failure for failure in validated["failures"])
+
+    live_failures = tournament._provider_evidence_failures(
+        requested="wasm",
+        observed="wasm",
+        reported_requested="wasm",
+        inferences=5,
+        gpu_verified=True,
+        provider_observed=True,
+    )
+    assert any("WASM observation cannot claim" in failure for failure in live_failures)
+
+
+def test_native_neural_adapter_handshake_and_execution(tmp_path):
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    checkpoint = tmp_path / "smoke.pt"
+    export = tmp_path / "export"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "smoke_checkpoint.py"),
+            "--ruleset",
+            "brandubh",
+            "--channels",
+            "4",
+            "--blocks",
+            "0",
+            "--output",
+            str(checkpoint),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+    subprocess.run(
+        [sys.executable, str(SPIKE / "onnx_export.py"), str(checkpoint), str(export)],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
+    sidecar = json.loads((export / "model.json").read_text())
+    model = {
+        "onnx_sha256": sidecar["onnx"]["sha256"],
+        "weights_sha256": sidecar["source"]["weights_sha256"],
+        "ruleset": sidecar["ruleset"],
+        "size": 7,
+    }
+    config_a = {
+        "label": "native-neural",
+        "kind": "native-neural",
+        "provider": "torch-cpu",
+        "algorithm": "mcts",
+        "depth": None,
+        "model": model,
+    }
+    result, report = _run(
+        tmp_path,
+        config_a=config_a,
+        config_b=_scripted_b(),
+        command_a=(
+            f"{sys.executable} {AGENT} --engine neural "
+            f"--checkpoint {checkpoint} --model-export {export}"
+        ),
+        command_b=_scripted_command(),
+        mode="fixed-work",
+        simulations=4,
+        time_limit=2,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert report["agent_handshakes"]["a"]["kind"] == "native-neural"
+    assert report["agent_handshakes"]["a"]["model_sha256"] == model["onnx_sha256"]
+    evidence = [
+        entry
+        for game in report["games"]
+        for entry in game["execution_evidence"]
+        if entry.get("agent") == "native-neural"
+    ]
+    assert evidence
+    assert all(entry["algorithm"] == "mcts" for entry in evidence)
+    assert all(entry["provider_requested"] == "torch-cpu" for entry in evidence)
+    assert all(entry["gpu_execution_verified"] is False for entry in evidence)
+    assert tournament.validate_report(report)["ok"] is True
+
+
+def _native_neural_agent_artifacts(tmp_path):
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    from test_competitive_validation import _exported_checkpoint
+
+    return _exported_checkpoint(tmp_path, channels=4, blocks=0, name="adapter-model")
+
+
+def test_native_neural_adapter_rejects_invalid_or_mismatched_artifacts(tmp_path):
+    checkpoint, export = _native_neural_agent_artifacts(tmp_path)
+    base_command = [
+        sys.executable,
+        str(AGENT),
+        "--engine",
+        "neural",
+        "--checkpoint",
+        str(checkpoint),
+        "--model-export",
+        str(export),
+    ]
+    valid = subprocess.run(base_command, input="", capture_output=True, text=True, timeout=120)
+    assert valid.returncode == 0
+    assert "handshake" in valid.stdout
+
+    modified = tmp_path / "modified-export"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"import shutil; shutil.copytree({str(export)!r}, {str(modified)!r})",
+        ],
+        check=True,
+    )
+    with (modified / "model.onnx").open("ab") as handle:
+        handle.write(b"corrupt")
+    corrupted = subprocess.run(
+        [*base_command[:5], str(modified)],
+        input="",
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert corrupted.returncode == 2
+    assert str(checkpoint) not in corrupted.stderr
+
+    stale = tmp_path / "stale-export"
+    subprocess.run(
+        [sys.executable, "-c", f"import shutil; shutil.copytree({str(export)!r}, {str(stale)!r})"],
+        check=True,
+    )
+    marker = json.loads((stale / "VALIDATED.json").read_text())
+    marker["validated"] = False
+    (stale / "VALIDATED.json").write_text(json.dumps(marker))
+    result = subprocess.run(
+        [*base_command[:5], str(stale)],
+        input="",
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 2
+
+    other_checkpoint = tmp_path / "other.pt"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "smoke_checkpoint.py"),
+            "--ruleset",
+            "brandubh",
+            "--channels",
+            "4",
+            "--blocks",
+            "0",
+            "--seed",
+            "99",
+            "--output",
+            str(other_checkpoint),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    mismatched = subprocess.run(
+        [
+            sys.executable,
+            str(AGENT),
+            "--engine",
+            "neural",
+            "--checkpoint",
+            str(other_checkpoint),
+            "--model-export",
+            str(export),
+        ],
+        input="",
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert mismatched.returncode == 2
+
+
+def test_native_neural_adapter_retains_verified_checkpoint_after_file_replacement(tmp_path):
+    checkpoint, export = _native_neural_agent_artifacts(tmp_path)
+    replacement, _ = _native_neural_agent_artifacts(tmp_path / "replacement")
+    agent = subprocess.Popen(
+        [
+            sys.executable,
+            str(AGENT),
+            "--engine",
+            "neural",
+            "--checkpoint",
+            str(checkpoint),
+            "--model-export",
+            str(export),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    from fixtures import jarl_positions
+
+    position = next(entry for entry in jarl_positions() if entry["name"] == "brandubh-opening")
+    request = {
+        "id": "1:1",
+        "state": position["state"],
+        "settings": {
+            "algorithm": "mcts",
+            "iterations": 4,
+            "time_limit": 2,
+            "exploration": 1.4,
+            "seed": 7,
+            "mode": "fixed-work",
+        },
+        "seed": 7,
+    }
+    try:
+        handshake = json.loads(agent.stdout.readline())
+        assert handshake["kind"] == "handshake"
+        model_digest = handshake["agent"]["model_sha256"]
+        agent.stdin.write(json.dumps(request) + "\n")
+        agent.stdin.flush()
+        first = json.loads(agent.stdout.readline())
+        assert first["evidence"]["model_sha256"] == model_digest
+
+        checkpoint.write_bytes(replacement.read_bytes())
+        request["id"] = "1:2"
+        agent.stdin.write(json.dumps(request) + "\n")
+        agent.stdin.flush()
+        second = json.loads(agent.stdout.readline())
+        assert second["evidence"]["model_sha256"] == model_digest
+        assert second["move"] != first["move"] or second["evidence"]["seed"] == request["seed"]
+    finally:
+        if agent.stdin:
+            agent.stdin.close()
+        try:
+            agent.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            agent.kill()
+            agent.wait(timeout=10)

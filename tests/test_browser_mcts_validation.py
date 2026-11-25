@@ -12,11 +12,16 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 SPIKE = Path(__file__).resolve().parents[1] / "spikes/browser_offline"
+if str(SPIKE) not in sys.path:
+    sys.path.insert(0, str(SPIKE))
+import mcts_benchmark  # noqa: E402
+
 NODE = shutil.which("node")
 NEURAL_DIR = os.environ.get("SPIKE_NEURAL_DIR")
 
@@ -89,3 +94,67 @@ def test_browser_level_a_parity_is_exact(tmp_path):
         == comparison["deterministic_parity"]["positions"]
     )
     assert comparison["workload_completion"]["complete"] is True
+
+
+def test_extended_native_browser_benchmark_workloads_are_compatible(tmp_path):
+    model_export = os.environ.get("SPIKE_MODEL_EXPORT")
+    if not model_export or not Path(model_export).is_dir():
+        pytest.skip("SPIKE_MODEL_EXPORT validated export is not set")
+    native = tmp_path / "native-extended.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "native_mcts_benchmark.py"),
+            "--model-export",
+            str(model_export),
+            "--evaluator",
+            "onnx",
+            "--extended",
+            "--simulations",
+            "2",
+            "--time-budgets",
+            "0.1",
+            "--repetitions",
+            "1",
+            "--warmup",
+            "0",
+            "--output",
+            str(native),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    browser = tmp_path / "browser-extended.json"
+    result = _run(
+        "mcts_benchmark.mjs",
+        NEURAL_DIR,
+        "--provider",
+        "wasm",
+        "--extended",
+        "--simulations",
+        "2",
+        "--time-budgets",
+        "0.1",
+        "--repetitions",
+        "1",
+        "--warmup",
+        "0",
+        "--native",
+        str(native),
+        "--output",
+        str(browser),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    comparison = json.loads((tmp_path / "browser-extended-comparison.json").read_text())
+    assert comparison["acceptance"] is True, comparison["failures"]
+    native_report = json.loads(native.read_text())
+    browser_report = json.loads(browser.read_text())
+    for report in (native_report, browser_report):
+        workload = report["workload"]
+        assert workload["repetitions"] == 1
+        assert workload["warmup"] == 0
+        assert {entry.get("kind") for entry in workload["positions"]} == set(
+            mcts_benchmark.POSITION_KINDS
+        )

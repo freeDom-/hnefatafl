@@ -1,0 +1,70 @@
+{
+  "kind": "browser-sustained-workload",
+  "schema": 2,
+  "session_id": "p3cb-worker-r2",
+  "mode": "worker-replacement",
+  "runtime": "browser-pyodide",
+  "model": {
+    "sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+    "ruleset": "brandubh",
+    "size": 7,
+    "file": "model/model.onnx",
+    "provider_requested": "wasm",
+    "execution_placement": "wasm"
+  },
+  "provider_requested": "wasm",
+  "provider_placements": [
+    "wasm/wasm"
+  ],
+  "provider_observed": true,
+  "model_sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+  "model_transitions": [],
+  "duration_s": 292.644,
+  "workload": "sustained-analysis",
+  "counters": {
+    "completed_requests": 311,
+    "workload_failures": 0,
+    "successful_searches": 311,
+    "neural_searches": 311,
+    "no_inference_shortcuts": 0,
+    "completed_simulations": 9952,
+    "neural_inferences": 10257,
+    "cancellations": 0,
+    "reloads": 0,
+    "worker_replacements": 62,
+    "model_replacements": 0,
+    "cache_clears": 0,
+    "cache_invalidation_failures": 0,
+    "batches": 0,
+    "observed_max_batch": 0,
+    "batch_rounds": 0,
+    "batch_elapsed_ms_total": 0,
+    "batch_max_elapsed_ms": 0
+  },
+  "completion_reasons": {
+    "simulations": 311
+  },
+  "positions": [
+    {
+      "name": "brandubh-opening",
+      "kind": "opening"
+    },
+    {
+      "name": "brandubh-midgame",
+      "kind": "midgame"
+    },
+    {
+      "name": "brandubh-endgame",
+      "kind": "endgame"
+    },
+    {
+      "name": "brandubh-tactical",
+      "kind": "tactical"
+    },
+    {
+      "name": "brandubh-repetition",
+      "kind": "repetition"
+    }
+  ],
+  "authoritative": false
+}

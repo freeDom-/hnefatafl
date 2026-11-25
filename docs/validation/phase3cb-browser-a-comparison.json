@@ -1,0 +1,301 @@
+{
+  "kind": "mcts-parity-comparison",
+  "schema": 4,
+  "level": "a",
+  "native_runtime": "native-cpython",
+  "browser_runtime": "browser-pyodide",
+  "failures": [],
+  "notes": [],
+  "error": null,
+  "execution_validity": {
+    "ok": true,
+    "positions": 21,
+    "case_failures": []
+  },
+  "deterministic_parity": {
+    "required": true,
+    "exact_cases": 21,
+    "positions": 21,
+    "ok": true
+  },
+  "numerical_comparison": {
+    "required": false,
+    "positions": 21,
+    "best_move_matches": null,
+    "divergent_cases": [],
+    "max_value_delta": null,
+    "max_visit_total_variation": null,
+    "best_move_parity": null,
+    "strict_gate": false
+  },
+  "workload": {
+    "valid": true,
+    "source": {
+      "kind": "fixtures",
+      "version": 1,
+      "fixtures": "fixtures.jarl_positions"
+    },
+    "expected_cases": 21,
+    "positions_sha256": "c19a0f75701047831245bcc8245c845fa500ada1f04cbba150c8d18b3c188b1e",
+    "recomputed_identity": "12cf46290c9e0145bc4f49eea8d3e0090d3ff0d765ef6474052fb48cccdffe66",
+    "browser_recomputed_identity": "12cf46290c9e0145bc4f49eea8d3e0090d3ff0d765ef6474052fb48cccdffe66",
+    "identity_verified": true,
+    "custom_file_verified": false
+  },
+  "workload_completion": {
+    "requested_simulations": 32,
+    "native_incomplete_cases": [],
+    "browser_incomplete_cases": [],
+    "native_deadline_limited_cases": [],
+    "browser_deadline_limited_cases": [],
+    "incomplete_cases": [],
+    "deadline_limited_cases": [],
+    "native_complete": true,
+    "browser_complete": true,
+    "complete": true
+  },
+  "completion_classes": {
+    "tablut-opening": "complete/complete",
+    "tablut-midgame": "complete/complete",
+    "tablut-endgame": "complete/complete",
+    "tablut-tactical": "complete/complete",
+    "tablut-king-escape": "immediate_win/immediate_win",
+    "tablut-terminal": "terminal/terminal",
+    "tablut-repetition": "complete/complete",
+    "brandubh-opening": "complete/complete",
+    "brandubh-midgame": "complete/complete",
+    "brandubh-endgame": "complete/complete",
+    "brandubh-tactical": "complete/complete",
+    "brandubh-king-escape": "immediate_win/immediate_win",
+    "brandubh-terminal": "terminal/terminal",
+    "brandubh-repetition": "complete/complete",
+    "copenhagen-opening": "complete/complete",
+    "copenhagen-midgame": "complete/complete",
+    "copenhagen-endgame": "complete/complete",
+    "copenhagen-tactical": "complete/complete",
+    "copenhagen-king-escape": "immediate_win/immediate_win",
+    "copenhagen-terminal": "terminal/terminal",
+    "copenhagen-repetition": "immediate_win/immediate_win"
+  },
+  "performance_comparability": {
+    "equal_work_cases": null,
+    "positions": 21,
+    "comparable": null,
+    "note": "Equal completed simulations and neural requests are required before a latency or throughput comparison is meaningful."
+  },
+  "cases": [
+    {
+      "name": "tablut-opening",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "tablut-midgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "tablut-endgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "tablut-tactical",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "tablut-king-escape",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "immediate_win",
+      "completed_simulations": 0,
+      "native_completion": "immediate_win",
+      "browser_completion": "immediate_win",
+      "exact": true
+    },
+    {
+      "name": "tablut-terminal",
+      "ok": true,
+      "terminal": true,
+      "completion_reason": "terminal",
+      "completed_simulations": 0,
+      "native_completion": "terminal",
+      "browser_completion": "terminal",
+      "exact": true
+    },
+    {
+      "name": "tablut-repetition",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "brandubh-opening",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "brandubh-midgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "brandubh-endgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "brandubh-tactical",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "brandubh-king-escape",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "immediate_win",
+      "completed_simulations": 0,
+      "native_completion": "immediate_win",
+      "browser_completion": "immediate_win",
+      "exact": true
+    },
+    {
+      "name": "brandubh-terminal",
+      "ok": true,
+      "terminal": true,
+      "completion_reason": "terminal",
+      "completed_simulations": 0,
+      "native_completion": "terminal",
+      "browser_completion": "terminal",
+      "exact": true
+    },
+    {
+      "name": "brandubh-repetition",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "copenhagen-opening",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "copenhagen-midgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "copenhagen-endgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "copenhagen-tactical",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 32,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "exact": true
+    },
+    {
+      "name": "copenhagen-king-escape",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "immediate_win",
+      "completed_simulations": 0,
+      "native_completion": "immediate_win",
+      "browser_completion": "immediate_win",
+      "exact": true
+    },
+    {
+      "name": "copenhagen-terminal",
+      "ok": true,
+      "terminal": true,
+      "completion_reason": "terminal",
+      "completed_simulations": 0,
+      "native_completion": "terminal",
+      "browser_completion": "terminal",
+      "exact": true
+    },
+    {
+      "name": "copenhagen-repetition",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "immediate_win",
+      "completed_simulations": 0,
+      "native_completion": "immediate_win",
+      "browser_completion": "immediate_win",
+      "exact": true
+    }
+  ],
+  "authoritative": false,
+  "acceptance": true,
+  "ok": true
+}

@@ -65,6 +65,7 @@ Phase 3 is not complete.
 | 3A | Validation, profiling and initial transport optimization | Not started | **Merged; implementation and software validation complete** | [Phase 3 validation](../validation/browser-analysis-phase3.md), `*-phase3a.json` | Competitive-model/device strength gates remain external |
 | 3B | Caching and batching | Not started | **Merged; software validated within scope** | [Phase 3B validation](../validation/browser-analysis-phase3b.md), `*-phase3b.json` | Direct/cache/batching opt-in; single-tree batching/subtree reuse deferred; sustained memory open |
 | 3C | Competitive strength and stability | Not started | **In progress: 3C-A validation platform; external gates blocked** | [Phase 3C-A validation](../validation/browser-analysis-phase3c.md), [device matrix](../validation/device-matrix-phase3c.md) | Competitive checkpoints, tournaments, verified WebGPU, physical desktop/mobile, sustained memory, playing strength |
+| 3C-B | Competitive measurements, performance and stability | Not started | **Partial: software + structural measurements; external gates blocked** | [Phase 3C-B report](../validation/browser-analysis-phase3c-b.md) | Competitive models, physical devices, verified GPU, full tournaments, memory acceptance |
 | 4 | Production security and runtime integration | Not started | Not started | — | CSP, model distribution, offline storage, memory budgets |
 | 5 | Production frontend integration | Not started | Not started | — | Deferred feature boundary, bundle budgets, design tokens |
 | 6 | Final acceptance and controlled rollout | Not started | Not started | — | All external gates |
@@ -537,6 +538,34 @@ Phase 3 is not complete.
 - **Explicit non-goals:** no single-tree batching, subtree reuse, production
   frontend, or playing-strength claim without actual tournament evidence.
 
+## Phase 3C-B — Competitive measurements and readiness
+
+- **Status:** Software and structural measurements complete; external acceptance
+  gates blocked.
+- **Delivered:** V1 shared provider-evidence validation; executable native neural
+  MCTS tournament adapter; sustained browser workload driver; cache-growth
+  validator correction; consolidated owner runbook; versioned 3C-B evidence.
+- **Measured:** 32×2 synthetic structural-representative models for Brandubh,
+  Tablut and Copenhagen; Level A 21/21 exact; Level B 7/7 best-move parity per
+  ruleset; fixed-work 128–1,024 and fixed-time 0.5–5 s benchmarks; browser/native
+  equal-work ratios; optimization comparisons; structural tournaments; real
+  10/30-minute memory profiles and lifecycle runs; Copenhagen depth-5 reassessment.
+- **Findings:** 1,024 simulations approximately met only for Brandubh (2.0 s);
+  Tablut 2.7 s and Copenhagen 3.7 s miss the aspirational target. Relay remains
+  default; direct transport was slower; cache benefit is workload-dependent;
+  batching was slower on CPU/WASM. The 30-minute profile showed a bounded JS-heap
+  step (9.5→19.6 MB) with stable process RSS but failed the declared growth
+  threshold.
+- **Blocked:** competitive trained checkpoints, meaningful playing-strength
+  samples, physical desktop/mobile/Safari/Firefox, verified GPU execution,
+  sustained-memory acceptance (WASM capacity unavailable/JS-heap threshold),
+  Windows physical cleanup verification and Copenhagen depth-5 acceptance.
+- **Recommendation:** keep depth 5 blocked for Copenhagen; if a practical target
+  is required, evaluate adaptive iterative deepening in a separately approved
+  change. Phase 4 production integration is not started.
+- **Evidence:** [Phase 3C-B report](../validation/browser-analysis-phase3c-b.md),
+  `phase3cb-*` evidence files.
+
 ## Phase 4 — Production security and runtime integration (subsequent PRs)
 
 - **Status:** Not started.
@@ -844,6 +873,8 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-24 | Phase 3C-B executable-workflow correction: compatible extended benchmark commands, reproducible 50-pair opening corpora, workload failure/accounting binding, nonterminal sustained selection, validated native neural artifacts, telemetry-only progress/ready handshake, lifecycle mode coverage and driver regressions. Historical memory outcomes preserved; 30-minute JS-heap step remains an unresolved investigation. |
+| 2026-11-24 | Phase 3C-B: shared provider-evidence validation, native neural tournament adapter, sustained workload driver, 32×2 structural parity/benchmark measurements, real 10/30-minute memory profiles, optimization comparisons, device/GPU blockers and Copenhagen depth-5 recommendation. External gates remain blocked. |
 | 2026-11-24 | Phase 3C-A ownership/evidence correction: token-verified process ownership resistant to group-id reuse, actual browser search provider/normalized-settings evidence, and eviction-independent lifecycle-event aggregates with reset handling. External gates remain blocked. |
 | 2026-11-24 | Phase 3C-A final correction: captured process-group cleanup independent of the parent, absolute-ply execution evidence, mode-aware fixed-work/fixed-time agent execution and placement binding, observation-window boundary memory gaps, and acceptance-window telemetry identity/progress/event binding. External gates remain blocked. |
 | 2026-11-24 | Phase 3C-A fourth review correction: live timestamp-aligned memory telemetry with separate warmup/acceptance windows and per-metric coverage/gap policy; process-tree shutdown before stream cleanup; training-provenance/architecture/competitive-workload policy; versioned agent handshake and per-move evidence; physical/emulated device provenance and runtime-registered GPU evidence. External gates remain blocked. |

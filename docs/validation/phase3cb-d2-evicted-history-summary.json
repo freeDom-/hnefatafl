@@ -1,0 +1,26 @@
+{
+  "kind": "browser-analysis-memory-profile-evicted-history-summary",
+  "schema": 1,
+  "actual_report": "phase3cb-d2-evicted-history-profile.json.gz",
+  "total_transitions": 1100,
+  "retained_transitions": 1024,
+  "first_retained_sequence": 77,
+  "truncated": true,
+  "sample_timeline_anchors": 203,
+  "samples": 203,
+  "final_model": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "validation": {
+    "status": "partial",
+    "structural_ok": true,
+    "acceptance_ok": false,
+    "partial_reasons": [
+      "model identities before the retained transition history are sample-anchored but the evicted interval is not independently verifiable",
+      "actual parent-observed process completion evidence is missing"
+    ],
+    "failures": [
+      "partial measurement: model identities before the retained transition history are sample-anchored but the evicted interval is not independently verifiable",
+      "partial measurement: actual parent-observed process completion evidence is missing"
+    ]
+  },
+  "authoritative": false
+}

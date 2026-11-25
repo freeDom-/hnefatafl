@@ -105,3 +105,64 @@ def test_device_malformed_fields_fail_safely(path, value):
     target[path[-1]] = value
     result = de.validate_report(report)
     assert result["ok"] is False
+
+
+def _schema3_report():
+    from test_memory_validation import _schema3_report as build
+
+    return build()
+
+
+@pytest.mark.parametrize(
+    "path,value",
+    [
+        (("workload_telemetry", "workload_failures"), "3"),
+        (("workload_telemetry", "cache_invalidation_failures"), -1),
+        (("workload_telemetry", "multi_request_batches"), True),
+        (("workload_telemetry", "batch_successful_rounds"), 1.5),
+        (("workload_telemetry", "peak_total_workers"), float("nan")),
+        (("workload_telemetry", "cleanup_failures"), []),
+        (("workload_telemetry", "model_transitions"), [{"sequence": "one"}]),
+        (("workload_telemetry", "model_transition_history"), {"total": True}),
+        (("workload_telemetry", "acceptance_window", "counters"), []),
+        (("workload_telemetry", "acceptance_window", "counters", "batches"), "4"),
+        (("workload_telemetry", "final_session", "workload_complete"), "true"),
+        (("workload_telemetry", "final_session", "workload_exit_status"), True),
+        (("workload_telemetry", "final_session", "cleanup_complete"), None),
+        (("workload_telemetry", "final_session", "counters"), []),
+        (("workload_telemetry", "final_session", "counters", "peak_total_workers"), -1),
+        (("workload_telemetry", "process_observation", "premature_termination"), "no"),
+        (("approved_model_sha256",), [None]),
+        (("samples", 2, "multi_request_batches"), "4"),
+        (("samples", 2, "peak_total_workers"), False),
+        (("samples", 2, "workload_complete"), 1),
+    ],
+)
+def test_schema3_workload_fields_fail_without_raising(path, value):
+    report = _schema3_report()
+    target = report
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    result = mv.validate_report(report)
+    assert isinstance(result, dict)
+    assert result["ok"] is False
+
+
+def test_model_transition_fields_are_typed_before_set_operations():
+    report = _schema3_report()
+    report["profile"] = "model-replacement"
+    report["approved_model_sha256"] = ["a" * 64, "b" * 64]
+    report["workload_telemetry"]["model_transitions"] = [
+        {
+            "sequence": 1,
+            "from": [],
+            "to": {},
+            "timestamp_ms": "later",
+            "recovered": "yes",
+            "cache_invalidated": "yes",
+        }
+    ]
+    result = mv.validate_report(report)
+    assert result["ok"] is False
+    assert result["failures"]

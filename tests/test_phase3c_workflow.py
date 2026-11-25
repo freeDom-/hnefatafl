@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import pytest
 import sys
 from pathlib import Path
 
@@ -131,6 +132,54 @@ def tournament_schema():
     return tournament.SCHEMA
 
 
+PROFILE_MODES = {
+    "sustained-10m": "repeated",
+    "sustained-30m": "repeated",
+    "cancel-restart": "cancel-restart",
+    "model-reload": "model-reload",
+    "worker-replacement": "worker-replacement",
+    "independent-batching": "batching",
+    "model-replacement": "model-replacement",
+    "client-disposal": "client-disposal",
+    "cache-churn": "cache-churn",
+}
+
+
+def _attach_simulated_parent_completion(report, actual=0):
+    """Test-only parent-side evidence; production evidence comes from the finalizer."""
+    final = (report.get("workload_telemetry") or {}).get("final_session") or {}
+    expected = report.get("expected_identity") or {}
+    root = report.get("root_process") or {}
+    identity = root.get("identity")
+    if not isinstance(identity, dict) or not isinstance(final, dict):
+        return report
+    report["completion_evidence"] = {
+        "kind": "browser-sustained-workload-completion",
+        "schema": 1,
+        "actual_process_exit_status": actual,
+        "reported_exit_status": final.get("workload_exit_status"),
+        "exit_status_consistent": actual == final.get("workload_exit_status"),
+        "pid": root.get("pid"),
+        "process_identity": identity,
+        "session_id": expected.get("session_id"),
+        "workload": expected.get("workload"),
+        "profile": report.get("profile"),
+        "mode": PROFILE_MODES.get(report.get("profile")),
+        "model_sha256": final.get("model_sha256"),
+        "summary_sha256": "f" * 64,
+        "summary_reconciled": True,
+        "finalized_at_ms": final.get("recorded_at_ms") or 0,
+        "source": "parent-wait",
+    }
+    observation = (report.get("workload_telemetry") or {}).get("process_observation")
+    if isinstance(observation, dict):
+        observation["actual_process_exit_status"] = actual
+        observation["actual_process_exit_status_source"] = "parent-wait"
+    final["actual_process_exit_status"] = actual
+    final["actual_process_exit_status_source"] = "parent-wait"
+    return report
+
+
 def _start_workload(tmp_path, *, telemetry_args=(), duration=3.0):
     import subprocess as sp
 
@@ -172,8 +221,7 @@ def _collect(tmp_path, workload_pid, telemetry, progress, **overrides):
         str(overrides.get("interval", 0.1)),
         "--telemetry-file",
         str(telemetry),
-        "--progress-file",
-        str(progress),
+        *(["--progress-file", str(progress)] if progress is not None else []),
         "--telemetry-session-id",
         overrides.get("session", "session-a"),
         "--telemetry-model-sha256",
@@ -184,8 +232,21 @@ def _collect(tmp_path, workload_pid, telemetry, progress, **overrides):
         "--output",
         str(output),
     ]
+    if overrides.get("profile", "worker-replacement") == "model-replacement":
+        command.extend(
+            [
+                "--approved-model-sha256",
+                "a" * 64,
+                "--approved-model-sha256",
+                overrides.get("replacement_model", "b" * 64),
+            ]
+        )
     result = sp.run(command, capture_output=True, text=True, timeout=60)
-    return result, json.loads(output.read_text()) if output.exists() else None
+    if output.exists():
+        report = json.loads(output.read_text())
+        _attach_simulated_parent_completion(report)
+        return result, report
+    return result, None
 
 
 def test_live_memory_collection_separates_warmup_and_acceptance(tmp_path):
@@ -408,7 +469,7 @@ def test_telemetry_missing_identity_fields_after_establishment(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert report["telemetry"]["identity_mismatch"] >= 1
     measured = [s for s in report["samples"] if s["timestamp_ms"] >= 400]
-    assert any(s.get("completed_requests_source") == "progress-file" for s in measured)
+    assert any(s.get("completed_requests_source") == "telemetry-missing" for s in measured)
     assert report["progress_consistency"]["verified"] is False
 
     if str(SPIKE) not in sys.path:
@@ -657,3 +718,215 @@ def test_initial_mismatched_record_does_not_block_later_expected_session(tmp_pat
     assert record["session_id"] == "right-session"
     assert stream.identity["session_id"] == "right-session"
     assert stream.identity_mismatch == 1
+
+
+def test_telemetry_only_progress_needs_no_compatibility_file(tmp_path):
+    writer, telemetry, progress = _start_workload(tmp_path, duration=2.0)
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            warmup=0.3,
+            duration=0.9,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    measured = [s for s in report["samples"] if s["timestamp_ms"] >= 300]
+    assert measured
+    assert all(s.get("completed_requests_source") == "telemetry" for s in measured)
+    assert report["progress_consistency"]["verified"] is True
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["acceptance_ok"] is True, validation["failures"]
+
+
+def test_workload_failures_block_memory_acceptance(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path, telemetry_args=("--workload-failures", "3"), duration=2.5
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            progress,
+            warmup=0.4,
+            duration=0.9,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert report["workload_telemetry"]["workload_failures"] > 0
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["structural_ok"] is True
+    assert validation["acceptance_ok"] is False
+    assert any("failed search" in reason for reason in validation["partial_reasons"])
+
+
+def test_model_replacement_transitions_are_authorized_and_bound(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path,
+        telemetry_args=(
+            "--transition-at",
+            "5",
+            "--transition-back-at",
+            "12",
+            "--to-model-sha256",
+            "b" * 64,
+        ),
+        duration=3.0,
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            profile="model-replacement",
+            warmup=0.2,
+            duration=1.2,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    transitions = report["workload_telemetry"]["model_transitions"]
+    assert [entry["from"] for entry in transitions] == ["a" * 64, "b" * 64]
+    assert [entry["to"] for entry in transitions] == ["b" * 64, "a" * 64]
+    assert report["telemetry"]["identity"]["model_sha256"] == "a" * 64
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["structural_ok"] is True, validation["failures"]
+    assert validation["acceptance_ok"] is True, validation["partial_reasons"]
+
+
+def test_unauthorized_model_change_is_rejected_for_ordinary_profiles(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path,
+        telemetry_args=("--transition-at", "4", "--to-model-sha256", "b" * 64),
+        duration=2.0,
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            progress,
+            profile="cancel-restart",
+            warmup=0.2,
+            duration=0.8,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0
+    assert report["telemetry"]["identity_mismatch"] >= 1
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    assert mv.validate_report(report)["acceptance_ok"] is False
+
+
+def test_model_transition_cache_invalidation_failure_blocks_acceptance(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path,
+        telemetry_args=("--transition-at", "5", "--to-model-sha256", "b" * 64),
+        duration=3.0,
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            profile="model-replacement",
+            warmup=0.2,
+            duration=1.2,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0
+    for transition in report["workload_telemetry"]["model_transitions"]:
+        transition["cache_invalidated"] = False
+    report["features"]["inference_cache"] = True
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["acceptance_ok"] is False
+    assert any("cache" in reason.lower() for reason in validation["partial_reasons"])
+
+
+@pytest.mark.parametrize(
+    "profile,telemetry_args,workload_overrides",
+    [
+        ("client-disposal", ("--client-disposals", "2"), {"client_disposals": 2}),
+        ("cache-churn", ("--cache-evictions", "3"), {"cache_evictions": 3}),
+        (
+            "independent-batching",
+            (
+                "--batches",
+                "4",
+                "--multi-request-batches",
+                "4",
+                "--batch-successful-rounds",
+                "4",
+                "--observed-max-batch",
+                "2",
+            ),
+            {
+                "batches": 4,
+                "multi_request_batches": 4,
+                "batch_successful_rounds": 4,
+                "observed_max_batch": 2,
+            },
+        ),
+    ],
+)
+def test_lifecycle_profiles_collect_and_validate(
+    tmp_path, profile, telemetry_args, workload_overrides
+):
+    writer, telemetry, progress = _start_workload(
+        tmp_path, telemetry_args=telemetry_args, duration=2.5
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            profile=profile,
+            warmup=0.3,
+            duration=1.0,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for field, value in workload_overrides.items():
+        assert report["workload_telemetry"][field] == value
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["structural_ok"] is True, validation["failures"]
+    assert validation["acceptance_ok"] is True

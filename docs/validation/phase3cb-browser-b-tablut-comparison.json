@@ -1,0 +1,182 @@
+{
+  "kind": "mcts-parity-comparison",
+  "schema": 4,
+  "level": "b",
+  "native_runtime": "native-cpython",
+  "browser_runtime": "browser-pyodide",
+  "failures": [],
+  "notes": [],
+  "error": null,
+  "execution_validity": {
+    "ok": true,
+    "positions": 7,
+    "case_failures": []
+  },
+  "deterministic_parity": {
+    "required": false,
+    "exact_cases": 0,
+    "positions": 7,
+    "ok": null
+  },
+  "numerical_comparison": {
+    "required": true,
+    "positions": 7,
+    "best_move_matches": 7,
+    "divergent_cases": [],
+    "max_value_delta": 8.41100700199604e-09,
+    "max_visit_total_variation": 0.0,
+    "best_move_parity": true,
+    "strict_gate": false
+  },
+  "workload": {
+    "valid": true,
+    "source": {
+      "kind": "fixtures",
+      "version": 1,
+      "fixtures": "fixtures.jarl_positions"
+    },
+    "expected_cases": 7,
+    "positions_sha256": "9605321a57394fb038dc13df2233a08df4aef1aa14d65aff24f0230f9e2f67b5",
+    "recomputed_identity": "78a4bd4b7a1459c5c93245762c49dfebca7073369c970f600663dadbe03a988b",
+    "browser_recomputed_identity": "78a4bd4b7a1459c5c93245762c49dfebca7073369c970f600663dadbe03a988b",
+    "identity_verified": true,
+    "custom_file_verified": false
+  },
+  "workload_completion": {
+    "requested_simulations": 64,
+    "native_incomplete_cases": [],
+    "browser_incomplete_cases": [],
+    "native_deadline_limited_cases": [],
+    "browser_deadline_limited_cases": [],
+    "incomplete_cases": [],
+    "deadline_limited_cases": [],
+    "native_complete": true,
+    "browser_complete": true,
+    "complete": true
+  },
+  "completion_classes": {
+    "tablut-opening": "complete/complete",
+    "tablut-midgame": "complete/complete",
+    "tablut-endgame": "complete/complete",
+    "tablut-tactical": "complete/complete",
+    "tablut-king-escape": "immediate_win/immediate_win",
+    "tablut-terminal": "terminal/terminal",
+    "tablut-repetition": "complete/complete"
+  },
+  "performance_comparability": {
+    "equal_work_cases": 5,
+    "positions": 7,
+    "comparable": false,
+    "note": "Equal completed simulations and neural requests are required before a latency or throughput comparison is meaningful."
+  },
+  "cases": [
+    {
+      "name": "tablut-opening",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 64,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "best_move_match": true,
+      "value_delta": 7.130438461899757e-10,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    },
+    {
+      "name": "tablut-midgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 64,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "best_move_match": true,
+      "value_delta": 4.089088179171085e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    },
+    {
+      "name": "tablut-endgame",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 64,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "best_move_match": true,
+      "value_delta": 8.41100700199604e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    },
+    {
+      "name": "tablut-tactical",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 64,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "best_move_match": true,
+      "value_delta": 1.724401954561472e-09,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    },
+    {
+      "name": "tablut-king-escape",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "immediate_win",
+      "completed_simulations": 0,
+      "native_completion": "immediate_win",
+      "browser_completion": "immediate_win",
+      "best_move_match": true,
+      "value_delta": 0.0,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": false
+    },
+    {
+      "name": "tablut-terminal",
+      "ok": true,
+      "terminal": true,
+      "completion_reason": "terminal",
+      "completed_simulations": 0,
+      "native_completion": "terminal",
+      "browser_completion": "terminal",
+      "best_move_match": true,
+      "value_delta": 0.0,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": false
+    },
+    {
+      "name": "tablut-repetition",
+      "ok": true,
+      "terminal": false,
+      "completion_reason": "simulations",
+      "completed_simulations": 64,
+      "native_completion": "complete",
+      "browser_completion": "complete",
+      "best_move_match": true,
+      "value_delta": 7.130438461899757e-10,
+      "visit_total_variation": 0.0,
+      "completed_simulations_delta": 0,
+      "neural_requests_delta": 0,
+      "equal_work": true
+    }
+  ],
+  "authoritative": false,
+  "acceptance": true,
+  "ok": true
+}

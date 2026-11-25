@@ -826,3 +826,41 @@ def test_reduced_or_incompatible_benchmark_workloads_are_rejected():
             level="representative-architecture",
         )
     assert any("workload" in failure for failure in failures)
+
+
+def test_competitive_manifest_helper_builds_schema_compatible_structural_manifest(tmp_path):
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    checkpoint, export = _exported_checkpoint(tmp_path, channels=4, blocks=0, name="manifest-model")
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    for name in ("native-a.json", "browser-a.json"):
+        (evidence / name).write_text("{}")
+    output = evidence / "manifest.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SPIKE / "competitive_manifest.py"),
+            "--checkpoint",
+            str(checkpoint),
+            "--export-dir",
+            str(export),
+            "--evidence-dir",
+            str(evidence),
+            "--validation-level",
+            "structural-smoke",
+            "--policy",
+            "structural",
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    loaded = cv._load_manifest(output)
+    assert loaded["level"] == "structural-smoke"
+    manifest = json.loads(output.read_text())
+    assert manifest["provenance"]["checkpoint_sha256"]
+    assert "training" not in manifest["provenance"]

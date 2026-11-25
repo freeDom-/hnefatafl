@@ -18,6 +18,7 @@ and replace the child process.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -90,6 +91,67 @@ AGENT_MODES = {
     "browser-neural": ("fixed-work", "fixed-time"),
     "browser-jarl": ("fixed-work", "fixed-time"),
 }
+
+
+def _provider_evidence_failures(
+    *,
+    requested,
+    observed,
+    reported_requested,
+    inferences,
+    gpu_verified,
+    provider_observed=None,
+) -> list[str]:
+    """Shared consistency checks for live and saved provider observations."""
+    failures: list[str] = []
+    if type(inferences) is not int or inferences < 0:
+        return ["inference accounting is missing or invalid"]
+    if type(gpu_verified) is not bool:
+        failures.append("GPU verification flag must be a strict boolean")
+        gpu_verified = False
+    if provider_observed is not None and type(provider_observed) is not bool:
+        failures.append("provider_observed must be a strict boolean")
+    if requested in ("wasm", "webgpu"):
+        if provider_observed is False and observed is not None:
+            failures.append("provider observation contradicts provider_observed=false")
+        elif provider_observed is True and observed is None:
+            failures.append("provider observation contradicts provider_observed=true")
+        if inferences == 0:
+            if observed is not None:
+                failures.append("placement was reported without neural inference")
+            if reported_requested not in (None, requested):
+                failures.append("requested provider contradicts the declared configuration")
+            if gpu_verified:
+                failures.append("GPU execution was claimed without neural inference")
+        else:
+            if reported_requested != requested:
+                failures.append("requested provider contradicts the declared configuration")
+            if requested == "wasm":
+                if observed != "wasm":
+                    failures.append("observed placement is not WASM")
+                    if observed == "cpu-fallback":
+                        failures.append("CPU fallback cannot satisfy a WASM observation")
+                if gpu_verified:
+                    failures.append("WASM observation cannot claim verified GPU execution")
+            else:
+                if observed in ("wasm", "cpu-fallback"):
+                    failures.append("WebGPU request silently fell back to WASM or CPU execution")
+                elif observed not in (
+                    "webgpu-session-unverified",
+                    "webgpu-mixed",
+                    "webgpu-session-verified",
+                ):
+                    failures.append("observed placement is not a WebGPU session placement")
+                if gpu_verified and observed != "webgpu-session-verified":
+                    failures.append(
+                        "unverified or mixed WebGPU cannot claim verified GPU execution"
+                    )
+    else:
+        if observed != requested:
+            failures.append("observed provider contradicts the declared provider")
+        if gpu_verified:
+            failures.append("non-WebGPU provider cannot claim verified GPU execution")
+    return failures
 
 
 class AgentTimeoutError(TimeoutError):
@@ -264,9 +326,7 @@ def _terminate_process_tree(
                 "member(s); left untouched"
             )
         for member_pid, member_start in owned:
-            _signal_member(
-                member_pid, member_start, signal.SIGTERM, process_group, owner_token
-            )
+            _signal_member(member_pid, member_start, signal.SIGTERM, process_group, owner_token)
         # Wait for graceful exit even when the immediate parent has already gone.
         grace_deadline = min(deadline, time.monotonic() + PROCESS_KILL_GRACE)
         while time.monotonic() < grace_deadline:
@@ -275,9 +335,7 @@ def _terminate_process_tree(
             time.sleep(0.02)
         remaining = _owned_group_members(process_group, owner_token, root_start_time)
         for member_pid, member_start in remaining:
-            _signal_member(
-                member_pid, member_start, signal.SIGKILL, process_group, owner_token
-            )
+            _signal_member(member_pid, member_start, signal.SIGKILL, process_group, owner_token)
         # Escalation must not depend on the immediate parent still being alive.
         while time.monotonic() < deadline:
             if not _owned_group_members(process_group, owner_token, root_start_time):
@@ -426,14 +484,18 @@ class JsonProcessAgent:
             ):
                 self._cleanup_failures.append(failure)
         for writer in writers:
-            writer.join(timeout=max(0.0, min(PROCESS_KILL_GRACE, cleanup_deadline - time.monotonic())))
+            writer.join(
+                timeout=max(0.0, min(PROCESS_KILL_GRACE, cleanup_deadline - time.monotonic()))
+            )
         stuck_writers = [writer for writer in writers if writer.is_alive()]
         if stuck_writers:
             self._cleanup_failures.append(
                 f"{len(stuck_writers)} writer thread(s) did not terminate within the allowance"
             )
         for thread in threads:
-            thread.join(timeout=max(0.0, min(PROCESS_KILL_GRACE, cleanup_deadline - time.monotonic())))
+            thread.join(
+                timeout=max(0.0, min(PROCESS_KILL_GRACE, cleanup_deadline - time.monotonic()))
+            )
         stuck_threads = [thread for thread in threads if thread.is_alive()]
         if stuck_threads:
             self._cleanup_failures.append(
@@ -556,9 +618,7 @@ class JsonProcessAgent:
                 entry = responses.get(timeout=remaining)
             except queue.Empty:
                 self._stop_generation()
-                raise AgentProtocolError(
-                    "agent did not send an initialization handshake"
-                ) from None
+                raise AgentProtocolError("agent did not send an initialization handshake") from None
             if not isinstance(entry, dict) or entry.get("generation") != generation:
                 self._stop_generation()
                 raise AgentConfigurationError("agent sent a stale handshake generation")
@@ -576,9 +636,7 @@ class JsonProcessAgent:
                 raise AgentConfigurationError("agent did not begin with a protocol handshake")
             if payload.get("protocol") != PROTOCOL_VERSION:
                 self._stop_generation()
-                raise AgentConfigurationError(
-                    f"agent handshake protocol is not {PROTOCOL_VERSION}"
-                )
+                raise AgentConfigurationError(f"agent handshake protocol is not {PROTOCOL_VERSION}")
             agent = payload.get("agent")
             if not isinstance(agent, dict):
                 self._stop_generation()
@@ -758,52 +816,17 @@ class JsonProcessAgent:
         requested = evidence.get("provider_requested")
         expected_provider = self.expected_identity.get("provider")
         inferences = evidence.get("neural_inferences")
-        if type(inferences) is not int or inferences < 0:
-            raise self._fail("agent evidence lacks neural inference accounting")
         gpu_verified = evidence.get("gpu_execution_verified")
-        if gpu_verified not in (True, False, None):
-            raise self._fail("agent evidence GPU verification flag is invalid")
-        if expected_provider in ("wasm", "webgpu"):
-            if inferences == 0:
-                # No inference occurred: do not invent a provider observation.
-                if provider is not None:
-                    raise self._fail(
-                        "agent evidence reported placement without neural inference"
-                    )
-                if requested not in (None, expected_provider):
-                    raise self._fail(
-                        "agent evidence requested provider does not match the handshake"
-                    )
-                if gpu_verified is True:
-                    raise self._fail("agent evidence claims GPU execution without inference")
-            else:
-                if requested != expected_provider:
-                    raise self._fail(
-                        "agent evidence requested provider does not match the handshake"
-                    )
-                if provider == "wasm" and expected_provider == "webgpu":
-                    raise self._fail("agent evidence silently fell back from WebGPU to WASM")
-                if provider == "cpu-fallback":
-                    raise self._fail("agent evidence reports an explicit CPU fallback")
-                allowed = (
-                    {"wasm"}
-                    if expected_provider == "wasm"
-                    else {
-                        "webgpu-session-unverified",
-                        "webgpu-mixed",
-                        "webgpu-session-verified",
-                    }
-                )
-                if provider not in allowed:
-                    raise self._fail(
-                        "agent evidence placement is not the requested provider"
-                    )
-                if gpu_verified is True and provider != "webgpu-session-verified":
-                    raise self._fail(
-                        "agent evidence cannot claim verified GPU execution for its placement"
-                    )
-        elif provider != expected_provider:
-            raise self._fail("agent evidence provider does not match the handshake")
+        provider_failures = _provider_evidence_failures(
+            requested=expected_provider,
+            observed=provider,
+            reported_requested=requested,
+            inferences=inferences,
+            gpu_verified=gpu_verified,
+            provider_observed=evidence.get("provider_observed"),
+        )
+        if provider_failures:
+            raise self._fail("agent evidence: " + provider_failures[0])
         model_digest = evidence.get("model_sha256")
         expected_digest = self.expected_identity.get("model_sha256")
         if expected_digest is not None and model_digest != expected_digest:
@@ -1083,6 +1106,7 @@ def run_paired_openings(
     agent_config: dict | None = None,
     evidence_class: str = "structural",
     mode: str = "fixed-work",
+    openings_source: dict | None = None,
 ) -> dict:
     if evidence_class not in ("structural", "playing-strength"):
         raise ValueError("evidence_class must be structural or playing-strength")
@@ -1174,6 +1198,7 @@ def run_paired_openings(
         "agents": {"a": labels[0], "b": labels[1]},
         "agent_config": config,
         "agent_handshakes": handshakes,
+        "openings_source": openings_source,
         "settings": settings,
         "openings": [
             {
@@ -1202,6 +1227,7 @@ def run_paired_openings(
         "agents": {"a": labels[0], "b": labels[1]},
         "agent_config": config,
         "agent_handshakes": handshakes,
+        "openings_source": openings_source,
         "settings": settings,
         "openings": [entry["name"] for entry in validated_openings],
         "games": games,
@@ -1531,54 +1557,15 @@ def _validate_execution_evidence(
             failures.append(f"{label}: execution evidence seed does not match the move seed")
         if observation.get("algorithm") != entry.get("algorithm"):
             failures.append(f"{label}: execution evidence algorithm mismatch")
-        requested_provider = entry.get("provider")
-        reported_requested = observation.get("provider_requested")
-        observed_provider = observation.get("provider")
-        inferences = observation.get("neural_inferences")
-        if type(inferences) is not int or inferences < 0:
-            failures.append(f"{label}: execution evidence inference accounting is missing")
-            inferences = None
-        if requested_provider in ("wasm", "webgpu"):
-            if inferences == 0:
-                if observed_provider is not None:
-                    failures.append(
-                        f"{label}: execution evidence invented placement without inference"
-                    )
-                if reported_requested not in (None, requested_provider):
-                    failures.append(
-                        f"{label}: execution evidence requested provider mismatch"
-                    )
-                if observation.get("gpu_execution_verified") is True:
-                    failures.append(
-                        f"{label}: execution evidence claims GPU work without inference"
-                    )
-            elif inferences is not None:
-                if reported_requested != requested_provider:
-                    failures.append(
-                        f"{label}: execution evidence requested provider mismatch"
-                    )
-                if requested_provider == "webgpu":
-                    if observed_provider not in (
-                        "webgpu-session-unverified",
-                        "webgpu-mixed",
-                        "webgpu-session-verified",
-                    ):
-                        failures.append(
-                            f"{label}: execution evidence did not observe a WebGPU placement"
-                        )
-                    if (
-                        observation.get("gpu_execution_verified") is True
-                        and observed_provider != "webgpu-session-verified"
-                    ):
-                        failures.append(
-                            f"{label}: execution evidence claims unverified GPU execution"
-                        )
-                elif observed_provider != requested_provider:
-                    failures.append(
-                        f"{label}: execution evidence provider mismatch"
-                    )
-        elif observed_provider != requested_provider:
-            failures.append(f"{label}: execution evidence provider mismatch")
+        provider_failures = _provider_evidence_failures(
+            requested=entry.get("provider"),
+            observed=observation.get("provider"),
+            reported_requested=observation.get("provider_requested"),
+            inferences=observation.get("neural_inferences"),
+            gpu_verified=observation.get("gpu_execution_verified"),
+            provider_observed=observation.get("provider_observed"),
+        )
+        failures.extend(f"{label}: execution evidence {message}" for message in provider_failures)
         model = entry.get("model")
         if isinstance(model, dict):
             if observation.get("model_sha256") != model.get("onnx_sha256"):
@@ -1616,22 +1603,16 @@ def _validate_execution_evidence(
                             f"{label}: fixed-work alpha-beta did not reach its depth limit"
                         )
                     elif recorded_depth != entry.get("depth"):
-                        failures.append(
-                            f"{label}: fixed-work alpha-beta completed unequal depth"
-                        )
+                        failures.append(f"{label}: fixed-work alpha-beta completed unequal depth")
             elif mode == "fixed-time":
                 if type(recorded_depth) is not int or recorded_depth < 1:
-                    failures.append(
-                        f"{label}: fixed-time alpha-beta completed no usable depth"
-                    )
+                    failures.append(f"{label}: fixed-time alpha-beta completed no usable depth")
                 if reason == "deadline" and recorded_depth == entry.get("depth"):
                     failures.append(
                         f"{label}: deadline reason contradicts a completed maximum depth"
                     )
                 if reason == "completed" and recorded_depth != entry.get("depth"):
-                    failures.append(
-                        f"{label}: completed reason contradicts the recorded depth"
-                    )
+                    failures.append(f"{label}: completed reason contradicts the recorded depth")
         else:
             if reason not in ("simulations", "deadline", "immediate_win", "terminal"):
                 failures.append(f"{label}: MCTS completion reason is invalid")
@@ -1651,9 +1632,7 @@ def _validate_execution_evidence(
                         failures.append(f"{label}: fixed-work MCTS completed unequal work")
             elif mode == "fixed-time":
                 if reason == "simulations" and completed != settings["iterations"]:
-                    failures.append(
-                        f"{label}: simulation-era reason contradicts completed work"
-                    )
+                    failures.append(f"{label}: simulation-era reason contradicts completed work")
                 if reason == "deadline" and completed > settings["iterations"]:
                     failures.append(f"{label}: deadline completion exceeds the ceiling")
         elapsed = observation.get("elapsed_ms")
@@ -1716,6 +1695,10 @@ def validate_report(report: dict) -> dict:
             report.get("agent_handshakes")
         ):
             fail("manifest agent handshakes do not match report")
+        if _canonical(manifest.get("openings_source")) != _canonical(
+            report.get("openings_source")
+        ):
+            fail("manifest opening corpus identity does not match report")
         if _canonical(manifest.get("settings")) != _canonical(report.get("settings")):
             fail("manifest settings do not match report")
         manifest_openings = manifest.get("openings")
@@ -1788,7 +1771,9 @@ def validate_report(report: dict) -> dict:
         mode,
     )
     _validate_agent_handshakes(report.get("agent_config"), report.get("agent_handshakes"), failures)
-    manifest_openings = manifest.get("openings") if isinstance(manifest.get("openings"), list) else []
+    manifest_openings = (
+        manifest.get("openings") if isinstance(manifest.get("openings"), list) else []
+    )
     opening_by_name = {
         entry.get("name"): entry
         for entry in manifest_openings
@@ -1920,9 +1905,7 @@ def validate_report(report: dict) -> dict:
                 fail(f"{label}: starting ply does not match the opening state")
             raw_opening_state = game.get("opening_state")
             actual_history = (
-                raw_opening_state.get("history")
-                if isinstance(raw_opening_state, dict)
-                else None
+                raw_opening_state.get("history") if isinstance(raw_opening_state, dict) else None
             )
             if expected_state.get("history") != actual_history:
                 fail(f"{label}: opening repetition history differs")
@@ -1978,6 +1961,25 @@ def validate_report(report: dict) -> dict:
                 fail(f"{label}: uncompleted game reason is not a move limit")
             if max_plies and plies != max_plies:
                 fail(f"{label}: move-limited game did not reach the recorded move limit")
+    source = report.get("openings_source")
+    if source is not None:
+        if not isinstance(source, dict):
+            fail("openings_source must be an object")
+        else:
+            if source.get("count") != len(openings):
+                fail("openings_source count does not match the tournament openings")
+            if source.get("ruleset") != ruleset:
+                fail("openings_source ruleset does not match the tournament")
+            if source.get("kind") == "corpus":
+                generator = source.get("generator")
+                if not isinstance(generator, dict) or not _positive_int(
+                    generator.get("seed")
+                ):
+                    fail("corpus opening generator seed is missing")
+                if not _hex64(source.get("corpus_sha256")):
+                    fail("corpus opening digest is missing or malformed")
+            elif source.get("kind") not in ("fixtures", "file"):
+                fail("openings_source kind is unsupported")
     if len(set(ids)) != len(ids):
         fail("duplicate game identifiers")
     expected_pairs = {
@@ -2066,7 +2068,7 @@ def _read_json(path: Path) -> dict:
     return value
 
 
-def _load_openings(path: Path | None, ruleset: str, limit: int | None) -> list[dict]:
+def _load_openings(path: Path | None, ruleset: str, limit: int | None):
     if path is None:
         from fixtures import jarl_positions
 
@@ -2078,19 +2080,58 @@ def _load_openings(path: Path | None, ruleset: str, limit: int | None) -> list[d
         ]
         if limit is not None:
             entries = entries[:limit]
-        return [{"name": entry["name"], "state": entry["state"]} for entry in entries]
+        openings = [{"name": entry["name"], "state": entry["state"]} for entry in entries]
+        return openings, {
+            "kind": "fixtures",
+            "selection": "fixtures.jarl_positions",
+            "ruleset": ruleset,
+            "count": len(openings),
+        }
     document = _read_json(path)
+    if document.get("kind") == "browser-analysis-tournament-openings":
+        from tournament_openings import validate_corpus
+
+        validated = validate_corpus(document, ruleset, minimum_pairs=1)
+        openings = validated["openings"]
+        if limit is not None:
+            openings = openings[:limit]
+        return openings, {
+            "kind": "corpus",
+            "generator": validated["generator"],
+            "corpus_sha256": validated["corpus_sha256"],
+            "ruleset": ruleset,
+            "count": len(openings),
+        }
     raw = document.get("openings") if isinstance(document.get("openings"), list) else document
     if not isinstance(raw, list) or not raw:
         raise ValueError("openings file must contain a non-empty list")
     entries = []
+    seen_names = set()
+    seen_states = set()
     for entry in raw:
         if not isinstance(entry, dict):
             raise ValueError("opening entry must be an object")
-        entries.append({"name": entry.get("name"), "state": entry.get("state")})
+        name = entry.get("name")
+        if not isinstance(name, str) or not name or name in seen_names:
+            raise ValueError("opening names must be unique non-empty strings")
+        seen_names.add(name)
+        state = State.from_dict(entry.get("state"))
+        if state.winner is not None or not legal_moves(state):
+            raise ValueError("opening files must contain nonterminal positions with moves")
+        key = _canonical(state.to_dict())
+        if key in seen_states:
+            raise ValueError("opening files must not contain duplicate states")
+        seen_states.add(key)
+        entries.append({"name": name, "state": entry["state"]})
     if limit is not None:
         entries = entries[:limit]
-    return entries
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return entries, {
+        "kind": "file",
+        "file_sha256": digest,
+        "ruleset": ruleset,
+        "count": len(entries),
+    }
 
 
 def _expected_identity(entry: dict) -> dict:
@@ -2151,27 +2192,35 @@ def _run_cli(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             "a": _read_json(args.agent_a_config),
             "b": _read_json(args.agent_b_config),
         }
-        openings = _load_openings(args.openings_file, args.ruleset, args.limit)
+        openings, openings_source = _load_openings(
+            args.openings_file, args.ruleset, args.limit
+        )
+        if args.evidence_class == "playing-strength" and len(openings) < MIN_STRENGTH_PAIRS:
+            raise ValueError(
+                f"playing-strength tournaments require at least {MIN_STRENGTH_PAIRS} "
+                f"opening pairs; {len(openings)} were supplied"
+            )
         labels = (config["a"].get("label"), config["b"].get("label"))
         for key in ("a", "b"):
             entry = config[key] if isinstance(config[key], dict) else {}
             kind = entry.get("kind")
             if not isinstance(kind, str) or args.mode not in AGENT_MODES.get(kind, ()):
-                raise ValueError(
-                    f"agent {key} kind {kind!r} does not support {args.mode} mode"
-                )
+                raise ValueError(f"agent {key} kind {kind!r} does not support {args.mode} mode")
         deadline = float(args.agent_timeout)
-        with _agent_from_command(
-            shlex.split(args.agent_a_command),
-            deadline,
-            args.cwd,
-            expected_identity=_expected_identity(config["a"]),
-        ) as agent_a, _agent_from_command(
-            shlex.split(args.agent_b_command),
-            deadline,
-            args.cwd,
-            expected_identity=_expected_identity(config["b"]),
-        ) as agent_b:
+        with (
+            _agent_from_command(
+                shlex.split(args.agent_a_command),
+                deadline,
+                args.cwd,
+                expected_identity=_expected_identity(config["a"]),
+            ) as agent_a,
+            _agent_from_command(
+                shlex.split(args.agent_b_command),
+                deadline,
+                args.cwd,
+                expected_identity=_expected_identity(config["b"]),
+            ) as agent_b,
+        ):
             report = run_paired_openings(
                 agent_a,
                 agent_b,
@@ -2186,6 +2235,7 @@ def _run_cli(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
                 agent_config=config,
                 evidence_class=args.evidence_class,
                 mode=args.mode,
+                openings_source=openings_source,
             )
     except (ValueError, OSError, AgentProtocolError, AgentTimeoutError) as error:
         print(json.dumps({"ok": False, "failures": [str(error)]}, indent=2))
@@ -2225,9 +2275,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agent-a-config", type=Path)
     parser.add_argument("--agent-b-config", type=Path)
     parser.add_argument("--cwd", type=Path)
-    parser.add_argument(
-        "--mode", choices=("fixed-work", "fixed-time"), default="fixed-work"
-    )
+    parser.add_argument("--mode", choices=("fixed-work", "fixed-time"), default="fixed-work")
     parser.add_argument(
         "--evidence-class", choices=("structural", "playing-strength"), default="structural"
     )

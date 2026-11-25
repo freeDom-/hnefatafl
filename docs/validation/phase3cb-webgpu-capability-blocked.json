@@ -1,0 +1,45 @@
+{
+  "kind": "browser-neural-parity",
+  "schema": 4,
+  "generated": "2026-11-24T17:37:42.339Z",
+  "browser": "156.0.8078.4",
+  "ort_version": "1.22.0",
+  "requested_provider": "webgpu",
+  "simulated_corruption": null,
+  "mode": "parity",
+  "rejection": null,
+  "failures": [
+    "model load or session creation failed: page.evaluate: Error: WebGPU requested but no adapter is available: null adapter\n    at worker.onmessage (http://127.0.0.1:46139/neural-client.js:374:23)"
+  ],
+  "notes": [],
+  "model": {
+    "sha256": "9baf3265bc789cac5abbaa0854813625eb821656a42523e7e8dfda758751b635",
+    "bytes": 287252,
+    "gzip_bytes": 159620,
+    "validated": true,
+    "ruleset": "brandubh",
+    "reference_sha256": "087d92b2b128d754c06f44a8650740babc57f26f8bf0f5fd2f40f28d4bfe2b87"
+  },
+  "capabilities": {
+    "crossOriginIsolated": false,
+    "sharedArrayBuffer": false,
+    "webAssembly": true,
+    "webGPUAPI": true,
+    "webGPUAdapter": false,
+    "webGPUAdapterError": null,
+    "adapterInfo": null,
+    "hardwareConcurrency": 4,
+    "deviceMemoryGiBHint": 32,
+    "memory": {
+      "js_heap_size_limit_bytes": null,
+      "js_heap_used_bytes": null,
+      "wasm_heap_capacity_bytes": null,
+      "wasm_heap_capacity_note": "not exposed by the pinned ORT Web build"
+    }
+  },
+  "load_error": "page.evaluate: Error: WebGPU requested but no adapter is available: null adapter\n    at worker.onmessage (http://127.0.0.1:46139/neural-client.js:374:23)",
+  "page_errors": [],
+  "external_requests": [],
+  "ok": false,
+  "verdict": "fail"
+}
