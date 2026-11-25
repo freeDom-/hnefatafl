@@ -275,6 +275,17 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
       : season?.id === viewedSeason
         ? season
         : null;
+  const seasonNotice = season && snapshot && (
+    <p>
+      {t('Current season · {season}', { season: leagueMonth(season.starts_at, locale) })}
+      {' · '}
+      <LeagueCountdown
+        sample={snapshot.clock}
+        deadline={season.ends_at}
+        onElapsed={refreshCurrent}
+      />
+    </p>
+  );
   return (
     <LeagueRefresh.Provider value={refreshSignal}>
       <section className="leagues-page" aria-labelledby="leagues-heading">
@@ -326,19 +337,7 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
               />
             ) : (
               <>
-                {season && snapshot && (
-                  <p>
-                    {t('Current season · {season}', {
-                      season: leagueMonth(season.starts_at, locale),
-                    })}
-                    {' · '}
-                    <LeagueCountdown
-                      sample={snapshot.clock}
-                      deadline={season.ends_at}
-                      onElapsed={refreshCurrent}
-                    />
-                  </p>
-                )}
+                {seasonNotice}
                 <LeagueReadState
                   error={current.error}
                   loading={current.phase === 'loading'}
@@ -360,7 +359,7 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
               ruleset={ruleset}
               initial={snapshot.initialQueue}
               policy={policy}
-              currentSeasonStart={selectedSeason ? season?.starts_at : undefined}
+              currentSeasonNotice={selectedSeason ? seasonNotice : undefined}
               onGameChanged={gameChanged}
             />
           )}

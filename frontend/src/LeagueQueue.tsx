@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from './api';
 import { useI18n } from './i18n';
-import { leagueError, leagueMonth, RULESET_LABELS } from './leaguePresentation';
+import { leagueError, RULESET_LABELS } from './leaguePresentation';
 import {
   forgetJoin,
   joinIntentPrefix,
@@ -112,14 +112,14 @@ export default function LeagueQueue({
   ruleset,
   initial,
   policy,
-  currentSeasonStart,
+  currentSeasonNotice,
   onGameChanged,
 }: {
   accountId: string;
   ruleset: LeagueRuleset;
   initial: QueueSnapshot;
   policy: LeaguePolicy;
-  currentSeasonStart?: string;
+  currentSeasonNotice?: ReactNode;
   onGameChanged: (active: boolean) => void;
 }) {
   const { t, locale } = useI18n();
@@ -312,9 +312,7 @@ export default function LeagueQueue({
   return (
     <section className="arena-surface league-panel" aria-labelledby="league-queue-heading">
       <h2 id="league-queue-heading">{t('Matchmaking')}</h2>
-      {currentSeasonStart && (
-        <p>{t('Current season · {season}', { season: leagueMonth(currentSeasonStart, locale) })}</p>
-      )}
+      {currentSeasonNotice}
       <p role="status">{t(notice)}</p>
       {unavailable && <p>{t(unavailable)}</p>}
       <p>
