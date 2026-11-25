@@ -9,20 +9,20 @@ import type { AchievementProgress } from './portraitTypes';
 vi.mock('./api', () => ({ api: vi.fn() }));
 vi.mock('./notifications', () => ({ notify: { success: vi.fn() } }));
 
-function snapshot(earnedPoints = 0, unlocked = false): AchievementProgress {
+function snapshot(earnedPoints = 0, awarded = false): AchievementProgress {
   return {
     catalog_version: 3,
     portrait_catalog_version: 2,
     as_of: '2035-01-01T00:00:00Z',
     families: [],
-    unlocked_portrait_ids: unlocked ? ['shieldmaiden'] : [],
+    unlocked_portrait_ids: [],
     summary: {
-      unlocked: unlocked ? 1 : 0,
+      unlocked: awarded ? 1 : 0,
       total: 77,
       earned_points: earnedPoints,
       total_points: 6290,
     },
-    items: unlocked
+    items: awarded
       ? [
           {
             id: 'rated-wins-10',
@@ -122,7 +122,7 @@ it('announces one new award batch after a cadence change and never repeats histo
   });
   expect(screen.getByTestId('probe')).toHaveTextContent('ready:30');
   expect(notify.success).toHaveBeenCalledWith('New milestones: 1 · +30 points');
-  expect(notify.success).toHaveBeenCalledWith('New portraits available: 1');
+  expect(notify.success).toHaveBeenCalledWith('New portraits ready to unlock: 1');
   expect(notify.success).toHaveBeenCalledTimes(2);
 
   // A later poll of the same historical awards must not announce them again.

@@ -45,7 +45,10 @@ function fixture(): AchievementProgress {
       progress: familyIndex === 0 ? 10 : 0,
       unlocked: familyIndex === 0 ? index < 3 : familyIndex === 2 && index === 0,
       awarded_at: familyIndex === 0 && index < 3 ? '2035-01-01T00:00:00Z' : null,
-      portrait_id: null,
+      portrait_id:
+        catalog.items.find(
+          (portrait) => portrait.unlock_achievement_id === `${family}-${threshold}`,
+        )?.id ?? null,
     })),
   );
   return projectAchievements({
@@ -193,7 +196,10 @@ it('refreshes score and portrait state for a remote completion without focus or 
       within(card('Skald')).getByRole('button', { name: 'Unlock portrait: Skald' }),
     ).toBeEnabled();
     expect(within(card('Skald')).queryByRole('progressbar')).not.toBeInTheDocument();
-    expect(notify.success).toHaveBeenCalledExactlyOnceWith('New milestones: 3 · +60 points');
+    expect(vi.mocked(notify.success).mock.calls).toEqual([
+      ['New milestones: 3 · +60 points'],
+      ['New portraits ready to unlock: 1'],
+    ]);
   } finally {
     vi.useRealTimers();
   }
@@ -222,7 +228,7 @@ it('applies confirmed claims to the shared projection even across an older in-fl
   await act(async () => answerRead(projectAchievements(progress)));
   expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned');
   expect(card('Shieldbearer')).toHaveAttribute('data-portrait-state', 'selected');
-  expect(notify.success).toHaveBeenCalledExactlyOnceWith('New portraits available: 1');
+  expect(notify.success).toHaveBeenCalledExactlyOnceWith('New portraits unlocked: 1');
   expect(document.querySelector('canvas')).toBeNull();
 });
 

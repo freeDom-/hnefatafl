@@ -64,10 +64,13 @@ including an open local, single-player or online game board, keeps a 15-second
 visible-tab backstop: a game route only observes its own game and cannot see a
 separate rated completion. The recurring read is suspended while the page is
 hidden and resumes on visibility, so a remote completion eventually appears
-without navigation or refocus. A session baseline prevents historical
-notification storms. Newly observed milestones show their points and newly claimed
-portraits show an unlock notification. A confirmed claim updates the shared
-projection immediately, including when an older progress read is in flight.
+without navigation or refocus. The first response for each account establishes
+the notification baseline. Newly awarded milestones show their points. A new
+award with an unclaimed `portrait_id` also contributes to **New portraits ready
+to unlock**. Newly observed claims show **New portraits unlocked**, including a
+claim from another device or one recovered by refreshing after a lost response.
+Both portrait notices count unique IDs. Confirmed local claims update the shared
+projection immediately, and older reads cannot repeat an announcement.
 
 ## Portrait catalog
 

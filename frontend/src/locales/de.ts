@@ -237,7 +237,8 @@ const translations: Record<string, string> = {
   '{percent}% complete · {count} / {total} milestones earned':
     '{percent}% abgeschlossen · {count} / {total} Meilensteine verdient',
   'New milestones: {count} · +{points} points': 'Neue Meilensteine: {count} · +{points} Punkte',
-  'New portraits available: {count}': 'Neue Porträts verfügbar: {count}',
+  'New portraits ready to unlock: {count}': 'Neue Porträts zum Freischalten: {count}',
+  'New portraits unlocked: {count}': 'Neue Porträts freigeschaltet: {count}',
 
   'Rated online victories': 'Gewertete Online-Siege',
   'Rated Brandubh victories': 'Gewertete Brandubh-Siege',
