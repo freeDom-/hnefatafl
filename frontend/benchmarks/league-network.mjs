@@ -23,6 +23,7 @@ const repository = resolve(frontend, '..');
 const dist = join(frontend, 'dist');
 const output = process.argv.slice(2).find((argument) => !argument.startsWith('--'));
 const sampleSeconds = 17;
+const steadyIdleSeconds = 65;
 const allowDirty = process.argv.includes('--allow-dirty');
 const build = JSON.parse(await readFile(join(dist, 'arena-build.json'), 'utf8'));
 const revision = verifyBuildRevision(build, readGitRevision(repository), { allowDirty });
@@ -153,6 +154,14 @@ try {
   await page.waitForLoadState('networkidle');
   phase = 'idle';
   await delay(sampleSeconds * 1000);
+  phase = 'steady_idle';
+  await delay((steadyIdleSeconds - sampleSeconds) * 1000);
+  phase = 'refresh';
+  await Promise.all([
+    page.waitForResponse((response) => new URL(response.url()).pathname === '/api/leagues/queue'),
+    page.getByRole('button', { name: 'Refresh leagues', exact: true }).click(),
+  ]);
+  await page.waitForLoadState('networkidle');
   phase = 'join';
   await joinQueue.click();
   await page.getByText('Waiting for an opponent', { exact: true }).waitFor();
@@ -168,13 +177,30 @@ try {
   }
   const leagueRequests = rows.filter((row) => row.path.startsWith('/api/leagues/'));
   const phases = Object.fromEntries(
-    ['first_visit', 'idle', 'join', 'queued', 'leave'].map((key) => [
+    ['first_visit', 'idle', 'steady_idle', 'refresh', 'join', 'queued', 'leave'].map((key) => [
       key,
       group(leagueRequests.filter((row) => row.phase === key)),
     ]),
   );
   if (Object.keys(phases.idle).length || Object.keys(phases.leave).length) {
-    throw new Error('League API requests continued outside the active queue');
+    throw new Error('League API requests exceeded the short idle or route-leave budget');
+  }
+  if (
+    Object.keys(phases.steady_idle).join() !== '/api/leagues/queue' ||
+    phases.steady_idle['/api/leagues/queue'].requests !== 1
+  ) {
+    throw new Error(
+      'Expected one shared queue availability check during the first 65 seconds idle',
+    );
+  }
+  const refreshRequests = Object.values(phases.refresh).reduce(
+    (count, entry) => count + entry.requests,
+    0,
+  );
+  if (refreshRequests !== 5 || leagueRequests.filter((row) => row.method !== 'GET').length !== 1) {
+    throw new Error(
+      'The shared refresh should read five projections and leave queue intentions explicit',
+    );
   }
   if ((phases.queued['/api/leagues/queue']?.completed ?? 0) < 2) {
     throw new Error('Queue status polling was not observed');
@@ -188,6 +214,7 @@ try {
     node: process.version,
     gzip_level: 9,
     sample_seconds_per_idle_or_queued_phase: sampleSeconds,
+    sample_seconds_total_idle: steadyIdleSeconds,
     sample_seconds_after_route_leave: 4.5,
     league_api: phases,
     first_visit_feature_transfer: group(

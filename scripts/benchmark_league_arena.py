@@ -49,13 +49,26 @@ class Probe:
     statements: int = 0
     writer_wait_ms: list[float] = field(default_factory=list)
     writer_hold_ms: list[float] = field(default_factory=list)
+    writer_latency_ms: list[float] = field(default_factory=list)
     capture_selects: bool = False
     selects: list[str] = field(default_factory=list)
+    writer_started_at: list[float] = field(default_factory=list)
+    writer_finished_at: list[float] = field(default_factory=list)
+    sql_execute_ms: float = 0.0
+    sql_in_writer_ms: float = 0.0
+    league_result_queries: int = 0
+    league_result_query_ms: float = 0.0
+    vm_quantum: int = 0
+    vm_steps: int = 0
 
     def trace(self, statement):
         self.statements += 1
         if self.capture_selects and statement.lstrip().startswith(("SELECT", "WITH")):
             self.selects.append(statement)
+
+    def progress(self):
+        self.vm_steps += self.vm_quantum
+        return 0
 
 
 class ObservedConnection:
@@ -63,14 +76,36 @@ class ObservedConnection:
         self.connection = connection
         self.probe = probe
         self.acquired = None
+        self.begin_started = None
 
     def execute(self, sql, parameters=()):
-        if sql != "BEGIN IMMEDIATE":
-            return self.connection.execute(sql, parameters)
         started = time.perf_counter()
-        result = self.connection.execute(sql, parameters)
-        self.acquired = time.perf_counter()
-        self.probe.writer_wait_ms.append((self.acquired - started) * 1000)
+        try:
+            result = self.connection.execute(sql, parameters)
+        except sqlite3.OperationalError:
+            if sql == "BEGIN IMMEDIATE":
+                self.probe.writer_wait_ms.append((time.perf_counter() - started) * 1000)
+            raise
+        finished = time.perf_counter()
+        elapsed = (finished - started) * 1000
+        if sql == "BEGIN IMMEDIATE":
+            self.acquired = finished
+            self.begin_started = started
+            self.probe.writer_started_at.append(started)
+            self.probe.writer_wait_ms.append(elapsed)
+        else:
+            self.probe.sql_execute_ms += elapsed
+            if self.acquired is not None:
+                self.probe.sql_in_writer_ms += elapsed
+            if sql.startswith(
+                (
+                    "SELECT season_id FROM league_games",
+                    "INSERT INTO league_settlement_queue",
+                    "DELETE FROM league_active_players WHERE game_id=",
+                )
+            ):
+                self.probe.league_result_queries += 1
+                self.probe.league_result_query_ms += elapsed
         return result
 
     def __getattr__(self, name):
@@ -81,11 +116,16 @@ class ObservedStore(Store):
     def __init__(self, path):
         self.recording = threading.local()
         self.background = None
+        self.by_thread = {}
         super().__init__(path)
 
     @contextmanager
     def connection(self):
-        probe = getattr(self.recording, "probe", None) or self.background
+        probe = (
+            getattr(self.recording, "probe", None)
+            or self.by_thread.get(threading.current_thread().name)
+            or self.background
+        )
         observed = None
         try:
             with super().connection() as connection:
@@ -93,11 +133,16 @@ class ObservedStore(Store):
                     yield connection
                 else:
                     connection.set_trace_callback(probe.trace)
+                    if probe.vm_quantum:
+                        connection.set_progress_handler(probe.progress, probe.vm_quantum)
                     observed = ObservedConnection(connection, probe)
                     yield observed
         finally:
             if observed is not None and observed.acquired is not None:
-                probe.writer_hold_ms.append((time.perf_counter() - observed.acquired) * 1000)
+                finished = time.perf_counter()
+                probe.writer_finished_at.append(finished)
+                probe.writer_hold_ms.append((finished - observed.acquired) * 1000)
+                probe.writer_latency_ms.append((finished - observed.begin_started) * 1000)
 
 
 class Clock:
@@ -114,8 +159,8 @@ class Actor:
 
 
 class Fixture:
-    def __init__(self, directory, label):
-        self.store = ObservedStore(directory / label / "db.sqlite3")
+    def __init__(self, directory, label, *, filename="db.sqlite3"):
+        self.store = ObservedStore(directory / label / filename)
         self.clock = Clock()
         self.auth = Auth(self.store, SecuritySettings())
         self.online = OnlineCore(self.auth, OnlineSettings(enabled=True), self.clock)
@@ -186,12 +231,15 @@ class Sample:
     probe: Probe
     units: int = 0
     error: str | None = None
+    cpu_ms: float = 0.0
+    before_writer_ms: float | None = None
 
 
 def run_sample(store, kind, operation):
     probe = Probe()
     store.recording.probe = probe
     started = time.perf_counter()
+    cpu_started = time.thread_time()
     units = 0
     error = None
     try:
@@ -206,7 +254,15 @@ def run_sample(store, kind, operation):
         )
     finally:
         store.recording.probe = None
-    return Sample(kind, (time.perf_counter() - started) * 1000, probe, units, error)
+    return Sample(
+        kind,
+        (time.perf_counter() - started) * 1000,
+        probe,
+        units,
+        error,
+        (time.thread_time() - cpu_started) * 1000,
+        (probe.writer_started_at[0] - started) * 1000 if probe.writer_started_at else None,
+    )
 
 
 def distribution(values):
@@ -228,6 +284,14 @@ def summarize(samples):
         "writer_transactions": len(writers),
         "writer_wait_ms": distribution(writers),
         "writer_hold_ms": distribution(holds),
+        "before_writer_ms": distribution(
+            [s.before_writer_ms for s in samples if s.before_writer_ms is not None]
+        ),
+        "thread_cpu_ms": distribution([s.cpu_ms for s in samples]),
+        "sql_execute_ms": distribution([s.probe.sql_execute_ms for s in samples]),
+        "sql_in_writer_ms": distribution([s.probe.sql_in_writer_ms for s in samples]),
+        "league_result_queries": sum(s.probe.league_result_queries for s in samples),
+        "league_result_query_ms": round(sum(s.probe.league_result_query_ms for s in samples), 4),
     }
 
 
@@ -652,7 +716,9 @@ def rebuild_workload(fixture, views, target, admin, season, corpus_size):
     batch = 50
     for _ in range(corpus_size * 10 // batch + 20):
         step = run_sample(
-            fixture.store, "rebuild_batch", lambda: administration.process_rebuild(batch)
+            fixture.store,
+            "rebuild_batch",
+            lambda: administration.process_rebuild(batch) == "processed",
         )
         steps.append(step)
         require(not step.error, "Rebuild batch raised an error")
@@ -703,7 +769,7 @@ def idle_worker(root, args):
     elapsed = time.perf_counter() - started
     health = worker.health()
     require(
-        bool(health["last_success_at"]) and not health["last_error"],
+        bool(health["last_checked_at"]) and not health["last_error"],
         "Idle worker did not complete a clean cycle",
     )
     require(not health["running"], "Idle worker did not shut down")
