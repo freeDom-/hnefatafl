@@ -20,6 +20,15 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['iPhone 13'], defaultBrowserType: 'chromium' } },
+    ...(process.env.PLAYWRIGHT_PORTRAIT_WEBKIT === '1'
+      ? [
+          {
+            name: 'webkit-portraits',
+            testMatch: '**/portrait-unlock.spec.ts',
+            use: { ...devices['Desktop Safari'], launchOptions: {} },
+          },
+        ]
+      : []),
   ],
   webServer: [
     {

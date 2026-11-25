@@ -11,6 +11,14 @@ const card = (page: Page, name: string) =>
 const reveal = '.portrait-reveal-canvas';
 const celebration = '.portrait-unlock-celebration';
 
+async function waitForPortraitImage(image: Locator) {
+  await expect
+    .poll(() =>
+      image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0),
+    )
+    .toBe(true);
+}
+
 async function eligiblePortraits(page: Page, ids = ['shieldmaiden']) {
   const original = await page.request.get('/api/personal/achievements');
   expect(original.ok()).toBe(true);
@@ -36,19 +44,28 @@ async function colorCoverage(canvas: Locator) {
     const { data } = context.getImageData(0, 0, sample.width, sample.height);
     let shown = 0,
       opaque = 0,
-      feathered = 0,
       colored = 0;
     for (let index = 0; index < data.length; index += 4) {
       const [r, g, b, alpha] = data.subarray(index, index + 4);
       if (alpha > 8) shown++;
-      if (alpha > 8 && alpha < 247) feathered++;
       if (alpha >= 247) {
         opaque++;
         if (Math.max(r, g, b) - Math.min(r, g, b) > 12) colored++;
       }
     }
+    // Downsampling can give a hard boundary intermediate alpha. Sample the
+    // original pixels through the first reveal to verify a feathered edge.
+    const row = source
+      .getContext('2d')!
+      .getImageData(0, Math.floor(source.height * 0.29), source.width, 1).data;
+    let blended = 0;
+    let featheredEdge = 0;
+    for (let index = 3; index < row.length; index += 4) {
+      blended = row[index] > 8 && row[index] < 247 ? blended + 1 : 0;
+      featheredEdge = Math.max(featheredEdge, blended);
+    }
     const samples = sample.width * sample.height;
-    return { coverage: shown / samples, opaque: opaque / samples, feathered, colored };
+    return { coverage: shown / samples, opaque: opaque / samples, featheredEdge, colored };
   });
   return result;
 }
@@ -72,7 +89,9 @@ test('reveals localized artwork after confirmation and restores the original ima
   page.on('request', (request) => {
     if (request.url().endsWith('/shieldmaiden-large.webp')) downloads.push(request.url());
   });
-  const capture = process.env.PORTRAIT_UNLOCK_EVIDENCE && info.project.name === 'chromium';
+  const capture =
+    process.env.PORTRAIT_UNLOCK_EVIDENCE &&
+    ['chromium', 'webkit-portraits'].includes(info.project.name);
   if (capture) await page.setViewportSize({ width: 1920, height: 1080 });
   await page.clock.install();
   await page.goto('/portraits');
@@ -80,7 +99,7 @@ test('reveals localized artwork after confirmation and restores the original ima
   const unlock = portrait.getByRole('button', { name: 'Unlock portrait: Shieldmaiden' });
   await portrait.evaluate((element) => element.scrollIntoView({ block: 'center' }));
   const image = portrait.locator('img');
-  await image.evaluate((element: HTMLImageElement) => element.decode());
+  await waitForPortraitImage(image);
   const original = await image.elementHandle();
   const artwork = await image.getAttribute('src');
   const artworkBox = await image.boundingBox();
@@ -118,6 +137,7 @@ test('reveals localized artwork after confirmation and restores the original ima
   await expect(
     portrait.getByRole('button', { name: 'Select portrait: Shieldmaiden' }),
   ).toBeEnabled();
+  await expect(page.getByText('New portraits unlocked: 1', { exact: true })).toHaveCount(1);
   await expect(card(page, 'Shieldbearer')).toHaveAttribute('data-portrait-state', 'selected');
 
   await page.clock.runFor(100);
@@ -126,7 +146,7 @@ test('reveals localized artwork after confirmation and restores the original ima
   const initial = await colorCoverage(canvas);
   expect(initial.coverage).toBeGreaterThan(0.01);
   expect(initial.coverage).toBeLessThan(0.16);
-  expect(initial.feathered).toBeGreaterThan(0);
+  expect(initial.featheredEdge).toBeGreaterThanOrEqual(3);
   expect(initial.colored).toBeGreaterThan(0);
   await save('02-first-reveal');
   await page.clock.runFor(980);
@@ -213,6 +233,8 @@ test('recovers a committed claim when its reply is lost', async ({ page }) => {
   await portrait.getByRole('button', { name: 'Unlock portrait: Shieldmaiden' }).click();
   await expect(portrait).toHaveAttribute('data-portrait-state', 'earned');
   await expect(portrait.locator(`${reveal}, ${celebration}`)).toHaveCount(0);
+  await expect(page.getByText('New portraits unlocked: 1', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('Could not unlock Shieldmaiden. Please try again.')).toHaveCount(0);
 });
 
 test('keeps simultaneous animations independent and disposes them on hiding or navigation', async ({
@@ -231,7 +253,7 @@ test('keeps simultaneous animations independent and disposes them on hiding or n
   for (const portrait of [maiden, keeper]) {
     const image = portrait.locator('img');
     await image.scrollIntoViewIfNeeded();
-    await image.evaluate((element: HTMLImageElement) => element.decode());
+    await waitForPortraitImage(image);
   }
   await page.clock.pauseAt(new Date(Date.now() + 1000));
   await maiden.getByRole('button').evaluate((button: HTMLButtonElement) => button.click());
@@ -261,7 +283,12 @@ test('keeps simultaneous animations independent and disposes them on hiding or n
   await expect(gallery(page).locator(`${reveal}, ${celebration}`)).toHaveCount(0);
 });
 
-for (const fallback of ['reduced motion', 'failed canvas', 'failed image'] as const) {
+for (const fallback of [
+  'reduced motion',
+  'failed canvas',
+  'unsupported canvas blur',
+  'failed image',
+] as const) {
   test(`keeps the unlock and shows the standard portrait with ${fallback}`, async ({ page }) => {
     await eligiblePortraits(page);
     await page.route('**/api/portraits/unlock', (route) =>
@@ -281,13 +308,20 @@ for (const fallback of ['reduced motion', 'failed canvas', 'failed image'] as co
           return original.apply(this, args);
         } as typeof original;
       });
+    if (fallback === 'unsupported canvas blur')
+      await page.addInitScript(() => {
+        Object.defineProperties(CanvasRenderingContext2D.prototype, {
+          filter: { get: () => 'none', set: () => {} },
+          shadowBlur: { get: () => 0, set: () => {} },
+        });
+      });
     await page.goto('/portraits');
     const portrait = card(page, 'Shieldmaiden');
     const button = portrait.getByRole('button', { name: 'Unlock portrait: Shieldmaiden' });
     await button.scrollIntoViewIfNeeded();
     const artwork = portrait.locator('.portrait-art');
     if (fallback === 'failed image') await expect(artwork).toHaveClass(/portrait-fallback/);
-    else await artwork.evaluate((element: HTMLImageElement) => element.decode());
+    else await waitForPortraitImage(artwork);
     await button.click();
     await expect(portrait).toHaveAttribute('data-portrait-state', 'earned');
     await expect(portrait.locator(`${reveal}, ${celebration}`)).toHaveCount(0);
@@ -311,18 +345,24 @@ browserTest(
       data: { identity: name, password: 'browser-fixture-only-password' },
     });
     expect(login.ok()).toBe(true);
+    await page.clock.install();
     await page.goto('/portraits');
     const portrait = card(page, 'Forge Keeper');
     const unlock = portrait.getByRole('button', { name: 'Unlock portrait: Forge Keeper' });
     await unlock.scrollIntoViewIfNeeded();
-    await portrait.locator('img').evaluate((element: HTMLImageElement) => element.decode());
-    await unlock.click();
+    await waitForPortraitImage(portrait.locator('img'));
+    await unlock.focus();
+    await page.clock.pauseAt(new Date(Date.now() + 1000));
+    await page.keyboard.press('Enter');
     await expect(portrait.locator(reveal)).toBeVisible();
+    await page.clock.runFor(320);
     const layer = await portrait.locator(reveal).elementHandle();
     await expect(card(page, 'Shieldbearer')).toHaveAttribute('data-portrait-state', 'selected');
-    await portrait.getByRole('button', { name: 'Select portrait: Forge Keeper' }).click();
+    await portrait.getByRole('button', { name: 'Select portrait: Forge Keeper' }).focus();
+    await page.keyboard.press('Enter');
     await expect(portrait).toHaveAttribute('data-portrait-state', 'selected');
     await expect(portrait.locator(reveal)).toBeVisible();
+    await page.clock.resume();
     await page.locator('a[href="/dashboard"]:visible').first().click();
     await expect(page).toHaveURL(/\/dashboard$/);
     expect(await layer?.evaluate((element) => (element as HTMLCanvasElement).width)).toBe(0);

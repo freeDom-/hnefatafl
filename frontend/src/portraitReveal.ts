@@ -154,17 +154,30 @@ export function playPortraitReveal(
     if (side <= 0 || !output || !artwork || !coverage || !feather)
       throw new Error('Portrait canvas unavailable');
 
-    const areas = (shapes ??= makeShapes());
-    canvas.addEventListener('contextlost', fallback);
-    artwork.imageSmoothingQuality = 'high';
-    artwork.drawImage(image, 0, 0, side, side);
     const maskScale = side / maskSide;
     const maskOffset = -MASK_PADDING * maskScale;
     const maskSize = mask.width * maskScale;
     // Blur the union at mask resolution so high-DPI artwork stays sharp and
     // the filter cost does not grow with the output bitmap.
     feather.globalCompositeOperation = 'copy';
-    feather.filter = `blur(${(2 * maskSide) / MASK_RESOLUTION}px)`;
+    const blurRadius = (2 * maskSide) / MASK_RESOLUTION;
+    const hasFilter = typeof feather.filter === 'string';
+    if (hasFilter) feather.filter = `blur(${blurRadius}px)`;
+    let maskSourceX = 0;
+    if (!hasFilter || feather.filter === 'none') {
+      // WebKit can feather the same alpha mask with a shadow. Shift the source
+      // out of the bitmap so only its blurred shadow lands in the mask buffer.
+      maskSourceX = -mask.width;
+      feather.shadowOffsetX = mask.width;
+      feather.shadowColor = '#fff';
+      feather.shadowBlur = blurRadius * 2;
+      if (!feather.shadowBlur) throw new Error('Portrait mask filtering unavailable');
+    }
+
+    const areas = (shapes ??= makeShapes());
+    canvas.addEventListener('contextlost', fallback);
+    artwork.imageSmoothingQuality = 'high';
+    artwork.drawImage(image, 0, 0, side, side);
     const start = performance.now();
     const step = (now: number) => {
       const elapsed = now - start;
@@ -175,7 +188,7 @@ export function playPortraitReveal(
       if (elapsed >= areas[0].delay) {
         try {
           drawMask(coverage, maskSide, elapsed, areas);
-          feather.drawImage(mask, 0, 0);
+          feather.drawImage(mask, maskSourceX, 0);
           output.globalCompositeOperation = 'copy';
           output.drawImage(color, 0, 0);
           output.globalCompositeOperation = 'destination-in';
