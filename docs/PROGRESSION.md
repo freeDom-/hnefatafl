@@ -82,19 +82,19 @@ position sorts after every listed portrait by stable ID, so introducing one is
 deterministic without renumbering existing entries. Ordering is independent of
 display language.
 
-| Portrait      | Requirement                 | Milestone ID          |
-| ------------- | --------------------------- | --------------------- |
-| Shieldbearer  | Default                     | none                  |
-| Forge Keeper  | 10 human-versus-AI wins     | `ai-wins-10`          |
-| Shieldmaiden  | 10 rated online wins        | `rated-wins-10`       |
-| Raven Seer    | 25 rated online wins        | `rated-wins-25`       |
-| Einherjar     | 50 rated online wins        | `rated-wins-50`       |
-| Iron Helm     | 10 rated defender wins      | `defender-wins-10`    |
-| Valkyrie      | 10 rated attacker wins      | `attacker-wins-10`    |
-| Wanderer      | 10 rated Brandubh wins      | `brandubh-wins-10`    |
-| Skald         | 10 rated Tablut wins        | `tablut-wins-10`      |
-| Fjord Scout   | 10 rated Copenhagen wins    | `copenhagen-wins-10`  |
-| Berserker     | Best rated win streak of 5  | `rated-win-streak-5`  |
+| Portrait | Requirement | Milestone ID |
+| --- | --- | --- |
+| Shieldbearer | Default | none |
+| Forge Keeper | 10 human-versus-AI wins | `ai-wins-10` |
+| Shieldmaiden | 10 rated online wins | `rated-wins-10` |
+| Raven Seer | 25 rated online wins | `rated-wins-25` |
+| Einherjar | 50 rated online wins | `rated-wins-50` |
+| Iron Helm | 10 rated defender wins | `defender-wins-10` |
+| Valkyrie | 10 rated attacker wins | `attacker-wins-10` |
+| Wanderer | 10 rated Brandubh wins | `brandubh-wins-10` |
+| Skald | 10 rated Tablut wins | `tablut-wins-10` |
+| Fjord Scout | 10 rated Copenhagen wins | `copenhagen-wins-10` |
+| Berserker | Best rated win streak of 5 | `rated-win-streak-5` |
 | One-Eyed Jarl | Best rated win streak of 10 | `rated-win-streak-10` |
 
 Existing portrait entitlements and selections survive increased requirements.
@@ -121,25 +121,25 @@ rated online wins; rated Brandubh, Tablut and Copenhagen wins; rated defender an
 attacker wins; human-versus-AI wins; distinct completed replays successfully analyzed.
 
 | Threshold | Incremental points |
-| --------- | ------------------ |
-| 1         | 10                 |
-| 3         | 20                 |
-| 10        | 30                 |
-| 25        | 40                 |
-| 50        | 60                 |
-| 100       | 80                 |
-| 250       | 120                |
-| 500       | 160                |
-| 1000      | 240                |
+| --- | --- |
+| 1 | 10 |
+| 3 | 20 |
+| 10 | 30 |
+| 25 | 40 |
+| 50 | 60 |
+| 100 | 80 |
+| 250 | 120 |
+| 500 | 160 |
+| 1000 | 240 |
 
 Each ordinary family offers 760 points. Best rated win streak has four milestones:
 
 | Streak | Incremental points |
-| ------ | ------------------ |
-| 1      | 10                 |
-| 3      | 30                 |
-| 5      | 60                 |
-| 10     | 100                |
+| --- | --- |
+| 1 | 10 |
+| 3 | 30 |
+| 5 | 60 |
+| 10 | 100 |
 
 These nine families contain 76 milestones worth 6,280 points. `local-first-game`
 (Fireside Game) adds one milestone worth 10 points, for **77 / 6,290** overall.
