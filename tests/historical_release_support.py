@@ -234,8 +234,13 @@ def run_updater_harness(
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        process.communicate()
+        # An independently grouped application can inherit the harness pipe.
+        # Stop the recorded application and reap the harness without waiting
+        # for EOF on that pipe.
         _terminate_pid_file(pid_file)
+        process.wait()
+        assert process.stdout is not None
+        process.stdout.close()
         raise AssertionError("Historical updater harness timed out") from None
     finally:
         _terminate_pid_file(pid_file)

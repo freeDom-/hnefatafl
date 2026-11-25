@@ -100,8 +100,9 @@ export async function apiFetch(
   body?: unknown,
   method?: string,
   signal?: AbortSignal,
+  extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const headers: Record<string, string> = { 'X-CSRF-Token': csrf };
+  const headers: Record<string, string> = { ...extraHeaders, 'X-CSRF-Token': csrf };
   if (!(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   if (path.startsWith('/auth/') || path.startsWith('/online/')) headers.Origin = location.origin;
   const expected = sessionEpoch;
@@ -135,9 +136,10 @@ export async function api<T>(
   body?: unknown,
   method?: string,
   signal?: AbortSignal,
+  headers?: Record<string, string>,
 ): Promise<T> {
   const expected = sessionEpoch;
-  const response = await apiFetch(path, body, method, signal);
+  const response = await apiFetch(path, body, method, signal, headers);
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     const message =

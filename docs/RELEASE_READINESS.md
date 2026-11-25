@@ -24,8 +24,7 @@ release evidence are not relabelled as fresh combined validation.
 | State | Scope |
 | --- | --- |
 | Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1 research ([#104](validation/browser-analysis-phase1.md), partially validated); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
-| Implemented on open branches | None in the Arena program at this snapshot. Browser-analysis Phase 1A/1B (#104) and benchmark hardening (#105) merged during this review |
-| In development | League seasons, queue and authoritative result accounting in draft PR #99 (proposed schema 22, partial backend, no UI, failing checks at review) |
+| Implemented on open branches | [League Arena](LEAGUES.md) in PR #99 includes the schema 23 migration, League API and page, automatic matchmaking and settlement, and administrator recovery |
 | Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; owner/legal confirmation of contributor aliases and generated-artwork terms |
 | Deferred | Browser-neural production integration is optional for the initial public release; durable UTC login/activity-day streaks remain excluded |
 | Final combined acceptance | **Not performed.** No release candidate has been evaluated as one system across performance, recovery, security, localization, accessibility and deployment |
@@ -35,9 +34,9 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
 
 ## Blocking product and evidence gaps
 
-- [ ] League policy, result accounting, queue, season lifecycle, corrections and
-  recovery are not merged. Draft PR #99's schema 22 and backend are not production
-  functionality; its security and Python checks failed at review.
+- [ ] Carry League Arena through PR review and verify it on the integrated
+  release candidate. PR #99 records branch check results and disposable workload
+  evidence. See [League validation](VALIDATION.md#league-arena-pr-99).
 - [ ] Production browser analysis has no execution-mode integration. Decide
   explicitly whether a full-strength Jarl executor ships in the initial release or
   is deferred; any shipped executor needs integration and regression acceptance.
@@ -113,8 +112,8 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
 - [ ] Registration/login/reset/email and public-IP limits tested under exhaustion;
   protected analysis CPU quotas, concurrency and cancellation reviewed under load.
 - [ ] Queue, tournament and league duplicate events, concurrent writes,
-  corrections, cancellations, freeze and restart recovery covered by database tests
-  once league tables exist.
+  corrections, cancellations, freeze and restart recovery covered by database
+  tests on the integrated release candidate.
 - [ ] Production HTTPS/host/proxy/cookie settings and CSP verified against the
   actual reverse proxy; do not add broad `unsafe-eval` or un-reviewed Wasm
   permissions merely to make an experiment run.
@@ -133,14 +132,13 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
   studies, full checkpoints and playable model copies before any destructive work.
 - [ ] Exercise stopped-writer backup/export and restore into a disposable
   directory; verify game/replay, identities, progression, tournaments, model hashes
-  and actual training resume. Include league/settlement tables in retain/restore
-  inventories once PR #99 or another league change merges.
+  and actual training resume. Include the League authority, settlement and
+  rebuild work in the restore inventory.
 - [ ] Test disk-full, interrupted-export and corrupt-backup failures; originals stay
   intact.
 - [ ] Schema cleanup documents incompatible old formats and a recovery path. "No
   public compatibility requirement" never means silently deleting development data.
-  Canonical migration head on this merged `main` is schema 21; do not reserve or
-  reuse a future number from older documentation.
+  PR #99 advances the canonical schema from main's schema 22 to schema 23.
 
 ## Operations and capacity
 
@@ -167,6 +165,8 @@ GETs from eight accounts at concurrency 1/4/8 (p95 9.74/31.69/59.36 ms) on a sma
 seeded fixture; #105 later merged benchmark-only mountinfo hardening without a new
 measurement. It does not cover mixed writes, league workloads, bounded
 concurrent analysis, realistic data volumes, WAN/TLS or deployment capacity.
+PR #99 adds disposable League workloads with their own revision, data size and
+hardware. See [League validation](VALIDATION.md#league-arena-pr-99).
 PR #93 measures the initial production bundle (JS 569,155 raw / 181,828 gzip bytes
 at `ab3ac68`; CSS 114,187 / 23,803) and enforces a 200,000 gzip-byte JavaScript
 budget. That is a build budget and transfer-size proxy, not measured page-load

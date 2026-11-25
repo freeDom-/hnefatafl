@@ -217,6 +217,17 @@ tables participate in the same stopped-writer backup/restore boundary as their
 online games; automatic restore requires matching current schemas. Preserve and
 test a backup before upgrading. See [player tournaments](PLAYER_TOURNAMENTS.md).
 
+Schema 23 adds official league game provenance, queue requests, seasonal
+projections, durable settlement and recovery work, and the private administrator
+audit. It extends the retained-online-state inventory. A compatible restore copies
+parents before their children. The update preserves authoritative games, ratings,
+tournament brackets and account progression. See [League Arena](LEAGUES.md).
+
+The migration also recognizes the earlier League development schema. It
+preserves official games, live queue entries and recorded request outcomes.
+Terminal preview request IDs without trustworthy entry timestamps return null
+for those fields on retry.
+
 New player-tournament creation requires explicit `sequential` or `simultaneous`
 mode and always stores two side-swapped games. Update API clients to omit
 `match_legs`; missing/null modes, `single` and supplied legacy counts now return
@@ -388,6 +399,13 @@ disabled or replaced. An update started by an already installed `0.40.0` updater
 needs no changes in the updater: it holds the same lock, starts the corrected
 service and probes health as before.
 
+The League worker starts with the online background workers. It leaves due
+matchmaking, settlement and rebuild work pending while the exclusive deployment
+gate is held. Deployment contention does not increment settlement failures. The
+worker resumes indexed reconciliation and processing after the updater releases
+the gate. Inspect the queue, pending work and rebuild status under League
+administration. See [League operations](LEAGUES.md).
+
 Readiness failures now report sanitized operator diagnostics: the original
 deployment target, previous, currently probed and installed releases, failure
 phase (stop/snapshot/migration/activation/startup/readiness/commit), probe and
@@ -436,8 +454,8 @@ the journal and log locations; inspect them before any manual action.
 Creating an automatic pre-deployment snapshot is **not** a guarantee that an
 automatic rollback can complete. After a successful migration the live database
 uses a newer schema than the pre-deployment snapshot. Existing account/online
-schema-authority checks refuse to replace a schema-22 live database with a
-schema-15, schema-20 or schema-21 snapshot. This preserves authoritative online,
+schema-authority checks refuse to replace a schema-23 live database with an older
+snapshot, including schema 15, 20, 21 or 22. This preserves authoritative online,
 tournament and security state. The corrected updater performs a read-only
 compatibility preflight before stopping a healthy service for an explicit
 `--rollback`; a schema mismatch is refused before service stop, data replacement or
@@ -470,7 +488,8 @@ target release and recover forward. There is no general database downgrade
 mechanism in this hotfix.
 
 With matching current overall schemas, recovery retains live authoritative online
-matches, games, moves/results, audit, rating history and start-rating snapshots, then pauses the timeout
+matches, games, moves/results, audit, rating history, start-rating snapshots and
+League authority and work queues, then pauses the timeout
 gate with an audit entry. It does not rewind accepted online play to the snapshot. A changed
 online schema/column set refuses automatic root replacement, even when account
 columns match. Snapshot-only recovery without live authority cannot recover newer
@@ -494,6 +513,30 @@ configuration: keep root-only and copy encrypted off the container. Container
 snapshots and tested off-host restores complement application snapshots. A local
 backup is not protection against loss of the Proxmox host. Never destructively
 test these procedures on production data.
+
+### League worker recovery
+
+Open **League administration** and refresh the health projection. A running
+worker reports its last check separately from the last successful processing
+cycle. Idle is expected when the queues are empty. During activation, the
+deployment lock defers pending writes until the updater releases the gate.
+
+If retry counts keep rising or the oldest pending settlement keeps aging,
+record the backlog, durable attempts, next retry time and any rebuilding
+season and stage. Check service logs and host storage availability and access.
+Take a supported backup and reproduce the failure on a disposable copy when
+an application or data repair is required. Restore normal service using the
+compatible update or rollback procedures above. Settlement retries and
+rebuild cursors survive restart and pick up from the recorded due time.
+
+For an incorrect official result, use the existing authorized online result
+controls and their audit trail. The resulting revision enters the durable
+settlement queue. If the authoritative results are sound and a projection
+needs repair, request a season rebuild with the displayed revision and a
+reason. An already running rebuild resumes from its saved stage once the cause
+of the retry is resolved. Verify that the retry backlog clears and the season
+publishes a new revision before closing the incident. League recovery derives
+all points and standings from the authoritative result ledger.
 
 ## Troubleshooting and target-host validation
 

@@ -24,6 +24,10 @@ before assigning or duplicating work.
 > See [release readiness](../RELEASE_READINESS.md) and
 > [licensing](../LICENSING.md); no deployment is authorized by this update.
 
+> **League Arena update (PR #99).** The League row and schema status below
+> describe the implementation branch, which integrates main's schema 22. The
+> original merge and benchmark provenance remains tied to the recorded revisions.
+
 [Release readiness](../RELEASE_READINESS.md) ·
 [Historical audit](arena-completion.md) ·
 [Contracts](arena-v2-contracts.md) ·
@@ -68,21 +72,21 @@ remains outstanding for every shipped feature.
 | 3 | Route/feature bundle splitting and enforced budgets | Merged (#93) | None | Verified in PR #93 scope | Deferred feature graph and build budget; no page-load latency or capacity claim |
 | 4 | Human tournament discovery, registration, details, moderation and bracket | Merged (#90) | Exposed | Verified | `/player-tournaments`, hierarchical bracket with accessible list alternative |
 | 4 | Tournament scheduling and sequential/simultaneous two-game modes | Merged (#90) | Exposed | Verified | Scheduled full starts, early start when eligible, restart recovery |
-| 4 | League policy, seasons, standings, queue, results and UI | Draft (#99) | None | Not validated | Proposed schema 22 and partial backend on a draft branch; not merged production functionality. Security and Python jobs were failing at review |
+| 4 | League policy, seasons, standings, queue, results and UI | Open PR (#99) | `/leagues` on the branch | See linked evidence | Schema 23, official ranked games, bounded progression and history, automatic matchmaking and settlement, and administrator recovery. [League validation](../VALIDATION.md#league-arena-pr-99) |
 | Cross | Classical browser analysis feasibility | Merged (#89) | None | Verified as isolated prototype | Pyodide worker, differential fixtures, search and cancellation; no production entry or live advice |
 | Cross | Full-strength Jarl classical analysis | Merged (#104, revision 5) | None | Partial | Production-equivalent Jarl in the isolated browser worker; physical devices and some Copenhagen depth-5 cases remain open |
 | Cross | Trained-model export and numerical inference parity | Merged (#104, revision 5) | None | Partial | Smoke-model ONNX export, native parity and browser WASM parity; competitive trained weights and physical WebGPU blocked |
 | Cross | Browser neural MCTS | Missing | None | Not started | Primary roadmap target, not implemented. PR #104's validated WASM inference boundary is ready for Phase 2; no MCTS engine or strength claim exists |
 | Cross | Production analysis execution modes (`auto`/`local`/`server`/`disabled`) | Missing | Planned | Not validated | No production local/neural executor; explicit integration-or-deferral decision required |
-| Cross | Compatibility cleanup and canonical schema | Partial | None | Not validated | Canonical head on `main` is schema 21; PR #99 proposes schema 22 on its branch. League completion and data inventory with verified recovery precede any destructive cleanup |
+| Cross | Compatibility cleanup and canonical schema | Partial | None | See deployment evidence | Main's tournament update uses schema 22. PR #99 adds the League migration at schema 23. Data inventory and verified recovery precede destructive cleanup |
 | Cross | Final combined release, deployment and recovery acceptance | Missing | None | Not performed | No combined release-candidate QA, capacity, backup/restore or deployment drill |
 | Cross | Owner-selected distribution license and third-party notices | Missing | None | Not started | No root LICENSE; owner decision and notice inventory remain required |
 
 Phase 0 and Phase 1 are merged. Phase 2's tournament settlement gap is closed and
 portraits/achievements are automatic; activity streaks remain deliberately
 excluded. Phase 3's player surfaces, Workshop consolidation, bundle budgets and
-Dashboard polling are merged. Phase 4 has merged human tournaments and no merged
-league. Browser analysis Phase 1 is merged research (revision 5) but not a production
+Dashboard polling are merged. Phase 4 has merged human tournaments and League
+Arena in PR #99. Browser analysis Phase 1 is merged research (revision 5) but not a production
 analysis executor. The program is not complete or release-accepted.
 
 ## Delivery state by category
@@ -90,8 +94,7 @@ analysis executor. The program is not complete or release-accepted.
 | State | Scope |
 | --- | --- |
 | Implemented and merged | Hall of Renown (`/portraits`)/portrait selection and automatic achievements (#86, #94, #101); signed-out discovery/live/replay (#82, #87); human tournament UI, durable settlement and scheduling (#90); Dashboard polling (#91); Workshop consolidation (#92); bundle splitting and budgets (#93); backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1 research (#104); Norse terminology and portrait order (#101); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
-| Implemented on open branches | None at this snapshot. Browser analysis Phase 1A/1B (#104) and benchmark hardening (#105) merged during this review |
-| In development | League seasons, queue and authoritative accounting in draft PR #99 (proposed schema 22, partial backend, no UI, failing checks at review) |
+| Implemented on open branches | League Arena in PR #99. Browser analysis Phase 1A/1B (#104) and benchmark hardening (#105) merged during the original review |
 | Missing | Merged league functionality/UI; production classical/neural analysis executor; neural MCTS; combined capacity, recovery and deployment evidence; license and third-party notices |
 | Deferred | Browser-neural production integration is optional for the initial release; login/activity streaks stay excluded |
 | Final combined acceptance | Not performed: no merged release candidate has been tested as one system across performance, recovery, security and deployment |
@@ -100,7 +103,7 @@ analysis executor. The program is not complete or release-accepted.
 
 | PR | State | Head / merge revision | Evidence and remaining work |
 | --- | --- | --- | --- |
-| #99 | Draft, open | `ac5fb6f` on `feat/league-arena` | Schema 22 proposal, league policy/service/migrations and tests; no frontend. Run `44363101788` failed security and Python at review; do not describe as merged or accepted |
+| #99 | Open | `feat/league-arena` | Full League feature and schema 23. The PR records exact check results and [disposable workload evidence](../VALIDATION.md#league-arena-pr-99) |
 
 No other Arena-program implementation PR was open at this snapshot. PR #104
 (browser analysis) and #105 (benchmark hardening) merged into the reviewed
@@ -129,7 +132,7 @@ Merged-PR provenance (pull-request runs verified green at review):
 
 These are per-PR results, not a combined-main suite. Status corrections: PR #96
 was closed without merging and superseded by #100/#102. PR #93, #97, #104 and #105
-are merged, not open. PR #99 remains draft. Re-verify every PR state before acting
+are merged, not open. Re-verify every PR state before acting
 on this table.
 
 ## Security status
@@ -245,7 +248,7 @@ flowchart TD
   M --> B
   M --> R
 
-  M --> L[League implementation PR 99 draft<br/>schema 22 proposal and partial backend]
+  M --> L[League Arena PR 99<br/>schema 23 and integrated route]
   L --> LU[League implementation complete and accepted]
   LU --> SC[Final canonical schema cleanup]
   M --> DI[Data inventory backup and verified restore]
@@ -280,9 +283,8 @@ flowchart TD
   REL --> OWN[Explicit owner authorization]
 ```
 
-League implementation completion, not draft PR #99's existence, gates final
-canonical schema cleanup; the data inventory and verified backup/restore gate it
-independently. An explicit browser-analysis production decision depends only on
+League acceptance, the data inventory and verified backup/restore gate final
+canonical schema cleanup. An explicit browser-analysis production decision depends only on
 the merged Phase 1 research: ship a classical executor only after full-strength
 Jarl benchmarks and its own executor-specific integration, security, performance
 and regression acceptance, or defer browser analysis from the initial release.
@@ -303,10 +305,9 @@ acceptance for any functionality that is included in the release.
 
 ## Migration and data guards
 
-The canonical migration head on `main` `ca1a640` is **schema 21**. PR #99 proposes
-schema 22 on its own branch; that number is not reserved on `main` and must be
-re-checked after any merge. Do not allocate a migration number from an older
-document. League completion precedes final canonical schema cleanup, and a data
+The League branch integrates `main` at `f2590b9`, where synchronized tournament
+rounds use **schema 22**. PR #99 adds League Arena at **schema 23**. League
+acceptance precedes final canonical schema cleanup, and a data
 inventory with a verified backup/restore of development databases, games, jobs,
 checkpoints, model registry and Optuna studies precedes any destructive cleanup.
 Lack of a public legacy-compatibility promise is not permission to delete

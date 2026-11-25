@@ -124,14 +124,6 @@ function SidebarEntry({ item, active }: { item: SidebarItem; active?: string }) 
         <span>{t(item.label)}</span>
       </a>
     );
-  if (item.kind === 'placeholder')
-    return (
-      <span className="sidebar-nav-placeholder" aria-disabled="true">
-        <DestinationIcon id={item.id} />
-        <span>{t(item.label)}</span>
-        <small className="sidebar-soon">{t('Soon')}</small>
-      </span>
-    );
   return <SidebarGroup item={item} active={active} />;
 }
 

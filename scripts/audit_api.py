@@ -37,6 +37,7 @@ with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
                             "/api/history/",
                             "/api/profile",
                             "/api/public/",
+                            "/api/leagues/",
                         )
                     )
                     and route.path
@@ -49,7 +50,17 @@ with tempfile.TemporaryDirectory(prefix="hnefatafl-audit-") as root:
                         "/api/leaderboard",
                     }
                 ),
-                "user_specific": (route.path.startswith(("/api/games", "/api/stats", "/api/auth/", "/api/online/", "/api/personal/", "/api/history/", "/api/profile")) or route.path in {"/api/leaderboard", "/api/portraits/unlock"}) and route.path not in {"/api/auth/registration", "/api/online/ratings/rebuild"},
+                "user_specific": (
+                    route.path.startswith(("/api/games", "/api/stats", "/api/auth/", "/api/online/", "/api/personal/", "/api/history/", "/api/profile", "/api/leagues/queue"))
+                    or route.path in {
+                        "/api/leaderboard",
+                        "/api/leagues/current",
+                        "/api/leagues/progress",
+                        "/api/leagues/history",
+                        "/api/leagues/active-game",
+                        "/api/portraits/unlock",
+                    }
+                ) and route.path not in {"/api/auth/registration", "/api/online/ratings/rebuild"},
             })
     target = Path(__file__).resolve().parents[1] / "docs/API_PERMISSIONS.json"
     rendered = json.dumps(sorted(rows, key=lambda row: (row["route"], row["method"])), indent=2) + "\n"

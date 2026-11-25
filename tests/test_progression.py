@@ -979,15 +979,21 @@ def test_rebuild_query_trace_avoids_unrelated_game_history(rig, capsys):
     traces = {"historical": [], "rated": []}
     with rig.core._write() as c:
         c.set_trace_callback(traces["historical"].append)
-        reconcile_legacy_achievements(c, 1)
+        try:
+            reconcile_legacy_achievements(c, 1)
+        finally:
+            c.set_trace_callback(None)
     original = rig.store.connection
     from contextlib import contextmanager
 
     @contextmanager
-    def traced():
-        with original() as c:
+    def traced(**options):
+        with original(**options) as c:
             c.set_trace_callback(traces["rated"].append)
-            yield c
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
 
     with patch.object(rig.store, "connection", traced):
         rig.core.rebuild_ratings(rig.credentials["Archer"], "brandubh")

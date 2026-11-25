@@ -421,6 +421,9 @@ def create_app(
 
     tournament_settlement = TournamentSettlement(app.state.player_tournaments)
     app.state.tournament_settlement = tournament_settlement
+    from .league_api import attach_leagues
+
+    league_worker = attach_leagues(app, online)
     from .progression_api import attach_progression
 
     attach_progression(app, online)
@@ -447,8 +450,9 @@ def create_app(
                     raise RuntimeError(
                         "Provision the initial administrator using the local CLI before startup"
                     )
-        workers = {"account": False, "online": False, "settlement": False}
+        workers = {"account": False, "online": False, "settlement": False, "league": False}
         try:
+            store.open_online_writers()
             if account_background:
                 registration.start()
                 workers["account"] = True
@@ -463,12 +467,17 @@ def create_app(
                 await asyncio.to_thread(tournament_settlement.recover)
                 tournament_settlement.start()
                 workers["settlement"] = True
+                league_worker.start()
+                workers["league"] = True
             yield
         finally:
+            if workers["league"]:
+                await asyncio.to_thread(league_worker.shutdown)
             if workers["settlement"]:
                 await asyncio.to_thread(tournament_settlement.shutdown)
             if workers["online"]:
                 await asyncio.to_thread(online.shutdown)
+            await asyncio.to_thread(store.close_online_writers)
             if workers["account"]:
                 await asyncio.to_thread(registration.shutdown)
             await asyncio.to_thread(tournaments.shutdown)

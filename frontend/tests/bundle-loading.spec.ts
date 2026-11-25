@@ -6,7 +6,7 @@ const isFeature = (url: string, name: string) => {
   return path === `/src/${name}.tsx` || new RegExp(`/assets/${name}-[^/]+\\.js$`).test(path);
 };
 
-test('Dashboard loads no Workshop, replay, analysis or profile feature graph before navigation', async ({
+test('Dashboard defers Workshop, replay, analysis, profile and League code until navigation', async ({
   page,
 }) => {
   const requests: string[] = [];
@@ -23,6 +23,7 @@ test('Dashboard loads no Workshop, replay, analysis or profile feature graph bef
     'StatisticsPage',
     'ProfilePage',
     'Online',
+    'Leagues',
   ]) {
     expect(
       requests.some((url) => isFeature(url, name)),
@@ -36,6 +37,18 @@ test('Dashboard loads no Workshop, replay, analysis or profile feature graph bef
   await page.goBack();
   await expect(page.locator('.personal-dashboard')).toBeVisible();
   await expect(page).toHaveURL(/\/dashboard$/);
+});
+
+test('League navigation loads the League feature on first use', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => requests.push(request.url()));
+  await page.goto('/dashboard');
+  await expect(page.locator('.personal-dashboard')).toBeVisible();
+  expect(requests.some((url) => isFeature(url, 'Leagues'))).toBe(false);
+  await openDestination(page, 'leagues');
+  await expect(page.getByRole('heading', { level: 1, name: 'Leagues' })).toBeVisible();
+  expect(requests.some((url) => isFeature(url, 'Leagues'))).toBe(true);
+  expect(requests.some((url) => isFeature(url, 'Training'))).toBe(false);
 });
 
 test('first-use creation and route loading resolve while the advisor clock remains paused', async ({

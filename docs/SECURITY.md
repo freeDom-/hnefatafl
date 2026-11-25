@@ -96,6 +96,22 @@ requests from ordinary players are read-only, while server workers consume the
 durable result outbox. Creator rights never grant global administrative permissions. The backend rechecks the permission inside the write transaction, so
 a frontend role check is advisory only.
 
+League endpoints under `/api/leagues` require an authenticated `play` session.
+The session determines whose progress, games and queue requests are visible.
+Standings use the safe player identity and selected portrait projections.
+League mutations use the same origin, CSRF, bounded JSON and deployment-gate
+controls as online play. Write transactions check the current session and
+permissions. Matchmaking separately rechecks both accounts' play and verification
+eligibility. It limits new request IDs per account and counts every committed
+pairing toward the daily opponent limit, including voided games.
+
+League monitoring, queue moderation and season recovery require the `accounts`
+permission. Administrative reasons remain in the private append-only audit.
+Recovery reads official game provenance and effective online rating results
+before publishing repaired season standings. Result moderation stays within the
+existing online authority. See [the League API and recovery contract](LEAGUES.md)
+and [the endpoint inventory](API_PERMISSIONS.json).
+
 SQLite queries scope games and local players to the authenticated account. New
 records receive identity from the trusted request context. Mutations first load
 that scoped object; stats/history use the same scoped query. Administrators
