@@ -1,4 +1,4 @@
-"""Automatic permanent rewards from real game, rating and analysis events.
+"""Automatic milestone awards and durable manual portrait unlocks.
 
 Reads and portrait selection never award. Corrections preserve rewards, while
 current authoritative evidence controls future milestones.
@@ -7,6 +7,8 @@ current authoritative evidence controls future milestones.
 import fcntl
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 from fastapi.testclient import TestClient
@@ -360,7 +362,7 @@ def test_existing_installation_reseeds_portrait_order_without_touching_progressi
     assert catalog_versions(reopened) == before_versions
 
 
-def test_fresh_read_is_read_only_and_manual_endpoint_removed(web):
+def test_fresh_read_is_read_only_and_achievements_have_no_claim_endpoint(web):
     app, client = web
     before = progression_rows(app.state.store)
     data = client.get("/api/personal/achievements").json()
@@ -368,6 +370,7 @@ def test_fresh_read_is_read_only_and_manual_endpoint_removed(web):
     assert data["summary"] == {"unlocked": 0, "total": 77, "earned_points": 0, "total_points": 6290}
     assert len(data["families"]) == 10
     assert data["unlocked_portrait_ids"] == []
+    assert client.get("/api/profile").json()["portrait_id"] == "shieldbearer"
     assert progression_rows(app.state.store) == before
     assert not any(
         getattr(route, "path", "") == "/api/personal/achievements/confirm" for route in app.routes
@@ -378,6 +381,10 @@ def test_fresh_read_is_read_only_and_manual_endpoint_removed(web):
         assert client.get("/api/personal/achievements").status_code == 200
         assert (
             client.patch("/api/profile/portrait", json={"portrait_id": "shieldbearer"}).status_code
+            == 503
+        )
+        assert (
+            client.post("/api/portraits/unlock", json={"portrait_id": "shieldbearer"}).status_code
             == 503
         )
 
@@ -431,7 +438,9 @@ def test_corrections_keep_rewards_and_use_current_progress_for_future_targets(ri
     games = [finish(rig, active(rig), "attackers") for _ in range(10)]
     service = progression(rig)
     before = service.achievements(rig.credentials["Archer"])
-    assert {"shieldmaiden", "wanderer", "valkyrie"} <= set(before["unlocked_portrait_ids"])
+    assert before["unlocked_portrait_ids"] == []
+    credential = rig.credentials["Archer"]
+    assert service.unlock(credential, "shieldmaiden")["newly_unlocked"] is True
     with rig.store.connection() as c:
         assert c.execute("SELECT count(*) FROM account_portrait_selection").fetchone()[0] == 0
     assert (
@@ -450,6 +459,10 @@ def test_corrections_keep_rewards_and_use_current_progress_for_future_targets(ri
     )
     assert family["next_milestone"]["threshold"] == 25
     assert after["summary"]["earned_points"] == before["summary"]["earned_points"]
+    assert after["unlocked_portrait_ids"] == ["shieldmaiden"]
+    assert service.unlock(credential, "shieldmaiden")["newly_unlocked"] is False
+    # A previously earned milestone can still be used to claim its portrait.
+    assert service.unlock(credential, "wanderer")["newly_unlocked"] is True
     rig.core.mutate(
         rig.credentials["Archer"], games[0]["id"], games[0]["version"], "void", note="Correction"
     )
@@ -460,8 +473,6 @@ def test_corrections_keep_rewards_and_use_current_progress_for_future_targets(ri
 
 
 def test_duplicate_results_rebuilds_and_concurrent_reads_never_duplicate_rewards(rig):
-    from concurrent.futures import ThreadPoolExecutor
-
     for _ in range(10):
         finish(rig, active(rig), "attackers")
     service = progression(rig)
@@ -549,6 +560,10 @@ def test_grandfathered_portrait_entitlements_survive_harder_requirements(web):
     assert not items_of(payload)["rated-wins-10"]["unlocked"]
     response = client.patch("/api/profile/portrait", json={"portrait_id": "shieldmaiden"})
     assert response.status_code == 200 and response.json()["portrait_id"] == "shieldmaiden"
+    assert client.post("/api/portraits/unlock", json={"portrait_id": "shieldmaiden"}).json() == {
+        "portrait_id": "shieldmaiden",
+        "newly_unlocked": False,
+    }
     assert not items_of(client.get("/api/personal/achievements").json())["rated-wins-10"][
         "unlocked"
     ]
@@ -586,6 +601,107 @@ def test_selection_is_explicit_secure_idempotent_and_never_awards(web):
             ).status_code
             == 401
         )
+
+
+@pytest.mark.parametrize("wins", [9, 10, 11])
+def test_unlock_requires_the_automatically_awarded_milestone(web, wins):
+    app, client = web
+    account = account_of(app, client)
+    choice = {"portrait_id": "forge-keeper"}
+    for _ in range(wins):
+        persist_game(app.state.store, account, winner="defenders")
+    before = client.get("/api/personal/achievements").json()
+    milestone = items_of(before)["ai-wins-10"]
+    assert milestone["progress"] == wins
+    assert milestone["unlocked"] == (wins >= 10)
+    assert before["unlocked_portrait_ids"] == []
+    assert client.patch("/api/profile/portrait", json=choice).status_code == 403
+
+    response = client.post("/api/portraits/unlock", json=choice)
+    if wins < 10:
+        assert response.status_code == 403
+        assert client.get("/api/personal/achievements").json()["unlocked_portrait_ids"] == []
+        return
+
+    assert response.status_code == 200
+    assert response.json() == {**choice, "newly_unlocked": True}
+    assert client.get("/api/profile").json()["portrait_id"] == "shieldbearer"
+    after = client.get("/api/personal/achievements").json()
+    assert after["summary"] == before["summary"]
+    assert after["unlocked_portrait_ids"] == ["forge-keeper"]
+    selection = client.patch("/api/profile/portrait", json=choice)
+    assert selection.status_code == 200 and selection.json()["portrait_id"] == "forge-keeper"
+
+
+def test_unlock_requires_own_authenticated_csrf_protected_request(web, rig):
+    app, client = web
+    choice = {"portrait_id": "forge-keeper"}
+    path = "/api/portraits/unlock"
+    for _ in range(10):
+        persist_game(app.state.store, rig.accounts["Archer"], winner="defenders")
+    with TestClient(app) as other:
+        assert other.post(path, json=choice).status_code == 401
+        login(other, "Keeper")
+        assert other.post(path, json=choice).status_code == 403
+        assert (
+            other.post(
+                path, json={**choice, "account_id": rig.accounts["Archer"]["id"]}
+            ).status_code
+            == 422
+        )
+
+    assert client.post(path, json=choice, headers={"X-CSRF-Token": "wrong"}).status_code == 403
+    assert (
+        client.post(path, json=choice, headers={"Origin": "https://other.example"}).status_code
+        == 403
+    )
+    for invalid in ("unknown", "", "bad id", 42, "x" * 65):
+        assert client.post(path, json={"portrait_id": invalid}).status_code == 422
+    assert client.post(path, json={**choice, "progress": 1000}).status_code == 422
+    assert client.post(path, json={**choice, "ignored": "x" * 8192}).status_code == 413
+    with app.state.store.connection() as c:
+        c.execute("UPDATE portrait_catalog SET retired=1 WHERE id='forge-keeper'")
+    assert client.post(path, json=choice).status_code == 422
+    assert client.post(path, json={"portrait_id": "shieldbearer"}).json() == {
+        "portrait_id": "shieldbearer",
+        "newly_unlocked": False,
+    }
+    assert progression_rows(app.state.store)["account_portraits"] == []
+
+
+def test_concurrent_unlocks_and_restart_preserve_claims_without_auto_claiming_others(web, rig):
+    app, first_tab = web
+    for _ in range(10):
+        finish(rig, active(rig), "attackers")
+    choice = {"portrait_id": "shieldmaiden"}
+    path = "/api/portraits/unlock"
+    barrier = Barrier(2)
+
+    def request(tab):
+        barrier.wait(timeout=5)
+        response = tab.post(path, json=choice)
+        assert response.status_code == 200, response.text
+        return response.json()["newly_unlocked"]
+
+    with TestClient(app) as second_tab, ThreadPoolExecutor(max_workers=2) as workers:
+        login(second_tab)
+        assert sorted(workers.map(request, [first_tab, second_tab])) == [False, True]
+    result = first_tab.patch("/api/profile/portrait", json=choice)
+    assert result.status_code == 200 and result.json()["portrait_id"] == "shieldmaiden"
+    before = progression_rows(app.state.store)
+    assert len(before["account_portraits"]) == 1
+
+    restarted = create_app(rig.store.path.parent, online_background=False, account_background=False)
+    with TestClient(restarted, cookies=first_tab.cookies, headers=first_tab.headers) as tab:
+        progress = tab.get("/api/personal/achievements").json()
+        assert progress["unlocked_portrait_ids"] == ["shieldmaiden"]
+        assert items_of(progress)["brandubh-wins-10"]["unlocked"] is True
+        assert (
+            tab.patch("/api/profile/portrait", json={"portrait_id": "wanderer"}).status_code == 403
+        )
+        assert tab.get("/api/profile").json()["portrait_id"] == "shieldmaiden"
+        assert tab.post(path, json=choice).json() == {**choice, "newly_unlocked": False}
+    assert progression_rows(restarted.state.store) == before
 
 
 def test_local_game_awarded_through_real_move_api_without_visiting_hall(web):
@@ -652,7 +768,11 @@ def test_ai_criteria_exclude_losses_unfinished_selfplay_and_other_owners(web):
         persist_game(app.state.store, account, winner="defenders")
     data = client.get("/api/personal/achievements").json()
     assert items_of(data)["ai-wins-10"]["unlocked"]
-    assert "forge-keeper" in data["unlocked_portrait_ids"]
+    assert "forge-keeper" not in data["unlocked_portrait_ids"]
+    assert (
+        client.post("/api/portraits/unlock", json={"portrait_id": "forge-keeper"}).status_code
+        == 200
+    )
     assert client.get("/api/profile").json()["portrait_id"] == "shieldbearer"
     with app.state.store.connection() as c:
         with pytest.raises(sqlite3.IntegrityError):
@@ -694,6 +814,7 @@ def test_selected_portraits_propagate_to_online_and_leaderboard_without_private_
         game = finish(rig, active(rig), "attackers")
     owner = rig.accounts["Archer"]["id"]
     service = progression(rig)
+    service.unlock(rig.credentials["Archer"], "shieldmaiden")
     with rig.core._write() as c:
         service.select(c, owner, "shieldmaiden")
 
@@ -732,9 +853,10 @@ def test_selected_portraits_propagate_to_online_and_leaderboard_without_private_
     assert standings["me"]["portrait_id"] == "shieldbearer"
 
 
-def test_automatic_awards_and_entitlements_are_append_only(rig):
+def test_automatic_awards_and_claimed_entitlements_are_append_only(rig):
     for _ in range(10):
         finish(rig, active(rig), "attackers")
+    progression(rig).unlock(rig.credentials["Archer"], "shieldmaiden")
     before = progression_rows(rig.store)
     for statement in (
         "UPDATE achievement_awards SET awarded_at=0",
@@ -849,7 +971,7 @@ def test_rating_rebuild_scopes_award_queries_to_ledger_actors(rig, pool):
 
 
 def test_rebuild_query_trace_avoids_unrelated_game_history(rig, capsys):
-    from hnefatafl.progression import reconcile_achievements
+    from hnefatafl.progression import reconcile_legacy_achievements
     from unittest.mock import patch
 
     for i in range(10):
@@ -857,7 +979,7 @@ def test_rebuild_query_trace_avoids_unrelated_game_history(rig, capsys):
     traces = {"historical": [], "rated": []}
     with rig.core._write() as c:
         c.set_trace_callback(traces["historical"].append)
-        reconcile_achievements(c, 1)
+        reconcile_legacy_achievements(c, 1)
     original = rig.store.connection
     from contextlib import contextmanager
 

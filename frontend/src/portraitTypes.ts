@@ -46,4 +46,5 @@ export type AchievementProgress = {
   families: AchievementFamily[];
   items: Achievement[];
 };
-export type PortraitState = 'locked' | 'earned' | 'selected';
+export type PortraitState = 'locked' | 'ready' | 'earned' | 'selected';
+export type PortraitUnlock = { portrait_id: string; newly_unlocked: boolean };

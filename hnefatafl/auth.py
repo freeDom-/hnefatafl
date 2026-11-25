@@ -403,6 +403,7 @@ grant(
 grant("play", "GET", "/api/leaderboard")
 # Progression reads are self-scoped and never grant rewards.
 grant("play", "GET", "/api/portraits/catalog", "/api/personal/achievements")
+grant("play", "POST", "/api/portraits/unlock")
 # Signed-out read-only online discovery (Q1/Q2). No session is required, so the
 # additive namespace is public; the deployment feature flag gates it at runtime.
 grant(
@@ -565,7 +566,9 @@ class SecurityBoundary:
         permission = POLICY.get((method, route_path), "deny")
         online_mutation = method not in SAFE and route_path.startswith("/api/online/")
         profile_mutation = method not in SAFE and route_path.startswith("/api/profile")
-        personal_mutation = method not in SAFE and route_path.startswith("/api/personal/")
+        personal_mutation = method not in SAFE and (
+            route_path.startswith("/api/personal/") or route_path == "/api/portraits/unlock"
+        )
         if (
             (method == "POST" and route_path.startswith("/api/auth/"))
             or profile_mutation

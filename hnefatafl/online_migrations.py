@@ -520,9 +520,9 @@ def migrate_online(c: sqlite3.Connection) -> None:
 
     seed_catalog(c)
     if c.execute("PRAGMA user_version").fetchone()[0] < 21:
-        from .progression import reconcile_achievements
+        from .progression import reconcile_legacy_achievements
 
-        reconcile_achievements(c, int(time.time() * 1_000_000))
+        reconcile_legacy_achievements(c, int(time.time() * 1_000_000))
 
 
 def retain_online_on_restore(live: sqlite3.Connection, restored: sqlite3.Connection) -> None:

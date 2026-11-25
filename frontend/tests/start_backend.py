@@ -60,6 +60,17 @@ class HistoricalFixtures(BaseHTTPRequestHandler):
             )
             self.respond(201, ModelRegistry(root / "models").register(checkpoint))
             return
+        if self.path == "/portrait-unlock-account":
+            from uuid import uuid4
+
+            from test_progression import persist_game
+
+            name = f"Portrait{uuid4().hex[:10]}"
+            account = auth.create_account(name, f"{name}@example.test", "browser-fixture-only-password")
+            for _ in range(10):
+                persist_game(app.state.store, account, winner="defenders")
+            self.respond(201, {"name": name})
+            return
         self.send_error(400)
 
 control = ThreadingHTTPServer(("127.0.0.1",8002),HistoricalFixtures)

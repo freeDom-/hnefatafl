@@ -397,7 +397,7 @@ def _tail_win_streak(c: sqlite3.Connection, account_id: str, cap: int) -> int:
 
 
 class Progression:
-    """Portrait catalog, own achievement progress and portrait selection."""
+    """Own achievement progress, portrait catalog, unlocks and selection."""
 
     def __init__(self, online):
         self.online, self.store = online, online.store
@@ -563,27 +563,51 @@ class Progression:
             account = self.online._identity(c, credential)
             return self._projection(c, account["id"], micros(self.online.clock()))
 
-    def select(self, c: sqlite3.Connection, account_id: str, portrait_id: str) -> str:
-        """Select an earned, currently offered portrait inside the caller's write.
-
-        Unknown, retired and not-yet-earned IDs are rejected; there is no field
-        for a client-supplied image, URL or entitlement.
-        """
-        now = micros(self.online.clock())
+    @staticmethod
+    def _unlock_requirement(c: sqlite3.Connection, portrait_id: str) -> str | None:
         row = c.execute(
             "SELECT unlock_achievement_id,retired FROM portrait_catalog WHERE id=?",
             (portrait_id,),
         ).fetchone()
         if row is None or row["retired"]:
             raise OnlineError(422, "Unknown or unavailable portrait.")
-        if (
-            row["unlock_achievement_id"] is not None
-            and not c.execute(
+        return row["unlock_achievement_id"]
+
+    @staticmethod
+    def _has_portrait(c: sqlite3.Connection, account_id: str, portrait_id: str) -> bool:
+        return (
+            c.execute(
                 "SELECT 1 FROM account_portraits WHERE account_id=? AND portrait_id=?",
                 (account_id, portrait_id),
             ).fetchone()
-        ):
+            is not None
+        )
+
+    def unlock(self, credential: str, portrait_id: str) -> dict[str, str | bool]:
+        """Claim an earned portrait once, using the session and permanent award."""
+        with self.online._write() as c:
+            account_id = self.online._identity(c, credential)["id"]
+            requirement = self._unlock_requirement(c, portrait_id)
+            if requirement is None or self._has_portrait(c, account_id, portrait_id):
+                return {"portrait_id": portrait_id, "newly_unlocked": False}
+            if not c.execute(
+                "SELECT 1 FROM achievement_awards WHERE account_id=? AND achievement_id=?",
+                (account_id, requirement),
+            ).fetchone():
+                raise OnlineError(403, "Complete the required achievement to unlock this portrait.")
+            c.execute(
+                """INSERT INTO account_portraits(account_id,portrait_id,granted_at,source_achievement_id)
+                   VALUES(?,?,?,?)""",
+                (account_id, portrait_id, micros(self.online.clock()), requirement),
+            )
+            return {"portrait_id": portrait_id, "newly_unlocked": True}
+
+    def select(self, c: sqlite3.Connection, account_id: str, portrait_id: str) -> str:
+        """Select an unlocked, currently offered portrait inside the caller's write."""
+        requirement = self._unlock_requirement(c, portrait_id)
+        if requirement is not None and not self._has_portrait(c, account_id, portrait_id):
             raise OnlineError(403, "This portrait is not unlocked yet.")
+        now = micros(self.online.clock())
         c.execute(
             """INSERT INTO account_portrait_selection(account_id,portrait_id,updated_at)
                VALUES(?,?,?) ON CONFLICT(account_id) DO UPDATE SET
@@ -607,10 +631,10 @@ def award_achievements(
     *,
     streak_tails: frozenset[str] | None = None,
 ) -> None:
-    """Award proven milestones and entitlements in the caller's event transaction.
+    """Award proven milestones in the caller's event transaction.
 
     Counter reads are cached by criterion/scope; events measure only affected
-    counters. Award and portrait keys plus append-only guards preserve permanence.
+    counters. Award keys and append-only guards preserve permanence.
 
     ``streak_tails`` is the safe fast path for a freshly appended rated result:
     it names the accounts whose newest ledger event is the just-recorded win (an
@@ -660,16 +684,16 @@ def award_achievements(
                        account_id,achievement_id,awarded_at,catalog_version) VALUES(?,?,?,?)""",
                     (account_id, achievement.id, now, ACHIEVEMENT_CATALOG_VERSION),
                 )
-        c.execute(
-            """INSERT OR IGNORE INTO account_portraits(account_id,portrait_id,granted_at,source_achievement_id)
-               SELECT ?,p.id,?,p.unlock_achievement_id FROM portrait_catalog p
-               JOIN achievement_awards a ON a.achievement_id=p.unlock_achievement_id
-               WHERE a.account_id=? AND p.retired=0""",
-            (account_id, now, account_id),
-        )
 
 
-def reconcile_achievements(c: sqlite3.Connection, now: int) -> None:
-    """Controlled migration/admin reconciliation, never called by a GET."""
+def reconcile_legacy_achievements(c: sqlite3.Connection, now: int) -> None:
+    """Keep the schema-21 backfill for installations upgrading from older schemas."""
     accounts = [row[0] for row in c.execute("SELECT id FROM accounts")]
     award_achievements(c, accounts, now)
+    c.execute(
+        """INSERT INTO account_portraits(account_id,portrait_id,granted_at,source_achievement_id)
+           SELECT a.account_id,p.id,?,p.unlock_achievement_id FROM portrait_catalog p
+           JOIN achievement_awards a ON a.achievement_id=p.unlock_achievement_id
+           WHERE p.retired=0 ON CONFLICT(account_id,portrait_id) DO NOTHING""",
+        (now,),
+    )

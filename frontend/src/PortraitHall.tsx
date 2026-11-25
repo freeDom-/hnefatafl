@@ -6,16 +6,11 @@ import { notify } from './notifications';
 import { useOnlinePoll } from './useOnlinePoll';
 import { useProgression } from './Progression';
 import type { Profile } from './ProfilePage';
-import Portrait from './Portrait';
+import PortraitHallCard from './PortraitHallCard';
 import type { PortraitCatalog, PortraitState } from './portraitTypes';
 import './portraitHall.css';
 
 type HallData = { catalog: PortraitCatalog; profile: Profile };
-const labels: Record<PortraitState, string> = {
-  locked: 'Locked',
-  earned: 'Unlocked',
-  selected: 'Selected',
-};
 const familyRunes: Readonly<Record<string, string>> = {
   'rated-wins': 'ᛏ',
   'brandubh-wins': 'ᛒ',
@@ -205,59 +200,24 @@ export default function PortraitHall() {
                 item.unlock_achievement_id === null ||
                 achievements.unlocked_portrait_ids.includes(item.id);
               const state: PortraitState =
-                data.profile.portrait_id === item.id ? 'selected' : unlocked ? 'earned' : 'locked';
+                data.profile.portrait_id === item.id
+                  ? 'selected'
+                  : unlocked
+                    ? 'earned'
+                    : achievement?.unlocked
+                      ? 'ready'
+                      : 'locked';
               return (
-                <li
-                  key={item.id}
-                  className={`arena-surface portrait-card portrait-${state}`}
-                  data-portrait-state={state}
-                >
-                  <div className="portrait-card-art">
-                    <Portrait id={item.id} gallery />
-                  </div>
-                  <div className="portrait-card-copy">
-                    <span className="portrait-state">{t(labels[state])}</span>
-                    <h2>{t(item.name)}</h2>
-                    <p>{achievement ? t(achievement.name) : t('Always available.')}</p>
-                    {achievement && (
-                      <div className="portrait-progress">
-                        <label htmlFor={`portrait-progress-${item.id}`}>
-                          {t('Progress: {count} / {total}', {
-                            count: number.format(achievement.progress),
-                            total: number.format(achievement.threshold),
-                          })}
-                        </label>
-                        <progress
-                          id={`portrait-progress-${item.id}`}
-                          value={Math.min(achievement.progress, achievement.threshold)}
-                          max={achievement.threshold}
-                        />
-                      </div>
-                    )}
-                    {unlocked && (
-                      <button
-                        className="button secondary"
-                        type="button"
-                        disabled={busy || state === 'selected' || hall.phase !== 'ready'}
-                        aria-label={t('Select portrait: {name}', { name: t(item.name) })}
-                        onClick={() => void selectPortrait(item.id)}
-                      >
-                        {t(
-                          state === 'selected'
-                            ? 'Selected'
-                            : mutation?.kind === item.id && busy
-                              ? 'Selecting…'
-                              : 'Use portrait',
-                        )}
-                      </button>
-                    )}
-                    {!unlocked && (
-                      <p className="portrait-lock-note">
-                        {t('Keep playing to complete this achievement.')}
-                      </p>
-                    )}
-                  </div>
-                </li>
+                <PortraitHallCard
+                  key={`${owner}:${item.id}`}
+                  item={item}
+                  achievement={achievement}
+                  state={state}
+                  number={number}
+                  selecting={busy && mutation?.kind === item.id}
+                  selectionDisabled={busy || hall.phase !== 'ready'}
+                  onSelect={(id) => void selectPortrait(id)}
+                />
               );
             })}
           </ul>

@@ -338,6 +338,12 @@ const translations: Record<string, string> = {
     'Der Porträtfortschritt konnte nicht aktualisiert werden. Die angezeigten Werte sind möglicherweise veraltet.',
   'Portrait collection': 'Porträtsammlung',
   Locked: 'Gesperrt',
+  'Ready to unlock': 'Bereit zum Freischalten',
+  'Unlock portrait': 'Porträt freischalten',
+  'Unlock portrait: {name}': 'Porträt freischalten: {name}',
+  'Unlocking…': 'Wird freigeschaltet…',
+  'Could not unlock {name}. Please try again.':
+    '{name} konnte nicht freigeschaltet werden. Bitte versuche es erneut.',
   Unlocked: 'Freigeschaltet',
   Selected: 'Ausgewählt',
   'Always available.': 'Immer verfügbar.',

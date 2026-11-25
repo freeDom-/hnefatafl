@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
 import { useI18n } from './i18n';
 import { notify } from './notifications';
@@ -18,6 +18,7 @@ export type ProgressionValue = {
   achievements: AchievementProgress | null;
   phase: 'loading' | 'ready' | 'stale';
   refresh: () => Promise<AchievementProgress | null>;
+  confirmPortraitUnlock: (id: string) => void;
 };
 
 /**
@@ -35,10 +36,31 @@ export function useAchievementNotifications(
     [],
   );
   const poll = useOnlinePoll(`progression:${owner ?? 'anonymous'}`, load, { intervalMs });
+  const [confirmed, setConfirmed] = useState<{ owner: string; ids: string[] }>();
+  const confirmPortraitUnlock = useCallback(
+    (id: string) => {
+      if (!owner) return;
+      setConfirmed((previous) => {
+        const ids = previous?.owner === owner ? previous.ids : [];
+        return ids.includes(id) ? previous : { owner, ids: [...ids, id] };
+      });
+    },
+    [owner],
+  );
+  // Claims are permanent. A read already in flight when a claim commits may
+  // still return an older snapshot. Merge only IDs confirmed by the write.
+  const achievements = useMemo(() => {
+    if (!poll.data || !confirmed || confirmed.owner !== owner) return poll.data;
+    const unlocked = poll.data.unlocked_portrait_ids ?? [];
+    const added = confirmed.ids.filter((id) => !unlocked.includes(id));
+    return added.length
+      ? { ...poll.data, unlocked_portrait_ids: [...unlocked, ...added].sort() }
+      : poll.data;
+  }, [poll.data, confirmed, owner]);
   // A first read establishes the baseline: historical awards are never announced.
   const previous = useRef<{ owner: string; data: AchievementProgress } | null>(null);
   useEffect(() => {
-    const next = poll.data;
+    const next = achievements;
     if (!owner || !next) return;
     const prior = previous.current;
     previous.current = { owner, data: next };
@@ -68,7 +90,7 @@ export function useAchievementNotifications(
       notify.success(
         t('New portraits available: {count}', { count: number.format(portraits.length) }),
       );
-  }, [owner, poll.data, t, locale]);
+  }, [owner, achievements, t, locale]);
   // Explicit completion signals from the game room, analysis and dashboard polls
   // refresh the shared read instead of each owner fetching its own copy.
   useEffect(() => {
@@ -77,7 +99,7 @@ export function useAchievementNotifications(
     return () => window.removeEventListener('progression-changed', wake);
   }, [poll.refresh]);
   return useMemo(
-    () => ({ achievements: poll.data, phase: poll.phase, refresh: poll.refresh }),
-    [poll.data, poll.phase, poll.refresh],
+    () => ({ achievements, phase: poll.phase, refresh: poll.refresh, confirmPortraitUnlock }),
+    [achievements, poll.phase, poll.refresh, confirmPortraitUnlock],
   );
 }

@@ -13,7 +13,10 @@ import { projectAchievements } from '../tests/achievement-fixture';
 
 const identity = vi.hoisted(() => ({ id: 'archer' }));
 vi.mock('./Auth', () => ({ useAuth: () => ({ account: identity }) }));
-vi.mock('./api', () => ({ api: vi.fn(), errorMessage: (error: Error) => error.message }));
+vi.mock('./api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./api')>()),
+  api: vi.fn(),
+}));
 vi.mock('./notifications', () => ({ notify: { success: vi.fn(), error: vi.fn() } }));
 const catalog: PortraitCatalog = {
   catalog_version: 2,
@@ -93,7 +96,8 @@ it('uses automatic awards and permanent portrait entitlements, preserving the se
   expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned');
   expect(card('Iron Helm')).toHaveAttribute('data-portrait-state', 'locked');
   expect(card('Skald')).toHaveAttribute('data-portrait-state', 'earned');
-  expect(within(card('Skald')).getByText('Progress: 0 / 10')).toBeVisible();
+  expect(within(card('Skald')).queryByRole('progressbar')).not.toBeInTheDocument();
+  expect(within(card('Iron Helm')).getByRole('progressbar')).toBeVisible();
   expect(
     within(screen.getByRole('list', { name: 'Portrait collection' }))
       .getAllByRole('heading')
@@ -159,7 +163,7 @@ it('refreshes score and portrait state for a remote completion without focus or 
   vi.useFakeTimers();
   try {
     // Start with the Tablut milestone locked so the remote completion is the
-    // only thing that can change the score and the Skald entitlement.
+    // only thing that can change the score and Skald eligibility.
     progress.items = progress.items.map((item) =>
       item.family_id === 'tablut-wins' ? { ...item, unlocked: false } : item,
     );
@@ -176,22 +180,74 @@ it('refreshes score and portrait state for a remote completion without focus or 
     // dispatched: only the shared progression read reconciles the result.
     progress.items = progress.items.map((item) =>
       item.family_id === 'tablut-wins'
-        ? { ...item, progress: 1, unlocked: item.threshold === 1 }
+        ? { ...item, progress: 10, unlocked: item.threshold <= 10 }
         : item,
     );
-    progress.unlocked_portrait_ids = ['shieldmaiden', 'skald'];
     await act(async () => {
       await vi.advanceTimersByTimeAsync(PROGRESSION_POLL_MS);
     });
 
-    expect(screen.getByText('Achievement Score — 70 / 2,280 points')).toBeVisible();
-    expect(card('Skald')).toHaveAttribute('data-portrait-state', 'earned');
-    expect(notify.success).toHaveBeenCalledWith('New milestones: 1 · +10 points');
-    expect(notify.success).toHaveBeenCalledWith('New portraits available: 1');
-    expect(notify.success).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Achievement Score — 120 / 2,280 points')).toBeVisible();
+    expect(card('Skald')).toHaveAttribute('data-portrait-state', 'ready');
+    expect(
+      within(card('Skald')).getByRole('button', { name: 'Unlock portrait: Skald' }),
+    ).toBeEnabled();
+    expect(within(card('Skald')).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(notify.success).toHaveBeenCalledExactlyOnceWith('New milestones: 3 · +60 points');
   } finally {
     vi.useRealTimers();
   }
+});
+it('applies confirmed claims to the shared projection even across an older in-flight read', async () => {
+  progress.unlocked_portrait_ids = [];
+  const original = vi.mocked(api).getMockImplementation()!;
+  let answerRead: (value: AchievementProgress) => void = () => {};
+  let reading = false;
+  vi.mocked(api).mockImplementation((path, ...rest) => {
+    if (path === '/personal/achievements' && reading)
+      return new Promise((resolve) => {
+        answerRead = resolve;
+      });
+    if (path === '/portraits/unlock') {
+      return Promise.resolve({ portrait_id: 'shieldmaiden', newly_unlocked: false });
+    }
+    return original(path, ...rest);
+  });
+  render(<Hall />);
+  const unlock = await screen.findByRole('button', { name: 'Unlock portrait: Shieldmaiden' });
+  reading = true;
+  fireEvent(window, new Event('progression-changed'));
+  fireEvent.click(unlock);
+  await screen.findByRole('button', { name: 'Select portrait: Shieldmaiden' });
+  await act(async () => answerRead(projectAchievements(progress)));
+  expect(card('Shieldmaiden')).toHaveAttribute('data-portrait-state', 'earned');
+  expect(card('Shieldbearer')).toHaveAttribute('data-portrait-state', 'selected');
+  expect(notify.success).toHaveBeenCalledExactlyOnceWith('New portraits available: 1');
+  expect(document.querySelector('canvas')).toBeNull();
+});
+
+it('discards an in-flight unlock response when the account changes', async () => {
+  progress.unlocked_portrait_ids = [];
+  const original = vi.mocked(api).getMockImplementation()!;
+  let respond: (value: unknown) => void = () => {};
+  let signal: AbortSignal | undefined;
+  vi.mocked(api).mockImplementation((path, body, method, requestSignal) => {
+    if (path !== '/portraits/unlock') return original(path, body, method, requestSignal);
+    signal = requestSignal;
+    return new Promise((resolve) => {
+      respond = resolve;
+    });
+  });
+  const view = render(<Hall />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Unlock portrait: Shieldmaiden' }));
+  identity.id = 'keeper';
+  view.rerender(<Hall />);
+  await waitFor(() => expect(signal?.aborted).toBe(true));
+  await act(async () => respond({ portrait_id: 'shieldmaiden', newly_unlocked: true }));
+  expect(
+    await screen.findByRole('button', { name: 'Unlock portrait: Shieldmaiden' }),
+  ).toBeEnabled();
+  expect(notify.success).not.toHaveBeenCalled();
 });
 it('retains the awarded tier after correction and still targets the next unearned milestone', async () => {
   progress.items = progress.items.map((item) =>

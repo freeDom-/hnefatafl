@@ -5,12 +5,13 @@ import json
 import unicodedata
 
 from fastapi import HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
 
 from .auth import password_hash, verify
 from .account_policy import BIDI_CONTROLS, birth_date, unpublished_fields
 from .online_core import OnlineError
 from .progression import selected_portrait_id
+from .progression_api import PortraitSelection
 from .security_context import session_identity
 
 # ISO 3166-1 alpha-2 (including territories); labels are localized by the browser.
@@ -64,21 +65,6 @@ class ProfileUpdate(BaseModel):
     @classmethod
     def date(cls, value):
         return birth_date(value)
-
-
-class PortraitSelection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    # Only a stable catalog ID is accepted; there is no image, URL or
-    # entitlement field a client could supply.
-    portrait_id: StrictStr = Field(min_length=1, max_length=64)
-
-    @field_validator("portrait_id")
-    @classmethod
-    def identifier(cls, value):
-        value = value.strip()
-        if not 1 <= len(value) <= 64 or any(char.isspace() for char in value):
-            raise ValueError("Invalid portrait ID")
-        return value
 
 
 class ProfileResponse(BaseModel):
@@ -170,8 +156,6 @@ def attach_profiles(app, auth, registration):
 
     @app.patch("/api/profile/portrait", response_model=ProfileResponse)
     def select_portrait(body: PortraitSelection):
-        # Selection confirms any award the authoritative records already prove,
-        # then validates the catalog ID inside the same write transaction.
         with auth.store.connection() as c:
             c.execute("BEGIN IMMEDIATE")
             account = auth.current_account(c)

@@ -27,6 +27,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Rated online games, Elo policy, eligibility, leaderboards and rebuilds](RATINGS.md)
 - [Earnable portraits, achievement progress, catalog IDs and award permanence](PROGRESSION.md)
 - [Portrait Hall implementation and visual acceptance](validation/portrait-hall.md)
+- [Manual portrait unlock validation and Shieldmaiden reveal frames](validation/portrait-unlock.md)
 - [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
 - [Double-elimination player tournaments, bracket policy and moderation](PLAYER_TOURNAMENTS.md)
 - [Hall of records and seed-independent AI statistics](PERSONALIZATION.md#ai-configurations-in-the-hall-of-records)

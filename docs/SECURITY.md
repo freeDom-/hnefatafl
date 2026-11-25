@@ -183,15 +183,15 @@ account. See the
 [personal API contract](designs/personal-dashboard-phase5.md#api-contract).
 
 Progression provides authenticated `play` catalog and own-progress reads
-(`GET /api/portraits/catalog`, `GET /api/personal/achievements`) and a `profile`
-CSRF-protected selection (`PATCH /api/profile/portrait`). All take the account from
-the session; none accepts another account or arbitrary progress/points. Reads
-never grant rewards. Authoritative game/rating/analysis transactions automatically
-award milestones; schema 21 reconciles historical evidence once. Portrait
-selection checks existing entitlement and never awards achievements. Awards and
-entitlements are append-only and unique. Existing origin, CSRF, bounded-body and
-deployment-freeze protection applies to the underlying game/analysis/selection
-mutations. Tournament startup reconciliation also respects that freeze: expected
+(`GET /api/portraits/catalog`, `GET /api/personal/achievements`), a `play` unlock
+(`POST /api/portraits/unlock`) and a `profile` selection (`PATCH /api/profile/portrait`).
+These endpoints use the session account. The unlock accepts a catalog ID and checks
+the account's permanent milestone in the same transaction that records its new
+entitlement. Selection checks an existing entitlement. Game, rating and analysis
+transactions award milestones automatically, and schema 21 reconciles historical
+evidence once. Awards and entitlements are append-only and unique. Existing origin,
+CSRF, bounded-body and deployment-freeze protection applies to progression writes.
+Tournament startup reconciliation also respects that freeze. Expected
 deployment-gate contention is deferred to the existing background worker rather
 than opening a second write path or bypassing the gate. The corrected updater also
 refuses known-incompatible `0.41.0` rollback/interrupted-recovery targets before
