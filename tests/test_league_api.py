@@ -3,6 +3,7 @@
 import fcntl
 import sqlite3
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from hnefatafl import league_administration, league_worker
 from hnefatafl.online_core import micros
 from hnefatafl.server import create_app
+from test_leagues import seed_waiter
 from test_online_api import api as api
 from test_online_core import POLICY, account_template as account_template, move_for, rig as rig
 
@@ -160,6 +162,36 @@ def test_queue_retries_flooding_and_cancellation_are_account_scoped(api):
         == "cancelled"
     )
     assert checked(keeper.get(LEAGUES + "/queue"))["status"] == "idle"
+
+
+def test_delayed_join_cannot_replace_a_newer_generation_or_cross_account(rig, api):
+    _, client = api
+    archer, keeper = client(), client("Keeper")
+    path = LEAGUES + "/queue"
+    old = {"ruleset": "brandubh", "request_id": str(uuid4()), "expected_generation": None}
+    newest = {**old, "request_id": str(uuid4()), "ruleset": "tablut"}
+    assert checked(archer.get(path))["join_generation"] is None
+    assert checked(archer.post(path, json=newest))["join_generation"] == newest["request_id"]
+    assert archer.post(path, json=old).status_code == 409
+    assert archer.post(path + "/cancel", json={"request_id": old["request_id"]}).status_code == 404
+    cancelled = checked(archer.post(path + "/cancel", json={"request_id": newest["request_id"]}))
+    assert cancelled["status"] == "cancelled"
+    assert archer.post(path, json=old).status_code == 409
+    assert checked(archer.post(path, json=newest))["status"] == "cancelled"
+
+    # Guard order follows accepted writes even if the server clock has stepped back.
+    rig.clock.value -= timedelta(seconds=1)
+    intentional = {**old, "request_id": str(uuid4()), "expected_generation": newest["request_id"]}
+    state = checked(archer.post(path, json=intentional))
+    assert state["queue"]["request_id"] == state["join_generation"] == intentional["request_id"]
+    assert archer.post(path, json=old).status_code == 409
+    assert checked(keeper.get(path))["join_generation"] is None
+    headers = {"X-League-Account": rig.accounts["Archer"]["id"]}
+    for endpoint in ("queue", "current", "progress", "history"):
+        response = keeper.get(f"{LEAGUES}/{endpoint}", headers=headers)
+        assert response.status_code == 409
+        assert response.json()["code"] == "league_session_changed"
+        assert intentional["request_id"] not in response.text
 
 
 def test_real_scoring_shared_ranks_archived_revisions_and_safe_history(rig, api):
@@ -326,6 +358,63 @@ def test_administration_version_checks_stale_only_and_private_immutable_audit(ri
         c.execute("DELETE FROM league_audit")
 
 
+def test_stale_queue_health_seeks_past_eligible_accounts_and_reports_policy_reasons(rig, api):
+    _, client = api
+    admin = client("Odin")
+    at = micros(rig.clock.value)
+    with rig.core._write() as c:
+        expired = seed_waiter(c, "Expired", 1500, at - 601_000_000, at - 1)
+        for index in range(league_administration.STALE_SCAN + 4):
+            seed_waiter(c, f"Eligible-{index}", 1500, at, at + 600_000_000)
+        entries = {
+            "disabled": seed_waiter(c, "Disabled", 1500, at, at + 600_000_000),
+            "unverified": seed_waiter(c, "Unverified", 1500, at, at + 600_000_000),
+            "ineligible": seed_waiter(c, "Ineligible", 1500, at, at + 600_000_000),
+        }
+        c.execute("UPDATE accounts SET active=0 WHERE id='Disabled'")
+        c.execute("UPDATE accounts SET email_verified_at=NULL WHERE id='Unverified'")
+        c.execute("UPDATE accounts SET role='no-play' WHERE id='Ineligible'")
+    path = LEAGUES + "/admin/health"
+    first = checked(admin.get(path))["queue"]
+    assert [(row["reason"], row["request_id"]) for row in first["stale"]] == [("expired", expired)]
+    assert first["stale_next_cursor"]
+    page = checked(admin.get(path, params={"stale_cursor": first["stale_next_cursor"]}))["queue"]
+    assert {row["reason"]: row["request_id"] for row in page["stale"]} == entries
+    assert page["stale_next_cursor"] is None
+    assert all(
+        set(row) == {"request_id", "ruleset", "joined_at", "expires_at", "reason"}
+        for row in page["stale"]
+    )
+    for request in entries.values():
+        response = admin.post(
+            LEAGUES + "/admin/queue/cancel", json={"request_id": request, "reason": "Test removal"}
+        )
+        assert checked(response)["status"] == "cancelled"
+
+
+def test_administrative_cancel_and_concurrent_replacement_target_different_generations(rig, api):
+    _, client = api
+    archer, admin = client(), client("Odin")
+    old = checked(join(archer))["request_id"]
+    rig.clock.value += timedelta(minutes=10)
+    replacement = str(uuid4())
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        cancel = workers.submit(
+            admin.post,
+            LEAGUES + "/admin/queue/cancel",
+            json={"request_id": old, "reason": "Test expiry race"},
+        )
+        rejoin = workers.submit(join, archer, "tablut", replacement)
+        assert checked(rejoin.result())["queue"]["request_id"] == replacement
+        outcome = cancel.result()
+        if outcome.is_success:
+            assert checked(outcome)["status"] == "expired"
+        else:
+            assert outcome.status_code == 409
+            assert outcome.json()["code"] == "league_version_changed"
+    assert checked(archer.get(LEAGUES + "/queue"))["queue"]["request_id"] == replacement
+
+
 def test_rebuild_repairs_corruption_resumes_after_restart_and_catches_late_void(rig, api):
     app, client = api
     admin, player = client("Odin"), client()
@@ -352,7 +441,7 @@ def test_rebuild_repairs_corruption_resumes_after_restart_and_catches_late_void(
 
     administration = app.state.league_administration
     for _ in range(20):
-        assert administration.process_rebuild(limit=1)
+        assert administration.process_rebuild(limit=1) == "processed"
         if (
             administration.health(rig.credentials["Odin"])["rebuilds"][0]["stage"]
             == "fold_standings"
@@ -369,7 +458,13 @@ def test_rebuild_repairs_corruption_resumes_after_restart_and_catches_late_void(
     rig.clock.value += timedelta(seconds=10)
     assert app.state.leagues.drain()["settled"] == 0
     pending = checked(admin.get(LEAGUES + "/admin/health"))["settlement"]
-    assert pending == {"pending": 1, "failed": 0, "oldest_pending_seconds": 10}
+    assert pending == {
+        "pending": 1,
+        "failed": 0,
+        "oldest_pending_seconds": 10,
+        "max_attempts": 0,
+        "next_retry_at": None,
+    }
     restarted = create_app(
         rig.root,
         online_settings=POLICY,
@@ -379,7 +474,7 @@ def test_rebuild_repairs_corruption_resumes_after_restart_and_catches_late_void(
     )
     recovery = restarted.state.league_administration
     for _ in range(20):
-        if not recovery.process_rebuild(limit=1):
+        if recovery.process_rebuild(limit=1) == "idle":
             break
     else:
         pytest.fail("The durable rebuild did not complete")
@@ -412,8 +507,8 @@ def test_failed_rebuild_batch_rolls_back_and_retries_durably(rig, api, monkeypat
     )
     administration = app.state.league_administration
     credential = rig.credentials["Odin"]
-    assert administration.process_rebuild(limit=1)
-    assert administration.process_rebuild(limit=1)
+    assert administration.process_rebuild(limit=1) == "processed"
+    assert administration.process_rebuild(limit=1) == "processed"
     assert administration.health(credential)["rebuilds"][0]["stage"] == "restore_games"
     original = league_administration.write_game_result
 
@@ -423,7 +518,7 @@ def test_failed_rebuild_batch_rolls_back_and_retries_durably(rig, api, monkeypat
 
     with monkeypatch.context() as patch:
         patch.setattr(league_administration, "write_game_result", fail_after_write)
-        assert not administration.process_rebuild(limit=1)
+        assert administration.process_rebuild(limit=1) == "retry"
     with rig.store.connection() as c:
         assert c.execute("SELECT COUNT(*) FROM league_contributions").fetchone()[0] == 0
         row = c.execute(
@@ -433,10 +528,10 @@ def test_failed_rebuild_batch_rolls_back_and_retries_durably(rig, api, monkeypat
         assert c.execute("SELECT COUNT(*) FROM league_settlement_queue").fetchone()[0] == 1
     assert "private failure fixture" not in caplog.text
     assert administration.health(credential)["rebuilds"][0]["attempts"] == 1
-    assert not administration.process_rebuild(limit=1)
+    assert administration.process_rebuild(limit=1) == "idle"
     rig.clock.value += timedelta(seconds=2)
     for _ in range(12):
-        if not administration.process_rebuild(limit=1):
+        if administration.process_rebuild(limit=1) == "idle":
             break
     assert administration.health(credential)["rebuilds"] == []
     assert administration.health(credential)["settlement"]["pending"] == 0
@@ -503,3 +598,75 @@ def test_lifespan_recovers_durable_work_and_matches_without_browser(rig, api, mo
                     == 1
                 )
     assert worker.thread is not None and not worker.thread.is_alive()
+
+
+def test_worker_health_separates_idle_success_from_durable_retry(rig, api, monkeypatch):
+    app, client = api
+    admin = client("Odin")
+    worker = app.state.league_worker
+    monkeypatch.setattr(league_worker, "POLL_SECONDS", 0.15)
+    path = LEAGUES + "/admin/health"
+    original = worker.core.settle
+
+    def fail(*_args):
+        raise RuntimeError("private injected query or exception")
+
+    worker.start()
+    try:
+        wait_for(lambda: worker.health()["state"] == "idle")
+        assert worker.health()["last_success_at"] is None
+        monkeypatch.setattr(worker.core, "settle", fail)
+        finish(client, rig)
+        wait_for(lambda: worker.health()["state"] == "settlement_retry")
+        health = checked(admin.get(path))
+        assert health["worker"]["last_success_at"] is None
+        assert health["settlement"]["pending"] == health["settlement"]["failed"] == 1
+        assert health["settlement"]["max_attempts"] == 1
+        assert health["settlement"]["next_retry_at"]
+        assert "private injected" not in str(health)
+    finally:
+        worker.shutdown()
+    monkeypatch.setattr(worker.core, "settle", original)
+    worker.start()
+    try:
+        wait_for(lambda: worker.health()["state"] == "idle")
+        assert checked(admin.get(path))["settlement"]["failed"] == 1
+        rig.clock.value += timedelta(seconds=2)
+        wait_for(lambda: worker.health()["last_success_at"] is not None)
+        assert checked(admin.get(path))["settlement"]["pending"] == 0
+    finally:
+        worker.shutdown()
+
+
+def test_worker_reports_rebuild_stage_and_repeated_retries_across_restart(rig, api, monkeypatch):
+    app, client = api
+    finish(client, rig)
+    admin = client("Odin")
+    path = LEAGUES + "/admin/health"
+    endpoint = LEAGUES + "/admin/seasons/2027-01/rebuild"
+    assert (
+        admin.post(endpoint, json={"version": 0, "reason": "Private test reason"}).status_code
+        == 202
+    )
+    worker = app.state.league_worker
+    monkeypatch.setattr(league_worker, "POLL_SECONDS", 0.15)
+
+    def fail(*_args):
+        raise RuntimeError("private rebuild exception")
+
+    monkeypatch.setattr(worker.administration, "_clear", fail)
+    for attempts in (1, 2):
+        worker.start()
+        try:
+            wait_for(lambda: worker.health()["state"] == "rebuild_retry")
+            health = checked(admin.get(path))
+            assert health["worker"]["last_success_at"] is None
+            assert health["rebuild_pending"] == health["rebuild_retries"] == 1
+            assert health["rebuilds"][0]["attempts"] == attempts
+            assert health["rebuilds"][0]["stage"] == "clear_contributions"
+            assert health["rebuilds"][0]["due_at"]
+            assert "Private test reason" not in str(health)
+            assert "private rebuild exception" not in str(health)
+        finally:
+            worker.shutdown()
+        rig.clock.value += timedelta(seconds=2**attempts)

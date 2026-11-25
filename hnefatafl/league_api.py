@@ -44,6 +44,10 @@ class PageQuery(LeagueRequest):
     cursor: str | None = Field(default=None, min_length=1, max_length=512)
 
 
+class HealthQuery(LeagueRequest):
+    stale_cursor: str | None = Field(default=None, min_length=1, max_length=512)
+
+
 class SeasonPageQuery(SeasonQuery, PageQuery):
     pass
 
@@ -54,6 +58,7 @@ class QueueRequest(LeagueRequest):
 
 class JoinRequest(QueueRequest):
     ruleset: Ruleset
+    expected_generation: UUID | None = None
 
 
 class AdministrativeReason(LeagueRequest):
@@ -151,7 +156,16 @@ def attach_leagues(app: FastAPI, online: OnlineCore) -> LeagueWorker:
 
     @app.post("/api/leagues/queue")
     def join(body: JoinRequest):
-        return execute(lambda credential: core.join(credential, body.ruleset, str(body.request_id)))
+        generation = body.expected_generation
+        return execute(
+            lambda credential: core.join(
+                credential,
+                body.ruleset,
+                str(body.request_id),
+                expected_generation=str(generation) if generation is not None else None,
+                guarded="expected_generation" in body.model_fields_set,
+            )
+        )
 
     @app.post("/api/leagues/queue/cancel")
     def cancel(body: QueueRequest):
@@ -162,9 +176,12 @@ def attach_leagues(app: FastAPI, online: OnlineCore) -> LeagueWorker:
         return execute(views.active_game)
 
     @app.get("/api/leagues/admin/health")
-    def health(query: Annotated[LeagueRequest, Query()]):
+    def health(query: Annotated[HealthQuery, Query()]):
         return execute(
-            lambda credential: {**administration.health(credential), "worker": worker.health()}
+            lambda credential: {
+                **administration.health(credential, query.stale_cursor),
+                "worker": worker.health(),
+            }
         )
 
     @app.get("/api/leagues/admin/audit")

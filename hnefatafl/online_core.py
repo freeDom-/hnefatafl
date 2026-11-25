@@ -91,7 +91,7 @@ class OnlineCore:
         self.thread: threading.Thread | None = None
 
     @contextmanager
-    def _write(self):
+    def _write(self, *, wait_ms: int | None = None):
         with self.auth.gate_path.open("rb") as gate:
             try:
                 fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
@@ -99,6 +99,8 @@ class OnlineCore:
                 raise DeploymentLocked() from None
             with self.store.connection() as c:
                 c.execute("PRAGMA foreign_keys=ON")
+                if wait_ms is not None:
+                    c.execute(f"PRAGMA busy_timeout={wait_ms}")
                 c.execute("BEGIN IMMEDIATE")
                 yield c
 
@@ -467,14 +469,14 @@ class OnlineCore:
         )
 
     def _return_game(self, c, row, game, now):
-        if row["leg"] != 1:
+        activating = row["status"] == "waiting" and game.status == lifecycle.Status.ACTIVE
+        completed = game.status == lifecycle.Status.COMPLETED
+        if row["leg"] != 1 or not (activating or completed):
             return
         match = c.execute("SELECT * FROM online_matches WHERE id=?", (row["match_id"],)).fetchone()
-        due = (
-            match["mode"] == "simultaneous"
-            and row["status"] == "waiting"
-            and game.status == lifecycle.Status.ACTIVE
-        ) or (match["mode"] == "sequential" and game.status == lifecycle.Status.COMPLETED)
+        due = (match["mode"] == "simultaneous" and activating) or (
+            match["mode"] == "sequential" and completed
+        )
         if (
             not due
             or c.execute(
@@ -529,7 +531,7 @@ class OnlineCore:
     def _persist(self, c, row, transition, now, move=None, actor=None, note=None):
         game = transition.game
         next_version = row["version"] + 1
-        c.execute(
+        updated = c.execute(
             "UPDATE online_games SET creator_side=?,attackers_id=?,defenders_id=?,status=?,version=?,updated_at=?,started_at=?,deadline=?,completed_at=?,position=?,result_revision=?,attackers_remaining_us=?,defenders_remaining_us=? WHERE id=? AND version=?",
             (
                 game.creator_side if row["creator_side"] is not None or game.started_at else None,
@@ -553,7 +555,7 @@ class OnlineCore:
                 row["version"],
             ),
         )
-        if c.execute("SELECT changes()").fetchone()[0] != 1:
+        if updated.rowcount != 1:
             raise OnlineError(409, "This game changed. Reload before retrying.")
         if row["status"] == "waiting" and game.status == lifecycle.Status.ACTIVE:
             self._capture_start_ratings(c, game, now)
@@ -607,15 +609,18 @@ class OnlineCore:
                 ON CONFLICT(tournament_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
                 (micros(now), game.id),
             )
-            c.execute(
-                """INSERT INTO league_settlement_queue(game_id,season_id,due_at,pending_since)
-                SELECT game_id,season_id,?,? FROM league_games WHERE game_id=?
-                ON CONFLICT(game_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
-                (micros(now), micros(now), game.id),
-            )
-            # League seats become available with the authoritative result. The
-            # outbox can take longer to project standings or recover after a restart.
-            c.execute("DELETE FROM league_active_players WHERE game_id=?", (game.id,))
+            league = c.execute(
+                "SELECT season_id FROM league_games WHERE game_id=?", (game.id,)
+            ).fetchone()
+            if league is not None:
+                c.execute(
+                    """INSERT INTO league_settlement_queue(game_id,season_id,due_at,pending_since)
+                    VALUES(?,?,?,?)
+                    ON CONFLICT(game_id) DO UPDATE SET due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
+                    (game.id, league["season_id"], micros(now), micros(now)),
+                )
+                # Release both seats in the same transaction as the official result.
+                c.execute("DELETE FROM league_active_players WHERE game_id=?", (game.id,))
         self._return_game(c, row, game, now)
         if actor is not None:
             c.execute(
@@ -724,7 +729,10 @@ class OnlineCore:
                     account["id"] if action == "void" else None,
                     note.strip() if action == "void" else None,
                 )
-            response = self._projection(c, *self._load(c, identifier))
+                row = c.execute("SELECT * FROM online_games WHERE id=?", (identifier,)).fetchone()
+            # Keep the response in the same snapshot as the mutation. The
+            # validated transition already has the position and result we wrote.
+            response = self._projection(c, row, transition.game)
         return {
             "game": response,
             "transition": transition_name,

@@ -147,6 +147,9 @@ def migrate_leagues(c):
             CHECK(joined_at<expires_at), CHECK((status='matched')=(game_id IS NOT NULL))
         )""",
         "CREATE INDEX IF NOT EXISTS league_requests_actor_time ON league_requests(account_id,created_at)",
+        # The implicit rowid suffix lets a client guard against earlier join
+        # intents even when the authoritative clock has moved backwards.
+        "CREATE INDEX IF NOT EXISTS league_requests_actor ON league_requests(account_id)",
         "CREATE INDEX IF NOT EXISTS league_requests_live ON league_requests(account_id,entry_id) WHERE status='queued'",
         f"""CREATE TABLE IF NOT EXISTS league_queue (
             account_id TEXT PRIMARY KEY REFERENCES accounts(id),

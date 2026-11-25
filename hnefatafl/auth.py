@@ -584,7 +584,8 @@ class SecurityBoundary:
         route_path = getattr(route, "path", "")
         permission = POLICY.get((method, route_path), "deny")
         online_mutation = method not in SAFE and route_path.startswith("/api/online/")
-        league_mutation = method not in SAFE and route_path.startswith("/api/leagues/")
+        league = route_path.startswith("/api/leagues/")
+        league_mutation = method not in SAFE and league
         profile_mutation = method not in SAFE and route_path.startswith("/api/profile")
         personal_mutation = method not in SAFE and route_path.startswith("/api/personal/")
         if (
@@ -667,6 +668,11 @@ class SecurityBoundary:
             if not allowed(account, permission):
                 status = 404 if route_path == "/{path:path}" and path.startswith("/api") else 403
                 return await JSONResponse({"detail": "Access denied"}, status)(scope, receive, send)
+        expected_account = request.headers.get("x-league-account") if league else None
+        if expected_account is not None and (account is None or account["id"] != expected_account):
+            return await JSONResponse(
+                {"detail": "League session changed.", "code": "league_session_changed"}, 409
+            )(scope, receive, send)
         if method not in SAFE and permission != "worker":
             origin = request.headers.get("origin")
             expected = self.auth.settings.public_url or str(request.base_url).rstrip("/")

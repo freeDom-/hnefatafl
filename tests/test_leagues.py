@@ -5,12 +5,13 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import fcntl
 import random
+from threading import Event
 from uuid import uuid4
 
 import pytest
 
-from hnefatafl import league_policy as policy, league_results
-from hnefatafl.leagues import MATCH_STARTERS, Leagues
+from hnefatafl import league_policy as policy, league_results, leagues
+from hnefatafl.leagues import MATCH_OPPONENTS, MATCH_STARTERS, Leagues
 from hnefatafl.online_core import OnlineError, micros
 from test_online_core import account_template as account_template, actor, rig as rig
 
@@ -320,6 +321,126 @@ def set_rating(c, account_id, value, ruleset="brandubh"):
     )
 
 
+def seed_waiter(c, name, rating, joined, expires, ruleset="brandubh"):
+    request = str(uuid4())
+    c.execute(
+        """INSERT INTO accounts(id,username,email,password_hash,role,created_at,email_verified_at)
+        VALUES(?,?,?,'fixture','USER',0,1)""",
+        (name, name, f"{name}@example.test"),
+    )
+    set_rating(c, name, rating, ruleset)
+    c.execute(
+        """INSERT INTO league_requests(id,account_id,ruleset,created_at,status,entry_id,joined_at,expires_at)
+        VALUES(?,?,?,?,'queued',?,?,?)""",
+        (request, name, ruleset, joined, request, joined, expires),
+    )
+    c.execute(
+        """INSERT INTO league_queue(account_id,request_id,ruleset,joined_at,expires_at,rating)
+        VALUES(?,?,?,?,?,?)""",
+        (name, request, ruleset, joined, expires, rating),
+    )
+    return request
+
+
+def test_opponent_cursor_reaches_deep_pages_and_rechecks_expanding_windows(rig):
+    service = Leagues(rig.core)
+    now = rig.clock.value
+    at = micros(now)
+    cutoff = micros(policy.season_for(now).start)
+    expires = at + 400_000_000
+    with rig.core._write() as c:
+        seed_waiter(c, "Oldest", 1500.0, at - 121_000_000, expires)
+        for index in range(MATCH_OPPONENTS * 2 + 1):
+            seed_waiter(c, f"Window-{index:02d}", 1750.0, at - 1000 + index, expires)
+        seed_waiter(c, "Deep", 1500.0, at, expires)
+    for previous in (f"Window-{MATCH_OPPONENTS - 1:02d}", f"Window-{MATCH_OPPONENTS * 2 - 1:02d}"):
+        with rig.core._write() as c:
+            first = service._valid_entry(c, "Oldest", "brandubh", at, cutoff)
+            assert not service._match_from(c, first, now, at, cutoff, at)
+            assert service._queue_entry(c, "Oldest")["opponent_account"] == previous
+        service = Leagues(rig.core)  # The per-entry cursor survives a restart.
+    with rig.core._write() as c:
+        first = service._valid_entry(c, "Oldest", "brandubh", at, cutoff)
+        assert service._match_from(c, first, now, at, cutoff, at)
+        assert {row[0] for row in c.execute("SELECT account_id FROM league_active_players")} == {
+            "Oldest",
+            "Deep",
+        }
+
+    # Skipped opponents can become eligible when their own window expands.
+    with rig.core._write() as c:
+        seed_waiter(c, "NextOldest", 1500.0, at - 121_000_000, expires)
+        first = service._valid_entry(c, "NextOldest", "brandubh", at, cutoff)
+        assert not service._match_from(c, first, now, at, cutoff, at)
+    now += timedelta(seconds=61)
+    at = micros(now)
+    with rig.core._write() as c:
+        for _ in range(4):
+            first = service._valid_entry(c, "NextOldest", "brandubh", at, cutoff)
+            if service._match_from(c, first, now, at, cutoff, at):
+                break
+        else:
+            pytest.fail("A newly compatible opponent was never revisited")
+
+
+def test_background_budget_commits_separately_and_rotates_rulesets(rig, monkeypatch):
+    service = Leagues(rig.core)
+    at = micros(rig.clock.value)
+    monkeypatch.setattr(leagues, "MATCH_TRANSACTIONS", 4)
+    monkeypatch.setattr(leagues, "MATCH_CYCLE_SECONDS", 5)
+    with rig.core._write() as c:
+        for ruleset in ("brandubh", "tablut", "copenhagen"):
+            for index in range(10):
+                seed_waiter(
+                    c, f"{ruleset}-{index:02d}", 1500, at + index, at + 600_000_000, ruleset
+                )
+    rig.clock.value += timedelta(seconds=1)
+    stop = Event()
+    assert service.drain(stop=stop)["matched"] == 4
+    with rig.store.connection() as c:
+        assert dict(c.execute("SELECT ruleset,count(*) FROM league_games GROUP BY ruleset")) == {
+            "brandubh": 2,
+            "copenhagen": 1,
+            "tablut": 1,
+        }
+        assert set(
+            row[0]
+            for row in c.execute("SELECT first_account FROM league_games WHERE ruleset='brandubh'")
+        ) == {"brandubh-00", "brandubh-02"}
+    stop.set()
+    assert service.drain(stop=stop)["matched"] == 0
+
+
+def test_unproductive_match_bursts_back_off_without_pausing_expiry(rig, monkeypatch):
+    service = Leagues(rig.core)
+    at = micros(rig.clock.value)
+    ticks = 100.0
+    monkeypatch.setattr(leagues, "monotonic", lambda: ticks)
+    with rig.core._write() as c:
+        for index in range(35):
+            seed_waiter(c, f"Disjoint-{index}", 1500 + 1000 * index, at, at + 600_000_000)
+    with monkeypatch.context() as patch:
+        calls = []
+        original = service._match
+
+        def observe(*args):
+            calls.append(1)
+            return original(*args)
+
+        patch.setattr(service, "_match", observe)
+        stop = Event()
+        assert service.drain(stop=stop)["matched"] == 0
+        assert len(calls) == leagues.MATCH_DISCOVERY_PASSES
+        ticks += 1
+        service.drain(stop=stop)
+        assert len(calls) > leagues.MATCH_DISCOVERY_PASSES
+        scanned = len(calls)
+        ticks += 1
+        rig.clock.value += timedelta(minutes=10)
+        assert service.drain(stop=stop)["expired"] == 20
+        assert len(calls) == scanned
+
+
 def test_round_robin_finds_compatible_players_beyond_old_candidate_batch(rig):
     service = Leagues(rig.core)
     at = micros(rig.clock.value)
@@ -489,7 +610,13 @@ def test_deployment_lock_defers_work_without_attempts(rig):
     terminal = finish_league_game(service, rig)
     with rig.auth.gate_path.open("rb") as gate:
         fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        assert service.drain() == {"settled": 0, "expired": 0, "matched": 0, "deferred": True}
+        assert service.drain() == {
+            "settled": 0,
+            "expired": 0,
+            "matched": 0,
+            "deferred": True,
+            "settlement_retries": 0,
+        }
     with rig.store.connection() as c:
         assert tuple(
             c.execute(
@@ -540,7 +667,8 @@ def test_failed_settlement_rolls_back_partial_writes_and_retries(rig, monkeypatc
         raise RuntimeError("private fixture text")
 
     monkeypatch.setattr(service, "settle", fail_after_projecting)
-    assert service.drain()["settled"] == 0
+    failed = service.drain()
+    assert failed["settled"] == 0 and failed["settlement_retries"] == 1
     with rig.store.connection() as c:
         assert c.execute("SELECT count(*) FROM league_contributions").fetchone()[0] == 0
         assert c.execute("SELECT count(*) FROM league_standings").fetchone()[0] == 0

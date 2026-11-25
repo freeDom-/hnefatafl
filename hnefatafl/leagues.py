@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timedelta
 from hashlib import sha256
 import logging
 import sqlite3
 from threading import Event
+from time import monotonic
+from typing import TypedDict
 from uuid import UUID, uuid4
 
 from . import league_policy as policy
@@ -20,6 +23,20 @@ from .security_context import online_eligible
 LOGGER = logging.getLogger(__name__)
 MATCH_STARTERS = 8
 MATCH_OPPONENTS = 8
+MATCH_TRANSACTIONS = 16
+MATCH_CYCLE_SECONDS = 0.060
+MATCH_YIELD_SECONDS = 0.003
+MATCH_LOCK_WAIT_MS = 20
+MATCH_DISCOVERY_PASSES = 3
+MATCH_MAX_BACKOFF_SECONDS = 8
+
+
+class LeagueWork(TypedDict):
+    settled: int
+    expired: int
+    matched: int
+    deferred: bool
+    settlement_retries: int
 
 
 class Leagues:
@@ -27,6 +44,10 @@ class Leagues:
         self.online = online
         self.store = online.store
         self._settlement_after: tuple[int, str] | None = None
+        self._match_backoff: dict[str, tuple[int, float]] = {}
+        self._starter_cutoff: dict[str, int] = {}
+        self._matching_version: int | None = None
+        self._next_ruleset = 0
 
     @staticmethod
     def _ruleset(ruleset: str) -> None:
@@ -86,6 +107,14 @@ class Leagues:
         return c.execute("SELECT * FROM league_queue WHERE account_id=?", (account_id,)).fetchone()
 
     @staticmethod
+    def _latest_request(c, account_id: str):
+        return c.execute(
+            """SELECT * FROM league_requests INDEXED BY league_requests_actor
+            WHERE account_id=? ORDER BY rowid DESC LIMIT 1""",
+            (account_id,),
+        ).fetchone()
+
+    @staticmethod
     def _active_game(c, account_id: str):
         return c.execute(
             """SELECT a.game_id,l.ruleset FROM league_active_players a
@@ -109,6 +138,7 @@ class Leagues:
     ) -> dict:
         """Project live state and any selected historical request in one snapshot."""
         account_id = actor["id"]
+        latest = self._latest_request(c, account_id)
         active = self._active_game(c, account_id)
         active_game = dict(active) if active is not None else None
         eligible = online_eligible(actor)
@@ -129,6 +159,7 @@ class Leagues:
         context = {
             "queue": queue,
             "active_game": active_game,
+            "join_generation": latest["id"] if latest is not None else None,
             "eligible": eligible,
             "enabled": self._admission_enabled(),
             "paused": bool(
@@ -138,11 +169,6 @@ class Leagues:
             "server_time": stamp(now),
         }
         if request is None and queue is None and active_game is None:
-            latest = c.execute(
-                """SELECT * FROM league_requests WHERE account_id=?
-                ORDER BY created_at DESC,rowid DESC LIMIT 1""",
-                (account_id,),
-            ).fetchone()
             # On reload keep the latest expiry/cancellation visible. Historical
             # game links belong to explicitly targeted request outcomes.
             if latest is not None and latest["status"] in {"expired", "cancelled"}:
@@ -174,7 +200,15 @@ class Leagues:
             actor = self.online._identity(c, credential)
             return self.queue_snapshot(c, actor, self.online._now())
 
-    def join(self, credential: str, ruleset: str, request_id: str) -> dict:
+    def join(
+        self,
+        credential: str,
+        ruleset: str,
+        request_id: str,
+        *,
+        expected_generation: str | None = None,
+        guarded: bool = False,
+    ) -> dict:
         self._ruleset(ruleset)
         request_id = self._request_id(request_id)
         with self.online._write() as c:
@@ -189,6 +223,10 @@ class Leagues:
                 if previous["account_id"] != account_id or previous["ruleset"] != ruleset:
                     raise OnlineError(409, "The request cannot be reused for this queue entry.")
                 return self.queue_snapshot(c, actor, now, previous)
+            if guarded:
+                latest = self._latest_request(c, account_id)
+                if expected_generation != (latest["id"] if latest is not None else None):
+                    raise OnlineError(409, "The league queue generation has changed.")
             if not online_eligible(actor):
                 raise OnlineError(403, "An active account with a verified email is required.")
             self.online._admission()
@@ -375,7 +413,9 @@ class Leagues:
             )
             c.execute("DELETE FROM league_queue WHERE account_id=?", (account_id,))
 
-    def _match(self, c, now: datetime, ruleset: str) -> bool:
+    def _match(
+        self, c, now: datetime, ruleset: str, cutoff: int | None = None
+    ) -> tuple[bool, bool]:
         paused = c.execute("SELECT paused FROM league_settings WHERE id=1").fetchone()[0]
         matching = not paused and self._admission_enabled() and self._clocks_enabled(c, now)
         at = micros(now)
@@ -386,12 +426,18 @@ class Leagues:
         ).fetchone()
         rows = c.execute(
             """SELECT joined_at,account_id FROM league_queue WHERE ruleset=?
-            AND (joined_at,account_id)>(?,?) ORDER BY joined_at,account_id LIMIT ?""",
-            (ruleset, *(tuple(cursor) if cursor else (starts_at - 1, "")), MATCH_STARTERS + 1),
+            AND (joined_at,account_id)>(?,?) AND joined_at<=?
+            ORDER BY joined_at,account_id LIMIT ?""",
+            (
+                ruleset,
+                *(tuple(cursor) if cursor else (starts_at - 1, "")),
+                min(cutoff, at) if cutoff is not None else at,
+                MATCH_STARTERS + 1,
+            ),
         ).fetchall()
         if not rows and cursor is not None:
             c.execute("DELETE FROM league_match_cursor WHERE ruleset=?", (ruleset,))
-            return False
+            return False, False
         for i, starter in enumerate(rows[:MATCH_STARTERS]):
             first = self._valid_entry(c, starter["account_id"], ruleset, at, starts_at)
             if (
@@ -399,13 +445,13 @@ class Leagues:
                 and matching
                 and self._match_from(c, first, now, at, starts_at, day)
             ):
-                self._save_match_cursor(c, ruleset, starter, i + 1 < len(rows))
-                return True
+                more = i + 1 < len(rows)
+                self._save_match_cursor(c, ruleset, starter, more)
+                return True, more
+        more = len(rows) > MATCH_STARTERS
         if rows:
-            self._save_match_cursor(
-                c, ruleset, rows[min(MATCH_STARTERS, len(rows)) - 1], len(rows) > MATCH_STARTERS
-            )
-        return False
+            self._save_match_cursor(c, ruleset, rows[min(MATCH_STARTERS, len(rows)) - 1], more)
+        return False, more
 
     @staticmethod
     def _save_match_cursor(c, ruleset: str, starter, more: bool) -> None:
@@ -476,7 +522,7 @@ class Leagues:
                 ),
             )
 
-    def _drain_settlements(self, limit: int, stop: Event | None) -> tuple[int, bool]:
+    def _drain_settlements(self, limit: int, stop: Event | None) -> tuple[int, int, bool]:
         with self.store.connection() as c:
             due = c.execute(
                 """SELECT q.due_at,q.game_id,j.season_id IS NOT NULL AS rebuilding
@@ -484,10 +530,10 @@ class Leagues:
                 WHERE q.due_at<=? AND (q.due_at,q.game_id)>(?,?) ORDER BY q.due_at,q.game_id LIMIT ?""",
                 (micros(self.online._now()), *(self._settlement_after or (-(2**63), "")), limit),
             ).fetchall()
-        completed = 0
+        completed = retries = 0
         for row in due:
             if stop is not None and stop.is_set():
-                return completed, False
+                return completed, retries, False
             if row["rebuilding"]:
                 continue
             game_id = row["game_id"]
@@ -509,27 +555,108 @@ class Leagues:
                     c.execute("DELETE FROM league_settlement_queue WHERE game_id=?", (game_id,))
                 completed += 1
             except DeploymentLocked:
-                return completed, True
+                return completed, retries, True
             except Exception:
+                retries += 1
                 LOGGER.warning("League settlement deferred")
                 if attempted is not None:
                     try:
                         self._defer_settlement(game_id, attempted)
                     except DeploymentLocked:
-                        return completed, True
+                        return completed, retries, True
                     except Exception:
                         LOGGER.warning("League settlement retry could not be recorded")
         self._settlement_after = (
             (due[-1]["due_at"], due[-1]["game_id"]) if len(due) == limit else None
         )
-        return completed, False
+        return completed, retries, False
 
-    def drain(self, limit: int = 20, *, stop: Event | None = None) -> dict:
+    def _worker_rulesets(self, c, now: datetime) -> list[str]:
+        rulesets = []
+        for ruleset in sorted(RULESETS):
+            entries = c.execute(
+                """SELECT a.active,a.email_verified_at,a.role FROM league_queue q
+                JOIN accounts a ON a.id=q.account_id WHERE q.ruleset=?
+                ORDER BY q.joined_at,q.account_id LIMIT 2""",
+                (ruleset,),
+            ).fetchall()
+            if len(entries) > 1 or (entries and not online_eligible(dict(entries[0]))):
+                rulesets.append(ruleset)
+        if not rulesets:
+            self._match_backoff.clear()
+            self._starter_cutoff.clear()
+            return []
+        paused, version = c.execute(
+            "SELECT paused,version FROM league_settings WHERE id=1"
+        ).fetchone()
+        enabled = not paused and self._admission_enabled() and self._clocks_enabled(c, now)
+        if not enabled or version != self._matching_version:
+            self._match_backoff.clear()
+            self._starter_cutoff.clear()
+        self._matching_version = version
+        return rulesets if enabled else []
+
+    def _match_backlog(self, queued: list[str], stop: Event, result: LeagueWork) -> None:
+        """Use a bounded burst of short writers, with a handoff between commits."""
+        if not queued:
+            return
+        ordered = sorted(RULESETS)
+        offset = self._next_ruleset
+        self._next_ruleset = (offset + 1) % len(ordered)
+        started = monotonic()
+        pending = deque(
+            (ruleset, 0)
+            for ruleset in ordered[offset:] + ordered[:offset]
+            if ruleset in queued and self._match_backoff.get(ruleset, (0, 0.0))[1] <= started
+        )
+        unsuccessful: set[str] = set()
+        for _ in range(MATCH_TRANSACTIONS):
+            if not pending or stop.is_set() or monotonic() - started >= MATCH_CYCLE_SECONDS:
+                break
+            ruleset, misses = pending.popleft()
+            try:
+                with self.online._write(wait_ms=MATCH_LOCK_WAIT_MS) as c:
+                    now = self.online._now()
+                    # Arrivals can be opponents immediately. Fix a starter
+                    # horizon for this sweep so churn cannot delay wrap forever.
+                    cutoff = self._starter_cutoff.setdefault(ruleset, micros(now))
+                    matched, more = self._match(c, now, ruleset, cutoff)
+            except sqlite3.OperationalError as error:
+                if getattr(error, "sqlite_errorcode", 0) & 255 != sqlite3.SQLITE_BUSY:
+                    raise
+                # Gameplay and tournament work keep their normal lock wait.
+                break
+            if not more:
+                self._starter_cutoff.pop(ruleset, None)
+            if matched:
+                result["matched"] += 1
+                self._match_backoff.pop(ruleset, None)
+                unsuccessful.discard(ruleset)
+                if more:
+                    pending.append((ruleset, 0))
+            else:
+                unsuccessful.add(ruleset)
+                if more and misses + 1 < MATCH_DISCOVERY_PASSES:
+                    pending.append((ruleset, misses + 1))
+            if pending and stop.wait(MATCH_YIELD_SECONDS):
+                break
+        for ruleset in unsuccessful:
+            failures = min(self._match_backoff.get(ruleset, (0, 0.0))[0] + 1, 4)
+            delay = min(2 ** (failures - 1), MATCH_MAX_BACKOFF_SECONDS)
+            self._match_backoff[ruleset] = (failures, monotonic() + delay)
+
+    def drain(self, limit: int = 20, *, stop: Event | None = None) -> LeagueWork:
         """Process bounded durable results, expiry and queue work."""
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("League settlement batch must be between 1 and 100")
-        completed, deferred = self._drain_settlements(limit, stop)
-        result = {"settled": completed, "expired": 0, "matched": 0, "deferred": deferred}
+        completed, retries, deferred = self._drain_settlements(limit, stop)
+        result: LeagueWork = {
+            "settled": completed,
+            "expired": 0,
+            "matched": 0,
+            "deferred": deferred,
+            "settlement_retries": retries,
+        }
         if deferred or (stop is not None and stop.is_set()):
             return result
 
@@ -538,13 +665,19 @@ class Leagues:
             expired = c.execute(
                 "SELECT 1 FROM league_queue WHERE expires_at<=? LIMIT 1", (micros(now),)
             ).fetchone()
-            queued = [
-                ruleset
-                for ruleset in sorted(RULESETS)
-                if c.execute(
-                    "SELECT 1 FROM league_queue WHERE ruleset=? LIMIT 1", (ruleset,)
-                ).fetchone()
-            ]
+            queued = (
+                self._worker_rulesets(c, now)
+                if stop is not None
+                else [
+                    ruleset
+                    for ruleset in sorted(RULESETS)
+                    if c.execute(
+                        "SELECT 1 FROM league_queue WHERE ruleset=? LIMIT 1", (ruleset,)
+                    ).fetchone()
+                ]
+            )
+        if stop is not None and stop.is_set():
+            return result
         try:
             if expired:
                 with self.online._write() as c:
@@ -556,12 +689,13 @@ class Leagues:
                     for row in rows:
                         self._cancel(c, row["account_id"], "expired", row["request_id"])
                 result["expired"] = len(rows)
-            for ruleset in queued:
-                if stop is not None and stop.is_set():
-                    break
-                with self.online._write() as c:
-                    matched = self._match(c, self.online._now(), ruleset)
-                result["matched"] += int(matched)
+            if stop is not None:
+                self._match_backlog(queued, stop, result)
+            else:
+                for ruleset in queued:
+                    with self.online._write() as c:
+                        matched, _ = self._match(c, self.online._now(), ruleset)
+                    result["matched"] += int(matched)
         except DeploymentLocked:
             result["deferred"] = True
         return result

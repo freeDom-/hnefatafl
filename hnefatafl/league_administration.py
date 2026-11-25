@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import timedelta
+from typing import Literal
 
 from .league_results import (
     effective_league_result,
@@ -13,9 +14,11 @@ from .league_results import (
 )
 from .league_views import LeagueError, LeagueViews, season_view
 from .online_core import DeploymentLocked, instant, micros, stamp
-from .security_context import online_eligible
+from .security_context import online_ineligibility
 
 LOGGER = logging.getLogger(__name__)
+STALE_LIMIT = 20
+STALE_SCAN = 128
 
 
 def _audit(c, actor_id, action, now, reason, *, season_id=None, details=None):
@@ -32,14 +35,72 @@ def _reason(reason: str) -> str:
     return cleaned
 
 
+def _stale_reason(row, at: int) -> str | None:
+    if row["expires_at"] <= at:
+        return "expired"
+    return online_ineligibility(dict(row))
+
+
 class LeagueAdministration:
     def __init__(self, views: LeagueViews):
         self.views = views
         self.core = views.core
         self.online = self.core.online
 
-    def health(self, credential):
-        with self.views.snapshot(credential, admin=True) as (c, _, now):
+    def _stale_entries(self, c, at, actor_id, cursor):
+        scope = ("stale_queue", actor_id, 1)
+        (after,) = self.views.cursors.decode(cursor, scope) if cursor else (0,)
+        expired = (
+            c.execute(
+                """SELECT request_id,ruleset,joined_at,expires_at FROM league_queue
+                    WHERE expires_at<=? ORDER BY expires_at,account_id LIMIT ?""",
+                (at, STALE_LIMIT),
+            ).fetchall()
+            if cursor is None
+            else []
+        )
+        entries = [(row, "expired") for row in expired]
+        # Seek the queue rowid rather than scanning a potentially much larger
+        # accounts table for ineligible users. The row cap also bounds work
+        # when every account on this page remains eligible.
+        page = c.execute(
+            """SELECT q.rowid AS position,q.request_id,q.ruleset,q.joined_at,q.expires_at,
+                a.active,a.role,a.email_verified_at
+            FROM league_queue q JOIN accounts a ON a.id=q.account_id
+            WHERE q.rowid>? ORDER BY q.rowid LIMIT ?""",
+            (after, STALE_SCAN + 1),
+        ).fetchall()
+        ineligible = 0
+        visited = 0
+        for row in page[:STALE_SCAN]:
+            visited += 1
+            reason = _stale_reason(row, at)
+            if reason is not None and reason != "expired":
+                entries.append((row, reason))
+                ineligible += 1
+            if ineligible == STALE_LIMIT:
+                break
+        next_cursor = (
+            self.views.cursors.encode(scope, (page[visited - 1]["position"],))
+            if visited < len(page)
+            else None
+        )
+        return (
+            [
+                {
+                    "request_id": row["request_id"],
+                    "ruleset": row["ruleset"],
+                    "joined_at": stamp(instant(row["joined_at"])),
+                    "expires_at": stamp(instant(row["expires_at"])),
+                    "reason": reason,
+                }
+                for row, reason in entries
+            ],
+            next_cursor,
+        )
+
+    def health(self, credential, stale_cursor=None):
+        with self.views.snapshot(credential, admin=True) as (c, actor, now):
             paused, version = c.execute(
                 "SELECT paused,version FROM league_settings WHERE id=1"
             ).fetchone()
@@ -48,41 +109,43 @@ class LeagueAdministration:
                 "SELECT ruleset,COUNT(*) AS total,SUM(expires_at<=?) AS expired FROM league_queue GROUP BY ruleset",
                 (at,),
             ).fetchall()
-            stale = c.execute(
-                """SELECT request_id,ruleset,joined_at,expires_at FROM league_queue
-                    WHERE expires_at<=? ORDER BY expires_at,account_id LIMIT 20""",
-                (at,),
-            ).fetchall()
-            pending, failed, oldest = c.execute(
-                "SELECT COUNT(*),SUM(attempts>0),MIN(pending_since) FROM league_settlement_queue"
+            stale, next_cursor = self._stale_entries(c, at, actor["id"], stale_cursor)
+            pending, failed, oldest, attempts, retry_at = c.execute(
+                """SELECT COUNT(*),SUM(attempts>0),MIN(pending_since),MAX(attempts),
+                    MIN(CASE WHEN attempts>0 THEN due_at END)
+                FROM league_settlement_queue"""
             ).fetchone()
-            rebuilds = c.execute(
-                "SELECT season_id,stage,attempts FROM league_rebuild_jobs ORDER BY due_at,season_id LIMIT 20"
-            ).fetchall()
+            rebuilds = [
+                {**dict(row), "due_at": stamp(instant(row["due_at"]))}
+                for row in c.execute(
+                    """SELECT season_id,stage,attempts,due_at FROM league_rebuild_jobs
+                    ORDER BY due_at,season_id LIMIT 20"""
+                )
+            ]
+            rebuild_count, rebuild_retries = c.execute(
+                "SELECT COUNT(*),SUM(attempts>0) FROM league_rebuild_jobs"
+            ).fetchone()
             return {
                 "settings": {"paused": bool(paused), "version": version},
                 "queue": {
                     "total": sum(row["total"] for row in queue),
                     "expired": sum(row["expired"] for row in queue),
                     "by_ruleset": {row["ruleset"]: row["total"] for row in queue},
-                    "stale": [
-                        {
-                            "request_id": row["request_id"],
-                            "ruleset": row["ruleset"],
-                            "joined_at": stamp(instant(row["joined_at"])),
-                            "expires_at": stamp(instant(row["expires_at"])),
-                        }
-                        for row in stale
-                    ],
+                    "stale": stale,
+                    "stale_next_cursor": next_cursor,
                 },
                 "settlement": {
                     "pending": pending,
                     "failed": failed or 0,
+                    "max_attempts": attempts or 0,
+                    "next_retry_at": stamp(instant(retry_at)) if retry_at is not None else None,
                     "oldest_pending_seconds": max(0, (at - oldest) // 1000000)
                     if oldest is not None
                     else None,
                 },
-                "rebuilds": [dict(row) for row in rebuilds],
+                "rebuilds": rebuilds,
+                "rebuild_pending": rebuild_count,
+                "rebuild_retries": rebuild_retries or 0,
             }
 
     def audit(self, credential, limit, cursor):
@@ -150,12 +213,12 @@ class LeagueAdministration:
                     "league_version_changed",
                     "League queue entry changed. Reload before retrying.",
                 )
-            expired = row["expires_at"] <= micros(now)
-            if not expired and online_eligible(dict(row)):
+            stale = _stale_reason(row, micros(now))
+            if stale is None:
                 raise LeagueError(
                     409, "league_queue_not_stale", "This league queue entry is still valid."
                 )
-            status = "expired" if expired else "cancelled"
+            status = "expired" if stale == "expired" else "cancelled"
             self.core._cancel(c, row["account_id"], status, request_id=request_id)
             _audit(
                 c,
@@ -325,7 +388,7 @@ class LeagueAdministration:
             season_id=identifier,
         )
 
-    def process_rebuild(self, limit=50) -> bool:
+    def process_rebuild(self, limit=50) -> Literal["idle", "processed", "retry"]:
         """Advance one due phase in a short transaction and retain its durable cursor."""
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("League rebuild batch must be between 1 and 100")
@@ -335,7 +398,7 @@ class LeagueAdministration:
                 (micros(self.online._now()),),
             ).fetchone()
         if due is None:
-            return False
+            return "idle"
         identifier = due["season_id"]
         job = None
         try:
@@ -346,7 +409,7 @@ class LeagueAdministration:
                     (identifier, micros(now)),
                 ).fetchone()
                 if job is None:
-                    return False
+                    return "idle"
                 stage = job["stage"]
                 if stage in {"clear_contributions", "clear_standings"}:
                     self._clear(c, identifier, stage, limit)
@@ -367,33 +430,30 @@ class LeagueAdministration:
                 raise
             self._defer_rebuild(job)
             LOGGER.warning("League season recovery deferred")
-            return False
-        return True
+            return "retry"
+        return "processed"
 
     def _defer_rebuild(self, job):
         # The failed transaction has already rolled back. A deployment may
         # begin in the interval, leaving the job untouched for future retries.
-        try:
-            with self.online._write() as c:
-                now = self.online._now()
-                attempts = min(job["attempts"] + 1, 20)
-                delay = min(300, 2 ** min(attempts, 9))
-                c.execute(
-                    """UPDATE league_rebuild_jobs SET due_at=?,attempts=?,last_error='rebuild_deferred'
-                       WHERE season_id=? AND due_at=? AND attempts=? AND stage=? AND last_game_id=?
-                       AND last_ruleset=? AND last_account_id=? AND last_sequence=?""",
-                    (
-                        micros(now + timedelta(seconds=delay)),
-                        attempts,
-                        job["season_id"],
-                        job["due_at"],
-                        job["attempts"],
-                        job["stage"],
-                        job["last_game_id"],
-                        job["last_ruleset"],
-                        job["last_account_id"],
-                        job["last_sequence"],
-                    ),
-                )
-        except DeploymentLocked:
-            pass
+        with self.online._write() as c:
+            now = self.online._now()
+            attempts = min(job["attempts"] + 1, 20)
+            delay = min(300, 2 ** min(attempts, 9))
+            c.execute(
+                """UPDATE league_rebuild_jobs SET due_at=?,attempts=?,last_error='rebuild_deferred'
+                   WHERE season_id=? AND due_at=? AND attempts=? AND stage=? AND last_game_id=?
+                   AND last_ruleset=? AND last_account_id=? AND last_sequence=?""",
+                (
+                    micros(now + timedelta(seconds=delay)),
+                    attempts,
+                    job["season_id"],
+                    job["due_at"],
+                    job["attempts"],
+                    job["stage"],
+                    job["last_game_id"],
+                    job["last_ruleset"],
+                    job["last_account_id"],
+                    job["last_sequence"],
+                ),
+            )
