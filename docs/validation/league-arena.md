@@ -456,3 +456,204 @@ The PR verification includes the full backend and frontend tests, deployment
 lifecycle, pinned historical deployments, Node 22, production bundle budgets,
 and the public, Arena, registration, online and personal Chromium suites.
 [Final PR checks](https://github.com/freeDom-/hnefatafl/pull/99/checks)
+
+## Final review at `7f84067`
+
+The branch uses schema 23, the rated online authority, League policy and
+Arena components.
+
+- **P1.1 Matchmaking discovery** Starter and opponent continuations stay ready
+  within the existing burst budget. The worker backs off after an unsuccessful
+  completed sweep and schedules rating-window checks around the next possible
+  opening. A busy writer leaves the cursor ready for the next tick. Tests cover
+  cross-ruleset scheduling under churn, a committed ordinary move between
+  pairing transactions, capped opponents, independently opening windows and
+  expiry on either side of discovery.
+- **P2.1 Unresolved queue requests** After a fresh read, the browser offers an
+  explicit retry with the saved UUID, ruleset and generation. Discarding a
+  current unresolved request records a terminal outcome in the ledger before
+  the browser retires it. Once the generation advances, older sibling intents
+  retire as well. API and browser tests exercise concurrent join and discard,
+  lost replies, reload and navigation, stale generations, two tabs, logout
+  and account switching.
+- **P2.2 Administrative pagination** Up to 20 rows are displayed per page.
+  Expiry pages seek on the existing `(expires_at, account_id)` index. Once
+  expiry is exhausted, eligibility pages seek by queue rowid and read up to
+  128 rows plus lookahead. The expiry boundary is fixed for the traversal and
+  unread eligibility reflects current account state. Tests remove a page
+  boundary, restore eligibility, expire another entry and race an exact
+  cancellation with a replacement. [Cursor behavior](../LEAGUES.md#api-and-recovery)
+- **P2.3 Eligibility reconciliation** The lifespan-owned worker uses the
+  shared eligibility policy and rechecks the original request UUID before
+  cancelling. Tests exercise administrative pause, disabled admission and the
+  timeout gate with expired, disabled and unverified entries. They also check
+  deployment deferral and assert that existing games, results and ratings
+  retain their prior state during queue reconciliation.
+- **P2.4 Shared SQLite writers** Shutdown invalidates outstanding leases even
+  when the same application starts again. Database replacement invalidates
+  idle handles associated with its previous inode. Reused handles clear
+  callbacks and restore the row and text factories, foreign keys and the busy
+  timeout. Tests exercise simultaneous independent leases, commit and rollback,
+  SQLite failure, the idle limit and shared online and tournament writer use
+  across repeated startup and shutdown.
+
+### Controlled worker and shared-writer trials
+
+The comparison uses the runtime in `3341b6d` and reviewed source `7f84067`.
+The ten shared-writer trials start from copies of one main database at
+`f2590b9`. Even-numbered trials reverse source order.
+The one-second worker cadence, lock and thread limits are the same in both
+arms. The 10-second runs repeat the established 240-player, window-widening,
+pair-cap and expiry fixtures three times per source. The 42-second runs repeat
+the four extended scenarios twice per source. The 50 ms observation interval
+measures post-commit visibility. Reported queue waits use authoritative
+pairing timestamps and include any time already spent in the queue.
+
+The extended workloads include 960 compatible players, a 2,304-entry sparse
+pool with four compatible players at the end, and a sparse three-ruleset pool
+with 1,024 entries per ruleset. The sparse single-pool fixture starts with
+32 seconds of life left. The fourth scenario uses 360 players per ruleset
+with provisional ratings, a seeded Elo distribution, skill tails and staggered
+arrival ages. Both three-ruleset workloads add an arrival about every half
+second, cancel it through the real queue cancellation path, and schedule 100
+ordinary moves across six foreground writers. The expected pairs in the
+sparse scenarios consist of the four tail entries in each ruleset. Ratings
+spaced far outside the matching window isolate the other starters on purpose.
+
+Trial figures are medians with minimum and maximum in brackets.
+
+| Shared workload | Reviewed `7f84067` | Corrected `3341b6d` |
+| --- | ---: | ---: |
+| Common service operations/s | 584.29 [550.55–656.47] | 594.60 [563.48–643.33] |
+| Online move service p95 ms | 3.97 [2.92–7.47] | 3.27 [1.97–22.59] |
+| Online move service p99 ms | 38.17 [22.88–81.33] | 37.45 [24.14–109.14] |
+| Online move writer hold p50 ms | 1.19 [1.05–1.26] | 1.17 [1.12–1.23] |
+| Tournament settlement service p95 ms | 32.77 [19.80–55.20] | 19.59 [14.66–46.51] |
+| Live mixed online move p95 ms | 56.60 [36.78–72.34] | 39.99 [37.05–60.64] |
+| Live mixed online move p99 ms | 106.27 [58.53–144.47] | 105.98 [82.45–183.63] |
+
+| Scenario | Source | Pairs | First pair s | Last pair s | Queue p95 s | Target players expired |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| compatible | 7f84067 | 120 | 1.03 [1.03–1.04] | 9.60 [9.60–9.63] | 9.55 [8.52–9.56] | 0 |
+| compatible | 3341b6d | 120 | 1.03 [1.03–1.04] | 9.62 [9.61–9.63] | 9.56 [8.53–9.56] | 0 |
+| expanding windows | 7f84067 | 120 | 0.07 [0.04–0.07] | 9.63 [8.62–9.67] | 69.59 [68.56–69.60] | 0 |
+| expanding windows | 3341b6d | 120 | 0.11 [0.08–0.12] | 9.67 [8.64–9.73] | 69.62 [67.60–69.65] | 0 |
+| capped and incompatible | 7f84067 | 0 | — | — | — | 0 |
+| capped and incompatible | 3341b6d | 0 | — | — | — | 0 |
+| expiry | 7f84067 | 27 [27–28] | 1.03 [1.03–1.04] | 2.17 | 599.12 | 186 [184–186] |
+| expiry | 3341b6d | 28 [27–29] | 1.03 [1.03–1.04] | 2.18 [2.17–2.18] | 599.13 [599.12–599.13] | 184 [182–186] |
+
+| Scenario | Source | Pairs | First pair s | Last pair s | Queue p95 s | Target players expired |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| large compatible | 7f84067 | 480 | 1.04 [1.03–1.05] | 36.26 [36.24–36.28] | 34.63 [34.12–35.15] | 0 |
+| large compatible | 3341b6d | 480 | 1.03 | 38.41 [38.39–38.44] | 36.77 [36.25–37.29] | 0 |
+| sparse tail | 7f84067 | 0 | — | — | — | 4 |
+| sparse tail | 3341b6d | 2 | 22.39 [22.38–22.40] | 22.39 [22.38–22.40] | 590.37 | 0 |
+| sparse mixed | 7f84067 | 0 | — | — | — | 0 |
+| sparse mixed | 3341b6d | 6 | 29.38 [28.86–29.90] | 29.90 [29.89–29.90] | 569.89 [569.88–569.89] | 0 |
+| realistic mixed | 7f84067 | 530 [523–537] | 1.03 | 41.61 [41.60–41.62] | 102.76 | 0 |
+| realistic mixed | 3341b6d | 533 [531–535] | 1.03 | 41.61 [41.60–41.63] | 102.76 [102.75–102.77] | 0 |
+
+The corrected worker seated all 120 pairs in each 10-second compatible
+trial. Both sources seated all 480 pairs in the large compatible runs. The
+corrected source took 38.39–38.44 seconds to the last visible match, about two
+seconds longer than the reviewed source in these runs. The sparse single-pool
+worker found both pairs with about 10 seconds of entry life left, and all four
+target players expired in each reviewed run. All six sparse multi-ruleset pairs
+were visible by 29.91 seconds. The realistic workload seated 531–535 of 540
+possible pairs in the corrected runs and 523–537 in the reviewed runs.
+The expansion fixture measures its first and last visibility times from two
+seconds after worker start, when the seeded rating windows can first overlap.
+
+Both mixed discovery workloads completed the 83 arrival/cancellation cycles
+and 100 ordinary moves in each run. Ordinary move p95 during corrected sparse
+discovery was 36.74–36.82 ms, compared with 22.71–23.96 ms in the reviewed
+runs, which made less discovery progress. The corrected realistic workload
+recorded 23.92–36.45 ms and the reviewed workload recorded 24.63–35.37 ms.
+The corrected no-match fixture used 0.36–0.40 seconds of process CPU over its
+10-second observation window, including the observer. The same fixture at the
+reviewed revision used 0.36–0.39 seconds in this comparison.
+
+The corrected common service throughput overlaps the earlier 523.42–642.65
+operations/s range around the cited 621.06 median. The repeated online move
+p95 was 3.27 ms, p99 was 37.45 ms and median writer hold was 1.17 ms. One
+corrected common workload reached a 22.59 ms move p95 and 109.14 ms p99. The
+trial data retains that variation. These measurements use Python 3.12.14
+and SQLite 3.53.1 on disposable Linux storage.
+
+Run `scripts/benchmark_league_workers.py` from this source tree with the
+repository test lock and `OMP_NUM_THREADS=2`, `MKL_NUM_THREADS=2` and
+`OPENBLAS_NUM_THREADS=2`. Archive the three revisions into disposable directories
+as in [the earlier reproduction](#reproduction). Use the main archive only to
+build the shared database template. For each measured source, set `PYTHONPATH`
+to its archive and supply the corresponding `--source-revision` and an `--output`
+file for each trial.
+
+```sh
+.venv/bin/python scripts/benchmark_league_workers.py prepare --baseline --template "$work/common"
+.venv/bin/python scripts/benchmark_league_workers.py shared --template "$work/common"
+.venv/bin/python scripts/benchmark_league_workers.py matchmaking --worker-seconds 10 \
+  --scenario compatible --scenario expanding_windows --scenario capped_and_incompatible --scenario expiry
+.venv/bin/python scripts/benchmark_league_workers.py matchmaking --worker-seconds 42 \
+  --scenario large_compatible --scenario sparse_tail --scenario sparse_mixed --scenario realistic_mixed
+```
+
+The shared and live mixed arms use 100 foreground samples and six foreground
+writers. Callback tracing starts after leasing a writer, so the corrected
+source's timeout and foreign-key setup run outside the trace. The online
+service latency and writer timing boundaries are comparable across sources.
+[Trial data and source hashes](measurements/league-arena-final-review-backend.json)
+
+### Regression gates
+
+The focused backend run passed 224 tests across League queue, API, migration
+and restore, ordinary online core and API, return games, online migrations and
+security. The Chromium online suite passed all 44 desktop and mobile cases,
+including 18 League cases. Coverage includes explicit retries after reload and
+navigation, lost replies, discard followed by a delayed original join, account
+switches, exact cancellation, clocks, sequential and simultaneous games, and
+player tournaments.
+
+```sh
+.venv/bin/python -m pytest -q \
+  tests/test_leagues.py tests/test_league_api.py tests/test_league_migrations.py \
+  tests/test_league_restore.py tests/test_online_core.py tests/test_online_api.py \
+  tests/test_online_matches.py tests/test_online_migrations.py tests/test_security.py
+npm --prefix frontend run test:online
+```
+
+`make deployment-check` passed 64 deployment and lifecycle cases and nine
+selected tournament recovery cases. `make historical-refs` and
+`make deployment-cross-version` passed, including seven pinned cross-version
+cases. Ruff, mypy, frontend type checking, formatting, `make foundation` and
+`make docs` passed. The authorization inventory accounted for 134 route grants.
+The Python audit found zero known vulnerabilities across 52 packages. The full
+and production npm dependency audits reported zero affected packages.
+
+The frontend passed 1,590 unit tests across 109 files, 12 benchmark-harness
+tests and 43 build and script tests. The production build passed the initial
+bundle budgets with 186,715 gzip bytes of JavaScript and 24,114 gzip bytes of
+CSS. The League route remains lazy-loaded.
+
+The production Chromium 156.0.8078.4 probe at `d005199` made four
+first-visit League reads, zero in the first 17 idle seconds and one 583-byte
+queue read through 65 idle seconds. Manual refresh made five reads. Joining
+made one POST and one reconciliation GET. The next 17 queued seconds made
+four reads. The 4.5-second leave window had zero League reads. The probe
+recorded zero HTTP and network errors. The deferred League JavaScript was
+10,327 gzip bytes and its stylesheet was 629 gzip bytes.
+[Production browser measurements](measurements/league-arena-final-review-browser.json)
+
+The PR's `Verify` workflow covers the full backend, deployment compatibility,
+Node 22, dependency audit and public, navigation, registration, online and
+personal Chromium suites. [Final PR checks](https://github.com/freeDom-/hnefatafl/pull/99/checks)
+
+### Operational limits
+
+Newly compatible opponents behind the stored positions may wait for a wrap.
+Live waits depend on eligible opponents, available queue time and writer
+contention. Large expired or ineligible backlogs drain in bounded batches. An
+admin refresh starts a new traversal for recently expired entries or entries
+that changed behind the cursor. Recording a first discard consumes one slot
+in the existing request budget. The browser preserves the pending request if
+that write is rate-limited. Mobile browser checks use Chromium emulation.
