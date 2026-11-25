@@ -232,8 +232,7 @@ const translations: Record<string, string> = {
   'Match winner': 'Gewinner der Begegnung',
   'Private administrator reason': 'Private Begründung des Administrators',
   Back: 'Zurück',
-  'Earned tier: {tier} / {total} · threshold {threshold}':
-    'Verdiente Stufe: {tier} / {total} · Schwelle {threshold}',
+  'Earned tier: {tier} / {total}': 'Verdiente Stufe: {tier} / {total}',
   '{percent}% complete · {count} / {total} milestones earned':
     '{percent}% abgeschlossen · {count} / {total} Meilensteine verdient',
   'New milestones: {count} · +{points} points': 'Neue Meilensteine: {count} · +{points} Punkte',
@@ -252,8 +251,7 @@ const translations: Record<string, string> = {
   'Achievement Score — {earned} / {total} points':
     'Errungenschaftspunkte — {earned} / {total} Punkte',
   'Fully completed': 'Vollständig abgeschlossen',
-  'Recorded progress: {progress} · highest achieved: {threshold}':
-    'Erfasster Fortschritt: {progress} · höchste erreichte Schwelle: {threshold}',
+  'Recorded progress: {progress}': 'Erfasster Fortschritt: {progress}',
   'Next milestone: {target} · {points} points': 'Nächster Meilenstein: {target} · {points} Punkte',
   'Milestone rewards': 'Meilenstein-Belohnungen',
   '{points} points': '{points} Punkte',

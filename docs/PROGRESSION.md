@@ -43,11 +43,12 @@ allocates image layers and animation frames only for active reveals. See the
 [Shieldmaiden capture sequence](validation/portrait-unlock.md).
 
 Deeds of Valor shows the achievement score, percentage and milestone count.
-Family cards show current recorded progress, highest currently achieved threshold,
-highest permanently awarded tier, next target and incremental reward. The next
-target is the first threshold above current progress that has not already been
-awarded. A correction can reduce current progress without reducing an earned tier.
-A completed family has no further target or progress bar.
+Family cards show current recorded progress, the highest permanently awarded tier,
+next target and incremental reward. The API retains threshold and highest-achieved
+values for eligibility, awards, scores and progress. The next target is the first
+threshold above current progress that has not already been awarded. A correction
+can reduce current progress without reducing an earned tier. A completed family has
+no further target or progress bar.
 
 Engraved, bronze, silver, gold and legendary treatments use shared Arena theme
 tokens and stable family runes. Server responses determine all awards. English and

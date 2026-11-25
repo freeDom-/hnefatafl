@@ -90,8 +90,26 @@ export default function PersonalStatisticsView({
                 <small>{t('{count} completed games', { count: completed })}</small>
               </div>
               <div className="statistics-headline">
-                <strong>{group.win_rate === null ? '—' : percent.format(group.win_rate)}</strong>
-                <span>{t('Win rate')}</span>
+                <div className="statistics-headline-metric">
+                  <strong>{group.win_rate == null ? '—' : percent.format(group.win_rate)}</strong>
+                  <span>{t('Win rate')}</span>
+                </div>
+                <div className="statistics-headline-metric">
+                  <strong>
+                    {group.win_rate_attackers == null
+                      ? '—'
+                      : percent.format(group.win_rate_attackers)}
+                  </strong>
+                  <span>{t('Win rate as attacker')}</span>
+                </div>
+                <div className="statistics-headline-metric">
+                  <strong>
+                    {group.win_rate_defenders == null
+                      ? '—'
+                      : percent.format(group.win_rate_defenders)}
+                  </strong>
+                  <span>{t('Win rate as defender')}</span>
+                </div>
                 {elo !== null && <small>{t('Elo {rating}', { rating: elo })}</small>}
               </div>
             </div>

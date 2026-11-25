@@ -116,7 +116,10 @@ it('groups families and places the score under Deeds of Valor with the next unac
   )!;
   expect(family).toHaveAttribute('data-tier', '3');
   expect(within(family).getByText('Next milestone: 25 · 40 points')).toBeVisible();
-  expect(within(family).getByText('Earned tier: 3 / 9 · threshold 10')).toBeVisible();
+  expect(within(family).getByText('Earned tier: 3 / 9')).toBeVisible();
+  expect(within(family).getByText('Recorded progress: 10')).toBeVisible();
+  expect(within(family).queryByText(/threshold/i)).not.toBeInTheDocument();
+  expect(within(family).queryByText(/highest achieved/i)).not.toBeInTheDocument();
   expect(document.querySelectorAll('.portrait-achievement-list > li')).toHaveLength(3);
   const section = screen.getByRole('heading', { name: 'Deeds of Valor' }).closest('section')!;
   expect(
@@ -264,7 +267,9 @@ it('retains the awarded tier after correction and still targets the next unearne
     'li',
   )!;
   expect(family).toHaveAttribute('data-tier', '3');
-  expect(within(family).getByText('Recorded progress: 0 · highest achieved: 0')).toBeVisible();
+  expect(within(family).getByText('Recorded progress: 0')).toBeVisible();
+  expect(within(family).queryByText(/threshold/i)).not.toBeInTheDocument();
+  expect(within(family).queryByText(/highest achieved/i)).not.toBeInTheDocument();
   expect(within(family).getByRole('progressbar')).toHaveAccessibleName(
     'Next milestone: 25 · 40 points',
   );
@@ -288,6 +293,10 @@ it('shows a localized zero score and automatic tier labels in German', async () 
   expect(screen.getByRole('heading', { name: 'Heldentaten' })).toBeVisible();
   expect(screen.getByText('0% abgeschlossen · 0 / 27 Meilensteine verdient')).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Gewertete Online-Siege' })).toBeVisible();
+  expect(screen.getAllByText('Verdiente Stufe: 0 / 9')).toHaveLength(3);
+  expect(screen.getAllByText('Erfasster Fortschritt: 0')).toHaveLength(3);
+  expect(screen.queryByText(/Schwelle/)).toBeNull();
+  expect(screen.queryByText(/höchste erreichte/)).toBeNull();
 });
 it('associates runes with family IDs even when the server order changes', async () => {
   progress.items.reverse();

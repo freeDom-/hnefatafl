@@ -23,8 +23,11 @@ function group(
   losses: number,
   draws: number,
 ): PersonalStatisticGroup {
-  const attackers = metrics(wins / 2, losses / 2, draws / 2, 18);
-  const defenders = metrics(wins / 2, losses / 2, draws / 2, 22);
+  // Deliberately distinct role populations keep the fixture sensitive to a
+  // shared denominator: all wins are attributed to attackers, while losses and
+  // draws are attributed to defenders. The overall totals stay unchanged.
+  const attackers = metrics(wins, 0, 0, 18);
+  const defenders = metrics(0, losses, draws, 22);
   const empty = metrics(0, 0, 0, 0);
   const base = {
     ...metrics(wins, losses, draws, 20),

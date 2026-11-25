@@ -849,6 +849,81 @@ def test_single_player_personal_statistics_use_account_seat_and_exclude_ai_ai(wo
     assert "archer" not in json.dumps(odin_history)
 
 
+def test_role_specific_win_rates_use_completed_games_and_their_own_side_totals(world):
+    app, clients, _, _, _ = world
+    client = clients["Archer"]
+    # Attacker: 6 wins, 3 losses, 1 draw -> 60%. Defender: 3 wins, 1 loss,
+    # 1 draw -> 60%. One unfinished game on each side is excluded by the rate.
+    for winner in ["attackers"] * 6 + ["defenders"] * 3 + ["draw"]:
+        _finish_account(app, _account_game(client, "brandubh", "attackers")["id"], winner)
+    for winner in ["defenders"] * 3 + ["attackers"] + ["draw"]:
+        _finish_account(app, _account_game(client, "brandubh", "defenders")["id"], winner)
+    _account_game(client, "brandubh", "attackers")
+    _account_game(client, "brandubh", "defenders")
+    # Distinct role rates detect a shared denominator or victory count.
+    for winner in ["attackers", "attackers"]:
+        _finish_account(app, _account_game(client, "tablut", "attackers")["id"], winner)
+    _finish_account(app, _account_game(client, "tablut", "defenders")["id"], "attackers")
+    # A ruleset with only unfinished games has no completed-result rate.
+    _account_game(client, "copenhagen", "attackers")
+    _account_game(client, "copenhagen", "defenders")
+
+    stats = client.get("/api/personal/single-player").json()["statistics"]
+    groups = {group["ruleset"]: group for group in stats["groups"]}
+    brandubh = groups["brandubh"]
+    assert brandubh["played"] == 17
+    assert brandubh["completed"] == 15
+    assert (brandubh["wins"], brandubh["losses"], brandubh["draws"]) == (9, 4, 2)
+    assert brandubh["win_rate"] == 9 / 15
+    assert brandubh["win_rate_attackers"] == 6 / 10
+    assert brandubh["win_rate_defenders"] == 3 / 5
+    assert brandubh["by_side"]["attackers"]["win_rate"] == 0.6
+    assert brandubh["by_side"]["defenders"]["win_rate"] == 0.6
+    tablut = groups["tablut"]
+    assert tablut["win_rate"] == 2 / 3
+    assert tablut["win_rate_attackers"] == 1.0
+    assert tablut["win_rate_defenders"] == 0.0
+    assert tablut["by_side"]["attackers"]["wins"] == 2
+    assert tablut["by_side"]["defenders"]["losses"] == 1
+    copenhagen = groups["copenhagen"]
+    assert copenhagen["played"] == 2 and copenhagen["completed"] == 0
+    assert copenhagen["win_rate"] is None
+    assert copenhagen["win_rate_attackers"] is None
+    assert copenhagen["win_rate_defenders"] is None
+    # Existing history filters keep the complete statistics aggregates, as the
+    # existing overall statistics already did.
+    filtered = client.get(
+        "/api/personal/single-player?ruleset=tablut&status=completed&winner=defenders"
+    ).json()
+    assert filtered["statistics"] == stats
+
+
+def test_role_win_rates_keep_unplayed_and_unfinished_sides_unavailable(world):
+    app, clients, _, _, _ = world
+    client = clients["Archer"]
+    # Only attacker games have a completed result; the defender game is ongoing.
+    _finish_account(app, _account_game(client, "brandubh", "attackers")["id"], "attackers")
+    _account_game(client, "brandubh", "defenders")
+    # The opposite shape: only defender games completed, attacker game ongoing.
+    _finish_account(app, _account_game(client, "tablut", "defenders")["id"], "defenders")
+    _account_game(client, "tablut", "attackers")
+
+    groups = {
+        group["ruleset"]: group
+        for group in client.get("/api/personal/single-player").json()["statistics"]["groups"]
+    }
+    brandubh = groups["brandubh"]
+    assert brandubh["win_rate_attackers"] == 1.0
+    assert brandubh["win_rate_defenders"] is None
+    assert brandubh["by_side"]["defenders"]["played"] == 1
+    assert brandubh["by_side"]["defenders"]["completed"] == 0
+    tablut = groups["tablut"]
+    assert tablut["win_rate_attackers"] is None
+    assert tablut["win_rate_defenders"] == 1.0
+    assert tablut["by_side"]["attackers"]["played"] == 1
+    assert tablut["by_side"]["attackers"]["completed"] == 0
+
+
 def test_online_personal_statistics_sides_timeouts_and_effective_results(world):
     app, clients, credentials, _, clock = world
     core = app.state.online
@@ -901,6 +976,12 @@ def test_online_personal_statistics_sides_timeouts_and_effective_results(world):
     after = clients["Archer"].get("/api/personal/online?section=history").json()["statistics"]
     group = {g["ruleset"]: g for g in after["groups"]}["brandubh"]
     assert group["played"] == 3 and group["losses"] == 1 and group["timed_out"] == 0
+    # Cancelled and still-active games never enter completed-result statistics.
+    waiting = core.create(credentials["Archer"], "brandubh", "attackers", 60, str(uuid4()))["game"]
+    core.mutate(credentials["Archer"], waiting["id"], 0, "cancel")
+    online(world)
+    after_unfinished = clients["Archer"].get("/api/personal/online?section=history").json()
+    assert after_unfinished["statistics"] == after
     # Empty online dataset.
     assert clients["Observer"].get("/api/personal/online").json()["statistics"] == {
         "groups": [],
