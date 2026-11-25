@@ -447,6 +447,26 @@ it('refreshes a remote pause and account activity while the league page stays op
   expect(await screen.findByRole('button', { name: 'Cancel queue' })).toBeVisible();
 });
 
+it('reconciles an uncertain join when the ruleset changes without replaying the intent', async () => {
+  let requestId = '';
+  apiResponses((url, body, method) => {
+    if (url.pathname === '/leagues/queue' && method === 'POST') {
+      requestId = (body as { request_id: string }).request_id;
+      return Promise.reject(new TypeError('Network disconnected'));
+    }
+  });
+  const user = userEvent.setup();
+  render(<Leagues />);
+  await user.selectOptions(screen.getByLabelText('Ruleset'), 'brandubh');
+  await user.click(await screen.findByRole('button', { name: 'Join queue' }));
+  await screen.findByText(/A previous join is unconfirmed/);
+  queue = { ...queued, join_generation: requestId, queue: { ...entry, request_id: requestId } };
+  await user.selectOptions(screen.getByLabelText('Ruleset'), 'tablut');
+  expect(await screen.findByText('Brandubh queue · ±300 Elo')).toBeVisible();
+  expect(pendingJoins(auth.account!.id)).toEqual([]);
+  expect(vi.mocked(api).mock.calls.filter(([, , method]) => method === 'POST')).toHaveLength(1);
+});
+
 it('displays personal archived results, revisions, empty history and rebuilds in one progression panel', async () => {
   progress = promoted;
   let historic = { season: archive, progress: promoted as LeagueProgress | null };

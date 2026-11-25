@@ -132,6 +132,7 @@ export default function LeagueQueue({
   const [retry, setRetry] = useState<JoinIntent | null>(null);
   const channel = useRef<BroadcastChannel | null>(null);
   const lastGame = useRef<string | null>(initial.status.active_game?.game_id ?? null);
+  const previousRuleset = useRef(ruleset);
 
   const load = useCallback(
     async (signal: AbortSignal) => {
@@ -205,6 +206,10 @@ export default function LeagueQueue({
     setBusy(false);
     setFailure(null);
     setRetry(null);
+    if (previousRuleset.current !== ruleset) {
+      previousRuleset.current = ruleset;
+      if (pendingJoins(accountId).length) refreshQueue();
+    }
     return () => {
       const previous = mutation.current;
       if (previous) {
@@ -213,7 +218,7 @@ export default function LeagueQueue({
         void resume();
       }
     };
-  }, [resume, ruleset]);
+  }, [accountId, refreshQueue, resume, ruleset]);
 
   const retryable =
     retry &&
