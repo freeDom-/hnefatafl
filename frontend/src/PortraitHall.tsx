@@ -337,16 +337,14 @@ export default function PortraitHall() {
                       )}
                     </span>
                     <p>
-                      {t('Earned tier: {tier} / {total} · threshold {threshold}', {
+                      {t('Earned tier: {tier} / {total}', {
                         tier: number.format(family.awarded_tier),
                         total: number.format(family.total_tiers),
-                        threshold: number.format(family.awarded_threshold),
                       })}
                     </p>
                     <p>
-                      {t('Recorded progress: {progress} · highest achieved: {threshold}', {
+                      {t('Recorded progress: {progress}', {
                         progress: number.format(family.progress),
-                        threshold: number.format(family.achieved_threshold),
                       })}
                     </p>
                     {next && (

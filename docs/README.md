@@ -26,6 +26,7 @@ Commands assume the repository root unless a different directory is shown.
 - [Personal ruleset, AI-opponent and side statistics](DASHBOARD.md#detailed-personal-statistics)
 - [Rated online games, Elo policy, eligibility, leaderboards and rebuilds](RATINGS.md)
 - [Earnable portraits, achievement progress, catalog IDs and award permanence](PROGRESSION.md)
+- [Role win rates and compact achievement cards](validation/role-win-rates-and-achievement-cards.md)
 - [Portrait Hall implementation and visual acceptance](validation/portrait-hall.md)
 - [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
 - [Double-elimination player tournaments, bracket policy and moderation](PLAYER_TOURNAMENTS.md)
