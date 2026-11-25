@@ -243,18 +243,23 @@ class Leagues:
             return self.queue_snapshot(c, actor, self.online._now())
 
     @staticmethod
-    def _check_request_quota(c, account_id: str, now: datetime) -> None:
+    def _check_request_quota(
+        c, account_id: str, now: datetime, *, withdrawal: bool = False
+    ) -> None:
         day = micros(now.replace(hour=0, minute=0, second=0, microsecond=0))
         minute = micros(now - timedelta(seconds=policy.REQUEST_WINDOW_SECONDS))
+        # A new withdrawal has no queue entry. Existing request rows retain
+        # their original quota accounting, including older cancellation records.
         requests = c.execute(
             """SELECT sum(created_at>=?),sum(created_at>?)
-            FROM league_requests WHERE account_id=? AND created_at>=?""",
-            (day, minute, account_id, min(day, minute)),
+            FROM league_requests WHERE account_id=? AND created_at>=? AND (entry_id='')=?""",
+            (day, minute, account_id, min(day, minute), withdrawal),
         ).fetchone()
         if (requests[0] or 0) >= policy.REQUESTS_PER_UTC_DAY or (
             requests[1] or 0
         ) >= policy.REQUESTS_PER_MINUTE:
-            raise OnlineError(429, "League queue request limit reached. Try again later.")
+            purpose = "withdrawal" if withdrawal else "queue request"
+            raise OnlineError(429, f"League {purpose} limit reached. Try again later.")
 
     def join(
         self,
@@ -369,14 +374,14 @@ class Leagues:
                 return self._cancel_request(c, actor, now, request)
             latest = self._latest_request(c, account_id)
             if generation == (latest["id"] if latest is not None else None):
-                self._check_request_quota(c, account_id, now)
+                self._check_request_quota(c, account_id, now, withdrawal=True)
                 # Record the original UUID as terminal and advance the generation.
                 # A late join is now an exact replay, and guarded sibling intents
                 # from the same generation cannot start a queue either.
                 c.execute(
                     """INSERT INTO league_requests(id,account_id,ruleset,created_at,status,entry_id)
-                    VALUES(?,?,?,?,'cancelled',?)""",
-                    (request_id, account_id, ruleset, micros(now), request_id),
+                    VALUES(?,?,?,?,'cancelled','')""",
+                    (request_id, account_id, ruleset, micros(now)),
                 )
             return self.queue_snapshot(c, actor, now)
 

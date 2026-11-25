@@ -105,6 +105,7 @@ export const queueSnapshot = (status: LeagueQueueStatus): QueueSnapshot => ({
 const QUEUE_POLL_MS = 4000;
 const GAME_POLL_MS = 8000;
 const IDLE_POLL_MS = 60000;
+type QueueMutation = 'join' | 'retry' | 'discard' | 'cancel';
 
 export default function LeagueQueue({
   accountId,
@@ -124,8 +125,8 @@ export default function LeagueQueue({
   const { t, locale } = useI18n();
   const number = new Intl.NumberFormat(locale);
   const [cadence, setCadence] = useState(IDLE_POLL_MS);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<unknown>(null);
+  const [busy, setBusy] = useState<QueueMutation | null>(null);
+  const [failure, setFailure] = useState<{ error: unknown; kind: QueueMutation } | null>(null);
   const mutation = useRef<AbortController | null>(null);
   const [pending, setPending] = useState(() => pendingJoins(accountId));
   const channel = useRef<BroadcastChannel | null>(null);
@@ -171,7 +172,7 @@ export default function LeagueQueue({
   // is the only source for cancellation targets and playable official links.
   const active = status.active_game;
   const entry = status.queue?.status === 'queued' ? status.queue : null;
-  const queueOutcome = status.queue?.status ?? status.status;
+  const queueOutcome = status.queue?.status ?? (pending.length ? 'idle' : status.status);
   const refresh = poll.refresh;
   const resume = poll.resume;
   const refreshQueue = useCallback(() => void refresh(), [refresh]);
@@ -214,7 +215,7 @@ export default function LeagueQueue({
   // invalidates mutations for the previous selection; their writes can still
   // have committed, so reconcile a fresh canonical snapshot.
   useEffect(() => {
-    setBusy(false);
+    setBusy(null);
     setFailure(null);
     if (previousRuleset.current !== ruleset) {
       previousRuleset.current = ruleset;
@@ -234,7 +235,7 @@ export default function LeagueQueue({
     pending.some((saved) => saved.requestId === intent.requestId),
   );
 
-  async function write(kind: 'join' | 'retry' | 'discard' | 'cancel') {
+  async function write(kind: QueueMutation) {
     if (mutation.current) return;
     if (kind === 'join') {
       const saved = pendingJoins(accountId);
@@ -256,7 +257,7 @@ export default function LeagueQueue({
     const controller = new AbortController();
     mutation.current = controller;
     poll.hold();
-    setBusy(true);
+    setBusy(kind);
     setFailure(null);
     try {
       const next = await leagueApi<LeagueQueueStatus>(
@@ -284,13 +285,13 @@ export default function LeagueQueue({
       if (controller.signal.aborted) return;
       // Another tab may have submitted the same UUID. Reconcile it by reading
       // the generation even if this particular attempt was rejected.
-      setFailure(error);
+      setFailure({ error, kind });
       channel.current?.postMessage('queue-changed');
     } finally {
       if (mutation.current === controller) {
         mutation.current = null;
         setPending(pendingJoins(accountId));
-        setBusy(false);
+        setBusy(null);
         void resume();
       }
     }
@@ -369,7 +370,10 @@ export default function LeagueQueue({
       )}
       {failure != null && (
         <p className="form-error" role="alert">
-          {leagueError(failure, t)}
+          {failure.kind === 'discard' && (
+            <>{t('Withdrawal is still unconfirmed. Your join request remains unresolved.')} </>
+          )}
+          {leagueError(failure.error, t)}
         </p>
       )}
       {poll.error && (
@@ -394,26 +398,28 @@ export default function LeagueQueue({
           <button
             className="button secondary"
             type="button"
-            disabled={busy}
+            disabled={busy !== null}
             onClick={() => void write('cancel')}
           >
-            {t(busy ? 'Cancelling…' : 'Cancel queue')}
+            {t(busy === 'cancel' ? 'Cancelling…' : 'Cancel queue')}
           </button>
         ) : (
           <button
             className="button primary"
             type="button"
-            disabled={busy || !!unavailable || poll.phase === 'stale' || pending.length > 0}
+            disabled={
+              busy !== null || !!unavailable || poll.phase === 'stale' || pending.length > 0
+            }
             onClick={() => void write('join')}
           >
-            {t(busy ? 'Joining…' : 'Join queue')}
+            {t(busy === 'join' || busy === 'retry' ? 'Joining…' : 'Join queue')}
           </button>
         )}
         {!active && !entry && recoverable && (
           <button
             className="button secondary"
             type="button"
-            disabled={busy || !!unavailable || poll.phase === 'stale'}
+            disabled={busy !== null || !!unavailable || poll.phase === 'stale'}
             onClick={() => void write('retry')}
           >
             {t('Retry previous join')}
@@ -423,7 +429,7 @@ export default function LeagueQueue({
           <button
             className="button secondary"
             type="button"
-            disabled={busy || poll.phase === 'stale'}
+            disabled={busy !== null || poll.phase === 'stale'}
             onClick={() => void write('discard')}
           >
             {t('Discard pending join')}

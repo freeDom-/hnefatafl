@@ -1,6 +1,7 @@
 """A disposable restore retains official League authority and unfinished work."""
 
 import sqlite3
+from uuid import uuid4
 
 from hnefatafl.auth import Auth, SecuritySettings
 from hnefatafl.leagues import Leagues
@@ -22,6 +23,10 @@ def test_restored_leagues_apply_pending_result_and_void_without_reopening_pairin
     assert service.drain()["settled"] == 1
     second = finish_league_game(service, rig)
     visitor = join(service, rig, "Visitor", "tablut")
+    archer = rig.credentials["Archer"]
+    generation = service.queue_status(archer)["join_generation"]
+    withdrawn = str(uuid4())
+    assert service.discard(archer, "brandubh", withdrawn, generation)["status"] == "cancelled"
     rig.core.mutate(
         rig.credentials["Odin"],
         first["id"],
@@ -39,6 +44,10 @@ def test_restored_leagues_apply_pending_result_and_void_without_reopening_pairin
 
     restored = OnlineCore(Auth(candidate_store, SecuritySettings()), POLICY, rig.clock)
     leagues = Leagues(restored)
+    outcome = leagues.join(
+        archer, "brandubh", withdrawn, expected_generation=generation, guarded=True
+    )
+    assert outcome["status"] == "cancelled" and outcome["join_generation"] == withdrawn
     with candidate_store.connection() as c:
         assert c.execute("SELECT enabled FROM online_timeout_gate").fetchone()[0] == 0
         assert (

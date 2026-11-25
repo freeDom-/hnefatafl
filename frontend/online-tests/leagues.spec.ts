@@ -351,7 +351,22 @@ test('tabs make the same recovery choice and a discard supersedes both delayed i
   try {
     await tab.goto('/leagues');
     await expect(tab.getByText(message)).toBeVisible();
-    await tab.getByRole('button', { name: 'Discard pending join' }).click();
+    const discard = tab.getByRole('button', { name: 'Discard pending join' });
+    await tab.route(
+      '**/api/leagues/queue/discard',
+      (route) => route.fulfill({ status: 429, json: { code: 'league_rate_limited' } }),
+      { times: 1 },
+    );
+    await discard.click();
+    await expect(tab.getByRole('alert')).toContainText(
+      'Withdrawal is still unconfirmed. Your join request remains unresolved.',
+    );
+    await expect(tab.getByRole('button', { name: 'Join queue', exact: true })).toBeDisabled();
+    await expect(tab.getByText('Your queue entry was cancelled.', { exact: true })).toHaveCount(0);
+    expect((await json(tab.request, `${leagues}/queue`)).join_generation).toBe(
+      first.expected_generation,
+    );
+    await discard.click();
     await expect(tab.getByRole('button', { name: 'Join queue', exact: true })).toBeEnabled();
     await page.bringToFront();
     await expect(page.getByRole('button', { name: 'Join queue', exact: true })).toBeEnabled();

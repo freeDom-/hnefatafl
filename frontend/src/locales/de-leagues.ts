@@ -40,6 +40,8 @@ const leagues: Record<string, string> = {
   'Checking previous join requests…': 'Vorherige Beitrittsanfragen werden geprüft…',
   'Retry previous join': 'Vorherigen Beitritt wiederholen',
   'Discard pending join': 'Offene Beitrittsanfrage verwerfen',
+  'Withdrawal is still unconfirmed. Your join request remains unresolved.':
+    'Der Rückzug ist noch unbestätigt. Deine Beitrittsanfrage bleibt offen.',
   'Queue status may be out of date.': 'Der Warteschlangenstatus kann veraltet sein.',
   'Displayed league data may be out of date.': 'Die angezeigten Ligadaten können veraltet sein.',
   'Joining…': 'Beitritt läuft…',

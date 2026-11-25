@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from hnefatafl import league_administration, league_worker
+from hnefatafl import league_administration, league_policy, league_worker
 from hnefatafl.online_core import micros
 from hnefatafl.server import create_app
 from test_leagues import seed_waiter
@@ -269,25 +269,83 @@ def test_discard_serializes_with_original_join_and_preserves_a_committed_game(ri
     assert result["status"] == "matched" and result["active_game"]["game_id"] == game
 
 
-def test_new_discard_records_share_the_request_quota_and_retries_are_free(api):
+@pytest.mark.parametrize("budget", ["minute", "day"])
+def test_discard_fences_delayed_joins_when_admission_quota_is_exhausted(rig, api, budget):
     _, client = api
     player = client()
-    path = LEAGUES + "/queue/discard"
+    path = LEAGUES + "/queue"
+    limit = (
+        league_policy.REQUESTS_PER_MINUTE
+        if budget == "minute"
+        else league_policy.REQUESTS_PER_UTC_DAY
+    )
+    window = timedelta(seconds=league_policy.REQUEST_WINDOW_SECONDS + 1)
+    for index in range(limit):
+        if index and index % league_policy.REQUESTS_PER_MINUTE == 0:
+            rig.clock.value += window
+        accepted = checked(join(player))
+    if budget == "day":
+        rig.clock.value += window  # Only the UTC-day admission limit is still exhausted.
+    checked(player.post(path + "/cancel", json={"request_id": accepted["request_id"]}))
+    original = {
+        "ruleset": "brandubh",
+        "request_id": str(uuid4()),
+        "expected_generation": accepted["join_generation"],
+    }
+    sibling = {**original, "request_id": str(uuid4())}
+    assert player.post(path, json=original).status_code == 429
+    withdrawn = checked(player.post(path + "/discard", json=original))
+    assert withdrawn["status"] == "cancelled" and withdrawn["queue"] is None
+    assert withdrawn["join_generation"] == original["request_id"]
+    assert (
+        checked(player.post(path + "/discard", json=original))["join_generation"]
+        == original["request_id"]
+    )
+
+    rig.clock.value += window if budget == "minute" else timedelta(days=1)
+    replay = checked(player.post(path, json=original))
+    assert replay["status"] == "cancelled" and replay["queue"] is None
+    assert player.post(path, json=sibling).status_code == 409
+    replacement = {**sibling, "expected_generation": withdrawn["join_generation"]}
+    assert (
+        checked(player.post(path, json=replacement))["queue"]["request_id"] == sibling["request_id"]
+    )
+
+
+@pytest.mark.parametrize("budget", ["minute", "day"])
+def test_new_discard_records_are_bounded_and_replays_are_free(rig, api, budget):
+    _, client = api
+    player = client()
+    path = LEAGUES + "/queue"
+    limit = (
+        league_policy.REQUESTS_PER_MINUTE
+        if budget == "minute"
+        else league_policy.REQUESTS_PER_UTC_DAY
+    )
+    window = timedelta(seconds=league_policy.REQUEST_WINDOW_SECONDS + 1)
     generation = None
-    for _ in range(10):
+    for index in range(limit):
+        if index and index % league_policy.REQUESTS_PER_MINUTE == 0:
+            rig.clock.value += window
         body = {
             "ruleset": "brandubh",
             "request_id": str(uuid4()),
             "expected_generation": generation,
         }
-        generation = checked(player.post(path, json=body))["join_generation"]
-    assert checked(player.post(path, json=body))["join_generation"] == generation
-    assert (
-        player.post(
-            path, json={**body, "request_id": str(uuid4()), "expected_generation": generation}
-        ).status_code
-        == 429
-    )
+        generation = checked(player.post(path + "/discard", json=body))["join_generation"]
+    if budget == "day":
+        rig.clock.value += window
+    assert checked(player.post(path + "/discard", json=body))["join_generation"] == generation
+    for _ in range(3):
+        attempt = {**body, "request_id": str(uuid4()), "expected_generation": generation}
+        assert player.post(path + "/discard", json=attempt).status_code == 429
+        stale = {**attempt, "expected_generation": None}
+        assert checked(player.post(path + "/discard", json=stale))["join_generation"] == generation
+    assert checked(player.get(path))["join_generation"] == generation
+    with rig.store.connection() as c:
+        assert c.execute("SELECT count(*) FROM league_requests").fetchone()[0] == limit
+    accepted = checked(player.post(path, json=attempt))
+    assert accepted["queue"]["request_id"] == attempt["request_id"]
 
 
 def test_real_scoring_shared_ranks_archived_revisions_and_safe_history(rig, api):
