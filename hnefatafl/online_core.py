@@ -98,11 +98,9 @@ class OnlineCore:
                 fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise DeploymentLocked() from None
-            with self.store.connection(reuse_writer=True) as c:
-                c.execute("PRAGMA foreign_keys=ON")
-                c.execute(
-                    f"PRAGMA busy_timeout={wait_ms if wait_ms is not None else SQLITE_BUSY_MS}"
-                )
+            with self.store.connection(
+                reuse_writer=True, wait_ms=wait_ms if wait_ms is not None else SQLITE_BUSY_MS
+            ) as c:
                 c.execute("BEGIN IMMEDIATE")
                 yield c
 

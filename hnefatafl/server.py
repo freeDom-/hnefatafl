@@ -452,6 +452,7 @@ def create_app(
                     )
         workers = {"account": False, "online": False, "settlement": False, "league": False}
         try:
+            store.open_online_writers()
             if account_background:
                 registration.start()
                 workers["account"] = True

@@ -33,7 +33,10 @@ class Store:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._writer_lock = Lock()
-        self._idle_writers: list[tuple[tuple[int, int], sqlite3.Connection]] = []
+        self._idle_writers: list[sqlite3.Connection] = []
+        self._writer_identity: tuple[int, int] | None = None
+        self._writer_generation = 0
+        self._writer_cache_open = True
         with self.connection() as connection:
             connection.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -149,22 +152,30 @@ class Store:
         self.runes(player_keys)
 
     @contextmanager
-    def connection(self, *, reuse_writer: bool = False) -> Iterator[sqlite3.Connection]:
-        identity: tuple[int, int] | None = None
+    def connection(
+        self, *, reuse_writer: bool = False, wait_ms: int = SQLITE_BUSY_MS
+    ) -> Iterator[sqlite3.Connection]:
+        """Lease an online transaction writer or a fresh general-purpose connection."""
+        generation = None
         connection = None
         if reuse_writer:
             disk = self.path.stat()
             identity = (disk.st_dev, disk.st_ino)
+            stale = []
             with self._writer_lock:
-                if self._idle_writers:
-                    saved_identity, saved = self._idle_writers.pop()
-                    if saved_identity == identity:
-                        connection = saved
-                    else:
-                        saved.close()
+                if self._writer_identity != identity:
+                    stale, self._idle_writers = self._idle_writers, []
+                    self._writer_identity = identity
+                    self._writer_generation += 1
+                if self._writer_cache_open:
+                    generation = self._writer_generation
+                    if self._idle_writers:
+                        connection = self._idle_writers.pop()
+            for saved in stale:
+                saved.close()
         if connection is None:
             connection = sqlite3.connect(
-                self.path, timeout=SQLITE_BUSY_MS / 1000, check_same_thread=not reuse_writer
+                self.path, timeout=wait_ms / 1000, check_same_thread=not reuse_writer
             )
             connection.row_factory = sqlite3.Row
             connection.create_function(
@@ -172,28 +183,59 @@ class Store:
             )
         reusable = False
         try:
+            if reuse_writer:
+                # Apply the writer's settings on every lease, including after
+                # a short matchmaking lease or a database replacement.
+                connection.execute("PRAGMA foreign_keys=ON")
+                connection.execute(f"PRAGMA busy_timeout={wait_ms}")
             yield connection
             connection.commit()
             reusable = True
         except BaseException as error:
-            connection.rollback()
-            reusable = not isinstance(error, sqlite3.Error)
+            try:
+                connection.rollback()
+            except sqlite3.Error:
+                # The failed lease is closed even when SQLite cannot roll back.
+                pass
+            else:
+                reusable = isinstance(error, Exception) and not isinstance(error, sqlite3.Error)
             raise
         finally:
-            # Each lease ends its transaction. Idle handles retain only SQLite's
-            # schema, page and statement caches and may move between threads.
-            if reusable and identity is not None and not connection.in_transaction:
-                with self._writer_lock:
-                    if len(self._idle_writers) < MAX_IDLE_ONLINE_WRITERS:
-                        self._idle_writers.append((identity, connection))
-                        connection = None
-            if connection is not None:
-                connection.close()
+            try:
+                if (
+                    reusable
+                    and generation is not None
+                    and not connection.in_transaction
+                    and connection.isolation_level == ""
+                    and getattr(connection, "autocommit", None)
+                    == getattr(sqlite3, "LEGACY_TRANSACTION_CONTROL", None)
+                ):
+                    connection.set_trace_callback(None)
+                    connection.set_progress_handler(None, 0)
+                    connection.set_authorizer(None)
+                    connection.row_factory = sqlite3.Row
+                    connection.text_factory = str
+                    with self._writer_lock:
+                        if (
+                            generation == self._writer_generation
+                            and len(self._idle_writers) < MAX_IDLE_ONLINE_WRITERS
+                        ):
+                            self._idle_writers.append(connection)
+                            connection = None
+            finally:
+                if connection is not None:
+                    connection.close()
+
+    def open_online_writers(self) -> None:
+        with self._writer_lock:
+            self._writer_cache_open = True
 
     def close_online_writers(self) -> None:
         with self._writer_lock:
+            self._writer_cache_open = False
+            self._writer_generation += 1
             connections, self._idle_writers = self._idle_writers, []
-        for _, connection in connections:
+        for connection in connections:
             connection.close()
 
     def create_game(self, game: dict) -> None:
