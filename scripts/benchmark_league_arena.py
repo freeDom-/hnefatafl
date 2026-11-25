@@ -807,7 +807,12 @@ def source_evidence(args):
             check=False,
         ).stdout.strip()
     )
-    modules = ["online_core.py", "player_tournaments.py", "player_tournament_settlement.py"]
+    modules = [
+        "storage.py",
+        "online_core.py",
+        "player_tournaments.py",
+        "player_tournament_settlement.py",
+    ]
     if not args.baseline:
         modules += sorted(path.name for path in package.glob("league*.py"))
     return {

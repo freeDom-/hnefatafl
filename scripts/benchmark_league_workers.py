@@ -13,6 +13,7 @@ from dataclasses import replace
 from datetime import timedelta
 import json
 from pathlib import Path
+from random import Random
 import shutil
 import sqlite3
 import tempfile
@@ -42,6 +43,16 @@ from hnefatafl.player_tournaments import PlayerTournaments
 
 ONLINE_FIRST = Actor("Online000000", digest("league-benchmark-Online-0"))
 RATED_FIRST = Actor("Rated000000", digest("league-benchmark-Rated-0"))
+MATCHMAKING_SCENARIOS = (
+    "compatible",
+    "resume",
+    "expanding_windows",
+    "capped_and_incompatible",
+    "mixed_online",
+    "expiry",
+)
+DISCOVERY_SCENARIOS = ("large_compatible", "sparse_tail", "sparse_mixed", "realistic_mixed")
+RULESETS = ("brandubh", "copenhagen", "tablut")
 
 
 def options():
@@ -53,6 +64,9 @@ def options():
     parser.add_argument("--samples", type=int, default=100)
     parser.add_argument("--writers", type=int, default=6)
     parser.add_argument("--worker-seconds", type=float, default=10)
+    parser.add_argument(
+        "--scenario", action="append", choices=MATCHMAKING_SCENARIOS + DISCOVERY_SCENARIOS
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if not 20 <= args.samples <= 400 or not 2 <= args.writers <= 16:
@@ -282,7 +296,7 @@ class LiveClock:
         return TIME + timedelta(seconds=elapsed)
 
 
-def seed_waiting(fixture, actors, ratings, age_seconds, ready):
+def seed_waiting(fixture, actors, ratings, age_seconds, ready, *, ruleset=RULESET):
     now = fixture.clock()
     joined = micros(now - timedelta(seconds=age_seconds))
     expires = joined + 600_000_000
@@ -293,14 +307,14 @@ def seed_waiting(fixture, actors, ratings, age_seconds, ready):
             (account_id,pool,rating,rated_games,wins,losses,draws,policy_version,updated_at)
             VALUES(?,?,?,0,0,0,0,1,?)
             ON CONFLICT(account_id,pool) DO UPDATE SET rating=excluded.rating""",
-            [(account, RULESET, rating, joined) for account, _, rating in rows],
+            [(account, ruleset, rating, joined) for account, _, rating in rows],
         )
         c.executemany(
             """INSERT INTO league_requests
             (id,account_id,ruleset,created_at,status,entry_id,joined_at,expires_at)
             VALUES(?,?,?,?,'queued',?,?,?)""",
             [
-                (identifier, account, RULESET, joined, identifier, joined, expires)
+                (identifier, account, ruleset, joined, identifier, joined, expires)
                 for account, identifier, _ in rows
             ],
         )
@@ -308,11 +322,61 @@ def seed_waiting(fixture, actors, ratings, age_seconds, ready):
             """INSERT INTO league_queue(account_id,request_id,ruleset,joined_at,expires_at,rating)
             VALUES(?,?,?,?,?,?)""",
             [
-                (account, identifier, RULESET, joined, expires, rating)
+                (account, identifier, ruleset, joined, expires, rating)
                 for account, identifier, rating in rows
             ],
         )
     return joined, {account for account, _, _ in rows} if ready else set()
+
+
+def seed_discovery(fixture, scenario):
+    joined_at, targets = {}, set()
+    rng = Random(99)
+    pools = RULESETS if scenario.endswith("mixed") else (RULESET,)
+    for ruleset in pools:
+        if scenario in {"sparse_tail", "sparse_mixed"}:
+            count = 2304 if scenario == "sparse_tail" else 1024
+            queued = fixture.actors(f"Wait-{ruleset}", count)
+            ratings = [5_000 + 1_000 * index for index in range(count - 4)] + [
+                1500,
+                1500,
+                2400,
+                2425,
+            ]
+            age = 568 if scenario == "sparse_tail" else 540
+            joined, _ = seed_waiting(fixture, queued, ratings, age, ready=False, ruleset=ruleset)
+            targets.update(actor.id for actor in queued[-4:])
+            joined_at.update((actor.id, joined) for actor in queued)
+        elif scenario == "realistic_mixed":
+            for age in (90, 45, 0):
+                queued = fixture.actors(f"Wait-{ruleset}-{age}", 120)
+                ratings = [
+                    1500 if index % 5 == 0 else round(rng.gauss(1500, 245)) for index in range(120)
+                ]
+                ratings[-4:] = [760, 840, 2390, 2570]
+                joined, eligible = seed_waiting(
+                    fixture, queued, ratings, age, ready=True, ruleset=ruleset
+                )
+                targets.update(eligible)
+                joined_at.update((actor.id, joined) for actor in queued)
+        else:
+            queued = fixture.actors("Wait-compatible", 960)
+            joined, targets = seed_waiting(fixture, queued, [1500] * len(queued), 0, ready=True)
+            joined_at.update((actor.id, joined) for actor in queued)
+    return joined_at, targets
+
+
+def churn_discovery(fixture, core, actors, started):
+    cancelled = 0
+    for index, actor in enumerate(actors):
+        time.sleep(max(0, started + index * 0.5 - time.perf_counter()))
+        ruleset = RULESETS[index % len(RULESETS)]
+        seed_waiting(fixture, [actor], [6_000_000 + 1000 * index], 0, ready=False, ruleset=ruleset)
+        time.sleep(max(0, started + index * 0.5 + 0.4 - time.perf_counter()))
+        state = core.queue_status(actor.token)
+        if core.cancel(actor.token, state["queue"]["request_id"])["status"] == "cancelled":
+            cancelled += 1
+    return cancelled
 
 
 def matchmaking(root, args, scenario):
@@ -322,9 +386,9 @@ def matchmaking(root, args, scenario):
     count = 240
     if scenario == "capped_and_incompatible":
         count = 64
-    queued = fixture.actors("Queue", count)
+    queued = fixture.actors("Queue", count) if scenario in MATCHMAKING_SCENARIOS else []
     age = 0
-    ratings = [1500] * count
+    ratings = [1500] * len(queued)
     if scenario == "expanding_windows":
         age = 58
         ratings = [1500 + (index // 2) * 1500 + (index % 2) * 250 for index in range(count)]
@@ -341,17 +405,26 @@ def matchmaking(root, args, scenario):
                 game = fixture.seat(first, second, league=core)
                 fixture.complete(game, first, second, attackers_win=False)
         core.drain(limit=100)
-    joined, eligible = seed_waiting(
-        fixture, queued, ratings, age, ready=scenario != "capped_and_incompatible"
-    )
+    if scenario in DISCOVERY_SCENARIOS:
+        joined_at, eligible = seed_discovery(fixture, scenario)
+    else:
+        joined, eligible = seed_waiting(
+            fixture, queued, ratings, age, ready=scenario != "capped_and_incompatible"
+        )
+        joined_at = {actor.id: joined for actor in queued}
     (admin,) = fixture.actors("QueueAdmin", 1, admin=True)
     administration = worker.administration
     if scenario == "resume":
         administration.configure(admin.token, 0, True, "Disposable benchmark pause")
     games = []
-    if scenario == "mixed_online":
+    if scenario == "mixed_online" or scenario.endswith("mixed"):
         attackers, defenders = fixture.actors("Online", 2)
         games = [fixture.seat(attackers, defenders) for _ in range(args.samples)]
+    arrivals = (
+        fixture.actors("Churn", int(args.worker_seconds * 2) - 1)
+        if scenario.endswith("mixed")
+        else []
+    )
     with fixture.store.connection() as c:
         sequence = c.execute("SELECT COALESCE(MAX(rowid),0) FROM league_games").fetchone()[0]
     probe = Probe()
@@ -363,7 +436,8 @@ def matchmaking(root, args, scenario):
     samples = []
     pairs = []
     actionable = started + (2.0 if scenario == "expanding_windows" else 0.0)
-    monitor = None
+    monitor = ThreadPoolExecutor(max_workers=2)
+    churned = 0
     try:
         if scenario == "resume":
             time.sleep(2.1)
@@ -375,7 +449,6 @@ def matchmaking(root, args, scenario):
             administration.configure(admin.token, 1, False, "Disposable benchmark resume")
             actionable = time.perf_counter()
         if games:
-            monitor = ThreadPoolExecutor(max_workers=1)
             foreground = monitor.submit(
                 scheduled_moves,
                 fixture,
@@ -385,48 +458,66 @@ def matchmaking(root, args, scenario):
                 args.worker_seconds / max(1, (len(games) + 5) // 6),
                 6,
             )
+        if arrivals:
+            churn = monitor.submit(churn_discovery, fixture, core, arrivals, started + 0.25)
         deadline = actionable + args.worker_seconds
         while time.perf_counter() < deadline:
             with fixture.store.connection() as c:
                 rows = c.execute(
-                    "SELECT rowid,paired_at FROM league_games WHERE rowid>? ORDER BY rowid",
+                    """SELECT rowid,paired_at,ruleset,first_account,second_account FROM league_games
+                    WHERE rowid>? ORDER BY rowid""",
                     (sequence,),
                 ).fetchall()
             if rows:
                 observed = time.perf_counter()
                 sequence = rows[-1][0]
-                pairs.extend((row[1], observed) for row in rows)
+                pairs.extend((row[1], observed, row[2], row[3], row[4]) for row in rows)
             time.sleep(0.050)
         if games:
             samples = foreground.result()
+        if arrivals:
+            churned = churn.result()
     finally:
         worker.shutdown()
-        if monitor is not None:
-            monitor.shutdown()
+        monitor.shutdown()
     at = micros(fixture.clock())
     with fixture.store.connection() as c:
         expired = sum(
-            account in eligible
-            for (account,) in c.execute(
-                """SELECT account_id FROM league_requests WHERE created_at=? AND (
-                status='expired' OR (status='queued' AND expires_at<=?))""",
-                (joined, at),
+            account in eligible and joined_at[account] == created
+            for account, created in c.execute(
+                """SELECT account_id,created_at FROM league_requests
+                WHERE status='expired' OR (status='queued' AND expires_at<=?)""",
+                (at,),
             )
         )
         unmatched = c.execute(
             "SELECT count(*) FROM league_queue WHERE expires_at>?", (at,)
         ).fetchone()[0]
-    require(bool(pairs) == bool(eligible), "Unexpected matchmaking outcome in " + scenario)
+    if scenario in MATCHMAKING_SCENARIOS:
+        require(bool(pairs) == bool(eligible), "Unexpected matchmaking outcome in " + scenario)
     require(not samples or not summarize(samples)["errors"], "Foreground moves failed")
+    require(churned == len(arrivals), "A queued arrival did not cancel")
     wall = time.perf_counter() - started
     return {
-        "queued_players": count,
+        "queued_players": len(joined_at),
+        "target_players": len(eligible),
         "observed_pairs": len(pairs),
+        "pairs_by_ruleset": {
+            ruleset: sum(row[2] == ruleset for row in pairs) for ruleset in RULESETS
+        },
+        "arrivals_cancelled": churned,
         "still_queued": unmatched,
         "expired_eligible": expired,
         "pairings_per_sampling_second": round(len(pairs) / args.worker_seconds, 3),
-        "after_actionable_ms": distribution([(seen - actionable) * 1000 for _, seen in pairs]),
-        "queue_wait_ms": distribution([(at - joined) / 1000 for at, _ in pairs]),
+        "after_actionable_ms": distribution([(row[1] - actionable) * 1000 for row in pairs]),
+        "queue_wait_ms": distribution(
+            [
+                (at - joined_at[account]) / 1000
+                for at, _, _, first, second in pairs
+                for account in (first, second)
+            ]
+        ),
+        "time_to_first_pair_seconds": round(pairs[0][1] - actionable, 4) if pairs else None,
         "time_to_last_pair_seconds": round(pairs[-1][1] - actionable, 4) if pairs else None,
         "process_cpu_seconds": round(time.process_time() - cpu, 4),
         "wall_seconds": round(wall, 4),
@@ -452,14 +543,7 @@ def main():
             if args.mode == "shared"
             else {
                 scenario: matchmaking(root, args, scenario)
-                for scenario in (
-                    "compatible",
-                    "resume",
-                    "expanding_windows",
-                    "capped_and_incompatible",
-                    "mixed_online",
-                    "expiry",
-                )
+                for scenario in (args.scenario or MATCHMAKING_SCENARIOS)
             }
         )
         report = {**source_evidence(args), "settings": settings, "workloads": results}
