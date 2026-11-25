@@ -394,10 +394,13 @@ def test_identity_queries_are_batched_for_game_lists_stats_online_and_history(wo
     original = app.state.store.connection
 
     @contextmanager
-    def traced():
-        with original() as c:
+    def traced(**options):
+        with original(**options) as c:
             c.set_trace_callback(statements.append)
-            yield c
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
 
     monkeypatch.setattr(app.state.store, "connection", traced)
     paths = (
