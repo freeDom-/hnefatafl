@@ -1086,6 +1086,17 @@ export class NeuralClient {
     };
   }
 
+  /** Actual live session identity/provider, or null when no session is loaded. */
+  sessionIdentity() {
+    if (!this.model) return null;
+    return {
+      sha256: this.model.model_sha256,
+      ruleset: this.model.model_ruleset,
+      size: this.model.size,
+      provider: this.model.provider,
+    };
+  }
+
   _assertModel(expected) {
     if (!expected || typeof expected !== "object")
       throw named("MODEL_IDENTITY_REQUIRED", "An expected model identity is required");

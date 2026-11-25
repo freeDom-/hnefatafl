@@ -396,3 +396,79 @@ def test_audit_failure_rolls_back_publication_and_revocation(tmp_path, store, mo
         store.revoke(record["publication_id"], actor="Odin")
     assert error.value.code == "PUBLICATION_IO"
     assert store.get_public(record["publication_id"]) is not None
+
+
+def test_same_size_model_modification_with_restored_mtime_is_rejected(tmp_path, store):
+    import os
+
+    record = store.publish(_export(tmp_path), actor="Odin")
+    _resolved, path = store.resolve_artifact(record["publication_id"])
+    stat = path.stat()
+    changed = bytearray(path.read_bytes())
+    changed[0] ^= 0xFF
+    path.write_bytes(bytes(changed))
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    with pytest.raises(PublicationError) as error:
+        store.resolve_artifact(record["publication_id"])
+    assert error.value.code == "ARTIFACT_INTEGRITY"
+
+
+def test_model_replacement_during_verification_is_rejected(tmp_path, store, monkeypatch):
+    import os
+
+    from hnefatafl import browser_runtime
+
+    record = store.publish(_export(tmp_path), actor="Odin")
+    path = store.artifacts / f"{record['onnx_sha256']}.onnx"
+    stat = path.stat()
+    original_hash = browser_runtime._hash_fd
+
+    def racing_hash(fd):
+        digest = original_hash(fd)
+        changed = bytearray(path.read_bytes())
+        changed[0] ^= 0xFF
+        path.write_bytes(bytes(changed))
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        return digest
+
+    monkeypatch.setattr(browser_runtime, "_hash_fd", racing_hash)
+    with pytest.raises(PublicationError) as error:
+        store.open_artifact(record["publication_id"])
+    assert error.value.code == "ARTIFACT_INTEGRITY"
+
+
+def test_verified_model_descriptor_streams_old_bytes_after_replacement(tmp_path, store):
+    record = store.publish(_export(tmp_path), actor="Odin")
+    _record, handle, size = store.open_artifact(record["publication_id"])
+    try:
+        before = handle.read()
+        assert len(before) == size
+        assert hashlib.sha256(before).hexdigest() == record["onnx_sha256"]
+        (store.artifacts / f"{record['onnx_sha256']}.onnx").write_bytes(b"x" * size)
+    finally:
+        handle.close()
+    assert before == MODEL_BYTES
+
+
+def test_open_model_stream_survives_concurrent_revocation(tmp_path, store):
+    record = store.publish(_export(tmp_path), actor="Odin")
+    _record, handle, _size = store.open_artifact(record["publication_id"])
+    try:
+        store.revoke(record["publication_id"], actor="Odin", reason="test")
+        assert handle.read() == MODEL_BYTES
+        with pytest.raises(PublicationError):
+            store.open_artifact(record["publication_id"])
+    finally:
+        handle.close()
+
+
+def test_external_symlink_model_artifact_is_rejected(tmp_path, store):
+    record = store.publish(_export(tmp_path), actor="Odin")
+    path = store.artifacts / f"{record['onnx_sha256']}.onnx"
+    outside = tmp_path / "outside.onnx"
+    outside.write_bytes(MODEL_BYTES)
+    path.unlink()
+    path.symlink_to(outside)
+    with pytest.raises(PublicationError) as error:
+        store.open_artifact(record["publication_id"])
+    assert error.value.code in {"ARTIFACT_MISSING", "ARTIFACT_INTEGRITY"}

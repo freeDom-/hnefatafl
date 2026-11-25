@@ -118,7 +118,7 @@ describe('artifact cache — concurrent admission and retention', () => {
   it('reports in-memory retention separately from persistent retention', async () => {
     const cache = new ArtifactCache(new MemoryArtifactStore());
     const result = await cache.admit('key', artifact('payload').bytes, {});
-    expect(result).toEqual({ retained: true, persistent: false, reason: 'stored' });
+    expect(result).toMatchObject({ retained: true, persistent: false, reason: 'stored' });
   });
 
   it('invalidates a cached artifact whose size does not match the publication', async () => {
@@ -130,5 +130,27 @@ describe('artifact cache — concurrent admission and retention', () => {
       await cache.getVerified('key', value.sha256, digest, value.bytes.byteLength + 1),
     ).toBeNull();
     expect(await store.list()).toHaveLength(0);
+  });
+});
+
+describe('artifact cache — admission ownership', () => {
+  it('never removes a newer same-key admission from an obsolete cleanup path', async () => {
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store);
+    const first = await cache.admit('key', artifact('first payload').bytes, {});
+    const second = await cache.admit('key', artifact('second payload').bytes, {});
+    expect(first.admissionId).not.toBe(second.admissionId);
+    await cache.removeOwned('key', first.admissionId!);
+    expect(await store.list()).toHaveLength(1);
+    await cache.removeOwned('key', second.admissionId!);
+    expect(await store.list()).toHaveLength(0);
+  });
+
+  it('does not remove an admission owned by a different key generation', async () => {
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store);
+    const admitted = await cache.admit('key', artifact('payload').bytes, {});
+    await cache.removeOwned('key', (admitted.admissionId ?? 1) + 1000);
+    expect(await store.list()).toHaveLength(1);
   });
 });

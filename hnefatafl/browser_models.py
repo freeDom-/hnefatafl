@@ -31,7 +31,6 @@ import re
 import sqlite3
 import sys
 import tempfile
-import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +48,7 @@ from .onnx_artifacts import (
     validate_export_dir,
 )
 from .browser_bridge import BRIDGE_PROTOCOL
+from .browser_runtime import RuntimeAssetError, VerifiedFileCache
 
 PUBLICATION_SCHEMA = 1
 PUBLICATION_DIRECTORY = "browser_models"
@@ -180,8 +180,7 @@ class PublishedModelStore:
         self.lock_path = self.root / ".publications.lock"
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts.mkdir(parents=True, exist_ok=True)
-        self._artifact_cache: dict[str, tuple[tuple[int, int, int], str]] = {}
-        self._artifact_lock = threading.Lock()
+        self._file_cache = VerifiedFileCache(64)
 
     # ------------------------------------------------------------ index access
     def _read_index(self) -> dict[str, Any]:
@@ -259,48 +258,69 @@ class PublishedModelStore:
         )
 
     def _verified_artifact(self, record: dict[str, Any]) -> Path:
-        """Resolve and verify the immutable artifact belonging to one record."""
+        """Verify the immutable artifact belonging to one publication record."""
         expected = record["onnx_sha256"]
         if not isinstance(expected, str) or not _HEX64.fullmatch(expected):
             raise PublicationError(
                 "Published artifact identity is invalid", code="ARTIFACT_MISSING"
             )
-        path = self.artifacts / f"{expected}.onnx"
+        entry = {"bytes": record["artifact_bytes"], "sha256": expected}
         try:
-            resolved = path.resolve(strict=True)
-        except OSError:
-            raise PublicationError(
-                "Published artifact is missing", code="ARTIFACT_MISSING"
-            ) from None
-        if path.is_symlink() or not resolved.is_relative_to(self.artifacts.resolve()):
-            raise PublicationError("Published artifact path is invalid", code="ARTIFACT_MISSING")
-        if not resolved.is_file():
-            raise PublicationError("Published artifact is missing", code="ARTIFACT_MISSING")
-        try:
-            stat = resolved.stat()
-        except OSError:
-            raise PublicationError(
-                "Published artifact is missing", code="ARTIFACT_MISSING"
-            ) from None
-        if stat.st_size != record["artifact_bytes"]:
-            raise PublicationError("Published artifact size is invalid", code="ARTIFACT_INTEGRITY")
-        signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
-        with self._artifact_lock:
-            cached = self._artifact_cache.get(expected)
-        if cached is not None and cached[0] == signature:
-            return resolved
-        actual = _digest_file(resolved)
-        if actual != expected:
-            with self._artifact_lock:
-                self._artifact_cache.pop(expected, None)
-            raise PublicationError(
-                "Published artifact integrity check failed", code="ARTIFACT_INTEGRITY"
+            return self._file_cache.verify(self.artifacts, f"{expected}.onnx", entry)
+        except RuntimeAssetError as error:
+            code = (
+                "ARTIFACT_INTEGRITY"
+                if error.reason in {"digest-mismatch", "size-mismatch", "invalid-path"}
+                else "ARTIFACT_MISSING"
             )
-        with self._artifact_lock:
-            if len(self._artifact_cache) >= 64 and expected not in self._artifact_cache:
-                self._artifact_cache.pop(next(iter(self._artifact_cache)))
-            self._artifact_cache[expected] = (signature, actual)
-        return resolved
+            raise PublicationError(error.detail, code=code) from error
+
+    def open_artifact(
+        self, publication_id: str, artifact_version: str | None = None
+    ) -> tuple[dict[str, Any], Any, int]:
+        """Open the exact verified immutable artifact for streaming.
+
+        Record, version and file identity are resolved under one publication lock;
+        the file descriptor is verified and then streamed, so replacement between
+        verification and response opening cannot substitute bytes.
+        """
+        if not isinstance(publication_id, str) or not PUBLICATION_ID.fullmatch(publication_id):
+            raise PublicationError("Published model not found", code="NOT_FOUND")
+        if artifact_version is not None and (
+            not isinstance(artifact_version, str) or not _HEX64.fullmatch(artifact_version)
+        ):
+            raise PublicationError("Published model not found", code="NOT_FOUND")
+        with _lock(self.lock_path):
+            payload = self._read_index()
+            record = next(
+                (
+                    entry
+                    for entry in payload["publications"]
+                    if entry.get("publication_id") == publication_id
+                    and entry.get("status") in PUBLIC_STATUSES
+                ),
+                None,
+            )
+            if record is None:
+                raise PublicationError("Published model not found", code="NOT_FOUND")
+            if artifact_version is not None and record["onnx_sha256"] != artifact_version:
+                raise PublicationError(
+                    "The requested artifact version is not published", code="NOT_FOUND"
+                )
+            expected = record["onnx_sha256"]
+            entry = {"bytes": record["artifact_bytes"], "sha256": expected}
+            try:
+                handle, size = self._file_cache.open_verified(
+                    self.artifacts, f"{expected}.onnx", entry
+                )
+            except RuntimeAssetError as error:
+                code = (
+                    "ARTIFACT_INTEGRITY"
+                    if error.reason in {"digest-mismatch", "size-mismatch", "invalid-path"}
+                    else "ARTIFACT_MISSING"
+                )
+                raise PublicationError(error.detail, code=code) from error
+            return dict(record), handle, size
 
     def resolve_artifact(
         self, publication_id: str, artifact_version: str | None = None

@@ -318,8 +318,12 @@ and independently re-bound pinned upstream digests. The browser also recomputes 
 canonical runtime identity. Each request is resolved against the exact immutable
 `<runtime_id>` snapshot, never the mutable `current` link; a retained identity may
 serve its own verified bytes while present, and pruned/unverifiable identities
-return a controlled 404. A bounded stat-signature digest cache detects same-size
-replacement without hashing the distribution on every request. A stale,
+return a controlled 404. A bounded stat-signature digest cache (device, inode, size, mtime and ctime)
+detects same-size replacement without hashing the distribution on every request;
+every unresolved path component is lstat-checked for symlinks and the file is
+verified before and after hashing. Runtime and model bytes are streamed from the
+verified descriptor, so replacement between verification and response opening cannot
+substitute bytes. A stale,
 incompatible, tampered or symlinked runtime is reported unavailable rather than
 executed, so a partially completed deployment or rollback cannot activate an
 incompatible pair. Model artifacts are streamed from an immutable
@@ -368,20 +372,24 @@ and degradation when storage is denied). Downloads are explicit, size-bounded,
 digest-verified, cancellable, deduplicated with generation-scoped reservation
 accounting, and never activated on HTTP success alone. Verified bytes are passed
 directly to the validated neural client so inference never performs a second model
-transfer; current publication authorization is rechecked before activation. Every
+transfer, and an already-healthy matching session is reused without another
+IndexedDB read, re-hash or transfer; current publication authorization is rechecked
+before every activation. Every
 asynchronous operation has explicit ownership and cannot create workers or publish
 state after logout, account switching or disposal. Logout, session expiry or account switching invalidates the
 runtime generation, aborts downloads and searches, clears results and releases
 workers; a delayed completion cannot restore the previous account's state.
 Published models are shared public artifacts and may be retained. Server-side
 revocation stops new protected downloads but cannot delete copies already
-downloaded or copied. Browser processes do not provide enforceable RAM limits:
+downloaded or copied. The public Phase 5 runtime factory is a per-tab singleton;
+direct instance construction is internal/test-only, and cross-tab aggregate limits
+remain best-effort rather than a shared coordinator. Browser processes do not provide enforceable RAM limits:
 application limits bound downloads, storage, workers, searches and simulations,
 while actual memory use remains estimated/observable only.
 
 Residual limitations are documented in the
 [Phase 4 validation report](validation/browser-analysis-phase4.md): no offline
-runtime execution (explicit owner-approved deferral; models are offline-verifiable
+runtime execution (deferred pending explicit owner approval; models are offline-verifiable
 but runtime workers load origin URLs and there is no service worker), best-effort
 per-tab cross-tab coordination, no verified GPU execution, no competitive model or
 playing-strength evidence, and no physical-device acceptance.

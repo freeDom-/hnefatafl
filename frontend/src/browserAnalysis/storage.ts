@@ -19,6 +19,8 @@ export interface AdmissionResult {
   retained: boolean;
   persistent: boolean;
   reason: 'stored' | 'quota-exceeded' | 'storage-unavailable';
+  /** Ownership token for conditional cleanup of this exact admission. */
+  admissionId?: number;
 }
 
 export interface StoredArtifact {
@@ -234,6 +236,8 @@ export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
 /** Content-addressed cache with quota awareness, LRU eviction and verification. */
 export class ArtifactCache {
   private chain: Promise<void> = Promise.resolve();
+  private admissionSequence = 0;
+  private currentAdmission = new Map<string, number>();
 
   constructor(
     private readonly store: ArtifactStore,
@@ -312,7 +316,9 @@ export class ArtifactCache {
       }
       await this.store.put(key, bytes, meta);
       await this.store.touch(key, this.options.now?.() ?? Date.now()).catch(() => undefined);
-      return { retained: true, persistent: this.persistent, reason: 'stored' };
+      const admissionId = ++this.admissionSequence;
+      this.currentAdmission.set(key, admissionId);
+      return { retained: true, persistent: this.persistent, reason: 'stored', admissionId };
     } catch {
       // Quota error, private-mode restriction or closed database: keep the
       // downloaded bytes usable for this operation but do not claim retention.
@@ -348,6 +354,28 @@ export class ArtifactCache {
     }
     await this.store.touch(key, this.options.now?.() ?? Date.now()).catch(() => undefined);
     return bytes;
+  }
+
+  /**
+   * Remove an admission only if this exact admission is still current. A newer
+   * same-key admission (possibly from another operation) is never evicted by an
+   * obsolete cleanup path.
+   */
+  removeOwned(key: string, admissionId: number): Promise<void> {
+    const queued = this.chain.then(async () => {
+      if (this.currentAdmission.get(key) !== admissionId) return;
+      this.currentAdmission.delete(key);
+      try {
+        await this.store.remove(key);
+      } catch {
+        // Losing a cache entry is never fatal.
+      }
+    });
+    this.chain = queued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queued;
   }
 
   async remove(key: string): Promise<void> {

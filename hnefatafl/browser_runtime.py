@@ -30,10 +30,12 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 import threading
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -588,6 +590,28 @@ def verify_runtime(
     return manifest
 
 
+def _file_signature(st: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (
+        st.st_dev,
+        st.st_ino,
+        st.st_size,
+        st.st_mtime_ns,
+        getattr(st, "st_ctime_ns", 0),
+    )
+
+
+def _hash_fd(fd: int) -> str:
+    os.lseek(fd, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    while True:
+        chunk = os.read(fd, 1024 * 1024)
+        if not chunk:
+            break
+        digest.update(chunk)
+    os.lseek(fd, 0, os.SEEK_SET)
+    return digest.hexdigest()
+
+
 class VerifiedFileCache:
     """Bounded stat-signature cache for per-request asset integrity checks.
 
@@ -599,36 +623,39 @@ class VerifiedFileCache:
     """
 
     def __init__(self, max_entries: int = 128) -> None:
-        self._entries: dict[str, tuple[tuple[int, int, int], str]] = {}
+        self._entries: dict[str, tuple[tuple[int, int, int, int, int], str]] = {}
         self._max = max_entries
         self._lock = threading.Lock()
 
     def verify(self, directory: Path, relative: str, entry: dict[str, Any]) -> Path:
-        path = _ensure_within(directory, relative)
-        for parent in path.parents:
-            if parent == directory:
-                break
-            if parent.is_symlink():
-                raise RuntimeAssetError("invalid-path", "Runtime asset path uses a symlink")
+        path = self._lstat_components(directory, relative)
         try:
-            if path.is_symlink():
-                raise RuntimeAssetError("invalid-path", "Runtime asset is a symlink")
-            stat = path.stat()
+            before = os.stat(path, follow_symlinks=False)
         except OSError as error:
             raise RuntimeAssetError(
                 "missing-asset", f"Runtime asset is missing: {relative}"
             ) from error
-        if not path.is_file():
-            raise RuntimeAssetError("missing-asset", f"Runtime asset is missing: {relative}")
-        if stat.st_size != entry["bytes"]:
+        if not stat.S_ISREG(before.st_mode):
+            raise RuntimeAssetError("invalid-path", "Runtime asset is not a regular file")
+        if before.st_size != entry["bytes"]:
             raise RuntimeAssetError("size-mismatch", f"Runtime asset size mismatch: {relative}")
-        signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        signature = _file_signature(before)
         key = f"{directory}\0{relative}"
         with self._lock:
             cached = self._entries.get(key)
         if cached is not None and cached[0] == signature and cached[1] == entry["sha256"]:
             return path
         actual = _digest(path)
+        try:
+            after = os.stat(path, follow_symlinks=False)
+        except OSError as error:
+            raise RuntimeAssetError(
+                "missing-asset", f"Runtime asset changed during verification: {relative}"
+            ) from error
+        if _file_signature(after) != signature:
+            raise RuntimeAssetError(
+                "digest-mismatch", f"Runtime asset changed during verification: {relative}"
+            )
         if actual != entry["sha256"]:
             with self._lock:
                 self._entries.pop(key, None)
@@ -638,6 +665,85 @@ class VerifiedFileCache:
                 self._entries.pop(next(iter(self._entries)))
             self._entries[key] = (signature, actual)
         return path
+
+    def _lstat_components(self, directory: Path, relative: str) -> Path:
+        path = _ensure_within(directory, relative)
+        current = directory
+        for part in relative.split("/"):
+            current = current / part
+            try:
+                st = os.lstat(current)
+            except OSError as error:
+                raise RuntimeAssetError(
+                    "missing-asset", f"Runtime asset is missing: {relative}"
+                ) from error
+            if stat.S_ISLNK(st.st_mode):
+                raise RuntimeAssetError("invalid-path", "Runtime asset path uses a symlink")
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            raise RuntimeAssetError("invalid-path", "Runtime asset is not a regular file")
+        return path
+
+    def open_verified(
+        self, directory: Path, relative: str, entry: dict[str, Any]
+    ) -> tuple[Any, int]:
+        """Open the exact verified file and return (file object, size).
+
+        The descriptor is opened once and streamed, so replacement between
+        verification and response opening cannot substitute different bytes.
+        """
+        path = self._lstat_components(directory, relative)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(path, flags)
+        except OSError as error:
+            raise RuntimeAssetError(
+                "missing-asset", f"Runtime asset cannot be opened: {relative}"
+            ) from error
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise RuntimeAssetError("invalid-path", "Runtime asset is not a regular file")
+            if before.st_size != entry["bytes"]:
+                raise RuntimeAssetError("size-mismatch", f"Runtime asset size mismatch: {relative}")
+            signature = _file_signature(before)
+            key = f"{directory}\0{relative}"
+            with self._lock:
+                cached = self._entries.get(key)
+            if cached is None or cached[0] != signature or cached[1] != entry["sha256"]:
+                actual = _hash_fd(fd)
+                after = os.fstat(fd)
+                if _file_signature(after) != signature:
+                    raise RuntimeAssetError(
+                        "digest-mismatch", f"Runtime asset changed during verification: {relative}"
+                    )
+                if actual != entry["sha256"]:
+                    raise RuntimeAssetError(
+                        "digest-mismatch", f"Runtime asset digest mismatch: {relative}"
+                    )
+                with self._lock:
+                    if len(self._entries) >= self._max and key not in self._entries:
+                        self._entries.pop(next(iter(self._entries)))
+                    self._entries[key] = (signature, actual)
+            os.lseek(fd, 0, os.SEEK_SET)
+            return os.fdopen(fd, "rb"), before.st_size
+        except BaseException:
+            os.close(fd)
+            raise
+
+
+def open_runtime_asset(
+    snapshot: dict[str, Any],
+    relative: str,
+    *,
+    file_cache: VerifiedFileCache | None = None,
+) -> tuple[Any, dict[str, Any], int]:
+    """Open one immutable snapshot asset for streaming from the verified descriptor."""
+    entry = snapshot["files"].get(relative)
+    if entry is None:
+        raise RuntimeAssetError("unknown-asset", "Runtime asset is not in the manifest")
+    cache = file_cache or VerifiedFileCache()
+    handle, size = cache.open_verified(snapshot["directory"], relative, entry)
+    return handle, entry, size
 
 
 def runtime_snapshot(
@@ -770,8 +876,7 @@ def activate_runtime(
         raise RuntimeAssetError(
             "runtime-mismatch", "Runtime directory must live under the runtime root"
         )
-    temporary = root / f".current-{os.getpid()}-{directory.name}"
-    temporary.unlink(missing_ok=True)
+    temporary = root / f".current-{os.getpid()}-{uuid.uuid4().hex}"
     temporary.symlink_to(directory.name)
     os.replace(temporary, root / "current")
     return manifest

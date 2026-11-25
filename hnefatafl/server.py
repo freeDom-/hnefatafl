@@ -23,7 +23,7 @@ from typing import Any, Literal, NoReturn
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
@@ -3365,6 +3365,16 @@ def create_app(
     from .browser_runtime import RuntimeAssetError, RuntimeUnavailable
     from .browser_runtime import public_manifest as runtime_public_manifest
 
+    def stream_verified_file(handle):
+        try:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            handle.close()
+
     mimetypes.add_type("application/wasm", ".wasm")
     mimetypes.add_type("text/javascript", ".mjs")
     mimetypes.add_type("text/javascript", ".js")
@@ -3374,7 +3384,7 @@ def create_app(
     from .browser_runtime import (
         VerifiedFileCache,
         active_runtime_identity,
-        resolve_runtime_asset,
+        open_runtime_asset,
         runtime_snapshot,
     )
 
@@ -3487,30 +3497,23 @@ def create_app(
     def browser_analysis_artifact(publication_id: str, version: str | None = None):
         require_browser_analysis()
         try:
-            # Record, immutable version and verified file identity are resolved
-            # together; a concurrent replacement/revocation cannot mix them.
-            record, path = browser_models.resolve_artifact(publication_id, version)
+            # Record, immutable version and the verified descriptor are resolved
+            # together; replacement/revocation cannot mix identities or bytes.
+            record, handle, size = browser_models.open_artifact(publication_id, version)
         except PublicationError:
             raise HTTPException(404, "Published model not found") from None
-        try:
-            size = path.stat().st_size
-        except OSError:
-            raise HTTPException(404, "Published model not found") from None
-        if size != record["artifact_bytes"]:
-            raise HTTPException(404, "Published model not found")
-        # FileResponse streams from disk; the server never buffers a model in
-        # memory. Headers describe exactly the resolved immutable file.
-        response = FileResponse(
-            path,
+        # Streaming the verified descriptor never buffers the model in memory.
+        return StreamingResponse(
+            stream_verified_file(handle),
             media_type="application/octet-stream",
             headers={
                 "Cache-Control": "no-store",
+                "Content-Length": str(size),
                 "ETag": f'"{record["onnx_sha256"]}"',
                 "X-Content-SHA256": record["onnx_sha256"],
                 "Content-Disposition": (f'attachment; filename="hnefatafl-{publication_id}.onnx"'),
             },
         )
-        return response
 
     @app.get("/browser-analysis/runtime/{runtime_id}/{asset_path:path}", include_in_schema=False)
     def browser_runtime_asset(runtime_id: str, asset_path: str):
@@ -3547,24 +3550,24 @@ def create_app(
         if snapshot is None:
             raise HTTPException(404, "Browser runtime asset not found")
         try:
-            path, entry = resolve_runtime_asset(
+            handle, entry, size = open_runtime_asset(
                 snapshot, asset_path, file_cache=browser_runtime_state["file_cache"]
             )
         except RuntimeAssetError:
             raise HTTPException(404, "Browser runtime asset not found") from None
-        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        response = FileResponse(
-            path,
+        media_type = mimetypes.guess_type(asset_path)[0] or "application/octet-stream"
+        return StreamingResponse(
+            stream_verified_file(handle),
             media_type=media_type,
             headers={
                 # Content-addressed, immutable release assets. Model delivery
                 # (authorization-sensitive) is deliberately not cached.
                 "Cache-Control": "public, max-age=31536000, immutable",
+                "Content-Length": str(size),
                 "Cross-Origin-Resource-Policy": "same-origin",
                 "X-Content-SHA256": entry["sha256"],
             },
         )
-        return response
 
     # Serve a production Vite build, retaining JSON 404s for all unknown API paths.
     build = PROJECT_ROOT / "frontend" / "dist"

@@ -28,6 +28,9 @@ case "$name" in
     exit "${STUB_WORKLOAD_EXIT:-0}" ;;
   wait_for_ready.py)
     echo "wait $*" >> "$log"
+    case " $* " in
+      *" --terminate-only "*) exit "${STUB_TERMINATE_EXIT:-0}" ;;
+    esac
     exit "${STUB_READY_EXIT:-0}" ;;
   memory_profile_collect.py)
     echo "collect $*" >> "$log"
@@ -145,6 +148,14 @@ def test_readiness_failure_cleans_up_with_the_ownership_file(sweep):
     assert "--ownership-file" in terminate[0]
     assert "--pid" not in terminate[0]
     assert sum(line.startswith("workload ") for line in calls) == 1
+
+
+def test_cleanup_failure_is_reported_without_changing_the_original_status(sweep):
+    run, _log, _counter = sweep
+    result = run(STUB_READY_EXIT=3, STUB_TERMINATE_EXIT=7)
+    assert result.returncode == 3
+    assert "cleanup warning" in result.stderr
+    assert "ownership-safe termination failed" in result.stderr
 
 
 def test_collection_failure_preserves_status_and_cleans_up(sweep):

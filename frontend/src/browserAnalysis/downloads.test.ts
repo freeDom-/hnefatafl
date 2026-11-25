@@ -422,3 +422,147 @@ describe('download manager — generation-safe reservations and subscribers', ()
     await expect(final).resolves.toMatchObject({ key: 'final' });
   });
 });
+
+function stubbornFetch() {
+  const pending: Array<{
+    url: string;
+    resolve: (response: Response) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  let active = 0;
+  let peak = 0;
+  const fetchImpl = (url: string) =>
+    new Promise<Response>((resolve, reject) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      pending.push({
+        url,
+        resolve: (response: Response) => {
+          active -= 1;
+          resolve(response);
+        },
+        reject: (error: unknown) => {
+          active -= 1;
+          reject(error);
+        },
+      });
+    });
+  return {
+    fetchImpl,
+    pending,
+    get active() {
+      return active;
+    },
+    get peak() {
+      return peak;
+    },
+  };
+}
+
+describe('download manager — actual occupancy across retiring generations', () => {
+  it('keeps actual concurrency bounded while cancelled transfers are still retiring', async () => {
+    const remote = stubbornFetch();
+    const downloads = manager(remote.fetchImpl, { maxAggregateBytes: 10_000, maxConcurrent: 2 });
+    const first = downloads.download(spec('a'.repeat(8)));
+    await vi.waitFor(() => expect(remote.pending).toHaveLength(1));
+    downloads.cancelAll();
+    await expect(first).rejects.toBeDefined; // the caller observes cancellation first
+    const second = downloads.download(spec('b'.repeat(8), { key: 'b' }));
+    const third = downloads.download(spec('c'.repeat(8), { key: 'c' }));
+    await vi.waitFor(() => expect(remote.pending).toHaveLength(2));
+    // First transfer still occupies a real slot; only one replacement started.
+    expect(remote.active).toBe(2);
+    expect(downloads.activeCount).toBe(2);
+    remote.pending[0].resolve(streamResponse(['a'.repeat(8)]));
+    await expect(first).rejects.toMatchObject({ code: 'download-aborted' });
+    await vi.waitFor(() => expect(remote.pending).toHaveLength(3));
+    remote.pending[1].resolve(streamResponse(['b'.repeat(8)]));
+    remote.pending[2].resolve(streamResponse(['c'.repeat(8)]));
+    await expect(second).resolves.toMatchObject({ key: 'b' });
+    await expect(third).resolves.toMatchObject({ key: 'c' });
+    expect(remote.peak).toBe(2);
+    expect(downloads.activeCount).toBe(0);
+    expect(downloads.outstandingBytes).toBe(0);
+  });
+
+  it('keeps byte reservations until retiring work settles', async () => {
+    const remote = stubbornFetch();
+    const downloads = manager(remote.fetchImpl, {
+      maxAggregateBytes: 15,
+      maxConcurrent: 2,
+    });
+    const first = downloads.download(spec('a'.repeat(10)));
+    await vi.waitFor(() => expect(remote.pending).toHaveLength(1));
+    expect(downloads.outstandingBytes).toBe(10);
+    downloads.cancelAll();
+    const replacement = downloads.download(spec('b'.repeat(10), { key: 'b' }));
+    await expect(replacement).rejects.toMatchObject({ code: 'quota-exceeded' });
+    expect(downloads.outstandingBytes).toBe(10); // old reservation retained
+    remote.pending[0].resolve(streamResponse(['a'.repeat(10)]));
+    await expect(first).rejects.toMatchObject({ code: 'download-aborted' });
+    await vi.waitFor(() => expect(downloads.outstandingBytes).toBe(0));
+    const retried = downloads.download(spec('b'.repeat(10), { key: 'b' }));
+    await vi.waitFor(() => expect(remote.pending).toHaveLength(2));
+    remote.pending[1].resolve(streamResponse(['b'.repeat(10)]));
+    await expect(retried).resolves.toMatchObject({ key: 'b' });
+  });
+
+  it('captures ownership before cache lookup and does not start work after cancelAll', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store);
+    const original = cache.getVerified.bind(cache);
+    cache.getVerified = async (...args) => {
+      await gate;
+      return original(...args);
+    };
+    const fetchImpl = vi.fn(async () => streamResponse(['payload']));
+    const downloads = manager(fetchImpl, { cache });
+    const pendingDownload = downloads.download(spec('payload'));
+    downloads.cancelAll();
+    release();
+    await expect(pendingDownload).rejects.toMatchObject({ code: 'download-aborted' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(downloads.activeCount).toBe(0);
+  });
+
+  it('removes a queued last subscriber promptly', async () => {
+    const remote = stubbornFetch();
+    const downloads = manager(remote.fetchImpl, { maxConcurrent: 1 });
+    const first = downloads.download(spec('a'.repeat(8)));
+    await vi.waitFor(() => expect(remote.pending).toHaveLength(1));
+    const controller = new AbortController();
+    const queued = downloads.download(spec('b'.repeat(8), { key: 'b' }), {
+      signal: controller.signal,
+    });
+    controller.abort();
+    await expect(queued).rejects.toMatchObject({ code: 'download-aborted' });
+    remote.pending[0].resolve(streamResponse(['a'.repeat(8)]));
+    await expect(first).resolves.toHaveProperty('bytes');
+    expect(remote.pending).toHaveLength(1);
+    expect(downloads.activeCount).toBe(0);
+  });
+
+  it('starts a same-key replacement after cancellation without deleting its cache', async () => {
+    const remote = stubbornFetch();
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store);
+    const downloads = manager(remote.fetchImpl, { cache, maxConcurrent: 2 });
+    const key = `model:${bytesFor('replacement payload').sha256}`;
+    const old = downloads.download(spec('replacement payload', { key }));
+    await vi.waitFor(() => expect(remote.pending).toHaveLength(1));
+    downloads.cancelAll();
+    const replacement = downloads.download(spec('replacement payload', { key }));
+    await vi.waitFor(() => expect(remote.pending).toHaveLength(2));
+    remote.pending[1].resolve(streamResponse(['replacement payload']));
+    await expect(replacement).resolves.toMatchObject({ key });
+    remote.pending[0].resolve(streamResponse(['replacement payload']));
+    await expect(old).rejects.toMatchObject({ code: 'download-aborted' });
+    expect(
+      await cache.getVerified(key, bytesFor('replacement payload').sha256, digest),
+    ).not.toBeNull();
+  });
+});

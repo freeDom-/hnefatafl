@@ -589,7 +589,8 @@ Implementing offline runtime execution would require either a global service wor
 (interception of Pyodide's internal asset fetches) or blob-based worker/runtime
 execution with a broader `worker-src`/`connect-src` policy. Both are disproportionate
 for Phase 4, affect existing application caching/auth/spectator behavior, and need
-owner approval. Interrupted downloads, missing assets, storage denial and
+explicit owner approval. Until that approval exists, offline runtime execution is
+deferred and the original requirement is not claimed as fulfilled. Interrupted downloads, missing assets, storage denial and
 reconnection are handled by falling back to a clear unavailable/offline state; no
 offline acceptance is claimed.
 
@@ -611,12 +612,13 @@ complete notice set. No new security advisory was introduced; the existing
 
 | Measurement | Jarl-only | Jarl + published neural model |
 | --- | --- | --- |
-| Cold runtime initialization | 2,530–3,291 ms | 2,620–2,673 ms |
-| Second initialization (idempotent ready) | 5.6–6.9 ms | 5.6–6.6 ms |
-| Jarl depth-3 search | 234.6–271.1 ms | 238.8–251.1 ms |
-| Runtime asset requests | 57 | 86 |
-| Model artifact transfers | 0 | **1** (explicit download reused by two searches) |
+| Cold runtime initialization | 2,469–4,439 ms | 2,470–2,975 ms |
+| Second initialization (idempotent ready) | 5.5–9.6 ms | 6.4–10.2 ms |
+| Jarl depth-3 search | 242–367 ms | 243–262 ms |
+| Runtime asset requests | 75 | 104 |
+| Model artifact transfers | 0 | **1** (explicit download reused by repeated searches) |
 | Model metadata/authorization requests | 0 | 3 |
+| Jarl cancellation + recovery search | yes | yes |
 | Initial bundle after merging current main | 585,882 raw / 186,757 gzip | same (budgets 600,000/200,000 pass) |
 
 Evidence: [Jarl browser report](browser-analysis-phase4-browser.json) ·
@@ -634,3 +636,129 @@ execution, unobservable WASM heap capacity, unresolved 30-minute JS heap growth,
 Copenhagen depth-5, physical Windows cleanup and the pre-existing Python 3.11
 frozen-reference failures remain outstanding exactly as documented above. No search
 algorithm, strength or default was changed by these corrections.
+
+## 17. G1–G6 review corrections
+
+### G1 — complete cancellation and model-session recovery
+
+- Classical cancellation now propagates the operation signal to the actual
+  `LocalAnalysisClient.cancel()`, and watchdog expiry also cancels the underlying
+  request. Listeners are removed on every completion path; worker ownership stays
+  with the validated client and obsolete cancellations cannot terminate a newer
+  search. The cancellation cleanup barrier is awaited before replacement searches;
+  repeated Jarl searches after cancellation reuse the same client and recover.
+- The manager no longer trusts remembered `loadedModelDigest`/`loadedProvider`
+  fields. Every neural search reconciles against the client's actual live
+  `sessionIdentity()` (digest, ruleset, size, provider). A failed replacement,
+  cancelled load or worker failure that destroys the session forces reinitialization
+  from verified bytes on the next request; healthy sessions are reused.
+- Account invalidation is an atomic admission boundary: the context generation is
+  bumped, stale results are cleared immediately, old worker references are removed
+  before the first await, new operations wait on the cleanup barrier, and delayed
+  cleanup disposes only the exact captured resources. If bounded cleanup cannot be
+  established the captured workers are force-disposed and an explicit retryable
+  error state is published instead of silently reusing uncertain state.
+- Recovery tests assert actual worker creation/disposal counts: Jarl abort +
+  immediate search, model A success → B load failure → A recovery, failed initial
+  initialization + retry, cancellation during model load + same-model retry, worker
+  failure + recovery, and account invalidation overlapping initialization/search
+  admission. The actual-browser gate now cancels a live depth-5 Jarl search and
+  performs a successful recovery search.
+
+### G2 — resource limits across download generations
+
+- Concurrency slots and byte reservations are now manager-global and are released
+  only when the underlying transfer genuinely settles. A retiring generation keeps
+  its real transfer slots and reservations until completion; cancellation is not
+  treated as proof that work stopped. Reads/servers may still observe peak occupancy
+  equal to the configured concurrency, never above it.
+- Ownership is captured before the asynchronous cache lookup; a `cancelAll()` during
+  the lookup cannot start an obsolete transfer afterwards. Queued waiters are
+  removed promptly on abort/deadline, and last-subscriber cancellation aborts the
+  shared transfer while preserving deduplication for remaining subscribers.
+- Abandoned shared transfers are replaced rather than joined. Cache admissions carry
+  an ownership token; obsolete cleanup uses `removeOwned(key, admissionId)` and can
+  never delete a newer same-key admission.
+- **Instance boundary:** the public Phase 5 `BrowserAnalysisRuntime.create()` path is
+  a per-tab singleton (a second instance is rejected with `quota-exceeded` until the
+  first is disposed). Direct constructors remain internal/test-only. Limits are
+  therefore per runtime instance/tab; cross-tab aggregate enforcement remains
+  best-effort and documented. No limits were increased for these corrections.
+
+### G3 — provider and search-evidence validation
+
+- Provider evidence now rejects: requested-provider mismatch; GPU placement for a
+  WASM request; any GPU-verification claim (the pinned runtime has no independent
+  per-operator mechanism); unauthorized WebGPU→WASM/CPU fallback; provider evidence
+  with zero inference; and missing/malformed placement or verification fields.
+  Mixed/unverified classifications are preserved when actually reported.
+- Effective settings are required, validated against the normalized requested
+  configuration, and no longer substituted from the request. Completion reason must
+  be one of the driver's canonical reasons; completed simulations must not exceed the
+  requested budget, and a `simulations` completion must complete the requested count.
+  Model/search identities and the advisory, non-authoritative contract are
+  preserved.
+- Mutation regressions use actual coordinator envelopes for contradictory evidence,
+  GPU-true-for-WASM, WebGPU fallback, missing/mismatched settings, malformed reason
+  and excessive/incomplete simulation counts.
+
+### G4 — verified runtime and model file identities
+
+- File signatures now include device, inode, size, mtime and ctime. Verification
+  lstat-walks every unresolved path component, rejects symlinks/non-regular files,
+  checks the signature before and after hashing, and requires the file not to change
+  during verification.
+- Runtime and published-model assets are verified and opened once; the response
+  streams the verified descriptor with headers bound to that exact file. Replacement
+  between verification and response opening therefore cannot substitute bytes.
+  Same-size in-place modification with restored mtime is detected via ctime/device
+  identity; external symlinks/escapes and mid-verification replacement fail closed.
+  Bounded caches remain per runtime directory/artifact and whole-model buffering is
+  avoided. Concurrent activation, revocation/replacement and pruning keep their
+  previous safe behavior.
+- Trusted boundary (documented): the application/data directory is controlled by the
+  service owner. This does not claim protection against a privileged administrator
+  who can replace the application and its trusted manifests.
+
+### G5 — healthy-session reuse
+
+- Neural searches revalidate publication authorization, then check the actual live
+  session digest/ruleset/size/provider before retrieving model bytes. A matching
+  healthy session performs no IndexedDB read, no re-hash and no transfer. Bytes are
+  fetched/verified only for initialization or replacement (including provider switch
+  or session loss). Verifying tests cover repeated searches, storage eviction while
+  a session is live, revoked publication, provider switch and session-loss reload.
+  Measured actual-browser behavior remains **one** cold model artifact transfer for
+  an explicit download plus repeated neural searches.
+
+### G6 — effective-settings validation
+
+- Temperature is a fixed deterministic analysis parameter: zero is accepted and not
+  forwarded; any nonzero value is rejected with a structured error. The production
+  bridge enforces the same rule and advertises a `[0, 0]` temperature bound.
+- Jarl nested search configuration is strictly validated (known boolean fields and
+  bounded positive `table_capacity`; symmetry implies the ordinary table) before the
+  worker, while the canonical Python normalizer remains the final authority. Unknown
+  fields are never silently ignored. Effective Jarl/neural settings from the response
+  are required to match the requested normalized configuration and are returned to
+  Phase 5. Production Jarl defaults and classical/neural budgets are unchanged.
+
+### E1 diagnostics and offline/licensing status
+
+- The lifecycle cleanup trap now reports ownership-safe termination failures with a
+  warning while preserving the original operation exit status; a bounded stub test
+  covers it.
+- Offline runtime execution is **deferred pending explicit owner approval** and is
+  not claimed as fulfilled. Verified cached models remain usable with current
+  authorization checks; no service worker or CSP broadening was added.
+- Licensing: required Pyodide (MPL-2.0), ONNX Runtime Web (MIT) and CPython (PSF-2.0)
+  texts are shipped/pinned. The complete embedded third-party notice inventory inside
+  the pinned Pyodide/ORT distributions has **not** been exhaustively reviewed here;
+  it remains an owner/licensing action, and no completion claim is made.
+
+### Current head validation
+
+Focused Phase 4/security/bridge/lifecycle/deployment tests: **105 passed**; full
+frontend Vitest: **1,702 passed (113 files)**, including 102 browser-analysis tests. Actual production-browser Jarl/neural runs, live Jarl
+cancellation followed by a successful recovery search, and the runtime-identity-change
+gate pass (refreshed evidence files). Full CI and mergeability are reported on the PR.

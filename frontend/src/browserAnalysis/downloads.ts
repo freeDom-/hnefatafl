@@ -50,7 +50,6 @@ interface SharedDownload {
   spec: DownloadSpec;
   promise: Promise<DownloadResult>;
   controller: AbortController;
-  pool: SlotPool;
   generation: number;
   subscribers: Set<Subscriber>;
   settled: boolean;
@@ -61,20 +60,14 @@ interface Waiter {
   resolve: (reservation: Reservation) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout> | null;
+  signal: AbortSignal;
+  onAbort: () => void;
+  generation: number;
 }
 
 interface Reservation {
-  pool: SlotPool;
+  generation: number;
   released: boolean;
-}
-
-interface SlotPool {
-  id: number;
-  max: number;
-  free: number;
-  queue: Waiter[];
-  inflightBytes: number;
-  active: Set<SharedDownload>;
 }
 
 type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
@@ -96,9 +89,14 @@ function sameSpec(left: DownloadSpec, right: DownloadSpec): boolean {
 }
 
 export class DownloadManager {
-  private pool: SlotPool;
   private generation = 0;
   private activeByKey = new Map<string, SharedDownload>();
+  /** Actual transfers still running, including retiring generations. */
+  private activeTransfers = 0;
+  /** Byte reservations held until the corresponding transfer genuinely settles. */
+  private reservedBytes = 0;
+  private queue: Waiter[] = [];
+  private transfers = new Set<SharedDownload>();
 
   constructor(
     private readonly options: {
@@ -110,20 +108,7 @@ export class DownloadManager {
       timeoutMs?: number;
       retries?: number;
     } = {},
-  ) {
-    this.pool = this.newPool(0);
-  }
-
-  private newPool(id: number): SlotPool {
-    return {
-      id,
-      max: this.maxConcurrent,
-      free: this.maxConcurrent,
-      queue: [],
-      inflightBytes: 0,
-      active: new Set(),
-    };
-  }
+  ) {}
 
   private get fetchImpl(): FetchFn {
     return this.options.fetchImpl ?? ((input, init) => fetch(input, init));
@@ -150,20 +135,29 @@ export class DownloadManager {
   }
 
   get activeCount(): number {
-    return this.pool.active.size;
+    return this.activeTransfers;
   }
 
   get outstandingBytes(): number {
-    return this.pool.inflightBytes;
+    return this.reservedBytes;
   }
 
-  private acquire(pool: SlotPool, deadline: number): Promise<Reservation> {
-    if (pool !== this.pool) {
+  private acquire(
+    generation: number,
+    shared: SharedDownload,
+    deadline: number,
+  ): Promise<Reservation> {
+    if (generation !== this.generation || shared.controller.signal.aborted) {
       return Promise.reject(abortError('Download was cancelled'));
     }
-    if (pool.free > 0) {
-      pool.free -= 1;
-      return Promise.resolve({ pool, released: false });
+    if (this.activeTransfers < this.maxConcurrent) {
+      this.activeTransfers += 1;
+      return Promise.resolve({ generation, released: false });
+    }
+    if (this.queue.length >= this.maxConcurrent * 4) {
+      return Promise.reject(
+        new BrowserAnalysisError('quota-exceeded', 'Download queue is full', true),
+      );
     }
     return new Promise<Reservation>((resolve, reject) => {
       const remaining = deadline - now();
@@ -173,29 +167,51 @@ export class DownloadManager {
         );
         return;
       }
-      const waiter: Waiter = { resolve, reject, timer: null };
+      const waiter: Waiter = {
+        resolve,
+        reject,
+        timer: null,
+        signal: shared.controller.signal,
+        generation,
+        onAbort: () => {
+          this.queue = this.queue.filter((entry) => entry !== waiter);
+          if (waiter.timer !== null) clearTimeout(waiter.timer);
+          reject(abortError('Download cancelled while queued'));
+        },
+      };
+      if (waiter.signal.aborted) {
+        waiter.onAbort();
+        return;
+      }
+      waiter.signal.addEventListener('abort', waiter.onAbort, { once: true });
       waiter.timer = setTimeout(() => {
-        pool.queue = pool.queue.filter((entry) => entry !== waiter);
+        this.queue = this.queue.filter((entry) => entry !== waiter);
+        waiter.signal.removeEventListener('abort', waiter.onAbort);
         reject(
           new BrowserAnalysisError('download-failed', 'Download queue deadline expired', true),
         );
       }, remaining);
-      pool.queue.push(waiter);
+      this.queue.push(waiter);
     });
   }
 
-  private release(pool: SlotPool, reservation: Reservation): void {
+  private release(reservation: Reservation): void {
     if (reservation.released) return;
     reservation.released = true;
-    // A retired pool never grants capacity to the current generation.
-    if (pool !== this.pool) return;
-    const waiter = pool.queue.shift();
-    if (waiter) {
-      if (waiter.timer !== null) clearTimeout(waiter.timer);
-      waiter.resolve({ pool, released: false });
-    } else {
-      pool.free = Math.min(pool.max, pool.free + 1);
+    // The slot becomes genuinely free only when the transfer has settled,
+    // regardless of whether its generation was cancelled.
+    this.activeTransfers = Math.max(0, this.activeTransfers - 1);
+    const waiter = this.queue.shift();
+    if (!waiter) return;
+    if (waiter.timer !== null) clearTimeout(waiter.timer);
+    waiter.signal.removeEventListener('abort', waiter.onAbort);
+    if (waiter.signal.aborted || waiter.generation !== this.generation) {
+      waiter.reject(abortError('Download was cancelled'));
+      this.release({ generation: this.generation, released: false });
+      return;
     }
+    this.activeTransfers += 1;
+    waiter.resolve({ generation: this.generation, released: false });
   }
 
   /**
@@ -208,12 +224,22 @@ export class DownloadManager {
     hooks: { onProgress?: ProgressListener; signal?: AbortSignal } = {},
   ): Promise<DownloadResult> {
     this.validateSpec(spec);
+    const generation = this.generation;
     if (hooks.signal?.aborted) {
       throw abortError('Download cancelled');
     }
     if (this.options.cache) {
-      const cached = await this.options.cache.getVerified(spec.key, spec.sha256, this.digestFn);
-      if (hooks.signal?.aborted) throw abortError('Download cancelled');
+      const cached = await this.options.cache.getVerified(
+        spec.key,
+        spec.sha256,
+        this.digestFn,
+        spec.expectedBytes,
+      );
+      // Ownership is captured before the asynchronous cache lookup; a cancelAll
+      // during the lookup must not start a new obsolete transfer afterwards.
+      if (generation !== this.generation || hooks.signal?.aborted) {
+        throw abortError('Download cancelled');
+      }
       if (cached) {
         return {
           key: spec.key,
@@ -233,6 +259,14 @@ export class DownloadManager {
         'Conflicting download specifications share one artifact key',
       );
     }
+    if (
+      shared &&
+      (shared.generation !== this.generation || shared.controller.signal.aborted || shared.terminal)
+    ) {
+      // A cancelled/abandoned transfer is replaced, never joined. Its cleanup
+      // will only remove itself if this newer entry is still not present.
+      shared = undefined;
+    }
     if (!shared) {
       shared = this.createShared(spec);
       this.activeByKey.set(spec.key, shared);
@@ -246,7 +280,6 @@ export class DownloadManager {
       spec,
       promise: Promise.resolve() as unknown as Promise<DownloadResult>,
       controller: new AbortController(),
-      pool: this.pool,
       generation: this.generation,
       subscribers: new Set(),
       settled: false,
@@ -317,112 +350,123 @@ export class DownloadManager {
     const cleanup = () => {
       shared.terminal = true;
       shared.settled = true;
-      shared.pool.active.delete(shared);
+      this.transfers.delete(shared);
       if (this.activeByKey.get(shared.spec.key) === shared) {
         this.activeByKey.delete(shared.spec.key);
       }
     };
+    this.transfers.add(shared);
     shared.promise = this.run(shared);
     // Never leave an unhandled rejection when every caller has gone away.
     shared.promise.then(cleanup, cleanup);
   }
 
   private async run(shared: SharedDownload): Promise<DownloadResult> {
-    const { spec, pool } = shared;
+    const { spec } = shared;
+    const generation = shared.generation;
     const deadline = now() + this.timeoutMs;
-    const reservation = await this.acquire(pool, deadline);
-    shared.pool.active.add(shared);
+    const reservation = await this.acquire(generation, shared, deadline);
+    let reserved = false;
     try {
-      if (pool !== this.pool || shared.controller.signal.aborted || shared.subscribers.size === 0) {
+      if (
+        generation !== this.generation ||
+        shared.controller.signal.aborted ||
+        shared.subscribers.size === 0
+      ) {
         throw abortError('Download cancelled');
       }
-      if (pool.inflightBytes + spec.expectedBytes > this.maxAggregateBytes) {
+      if (this.reservedBytes + spec.expectedBytes > this.maxAggregateBytes) {
         throw new BrowserAnalysisError(
           'quota-exceeded',
           'Aggregate download budget exceeded',
           true,
         );
       }
-      pool.inflightBytes += spec.expectedBytes;
-      try {
-        let attempt = 0;
-        for (;;) {
-          try {
-            const result = await this.transfer(shared, deadline);
+      this.reservedBytes += spec.expectedBytes;
+      reserved = true;
+      let attempt = 0;
+      for (;;) {
+        try {
+          const result = await this.transfer(shared, deadline);
+          if (
+            generation !== this.generation ||
+            shared.controller.signal.aborted ||
+            shared.subscribers.size === 0
+          ) {
+            throw abortError('Download was cancelled before activation');
+          }
+          let retained = false;
+          if (this.options.cache && spec.cacheable !== false) {
+            const admitted = await this.options.cache.admit(spec.key, result.bytes, {
+              publicationId: spec.publicationId,
+              displayName: spec.displayName,
+            });
+            retained = admitted.retained;
             if (
-              pool !== this.pool ||
+              generation !== this.generation ||
               shared.controller.signal.aborted ||
               shared.subscribers.size === 0
             ) {
-              throw abortError('Download was cancelled before activation');
-            }
-            let retained = false;
-            if (this.options.cache && spec.cacheable !== false) {
-              const admitted = await this.options.cache.admit(spec.key, result.bytes, {
-                publicationId: spec.publicationId,
-                displayName: spec.displayName,
-              });
-              retained = admitted.retained;
-              if (
-                pool !== this.pool ||
-                shared.controller.signal.aborted ||
-                shared.subscribers.size === 0
-              ) {
-                // A cancelled/cached admission must not remain activated.
-                await this.options.cache.remove(spec.key);
-                throw abortError('Download was cancelled during cache admission');
+              // Only remove the exact admission made by this obsolete transfer;
+              // a newer same-key admission must survive.
+              if (admitted.admissionId !== undefined) {
+                await this.options.cache.removeOwned(spec.key, admitted.admissionId);
               }
+              throw abortError('Download was cancelled during cache admission');
             }
-            return {
-              ...result,
-              retained,
-              persistent: this.options.cache?.persistent ?? false,
-            };
-          } catch (error) {
-            const failure =
-              error instanceof BrowserAnalysisError
-                ? error
-                : new BrowserAnalysisError('download-failed', 'Download failed', true);
-            const retryable =
-              error instanceof BrowserAnalysisError
-                ? error.retryable
-                : (error as { name?: string })?.name !== 'AbortError';
-            if (
-              !retryable ||
-              pool !== this.pool ||
-              shared.controller.signal.aborted ||
-              shared.subscribers.size === 0 ||
-              attempt >= this.retries ||
-              now() >= deadline
-            ) {
-              throw failure;
-            }
-            attempt += 1;
           }
+          return {
+            ...result,
+            retained,
+            persistent: this.options.cache?.persistent ?? false,
+          };
+        } catch (error) {
+          const failure =
+            error instanceof BrowserAnalysisError
+              ? error
+              : new BrowserAnalysisError('download-failed', 'Download failed', true);
+          const retryable =
+            error instanceof BrowserAnalysisError
+              ? error.retryable
+              : (error as { name?: string })?.name !== 'AbortError';
+          if (
+            !retryable ||
+            generation !== this.generation ||
+            shared.controller.signal.aborted ||
+            shared.subscribers.size === 0 ||
+            attempt >= this.retries ||
+            now() >= deadline
+          ) {
+            throw failure;
+          }
+          attempt += 1;
         }
-      } finally {
-        pool.inflightBytes = Math.max(0, pool.inflightBytes - spec.expectedBytes);
       }
     } finally {
-      this.release(pool, reservation);
+      if (reserved) {
+        // Retain the byte reservation until the transfer genuinely settles.
+        this.reservedBytes = Math.max(0, this.reservedBytes - spec.expectedBytes);
+      }
+      this.release(reservation);
     }
   }
 
   /** Abort every outstanding transfer (logout, navigation, disposal). */
   cancelAll(reason = 'Download cancelled'): void {
-    const retired = this.pool;
     this.generation += 1;
-    this.pool = this.newPool(this.generation);
-    this.activeByKey.clear();
-    for (const waiter of retired.queue) {
+    const queued = this.queue;
+    this.queue = [];
+    for (const waiter of queued) {
       if (waiter.timer !== null) clearTimeout(waiter.timer);
+      waiter.signal.removeEventListener('abort', waiter.onAbort);
       waiter.reject(abortError(reason));
     }
-    retired.queue = [];
-    for (const shared of [...retired.active]) {
+    this.activeByKey.clear();
+    // Active transfers keep their slots and byte reservations until their
+    // underlying work genuinely settles; cancellation is not proof of completion.
+    for (const shared of [...this.transfers]) {
       shared.controller.abort(reason);
     }
-    retired.active.clear();
   }
 
   private validateSpec(spec: DownloadSpec): void {

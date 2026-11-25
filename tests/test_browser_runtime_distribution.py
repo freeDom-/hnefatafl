@@ -526,3 +526,140 @@ process.stdout.write(crypto.createHash('sha256').update(identity).digest('hex').
         check=True,
     )
     assert completed.stdout == manifest["runtime_id"]
+
+
+def _snapshot(tmp_path, monkeypatch):
+    manifest = _stage(tmp_path, monkeypatch)
+    snapshot = browser_runtime.runtime_snapshot(
+        tmp_path / "data", manifest["runtime_id"], application_version=VERSION
+    )
+    return snapshot
+
+
+def test_same_size_in_place_modification_with_restored_mtime_is_detected(tmp_path, monkeypatch):
+    import os
+
+    snapshot = _snapshot(tmp_path, monkeypatch)
+    cache = browser_runtime.VerifiedFileCache()
+    path, _entry = browser_runtime.resolve_runtime_asset(
+        snapshot, "runtime/pyodide.js", file_cache=cache
+    )
+    original = path.read_bytes()
+    stat = path.stat()
+    changed = bytearray(original)
+    changed[0] ^= 0xFF
+    path.write_bytes(bytes(changed))
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    with pytest.raises(browser_runtime.RuntimeAssetError) as error:
+        browser_runtime.resolve_runtime_asset(snapshot, "runtime/pyodide.js", file_cache=cache)
+    assert error.value.reason == "digest-mismatch"
+
+
+def test_late_and_escaping_symlinks_are_rejected(tmp_path, monkeypatch):
+    snapshot = _snapshot(tmp_path, monkeypatch)
+    directory = snapshot["directory"]
+    target = directory / "runtime" / "pyodide.js"
+    original = target.read_bytes()
+    target.unlink()
+    target.symlink_to(directory / "runtime" / "pyodide.asm.js")
+    with pytest.raises(browser_runtime.RuntimeAssetError):
+        browser_runtime.open_runtime_asset(snapshot, "runtime/pyodide.js")
+    target.unlink()
+    outside = tmp_path / "outside.js"
+    outside.write_bytes(original)
+    target.symlink_to(outside)
+    with pytest.raises(browser_runtime.RuntimeAssetError):
+        browser_runtime.open_runtime_asset(snapshot, "runtime/pyodide.js")
+
+
+def test_file_replacement_during_verification_is_rejected(tmp_path, monkeypatch):
+    import os
+
+    snapshot = _snapshot(tmp_path, monkeypatch)
+    original_hash = browser_runtime._hash_fd
+    path = snapshot["directory"] / "runtime" / "pyodide.js"
+    stat = path.stat()
+
+    def racing_hash(fd):
+        digest = original_hash(fd)
+        changed = bytearray(path.read_bytes())
+        changed[0] ^= 0xFF
+        path.write_bytes(bytes(changed))
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        return digest
+
+    monkeypatch.setattr(browser_runtime, "_hash_fd", racing_hash)
+    with pytest.raises(browser_runtime.RuntimeAssetError):
+        browser_runtime.open_runtime_asset(
+            snapshot, "runtime/pyodide.js", file_cache=browser_runtime.VerifiedFileCache()
+        )
+
+
+def test_verified_descriptor_streams_old_bytes_after_path_replacement(tmp_path, monkeypatch):
+    snapshot = _snapshot(tmp_path, monkeypatch)
+    handle, entry, size = browser_runtime.open_runtime_asset(
+        snapshot, "runtime/pyodide.js", file_cache=browser_runtime.VerifiedFileCache()
+    )
+    try:
+        before = handle.read()
+        assert len(before) == size
+        assert hashlib.sha256(before).hexdigest() == entry["sha256"]
+        path = snapshot["directory"] / "runtime" / "pyodide.js"
+        path.write_bytes(b"Z" * size)
+    finally:
+        handle.close()
+    assert hashlib.sha256(before).hexdigest() == entry["sha256"]
+
+
+def test_concurrent_activation_and_snapshot_reads(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    data = tmp_path / "data"
+    first = _stage(tmp_path, monkeypatch, data_dir=data)
+    # Change a validated worker asset rather than a pinned upstream binary: the
+    # runtime identity changes while the pinned dependency contract stays valid.
+    modified = tmp_path / "search-client.js"
+    original_source = PROJECT_ROOT / "spikes" / "browser_offline" / "search-client.js"
+    modified.write_bytes(original_source.read_bytes() + b"\n// concurrent-activation fixture\n")
+    original_js = browser_runtime._js_source
+
+    def patched_js(name, root):
+        if name == "search-client.js":
+            return modified
+        return original_js(name, root)
+
+    monkeypatch.setattr(browser_runtime, "_js_source", patched_js)
+    cache = _synthetic_cache(tmp_path, monkeypatch)
+    second = browser_runtime.build_runtime(
+        data,
+        asset_cache=cache,
+        source_root=PROJECT_ROOT,
+        application_version=VERSION,
+    )
+
+    def activate(identifier):
+        browser_runtime.activate_runtime(
+            data, data / "browser_runtime" / identifier, application_version=VERSION
+        )
+
+    def read():
+        identity = browser_runtime.active_runtime_identity(data)
+        snapshot = browser_runtime.runtime_snapshot(data, identity, application_version=VERSION)
+        handle, _entry, _size = browser_runtime.open_runtime_asset(
+            snapshot, "runtime/pyodide.js", file_cache=browser_runtime.VerifiedFileCache()
+        )
+        handle.close()
+        return identity
+
+    identifiers = [first["runtime_id"], second["runtime_id"]] * 4
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        activations = [pool.submit(activate, identifier) for identifier in identifiers]
+        reads = [pool.submit(read) for _ in range(8)]
+        for future in activations:
+            future.result()
+        observed = {future.result() for future in reads}
+    assert observed <= {first["runtime_id"], second["runtime_id"]}
+    assert browser_runtime.active_runtime_identity(data) in {
+        first["runtime_id"],
+        second["runtime_id"],
+    }

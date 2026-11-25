@@ -37,8 +37,10 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
   if [ -n "$ownership_file" ]; then
-    "$PYTHON" "$SPIKE_DIR/wait_for_ready.py" --terminate-only \
-      --ownership-file "$ownership_file" >/dev/null 2>&1 || true
+    if ! "$PYTHON" "$SPIKE_DIR/wait_for_ready.py" --terminate-only \
+      --ownership-file "$ownership_file" >&2; then
+      echo "lifecycle cleanup warning: ownership-safe termination failed for $ownership_file" >&2
+    fi
   fi
   exit "$status"
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { BrowserAnalysisError } from './contracts';
+import { BrowserAnalysisError, type SearchRequest } from './contracts';
 import { validateModelManifest } from './manifests';
 import { BrowserAnalysisRuntime, JARL_SETTINGS, normalizeJarlSettings } from './runtime';
 import { ArtifactCache, MemoryArtifactStore } from './storage';
@@ -26,6 +26,9 @@ function deferred<T = unknown>() {
     resolve = res;
     reject = rej;
   });
+  // Gate promises may be rejected before a consumer attaches; tests still assert
+  // the awaiting operation, so silence the unused rejection here.
+  promise.catch(() => undefined);
   return { promise, resolve, reject };
 }
 
@@ -67,6 +70,8 @@ function coordinatorEnvelope(
     gpuVerified?: boolean;
     provider?: unknown;
     completed?: number;
+    iterations?: number;
+    reason?: string;
     settings?: Record<string, unknown>;
   } = {},
 ) {
@@ -83,19 +88,42 @@ function coordinatorEnvelope(
             gpu_execution_verified: options.gpuVerified ?? false,
           }
         : null;
+  const iterations = options.iterations ?? 128;
+  const settings = options.settings ?? {
+    iterations,
+    time_limit: 1,
+    seed: 7,
+    exploration: 1.4,
+    algorithm: 'mcts',
+  };
   return {
     analysis: { best_move: { source: 26, target: 12 }, value: -0.4, position_key: 'pk' },
     search: {
       search_id: 's1-0-abcdef',
       provider,
-      completion_reason: 'completed',
-      completed_simulations: options.completed ?? 32,
-      coordinator: { inferences, completed_simulations: options.completed ?? 32 },
-      settings: options.settings ?? { iterations: 32, time_limit: 1, seed: 7 },
+      completion_reason: options.reason ?? 'simulations',
+      completed_simulations: options.completed ?? iterations,
+      coordinator: { inferences, completed_simulations: options.completed ?? iterations },
+      settings,
     },
-    settings: options.settings ?? { iterations: 32, time_limit: 1, seed: 7 },
+    settings,
     authoritative: false,
   };
+}
+
+type AnyRecord = Record<string, any>;
+
+type AnyRequest = { settings?: Record<string, unknown>; provider?: { requested?: string } };
+
+function defaultEnvelope(request: AnyRequest): Record<string, unknown> {
+  const settings = request.settings ?? {};
+  return coordinatorEnvelope({
+    settings: { ...settings, algorithm: 'mcts' },
+    iterations: Number(settings.iterations ?? 128),
+    completed: Number(settings.iterations ?? 128),
+    requested: request.provider?.requested ?? 'wasm',
+    placement: request.provider?.requested === 'webgpu' ? 'webgpu-session-unverified' : 'wasm',
+  });
 }
 
 function harness(
@@ -118,14 +146,22 @@ function harness(
     }
   }
 
-  let coordinatorResult: Record<string, unknown> = coordinatorEnvelope();
+  let coordinatorResult:
+    | Record<string, unknown>
+    | ((request: AnyRequest) => Record<string, unknown>) = defaultEnvelope;
   const gates = {
     availability: null as ReturnType<typeof deferred> | null,
     jarlInfo: null as ReturnType<typeof deferred> | null,
+    jarlSearch: null as ReturnType<typeof deferred> | null,
     modelLoad: null as ReturnType<typeof deferred> | null,
     search: null as ReturnType<typeof deferred> | null,
     artifact: null as ReturnType<typeof deferred> | null,
   };
+  const modelRecords = new Map<string, { wire: Record<string, unknown>; bytes: string }>();
+  modelRecords.set(model.publicationId, { wire: modelWire(), bytes: MODEL_BYTES });
+  let failLoadDigest: string | null = null;
+  let failNextSearch = false;
+  let destroySessionOnSearchFailure = false;
   const moduleGates = new Map<string, ReturnType<typeof deferred>>();
   const workers = {
     jarlCreated: 0,
@@ -151,12 +187,16 @@ function harness(
       return jsonResponse(availabilityWire(current, { enabled }));
     }
     if (url === '/api/browser-analysis/models') {
-      return jsonResponse({ schema: 1, models: [modelWire()] });
+      return jsonResponse({
+        schema: 1,
+        models: [...modelRecords.values()].map((entry) => entry.wire),
+      });
     }
-    if (url === `/api/browser-analysis/models/${model.publicationId}`) {
-      return jsonResponse(modelWire());
-    }
-    if (url.startsWith(`/api/browser-analysis/models/${model.publicationId}/artifact`)) {
+    const modelMatch = url.match(/^\/api\/browser-analysis\/models\/([0-9a-f]{24})(\/artifact)?/);
+    if (modelMatch) {
+      const record = modelRecords.get(modelMatch[1]);
+      if (!record) return jsonResponse({ detail: 'not found' }, 404);
+      if (!modelMatch[2]) return jsonResponse(record.wire);
       modelRequests += 1;
       if (artifactFailure) throw artifactFailure;
       if (gates.artifact) {
@@ -164,8 +204,8 @@ function harness(
         await awaitGate(gate, init?.signal ?? undefined);
         if (gates.artifact === gate) gates.artifact = null;
       }
-      const { size } = bytesFor(MODEL_BYTES);
-      return streamResponse([MODEL_BYTES], { contentLength: size });
+      const { size } = bytesFor(record.bytes);
+      return streamResponse([record.bytes], { contentLength: size });
     }
     const asset = assetUrls.get(url);
     if (asset) {
@@ -184,6 +224,7 @@ function harness(
   class FakeJarl {
     calls: unknown[] = [];
     info: Record<string, unknown>;
+    cancels = 0;
     constructor() {
       workers.jarlCreated += 1;
       this.info = { python: '3.12', engine_identity: { sha256: 'engine' } };
@@ -198,6 +239,11 @@ function harness(
         }
         return { ok: true, info: this.info };
       }
+      if (gates.jarlSearch) {
+        const gate = gates.jarlSearch;
+        await awaitGate(gate);
+        if (gates.jarlSearch === gate) gates.jarlSearch = null;
+      }
       return {
         ok: true,
         event: {
@@ -209,6 +255,9 @@ function harness(
       };
     }
     cancel() {
+      this.cancels += 1;
+      gates.jarlSearch?.reject(new DOMException('aborted', 'AbortError'));
+      gates.jarlSearch = null;
       gates.jarlInfo?.resolve(undefined);
     }
     dispose() {
@@ -218,6 +267,7 @@ function harness(
 
   class FakeNeural {
     identity: Record<string, unknown> | null = null;
+    provider: 'wasm' | 'webgpu' | null = null;
     constructor() {
       workers.neuralCreated += 1;
     }
@@ -227,11 +277,19 @@ function harness(
         await awaitGate(gate);
         if (gates.modelLoad === gate) gates.modelLoad = null;
       }
+      if (failLoadDigest && options.expectedSha256 === failLoadDigest) {
+        this.identity = null;
+        this.provider = null;
+        throw Object.assign(new Error('synthetic model load failure'), {
+          name: 'ModelLoadError',
+        });
+      }
       this.identity = {
         sha256: options.expectedSha256,
         ruleset: options.ruleset,
         size: options.size,
       };
+      this.provider = (options.provider as 'wasm' | 'webgpu') ?? 'wasm';
       return {
         provider_requested: options.provider,
         execution_placement: options.provider === 'webgpu' ? 'webgpu-session-unverified' : 'wasm',
@@ -246,8 +304,14 @@ function harness(
       if (!this.identity) throw new Error('not loaded');
       return this.identity;
     }
+    sessionIdentity() {
+      if (!this.identity || this.provider === null) return null;
+      return { ...this.identity, provider: this.provider };
+    }
     async cancelWork() {
       workers.neuralCancels += 1;
+      this.identity = null;
+      this.provider = null;
       gates.modelLoad?.resolve(undefined);
       return { state: 'cancelled' };
     }
@@ -260,13 +324,23 @@ function harness(
     constructor() {
       workers.coordinatorCreated += 1;
     }
-    async search(_request: unknown) {
+    async search(request: unknown) {
       if (gates.search) {
         const gate = gates.search;
         await awaitGate(gate);
         if (gates.search === gate) gates.search = null;
       }
-      return coordinatorResult;
+      if (failNextSearch) {
+        failNextSearch = false;
+        if (destroySessionOnSearchFailure && activeNeural) {
+          activeNeural.identity = null;
+          activeNeural.provider = null;
+        }
+        throw Object.assign(new Error('synthetic worker failure'), { name: 'WorkerError' });
+      }
+      return typeof coordinatorResult === 'function'
+        ? coordinatorResult(request as AnyRequest)
+        : coordinatorResult;
     }
     abort() {
       gates.search?.resolve(undefined);
@@ -348,8 +422,20 @@ function harness(
     get activeCoordinator() {
       return activeCoordinator;
     },
-    setCoordinatorResult(result: Record<string, unknown>) {
+    setCoordinatorResult(
+      result: Record<string, unknown> | ((request: AnyRequest) => Record<string, unknown>),
+    ) {
       coordinatorResult = result;
+    },
+    registerModel(id: string, wire: Record<string, unknown>, bytes: string) {
+      modelRecords.set(id, { wire, bytes });
+    },
+    setFailLoadDigest(digest: string | null) {
+      failLoadDigest = digest;
+    },
+    setFailNextSearch(destroySession: boolean) {
+      failNextSearch = true;
+      destroySessionOnSearchFailure = destroySession;
     },
   };
 }
@@ -592,7 +678,14 @@ describe('browser analysis runtime — neural provider evidence', () => {
   }
 
   it('preserves the real coordinator envelope and WASM evidence', async () => {
-    const envelope = coordinatorEnvelope({ placement: 'wasm', inferences: 4, requested: 'wasm' });
+    const envelope = coordinatorEnvelope({
+      placement: 'wasm',
+      inferences: 4,
+      requested: 'wasm',
+      iterations: 32,
+      completed: 32,
+      settings: { iterations: 32, time_limit: 1, seed: 7, exploration: 1.4, algorithm: 'mcts' },
+    });
     const { env, provider } = await neuralEnv(envelope);
     const result = await env.runtime.runSearch({
       state: STATE,
@@ -610,7 +703,7 @@ describe('browser analysis runtime — neural provider evidence', () => {
       inferenceObserved: true,
       inferences: 4,
       completedSimulations: 32,
-      completionReason: 'completed',
+      completionReason: 'simulations',
     });
     expect(result.model).toEqual({
       sha256: model.onnxSha256,
@@ -639,7 +732,12 @@ describe('browser analysis runtime — neural provider evidence', () => {
   });
 
   it('represents a no-inference shortcut as no observed placement', async () => {
-    const envelope = coordinatorEnvelope({ inferences: 0, provider: null, completed: 0 });
+    const envelope = coordinatorEnvelope({
+      inferences: 0,
+      provider: null,
+      completed: 0,
+      reason: 'immediate_win',
+    });
     const { env } = await neuralEnv(envelope);
     const result = await env.runtime.runSearch({
       state: STATE,
@@ -775,7 +873,7 @@ describe('browser analysis runtime — model bytes and download reuse', () => {
         provider: 'wasm',
         settings: { iterations: 8 },
       }),
-    ).rejects.toMatchObject({ code: 'runtime-missing' });
+    ).rejects.toMatchObject({ code: 'model-not-published' });
   });
 
   it('discards a corrupted cached model and downloads a verified replacement', async () => {
@@ -915,5 +1013,430 @@ describe('browser analysis runtime — ownership, logout and disposal', () => {
     });
     await env.runtime.cancel();
     await settle(first);
+  });
+});
+
+function secondModel() {
+  const bytes = 'second model bytes for replacement';
+  const fixture = bytesFor(bytes);
+  const wire = modelWire({
+    publication_id: 'b'.repeat(24),
+    artifact_version: fixture.sha256,
+    onnx_sha256: fixture.sha256,
+    artifact_bytes: fixture.size,
+    display_name: 'Second Brandubh model',
+  });
+  return { model: validateModelManifest(wire), wire, bytes };
+}
+
+function registerSecond(env: ReturnType<typeof harness>) {
+  const second = secondModel();
+  env.registerModel(second.model.publicationId, second.wire, second.bytes);
+  return second.model;
+}
+
+describe('browser analysis runtime — cancellation and session recovery (G1)', () => {
+  it('propagates AbortSignal cancellation to the actual Jarl request and recovers', async () => {
+    const env = await ready();
+    env.gates.jarlSearch = deferred();
+    const pending = env.runtime.runSearch({ state: STATE, algorithm: 'jarl' });
+    await vi.waitFor(() => expect(env.activeJarl?.calls.length).toBeGreaterThan(0));
+    await env.runtime.cancel();
+    const error = await settle(pending);
+    expect((error as BrowserAnalysisError).code).toBe('cancelled');
+    expect(env.activeJarl?.cancels).toBeGreaterThan(0);
+    expect(env.workers.jarlCreated).toBe(1);
+    const recovered = await env.runtime.runSearch({ state: STATE, algorithm: 'jarl' });
+    expect(recovered.algorithm).toBe('jarl');
+    expect(env.workers.jarlCreated).toBe(1);
+  });
+
+  it('supports a valid search immediately after cancellation without worker accumulation', async () => {
+    const env = await ready();
+    env.gates.jarlSearch = deferred();
+    const pending = env.runtime.runSearch({ state: STATE, algorithm: 'jarl' });
+    await vi.waitFor(() => expect(env.activeJarl?.calls.length).toBeGreaterThan(0));
+    await env.runtime.cancel();
+    await settle(pending);
+    for (let index = 0; index < 3; index += 1) {
+      const result = await env.runtime.runSearch({ state: STATE, algorithm: 'jarl' });
+      expect(result.algorithm).toBe('jarl');
+    }
+    expect(env.workers.jarlCreated).toBe(1);
+    expect(env.workers.jarlDisposed).toBe(0);
+  });
+
+  it('recovers model A after a failed replacement with model B', async () => {
+    const env = await ready();
+    const second = registerSecond(env);
+    const first = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+    });
+    expect(first.model?.sha256).toBe(model.onnxSha256);
+    env.setFailLoadDigest(second.onnxSha256);
+    await expect(
+      env.runtime.runSearch({
+        state: STATE,
+        algorithm: 'neural_mcts',
+        model: second,
+        provider: 'wasm',
+      }),
+    ).rejects.toBeInstanceOf(BrowserAnalysisError);
+    // The failed replacement destroyed the previous session; the next request
+    // for A must reinitialize from verified bytes without recreating the API.
+    env.setFailLoadDigest(null);
+    const recovered = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+    });
+    expect(recovered.model?.sha256).toBe(model.onnxSha256);
+    expect(env.workers.neuralCreated).toBe(1);
+    // A was retained in the verified cache, so recovery needs no new transfer.
+    expect(env.modelRequests).toBe(2);
+  });
+
+  it('retries initial model initialization after a failure', async () => {
+    const env = await ready();
+    env.setFailLoadDigest(model.onnxSha256);
+    await expect(
+      env.runtime.runSearch({
+        state: STATE,
+        algorithm: 'neural_mcts',
+        model,
+        provider: 'wasm',
+      }),
+    ).rejects.toBeInstanceOf(BrowserAnalysisError);
+    env.setFailLoadDigest(null);
+    const recovered = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+    });
+    expect(recovered.model?.sha256).toBe(model.onnxSha256);
+  });
+
+  it('retries the same model after cancellation during model loading', async () => {
+    const env = await ready();
+    env.gates.modelLoad = deferred();
+    const controller = new AbortController();
+    const pending = env.runtime.runSearch(
+      { state: STATE, algorithm: 'neural_mcts', model, provider: 'wasm' },
+      { signal: controller.signal },
+    );
+    await vi.waitFor(() => expect(env.workers.neuralCreated).toBe(1));
+    controller.abort();
+    await settle(pending);
+    const recovered = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+    });
+    expect(recovered.model?.sha256).toBe(model.onnxSha256);
+    expect(env.workers.neuralCancels).toBeGreaterThan(0);
+  });
+
+  it('recovers after a worker/search failure with a fresh session', async () => {
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+    });
+    env.setFailNextSearch(true);
+    await expect(
+      env.runtime.runSearch({ state: STATE, algorithm: 'neural_mcts', model, provider: 'wasm' }),
+    ).rejects.toMatchObject({ code: 'search-failed' });
+    const recovered = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+    });
+    expect(recovered.model?.sha256).toBe(model.onnxSha256);
+    expect(env.modelRequests).toBe(1);
+  });
+
+  it('account invalidation is an admission boundary during initialization', async () => {
+    const env = harness();
+    env.gates.jarlInfo = deferred();
+    const first = env.runtime.initialize();
+    await vi.waitFor(() => expect(env.workers.jarlCreated).toBe(1));
+    const invalidation = env.runtime.invalidateAccountContext();
+    const second = env.runtime.initialize();
+    const firstResult = await settle(first);
+    expect(firstResult).toBeInstanceOf(BrowserAnalysisError);
+    const readyResult = await second;
+    await invalidation;
+    expect(readyResult.state).toBe('ready');
+    expect(env.workers.jarlCreated).toBe(2);
+    expect(env.workers.jarlDisposed).toBe(1);
+    // Delayed cleanup disposed the captured old worker only, never the new one.
+    expect(env.runtime.getStatus().state).toBe('ready');
+  });
+
+  it('enforces the public single-instance admission policy', async () => {
+    const first = await BrowserAnalysisRuntime.create();
+    await expect(BrowserAnalysisRuntime.create()).rejects.toMatchObject({
+      code: 'quota-exceeded',
+    });
+    await first.dispose();
+    const second = await BrowserAnalysisRuntime.create();
+    await second.dispose();
+  });
+});
+
+describe('browser analysis runtime — provider and settings mutations (G3/G6)', () => {
+  async function neuralMutation(
+    envelope: (request: AnyRequest) => Record<string, unknown>,
+    request: SearchRequest = {
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 32 },
+    },
+  ) {
+    const env = await ready();
+    env.setCoordinatorResult(envelope);
+    return { env, request };
+  }
+
+  it('rejects a GPU verification claim for WASM and session-only evidence', async () => {
+    const { env, request } = await neuralMutation((req) =>
+      coordinatorEnvelope({
+        settings: { ...(req.settings ?? {}), algorithm: 'mcts' },
+        iterations: 32,
+        completed: 32,
+        gpuVerified: true,
+      }),
+    );
+    await expect(env.runtime.runSearch(request)).rejects.toMatchObject({
+      code: 'search-failed',
+    });
+  });
+
+  it('rejects unauthorized WebGPU fallback to WASM or CPU', async () => {
+    stubWebGPU(true);
+    for (const placement of ['wasm', 'cpu-fallback']) {
+      const { env, request } = await neuralMutation(
+        (req) =>
+          coordinatorEnvelope({
+            settings: { ...(req.settings ?? {}), algorithm: 'mcts' },
+            iterations: 32,
+            completed: 32,
+            requested: 'webgpu',
+            placement,
+          }),
+        {
+          state: STATE,
+          algorithm: 'neural_mcts',
+          model,
+          provider: 'webgpu',
+          settings: { iterations: 32 },
+        },
+      );
+      await expect(env.runtime.runSearch(request)).rejects.toMatchObject({
+        code: 'search-failed',
+      });
+    }
+  });
+
+  it('requires valid effective settings instead of substituting the request', async () => {
+    for (const settings of [undefined, { iterations: 999, algorithm: 'mcts' }]) {
+      const { env, request } = await neuralMutation((req) => {
+        const envelope = coordinatorEnvelope({
+          settings: { ...(req.settings ?? {}), algorithm: 'mcts' },
+          iterations: 32,
+          completed: 32,
+        }) as AnyRecord;
+        if (settings === undefined) delete envelope.settings;
+        else envelope.settings = settings;
+        return envelope;
+      });
+      await expect(env.runtime.runSearch(request)).rejects.toMatchObject({
+        code: 'search-failed',
+      });
+    }
+  });
+
+  it('validates completion reason and completed work against the simulation budget', async () => {
+    const cases = [
+      { reason: 'mystery' },
+      { reason: 'simulations', completed: 16 },
+      { reason: 'simulations', completed: 64 },
+    ];
+    for (const mutation of cases) {
+      const { env, request } = await neuralMutation((req) => {
+        const envelope = coordinatorEnvelope({
+          settings: { ...(req.settings ?? {}), algorithm: 'mcts' },
+          iterations: 32,
+          completed: 32,
+        }) as AnyRecord;
+        const search = envelope.search as AnyRecord;
+        search.completion_reason = mutation.reason;
+        if (mutation.completed !== undefined) {
+          search.completed_simulations = mutation.completed;
+          (search.coordinator as AnyRecord).completed_simulations = mutation.completed;
+        }
+        return envelope;
+      });
+      await expect(env.runtime.runSearch(request)).rejects.toMatchObject({
+        code: 'search-failed',
+      });
+    }
+  });
+
+  it('accepts deterministic temperature zero but rejects nonzero temperature', async () => {
+    const env = await ready();
+    const accepted = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 16, temperature: 0 },
+    });
+    expect(accepted.settings).not.toHaveProperty('temperature');
+    await expect(
+      env.runtime.runSearch({
+        state: STATE,
+        algorithm: 'neural_mcts',
+        model,
+        provider: 'wasm',
+        settings: { iterations: 16, temperature: 0.5 },
+      }),
+    ).rejects.toMatchObject({ code: 'unsupported' });
+  });
+
+  it('strictly validates nested Jarl search configuration', async () => {
+    const env = await ready();
+    for (const search of [
+      { unknown: true },
+      { transposition: 'yes' },
+      { table_capacity: 0 },
+      { table_capacity: 1_000_001 },
+    ]) {
+      await expect(
+        env.runtime.runSearch({
+          state: STATE,
+          algorithm: 'jarl',
+          settings: { search },
+        }),
+      ).rejects.toMatchObject({ code: 'unsupported' });
+    }
+    const result = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'jarl',
+      settings: { depth: 3, search: { table_capacity: 4096, symmetry_transposition: true } },
+    });
+    expect(result.settings.search).toMatchObject({
+      table_capacity: 4096,
+      symmetry_transposition: true,
+      transposition: true,
+    });
+  });
+});
+
+describe('browser analysis runtime — healthy session reuse (G5)', () => {
+  it('does not retrieve or hash model bytes for repeated searches on a healthy session', async () => {
+    const env = await ready();
+    const spy = vi.spyOn(env.cache, 'getVerified');
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 16 },
+    });
+    const afterCold = spy.mock.calls.length;
+    expect(afterCold).toBeGreaterThan(0);
+    for (let index = 0; index < 3; index += 1) {
+      await env.runtime.runSearch({
+        state: STATE,
+        algorithm: 'neural_mcts',
+        model,
+        provider: 'wasm',
+        settings: { iterations: 16 },
+      });
+    }
+    expect(spy.mock.calls.length).toBe(afterCold);
+    expect(env.modelRequests).toBe(1);
+  });
+
+  it('reuses a healthy session after the cached artifact is evicted', async () => {
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 16 },
+    });
+    await env.cache.clear();
+    const result = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 16 },
+    });
+    expect(result.model?.sha256).toBe(model.onnxSha256);
+    expect(env.modelRequests).toBe(1);
+  });
+
+  it('rejects a revoked publication even while a session is loaded', async () => {
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 16 },
+    });
+    const original = env.fetchImpl.getMockImplementation()!;
+    env.fetchImpl.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === `/api/browser-analysis/models/${model.publicationId}`) {
+        return jsonResponse({ detail: 'not found' }, 404);
+      }
+      return original(url, init);
+    });
+    await expect(
+      env.runtime.runSearch({
+        state: STATE,
+        algorithm: 'neural_mcts',
+        model,
+        provider: 'wasm',
+        settings: { iterations: 16 },
+      }),
+    ).rejects.toMatchObject({ code: 'model-not-published' });
+  });
+
+  it('loads a new session from cached bytes when the provider changes', async () => {
+    stubWebGPU(true);
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 16 },
+    });
+    const switched = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'webgpu',
+      settings: { iterations: 16 },
+    });
+    expect(switched.evidence.requestedProvider).toBe('webgpu');
+    expect(env.modelRequests).toBe(1);
+    expect(env.workers.neuralCreated).toBe(1);
   });
 });

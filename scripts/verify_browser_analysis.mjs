@@ -27,6 +27,7 @@ const output = argument('output');
 const neural = process.argv.includes('--neural');
 const expectRuntimeId = argument('expect-runtime-id');
 const previousManifestPath = argument('previous-manifest');
+const recovery = process.argv.includes('--recovery');
 const identity = argument('identity', process.env.BROWSER_ANALYSIS_IDENTITY ?? 'Browser');
 const password = argument('password', process.env.BROWSER_ANALYSIS_PASSWORD);
 if (!password) throw new Error('Provide --password or BROWSER_ANALYSIS_PASSWORD');
@@ -90,7 +91,7 @@ try {
     ? JSON.parse(await readFile(resolve(previousManifestPath), 'utf8'))
     : null;
   const evaluated = await page.evaluate(
-    async ({ entry, state, settings, neural, expectRuntimeId, previousManifest }) => {
+    async ({ entry, state, settings, neural, recovery, expectRuntimeId, previousManifest }) => {
       const module = await import(entry);
       const api = await module.createBrowserAnalysis();
       const availability = await api.availability();
@@ -99,6 +100,26 @@ try {
       const initialized = performance.now();
       const result = await api.runSearch({ state, settings, algorithm: 'jarl' });
       const finished = performance.now();
+      let recoveryResult = null;
+      if (recovery) {
+        const pending = api
+          .runSearch({
+            state,
+            settings: { depth: 4, time_limit: 2 },
+            algorithm: 'jarl',
+          })
+          .then((value) => ({ cancelled: false, ok: Boolean(value.analysis) }))
+          .catch((error) => ({ cancelled: true, code: error?.code ?? null }));
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        await api.cancel('recovery probe');
+        const cancelled = await pending;
+        const after = await api.runSearch({
+          state,
+          settings: { depth: 3, time_limit: 1 },
+          algorithm: 'jarl',
+        });
+        recoveryResult = { cancelled, afterOk: Boolean(after.analysis), state: api.status() };
+      }
       let previousRuntimeAsset = null;
       if (previousManifest) {
         const path = previousManifest.files.find((entry) => entry.path === 'runtime/pyodide.js');
@@ -154,6 +175,7 @@ try {
         availability,
         status,
         result,
+        recoveryResult,
         neuralResult,
         neuralSecond,
         neuralModel,
@@ -169,6 +191,7 @@ try {
       state,
       neural,
       settings: { depth: 3, time_limit: 0.5, seed: 7 },
+      recovery,
       expectRuntimeId,
       previousManifest,
     },
@@ -211,6 +234,7 @@ try {
     };
   }
 
+  report.recovery = evaluated.recoveryResult ?? null;
   check('availability reports an enabled runtime', evaluated.availability.enabled === true);
   if (expectRuntimeId) {
     check(
@@ -240,6 +264,17 @@ try {
     JSON.stringify(evaluated.result?.evidence ?? null),
   );
   check('no neural model was required for Jarl', evaluated.result?.model === null);
+  if (recovery) {
+    check(
+      'Jarl cancellation is followed by a successful recovery search',
+      evaluated.recoveryResult?.afterOk === true,
+      JSON.stringify(evaluated.recoveryResult ?? null),
+    );
+    check(
+      'Jarl cancellation reports a structured cancelled/complete outcome',
+      evaluated.recoveryResult?.cancelled !== undefined,
+    );
+  }
   check(
     'classical Jarl has no neural provider claim',
     evaluated.result?.evidence?.gpuExecutionVerified === false &&

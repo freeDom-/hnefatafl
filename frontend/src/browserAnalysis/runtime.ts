@@ -50,6 +50,9 @@ import { ArtifactCache, openArtifactStore, sha256Hex, type DigestFn } from './st
 
 type AnyRecord = Record<string, any>;
 
+/** The public Phase 5 contract may own at most one runtime instance per tab. */
+let managedRuntimeInstances = 0;
+
 interface LocalAnalysisClientLike {
   request(payload: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
   cancel(reason?: string): void;
@@ -82,6 +85,8 @@ interface NeuralClientLike {
     },
   ): Promise<AnyRecord>;
   modelIdentity(): NeuralModelIdentity;
+  /** Actual live worker session identity, or null when no session is loaded. */
+  sessionIdentity?(): (NeuralModelIdentity & { provider: ProviderRequest }) | null;
   cancelWork?: (options?: { reason?: string }) => Promise<unknown>;
   dispose?(): void;
 }
@@ -214,12 +219,63 @@ export function normalizeJarlSettings(settings: Record<string, unknown> | undefi
     effective.heuristic = provided.heuristic;
   }
   if (provided.search !== undefined) {
-    if (!isRecord(provided.search)) {
-      throw new BrowserAnalysisError('unsupported', 'Jarl search settings must be an object');
-    }
-    effective.search = { ...(effective.search as AnyRecord), ...provided.search };
+    effective.search = {
+      ...(effective.search as AnyRecord),
+      ...validateJarlSearchConfig(provided.search),
+    };
   }
   return effective;
+}
+
+const JARL_SEARCH_FIELDS = new Set([
+  'legacy',
+  'transposition',
+  'move_ordering',
+  'symmetry_transposition',
+  'symmetry_pruning',
+  'table_capacity',
+]);
+const MAX_TABLE_CAPACITY = 1_000_000;
+const NEURAL_COMPLETION_REASONS = new Set([
+  'immediate_win',
+  'deadline',
+  'simulations',
+  'insufficient_budget',
+  'completed',
+]);
+
+/** Strictly validate the nested Jarl alpha-beta search configuration. */
+export function validateJarlSearchConfig(raw: unknown): AnyRecord {
+  if (!isRecord(raw)) {
+    throw new BrowserAnalysisError('unsupported', 'Jarl search settings must be an object');
+  }
+  for (const key of Object.keys(raw)) {
+    if (!JARL_SEARCH_FIELDS.has(key)) {
+      throw new BrowserAnalysisError('unsupported', `Unsupported Jarl search setting: ${key}`);
+    }
+  }
+  const result: AnyRecord = {};
+  for (const key of JARL_SEARCH_FIELDS) {
+    if (key === 'table_capacity') continue;
+    if (raw[key] !== undefined) {
+      if (typeof raw[key] !== 'boolean') {
+        throw new BrowserAnalysisError('unsupported', `Jarl search ${key} must be a boolean`);
+      }
+      result[key] = raw[key];
+    }
+  }
+  if (raw.table_capacity !== undefined) {
+    const capacity = positiveInteger(raw.table_capacity, MAX_TABLE_CAPACITY);
+    if (capacity === null || capacity < 1) {
+      throw new BrowserAnalysisError(
+        'unsupported',
+        'Jarl search table_capacity must be 1..1000000',
+      );
+    }
+    result.table_capacity = capacity;
+  }
+  if (result.symmetry_transposition === true) result.transposition = true;
+  return result;
 }
 
 /** Reject unknown or out-of-contract neural settings before any worker work. */
@@ -258,6 +314,16 @@ export function normalizeNeuralSettings(settings: Record<string, unknown> | unde
     if (seed === null) throw new BrowserAnalysisError('unsupported', 'Neural seed is invalid');
     effective.seed = seed;
   }
+  if (provided.temperature !== undefined) {
+    // Deterministic analysis always uses temperature zero. Accepting a nonzero
+    // value and silently ignoring it would misreport the effective configuration.
+    if (provided.temperature !== 0) {
+      throw new BrowserAnalysisError(
+        'unsupported',
+        'Neural temperature is fixed at 0 for deterministic analysis',
+      );
+    }
+  }
   if (provided.exploration !== undefined) {
     const exploration = boundedNumber(provided.exploration, 0, 10);
     if (exploration === null) {
@@ -284,13 +350,12 @@ export class BrowserAnalysisRuntime {
   private context = 0;
   private operationSequence = 0;
   private operations = new Set<Operation>();
+  private managedInstance = false;
   private disposed = false;
   private initState: { promise: Promise<RuntimeStatus>; context: number } | null = null;
   private jarl: LocalAnalysisClientLike | null = null;
   private neural: NeuralClientLike | null = null;
   private coordinator: CoordinatorLike | null = null;
-  private loadedModelDigest: string | null = null;
-  private loadedProvider: ProviderRequest | null = null;
   private result: SearchResult | null = null;
   private cache: ArtifactCache | null;
   private downloads: DownloadManager;
@@ -314,14 +379,29 @@ export class BrowserAnalysisRuntime {
   }
 
   static async create(options: RuntimeOptions = {}): Promise<BrowserAnalysisRuntime> {
-    let cache = options.cache ?? null;
-    if (!cache) {
-      const store = await openArtifactStore();
-      cache = new ArtifactCache(store, {
-        maxBytes: options.storageQuotaBytes ?? LIMITS.maxStoredModelBytes,
-      });
+    if (managedRuntimeInstances >= 1) {
+      throw new BrowserAnalysisError(
+        'quota-exceeded',
+        'A browser-analysis runtime is already active in this tab; dispose it first',
+        true,
+      );
     }
-    return new BrowserAnalysisRuntime({ ...options, cache });
+    managedRuntimeInstances += 1;
+    try {
+      let cache = options.cache ?? null;
+      if (!cache) {
+        const store = await openArtifactStore();
+        cache = new ArtifactCache(store, {
+          maxBytes: options.storageQuotaBytes ?? LIMITS.maxStoredModelBytes,
+        });
+      }
+      const runtime = new BrowserAnalysisRuntime({ ...options, cache });
+      runtime.managedInstance = true;
+      return runtime;
+    } catch (error) {
+      managedRuntimeInstances -= 1;
+      throw error;
+    }
   }
 
   getStatus(): RuntimeStatus {
@@ -767,11 +847,22 @@ export class BrowserAnalysisRuntime {
   // ---------------------------------------------------------------------- downloads
   /** Re-check current publication authorization without inferring it from cache. */
   private async revalidateModel(model: ModelManifest, op: Operation): Promise<void> {
-    const payload = await this.fetchJson(
-      op,
-      `/api/browser-analysis/models/${model.publicationId}`,
-      (raw) => raw as AnyRecord,
-    );
+    let payload: AnyRecord;
+    try {
+      payload = await this.fetchJson(
+        op,
+        `/api/browser-analysis/models/${model.publicationId}`,
+        (raw) => raw as AnyRecord,
+      );
+    } catch (error) {
+      if (error instanceof BrowserAnalysisError && error.code === 'runtime-missing') {
+        throw new BrowserAnalysisError(
+          'model-not-published',
+          'The model publication is no longer available',
+        );
+      }
+      throw error;
+    }
     const current = validateModelManifest(payload);
     if (
       current.onnxSha256 !== model.onnxSha256 ||
@@ -951,15 +1042,35 @@ export class BrowserAnalysisRuntime {
       LIMITS.maxJobTimeoutMs,
       Math.max(1000, Math.round(Number(effective.time_limit) * 1000) + 2000),
     );
-    const response = (await this.withTimeout(
-      client.request(
-        { action: 'analysis', state: request.state, config: effective },
-        { timeoutMs: watchdog },
-      ),
-      watchdog,
-      'Jarl search exceeded its watchdog',
-      op.controller.signal,
-    )) as AnyRecord;
+    const cancelJarl = () => {
+      try {
+        // Propagate cancellation to the actual active worker request, not only
+        // to the surrounding promise. The validated client owns bounded recovery.
+        client.cancel('Jarl search cancelled');
+      } catch {
+        // Idle cancellation is a no-op in the validated client.
+      }
+    };
+    op.controller.signal.addEventListener('abort', cancelJarl, { once: true });
+    let response: AnyRecord;
+    try {
+      response = (await this.withTimeout(
+        client.request(
+          { action: 'analysis', state: request.state, config: effective },
+          { timeoutMs: watchdog },
+        ),
+        watchdog,
+        'Jarl search exceeded its watchdog',
+        op.controller.signal,
+      )) as AnyRecord;
+    } catch (error) {
+      // A watchdog expiry also cancels the underlying request; otherwise the
+      // worker would keep searching after the manager reported failure.
+      cancelJarl();
+      throw error;
+    } finally {
+      op.controller.signal.removeEventListener('abort', cancelJarl);
+    }
     this.assertOwned(op, 'Jarl result was superseded');
     if (!isRecord(response) || response.ok !== true) {
       throw new BrowserAnalysisError(
@@ -971,10 +1082,11 @@ export class BrowserAnalysisRuntime {
     if (!isRecord(event) || !isRecord(event.analysis) || !isRecord(event.settings)) {
       throw new BrowserAnalysisError('search-failed', 'Jarl result contract is malformed');
     }
+    const effectiveSettings = this.validateJarlEffective(effective, event.settings);
     return {
       analysis: event.analysis as Record<string, unknown>,
       algorithm: JARL_ALGORITHM,
-      settings: event.settings as Record<string, unknown>,
+      settings: effectiveSettings,
       evidence: {
         executionRuntime: 'pyodide',
         requestedProvider: null,
@@ -1019,7 +1131,6 @@ export class BrowserAnalysisRuntime {
     const effective = normalizeNeuralSettings(request.settings);
     await this.revalidateModel(model, op);
     this.assertOwned(op);
-    const bytes = await this.ensureModelBytes(model, op);
     if (!this.neural) {
       const neuralModule = await this.loadRuntimeModule(op, RUNTIME_JS.neuralClient);
       this.assertOwned(op);
@@ -1046,7 +1157,19 @@ export class BrowserAnalysisRuntime {
     if (!neural || !coordinator) {
       throw new BrowserAnalysisError('not-initialized', 'Neural runtime is unavailable');
     }
-    if (this.loadedModelDigest !== model.onnxSha256 || this.loadedProvider !== provider) {
+    // Reconcile against the actual live session. Remembered manager metadata is
+    // never sufficient to skip initialization after a failed replacement, model
+    // load cancellation or worker failure.
+    const current = neural.sessionIdentity?.() ?? null;
+    const healthy =
+      current !== null &&
+      current.sha256 === model.onnxSha256 &&
+      current.ruleset === model.ruleset &&
+      current.size === model.boardSize &&
+      current.provider === provider;
+    if (!healthy) {
+      const bytes = await this.ensureModelBytes(model, op);
+      this.assertOwned(op);
       const loadAbort = () => {
         try {
           coordinator.abort?.(new Error('Model load cancelled'));
@@ -1084,20 +1207,24 @@ export class BrowserAnalysisRuntime {
             'Model session provider does not match the request',
           );
         }
-        this.loadedModelDigest = model.onnxSha256;
-        this.loadedProvider = provider;
       } finally {
         op.controller.signal.removeEventListener('abort', loadAbort);
       }
     }
-    const identity = neural.modelIdentity();
+    const live = neural.sessionIdentity?.() ?? null;
     if (
-      identity.sha256 !== model.onnxSha256 ||
-      identity.ruleset !== model.ruleset ||
-      identity.size !== model.boardSize
+      live === null ||
+      live.sha256 !== model.onnxSha256 ||
+      live.ruleset !== model.ruleset ||
+      live.size !== model.boardSize ||
+      live.provider !== provider
     ) {
-      throw new BrowserAnalysisError('model-integrity', 'Loaded model identity changed');
+      throw new BrowserAnalysisError(
+        'model-integrity',
+        'Active inference session does not match the requested model and provider',
+      );
     }
+    const identity = live;
     const abortCoordinator = () => {
       try {
         coordinator.abort?.(new Error('Search cancelled'));
@@ -1122,6 +1249,60 @@ export class BrowserAnalysisRuntime {
     return this.finalizeNeural(raw, model, provider, effective, started);
   }
 
+  private validateJarlEffective(expected: AnyRecord, actual: unknown): AnyRecord {
+    if (!isRecord(actual)) {
+      throw new BrowserAnalysisError('search-failed', 'Jarl effective settings are missing');
+    }
+    if (actual.algorithm !== 'alpha_beta') {
+      throw new BrowserAnalysisError('search-failed', 'Jarl did not run the alpha-beta algorithm');
+    }
+    for (const key of ['depth', 'time_limit', 'seed', 'heuristic'] as const) {
+      if (key === 'seed' && expected[key] === undefined) continue;
+      if (actual[key] !== expected[key]) {
+        throw new BrowserAnalysisError(
+          'search-failed',
+          `Jarl effective setting ${key} does not match the requested configuration`,
+        );
+      }
+    }
+    if (!isRecord(actual.search)) {
+      throw new BrowserAnalysisError('search-failed', 'Jarl effective search settings are missing');
+    }
+    for (const key of Object.keys(expected.search as AnyRecord)) {
+      if (actual.search[key] !== (expected.search as AnyRecord)[key]) {
+        throw new BrowserAnalysisError(
+          'search-failed',
+          `Jarl effective search setting ${key} does not match the request`,
+        );
+      }
+    }
+    return actual;
+  }
+
+  private validateNeuralEffective(expected: AnyRecord, actual: unknown): AnyRecord {
+    if (!isRecord(actual)) {
+      throw new BrowserAnalysisError('search-failed', 'Neural effective settings are missing');
+    }
+    if (actual.algorithm !== 'mcts') {
+      throw new BrowserAnalysisError('search-failed', 'Neural search did not run MCTS');
+    }
+    for (const key of ['iterations', 'time_limit', 'seed', 'exploration'] as const) {
+      if (actual[key] !== expected[key]) {
+        throw new BrowserAnalysisError(
+          'search-failed',
+          `Neural effective setting ${key} does not match the requested configuration`,
+        );
+      }
+    }
+    if (actual.temperature !== undefined && actual.temperature !== 0) {
+      throw new BrowserAnalysisError(
+        'search-failed',
+        'Neural search reported a non-deterministic temperature',
+      );
+    }
+    return actual;
+  }
+
   private finalizeNeural(
     raw: AnyRecord,
     model: ModelManifest,
@@ -1144,9 +1325,29 @@ export class BrowserAnalysisRuntime {
         'Neural search telemetry is missing or malformed',
       );
     }
+    if (typeof search.search_id !== 'string' || search.search_id.length === 0) {
+      throw new BrowserAnalysisError('search-failed', 'Neural search identity is missing');
+    }
+    const completionReason = search.completion_reason;
+    if (typeof completionReason !== 'string' || !NEURAL_COMPLETION_REASONS.has(completionReason)) {
+      throw new BrowserAnalysisError('search-failed', 'Neural completion reason is malformed');
+    }
+    const iterations = Number(requestedSettings.iterations);
+    if (!Number.isInteger(iterations) || completed > iterations) {
+      throw new BrowserAnalysisError(
+        'search-failed',
+        'Completed simulations exceed the requested simulation budget',
+      );
+    }
+    if (completionReason === 'simulations' && completed !== iterations) {
+      throw new BrowserAnalysisError(
+        'search-failed',
+        'A simulation-budget completion did not complete the requested simulations',
+      );
+    }
+    const effective = this.validateNeuralEffective(requestedSettings, raw.settings);
     const reported = search.provider;
     let observed: ObservedPlacement = 'none';
-    let gpuVerified = false;
     if (inferences > 0) {
       if (!isRecord(reported)) {
         throw new BrowserAnalysisError(
@@ -1170,23 +1371,33 @@ export class BrowserAnalysisRuntime {
           'Provider evidence reports GPU placement for a WASM request',
         );
       }
+      if (provider === 'webgpu' && (placement === 'wasm' || placement === 'cpu-fallback')) {
+        throw new BrowserAnalysisError(
+          'search-failed',
+          'Provider evidence reports an unauthorized fallback from the requested WebGPU provider',
+        );
+      }
       if (typeof reported.gpu_execution_verified !== 'boolean') {
         throw new BrowserAnalysisError(
           'search-failed',
           'Provider GPU verification evidence is malformed',
         );
       }
+      if (reported.gpu_execution_verified === true) {
+        // The pinned runtime exposes no independent per-operator verification.
+        // A session-level claim is never accepted as verified GPU execution.
+        throw new BrowserAnalysisError(
+          'search-failed',
+          'GPU execution verification is unavailable for the pinned inference runtime',
+        );
+      }
       observed = placement as ObservedPlacement;
-      gpuVerified = reported.gpu_execution_verified;
     } else if (reported !== null && reported !== undefined) {
       throw new BrowserAnalysisError(
         'search-failed',
         'Provider evidence is present for a search without inference',
       );
     }
-    const effective = isRecord(raw.settings) ? (raw.settings as AnyRecord) : requestedSettings;
-    const completionReason =
-      typeof search.completion_reason === 'string' ? search.completion_reason : null;
     return {
       analysis: raw.analysis as Record<string, unknown>,
       algorithm: NEURAL_ALGORITHM,
@@ -1195,7 +1406,7 @@ export class BrowserAnalysisRuntime {
         executionRuntime: 'pyodide',
         requestedProvider: provider,
         observedPlacement: observed,
-        gpuExecutionVerified: gpuVerified,
+        gpuExecutionVerified: false,
         inferenceObserved: inferences > 0,
         inferences,
         completedSimulations: completed,
@@ -1203,8 +1414,12 @@ export class BrowserAnalysisRuntime {
       },
       model: { sha256: model.onnxSha256, ruleset: model.ruleset, size: model.boardSize },
       positionIdentity:
-        typeof raw.analysis.position_key === 'string' ? raw.analysis.position_key : null,
-      searchId: typeof search.search_id === 'string' ? search.search_id : null,
+        typeof raw.analysis.position_key === 'string'
+          ? raw.analysis.position_key
+          : typeof search.position_key === 'string'
+            ? search.position_key
+            : null,
+      searchId: search.search_id,
       elapsedMs: now() - started,
       authoritative: false,
     };
@@ -1238,13 +1453,39 @@ export class BrowserAnalysisRuntime {
       tasks.push(this.neural.cancelWork({ reason }).catch(() => undefined));
     }
     if (search) tasks.push(search.promise.catch(() => undefined));
-    const barrier = Promise.allSettled(tasks).then(() => undefined);
+    const prior = this.cleanupBarrier;
+    const barrier = prior.then(() => Promise.allSettled(tasks)).then(() => undefined);
     this.cleanupBarrier = barrier;
-    await this.withTimeout(
+    const completed = await this.withTimeout(
       barrier,
       LIMITS.shutdownTimeoutMs,
       'Cancellation cleanup did not finish',
-    ).catch(() => undefined);
+    )
+      .then(() => true)
+      .catch(() => false);
+    if (!completed) {
+      // A drain that cannot be established is quarantined rather than silently
+      // reused: terminate the inference workers so replacement work starts clean.
+      try {
+        this.coordinator?.dispose();
+      } catch {
+        // Bounded disposal is owned by the validated client.
+      }
+      try {
+        this.neural?.dispose?.();
+      } catch {
+        // Ignore disposal failures on an already-terminated worker.
+      }
+      this.coordinator = null;
+      this.neural = null;
+      this.setState('error', {
+        error: {
+          code: 'search-failed',
+          message: 'Cancellation cleanup did not finish; inference workers were terminated',
+          retryable: true,
+        },
+      });
+    }
     if (this.status.state === 'searching' || this.status.state === 'initializing') {
       this.setState('cancelled', { error: null });
     }
@@ -1269,8 +1510,6 @@ export class BrowserAnalysisRuntime {
     this.coordinator = null;
     this.neural = null;
     this.jarl = null;
-    this.loadedModelDigest = null;
-    this.loadedProvider = null;
   }
 
   /** Drop every runtime-bound worker, module and result without changing the account. */
@@ -1291,43 +1530,58 @@ export class BrowserAnalysisRuntime {
     void message;
   }
 
+  private takeClients(): {
+    jarl: LocalAnalysisClientLike | null;
+    neural: NeuralClientLike | null;
+    coordinator: CoordinatorLike | null;
+  } {
+    const captured = {
+      jarl: this.jarl,
+      neural: this.neural,
+      coordinator: this.coordinator,
+    };
+    this.jarl = null;
+    this.neural = null;
+    this.coordinator = null;
+    return captured;
+  }
+
+  private disposeCaptured(captured: {
+    jarl: LocalAnalysisClientLike | null;
+    neural: NeuralClientLike | null;
+    coordinator: CoordinatorLike | null;
+  }): void {
+    try {
+      captured.coordinator?.dispose();
+    } catch {
+      // Bounded disposal is owned by the validated client.
+    }
+    try {
+      captured.neural?.dispose?.();
+    } catch {
+      // Ignore disposal failures on an already-terminated worker.
+    }
+    try {
+      captured.jarl?.dispose();
+    } catch {
+      // Ignore disposal failures on an already-terminated worker.
+    }
+  }
+
   /**
-   * Invalidate all work bound to the previous account context. Published model
-   * artifacts are public shared assets and may be retained; private replay data,
-   * positions and results are never stored here. Delayed completions cannot
-   * restore the previous account's result because the context generation changes.
+   * Invalidate all work bound to the previous account context. The admission
+   * boundary is atomic: references to the old workers are removed before the
+   * first await, new operations wait on the cleanup barrier, and delayed cleanup
+   * only ever disposes the exact resources captured from the invalidated context.
    */
   async invalidateAccountContext(): Promise<void> {
     this.context += 1;
+    this.initState = null;
     this.abortOperations(() => true);
     this.downloads.cancelAll('Account context changed');
     const search = this.activeSearch;
     this.activeSearch = null;
-    const tasks: Promise<unknown>[] = [];
-    if (search) {
-      search.op.active = false;
-      search.op.controller.abort();
-      try {
-        this.coordinator?.abort?.(new Error('Account context changed'));
-        this.jarl?.cancel('Account context changed');
-      } catch {
-        // Bounded cleanup is owned by the validated clients.
-      }
-      if (this.neural?.cancelWork) {
-        tasks.push(
-          this.neural.cancelWork({ reason: 'Account context changed' }).catch(() => undefined),
-        );
-      }
-      tasks.push(search.promise.catch(() => undefined));
-    }
-    const barrier = Promise.allSettled(tasks).then(() => undefined);
-    this.cleanupBarrier = barrier;
-    await this.withTimeout(
-      barrier,
-      LIMITS.shutdownTimeoutMs,
-      'Account-context cleanup did not finish',
-    ).catch(() => undefined);
-    this.disposeClients();
+    const captured = this.takeClients();
     this.result = null;
     this.setState('idle', {
       runtimeId: this.runtimeId,
@@ -1336,27 +1590,59 @@ export class BrowserAnalysisRuntime {
       lastSettings: null,
       error: null,
     });
+    const tasks: Promise<unknown>[] = [];
+    if (search) {
+      search.op.active = false;
+      search.op.controller.abort();
+      try {
+        captured.coordinator?.abort?.(new Error('Account context changed'));
+        captured.jarl?.cancel('Account context changed');
+      } catch {
+        // Bounded cleanup is owned by the validated clients.
+      }
+      tasks.push(search.promise.catch(() => undefined));
+    }
+    if (captured.neural?.cancelWork) {
+      tasks.push(
+        captured.neural.cancelWork({ reason: 'Account context changed' }).catch(() => undefined),
+      );
+    }
+    const prior = this.cleanupBarrier;
+    const barrier = prior.then(() => Promise.allSettled(tasks)).then(() => undefined);
+    this.cleanupBarrier = barrier;
+    const completed = await this.withTimeout(
+      barrier,
+      LIMITS.shutdownTimeoutMs,
+      'Account-context cleanup did not finish',
+    )
+      .then(() => true)
+      .catch(() => false);
+    this.disposeCaptured(captured);
+    if (!completed) {
+      this.setState('error', {
+        error: {
+          code: 'search-failed',
+          message: 'Account-context cleanup did not finish; workers were terminated',
+          retryable: true,
+        },
+      });
+    }
   }
 
   /** Release workers and abort transfers; the runtime object becomes reusable. */
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.managedInstance) {
+      managedRuntimeInstances = Math.max(0, managedRuntimeInstances - 1);
+      this.managedInstance = false;
+    }
     this.context += 1;
     this.abortOperations(() => true);
     this.downloads.cancelAll('Runtime disposed');
     const search = this.activeSearch;
     this.activeSearch = null;
-    if (search) {
-      search.op.controller.abort();
-      try {
-        this.coordinator?.abort?.(new Error('Runtime disposed'));
-        this.jarl?.cancel('Runtime disposed');
-      } catch {
-        // Bounded cleanup is owned by the validated clients.
-      }
-    }
-    this.disposeClients();
+    const captured = this.takeClients();
     this.moduleCache.clear();
     this.manifest = null;
     this.runtimeId = null;
@@ -1371,6 +1657,29 @@ export class BrowserAnalysisRuntime {
       lastSettings: null,
       error: null,
     });
+    const tasks: Promise<unknown>[] = [];
+    if (search) {
+      search.op.active = false;
+      search.op.controller.abort();
+      try {
+        captured.coordinator?.abort?.(new Error('Runtime disposed'));
+        captured.jarl?.cancel('Runtime disposed');
+      } catch {
+        // Bounded cleanup is owned by the validated clients.
+      }
+      tasks.push(search.promise.catch(() => undefined));
+    }
+    if (captured.neural?.cancelWork) {
+      tasks.push(captured.neural.cancelWork({ reason: 'Runtime disposed' }).catch(() => undefined));
+    }
+    const barrier = Promise.allSettled(tasks).then(() => undefined);
+    this.cleanupBarrier = barrier;
+    await this.withTimeout(
+      barrier,
+      LIMITS.shutdownTimeoutMs,
+      'Runtime disposal did not finish',
+    ).catch(() => undefined);
+    this.disposeCaptured(captured);
   }
 
   getLastResult(): SearchResult | null {

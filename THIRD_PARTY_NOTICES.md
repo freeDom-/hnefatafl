@@ -142,8 +142,10 @@ for CPython) and are included in every staged runtime under `licenses/`, covered
 by the runtime manifest digests. The pinned Pyodide distribution embeds further
 third-party components governed by Pyodide's own distribution notices; the project
 ships the core MPL/PSF texts and relies on the pinned upstream distribution for its
-complete notice set. This remains an owner/licensing review item for any wider
-redistribution; no component is relicensed under the project license. MPL-2.0 applies to Pyodide itself and does not
+complete notice set. This embedded notice inventory has **not** been exhaustively reviewed
+here and remains an explicit owner/licensing action before wider redistribution; no
+component is relicensed under the project license, and no completed-review claim is
+made beyond the shipped core texts. MPL-2.0 applies to Pyodide itself and does not
 relicense first-party project code; the project does not relicense any
 third-party component. `onnx`/`onnxruntime` Python packages remain optional
 administrator-side export/validation tooling and are not distributed to browsers.

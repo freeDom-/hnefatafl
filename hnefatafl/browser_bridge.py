@@ -34,7 +34,7 @@ ANALYSIS_RANGES = {
     "rollout_depth": (0, 50),
     "seed": (0, 2**32 - 1),
     "exploration": (0, 10),
-    "temperature": (0, 5),
+    "temperature": (0, 0),
 }
 ANALYSIS_INTEGER_FIELDS = ("depth", "iterations", "rollout_depth", "seed")
 ANALYSIS_FIELDS = frozenset(
@@ -71,6 +71,8 @@ def analysis_config(raw: object) -> dict:
     config = {"algorithm": "alpha_beta", "time_limit": 0.1, "seed": 7, **raw}
     if config["algorithm"] not in {"alpha_beta", "mcts"}:
         raise ValueError("Only explicit alpha_beta or classical mcts analysis is supported")
+    if config.get("temperature") not in (None, 0):
+        raise ValueError("Deterministic analysis requires temperature 0")
     if "heuristic" in config and config["heuristic"] not in ("shield_bearer", "shield_maiden"):
         raise ValueError("Unsupported search heuristic")
     for name, (low, high) in ANALYSIS_RANGES.items():
