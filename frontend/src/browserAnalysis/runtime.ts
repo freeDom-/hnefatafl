@@ -30,6 +30,7 @@ import {
   type ModelManifest,
   type ObservedPlacement,
   type ProviderRequest,
+  type RuntimeDisposalOutcome,
   type RuntimeManifest,
   type RuntimeStatus,
   type SearchRequest,
@@ -108,6 +109,7 @@ interface Operation {
   controller: AbortController;
   active: boolean;
   resources: DisposableResource[];
+  detachSignal?: () => void;
 }
 
 export interface RuntimeOptions {
@@ -351,6 +353,9 @@ export class BrowserAnalysisRuntime {
   private operationSequence = 0;
   private operations = new Set<Operation>();
   private managedInstance = false;
+  private managedReleased = false;
+  private disposalPromise: Promise<RuntimeDisposalOutcome> | null = null;
+  private disposeOutcome: RuntimeDisposalOutcome | null = null;
   private disposed = false;
   private initState: { promise: Promise<RuntimeStatus>; context: number } | null = null;
   private jarl: LocalAnalysisClientLike | null = null;
@@ -363,6 +368,8 @@ export class BrowserAnalysisRuntime {
   private readonly loadModule: (url: string) => Promise<AnyRecord>;
   private readonly digestFn: DigestFn;
   private cleanupBarrier: Promise<void> = Promise.resolve();
+  private availabilitySequence = 0;
+  private availabilityApplied = 0;
   private activeSearch: { op: Operation; promise: Promise<SearchResult> } | null = null;
 
   constructor(private readonly options: RuntimeOptions = {}) {
@@ -446,8 +453,15 @@ export class BrowserAnalysisRuntime {
       resources: [],
     };
     if (signal) {
-      if (signal.aborted) op.controller.abort();
-      else signal.addEventListener('abort', () => op.controller.abort(), { once: true });
+      if (signal.aborted) {
+        op.controller.abort();
+      } else {
+        // Store the forwarding listener so it can be removed on every terminal
+        // path; long-lived caller signals must not retain completed operations.
+        const forward = () => op.controller.abort();
+        signal.addEventListener('abort', forward, { once: true });
+        op.detachSignal = () => signal.removeEventListener('abort', forward);
+      }
     }
     this.operations.add(op);
     return op;
@@ -492,12 +506,16 @@ export class BrowserAnalysisRuntime {
   /** Finish successfully without aborting resources committed to the runtime. */
   private finish(op: Operation): void {
     op.active = false;
+    op.detachSignal?.();
+    op.detachSignal = undefined;
     this.operations.delete(op);
   }
 
   private abandon(op: Operation): void {
     op.active = false;
     op.controller.abort();
+    op.detachSignal?.();
+    op.detachSignal = undefined;
     this.operations.delete(op);
     this.disposeResources(op);
   }
@@ -589,6 +607,7 @@ export class BrowserAnalysisRuntime {
   }
 
   private async loadAvailability(op: Operation): Promise<Availability> {
+    const sequence = ++this.availabilitySequence;
     const payload = await this.fetchJson(
       op,
       '/api/browser-analysis/availability',
@@ -599,7 +618,11 @@ export class BrowserAnalysisRuntime {
       await verifyRuntimeIdentity(availability.runtime, this.digestFn);
       this.assertOwned(op, 'Runtime identity verification was superseded');
     }
-    this.applyAvailability(availability);
+    // Out-of-order responses must never replace a newer applied state.
+    if (sequence > this.availabilityApplied) {
+      this.applyAvailability(availability);
+      this.availabilityApplied = sequence;
+    }
     return availability;
   }
 
@@ -691,6 +714,15 @@ export class BrowserAnalysisRuntime {
     options: { signal?: AbortSignal; skipProbe?: boolean } = {},
   ): Promise<RuntimeStatus> {
     if (this.disposed) throw new BrowserAnalysisError('unsupported', 'Runtime is disposed');
+    // A ready/searching compatible runtime is already initialized; return the
+    // current state rather than a stale completed initialization result.
+    if (
+      this.jarl &&
+      this.manifest &&
+      (this.status.state === 'ready' || this.status.state === 'searching')
+    ) {
+      return this.getStatus();
+    }
     if (this.initState && this.initState.context === this.context) {
       return this.awaitCaller(this.initState.promise, options.signal);
     }
@@ -711,6 +743,16 @@ export class BrowserAnalysisRuntime {
     signal?: AbortSignal;
     skipProbe?: boolean;
   }): Promise<RuntimeStatus> {
+    // An active compatible runtime is already initialized. In particular, do not
+    // interrupt an active search or create a duplicate worker just because another
+    // consumer asked for initialization.
+    if (
+      this.jarl &&
+      this.manifest &&
+      (this.status.state === 'ready' || this.status.state === 'searching')
+    ) {
+      return this.getStatus();
+    }
     const op = this.begin(null, options.signal);
     try {
       const availability = await this.loadAvailability(op);
@@ -1428,7 +1470,13 @@ export class BrowserAnalysisRuntime {
   // ------------------------------------------------------------ cancellation & lifecycle
   /** Cooperative cancellation of the active search/initialization and inference work. */
   async cancel(reason = 'Search cancelled'): Promise<void> {
+    const context = this.context;
     const search = this.activeSearch;
+    const captured = {
+      jarl: this.jarl,
+      neural: this.neural,
+      coordinator: this.coordinator,
+    };
     if (!search) {
       // A cancelled initialization must not be joined by a replacement call.
       this.initState = null;
@@ -1437,20 +1485,20 @@ export class BrowserAnalysisRuntime {
       search.op.active = false;
       search.op.controller.abort();
       try {
-        this.coordinator?.abort?.(new Error(reason));
+        captured.coordinator?.abort?.(new Error(reason));
       } catch {
         // The validated coordinator owns bounded shutdown recovery.
       }
-      try {
-        this.jarl?.cancel(reason);
-      } catch {
-        // Idle cancellation is a no-op in the validated client.
-      }
+    }
+    try {
+      captured.jarl?.cancel(reason);
+    } catch {
+      // Idle cancellation is a no-op in the validated client.
     }
     this.abortOperations((op) => op !== search?.op);
     const tasks: Promise<unknown>[] = [];
-    if (this.neural?.cancelWork) {
-      tasks.push(this.neural.cancelWork({ reason }).catch(() => undefined));
+    if (captured.neural?.cancelWork) {
+      tasks.push(captured.neural.cancelWork({ reason }).catch(() => undefined));
     }
     if (search) tasks.push(search.promise.catch(() => undefined));
     const prior = this.cleanupBarrier;
@@ -1463,31 +1511,47 @@ export class BrowserAnalysisRuntime {
     )
       .then(() => true)
       .catch(() => false);
-    if (!completed) {
-      // A drain that cannot be established is quarantined rather than silently
-      // reused: terminate the inference workers so replacement work starts clean.
-      try {
-        this.coordinator?.dispose();
-      } catch {
-        // Bounded disposal is owned by the validated client.
+    if (completed) {
+      if (
+        this.context === context &&
+        this.activeSearch === search &&
+        (this.status.state === 'searching' || this.status.state === 'initializing')
+      ) {
+        this.setState('cancelled', { error: null });
       }
-      try {
-        this.neural?.dispose?.();
-      } catch {
-        // Ignore disposal failures on an already-terminated worker.
+      return;
+    }
+    // The caller's wait is bounded, but that is not proof the underlying work
+    // stopped. Quarantine only the exact clients captured from this context and
+    // release the admission barrier so future operations are not permanently
+    // blocked on an obsolete unresolved promise.
+    if (this.context === context) {
+      if (this.coordinator === captured.coordinator) {
+        try {
+          captured.coordinator?.dispose();
+        } catch {
+          // Bounded disposal is owned by the validated client.
+        }
+        this.coordinator = null;
       }
-      this.coordinator = null;
-      this.neural = null;
+      if (this.neural === captured.neural) {
+        try {
+          captured.neural?.dispose?.();
+        } catch {
+          // Ignore disposal failures on an already-terminated worker.
+        }
+        this.neural = null;
+      }
+      if (this.activeSearch === search) this.activeSearch = null;
+      this.cleanupBarrier = Promise.resolve();
       this.setState('error', {
         error: {
           code: 'search-failed',
-          message: 'Cancellation cleanup did not finish; inference workers were terminated',
+          message:
+            'Cancellation cleanup did not finish; affected inference workers were terminated',
           retryable: true,
         },
       });
-    }
-    if (this.status.state === 'searching' || this.status.state === 'initializing') {
-      this.setState('cancelled', { error: null });
     }
   }
 
@@ -1576,6 +1640,7 @@ export class BrowserAnalysisRuntime {
    */
   async invalidateAccountContext(): Promise<void> {
     this.context += 1;
+    const context = this.context;
     this.initState = null;
     this.abortOperations(() => true);
     this.downloads.cancelAll('Account context changed');
@@ -1618,7 +1683,7 @@ export class BrowserAnalysisRuntime {
       .then(() => true)
       .catch(() => false);
     this.disposeCaptured(captured);
-    if (!completed) {
+    if (!completed && this.context === context) {
       this.setState('error', {
         error: {
           code: 'search-failed',
@@ -1629,14 +1694,21 @@ export class BrowserAnalysisRuntime {
     }
   }
 
-  /** Release workers and abort transfers; the runtime object becomes reusable. */
-  async dispose(): Promise<void> {
-    if (this.disposed) return;
+  private releaseManagedInstance(): void {
+    if (!this.managedInstance || this.managedReleased) return;
+    this.managedReleased = true;
+    managedRuntimeInstances = Math.max(0, managedRuntimeInstances - 1);
+  }
+
+  /**
+   * Release workers and abort transfers. The caller-facing outcome is bounded,
+   * but managed-instance admission is retained until retiring workers, hashing
+   * and storage admissions genuinely settle. Repeated calls share one outcome.
+   */
+  async dispose(): Promise<RuntimeDisposalOutcome> {
+    if (this.disposeOutcome) return this.disposeOutcome;
+    if (this.disposalPromise) return this.disposalPromise;
     this.disposed = true;
-    if (this.managedInstance) {
-      managedRuntimeInstances = Math.max(0, managedRuntimeInstances - 1);
-      this.managedInstance = false;
-    }
     this.context += 1;
     this.abortOperations(() => true);
     this.downloads.cancelAll('Runtime disposed');
@@ -1674,12 +1746,46 @@ export class BrowserAnalysisRuntime {
     }
     const barrier = Promise.allSettled(tasks).then(() => undefined);
     this.cleanupBarrier = barrier;
-    await this.withTimeout(
-      barrier,
-      LIMITS.shutdownTimeoutMs,
-      'Runtime disposal did not finish',
-    ).catch(() => undefined);
-    this.disposeCaptured(captured);
+    this.disposalPromise = (async () => {
+      let outcome: RuntimeDisposalOutcome;
+      try {
+        await this.withTimeout(
+          barrier,
+          LIMITS.shutdownTimeoutMs,
+          'Runtime disposal did not finish',
+        ).catch(() => undefined);
+        this.disposeCaptured(captured);
+        const drain = await this.downloads.drain(LIMITS.shutdownTimeoutMs);
+        outcome = {
+          drained: drain.drained,
+          activeTransfers: drain.activeTransfers,
+          reservedBytes: drain.reservedBytes,
+          transfers: drain.transfers,
+          queued: drain.queued,
+        };
+      } catch {
+        // Never leak the managed reservation on an unexpected disposal failure.
+        outcome = {
+          drained: false,
+          ...this.downloads.occupancy,
+        };
+      }
+      this.disposeOutcome = outcome;
+      if (this.managedInstance) {
+        if (outcome.drained) {
+          this.releaseManagedInstance();
+        } else {
+          // Non-interruptible work still owns resources: retain admission until
+          // it genuinely settles, then release exactly once.
+          void this.downloads.whenIdle().then(
+            () => this.releaseManagedInstance(),
+            () => this.releaseManagedInstance(),
+          );
+        }
+      }
+      return outcome;
+    })();
+    return this.disposalPromise;
   }
 
   getLastResult(): SearchResult | null {

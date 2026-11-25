@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { BrowserAnalysisError, type SearchRequest } from './contracts';
-import { validateModelManifest } from './manifests';
+import { BrowserAnalysisError, type RuntimeManifest, type SearchRequest } from './contracts';
+import { computeRuntimeId, validateModelManifest } from './manifests';
 import { BrowserAnalysisRuntime, JARL_SETTINGS, normalizeJarlSettings } from './runtime';
 import { ArtifactCache, MemoryArtifactStore } from './storage';
 import {
@@ -133,10 +133,12 @@ function harness(
     tamperAsset?: string;
   } = {},
 ) {
-  const current = options.runtime === false ? null : manifest;
+  let current = options.runtime === false ? null : manifest;
   const enabled = options.enabled !== false;
   const assetUrls = new Map<string, { body: string; tampered: boolean }>();
-  if (current) {
+  const buildAssets = () => {
+    assetUrls.clear();
+    if (!current) return;
     for (const [path, contents] of RUNTIME_FILES) {
       const body = options.tamperAsset === path ? 'tampered contents' : contents;
       assetUrls.set(`${current.basePath}/${path}`, {
@@ -144,11 +146,15 @@ function harness(
         tampered: options.tamperAsset === path,
       });
     }
-  }
+  };
+  buildAssets();
 
   let coordinatorResult:
     | Record<string, unknown>
     | ((request: AnyRequest) => Record<string, unknown>) = defaultEnvelope;
+  const availabilityGates: Array<ReturnType<typeof deferred>> = [];
+  let digestGate: ReturnType<typeof deferred> | null = null;
+  let cancelWorkGate: ReturnType<typeof deferred> | null = null;
   const gates = {
     availability: null as ReturnType<typeof deferred> | null,
     jarlInfo: null as ReturnType<typeof deferred> | null,
@@ -178,13 +184,18 @@ function harness(
 
   const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
     requests.push(url);
-    if (gates.availability) {
+    const availabilityPayload =
+      url === '/api/browser-analysis/availability' ? availabilityWire(current, { enabled }) : null;
+    if (availabilityGates.length > 0) {
+      const gate = availabilityGates.shift()!;
+      await awaitGate(gate, init?.signal ?? undefined);
+    } else if (gates.availability) {
       const gate = gates.availability;
       gates.availability = null;
       await awaitGate(gate, init?.signal ?? undefined);
     }
-    if (url === '/api/browser-analysis/availability') {
-      return jsonResponse(availabilityWire(current, { enabled }));
+    if (availabilityPayload) {
+      return jsonResponse(availabilityPayload);
     }
     if (url === '/api/browser-analysis/models') {
       return jsonResponse({
@@ -313,6 +324,7 @@ function harness(
       this.identity = null;
       this.provider = null;
       gates.modelLoad?.resolve(undefined);
+      if (cancelWorkGate) await cancelWorkGate.promise;
       return { state: 'cancelled' };
     }
     dispose() {
@@ -394,7 +406,10 @@ function harness(
   const cache = new ArtifactCache(new MemoryArtifactStore());
   const runtime = new BrowserAnalysisRuntime({
     fetchImpl: fetchImpl as unknown as typeof fetch,
-    digestFn: nodeDigest,
+    digestFn: async (bytes) => {
+      if (digestGate) await digestGate.promise;
+      return nodeDigest(bytes);
+    },
     loadModule,
     cache,
   });
@@ -402,6 +417,7 @@ function harness(
   return {
     runtime,
     fetchImpl,
+    loadModule,
     requests,
     gates,
     moduleGates,
@@ -436,6 +452,32 @@ function harness(
     setFailNextSearch(destroySession: boolean) {
       failNextSearch = true;
       destroySessionOnSearchFailure = destroySession;
+    },
+    setRuntime(next: RuntimeManifest | null) {
+      current = next;
+      buildAssets();
+    },
+    queueAvailabilityGate() {
+      const gate = deferred();
+      availabilityGates.push(gate);
+      return gate;
+    },
+    setDigestGate(gate: ReturnType<typeof deferred> | null) {
+      digestGate = gate;
+    },
+    setCancelWorkGate(gate: ReturnType<typeof deferred> | null) {
+      cancelWorkGate = gate;
+    },
+    async createManagedRuntime() {
+      return BrowserAnalysisRuntime.create({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        digestFn: async (bytes) => {
+          if (digestGate) await digestGate.promise;
+          return nodeDigest(bytes);
+        },
+        loadModule,
+        cache,
+      });
     },
   };
 }
@@ -1439,4 +1481,324 @@ describe('browser analysis runtime — healthy session reuse (G5)', () => {
     expect(env.modelRequests).toBe(1);
     expect(env.workers.neuralCreated).toBe(1);
   });
+});
+
+async function variantRuntime(): Promise<RuntimeManifest> {
+  const base = runtimeManifest();
+  const variant: RuntimeManifest = {
+    ...base,
+    pins: { ...base.pins, applicationVersion: '0.42.0' },
+    runtimeId: '',
+    basePath: '',
+  };
+  variant.runtimeId = await computeRuntimeId(variant, nodeDigest);
+  variant.basePath = `/browser-analysis/runtime/${variant.runtimeId}`;
+  return variant;
+}
+
+async function waitForManagedCreate(env: ReturnType<typeof harness>) {
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    try {
+      return await env.createManagedRuntime();
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  throw new Error('managed runtime reservation was not released');
+}
+
+describe('browser analysis runtime — initialization and admission coordination (H1/H4)', () => {
+  it('is idempotent during a pending Jarl search without replacing its worker', async () => {
+    const env = await ready();
+    env.gates.jarlSearch = deferred();
+    const pending = env.runtime.runSearch({ state: STATE, algorithm: 'jarl' });
+    await vi.waitFor(() => expect(env.runtime.getStatus().state).toBe('searching'));
+    const status = await env.runtime.initialize();
+    expect(status.state).toBe('searching');
+    expect(env.workers.jarlCreated).toBe(1);
+    expect(env.workers.jarlDisposed).toBe(0);
+    env.gates.jarlSearch.resolve(undefined);
+    env.gates.jarlSearch = null;
+    await expect(pending).resolves.toMatchObject({ algorithm: 'jarl' });
+  });
+
+  it('is idempotent during a pending neural search', async () => {
+    const env = await ready();
+    env.gates.search = deferred();
+    const pending = env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    await vi.waitFor(() => expect(env.workers.coordinatorCreated).toBe(1));
+    const status = await env.runtime.initialize();
+    expect(status.state).toBe('searching');
+    expect(env.workers.neuralCreated).toBe(1);
+    expect(env.workers.neuralDisposed).toBe(0);
+    env.gates.search.resolve(undefined);
+    env.gates.search = null;
+    await expect(pending).resolves.toMatchObject({ algorithm: 'neural_mcts' });
+  });
+
+  it('rejects search admission while the runtime identity is being replaced', async () => {
+    const env = await ready();
+    env.gates.jarlSearch = deferred();
+    const pending = env.runtime.runSearch({ state: STATE, algorithm: 'jarl' });
+    await vi.waitFor(() => expect(env.activeJarl?.calls.length).toBeGreaterThan(0));
+    env.setRuntime(await variantRuntime());
+    await env.runtime.availability();
+    await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
+    await expect(env.runtime.runSearch({ state: STATE, algorithm: 'jarl' })).rejects.toMatchObject({
+      code: 'not-initialized',
+    });
+    expect(env.workers.jarlDisposed).toBe(1);
+    const initialized = await env.runtime.initialize();
+    expect(initialized.state).toBe('ready');
+    await expect(env.runtime.runSearch({ state: STATE, algorithm: 'jarl' })).resolves.toMatchObject(
+      {
+        algorithm: 'jarl',
+      },
+    );
+    expect(env.workers.jarlCreated).toBe(2);
+  });
+
+  it('ignores an out-of-order availability response after a newer state applied', async () => {
+    const env = await ready();
+    const firstGate = env.queueAvailabilityGate();
+    const first = env.runtime.availability();
+    const variant = await variantRuntime();
+    env.setRuntime(variant);
+    const secondGate = env.queueAvailabilityGate();
+    const second = env.runtime.availability();
+    secondGate.resolve(undefined);
+    await second;
+    expect(env.runtime.getStatus().runtimeId).toBe(variant.runtimeId);
+    firstGate.resolve(undefined);
+    await first;
+    expect(env.runtime.getStatus().runtimeId).toBe(variant.runtimeId);
+  });
+
+  it('removes caller abort forwarding listeners on repeated operations', async () => {
+    const env = await ready();
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, 'addEventListener');
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    for (let index = 0; index < 3; index += 1) {
+      await env.runtime.runSearch(
+        { state: STATE, algorithm: 'jarl' },
+        {
+          signal: controller.signal,
+        },
+      );
+    }
+    const added = add.mock.calls.filter((call) => call[0] === 'abort').length;
+    const removed = remove.mock.calls.filter((call) => call[0] === 'abort').length;
+    expect(added).toBeGreaterThan(0);
+    expect(removed).toBe(added);
+  });
+
+  it('handles an already-aborted caller signal without retaining a listener', async () => {
+    const env = await ready();
+    const controller = new AbortController();
+    controller.abort();
+    const add = vi.spyOn(controller.signal, 'addEventListener');
+    await expect(
+      env.runtime.runSearch(
+        { state: STATE, algorithm: 'jarl' },
+        {
+          signal: controller.signal,
+        },
+      ),
+    ).rejects.toBeInstanceOf(BrowserAnalysisError);
+    expect(add.mock.calls.filter((call) => call[0] === 'abort')).toHaveLength(0);
+  });
+
+  it('coordinates overlapping cancellation and account invalidation without touching newer workers', async () => {
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    env.gates.search = deferred();
+    const pending = env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    await vi.waitFor(() => expect(env.workers.coordinatorCreated).toBe(1));
+    const slowCancel = deferred();
+    env.setCancelWorkGate(slowCancel);
+    const cancelling = env.runtime.cancel();
+    const invalidating = env.runtime.invalidateAccountContext();
+    await settle(pending);
+    await Promise.all([cancelling, invalidating]);
+    slowCancel.resolve(undefined);
+    const initialized = await env.runtime.initialize();
+    expect(initialized.state).toBe('ready');
+    const recovered = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    expect(recovered.model?.sha256).toBe(model.onnxSha256);
+    expect(env.runtime.getStatus().state).toBe('ready');
+  }, 20000);
+
+  it('recovers after cancellation cleanup times out and quarantines only old workers', async () => {
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    env.gates.search = deferred();
+    const pending = env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    await vi.waitFor(() => expect(env.workers.coordinatorCreated).toBe(1));
+    const cancelGate = deferred();
+    env.setCancelWorkGate(cancelGate);
+    const cancel = env.runtime.cancel();
+    await expect(pending).rejects.toBeInstanceOf(BrowserAnalysisError);
+    await cancel;
+    expect(env.runtime.getStatus().state).toBe('error');
+    expect(env.runtime.getStatus().error?.retryable).toBe(true);
+    // A new search is not permanently blocked by the obsolete unresolved cleanup.
+    cancelGate.resolve(undefined);
+    const recovered = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    expect(recovered.model?.sha256).toBe(model.onnxSha256);
+    expect(env.workers.neuralCreated).toBe(2);
+  }, 20000);
+
+  it('obsolete cleanup completing later cannot dispose a newer session', async () => {
+    const env = await ready();
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    env.gates.search = deferred();
+    const pending = env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    await vi.waitFor(() => expect(env.workers.coordinatorCreated).toBe(1));
+    const oldCancelGate = deferred();
+    env.setCancelWorkGate(oldCancelGate);
+    const cancel = env.runtime.cancel();
+    await settle(pending);
+    await cancel;
+    const oldNeural = env.activeNeural;
+    env.setCancelWorkGate(null);
+    const recovered = await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    const newNeural = env.activeNeural;
+    oldCancelGate.resolve(undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(newNeural).not.toBe(oldNeural);
+    expect(recovered.model?.sha256).toBe(model.onnxSha256);
+    expect(env.runtime.getLastResult()?.model?.sha256).toBe(model.onnxSha256);
+  }, 20000);
+});
+
+describe('browser analysis runtime — managed disposal admission (H2)', () => {
+  it('retains the singleton reservation until active downloads retire', async () => {
+    const env = harness();
+    const managed = await env.createManagedRuntime();
+    await managed.initialize();
+    const gate = deferred();
+    env.setDigestGate(gate);
+    const download = managed.downloadModel(model).catch((error) => error);
+    await vi.waitFor(() => expect(env.modelRequests).toBe(1));
+    const disposal = managed.dispose();
+    await expect(env.createManagedRuntime()).rejects.toMatchObject({ code: 'quota-exceeded' });
+    const outcome = await disposal;
+    expect(outcome.drained).toBe(false);
+    expect(outcome.transfers).toBeGreaterThan(0);
+    gate.resolve(undefined);
+    expect(await download).toBeInstanceOf(BrowserAnalysisError);
+    const replacement = await waitForManagedCreate(env);
+    await replacement.dispose();
+  }, 20000);
+
+  it('coordinates dispose with an active transfer and releases after retirement', async () => {
+    const env = harness();
+    const managed = await env.createManagedRuntime();
+    await managed.initialize();
+    env.gates.artifact = deferred();
+    const download = managed.downloadModel(model).catch((error) => error);
+    await vi.waitFor(() => expect(env.modelRequests).toBe(1));
+    const outcome = await managed.dispose();
+    expect(outcome.drained).toBe(true);
+    expect(await download).toBeInstanceOf(BrowserAnalysisError);
+    const replacement = await env.createManagedRuntime();
+    await replacement.dispose();
+  });
+
+  it('releases the singleton immediately when no retiring downloads remain', async () => {
+    const env = harness();
+    const managed = await env.createManagedRuntime();
+    await managed.initialize();
+    const outcome = await managed.dispose();
+    expect(outcome.drained).toBe(true);
+    const replacement = await env.createManagedRuntime();
+    const repeated = await managed.dispose();
+    expect(repeated).toBe(outcome);
+    await replacement.dispose();
+  });
+
+  it('waits for delayed cache admission before releasing the singleton', async () => {
+    const env = harness();
+    const managed = await env.createManagedRuntime();
+    await managed.initialize();
+    const gate = deferred();
+    const originalAdmit = env.cache.admit.bind(env.cache);
+    let admissionStarted = false;
+    env.cache.admit = async (...args) => {
+      admissionStarted = true;
+      await gate.promise;
+      return originalAdmit(...args);
+    };
+    const download = managed.downloadModel(model).catch((error) => error);
+    await vi.waitFor(() => expect(admissionStarted).toBe(true));
+    const disposal = managed.dispose();
+    const outcome = await disposal;
+    expect(outcome.drained).toBe(false);
+    gate.resolve(undefined);
+    expect(await download).toBeInstanceOf(BrowserAnalysisError);
+    const replacement = await waitForManagedCreate(env);
+    await replacement.dispose();
+  }, 20000);
 });

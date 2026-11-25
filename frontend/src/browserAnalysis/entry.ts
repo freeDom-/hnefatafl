@@ -27,7 +27,6 @@ export {
 export type { AnalysisAlgorithm };
 export { JARL_ALGORITHM, NEURAL_ALGORITHM } from './contracts';
 export {
-  BrowserAnalysisRuntime,
   JARL_SETTINGS,
   modelFromCatalog,
   normalizeJarlSettings,
@@ -42,6 +41,7 @@ import type {
   DownloadProgress,
   ModelDownloadResult,
   ModelManifest,
+  RuntimeDisposalOutcome,
   RuntimeStatus,
   SearchRequest,
   SearchResult,
@@ -62,7 +62,7 @@ export interface BrowserAnalysisApi {
   runSearch(request: SearchRequest, options?: { signal?: AbortSignal }): Promise<SearchResult>;
   cancel(reason?: string): Promise<void>;
   invalidateAccountContext(): Promise<void>;
-  dispose(): Promise<void>;
+  dispose(): Promise<RuntimeDisposalOutcome>;
   status(): RuntimeStatus;
   lastResult(): SearchResult | null;
   storageUsage(): Promise<{ persistent: boolean; bytes: number }>;

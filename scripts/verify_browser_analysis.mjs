@@ -102,23 +102,30 @@ try {
       const finished = performance.now();
       let recoveryResult = null;
       if (recovery) {
-        const pending = api
-          .runSearch({
+        try {
+          const pending = api
+            .runSearch({
+              state,
+              settings: { depth: 4, time_limit: 2 },
+              algorithm: 'jarl',
+            })
+            .then((value) => ({ cancelled: false, ok: Boolean(value.analysis) }))
+            .catch((error) => ({ cancelled: true, code: error?.code ?? null }));
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          await api.cancel('recovery probe');
+          const cancelled = await pending;
+          const after = await api.runSearch({
             state,
-            settings: { depth: 4, time_limit: 2 },
+            settings: { depth: 3, time_limit: 1 },
             algorithm: 'jarl',
-          })
-          .then((value) => ({ cancelled: false, ok: Boolean(value.analysis) }))
-          .catch((error) => ({ cancelled: true, code: error?.code ?? null }));
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        await api.cancel('recovery probe');
-        const cancelled = await pending;
-        const after = await api.runSearch({
-          state,
-          settings: { depth: 3, time_limit: 1 },
-          algorithm: 'jarl',
-        });
-        recoveryResult = { cancelled, afterOk: Boolean(after.analysis), state: api.status() };
+          });
+          recoveryResult = { cancelled, afterOk: Boolean(after.analysis), state: api.status() };
+        } catch (error) {
+          recoveryResult = {
+            stageError: String(error?.message ?? error),
+            status: api.status(),
+          };
+        }
       }
       let previousRuntimeAsset = null;
       if (previousManifest) {
@@ -190,7 +197,7 @@ try {
       entry: `/${entry.file}`,
       state,
       neural,
-      settings: { depth: 3, time_limit: 0.5, seed: 7 },
+      settings: { depth: 3, time_limit: 1, seed: 7 },
       recovery,
       expectRuntimeId,
       previousManifest,

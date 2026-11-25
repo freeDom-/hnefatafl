@@ -566,3 +566,168 @@ describe('download manager — actual occupancy across retiring generations', ()
     ).not.toBeNull();
   });
 });
+
+function streamWithCancel(
+  chunks: string[],
+  cancel: () => Promise<void>,
+  contentLength?: number,
+): Response {
+  const encoded = chunks.map((chunk) => new TextEncoder().encode(chunk));
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of encoded) controller.enqueue(chunk);
+      controller.close();
+    },
+    cancel,
+  });
+  const headers = new Headers();
+  headers.set(
+    'content-length',
+    String(contentLength ?? encoded.reduce((sum, chunk) => sum + chunk.byteLength, 0)),
+  );
+  return { ok: true, status: 200, headers, body: stream } as unknown as Response;
+}
+
+describe('download manager — bounded caller outcomes (H3)', () => {
+  it('bounds a delayed cache lookup and never starts a transfer afterwards', async () => {
+    const gate = new Promise<void>((resolve) => setTimeout(resolve, 0));
+    let release!: () => void;
+    const lookupGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    void gate;
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store);
+    const original = cache.getVerified.bind(cache);
+    cache.getVerified = async (...args) => {
+      await lookupGate;
+      return original(...args);
+    };
+    const fetchImpl = vi.fn(async () => streamResponse(['payload']));
+    const downloads = manager(fetchImpl, { cache, timeoutMs: 50 });
+    const pending = downloads.download(spec('payload'));
+    await expect(pending).rejects.toMatchObject({ code: 'download-timeout' });
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(downloads.activeCount).toBe(0);
+    expect(downloads.outstandingBytes).toBe(0);
+  });
+
+  it('returns a timeout while retaining accounting until delayed hashing settles', async () => {
+    const request = spec('hash deadline payload');
+    let releaseDigest!: () => void;
+    const digestGate = new Promise<void>((resolve) => {
+      releaseDigest = resolve;
+    });
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store);
+    const downloads = new DownloadManager({
+      fetchImpl: async () => streamResponse(['hash deadline payload']),
+      digestFn: async (bytes) => {
+        await digestGate;
+        return digest(bytes);
+      },
+      cache,
+      timeoutMs: 60,
+      retries: 0,
+    });
+    const started = Date.now();
+    await expect(downloads.download(request)).rejects.toMatchObject({
+      code: 'download-timeout',
+    });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(downloads.outstandingBytes).toBe(request.expectedBytes);
+    releaseDigest();
+    await vi.waitFor(() => expect(downloads.outstandingBytes).toBe(0));
+    expect(downloads.activeCount).toBe(0);
+    expect(await cache.totalBytes()).toBe(0);
+    const later = downloads.download(request);
+    await expect(later).resolves.toMatchObject({ key: request.key });
+  });
+
+  it('does not activate a cache admission that finishes after the caller deadline', async () => {
+    const request = spec('slow admission payload');
+    let releaseAdmission!: () => void;
+    const admissionGate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store);
+    let admissionStarted = false;
+    const originalAdmit = cache.admit.bind(cache);
+    cache.admit = async (...args) => {
+      admissionStarted = true;
+      await admissionGate;
+      return originalAdmit(...args);
+    };
+    const downloads = manager(async () => streamResponse(['slow admission payload']), {
+      cache,
+      timeoutMs: 50,
+    });
+    await expect(downloads.download(request)).rejects.toMatchObject({
+      code: 'download-timeout',
+    });
+    await vi.waitFor(() => expect(admissionStarted).toBe(true));
+    releaseAdmission();
+    await vi.waitFor(() => expect(downloads.outstandingBytes).toBe(0));
+    expect(await cache.totalBytes()).toBe(0);
+    expect(downloads.activeCount).toBe(0);
+  });
+
+  it('cancels the response body when a declared size is rejected', async () => {
+    const cancel = vi.fn(async () => undefined);
+    const request = spec('declared size payload');
+    const downloads = manager(async () =>
+      streamWithCancel(['declared size payload'], cancel, request.expectedBytes + 1),
+    );
+    await expect(downloads.download(request)).rejects.toMatchObject({ code: 'size-mismatch' });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels the reader when a stream is oversized', async () => {
+    const cancel = vi.fn(async () => undefined);
+    const request = spec('small payload');
+    const downloads = manager(async () =>
+      streamWithCancel(['small payload', ' plus extra bytes'], cancel),
+    );
+    await expect(downloads.download(request)).rejects.toMatchObject({ code: 'size-mismatch' });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the original failure when response cancellation itself fails', async () => {
+    const request = spec('declared size payload');
+    const downloads = manager(async () =>
+      streamWithCancel(
+        ['declared size payload'],
+        async () => {
+          throw new Error('cancel failed');
+        },
+        request.expectedBytes + 1,
+      ),
+    );
+    await expect(downloads.download(request)).rejects.toMatchObject({ code: 'size-mismatch' });
+  });
+
+  it('cancels during cache lookup without starting work', async () => {
+    let release!: () => void;
+    const lookupGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cache = new ArtifactCache(new MemoryArtifactStore());
+    const original = cache.getVerified.bind(cache);
+    cache.getVerified = async (...args) => {
+      await lookupGate;
+      return original(...args);
+    };
+    const fetchImpl = vi.fn(async () => streamResponse(['payload']));
+    const downloads = manager(fetchImpl, { cache });
+    const controller = new AbortController();
+    const pending = downloads.download(spec('payload'), { signal: controller.signal });
+    controller.abort();
+    release();
+    await expect(pending).rejects.toMatchObject({ code: 'download-aborted' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(downloads.activeCount).toBe(0);
+  });
+});

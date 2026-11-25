@@ -389,7 +389,7 @@ while actual memory use remains estimated/observable only.
 
 Residual limitations are documented in the
 [Phase 4 validation report](validation/browser-analysis-phase4.md): no offline
-runtime execution (deferred pending explicit owner approval; models are offline-verifiable
+runtime execution (deferred by explicit owner approval to a separate phase; models are offline-verifiable
 but runtime workers load origin URLs and there is no service worker), best-effort
 per-tab cross-tab coordination, no verified GPU execution, no competitive model or
 playing-strength evidence, and no physical-device acceptance.

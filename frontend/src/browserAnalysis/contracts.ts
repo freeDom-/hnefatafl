@@ -102,6 +102,7 @@ export type BrowserAnalysisErrorCode =
   | 'quota-exceeded'
   | 'download-aborted'
   | 'download-failed'
+  | 'download-timeout'
   | 'size-mismatch'
   | 'digest-mismatch'
   | 'cancelled'
@@ -231,6 +232,15 @@ export interface SearchResult {
   searchId: string | null;
   elapsedMs: number;
   authoritative: false;
+}
+
+export interface RuntimeDisposalOutcome {
+  /** True only when every download/hashing/admission operation has settled. */
+  drained: boolean;
+  activeTransfers: number;
+  reservedBytes: number;
+  transfers: number;
+  queued: number;
 }
 
 export interface ModelDownloadResult {

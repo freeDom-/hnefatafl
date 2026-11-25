@@ -665,12 +665,13 @@ Phase 3 is not complete.
     checks, before/after-hash checks and verified-descriptor streaming; healthy neural
     sessions skip byte retrieval; temperature is fixed at zero and nested Jarl search
     settings are validated.
-  - Offline runtime execution is deferred pending explicit owner approval; the original
-    requirement is not claimed as fulfilled.
+  - Offline runtime execution is deferred by explicit owner approval to a separate
+    implementation phase; it is not a Phase 4 completion requirement and is not
+    implemented in this PR.
 - **Explicit non-claims:** no competitive playing strength, no verified GPU
   execution, no physical-device compatibility, no sustained-memory acceptance, no
-  offline runtime execution (no service worker; explicit proposed deferral), no
-  Phase 5 UI.
+  offline runtime execution (owner-approved deferral to a separate phase; no service
+  worker), no Phase 5 UI.
 - **Remaining:** Phase 5 integration; owner publication of competitive exports;
   the unchanged Phase 3C-B external gates.
 
@@ -968,6 +969,7 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-25 | Phase 4 H1–H4: idempotent initialization during active searches with sequenced availability; captured-resource cancellation quarantine and recovery; managed-instance admission retained until workers/downloads/hashing/admission settle with bounded disposal outcome; one caller deadline across cache/queue/transfer/hash/admission with explicit response-stream cancellation; caller-signal listener cleanup. Owner-approval recorded for deferring offline runtime execution to a separate phase; embedded-notice licensing blocker documented. |
 | 2026-11-25 | Phase 4 G1–G6 corrections: complete cancellation/session recovery and atomic account invalidation; global download occupancy across retiring generations with ownership-token cache cleanup and per-tab singleton admission; strict provider/effective-settings and completion-budget validation; device/ctime file-identity hardening with verified-descriptor streaming; healthy-session reuse without model-byte retrieval; fixed-zero temperature and strict nested Jarl search settings; E1 cleanup diagnostics; offline runtime execution deferred pending owner approval and embedded notice review documented as unresolved. |
 | 2026-11-25 | Phase 4 review corrections F1–F8: operation ownership, immutable runtime identity and snapshot delivery, real provider evidence, generation-safe download reservations, verified model bytes for inference, atomic publication/version binding, complete compatibility validation, explicit algorithm/effective-settings contract; E1 follow-up exit code 6 and deterministic transition-history producer handshake; actual production-browser Jarl/neural and runtime-identity-change evidence. Offline runtime execution remains an explicit proposed deferral. |
 | 2026-11-25 | Phase 4 production integration: pinned same-origin runtime distribution and verification, explicit administrator model publication with immutable/audited artifacts, authenticated delivery API, narrow enabled-only WASM CSP, bounded IndexedDB storage/download/runtime lifecycle managers, disabled-by-default feature flag, deployment/rollback documentation, canonical export validation shared with the spike, E1 lifecycle-sweep correction and actual production-browser evidence. Browser analysis remains disabled; competitive/physical/sustained-memory gates remain open. |

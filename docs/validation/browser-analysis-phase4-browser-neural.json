@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "baseUrl": "http://127.0.0.1:45972",
+  "baseUrl": "http://127.0.0.1:45963",
   "browser": "156.0.8078.4",
-  "entry": "/assets/entry-BjfWlXD5.js",
+  "entry": "/assets/entry-CExy2VMb.js",
   "checks": [
     {
       "name": "login succeeds",
@@ -87,7 +87,7 @@
     {
       "name": "Jarl reports the explicit alpha-beta algorithm and effective settings",
       "ok": true,
-      "detail": "{\"algorithm\":\"alpha_beta\",\"time_limit\":0.5,\"seed\":7,\"depth\":3,\"heuristic\":\"shield_maiden\",\"search\":{\"legacy\":false,\"transposition\":true,\"move_ordering\":true,\"symmetry_transposition\":false,\"symmetry_pruning\":false,\"table_capacity\":100000}}"
+      "detail": "{\"algorithm\":\"alpha_beta\",\"time_limit\":1,\"seed\":7,\"depth\":3,\"heuristic\":\"shield_maiden\",\"search\":{\"legacy\":false,\"transposition\":true,\"move_ordering\":true,\"symmetry_transposition\":false,\"symmetry_pruning\":false,\"table_capacity\":100000}}"
     },
     {
       "name": "Jarl has no neural inference evidence",
@@ -339,9 +339,9 @@
       "authoritative": false
     },
     "cycles": {
-      "coldInitMs": 2975,
-      "jarlSearchMs": 261.80000001192093,
-      "secondInitMs": 10.199999988079071
+      "coldInitMs": 2773.600000023842,
+      "jarlSearchMs": 285.69999998807907,
+      "secondInitMs": 0
     },
     "storage": {
       "persistent": true,

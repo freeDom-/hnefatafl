@@ -51,6 +51,7 @@ interface SharedDownload {
   promise: Promise<DownloadResult>;
   controller: AbortController;
   generation: number;
+  deadline: number;
   subscribers: Set<Subscriber>;
   settled: boolean;
   terminal: boolean;
@@ -97,6 +98,7 @@ export class DownloadManager {
   private reservedBytes = 0;
   private queue: Waiter[] = [];
   private transfers = new Set<SharedDownload>();
+  private idleWaiters: Array<() => void> = [];
 
   constructor(
     private readonly options: {
@@ -140,6 +142,55 @@ export class DownloadManager {
 
   get outstandingBytes(): number {
     return this.reservedBytes;
+  }
+
+  get occupancy(): {
+    activeTransfers: number;
+    reservedBytes: number;
+    transfers: number;
+    queued: number;
+  } {
+    return {
+      activeTransfers: this.activeTransfers,
+      reservedBytes: this.reservedBytes,
+      transfers: this.transfers.size,
+      queued: this.queue.length,
+    };
+  }
+
+  /** Resolve once every transfer (including non-interruptible retirement) settles. */
+  whenIdle(): Promise<void> {
+    if (this.transfers.size === 0 && this.queue.length === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+  }
+
+  private notifyIdle(): void {
+    if (this.transfers.size !== 0 || this.queue.length !== 0) return;
+    const waiters = this.idleWaiters;
+    this.idleWaiters = [];
+    for (const resolve of waiters) resolve();
+  }
+
+  async drain(timeoutMs: number): Promise<{
+    drained: boolean;
+    activeTransfers: number;
+    reservedBytes: number;
+    transfers: number;
+    queued: number;
+  }> {
+    if (this.transfers.size === 0 && this.queue.length === 0) {
+      return { drained: true, ...this.occupancy };
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    });
+    try {
+      await Promise.race([this.whenIdle(), timeout]);
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
+    return { drained: this.transfers.size === 0 && this.queue.length === 0, ...this.occupancy };
   }
 
   private acquire(
@@ -225,15 +276,15 @@ export class DownloadManager {
   ): Promise<DownloadResult> {
     this.validateSpec(spec);
     const generation = this.generation;
+    const deadline = now() + this.timeoutMs;
     if (hooks.signal?.aborted) {
       throw abortError('Download cancelled');
     }
     if (this.options.cache) {
-      const cached = await this.options.cache.getVerified(
-        spec.key,
-        spec.sha256,
-        this.digestFn,
-        spec.expectedBytes,
+      const cached = await this.raceDeadline(
+        this.options.cache.getVerified(spec.key, spec.sha256, this.digestFn, spec.expectedBytes),
+        deadline,
+        'Cache lookup',
       );
       // Ownership is captured before the asynchronous cache lookup; a cancelAll
       // during the lookup must not start a new obsolete transfer afterwards.
@@ -241,6 +292,13 @@ export class DownloadManager {
         throw abortError('Download cancelled');
       }
       if (cached) {
+        if (now() > deadline) {
+          throw new BrowserAnalysisError(
+            'download-timeout',
+            'Cache lookup exceeded its deadline',
+            true,
+          );
+        }
         return {
           key: spec.key,
           bytes: cached,
@@ -268,19 +326,47 @@ export class DownloadManager {
       shared = undefined;
     }
     if (!shared) {
-      shared = this.createShared(spec);
+      shared = this.createShared(spec, deadline);
       this.activeByKey.set(spec.key, shared);
       this.start(shared);
     }
     return this.subscribe(shared, hooks);
   }
 
-  private createShared(spec: DownloadSpec): SharedDownload {
+  private raceDeadline<T>(promise: Promise<T>, deadline: number, stage: string): Promise<T> {
+    const remaining = deadline - now();
+    if (remaining <= 0) {
+      promise.catch(() => undefined);
+      return Promise.reject(
+        new BrowserAnalysisError('download-timeout', `${stage} exceeded its deadline`, true),
+      );
+    }
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new BrowserAnalysisError('download-timeout', `${stage} exceeded its deadline`, true),
+        );
+      }, remaining);
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  private createShared(spec: DownloadSpec, deadline: number): SharedDownload {
     const shared: SharedDownload = {
       spec,
       promise: Promise.resolve() as unknown as Promise<DownloadResult>,
       controller: new AbortController(),
       generation: this.generation,
+      deadline,
       subscribers: new Set(),
       settled: false,
       terminal: false,
@@ -302,10 +388,29 @@ export class DownloadManager {
     };
     shared.subscribers.add(subscriber);
     return new Promise<DownloadResult>((resolve, reject) => {
+      const remaining = shared.deadline - now();
+      const deadlineTimer = setTimeout(
+        () => {
+          if (!subscriber.active) return;
+          detach();
+          if (shared.subscribers.size === 0 && !shared.terminal) {
+            shared.controller.abort('caller deadline');
+          }
+          reject(
+            new BrowserAnalysisError(
+              'download-timeout',
+              'Download did not complete within its deadline',
+              true,
+            ),
+          );
+        },
+        Math.max(0, remaining),
+      );
       const detach = () => {
         subscriber.active = false;
         shared.subscribers.delete(subscriber);
         hooks.signal?.removeEventListener('abort', onAbort);
+        clearTimeout(deadlineTimer);
       };
       const onAbort = () => {
         if (!subscriber.active) return;
@@ -354,6 +459,7 @@ export class DownloadManager {
       if (this.activeByKey.get(shared.spec.key) === shared) {
         this.activeByKey.delete(shared.spec.key);
       }
+      this.notifyIdle();
     };
     this.transfers.add(shared);
     shared.promise = this.run(shared);
@@ -364,7 +470,7 @@ export class DownloadManager {
   private async run(shared: SharedDownload): Promise<DownloadResult> {
     const { spec } = shared;
     const generation = shared.generation;
-    const deadline = now() + this.timeoutMs;
+    const deadline = shared.deadline;
     const reservation = await this.acquire(generation, shared, deadline);
     let reserved = false;
     try {
@@ -395,6 +501,13 @@ export class DownloadManager {
           ) {
             throw abortError('Download was cancelled before activation');
           }
+          if (now() > deadline) {
+            throw new BrowserAnalysisError(
+              'download-timeout',
+              'Download exceeded its deadline before cache admission',
+              true,
+            );
+          }
           let retained = false;
           if (this.options.cache && spec.cacheable !== false) {
             const admitted = await this.options.cache.admit(spec.key, result.bytes, {
@@ -405,7 +518,8 @@ export class DownloadManager {
             if (
               generation !== this.generation ||
               shared.controller.signal.aborted ||
-              shared.subscribers.size === 0
+              shared.subscribers.size === 0 ||
+              now() > deadline
             ) {
               // Only remove the exact admission made by this obsolete transfer;
               // a newer same-key admission must survive.
@@ -489,14 +603,20 @@ export class DownloadManager {
     const { spec } = shared;
     const remaining = deadline - now();
     if (remaining <= 0) {
-      throw new BrowserAnalysisError('download-failed', 'Download exceeded its deadline', true);
+      throw new BrowserAnalysisError(
+        'download-timeout',
+        'Download exceeded its deadline before transfer',
+        true,
+      );
     }
     const timeoutController = new AbortController();
     const onSharedAbort = () => timeoutController.abort();
     shared.controller.signal.addEventListener('abort', onSharedAbort, { once: true });
     const timeout = setTimeout(() => timeoutController.abort('timeout'), remaining);
+    let response: Response | null = null;
+    let bodyConsumed = false;
     try {
-      const response = await this.fetchImpl(spec.url, {
+      response = await this.fetchImpl(spec.url, {
         signal: timeoutController.signal,
         credentials: 'same-origin',
         cache: spec.immutable ? 'force-cache' : 'no-store',
@@ -511,12 +631,21 @@ export class DownloadManager {
         );
       }
       const bytes = await this.readBounded(response, shared, timeoutController.signal);
+      bodyConsumed = true;
       if (now() > deadline) {
-        throw new BrowserAnalysisError('download-failed', 'Download exceeded its deadline', true);
+        throw new BrowserAnalysisError(
+          'download-timeout',
+          'Download exceeded its deadline after transfer',
+          true,
+        );
       }
       const digest = await this.digestFn(bytes);
       if (now() > deadline) {
-        throw new BrowserAnalysisError('download-failed', 'Download exceeded its deadline', true);
+        throw new BrowserAnalysisError(
+          'download-timeout',
+          'Download exceeded its deadline during hashing',
+          true,
+        );
       }
       if (digest !== spec.sha256) {
         throw new BrowserAnalysisError(
@@ -526,9 +655,22 @@ export class DownloadManager {
       }
       return { key: spec.key, bytes, sha256: digest, fromCache: false };
     } catch (error) {
+      if (response && !bodyConsumed) {
+        // Explicitly cancel the unread response stream; releasing a reader lock
+        // is not equivalent to cancelling the underlying body.
+        try {
+          await response.body?.cancel();
+        } catch {
+          // The transport may already be closed.
+        }
+      }
       if (shared.controller.signal.aborted) throw abortError('Download cancelled');
       if (timeoutController.signal.aborted) {
-        throw new BrowserAnalysisError('download-failed', 'Download exceeded its deadline', true);
+        throw new BrowserAnalysisError(
+          'download-timeout',
+          'Download exceeded its deadline during transfer',
+          true,
+        );
       }
       if (error instanceof BrowserAnalysisError) throw error;
       throw new BrowserAnalysisError('download-failed', 'Download failed', true);
@@ -557,6 +699,7 @@ export class DownloadManager {
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let received = 0;
+    let completed = false;
     try {
       for (;;) {
         const { done, value } = await reader.read();
@@ -572,7 +715,15 @@ export class DownloadManager {
         chunks.push(value);
         this.publishProgress(shared, received);
       }
+      completed = true;
     } finally {
+      if (!completed) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The stream may already be errored/closed.
+        }
+      }
       reader.releaseLock();
     }
     if (received !== expected) {

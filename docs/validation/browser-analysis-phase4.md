@@ -588,9 +588,10 @@ but worker execution loads origin URLs and the runtime has no service worker.
 Implementing offline runtime execution would require either a global service worker
 (interception of Pyodide's internal asset fetches) or blob-based worker/runtime
 execution with a broader `worker-src`/`connect-src` policy. Both are disproportionate
-for Phase 4, affect existing application caching/auth/spectator behavior, and need
-explicit owner approval. Until that approval exists, offline runtime execution is
-deferred and the original requirement is not claimed as fulfilled. Interrupted downloads, missing assets, storage denial and
+for Phase 4 and affect existing application caching/auth/spectator behavior. The
+owner has **explicitly approved deferring offline browser-analysis runtime execution
+to a separate implementation phase**; it is no longer a Phase 4 completion
+requirement. This PR does not implement it. Interrupted downloads, missing assets, storage denial and
 reconnection are handled by falling back to a clear unavailable/offline state; no
 offline acceptance is claimed.
 
@@ -748,13 +749,13 @@ algorithm, strength or default was changed by these corrections.
 - The lifecycle cleanup trap now reports ownership-safe termination failures with a
   warning while preserving the original operation exit status; a bounded stub test
   covers it.
-- Offline runtime execution is **deferred pending explicit owner approval** and is
-  not claimed as fulfilled. Verified cached models remain usable with current
-  authorization checks; no service worker or CSP broadening was added.
-- Licensing: required Pyodide (MPL-2.0), ONNX Runtime Web (MIT) and CPython (PSF-2.0)
-  texts are shipped/pinned. The complete embedded third-party notice inventory inside
-  the pinned Pyodide/ORT distributions has **not** been exhaustively reviewed here;
-  it remains an owner/licensing action, and no completion claim is made.
+- Offline runtime execution is **deferred by explicit owner approval** to a separate
+  implementation phase and is not implemented here. Verified cached models remain
+  usable with current authorization checks; no service worker or CSP broadening was
+  added.
+- Licensing: see §18; required core texts are shipped and the inspected distributions
+  are recorded. Embedded notices not provided by those distributions remain an
+  unresolved distribution blocker, without a completion claim.
 
 ### Current head validation
 
@@ -762,3 +763,115 @@ Focused Phase 4/security/bridge/lifecycle/deployment tests: **105 passed**; full
 frontend Vitest: **1,702 passed (113 files)**, including 102 browser-analysis tests. Actual production-browser Jarl/neural runs, live Jarl
 cancellation followed by a successful recovery search, and the runtime-identity-change
 gate pass (refreshed evidence files). Full CI and mergeability are reported on the PR.
+
+
+## 18. H1–H4 corrections, owner-approved offline deferral and distribution licensing
+
+### H1 — coordinated initialization/search/cleanup admission
+
+- `initialize()` is idempotent for a compatible ready or searching runtime: an
+  initialization during an active Jarl or neural search returns the current state
+  without creating/disposing workers or interrupting the search. Initialization and
+  search admissions share the same ownership/cleanup barriers; runtime-identity
+  replacement aborts search operations bound to the old identity and requires
+  reinitialization before new searches.
+- Availability responses carry a monotonic sequence; a late response can never
+  replace a newer applied availability state.
+- Cancellation captures the exact clients from its context. On cleanup timeout only
+  those captured clients are quarantined/terminated (and only if still current), the
+  stale `activeSearch` is cleared, and the cleanup barrier is released so future
+  operations are not permanently blocked. Status/error publication is guarded by
+  context and owner identity, so an obsolete cancellation/invalidation cannot
+  overwrite a newer state. Successful recovery after a timed-out cancellation is
+  tested with actual worker counts; obsolete cleanup completing later cannot dispose
+  a newer session.
+- H4: the caller-signal abort forwarding listener is stored and removed on success,
+  failure, cancellation and abandonment; already-aborted signals attach no listener.
+  A shared long-lived signal regression verifies balanced add/remove across repeated
+  operations. This is not claimed to explain historical sustained-memory results.
+
+### H2 — resource limits across complete runtime retirement
+
+- Download managers expose `whenIdle()`/`drain(timeout)` and global occupancy
+  (active transfers, reserved bytes, queued transfers). Runtime `dispose()` returns a
+  bounded `RuntimeDisposalOutcome {drained, activeTransfers, reservedBytes,
+  transfers, queued}`. Workers are force-disposed after the bounded cancellation
+  barrier; downloads are cancelled and drained.
+- The managed per-tab singleton reservation is released exactly once only when
+  retiring work has genuinely settled. If the caller-facing disposal deadline
+  expires during non-interruptible hashing/admission, `drained:false`/occupancy is
+  returned, admission stays reserved, and the reservation is released when
+  `whenIdle()` resolves. Immediate replacement creation during disposal is rejected;
+  creation after complete disposal succeeds; repeated `dispose()` returns the same
+  outcome.
+- The raw `BrowserAnalysisRuntime` constructor is no longer exported from the public
+  Phase 5 entry point. `createBrowserAnalysis()` is the production path and enforces
+  the singleton; direct construction remains internal/test-only. Per-instance/tab
+  limits and cross-tab best-effort behavior are unchanged; limits were not increased.
+
+### H3 — bounded download outcomes and response cleanup
+
+- One caller deadline covers cache lookup, queue wait, transfer, retry, hashing and
+  storage admission. Callers receive a structured `download-timeout` (or
+  cancellation) within that deadline; actual slot/byte reservations remain until the
+  underlying non-interruptible work settles. Late hashing/admission never activates
+  a stale artifact (`removeOwned` token check), and callers can retry successfully
+  afterwards.
+- Rejected/abandoned response bodies and unread readers are explicitly cancelled
+  (reader lock release is not treated as cancellation); cancellation failures do not
+  mask the original integrity/size error. Subscriber isolation, digest/size/retry
+  limits, healthy-session reuse and one-transfer cold model initialization remain.
+
+### Validation at the H-correction head
+
+Runtime lifecycle tests (including initialize during Jarl/neural search, identity
+replacement admission, out-of-order availability, overlapping cancel/invalidate,
+cleanup-timeout recovery, obsolete cleanup, managed disposal with active
+transfer/hashing/admission, repeated dispose and signal-listener balance) and bounded
+download deadline/cancellation/response-cancel tests pass:
+**122 browser-analysis Vitest tests** (64 runtime, 34 download, 12 storage, 12
+manifest) and **1,722 full frontend tests (113 files)**.
+
+Actual production browser (real FastAPI + CSP, final build):
+
+| Measurement | Jarl-only | Jarl + published neural |
+| --- | --- | --- |
+| Cold runtime initialization | 2,631.5 ms | 2,773.6 ms |
+| Repeated initialization (idempotent ready/searching) | 0 ms | 0 ms |
+| Jarl search | 274.2 ms | 285.7 ms |
+| Runtime asset requests | 75 | 104 |
+| Model artifact transfers | 0 | **1** (reused by repeated searches) |
+| Model metadata/authorization requests | 0 | 3 |
+| Live cancellation + recovery search | pass | pass |
+
+Downloads/hashing/admission retire under retained accounting; a replacement managed
+runtime is rejected until retirement finishes and then created successfully. No
+sustained-memory rerun was required.
+
+## 19. Distribution licensing review (exact sources inspected)
+
+Inspected distributions:
+
+- Pyodide **0.27.7** GitHub tag `0.27.7` `LICENSE`
+  (`https://raw.githubusercontent.com/pyodide/pyodide/0.27.7/LICENSE`, 16,725 bytes,
+  MPL-2.0), matching the shipped `PYODIDE-MPL-2.0.txt`.
+- Pyodide **0.27.7** release `pyodide-core-0.27.7.tar.bz2`
+  (`https://github.com/pyodide/pyodide/releases/download/0.27.7/pyodide-core-0.27.7.tar.bz2`,
+  5,608,503 bytes): contains the runtime binaries but **no** LICENSE/NOTICE/
+  third-party notice files.
+- CPython 3.12.11 `LICENSE` (PSF-2.0), matching the shipped `PYTHON-PSF-2.0.txt`.
+- `onnxruntime-web` **1.22.0** npm tarball
+  (`https://registry.npmjs.org/onnxruntime-web/-/onnxruntime-web-1.22.0.tgz`):
+  `package.json` declares `"license": "MIT"`; the tarball contains **no**
+  LICENSE/ThirdPartyNotices file, and its README points to the upstream repository
+  license.
+
+Current status: the core texts required for the three distributed components are
+shipped and pinned. **Remaining blocker:** the complete embedded third-party notice
+inventory for the Pyodide core binaries (bundled Emscripten/CPython-adjacent
+components) and ONNX Runtime Web WASM/WebGPU binaries is not shipped by those
+distributions and could not be independently retrieved in this environment. The
+licensing audit is therefore **not claimed complete**; the project must obtain and
+ship the applicable upstream notices, or obtain explicit owner/legal acceptance of
+the distribution basis, before a wider redistribution/release. No component is
+relicensed under the project license and no unrelated dependency was upgraded.
