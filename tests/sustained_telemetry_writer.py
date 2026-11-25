@@ -33,6 +33,13 @@ def main() -> int:
     parser.add_argument("--batches", type=int, default=0)
     parser.add_argument("--batch-successful-rounds", type=int, default=0)
     parser.add_argument("--observed-max-batch", type=int, default=0)
+    parser.add_argument("--multi-request-batches", type=int, default=0)
+    parser.add_argument("--final-workload-failures", type=int)
+    parser.add_argument("--omit-final-exit", action="store_true")
+    parser.add_argument("--final-exit-status", type=int, default=0)
+    parser.add_argument("--cleanup-complete", choices=("true", "false"), default="true")
+    parser.add_argument("--final-transition-to")
+    parser.add_argument("--final-successful-offset", type=int, default=0)
     args = parser.parse_args()
     started = time.monotonic()
     completed = 0
@@ -116,15 +123,21 @@ def main() -> int:
                 "model_replacements": model_replacements,
                 "cache_evictions": args.cache_evictions if index > 5 else 0,
                 "batches": args.batches if index > 5 else 0,
-                "batch_rounds": args.batch_successful_rounds,
-                "batch_successful_rounds": args.batch_successful_rounds,
+                "batch_rounds": (args.batch_successful_rounds if index > 5 else 0),
+                "batch_successful_rounds": (args.batch_successful_rounds if index > 5 else 0),
                 "observed_max_batch": args.observed_max_batch,
                 "cache_invalidation_failures": 0,
                 "peak_search_workers": 2,
                 "peak_inference_workers": 1,
                 "peak_total_workers": 3,
-                "workload_complete": True,
-                "workload_exit_status": 0,
+                "multi_request_batches": args.multi_request_batches,
+                "batch_counter_resets": 0,
+                "batch_elapsed_ms_total": 0,
+                "batch_max_elapsed_ms": 0,
+                "batch_search_elapsed_ms_total": 0,
+                "batch_search_max_elapsed_ms": 0,
+                "cleanup_failures": 0,
+                "workload_complete": False,
                 "provider_placements": ["wasm"],
                 "completion_reasons": {"simulations": completed},
                 "events": {
@@ -134,7 +147,7 @@ def main() -> int:
                     "client_disposals": (args.client_disposals if index > 5 else 0),
                     "cache_evictions": args.cache_evictions if index > 5 else 0,
                     "batches": args.batches if index > 5 else 0,
-                    "batch_successful_rounds": args.batch_successful_rounds,
+                    "batch_successful_rounds": (args.batch_successful_rounds if index > 5 else 0),
                 },
             }
             if transition is not None:
@@ -150,6 +163,35 @@ def main() -> int:
             telemetry.flush()
             args.progress.write_text(str(completed))
             time.sleep(args.interval)
+        final_record = dict(record)
+        final_record["timestamp_ms"] = time.time() * 1000.0
+        final_record["workload_complete"] = True
+        final_record["cleanup_complete"] = args.cleanup_complete == "true"
+        if not args.omit_final_exit:
+            final_record["workload_exit_status"] = args.final_exit_status
+        else:
+            final_record.pop("workload_exit_status", None)
+        if args.final_workload_failures is not None:
+            final_record["workload_failures"] = args.final_workload_failures
+        final_record["successful_searches"] = (
+            final_record["successful_searches"] + args.final_successful_offset
+        )
+        if args.final_transition_to:
+            sequence = final_record.get("model_replacements", 0) + 1
+            source = final_record["model_sha256"]
+            final_record["model_transition"] = {
+                "from": source,
+                "to": args.final_transition_to,
+                "sequence": sequence,
+                "timestamp_ms": final_record["timestamp_ms"],
+                "recovered": True,
+                "cache_invalidated": True,
+            }
+            final_record["model_sha256"] = args.final_transition_to
+            final_record["model_replacements"] = sequence
+            final_record["events"]["model_replacements"] = sequence
+        telemetry.write(json.dumps(final_record) + "\n")
+        telemetry.flush()
     return 0
 
 

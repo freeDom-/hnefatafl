@@ -153,6 +153,7 @@ export class NeuralClient {
     this.batchStats = {
       requests: 0,
       batches: 0,
+      multi_request_batches: 0,
       observed_max_batch: 0,
       last_batch_sizes: [],
       rejected: 0,
@@ -225,6 +226,7 @@ export class NeuralClient {
         this.batchIds = batchIds;
         for (const entry of batch) this.batchEntries.set(entry.payload.request_id, entry);
         this.batchStats.batches += 1;
+        if (batch.length > 1) this.batchStats.multi_request_batches += 1;
         this.batchStats.observed_max_batch = Math.max(
           this.batchStats.observed_max_batch,
           batch.length,

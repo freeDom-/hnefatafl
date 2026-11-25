@@ -19,6 +19,7 @@ Schema 2 reports remain readable using index-based ``warmup_samples``.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -63,7 +64,7 @@ PROFILE_EVENTS = {
     "model-replacement": ("model_replacements", 1),
     "client-disposal": ("client_disposals", 1),
     "cache-churn": ("cache_evictions", 1),
-    "independent-batching": ("batches", 1),
+    "independent-batching": ("batch_successful_rounds", 2),
 }
 LIFECYCLE_PROFILES = (
     "cancel-restart",
@@ -84,6 +85,45 @@ def _number(value, allow_none=True):
 
 def _positive_int(value) -> bool:
     return type(value) is int and value > 0
+
+
+def _non_negative_int(value) -> bool:
+    return type(value) is int and value >= 0
+
+
+WORKLOAD_COUNTERS = (
+    "completed_requests",
+    "successful_searches",
+    "workload_failures",
+    "neural_searches",
+    "completed_simulations",
+    "neural_inferences",
+    "no_inference_shortcuts",
+    "client_disposals",
+    "model_replacements",
+    "cache_evictions",
+    "cache_invalidation_failures",
+    "cleanup_failures",
+    "batches",
+    "multi_request_batches",
+    "batch_rounds",
+    "batch_successful_rounds",
+    "batch_counter_resets",
+    "observed_max_batch",
+    "peak_search_workers",
+    "peak_inference_workers",
+    "peak_total_workers",
+    "batch_elapsed_ms_total",
+    "batch_max_elapsed_ms",
+    "batch_search_elapsed_ms_total",
+    "batch_search_max_elapsed_ms",
+)
+FLOAT_WORKLOAD_COUNTERS = (
+    "batch_elapsed_ms_total",
+    "batch_max_elapsed_ms",
+    "batch_search_elapsed_ms_total",
+    "batch_search_max_elapsed_ms",
+)
 
 
 def _hex_digest(value) -> bool:
@@ -132,9 +172,7 @@ def _coverage(
         if _number(value, allow_none=False) and _number(timestamp, allow_none=False):
             points.append((float(timestamp), value))
     coverage = len(points) / len(measured) if measured else 0.0
-    gaps = [
-        points[index][0] - points[index - 1][0] for index in range(1, len(points))
-    ]
+    gaps = [points[index][0] - points[index - 1][0] for index in range(1, len(points))]
     boundary_gaps = []
     if points and window_start_ms is not None:
         boundary_gaps.append(max(0.0, points[0][0] - window_start_ms))
@@ -271,14 +309,25 @@ def validate_report(report: dict) -> dict:
             "cache_entries",
             "cache_bytes",
             "workers",
+            "search_workers",
+            "inference_workers",
             "os_processes",
             "completed_requests",
+            *(field for field in WORKLOAD_COUNTERS if field not in FLOAT_WORKLOAD_COUNTERS),
         ):
             value = sample.get(counter)
             if value is None:
                 continue
-            if type(value) is not int or value < 0:
+            if not _non_negative_int(value):
                 fail(f"sample {index} {counter} is invalid")
+        for counter in FLOAT_WORKLOAD_COUNTERS:
+            value = sample.get(counter)
+            if value is None:
+                continue
+            if not _number(value, allow_none=False) or value < 0:
+                fail(f"sample {index} {counter} is invalid")
+        if "workload_complete" in sample and not isinstance(sample.get("workload_complete"), bool):
+            fail(f"sample {index} workload_complete is invalid")
         for metric in METRICS:
             value = sample.get(metric)
             if _number(value, allow_none=False) and value < 0:
@@ -290,9 +339,7 @@ def validate_report(report: dict) -> dict:
             elif _positive_int(max_workers) and workers > max_workers:
                 fail(f"sample {index} exceeds the declared worker budget")
         cache_bytes = sample.get("cache_bytes")
-        if _positive_int(budgets.get("max_cache_bytes")) and _number(
-            cache_bytes, allow_none=False
-        ):
+        if _positive_int(budgets.get("max_cache_bytes")) and _number(cache_bytes, allow_none=False):
             if cache_bytes > budgets["max_cache_bytes"]:
                 fail(f"sample {index} cache_bytes exceeds the declared budget")
         wasm = sample.get("wasm_heap_capacity_bytes")
@@ -365,9 +412,7 @@ def validate_report(report: dict) -> dict:
                     window_start + max_gap
                 ):
                     fail("acceptance window starts after the declared warmup boundary")
-                if _number(last_ts, allow_none=False) and float(last_ts) < (
-                    window_end - max_gap
-                ):
+                if _number(last_ts, allow_none=False) and float(last_ts) < (window_end - max_gap):
                     fail("acceptance window ends before the requested measurement window")
         progress = [sample.get("completed_requests") for sample in measured]
         if any(type(value) is not int for value in progress):
@@ -416,12 +461,175 @@ def validate_report(report: dict) -> dict:
             fail("lifecycle profile reports a period without an active worker")
     partial_reasons: list[str] = []
     if schema >= 3:
-        identity = (report.get("telemetry") or {}).get("identity") if isinstance(
-            report.get("telemetry"), dict
-        ) else None
+        telemetry = (
+            (report.get("telemetry") or {}).get("identity")
+            if isinstance(report.get("telemetry"), dict)
+            else None
+        )
+        expected = report.get("expected_identity")
+        if not isinstance(expected, dict):
+            expected = {}
+        if not _hex_digest(expected.get("model_sha256")):
+            fail("expected original model identity is invalid")
+            expected = {}
+        for field in ("session_id", "workload"):
+            if not isinstance(expected.get(field), str) or not expected.get(field):
+                fail(f"expected identity {field} is invalid")
+        approved = report.get("approved_model_sha256")
+        if approved is None:
+            approved = []
+        if not isinstance(approved, list) or any(not _hex_digest(item) for item in approved):
+            fail("approved model fingerprints must be a list of SHA-256 digests")
+            approved = []
+        if profile == "model-replacement":
+            if len(set(approved)) < 2:
+                fail("model-replacement requires at least two approved model fingerprints")
+            if expected.get("model_sha256") not in approved:
+                fail("the original model identity is not approved")
+        elif approved:
+            if set(approved) != {expected.get("model_sha256")}:
+                fail("ordinary profiles cannot approve model transitions")
+        workload = report.get("workload_telemetry")
+        if not isinstance(workload, dict):
+            partial_reasons.append("workload failure/work accounting telemetry is missing")
+            workload = {}
+        for field in WORKLOAD_COUNTERS:
+            if field not in workload:
+                continue
+            value = workload[field]
+            if field in FLOAT_WORKLOAD_COUNTERS:
+                if not _number(value, allow_none=False) or value < 0:
+                    fail(f"workload_telemetry.{field} must be a finite non-negative number")
+            elif not _non_negative_int(value):
+                fail(f"workload_telemetry.{field} must be a non-negative integer")
+        transitions = workload.get("model_transitions", [])
+        if not isinstance(transitions, list):
+            fail("workload model_transitions must be a list")
+            transitions = []
+        history = workload.get("model_transition_history")
+        if profile == "model-replacement" and not isinstance(history, dict):
+            fail("model-replacement requires bounded transition-history metadata")
+        previous_model = expected.get("model_sha256")
+        first_retained_sequence = 1
+        if isinstance(history, dict):
+            total = history.get("total")
+            retained = history.get("retained")
+            limit = history.get("limit")
+            truncated = history.get("truncated")
+            if not _non_negative_int(total) or not _non_negative_int(retained):
+                fail("model transition history counts are invalid")
+                total = 0
+                retained = 0
+            if not _positive_int(limit):
+                fail("model transition history limit is invalid")
+            if not isinstance(truncated, bool):
+                fail("model transition history truncation flag is invalid")
+                truncated = False
+            if retained != len(transitions):
+                fail("model transition history retained count does not match entries")
+            if truncated != (total > retained):
+                fail("model transition history truncation flag is inconsistent")
+            if total > 0 and truncated:
+                first_sequence = history.get("first_retained_sequence")
+                first_from = history.get("first_retained_from")
+                if not _positive_int(first_sequence) or not _hex_digest(first_from):
+                    fail("truncated model transition history lacks a bounded anchor")
+                else:
+                    first_retained_sequence = first_sequence
+                    previous_model = first_from
+            if _positive_int(first_retained_sequence) and transitions:
+                first = transitions[0]
+                if isinstance(first, dict) and first.get("sequence") != first_retained_sequence:
+                    fail("model transition history anchor does not match retained entries")
+            last_sequence = history.get("last_sequence")
+            if total == 0:
+                if last_sequence is not None:
+                    fail("empty model transition history has a sequence")
+            elif last_sequence != total:
+                fail("model transition history last sequence is inconsistent")
+        elif transitions:
+            fail("model transitions require bounded history metadata")
+        if profile != "model-replacement" and transitions:
+            fail("model transitions are only authorized for model-replacement profiles")
+        if profile == "model-replacement" and not transitions:
+            partial_reasons.append("model replacement recorded no verified transition")
+        chain_previous = previous_model
+        previous_timestamp = 0.0
+        for index, transition in enumerate(transitions):
+            if not isinstance(transition, dict):
+                fail("model transition entry is malformed")
+                break
+            sequence = transition.get("sequence")
+            source = transition.get("from")
+            destination = transition.get("to")
+            recovered = transition.get("recovered")
+            cache_invalidated = transition.get("cache_invalidated")
+            timestamp = transition.get("timestamp_ms")
+            if (
+                not _positive_int(sequence)
+                or sequence != first_retained_sequence + index
+                or not _hex_digest(source)
+                or not _hex_digest(destination)
+                or source != chain_previous
+                or source == destination
+                or destination not in approved
+                or recovered is not True
+                or not _number(timestamp, allow_none=False)
+                or timestamp < previous_timestamp
+                or not isinstance(cache_invalidated, (bool, type(None)))
+            ):
+                fail("model transition chain is inconsistent")
+                break
+            if features.get("inference_cache") is True and cache_invalidated is not True:
+                partial_reasons.append("model transition did not verify cache invalidation")
+            chain_previous = destination
+            previous_timestamp = timestamp
+        if isinstance(history, dict):
+            if history.get("final_model") != chain_previous:
+                fail("transition history final model does not match the retained chain")
+            last_retained = (
+                transitions[-1].get("sequence")
+                if transitions and isinstance(transitions[-1], dict)
+                else None
+            )
+            if history.get("last_sequence") != last_retained:
+                if history.get("total") != 0 or transitions:
+                    fail("transition history sequence does not match retained entries")
+            retained_digest = hashlib.sha256()
+            for entry in transitions:
+                if isinstance(entry, dict):
+                    retained_digest.update(
+                        json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                    )
+            if history.get("retained_chain_digest_sha256") != retained_digest.hexdigest():
+                fail("retained model transition digest is inconsistent")
+            if history.get("chain_digest_sha256") is not None and not _hex_digest(
+                history.get("chain_digest_sha256")
+            ):
+                fail("model transition chain digest is malformed")
+
+        def model_at(timestamp: float) -> str | None:
+            if not transitions:
+                return expected.get("model_sha256")
+            current = (
+                previous_model
+                if isinstance(history, dict) and history.get("truncated")
+                else expected.get("model_sha256")
+            )
+            for entry in transitions:
+                if (
+                    isinstance(entry, dict)
+                    and _number(entry.get("timestamp_ms"), allow_none=False)
+                    and float(entry["timestamp_ms"]) <= timestamp
+                ):
+                    current = entry.get("to")
+                else:
+                    break
+            return current
+
         for index, sample in enumerate(measured):
-            telemetry = sample.get("telemetry")
-            if telemetry is None:
+            telemetry_identity = sample.get("telemetry")
+            if telemetry_identity is None:
                 if sample.get("telemetry_unavailable_reason"):
                     partial_reasons.append(
                         f"sample {index} has no usable live telemetry: "
@@ -430,35 +638,28 @@ def validate_report(report: dict) -> dict:
                 else:
                     fail(f"sample {index} has no live telemetry identity")
                 continue
-            if not isinstance(telemetry, dict) or any(
-                not isinstance(telemetry.get(field), str) or not telemetry.get(field)
+            if not isinstance(telemetry_identity, dict) or any(
+                not isinstance(telemetry_identity.get(field), str)
+                or not telemetry_identity.get(field)
                 for field in ("session_id", "model_sha256", "workload")
             ):
                 fail(f"sample {index} telemetry identity is incomplete")
                 continue
-            if isinstance(identity, dict):
+            if isinstance(telemetry, dict):
                 for field in ("session_id", "workload"):
-                    if telemetry.get(field) != identity.get(field):
+                    if telemetry_identity.get(field) != telemetry.get(field):
                         fail(f"sample {index} telemetry identity is inconsistent")
-                allowed_models = {identity.get("model_sha256")}
-                expected = report.get("expected_identity")
-                if isinstance(expected, dict) and isinstance(
-                    expected.get("model_sha256"), str
-                ):
-                    allowed_models.add(expected["model_sha256"])
-                transitions = (report.get("workload_telemetry") or {}).get(
-                    "model_transitions"
-                )
-                if profile == "model-replacement" and isinstance(transitions, list):
-                    for transition in transitions:
-                        if isinstance(transition, dict):
-                            allowed_models.add(transition.get("from"))
-                            allowed_models.add(transition.get("to"))
-                if telemetry.get("model_sha256") not in allowed_models:
-                    fail(f"sample {index} telemetry identity is inconsistent")
-        sources = {
-            sample.get("completed_requests_source") for sample in measured
-        }
+            if telemetry_identity.get("model_sha256") not in approved:
+                fail(f"sample {index} model identity is not approved")
+            timeline_timestamp = (
+                telemetry_identity.get("timestamp_ms")
+                if _number(telemetry_identity.get("timestamp_ms"), allow_none=False)
+                else sample["timestamp_ms"]
+            )
+            sample_model = model_at(float(timeline_timestamp))
+            if telemetry_identity.get("model_sha256") != sample_model:
+                fail(f"sample {index} model identity contradicts the transition timeline")
+        sources = {sample.get("completed_requests_source") for sample in measured}
         if sources != {"telemetry"}:
             partial_reasons.append(
                 "workload progress is not exclusively from the live telemetry session"
@@ -468,168 +669,261 @@ def validate_report(report: dict) -> dict:
             partial_reasons.append(
                 "progress-file/telemetry consistency was not verified for acceptance"
             )
-        workload = report.get("workload_telemetry")
-        if not isinstance(workload, dict):
-            partial_reasons.append("workload failure/work accounting telemetry is missing")
+        acceptance = workload.get("acceptance_window")
+        acceptance_counters = {}
+        acceptance_failures = 0
+        if not isinstance(acceptance, dict):
+            fail("acceptance-window workload statistics are missing")
         else:
-            for field in (
-                "successful_searches",
-                "workload_failures",
-                "neural_searches",
-                "completed_simulations",
-                "neural_inferences",
-            ):
-                value = workload.get(field, 0)
-                if type(value) is not int or value < 0:
-                    fail(f"workload_telemetry.{field} must be a non-negative integer")
-            workload_failures = workload.get("workload_failures", 0)
-            if type(workload_failures) is int and workload_failures > 0:
-                partial_reasons.append(
-                    f"workload recorded {workload_failures} failed search(es) during collection"
+            acceptance_counters = acceptance.get("counters")
+            if not isinstance(acceptance_counters, dict):
+                fail("acceptance-window counters are missing")
+                acceptance_counters = {}
+            for field in WORKLOAD_COUNTERS:
+                if field not in acceptance_counters:
+                    continue
+                value = acceptance_counters[field]
+                valid = (
+                    _number(value, allow_none=False) and value >= 0
+                    if field in FLOAT_WORKLOAD_COUNTERS
+                    else _non_negative_int(value)
                 )
-            successful = workload.get("successful_searches", 0)
-            if type(successful) is int and successful < 1:
-                partial_reasons.append("workload recorded no successful searches")
-            neural = workload.get("neural_searches", 0)
-            if type(neural) is int and neural < 1:
-                partial_reasons.append("workload recorded no neural-analysis searches")
-            placements = workload.get("provider_placements")
-            if not isinstance(placements, list) or not placements:
-                partial_reasons.append("workload telemetry lacks observed provider placements")
-            sample_failures = max(
-                (
-                    sample.get("workload_failures", 0)
+                if not valid:
+                    fail(f"acceptance-window {field} is invalid")
+            for field in WORKLOAD_COUNTERS:
+                sample_values = [
+                    sample[field]
                     for sample in measured
-                    if type(sample.get("workload_failures")) is int
-                ),
-                default=0,
-            )
-            if (
-                type(workload_failures) is int
-                and sample_failures != workload_failures
-            ):
-                fail("workload failure summary does not match the sample telemetry")
-            if workload.get("workload_complete") is not True:
-                partial_reasons.append("final workload summary was not completed")
-            if workload.get("workload_exit_status") not in (None, 0):
-                partial_reasons.append(
-                    f"workload exit status {workload.get('workload_exit_status')} is not successful"
-                )
-            if workload.get("cache_invalidation_failures", 0) > 0:
-                partial_reasons.append("inference cache was not invalidated by model replacement")
-            successful = workload.get("successful_searches", 0)
-            neural = workload.get("neural_searches", 0)
-            shortcuts = workload.get("no_inference_shortcuts", 0)
-            if (
-                type(successful) is int
-                and type(neural) is int
-                and type(shortcuts) is int
-                and successful != neural + shortcuts
-            ):
-                fail("workload successful searches do not match neural/shortcut counts")
-            if (
-                type(workload.get("neural_inferences")) is int
-                and type(neural) is int
-                and workload["neural_inferences"] < neural
-            ):
-                fail("neural inference count is below the neural search count")
-            initial = report.get("expected_identity")
-            if isinstance(initial, dict):
-                if workload.get("session_id") != initial.get("session_id"):
-                    fail("workload telemetry session does not match the expected identity")
-                if workload.get("workload") != initial.get("workload"):
-                    fail("workload telemetry workload does not match the expected identity")
-            # Bind the summary to the maximum sample counters where present.
-            for field in (
-                "successful_searches",
-                "neural_searches",
-                "completed_simulations",
-                "neural_inferences",
-                "no_inference_shortcuts",
-                "batches",
-                "batch_successful_rounds",
-                "cache_evictions",
-                "client_disposals",
-                "model_replacements",
-            ):
-                sample_max = max(
-                    (
-                        sample.get(field, 0)
-                        for sample in measured
-                        if type(sample.get(field)) is int
-                    ),
-                    default=0,
-                )
-                if type(workload.get(field)) is int and sample_max != workload[field]:
-                    fail(f"workload {field} summary does not match the samples")
-            transitions = workload.get("model_transitions")
-            if profile == "model-replacement":
-                if not isinstance(transitions, list) or not transitions:
-                    partial_reasons.append("model replacement recorded no verified transition")
-                else:
-                    previous = (
-                        initial.get("model_sha256") if isinstance(initial, dict) else None
+                    if (
+                        _number(sample.get(field), allow_none=False) and sample.get(field) >= 0
+                        if field in FLOAT_WORKLOAD_COUNTERS
+                        else _non_negative_int(sample.get(field))
                     )
-                    sequence = 0
-                    previous_timestamp = 0.0
-                    for transition in transitions:
-                        if not isinstance(transition, dict):
-                            fail("model transition entry is malformed")
-                            break
-                        if (
-                            transition.get("sequence") != sequence + 1
-                            or transition.get("from") != previous
-                            or transition.get("recovered") is not True
-                            or not _hex_digest(transition.get("to"))
-                            or not _number(transition.get("timestamp_ms"), allow_none=False)
-                            or transition["timestamp_ms"] < previous_timestamp
-                        ):
-                            fail("model transition chain is inconsistent")
-                            break
-                        if features.get("inference_cache") is True and transition.get(
-                            "cache_invalidated"
-                        ) is not True:
-                            partial_reasons.append(
-                                "model transition did not verify cache invalidation"
-                            )
-                        previous = transition.get("to")
-                        previous_timestamp = transition["timestamp_ms"]
-                        sequence += 1
-                    if previous != workload.get("model_sha256"):
-                        fail("final model identity does not match the transition chain")
-            elif transitions:
-                fail("model transitions are only authorized for model-replacement profiles")
-            if profile == "independent-batching":
-                if workload.get("batch_successful_rounds", 0) < 2:
-                    partial_reasons.append("insufficient successful multi-context batching rounds")
-                if workload.get("observed_max_batch", 0) < 2:
-                    partial_reasons.append("batching never reached two concurrent contexts")
-            if profile in SUSTAINED_PROFILES:
-                neural_series = [
-                    sample.get("neural_searches")
-                    for sample in measured
-                    if type(sample.get("neural_searches")) is int
                 ]
-                if len(neural_series) != len(measured):
-                    partial_reasons.append("neural search activity telemetry is missing")
-                elif any(
-                    neural_series[index] < neural_series[index - 1]
-                    for index in range(1, len(neural_series))
-                ):
-                    fail("neural search activity counters are non-monotonic")
-                elif len(neural_series) >= 2 and neural_series[-1] <= neural_series[0]:
-                    partial_reasons.append(
-                        "neural search activity did not progress inside the acceptance window"
-                    )
-                else:
-                    half = len(neural_series) // 2
-                    if not (
-                        neural_series[half] > neural_series[0]
-                        and neural_series[-1] > neural_series[half]
-                    ):
-                        partial_reasons.append(
-                            "neural search activity is not distributed across the window"
+                sample_max = max(sample_values, default=0)
+                if field in acceptance_counters and acceptance_counters[field] != sample_max:
+                    fail(f"acceptance-window {field} does not match the samples")
+            acceptance_failures = acceptance_counters.get("workload_failures", 0)
+            if not _non_negative_int(acceptance_failures):
+                fail("acceptance-window workload failures are invalid")
+                acceptance_failures = 0
+            placements = acceptance.get("provider_placements")
+            if not isinstance(placements, list) or any(
+                not isinstance(item, str) or not item for item in placements
+            ):
+                fail("acceptance-window provider placements are malformed")
+            elif not placements:
+                partial_reasons.append("workload telemetry lacks observed provider placements")
+        final_session = workload.get("final_session")
+        final_counters = {}
+        final_model = None
+        if not isinstance(final_session, dict):
+            partial_reasons.append("final workload summary is missing")
+        else:
+            if final_session.get("profile") not in (None, profile):
+                fail("final workload profile does not match the memory profile")
+            for field in ("session_id", "workload"):
+                if final_session.get(field) != expected.get(field):
+                    fail(f"final workload {field} does not match the expected identity")
+            final_model = final_session.get("model_sha256")
+            if final_model not in approved:
+                fail("final workload model identity is not approved")
+            complete = final_session.get("workload_complete")
+            if not isinstance(complete, bool):
+                fail("final workload completion flag is invalid")
+            elif complete is not True:
+                partial_reasons.append("final workload summary was not completed")
+            exit_status = final_session.get("workload_exit_status")
+            if exit_status is None:
+                partial_reasons.append("final workload exit status is missing")
+            elif not _non_negative_int(exit_status):
+                fail("final workload exit status is invalid")
+            elif exit_status != 0:
+                partial_reasons.append(f"workload exit status {exit_status} is not successful")
+            cleanup_complete = final_session.get("cleanup_complete")
+            if not isinstance(cleanup_complete, bool):
+                fail("final workload cleanup flag is invalid")
+            elif cleanup_complete is not True:
+                partial_reasons.append("final workload cleanup was not verified")
+            final_counters = final_session.get("counters")
+            if not isinstance(final_counters, dict):
+                fail("final workload counters are missing")
+                final_counters = {}
+            for field in WORKLOAD_COUNTERS:
+                value = final_counters.get(field)
+                valid = (
+                    _number(value, allow_none=False) and value >= 0
+                    if field in FLOAT_WORKLOAD_COUNTERS
+                    else _non_negative_int(value)
+                )
+                if not valid:
+                    fail(f"final workload counter {field} is missing or invalid")
+            if final_counters:
+                for field in WORKLOAD_COUNTERS:
+                    acceptance_value = acceptance_counters.get(field)
+                    final_value = final_counters.get(field)
+                    if field in FLOAT_WORKLOAD_COUNTERS:
+                        comparable = _number(acceptance_value, allow_none=False) and _number(
+                            final_value, allow_none=False
                         )
+                    else:
+                        comparable = _non_negative_int(acceptance_value) and _non_negative_int(
+                            final_value
+                        )
+                    if comparable and final_value < acceptance_value:
+                        fail(f"final workload {field} is below the acceptance-window maximum")
+                if _non_negative_int(final_counters.get("workload_failures")) and (
+                    final_counters["workload_failures"] > acceptance_failures
+                ):
+                    partial_reasons.append(
+                        "workload failures occurred after the last acceptance-window sample"
+                    )
+                if (
+                    _non_negative_int(final_counters.get("workload_failures"))
+                    and final_counters["workload_failures"] > 0
+                ):
+                    partial_reasons.append(
+                        f"workload recorded {final_counters['workload_failures']} failed search(es)"
+                    )
+                if (
+                    _non_negative_int(final_counters.get("successful_searches"))
+                    and final_counters["successful_searches"] < 1
+                ):
+                    partial_reasons.append("workload recorded no successful searches")
+                if (
+                    _non_negative_int(final_counters.get("neural_searches"))
+                    and final_counters["neural_searches"] < 1
+                ):
+                    partial_reasons.append("workload recorded no neural-analysis searches")
+                if (
+                    _non_negative_int(final_counters.get("cache_invalidation_failures"))
+                    and final_counters["cache_invalidation_failures"] > 0
+                ):
+                    partial_reasons.append(
+                        "inference cache was not invalidated by model replacement"
+                    )
+                if (
+                    _non_negative_int(final_counters.get("cleanup_failures"))
+                    and final_counters["cleanup_failures"] > 0
+                ):
+                    partial_reasons.append("workload reported workload/coordinator cleanup failure")
+                successful = final_counters.get("successful_searches")
+                neural = final_counters.get("neural_searches")
+                shortcuts = final_counters.get("no_inference_shortcuts")
+                if (
+                    _non_negative_int(successful)
+                    and _non_negative_int(neural)
+                    and _non_negative_int(shortcuts)
+                    and successful != neural + shortcuts
+                ):
+                    fail("final workload successful searches do not match neural/shortcut counts")
+                if (
+                    _non_negative_int(final_counters.get("neural_inferences"))
+                    and _non_negative_int(neural)
+                    and final_counters["neural_inferences"] < neural
+                ):
+                    fail("final neural inference count is below the neural search count")
+            final_transition_model = (
+                model_at(float(final_session["recorded_at_ms"]))
+                if _number(final_session.get("recorded_at_ms"), allow_none=False)
+                else None
+            )
+            if final_transition_model is not None and final_model != final_transition_model:
+                fail("final model identity contradicts the transition timeline")
+            if profile == "model-replacement":
+                total_transitions = (
+                    history.get("total", 0) if isinstance(history, dict) else len(transitions)
+                )
+                if final_counters.get("model_replacements") != total_transitions:
+                    fail("final model replacement count does not match transition history")
+            elif final_counters.get("model_replacements") not in (None, 0):
+                fail("ordinary profile recorded model replacements")
+            placements = final_session.get("provider_placements")
+            if not isinstance(placements, list) or any(
+                not isinstance(item, str) or not item for item in placements
+            ):
+                fail("final provider placements are malformed")
+            elif (
+                _non_negative_int(final_counters.get("neural_searches"))
+                and final_counters["neural_searches"] > 0
+                and not placements
+            ):
+                partial_reasons.append("final workload lacks observed provider placements")
+        process_observation = workload.get("process_observation")
+        if not isinstance(process_observation, dict):
+            partial_reasons.append("process termination evidence is missing")
+        else:
+            premature = process_observation.get("premature_termination")
+            if not isinstance(premature, bool):
+                fail("process premature_termination flag is invalid")
+            elif premature:
+                partial_reasons.append("workload process terminated before final evidence")
+            alive = process_observation.get("root_alive_at_end")
+            if not isinstance(alive, bool):
+                fail("process root_alive_at_end flag is invalid")
+            elif alive:
+                partial_reasons.append("workload process remained alive after final evidence")
+            if process_observation.get("final_cleanup_incomplete") is True:
+                partial_reasons.append("workload cleanup was incomplete")
+        if isinstance(transitions, list) and profile == "model-replacement" and history:
+            if history.get("final_model") != workload.get("model_sha256"):
+                fail("final workload model identity does not match the transition history")
+        if profile == "independent-batching":
+            if (
+                _non_negative_int(final_counters.get("batch_successful_rounds"))
+                and final_counters["batch_successful_rounds"] < 2
+            ):
+                partial_reasons.append("insufficient successful multi-context batching rounds")
+            if (
+                _non_negative_int(final_counters.get("multi_request_batches"))
+                and final_counters["multi_request_batches"] < 2
+            ):
+                partial_reasons.append("batching did not observe multiple multi-request batches")
+            if (
+                _non_negative_int(final_counters.get("observed_max_batch"))
+                and final_counters["observed_max_batch"] < 2
+            ):
+                partial_reasons.append("batching never reached two concurrent contexts")
+        peak_total = workload.get("peak_total_workers")
+        if _non_negative_int(peak_total):
+            if _positive_int(max_workers) and peak_total > max_workers:
+                fail("observed peak worker usage exceeds the declared worker budget")
+            peak_search = workload.get("peak_search_workers", 0)
+            peak_inference = workload.get("peak_inference_workers", 0)
+            if not _non_negative_int(peak_search) or not _non_negative_int(peak_inference):
+                fail("peak worker counters are invalid")
+            elif (
+                peak_total < max(peak_search, peak_inference)
+                or peak_total > peak_search + peak_inference
+            ):
+                fail("peak worker totals are inconsistent")
+        if profile in SUSTAINED_PROFILES:
+            neural_series = [
+                sample.get("neural_searches")
+                for sample in measured
+                if _non_negative_int(sample.get("neural_searches"))
+            ]
+            if len(neural_series) != len(measured):
+                partial_reasons.append("neural search activity telemetry is missing")
+            elif any(
+                neural_series[index] < neural_series[index - 1]
+                for index in range(1, len(neural_series))
+            ):
+                fail("neural search activity counters are non-monotonic")
+            elif len(neural_series) >= 2 and neural_series[-1] <= neural_series[0]:
+                partial_reasons.append(
+                    "neural search activity did not progress inside the acceptance window"
+                )
+            else:
+                half = len(neural_series) // 2
+                if not (
+                    neural_series[half] > neural_series[0]
+                    and neural_series[-1] > neural_series[half]
+                ):
+                    partial_reasons.append(
+                        "neural search activity is not distributed across the window"
+                    )
+
     coverage: dict[str, dict] = {}
     coverage_window_start = window_start
     coverage_window_end = window_start + window_ms
@@ -665,10 +959,7 @@ def validate_report(report: dict) -> dict:
         window_end_ms=coverage_window_end,
     )
     cache_reason = unavailable.get("cache_bytes") or unavailable.get("cache_entries")
-    cache_values = any(
-        _number(sample.get("cache_bytes"), allow_none=False) for sample in measured
-    )
-    cache_applicable = cache_feature is True or cache_values
+    cache_values = any(_number(sample.get("cache_bytes"), allow_none=False) for sample in measured)
     if cache_feature is False and not cache_values:
         coverage["cache_bytes"] = {
             "usable": 0,
@@ -794,9 +1085,7 @@ def validate_report(report: dict) -> dict:
         "acceptance": acceptance_ok,
         "status": outcome,
         "failures": failures,
-        "blocked_reasons": []
-        if acceptance_ok
-        else ["sustained process-memory acceptance blocked"],
+        "blocked_reasons": [] if acceptance_ok else ["sustained process-memory acceptance blocked"],
         "samples": len(samples),
         "warmup_samples": warmup_samples,
         "warmup_ms": warmup_ms,

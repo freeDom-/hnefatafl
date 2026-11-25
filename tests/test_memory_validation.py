@@ -323,6 +323,7 @@ def _schema3_report(**overrides):
             "max_workers": 8,
         },
         "features": {"inference_cache": True},
+        "approved_model_sha256": ["a" * 64],
         "events": {"cancellations": 1},
         "events_source": "telemetry",
         "telemetry": {
@@ -350,16 +351,124 @@ def _schema3_report(**overrides):
             "cache_evictions": 0,
             "cache_invalidation_failures": 0,
             "batches": 0,
+            "multi_request_batches": 0,
             "batch_rounds": 0,
             "batch_successful_rounds": 0,
+            "batch_counter_resets": 0,
             "observed_max_batch": 0,
+            "peak_search_workers": 2,
+            "peak_inference_workers": 1,
+            "peak_total_workers": 3,
+            "batch_elapsed_ms_total": 0,
+            "batch_max_elapsed_ms": 0,
+            "batch_search_elapsed_ms_total": 0,
+            "batch_search_max_elapsed_ms": 0,
+            "cleanup_failures": 0,
             "provider_placements": ["wasm"],
             "model_transitions": [],
+            "model_transition_history": {
+                "limit": 1024,
+                "total": 0,
+                "retained": 0,
+                "truncated": False,
+                "first_retained_sequence": None,
+                "first_retained_from": None,
+                "last_sequence": None,
+                "final_model": "a" * 64,
+                "last_timestamp_ms": None,
+                "chain_digest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "retained_chain_digest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            },
             "workload_complete": True,
             "workload_exit_status": 0,
+            "cleanup_complete": True,
             "session_id": "session-a",
             "model_sha256": "a" * 64,
             "workload": "brandubh-opening",
+            "acceptance_window": {
+                "start_ms": 60000,
+                "end_ms": 180000,
+                "duration_ms": 120000,
+                "counters": {
+                    "completed_requests": 15,
+                    "successful_searches": 15,
+                    "workload_failures": 0,
+                    "neural_searches": 15,
+                    "completed_simulations": 960,
+                    "neural_inferences": 960,
+                    "no_inference_shortcuts": 0,
+                    "client_disposals": 0,
+                    "model_replacements": 0,
+                    "cache_evictions": 0,
+                    "cache_invalidation_failures": 0,
+                    "cleanup_failures": 0,
+                    "batches": 0,
+                    "multi_request_batches": 0,
+                    "batch_rounds": 0,
+                    "batch_successful_rounds": 0,
+                    "batch_counter_resets": 0,
+                    "observed_max_batch": 0,
+                    "peak_search_workers": 2,
+                    "peak_inference_workers": 1,
+                    "peak_total_workers": 3,
+                    "batch_elapsed_ms_total": 0,
+                    "batch_max_elapsed_ms": 0,
+                    "batch_search_elapsed_ms_total": 0,
+                    "batch_search_max_elapsed_ms": 0,
+                },
+                "model_transitions": [],
+                "provider_placements": ["wasm"],
+                "completion_reasons": {"simulations": 15},
+            },
+            "final_session": {
+                "profile": "cancel-restart",
+                "session_id": "session-a",
+                "model_sha256": "a" * 64,
+                "workload": "brandubh-opening",
+                "recorded_at_ms": 180000,
+                "after_last_sample": False,
+                "workload_complete": True,
+                "workload_exit_status": 0,
+                "cleanup_complete": True,
+                "counters": {
+                    "completed_requests": 15,
+                    "successful_searches": 15,
+                    "workload_failures": 0,
+                    "neural_searches": 15,
+                    "completed_simulations": 960,
+                    "neural_inferences": 960,
+                    "no_inference_shortcuts": 0,
+                    "client_disposals": 0,
+                    "model_replacements": 0,
+                    "cache_evictions": 0,
+                    "cache_invalidation_failures": 0,
+                    "cleanup_failures": 0,
+                    "batches": 0,
+                    "multi_request_batches": 0,
+                    "batch_rounds": 0,
+                    "batch_successful_rounds": 0,
+                    "batch_counter_resets": 0,
+                    "observed_max_batch": 0,
+                    "peak_search_workers": 2,
+                    "peak_inference_workers": 1,
+                    "peak_total_workers": 3,
+                    "batch_elapsed_ms_total": 0,
+                    "batch_max_elapsed_ms": 0,
+                    "batch_search_elapsed_ms_total": 0,
+                    "batch_search_max_elapsed_ms": 0,
+                },
+                "provider_placements": ["wasm"],
+                "completion_reasons": {"simulations": 15},
+                "actual_process_exit_status": None,
+                "actual_process_exit_status_reason": "collector is not the parent",
+            },
+            "process_observation": {
+                "root_alive_at_end": False,
+                "final_cleanup_incomplete": False,
+                "premature_termination": False,
+                "actual_process_exit_status": None,
+                "actual_process_exit_status_reason": "collector is not the parent",
+            },
         },
         "samples": [
             {
@@ -390,6 +499,8 @@ def _schema3_report(**overrides):
                 "peak_search_workers": 2,
                 "peak_inference_workers": 1,
                 "peak_total_workers": 3,
+                "multi_request_batches": 0,
+                "cleanup_failures": 0,
                 "workload_complete": index == 15,
                 "telemetry": {
                     "session_id": "session-a",
@@ -619,6 +730,32 @@ def _sustained_report(neural_series=None):
             "workload_exit_status": 0,
         }
     )
+    counters = {field: 0 for field in mv.WORKLOAD_COUNTERS}
+    for field in mv.WORKLOAD_COUNTERS:
+        values = [
+            sample[field] for sample in report["samples"][1:] if type(sample.get(field)) is int
+        ]
+        if values:
+            counters[field] = max(values)
+    report["workload_telemetry"]["acceptance_window"].update(
+        {
+            "start_ms": 60000,
+            "end_ms": 600000,
+            "duration_ms": 540000,
+            "counters": counters,
+        }
+    )
+    final = report["workload_telemetry"]["final_session"]
+    final["profile"] = report["profile"]
+    final.update(
+        {
+            "recorded_at_ms": 660000,
+            "counters": dict(counters),
+            "workload_complete": True,
+            "workload_exit_status": 0,
+            "cleanup_complete": True,
+        }
+    )
     return report
 
 
@@ -634,17 +771,46 @@ def test_warmup_only_neural_activity_cannot_accept_sustained_profile():
 def test_workload_completion_consistency_and_cache_invalidation_are_required():
     report = _sustained_report()
     assert mv.validate_report(report)["acceptance_ok"] is True
-    report["workload_telemetry"]["workload_complete"] = False
+    report["workload_telemetry"]["final_session"]["workload_complete"] = False
     assert mv.validate_report(report)["acceptance_ok"] is False
 
     report = _sustained_report()
-    report["workload_telemetry"]["cache_invalidation_failures"] = 1
+    report["workload_telemetry"]["final_session"]["counters"]["cache_invalidation_failures"] = 1
     result = mv.validate_report(report)
     assert result["acceptance_ok"] is False
     assert any("cache" in reason.lower() for reason in result["partial_reasons"])
 
     report = _sustained_report()
-    report["workload_telemetry"]["successful_searches"] += 1
+    report["workload_telemetry"]["final_session"]["counters"]["successful_searches"] += 1
     result = mv.validate_report(report)
     assert result["structural_ok"] is False
-    assert any("does not match the samples" in failure for failure in result["failures"])
+    assert any("successful searches" in failure for failure in result["failures"])
+
+
+def test_peak_worker_budget_uses_actual_peak_not_ordinary_samples():
+    report = _schema3_report()
+    assert mv.validate_report(report)["structural_ok"] is True
+    report["workload_telemetry"]["peak_total_workers"] = 9
+    report["workload_telemetry"]["final_session"]["counters"]["peak_total_workers"] = 9
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("peak worker" in failure for failure in result["failures"])
+
+
+def test_peak_and_worker_classification_types_are_validated():
+    report = _schema3_report()
+    report["workload_telemetry"]["peak_search_workers"] = True
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    report = _schema3_report()
+    report["samples"][4]["search_workers"] = -1
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+
+
+def test_cleanup_failure_blocks_acceptance():
+    report = _schema3_report()
+    report["workload_telemetry"]["final_session"]["counters"]["cleanup_failures"] = 1
+    result = mv.validate_report(report)
+    assert result["acceptance_ok"] is False
+    assert any("cleanup" in reason.lower() for reason in result["partial_reasons"])

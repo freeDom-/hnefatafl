@@ -184,6 +184,15 @@ def _collect(tmp_path, workload_pid, telemetry, progress, **overrides):
         "--output",
         str(output),
     ]
+    if overrides.get("profile", "worker-replacement") == "model-replacement":
+        command.extend(
+            [
+                "--approved-model-sha256",
+                "a" * 64,
+                "--approved-model-sha256",
+                overrides.get("replacement_model", "b" * 64),
+            ]
+        )
     result = sp.run(command, capture_output=True, text=True, timeout=60)
     return result, json.loads(output.read_text()) if output.exists() else None
 
@@ -821,8 +830,22 @@ def test_model_transition_cache_invalidation_failure_blocks_acceptance(tmp_path)
         ("cache-churn", ("--cache-evictions", "3"), {"cache_evictions": 3}),
         (
             "independent-batching",
-            ("--batches", "4", "--batch-successful-rounds", "4", "--observed-max-batch", "2"),
-            {"batches": 4, "batch_successful_rounds": 4, "observed_max_batch": 2},
+            (
+                "--batches",
+                "4",
+                "--multi-request-batches",
+                "4",
+                "--batch-successful-rounds",
+                "4",
+                "--observed-max-batch",
+                "2",
+            ),
+            {
+                "batches": 4,
+                "multi_request_batches": 4,
+                "batch_successful_rounds": 4,
+                "observed_max_batch": 2,
+            },
         ),
     ],
 )

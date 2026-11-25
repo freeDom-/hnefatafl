@@ -10,6 +10,7 @@ import {
   newCounters,
   recordBatch,
   recordBatchSuccess,
+  recordCleanupFailure,
   recordFailure,
   recordSuccess,
   recordWorkers,
@@ -31,7 +32,13 @@ async function check(name, fn) {
 function successOutcome({ completed = 8, inferences = 8, reason = "simulations" } = {}) {
   return {
     best_move: { source: 0, target: 1 },
-    settings: { iterations: Math.max(1, completed), time_limit: 1, exploration: 1.4, seed: 7 },
+    settings: {
+      algorithm: "mcts",
+      iterations: Math.max(1, completed),
+      time_limit: 1,
+      exploration: 1.4,
+      seed: 7,
+    },
     search: {
       completed_simulations: completed,
       completion_reason: reason,
@@ -119,6 +126,15 @@ await check("provider fallback and invented observations are rejected", () => {
   assert.throws(() => recordSuccess(newCounters(), invented));
 });
 
+await check("cleanup failures are explicit and non-successful", () => {
+  const counters = newCounters();
+  recordSuccess(counters, successOutcome());
+  recordCleanupFailure(counters);
+  assert.equal(counters.cleanup_failures, 1);
+  assert.equal(counters.workload_failures, 1);
+  assert.equal(exitCode(counters), 2);
+});
+
 await check("failed searches are failure-only and never successful progress", () => {
   const counters = newCounters();
   recordFailure(counters);
@@ -142,17 +158,115 @@ await check("telemetry binds identity and cumulative work", () => {
   assert.equal(record.neural_inferences, 8);
 });
 
+await check("requested provider and effective settings are verified", () => {
+  const expected = successOutcome().settings;
+  const wrongProvider = successOutcome();
+  wrongProvider.search.provider = {
+    requested: "webgpu",
+    execution_placement: "wasm",
+    gpu_execution_verified: false,
+  };
+  assert.throws(() => recordSuccess(newCounters(), wrongProvider, { provider: "wasm", settings: expected }));
+  const wrongPlacement = successOutcome();
+  wrongPlacement.search.provider = {
+    requested: "wasm",
+    execution_placement: "webgpu-session-unverified",
+    gpu_execution_verified: false,
+  };
+  assert.throws(() => recordSuccess(newCounters(), wrongPlacement, { provider: "wasm", settings: expected }));
+  const fallback = successOutcome();
+  fallback.search.provider = {
+    requested: "webgpu",
+    execution_placement: "wasm",
+    gpu_execution_verified: false,
+  };
+  assert.throws(() => recordSuccess(newCounters(), fallback, { provider: "webgpu", settings: expected }));
+  const badFlag = successOutcome();
+  badFlag.search.provider = {
+    requested: "wasm",
+    execution_placement: "wasm",
+    gpu_execution_verified: "false",
+  };
+  assert.throws(() => recordSuccess(newCounters(), badFlag, { provider: "wasm", settings: expected }));
+  const wrongIterations = successOutcome();
+  wrongIterations.settings = { ...wrongIterations.settings, iterations: 9 };
+  assert.throws(() =>
+    recordSuccess(newCounters(), wrongIterations, { provider: "wasm", settings: expected }),
+  );
+  for (const [field, value] of [
+    ["time_limit", 2],
+    ["exploration", 1.5],
+    ["seed", 8],
+  ]) {
+    const wrongSettings = successOutcome();
+    wrongSettings.settings = { ...wrongSettings.settings, [field]: value };
+    assert.throws(
+      () =>
+        recordSuccess(newCounters(), wrongSettings, {
+          provider: "wasm",
+          settings: expected,
+        }),
+      field,
+    );
+  }
+  const shortcut = successOutcome({ completed: 0, inferences: 0, reason: "immediate_win" });
+  const counters = newCounters();
+  recordSuccess(counters, shortcut, { provider: "wasm", settings: shortcut.settings });
+  assert.equal(counters.no_inference_shortcuts, 1);
+  assert.equal(counters.neural_searches, 0);
+});
+
+await check("webgpu unverified and mixed observations remain classified", () => {
+  for (const placement of ["webgpu-session-unverified", "webgpu-mixed"]) {
+    const outcome = successOutcome();
+    outcome.search.provider = {
+      requested: "webgpu",
+      execution_placement: placement,
+      gpu_execution_verified: false,
+    };
+    const counters = newCounters();
+    recordSuccess(counters, outcome, { provider: "webgpu", settings: outcome.settings });
+    assert.equal(counters.neural_searches, 1);
+  }
+});
+
+await check("peak worker budget evidence preserves separate classifications", () => {
+  const counters = newCounters();
+  recordWorkers(counters, { search_workers: 3, inference_workers: 1 });
+  assert.equal(counters.peak_search_workers, 3);
+  assert.equal(counters.peak_inference_workers, 1);
+  assert.equal(counters.peak_total_workers, 4);
+  assert.throws(() => recordWorkers(counters, { search_workers: -1, inference_workers: 0 }));
+  assert.throws(() => recordWorkers(counters, { search_workers: "2", inference_workers: 0 }));
+});
+
 await check("batch accounting uses cumulative deltas and handles resets", () => {
   const counters = newCounters();
-  let previous = recordBatch(counters, { batches: 3, observed_max_batch: 2 }, null, 10);
+  let previous = recordBatch(
+    counters,
+    { batches: 3, multi_request_batches: 2, observed_max_batch: 2 },
+    null,
+    10,
+  );
   assert.equal(counters.batches, 3);
   assert.equal(counters.observed_max_batch, 2);
-  previous = recordBatch(counters, { batches: 5, observed_max_batch: 2 }, previous, 12);
+  previous = recordBatch(
+    counters,
+    { batches: 5, multi_request_batches: 4, observed_max_batch: 2 },
+    previous,
+    12,
+  );
   assert.equal(counters.batches, 5);
-  previous = recordBatch(counters, { batches: 2, observed_max_batch: 2 }, previous, 8);
+  previous = recordBatch(
+    counters,
+    { batches: 2, multi_request_batches: 1, observed_max_batch: 2 },
+    previous,
+    8,
+  );
   assert.equal(counters.batches, 7);
   assert.equal(counters.batch_counter_resets, 1);
   assert.equal(counters.batch_rounds, 3);
+  assert.equal(counters.multi_request_batches, 5);
   recordBatchSuccess(counters, 9);
   recordBatchSuccess(counters, 4);
   assert.equal(counters.batch_successful_rounds, 2);
@@ -214,6 +328,8 @@ if (process.env.SPIKE_NEURAL_DIR) {
   assert.ok(summary.counters.successful_searches >= 1);
   assert.equal(summary.counters.workload_failures, 0);
   assert.equal(summary.session_id, "driver-test");
+  assert.ok(summary.provider_placements.every((item) => item.startsWith("wasm/")));
+  assert.ok(summary.model_provider_placements.includes("wasm/wasm"));
   const readyDocument = JSON.parse(await readFile(ready, "utf8"));
   assert.equal(readyDocument.ready, true);
   assert.equal(readyDocument.session, "driver-test");
@@ -267,6 +383,21 @@ if (process.env.SPIKE_NEURAL_DIR) {
   assert.ok(reload.counters.reloads >= 1);
   const replacement = await runMode("worker-replacement");
   assert.ok(replacement.counters.worker_replacements >= 1);
+  assert.ok(
+    replacement.lifecycle_events.some(
+      (event) =>
+        event.kind === "worker-replacement" &&
+        event.worker_generation_after > event.worker_generation_before,
+    ),
+  );
+  const disposal = await runMode("client-disposal");
+  assert.ok(disposal.counters.client_disposals >= 1);
+  assert.ok(
+    disposal.lifecycle_events.some(
+      (event) =>
+        event.kind === "client-disposal" && event.disposed && event.recreated,
+    ),
+  );
   const cacheChurn = await runMode("cache-churn", ["--cache"]);
   assert.ok(cacheChurn.counters.cache_evictions >= 1);
   const batching = await runMode("batching");
@@ -274,7 +405,53 @@ if (process.env.SPIKE_NEURAL_DIR) {
   assert.ok(batching.counters.observed_max_batch >= 2);
   assert.ok(batching.counters.batch_successful_rounds >= 2);
   assert.ok(batching.counters.peak_total_workers >= 3);
+  assert.ok(batching.counters.multi_request_batches >= 2);
   assert.ok(batching.counters.batch_search_max_elapsed_ms > 0);
+  async function runFailureMode(mode, extraArgs = []) {
+    const failureTelemetry = join(directory, `telemetry-${mode}-failure.jsonl`);
+    const failureOutput = join(directory, `summary-${mode}-failure.json`);
+    const failureReady = join(directory, `ready-${mode}-failure.json`);
+    const childProcess = spawn(
+      process.execPath,
+      [
+        resolve(import.meta.dirname, "sustained_workload.mjs"),
+        root,
+        "--duration",
+        "5",
+        "--interval",
+        "0.1",
+        "--mode",
+        mode,
+        "--session",
+        `driver-test-${mode}-failure`,
+        "--telemetry",
+        failureTelemetry,
+        "--ready",
+        failureReady,
+        "--overwrite",
+        "--iterations",
+        "8",
+        "--time-limit",
+        "1",
+        "--output",
+        failureOutput,
+        ...extraArgs,
+      ],
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+    const code = await new Promise((done) => childProcess.on("exit", done));
+    return { code, summary: JSON.parse(await readFile(failureOutput, "utf8")) };
+  }
+
+  const failedDispose = await runFailureMode("batching", ["--fail-coordinator-dispose"]);
+  assert.equal(failedDispose.code, 2);
+  assert.ok(failedDispose.summary.counters.cleanup_failures >= 1);
+
+  const failedRecovery = await runFailureMode("cancel-restart", ["--fail-recovery-search"]);
+  assert.equal(failedRecovery.code, 2);
+  assert.equal(failedRecovery.summary.counters.cancellations, 0);
+  assert.ok(failedRecovery.summary.counters.workload_failures >= 1);
+
   if (process.env.SPIKE_REPLACEMENT_MODEL_FILE && process.env.SPIKE_REPLACEMENT_MODEL_SHA256) {
     const replaced = await runMode("model-replacement", [
       "--cache",

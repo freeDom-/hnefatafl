@@ -140,6 +140,70 @@ This revision resolves the review findings A1–A8:
   Structural tests only generate structural manifests; no competitive attestation
   is fabricated in tests or evidence.
 
+## A.3 Evidence-validation corrections (C1–C6)
+
+- **C1 model transitions:** Model replacement requires an explicit
+  `--approved-model-sha256` set established before collection; the original model
+  must be included and at least two fingerprints are required. The collector
+  validates source/destination/sequence/timestamp/recovery/cache invalidation,
+  rejects same-model and third-model transitions, and commits identity/transition
+  state only after the entire telemetry record validates. The retained 1,024-entry
+  history carries an anchor (`first_retained_sequence`, `first_retained_from`),
+  final model, total count and retained-chain digest, so history eviction remains
+  verifiable. Sample model identities are checked against the transition timeline,
+  not a union of observed models. Ordinary profiles remain immutable.
+  Evidence: [profile](phase3cb-c1-model-replacement-profile.json),
+  [validation](phase3cb-c1-model-replacement-validation.json),
+  [workload](phase3cb-c1-model-replacement-workload.json).
+- **C2 final workload evidence:** Collector reports separate
+  `acceptance_window` counters/transitions and a `final_session` summary bound to
+  the same session/profile/workload/model set. Final counters may exceed the
+  measured window (continued work) but cannot fall below it; failures after the
+  last sample, missing/reset counters, incomplete summaries, missing exit status,
+  failed cleanup, premature termination and final model transitions are detected.
+  The collector cannot reap the workload process because it is not its parent, so
+  it records `actual_process_exit_status: null` with the reason and reports the
+  workload's predicted exit status separately; the owner runbook preserves the
+  actual `wait` status. Final telemetry is emitted only after browser/context
+  cleanup. Historical schema-3 profiles without this contract remain historical
+  evidence and are not presented as newly accepted.
+- **C3 provider/search identity:** Successful-search validation receives the
+  expected workload provider and original request settings and verifies effective
+  iterations, time limit, exploration, seed, completion and provider observations.
+  WASM cannot report WebGPU; WebGPU cannot silently fall back to WASM/CPU; GPU
+  verification flags are strict booleans; unverified/mixed placements remain
+  classified rather than promoted. Provider placements are accumulated only from
+  validated searches; model initialization placements are separate. Legitimate
+  no-inference shortcuts do not invent a placement.
+- **C4 workers/batching/lifecycle:** Telemetry keeps separate search and inference
+  worker counts and total simultaneous usage, including the primary coordinator
+  and temporary batching coordinators. Validation enforces the declared worker
+  budget against observed peak usage, validates peak consistency/types, keeps
+  cumulative batch deltas/resets, distinguishes multi-request batches, and
+  requires successful multi-context work inside the acceptance window. Temporary
+  coordinators are disposed in `finally` and cleanup failures are reported and
+  make the workload non-successful. Worker replacement verifies a search-worker
+  generation change; client disposal verifies the old coordinator was disposed and
+  a new runtime installed; reload/replacement/restart events count only after a
+  valid recovery search. Evidence:
+  [batching profile](phase3cb-c4-batching-profile.json),
+  [validation](phase3cb-c4-batching-validation.json),
+  [workload](phase3cb-c4-batching-workload.json).
+- **C5 readiness ownership:** `wait_for_ready.py` rejects nonpositive PIDs and
+  nonfinite/nonpositive timeouts, captures the original process identity
+  (start-time based), revalidates it before every signal, uses pidfds where
+  supported, never signals a process group, snapshots owned descendants before
+  cleanup and reports incomplete cleanup. PID reuse/disappearance leaves the
+  replacement process untouched. The owner runbook uses a cleanup trap, stops on
+  readiness/collection failure, preserves `wait` status and validates only after
+  final evidence.
+- **C6 malformed inputs:** All new counters, flags, final-summary fields,
+  cache-invalidation/batch/peak fields and transition-history fields are
+  type-checked before arithmetic, set membership or insertion. Booleans are
+  rejected for strict integers; negative/nonfinite values and incompatible
+  strings/lists/objects/null produce structured invalid or partial reports without
+  uncaught exceptions.
+
 ## B. Software delivered in Phase 3C-B
 
 1. **V1 provider-evidence consistency.** Live process-agent validation and saved
@@ -309,6 +373,33 @@ Corrected telemetry-only rerun evidence:
   Corrected evidence: [10-minute r3](phase3cb-memory-10m-r3-profile.json),
   [30-minute r3](phase3cb-memory-30m-r3-profile.json),
   [30-minute validation](phase3cb-memory-30m-r3-validation.json).
+
+  **Diagnostic probe (implemented, not yet run for 30 minutes).** Add
+  `--heap-gc-probe` to the driver; every telemetry sample then forces a CDP
+  `HeapProfiler.collectGarbage` before reading `performance.memory` and records
+  both `js_heap_used_bytes` and `js_heap_after_gc_bytes`. If only the pre-GC value
+  steps and the after-GC value remains flat, the observation is allocated/old-space
+  growth rather than retained objects; if both step and remain elevated, capture
+  CDP heap snapshots at the start, before the step and after the plateau:
+
+  ```sh
+  node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
+    --duration 1890 --mode repeated --session heap-probe --provider wasm \
+    --telemetry /tmp/heap-probe.jsonl --ready /tmp/heap-probe.ready --overwrite \
+    --iterations 128 --time-limit 2 --cache --heap-gc-probe --output /tmp/heap-probe.json
+  # In Chromium DevTools (Performance/Memory) or a Playwright CDP session:
+  #   HeapProfiler.enable; HeapProfiler.collectGarbage;
+  #   HeapProfiler.takeHeapSnapshot(reportProgress=false)
+  # Compare retained constructors/objects between the snapshots. Keep snapshots
+  # outside the repository; they are large and may contain runtime state.
+  ```
+
+  This probe changes GC timing and is diagnostic only; it is never enabled in
+  normal acceptance runs. A short 12 s probe completed with `js_heap_used_bytes`
+  and `js_heap_after_gc_bytes` both flat at 9.5 MB; it cannot reproduce the
+  ~20-minute step, so the 30-minute diagnostic (and retained-object snapshot
+  comparison) remains pending owner hardware. The unobservable WASM heap metric
+  remains a runtime limitation.
 - WASM heap capacity is not exposed by the pinned ORT Web runtime, so these
   profiles remain partial/blocked rather than accepted. No substitute metric was
   used.
@@ -496,12 +587,25 @@ JSON
   --output /tmp/tournament-wasm-webgpu.json
 
 # 7. Sustained memory: telemetry-only progress, fresh files, ready handshake
+set -euo pipefail
 SESSION="owner-$(date +%s)"; TELEMETRY="/tmp/$SESSION.jsonl"; READY="/tmp/$SESSION.ready"
+BROWSER_PID=""
+cleanup_owner() {
+  status=$?
+  if [ -n "$BROWSER_PID" ]; then
+    .venv/bin/python spikes/browser_offline/wait_for_ready.py --terminate-only \
+      --pid "$BROWSER_PID" || true
+  fi
+  trap - EXIT INT TERM
+  exit "$status"
+}
+trap cleanup_owner EXIT INT TERM
 node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
   --duration 690 --mode repeated --session "$SESSION" --provider wasm \
   --telemetry "$TELEMETRY" --ready "$READY" --overwrite \
   --iterations 128 --time-limit 2 --cache --output /tmp/workload-10m.json &
 BROWSER_PID=$!
+# Readiness failure exits 3 and terminates the owned workload; set -e stops the run.
 .venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "$READY" \
   --pid "$BROWSER_PID" --timeout 180 --session "$SESSION" \
   --model-sha256 "<64 hex>" --mode repeated
@@ -509,10 +613,17 @@ BROWSER_PID=$!
   --profile sustained-10m --warmup-duration 60 --duration 600 --interval 1 \
   --telemetry-file "$TELEMETRY" --telemetry-session-id "$SESSION" \
   --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
-  --inference-cache --output /tmp/memory-10m.json
-wait "$BROWSER_PID"
-# wait_for_ready exits 3 and terminates the owned workload on early exit, timeout,
-# malformed JSON or an identity/mode mismatch.
+  --inference-cache --final-summary-timeout 120 --output /tmp/memory-10m.json
+WORKLOAD_STATUS=0
+if wait "$BROWSER_PID"; then WORKLOAD_STATUS=0; else WORKLOAD_STATUS=$?; fi
+BROWSER_PID=""
+# The collector is not the workload parent; this wait status is the actual process
+# exit status. The final telemetry exit status is the workload's own prediction and
+# both must agree for acceptance.
+test "$WORKLOAD_STATUS" -eq 0
+.venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json
+# Readiness/collection failures are cleaned up by wait_for_ready or the EXIT trap;
+# interrupted runs preserve the signal status.
 .venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json
 # 30 minutes: --duration 1890 on the driver, --profile sustained-30m --duration 1800 collector
 # Lifecycle profile mapping (driver mode -> collector --profile):
@@ -524,9 +635,12 @@ wait "$BROWSER_PID"
 #   client-disposal     -> client-disposal
 #   cache-churn         -> cache-churn (use --cache-entries 4 --cache-bytes 65536)
 #   batching            -> independent-batching
-# Model replacement additionally needs two validated staged model files:
+# Model replacement additionally needs two validated staged model files and an
+# explicit approved model set (original + every alternate):
 #   --mode model-replacement --replacement-model-file models/alt.onnx \
 #     --replacement-model-sha256 "<alt digest>" [--replacement-model-file-2 ...]
+#   collector: --approved-model-sha256 "<original digest>" \
+#              --approved-model-sha256 "<alt digest>" ...
 # Copy alternate validated ONNX artifacts into the staged root under models/ and
 # use --cache for transitions/cache-churn.
 # A bounded lifecycle sweep (short structural mode; use the full windows above for
@@ -541,14 +655,16 @@ for spec in "cancel-restart cancel-restart" "model-reload model-reload" \
     --telemetry "/tmp/$SESSION.jsonl" --ready "/tmp/$SESSION.ready" --overwrite \
     --iterations 64 --time-limit 1 --cache --output "/tmp/$SESSION-workload.json" &
   PID=$!
-  .venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "/tmp/$SESSION.ready" \
-    --pid "$PID" --timeout 180 --session "$SESSION" --model-sha256 "<64 hex>" --mode "$1"
+  if ! .venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "/tmp/$SESSION.ready" \
+    --pid "$PID" --timeout 180 --session "$SESSION" --model-sha256 "<64 hex>" --mode "$1"; then
+    exit 3
+  fi
   .venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$PID" \
     --profile "$2" --warmup-duration 10 --duration 30 \
     --telemetry-file "/tmp/$SESSION.jsonl" --telemetry-session-id "$SESSION" \
     --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
-    --inference-cache --output "/tmp/$SESSION-memory.json"
-  wait "$PID"
+    --inference-cache --final-summary-timeout 120 --output "/tmp/$SESSION-memory.json"
+  if ! wait "$PID"; then exit 2; fi
   .venv/bin/python spikes/browser_offline/memory_validation.py "/tmp/$SESSION-memory.json"
 done
 
@@ -570,13 +686,20 @@ before launching, and generated corpora record generator/seed/corpus identity.
 
 - Focused Python regression across the Phase 3C-B suites, competitive/device
   validators, malformed-input suites, readiness/manifest helpers and existing MCTS
-  validation/benchmarks: **238 passed, 3 browser opt-in gates skipped**.
+  validation/benchmarks: **289 passed, 3 browser opt-in gates skipped** in the focused C1–C6 regression.
 - Node lifecycle regressions: 67/67, 7/7, 30/30, 21/21, 8/8.
 - Optional actual-browser sustained-driver runs passed repeated, cancel/restart,
   reload, worker replacement, client disposal, cache churn, batching and A↔B↔A
   model replacement with alternate validated models; telemetry-only collection,
   bounded readiness and clean shutdown were exercised.
 - `make lint`, `make typecheck` and `make docs` pass.
+- Frontend Vitest: **1,576 passed** (108 files); benchmark budgets and production
+  build pass.
+- Local `make check` backend run: **4,409 passed, 68 skipped, 6 failed** only in
+  `tests/test_mcts_optimization.py` frozen-reference digests under this host's
+  Python 3.11.18. No MCTS file is modified by this change; CI uses Python 3.12.
+  The focused C1–C6 regression is **289 passed, 3 browser gates skipped**, and the
+  optional actual-browser sustained suite passes.
 
 ## J. Readiness recommendation
 

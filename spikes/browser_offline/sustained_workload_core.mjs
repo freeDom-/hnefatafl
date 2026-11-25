@@ -43,7 +43,9 @@ export function newCounters() {
     cache_clears: 0,
     cache_evictions: 0,
     cache_invalidation_failures: 0,
+    cleanup_failures: 0,
     batches: 0,
+    multi_request_batches: 0,
     observed_max_batch: 0,
     batch_rounds: 0,
     batch_successful_rounds: 0,
@@ -59,44 +61,107 @@ export function newCounters() {
 }
 
 function _integer(value, label) {
-  if (!Number.isInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer`);
+  if (typeOfInteger(value) !== true || value < 0)
+    throw new Error(`${label} must be a non-negative integer`);
   return value;
 }
 
-export function recordSuccess(counters, outcome) {
+function typeOfInteger(value) {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
+function _strictBoolean(value, label) {
+  if (typeof value !== "boolean") throw new Error(`${label} must be a boolean`);
+  return value;
+}
+
+function _verifySettings(actual, expected) {
+  if (!actual || typeof actual !== "object" || Array.isArray(actual))
+    throw new Error("effective search settings are missing");
+  if (!expected || typeof expected !== "object" || Array.isArray(expected))
+    throw new Error("requested search settings are missing");
+  if (actual.algorithm !== "mcts" || expected.algorithm !== "mcts")
+    throw new Error("effective algorithm is not the requested MCTS");
+  for (const field of ["iterations", "seed"]) {
+    if (!typeOfInteger(expected[field]) || expected[field] < 0)
+      throw new Error(`requested ${field} is invalid`);
+    if (actual[field] !== expected[field])
+      throw new Error(`effective ${field} does not match the request`);
+  }
+  for (const field of ["time_limit", "exploration"]) {
+    if (!Number.isFinite(expected[field]) || expected[field] < 0)
+      throw new Error(`requested ${field} is invalid`);
+    if (actual[field] !== expected[field])
+      throw new Error(`effective ${field} does not match the request`);
+  }
+  if (!typeOfInteger(actual.iterations) || actual.iterations < 1)
+    throw new Error("effective iteration budget is invalid");
+  if (!Number.isFinite(actual.time_limit) || actual.time_limit <= 0)
+    throw new Error("effective time limit is invalid");
+  if (!Number.isFinite(actual.exploration) || actual.exploration < 0)
+    throw new Error("effective exploration is invalid");
+  return actual;
+}
+
+// Mirrors tournament._provider_evidence_failures so the sustained workload uses
+// the same requested/observed/verified provider contract as tournament evidence.
+function _verifyProvider(expectedProvider, provider, inferences) {
+  if (!["wasm", "webgpu"].includes(expectedProvider))
+    throw new Error("expected workload provider is invalid");
+  if (inferences === 0) {
+    if (provider !== null && provider !== undefined)
+      throw new Error("provider observation was reported without neural inference");
+    return null;
+  }
+  if (!provider || typeof provider !== "object" || Array.isArray(provider))
+    throw new Error("neural search lacks a per-search provider observation");
+  if (provider.requested !== expectedProvider)
+    throw new Error("observed requested provider contradicts the workload provider");
+  if (typeof provider.gpu_execution_verified !== "boolean")
+    throw new Error("GPU verification flag must be a strict boolean");
+  if (expectedProvider === "wasm") {
+    if (provider.execution_placement !== "wasm")
+      throw new Error("WASM request did not execute on WASM");
+    if (provider.gpu_execution_verified)
+      throw new Error("WASM observation cannot claim verified GPU execution");
+    return provider;
+  }
+  if (["wasm", "cpu-fallback"].includes(provider.execution_placement))
+    throw new Error("WebGPU request silently fell back");
+  if (!["webgpu-session-unverified", "webgpu-mixed", "webgpu-session-verified"].includes(
+    provider.execution_placement,
+  ))
+    throw new Error("neural search observed an unsupported execution placement");
+  if (provider.gpu_execution_verified && provider.execution_placement !== "webgpu-session-verified")
+    throw new Error("unverified or mixed WebGPU cannot claim verified GPU execution");
+  if (provider.execution_placement === "webgpu-session-verified" && !provider.gpu_execution_verified)
+    throw new Error("verified GPU placement lacks the verification flag");
+  return provider;
+}
+
+export function recordSuccess(counters, outcome, expectations = {}) {
   if (!outcome || typeof outcome !== "object") throw new Error("search outcome is missing");
   const search = outcome.search;
   if (!search || typeof search !== "object") throw new Error("search result is missing");
   const move = outcome.best_move;
-  if (!move || !Number.isInteger(move.source) || !Number.isInteger(move.target))
+  if (!move || !typeOfInteger(move.source) || !typeOfInteger(move.target))
     throw new Error("search result lacks a legal-shaped best move");
   const completed = _integer(search.completed_simulations, "completed_simulations");
   const inferences = _integer(search.coordinator?.inferences, "neural inference count");
   const reason = search.completion_reason;
   if (!COMPLETION_REASONS.includes(reason)) throw new Error("invalid completion reason");
-  const settings = outcome.settings;
-  if (!settings || !Number.isInteger(settings.iterations) || settings.iterations < 1)
-    throw new Error("effective search settings are missing");
-  if (!Number.isFinite(settings.time_limit) || settings.time_limit <= 0)
-    throw new Error("effective time limit is invalid");
-  if (completed > settings.iterations) throw new Error("completed work exceeds the simulation budget");
+  const settings = _verifySettings(outcome.settings, expectations.settings ?? outcome.settings);
+  if (completed > settings.iterations)
+    throw new Error("completed work exceeds the simulation budget");
   if (reason === "simulations" && completed !== settings.iterations)
     throw new Error("simulation completion contradicts completed work");
   if (reason === "deadline" && completed > settings.iterations)
     throw new Error("deadline completion exceeds the simulation ceiling");
-  const provider = search.provider ?? null;
-  if (inferences > 0) {
-    if (!provider || typeof provider !== "object")
-      throw new Error("neural search lacks a per-search provider observation");
-    if (!["wasm", "webgpu-session-unverified", "webgpu-mixed", "webgpu-session-verified"].includes(provider.execution_placement))
-      throw new Error("neural search observed an unsupported execution placement");
-    if (provider.requested === "webgpu" && ["wasm", "cpu-fallback"].includes(provider.execution_placement))
-      throw new Error("WebGPU search silently fell back");
-    if (provider.gpu_execution_verified === true && provider.execution_placement !== "webgpu-session-verified")
-      throw new Error("unverified WebGPU cannot claim verified GPU execution");
-  } else if (provider !== null) {
-    throw new Error("provider observation was reported without neural inference");
-  }
+  const provider = _verifyProvider(
+    expectations.provider ?? search.provider?.requested ?? "wasm",
+    search.provider ?? null,
+    inferences,
+  );
   const shortcut = inferences === 0 && ["immediate_win", "terminal"].includes(reason);
   if (inferences === 0 && !shortcut)
     throw new Error("search completed without neural inference or a valid shortcut");
@@ -113,25 +178,38 @@ export function recordFailure(counters) {
   counters.workload_failures += 1;
 }
 
+export function recordCleanupFailure(counters) {
+  counters.cleanup_failures += 1;
+  counters.workload_failures += 1;
+}
+
 export function recordBatch(counters, cumulative, previous, elapsedMs) {
   if (!cumulative || typeof cumulative !== "object")
     throw new Error("batch statistics are missing");
   const batches = _integer(cumulative.batches, "batch count");
   const maxBatch = _integer(cumulative.observed_max_batch, "observed max batch");
-  const prior = previous && Number.isInteger(previous.batches) ? previous.batches : 0;
+  const multi = _integer(cumulative.multi_request_batches ?? 0, "multi-request batch count");
+  const prior = previous && typeOfInteger(previous.batches) ? previous.batches : 0;
+  const priorMulti =
+    previous && typeOfInteger(previous.multi_request_batches)
+      ? previous.multi_request_batches
+      : 0;
   let delta = batches - prior;
-  if (delta < 0) {
+  let multiDelta = multi - priorMulti;
+  if (delta < 0 || multiDelta < 0) {
     counters.batch_counter_resets += 1;
     delta = batches;
+    multiDelta = multi;
   }
   counters.batches += delta;
+  counters.multi_request_batches += multiDelta;
   counters.observed_max_batch = Math.max(counters.observed_max_batch, maxBatch);
   counters.batch_rounds += 1;
   if (Number.isFinite(elapsedMs)) {
     counters.batch_elapsed_ms_total += elapsedMs;
     counters.batch_max_elapsed_ms = Math.max(counters.batch_max_elapsed_ms, elapsedMs);
   }
-  return { batches, observed_max_batch: maxBatch };
+  return { batches, multi_request_batches: multi, observed_max_batch: maxBatch };
 }
 
 export function recordBatchSuccess(counters, searchElapsedMs) {
@@ -147,10 +225,8 @@ export function recordBatchSuccess(counters, searchElapsedMs) {
 
 export function recordWorkers(counters, workers) {
   if (!workers || typeof workers !== "object") return;
-  const searchWorkers = Number.isInteger(workers.search_workers) ? workers.search_workers : 0;
-  const inferenceWorkers = Number.isInteger(workers.inference_workers)
-    ? workers.inference_workers
-    : 0;
+  const searchWorkers = _integer(workers.search_workers ?? 0, "search worker count");
+  const inferenceWorkers = _integer(workers.inference_workers ?? 0, "inference worker count");
   counters.peak_search_workers = Math.max(counters.peak_search_workers, searchWorkers);
   counters.peak_inference_workers = Math.max(
     counters.peak_inference_workers,
@@ -179,7 +255,9 @@ export function telemetryRecord(counters, identity, extra = {}) {
       cache_clears: counters.cache_clears,
       cache_evictions: counters.cache_evictions,
       cache_invalidation_failures: counters.cache_invalidation_failures,
+      cleanup_failures: counters.cleanup_failures,
       batches: counters.batches,
+      multi_request_batches: counters.multi_request_batches,
       batch_successful_rounds: counters.batch_successful_rounds,
     },
   };
@@ -189,7 +267,8 @@ export function exitCode(counters) {
   if (
     counters.completed_requests > 0 &&
     counters.workload_failures === 0 &&
-    counters.cache_invalidation_failures === 0
+    counters.cache_invalidation_failures === 0 &&
+    counters.cleanup_failures === 0
   )
     return 0;
   if (counters.completed_requests > 0) return 2;
