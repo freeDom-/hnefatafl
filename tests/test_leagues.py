@@ -13,7 +13,13 @@ import pytest
 from hnefatafl import league_policy as policy, league_results, leagues
 from hnefatafl.leagues import MATCH_OPPONENTS, MATCH_STARTERS, Leagues
 from hnefatafl.online_core import OnlineError, micros
-from test_online_core import account_template as account_template, actor, rig as rig
+from test_online_core import (
+    account_template as account_template,
+    active,
+    actor,
+    move_for,
+    rig as rig,
+)
 
 
 def join(service, rig, name, ruleset="brandubh", request=None):
@@ -386,18 +392,42 @@ def test_opponent_cursor_reaches_deep_pages_and_rechecks_expanding_windows(rig):
 
 def test_background_budget_commits_separately_and_rotates_rulesets(rig, monkeypatch):
     service = Leagues(rig.core)
+    game = active(rig)
+    move = move_for(game)
     at = micros(rig.clock.value)
     monkeypatch.setattr(leagues, "MATCH_TRANSACTIONS", 4)
     monkeypatch.setattr(leagues, "MATCH_CYCLE_SECONDS", 5)
     with rig.core._write() as c:
         for ruleset in ("brandubh", "tablut", "copenhagen"):
-            for index in range(10):
+            for index in range(80):
                 seed_waiter(
                     c, f"{ruleset}-{index:02d}", 1500, at + index, at + 600_000_000, ruleset
                 )
     rig.clock.value += timedelta(seconds=1)
     stop = Event()
-    assert service.drain(stop=stop)["matched"] == 4
+    waited = stop.wait
+    moved = None
+
+    def handoff(seconds):
+        nonlocal moved
+        if moved is None:
+            with rig.store.connection() as c:
+                assert c.execute("SELECT count(*) FROM league_games").fetchone()[0] == 1
+            moved = foreground.submit(
+                rig.core.mutate,
+                actor(rig, game),
+                game["id"],
+                game["version"],
+                "move",
+                source=move.source,
+                target=move.target,
+            ).result(timeout=5)["game"]
+        return waited(seconds)
+
+    monkeypatch.setattr(stop, "wait", handoff)
+    with ThreadPoolExecutor(max_workers=1) as foreground:
+        assert service.drain(stop=stop)["matched"] == 4
+    assert moved["version"] == game["version"] + 1
     with rig.store.connection() as c:
         assert dict(c.execute("SELECT ruleset,count(*) FROM league_games GROUP BY ruleset")) == {
             "brandubh": 2,
