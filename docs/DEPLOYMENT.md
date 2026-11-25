@@ -359,7 +359,13 @@ hnefatafl-backup
 
 Version comparison uses numeric stable versions. Explicit versions must be published
 stable releases. Already-current/older selections report no newer version; use
-recorded rollback for a downgrade. A single exclusive lock protects install,
+recorded rollback for a downgrade. A release may carry a two-part identifier such
+as `0.42`; the updater accepts `X.Y` and `X.Y.Z` and orders `X.Y` as `X.Y.0`.
+An updater installed by an older release whose code only accepted three-part tags
+cannot discover a two-part release: refresh `/usr/local/lib/hnefatafl/deployment.py`
+and the `hnefatafl-update`/`hnefatafl-backup` wrappers from the verified source
+archive of the target release (or rerun `scripts/linux/install.sh` from it), then
+run the update. A single exclusive lock protects install,
 update, backup and recovery. The target builds in its own final release directory,
 so absolute venv paths remain valid and the active release is untouched on build
 failure. Dependency lockfiles, security tests and frontend builds must pass first.
