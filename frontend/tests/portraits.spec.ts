@@ -221,7 +221,21 @@ for (const theme of themes) {
         await expect(image).toHaveCSS('filter', 'grayscale(1)');
         await expect(shieldmaiden.getByRole('progressbar')).toBeVisible();
         await expect(shieldmaiden.getByRole('button')).toHaveCount(0);
-        const artBefore = await image.boundingBox();
+        const geometry = () =>
+          image.evaluate((element) => {
+            const artwork = element.getBoundingClientRect();
+            const card = element.closest('li')!.getBoundingClientRect();
+            const gallery = element.closest('.portrait-gallery')!.getBoundingClientRect();
+            return {
+              width: artwork.width,
+              height: artwork.height,
+              top: artwork.top - card.top,
+              left: artwork.left - card.left,
+              cardHeight: card.height,
+              cardTop: card.top - gallery.top,
+            };
+          });
+        const artBefore = await geometry();
         // Simulate a game-completion wake with an updated server-owned projection.
         awarded = true;
         await page.evaluate(() => window.dispatchEvent(new Event('progression-changed')));
@@ -234,7 +248,7 @@ for (const theme of themes) {
         await expect(shieldmaiden).toHaveAttribute('data-portrait-state', 'ready');
         await expect(shieldmaiden.getByRole('progressbar')).toHaveCount(0);
         await expect(image).toHaveCSS('filter', 'grayscale(1)');
-        expect(await image.boundingBox()).toEqual(artBefore);
+        expect(await geometry()).toEqual(artBefore);
         const unlock = shieldmaiden.getByRole('button', {
           name: /Unlock portrait|Porträt freischalten/,
         });
