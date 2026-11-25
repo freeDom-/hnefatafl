@@ -180,3 +180,82 @@ use level 9, as in the bundle-budget check.
 | League branch initial CSS | 115,551 | 24,114 |
 | Deferred League JavaScript | 27,432 | 8,565 |
 | Deferred League CSS | 1,782 | 629 |
+
+## Follow-up to the review at `e66c595`
+
+The preceding measurements describe the original League implementation. The
+follow-up compares the same main and reviewed commits with the revised runtime
+and records the service and worker workloads independently.
+
+### Reproduction
+
+Run serially with the repository test lock and math thread limits. The shared
+runner makes a SQLite backup of the main fixture once, including the same
+accounts, ordinary games and pending tournament settlements. Each trial copies
+that backup into fresh temporary storage. A League source tree upgrades the copy
+to schema 23 through normal startup.
+
+```sh
+export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2
+work=$(mktemp -d)
+mkdir "$work/main" "$work/reviewed" "$work/revised"
+git archive f2590b993cab24d7d3ab89249174ac052af5d2e6 | tar -x -C "$work/main"
+git archive e66c5950a76edc10f3c9d55474f4e3648b14fc7e | tar -x -C "$work/reviewed"
+git archive fbb987fe97a60165c3bd0d4d8c7a2d69f1707340 | tar -x -C "$work/revised"
+PYTHONPATH="$work/main" .venv/bin/python scripts/benchmark_league_workers.py prepare \
+  --baseline --template "$work/common"
+PYTHONPATH="$work/main" .venv/bin/python scripts/benchmark_league_workers.py shared \
+  --baseline --source-revision f2590b993cab24d7d3ab89249174ac052af5d2e6 \
+  --template "$work/common" --output "$work/main-1.json"
+PYTHONPATH="$work/revised" .venv/bin/python scripts/benchmark_league_workers.py shared \
+  --source-revision fbb987fe97a60165c3bd0d4d8c7a2d69f1707340 \
+  --template "$work/common" --output "$work/revised-1.json"
+PYTHONPATH="$work/reviewed" .venv/bin/python scripts/benchmark_league_workers.py shared \
+  --source-revision e66c5950a76edc10f3c9d55474f4e3648b14fc7e \
+  --template "$work/common" --output "$work/reviewed-1.json"
+```
+
+Reverse the three-source order on even repetitions. Each shared trial measures
+100 accepted moves, 100 rated concessions and 100 tournament settlements in
+isolation. The common service arm interleaves moves and settlements with six
+threads. The live common arm schedules move bursts around the real tournament
+worker's one-second tick. Its League variant also starts the real League worker
+with 240 compatible waiters and 40 unsettled official results. The League
+service arm adds explicit joins, cancellations and League settlements.
+
+Use the same `PYTHONPATH` source selection and `--output` convention with
+`scripts/benchmark_league_workers.py matchmaking` for the six live queue
+scenarios and `scripts/benchmark_league_rank.py` for authenticated rank reads.
+The queue scenarios use real elapsed time, with a 10-second observation window
+from the start of actionable work. The simultaneous expansion uses synthetic
+Elo groups spaced far enough apart to isolate the intended pairs. The expiry
+case leaves three seconds of the original lifetime when sampling starts.
+Process CPU includes measurement overhead and any foreground moves. Queue
+waiting time uses the authoritative pairing timestamp. A separate observer
+checks post-commit visibility every 50 ms.
+
+```sh
+.venv/bin/python scripts/benchmark_league_rank.py --output "$work/rank.json"
+.venv/bin/python scripts/benchmark_league_arena.py --output "$work/service.json"
+npm --prefix frontend run build
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium \
+  node frontend/benchmarks/league-network.mjs "$work/network.json"
+```
+
+### Writer and query behavior
+
+The query plan for the ordinary terminal-result provenance check seeks
+`sqlite_autoindex_league_games_1` by game ID. The reviewed outbox statement
+performed the same seek through `INSERT … SELECT` and then tried the indexed
+active-seat delete. The revised transaction executes the outbox upsert and
+`league_active_game` delete only when it finds League provenance. Nonterminal
+moves execute zero League result statements. They now skip the return-leg
+lookup and reuse the validated move transition when constructing the response.
+The official result, League outbox and seat release retain their atomic write.
+
+The pool for guarded online and tournament writers retains at most four idle
+SQLite connections, with an independent commit or rollback for each lease.
+It reduces recurring SQLite schema and statement preparation. Session,
+authority, expiry and optimistic versions still load after writer acquisition.
+The deployment gate applies to every lease, and each lease sets its intended
+lock timeout before beginning the transaction.
