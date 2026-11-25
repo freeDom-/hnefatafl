@@ -42,6 +42,19 @@ SAFE = {"GET", "HEAD", "OPTIONS"}
 # this prefix may be shared, and only when its handler asks for public caching.
 PUBLIC_CACHE = "public, max-age=60"
 PUBLIC_CACHE_PATH = "/api/public/online/games/"
+# One strict policy for every document and API response. The browser-analysis
+# runtime needs WebAssembly compilation; the narrowly scoped ``wasm-unsafe-eval``
+# source is added only when the feature is enabled. No broad ``unsafe-eval``, no
+# ``unsafe-inline`` scripts, no wildcard or remote script/worker origins.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+)
+BROWSER_ANALYSIS_POLICY = (
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; "
+    "img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+)
 # This module owns policy; account_api is imported only after Auth is defined.
 ACCOUNT_ACTIONS = {
     "/api/auth/register": "register",
@@ -94,12 +107,22 @@ def verify(password: str, encoded: str) -> bool:
         return False
 
 
+def _enabled(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    raise ValueError("HNEFATAFL_BROWSER_ANALYSIS_ENABLED must be 0 or 1")
+
+
 @dataclass(frozen=True)
 class SecuritySettings:
     production: bool = False
     public_url: str = ""
     hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "testserver")
     session_seconds: int = 43200
+    browser_analysis: bool = False
 
     @classmethod
     def environment(cls):
@@ -117,6 +140,7 @@ class SecuritySettings:
         ttl = int(os.environ.get("HNEFATAFL_SESSION_SECONDS", "43200"))
         if not 60 <= ttl <= 604800:
             raise ValueError("Session lifetime must be between 60 and 604800 seconds")
+        browser_analysis = _enabled(os.environ.get("HNEFATAFL_BROWSER_ANALYSIS_ENABLED", "0"))
         if production:
             parsed = urlparse(url)
             if (
@@ -145,7 +169,7 @@ class SecuritySettings:
                 network = ipaddress.ip_network(proxy.strip(), strict=False)
                 if network.prefixlen == 0:
                     raise ValueError("Trust individual proxies or narrow proxy networks")
-        return cls(production, url, hosts, ttl)
+        return cls(production, url, hosts, ttl, browser_analysis)
 
 
 def public_account(account: dict) -> dict:
@@ -459,6 +483,18 @@ grant("models", "PATCH", "/api/models/{model_id}")
 grant("models", "GET", "/api/models/{model_id}/usage", "/api/models/{model_id}/export")
 grant("models", "POST", "/api/models/import")
 grant("models", "DELETE", "/api/models/{model_id}")
+# Browser-local analysis delivery. Read-only, authenticated and additive; the
+# handlers also check the runtime feature flag and re-resolve the published
+# artifact for every request (listing authorization never implies download
+# authorization). Runtime assets are immutable content served from the app origin.
+grant(
+    "play",
+    "GET",
+    "/api/browser-analysis/availability",
+    "/api/browser-analysis/models",
+    "/api/browser-analysis/models/{publication_id}",
+    "/api/browser-analysis/models/{publication_id}/artifact",
+)
 grant(
     "training",
     "GET",
@@ -548,7 +584,11 @@ class SecurityBoundary:
                     ),
                     (
                         b"content-security-policy",
-                        b"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+                        (
+                            BROWSER_ANALYSIS_POLICY
+                            if self.auth.settings.browser_analysis
+                            else CONTENT_SECURITY_POLICY
+                        ).encode(),
                     ),
                     (b"cache-control", cache),
                 ]
@@ -619,7 +659,11 @@ class SecurityBoundary:
                 )
         if shell:
             permission = "public"
-        elif route_path == "/{path:path}" and not path.startswith("/api") and method == "GET":
+        elif (
+            method == "GET"
+            and not path.startswith("/api")
+            and (route_path == "/{path:path}" or route_path.startswith("/browser-analysis/"))
+        ):
             permission = (
                 "training"
                 if path.rstrip("/") == "/training" or path.startswith("/training/")

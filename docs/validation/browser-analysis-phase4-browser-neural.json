@@ -1,0 +1,233 @@
+{
+  "schema": 1,
+  "baseUrl": "http://127.0.0.1:45994",
+  "browser": "156.0.8078.4",
+  "entry": "/assets/entry-DRnX2eAM.js",
+  "checks": [
+    {
+      "name": "login succeeds",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "name": "production document loads",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "name": "CSP allows WASM without broad eval",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "CSP has no broad unsafe-eval",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "CSP restricts workers to self",
+      "ok": true,
+      "detail": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    },
+    {
+      "name": "ordinary page loads no runtime assets",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "ordinary page loads no model artifacts",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "published model runs neural MCTS in the browser",
+      "ok": true,
+      "detail": "{\"value\":-0.41834926698356867,\"source\":\"neural_search\",\"best_move\":{\"source\":26,\"target\":12},\"simulations\":32}"
+    },
+    {
+      "name": "neural result is bound to the published model digest",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "neural provider reporting is honest",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "availability reports an enabled runtime",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "runtime initializes",
+      "ok": true,
+      "detail": "{\"state\":\"ready\",\"runtimeId\":\"e6a29ff40ee1a531\",\"engine\":{\"protocol\":1,\"python\":\"3.12.7 (main, Jun  4 2025, 22:38:17) [Clang 19.0.0git (https:/github.com/llvm/llvm-project 0a8cd1ed1f4f35905df318015b\",\"engine_identity\":{\"modules\":[\"hnefatafl.engine\",\"hnefatafl.ai\",\"hnefatafl.openings\",\"hnefatafl.symmetry\",\"hnefatafl.shield_maiden\",\"hnefatafl.encoding\",\"hnefatafl.mcts_driver\"],\"module_sha256\":{\"hnefatafl.engine\":\"9098533d7afe7b7bd3c93aa047b5428777a944797ab49426ff46473495e99f1e\",\"hnefatafl.ai\":\"fdc6665d8fba06867d709027a51f5b02428d122c97ca1f5fdc7df5d2bf5992fb\",\"hnefatafl.openings\":\"c79886f46a175a1f759f80896901ff96e6ab8a33035a2c02bb66601fb67caffe\",\"hnefatafl.symmetry\":\"bd1b401f143b137aa21e9463cc33fd6fa601b11224786d6413dce374721c1f28\",\"hnefatafl.shield_maiden\":\"3437267061f639312d5f542bca1023b4e84f99b5d0e9bd3106ec1f30be677cf8\",\"hnefatafl.encoding\":\"d5d88536cc4c9b96959ba3955999e180334f15c330fbd2b3c252e180faf0cdc3\",\"hnefatafl.mcts_driver\":\"4458b7eb390a16e7638015a04d074014829a382d7ab9c15ad7c3bc781dfc333c\"},\"sha256\":\"95e04b0a3904aa2173c531ac7e8b29c0a568e4e608f2ad06eb7e8a09f5f62d1e\",\"driver_version\":1,\"encoder_version\":\"six-plane-v1\",\"search_algorithm\":\"neural-mcts-puct-v1\"},\"bounds\":{\"max_analysis_time\":10,\"max_payload_bytes\":524288,\"depth\":[1,8],\"iterations\":[1,4096],\"rollout_depth\":[0,50],\"seed\":[0,4294967295],\"exploration\":[0,10],\"temperature\":[0,5]},\"authoritative\":false},\"provider\":null,\"error\":null}"
+    },
+    {
+      "name": "engine identity is reported",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "Jarl search completes with a legal advisory analysis",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "no neural model was required for Jarl",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "provider placement is honest",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "runtime assets came from the application origin",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "no external runtime origins",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "no automatic model download during Jarl",
+      "ok": true,
+      "detail": null
+    }
+  ],
+  "requests": {
+    "runtimeAssets": 142,
+    "modelArtifacts": 2,
+    "ordinaryPage": 5
+  },
+  "neural": {
+    "model": {
+      "sha256": "9d573ef38321bf76bfc425e358deac46b8462c3b5d247eea1c3ff07754af4a91",
+      "ruleset": "brandubh",
+      "size": 7
+    },
+    "provider": {
+      "requested": "wasm",
+      "placement": "wasm",
+      "gpuExecutionVerified": false
+    },
+    "analysis": {
+      "value": -0.41834926698356867,
+      "source": "neural_search",
+      "best_move": {
+        "source": 26,
+        "target": 12
+      },
+      "simulations": 32
+    }
+  },
+  "runtime": {
+    "runtimeId": "e6a29ff40ee1a531",
+    "pins": {
+      "pyodide": "0.27.7",
+      "onnxruntimeWeb": "1.22.0",
+      "encoderVersion": "six-plane-v1",
+      "driverVersion": 1,
+      "searchProtocol": 1,
+      "bridgeProtocol": 1,
+      "applicationVersion": "0.40.0"
+    },
+    "engine": {
+      "protocol": 1,
+      "python": "3.12.7 (main, Jun  4 2025, 22:38:17) [Clang 19.0.0git (https:/github.com/llvm/llvm-project 0a8cd1ed1f4f35905df318015b",
+      "engine_identity": {
+        "modules": [
+          "hnefatafl.engine",
+          "hnefatafl.ai",
+          "hnefatafl.openings",
+          "hnefatafl.symmetry",
+          "hnefatafl.shield_maiden",
+          "hnefatafl.encoding",
+          "hnefatafl.mcts_driver"
+        ],
+        "module_sha256": {
+          "hnefatafl.engine": "9098533d7afe7b7bd3c93aa047b5428777a944797ab49426ff46473495e99f1e",
+          "hnefatafl.ai": "fdc6665d8fba06867d709027a51f5b02428d122c97ca1f5fdc7df5d2bf5992fb",
+          "hnefatafl.openings": "c79886f46a175a1f759f80896901ff96e6ab8a33035a2c02bb66601fb67caffe",
+          "hnefatafl.symmetry": "bd1b401f143b137aa21e9463cc33fd6fa601b11224786d6413dce374721c1f28",
+          "hnefatafl.shield_maiden": "3437267061f639312d5f542bca1023b4e84f99b5d0e9bd3106ec1f30be677cf8",
+          "hnefatafl.encoding": "d5d88536cc4c9b96959ba3955999e180334f15c330fbd2b3c252e180faf0cdc3",
+          "hnefatafl.mcts_driver": "4458b7eb390a16e7638015a04d074014829a382d7ab9c15ad7c3bc781dfc333c"
+        },
+        "sha256": "95e04b0a3904aa2173c531ac7e8b29c0a568e4e608f2ad06eb7e8a09f5f62d1e",
+        "driver_version": 1,
+        "encoder_version": "six-plane-v1",
+        "search_algorithm": "neural-mcts-puct-v1"
+      },
+      "bounds": {
+        "max_analysis_time": 10,
+        "max_payload_bytes": 524288,
+        "depth": [
+          1,
+          8
+        ],
+        "iterations": [
+          1,
+          4096
+        ],
+        "rollout_depth": [
+          0,
+          50
+        ],
+        "seed": [
+          0,
+          4294967295
+        ],
+        "exploration": [
+          0,
+          10
+        ],
+        "temperature": [
+          0,
+          5
+        ]
+      },
+      "authoritative": false
+    },
+    "cycles": {
+      "coldInitMs": 2488.199999988079,
+      "jarlSearchMs": 240.70000004768372,
+      "secondInitMs": 2180.800000011921
+    },
+    "storage": {
+      "persistent": true,
+      "bytes": 44886
+    },
+    "provider": {
+      "requested": "wasm",
+      "placement": "wasm",
+      "gpuExecutionVerified": false
+    },
+    "analysis": {
+      "value": -0.05272882825841763,
+      "source": "heuristic",
+      "best_move": {
+        "source": 3,
+        "target": 2
+      },
+      "completed_depth": 3,
+      "searched_moves": 40,
+      "nodes": 146,
+      "evaluations": 2219,
+      "cutoffs": 98,
+      "successors": 2949,
+      "ordered_moves": 2949,
+      "symmetry_moves_skipped": 0,
+      "chosen_from_completed_iteration": true,
+      "transposition_hits": 0
+    },
+    "hasWorker": true,
+    "crossOriginIsolated": false
+  },
+  "ok": true
+}

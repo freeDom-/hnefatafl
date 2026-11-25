@@ -282,3 +282,68 @@ forced to `no-store` and no handler on a private route can override it. The
 namespace is gated by
 `HNEFATAFL_PUBLIC_ONLINE_ENABLED` (default enabled) without a schema or
 `SCHEMA_VERSION` change.
+
+## Browser-local analysis distribution
+
+Browser-local analysis is optional and disabled by default
+(`HNEFATAFL_BROWSER_ANALYSIS_ENABLED=0`). Enabling it adds exactly one narrow CSP
+source, `script-src 'self' 'wasm-unsafe-eval'`, plus `worker-src 'self'` for the
+same-origin workers. The disabled policy is unchanged, and there is no broad
+`unsafe-eval`, inline script, blob worker, wildcard or remote runtime origin and
+no COOP/COEP change.
+
+Runtime assets (pinned Pyodide 0.27.7 and ONNX Runtime Web 1.22.0, the engine
+closure, workers, manifests and third-party license texts) are staged under the
+persistent data root outside release directories. They are served from the
+application origin only after full-tree manifest verification: every file's size
+and SHA-256, no unexpected files or symlinks, and matching application, encoder,
+driver and worker protocols. Serving is an exact manifest allowlist with
+immutable caching; a stale or incompatible runtime is reported unavailable rather
+than executed. A partially completed deployment or rollback therefore cannot
+activate an incompatible pair. Model artifacts are streamed from an immutable
+content-addressed store with `Cache-Control: no-store`.
+
+A registered checkpoint is not a published browser model. Publication requires an
+active `ADMIN` account from the application database and a validated export: the
+canonical `hnefatafl.onnx_artifacts` contract verifies the validation marker,
+manifest, parity report, metadata sidecar and reference-vector digests, the actual
+ONNX graph, architecture, ruleset, board size, IO contract, opset, encoder and
+runtime compatibility, size budget and source-weight fingerprint. Publication is
+atomic and audited (`browser_models/audit.jsonl`), artifacts are immutable and
+content-addressed, replacement is explicit (the previous version becomes
+`superseded`), revocation is explicit and retains history, and deletion of a
+server model never deletes a published copy. Neither filesystem paths, optimizer
+state, training-job state, replay buffers nor private training metadata are
+exposed. Distributing ONNX weights to a browser necessarily makes them accessible
+to the receiving client; access control restricts distribution but cannot keep
+downloaded weights secret.
+
+All delivery endpoints are authenticated `play` reads under the existing session,
+Origin and cache boundary. Catalog listing never grants download authorization;
+each artifact request re-resolves the currently published record. Unknown,
+revoked, unpublished or unprotected identifiers return 404, and disabled and
+unavailable states do not disclose protected artifacts. These endpoints expose no
+game, replay, position, account or permission data and do not relax any existing
+replay-access rule; ongoing online games gain no analysis assistance, private
+games remain private and browser analysis is advisory only. The server remains
+authoritative over moves, clocks, results, ratings, league progression,
+achievements and tournaments.
+
+The browser layer stores only content-addressed published model artifacts in
+IndexedDB (atomic writes, digest re-verification, LRU/byte quotas, corruption
+invalidation and degradation when storage is denied). Downloads are explicit,
+size-bounded, digest-verified, cancellable, deduplicated and never activated on
+HTTP success alone. Logout, session expiry or account switching invalidates the
+runtime generation, aborts downloads and searches, clears results and releases
+workers; a delayed completion cannot restore the previous account's state.
+Published models are shared public artifacts and may be retained. Server-side
+revocation stops new protected downloads but cannot delete copies already
+downloaded or copied. Browser processes do not provide enforceable RAM limits:
+application limits bound downloads, storage, workers, searches and simulations,
+while actual memory use remains estimated/observable only.
+
+Residual limitations are documented in the
+[Phase 4 validation report](validation/browser-analysis-phase4.md): no offline
+runtime execution, best-effort per-tab cross-tab coordination, a double model
+fetch per cold neural initialization, no verified GPU execution, no competitive
+model or playing-strength evidence, and no physical-device acceptance.

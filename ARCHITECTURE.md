@@ -817,6 +817,70 @@ reject a prohibited feature folded into an eager shared chunk even without its
 filename prefix. See the
 [measurement scope and validation](docs/validation/frontend-feature-splitting.md).
 
+## Browser-local analysis distribution
+
+Browser-local analysis is an optional, disabled-by-default extension of the same
+authoritative Python engine. No second rules or search implementation exists:
+the validated Pyodide workers execute `hnefatafl.engine`, `ai`, `encoding` and
+`mcts_driver`; the browser bridge modules expose only the bounded analysis and
+cooperative-search protocol. Approved ONNX inference artifacts are the only
+executable model payloads that can be distributed.
+
+Distribution and trust boundaries are deliberately separate:
+
+1. **Runtime assets** — pinned Pyodide 0.27.7 and ONNX Runtime Web 1.22.0 plus
+   the engine closure, workers/clients, manifests and license texts are staged
+   under the persistent data root (`<data>/browser_runtime/<runtime_id>`), bound
+   by a deterministic manifest and an atomic `current` symlink. The server serves
+   only manifest-listed files from the application origin with immutable caching.
+   A staged tree is verified for digest, size, unexpected files/symlinks and
+   application/encoder/worker compatibility before it can activate; a release
+   upgrade or rollback makes an unmatched runtime unavailable instead of
+   executing it.
+2. **Model publication** — registering a training checkpoint on the server never
+   publishes it for browsers. `hnefatafl.browser_models` requires an active
+   administrator from the application database and a fully validated export
+   (marker/manifest/parity/sidecar/reference digests, actual ONNX graph, IO,
+   opset, architecture, ruleset, encoder, size and source-weight fingerprint).
+   Artifacts are immutable and content-addressed, publication/replacement/
+   revocation is audited, and server-side model deletion never removes a
+   published copy. Distribution necessarily makes the weights accessible to an
+   authorized downloading client; access control cannot keep them secret.
+3. **Delivery contracts** — additive authenticated read endpoints expose the
+   enabled/available state, a public projection of the runtime manifest, published
+   model manifests and a streamed `no-store` ONNX artifact. They never expose game,
+   replay, account, permission, filesystem or training state. Disabled and
+   unavailable states do not disclose protected artifacts. The existing session,
+   Origin, permission and cache-control boundary remains authoritative.
+4. **Browser storage and downloads** — `frontend/src/browserAnalysis` is a lazy
+   chunk (never part of the initial bundle). It verifies every runtime asset
+   against the manifest, stores only content-addressed published models in
+   IndexedDB (atomic writes, LRU/byte quotas, digest re-verification, corruption
+   invalidation, degradation to memory), and uses a bounded streaming download
+   manager (declared/final size, SHA-256, dedupe, cancellation, timeouts, bounded
+   retries, aggregate limits). HTTP success alone is never integrity.
+5. **Lifecycle** — one active search per runtime instance, Jarl without any ONNX
+   initialization, neural MCTS only with an explicitly published compatible model
+   and captured model identity, structured errors instead of silent server or
+   provider fallback, bounded disposal, and generation-based account-context
+   invalidation that prevents delayed completions from restoring a previous
+   account's results. Published model bytes may be retained as public shared
+   assets; no private replay or position data is stored.
+
+The feature flag `HNEFATAFL_BROWSER_ANALYSIS_ENABLED` defaults to off. When off,
+the existing strict CSP is byte-identical, no browser-analysis runtime or model
+asset is served, no worker is created and no download occurs; ordinary pages and
+server analysis are unaffected. When on, the only CSP change is the narrowly
+scoped `script-src 'self' 'wasm-unsafe-eval'` and `worker-src 'self'` (no broad
+`unsafe-eval`, no `unsafe-inline` scripts, no blob workers, no COOP/COEP change).
+Browser-computed analysis is advisory; games, clocks, results, ratings,
+progression, tournaments and replay permissions remain server-authoritative.
+
+Phase 5 consumes the versioned `createBrowserAnalysis()` contract and owns all
+user-visible execution-mode and fallback behavior. See the
+[Phase 4 validation report](docs/validation/browser-analysis-phase4.md) and
+[roadmap](docs/designs/browser-analysis-roadmap.md).
+
 ## Human tournament scheduling and compatibility
 
 Schema 20 adds immutable match/clock modes and due-start/retry columns without

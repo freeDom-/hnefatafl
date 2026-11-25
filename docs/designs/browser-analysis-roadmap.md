@@ -12,8 +12,11 @@ Related: [Phase 2 validation](../validation/browser-analysis-phase2.md) ·
 [isolated spike](../../spikes/browser_offline/README.md) ·
 [documentation index](../README.md).
 
-**Current integration revision:** Phase 3A and Phase 3B are merged on `main`
-(PR #112 and PR #115). Phase 3B direct transport, inference caching and
+**Current integration revision:** Phase 4 production security/runtime integration
+is implemented on top of merged Phase 3C-B (PR #121). Browser analysis remains
+disabled by default and has no player-facing UI; Phase 5 consumes the lazy
+`frontend/src/browserAnalysis` contract. Phase 3A and Phase 3B are merged on
+`main` (PR #112 and PR #115). Phase 3B direct transport, inference caching and
 independent batching remain opt-in; single-tree batching and subtree reuse remain
 deferred. Phase 3C-A validation infrastructure is in progress; competitive-model,
 playing-strength, physical-device and sustained-memory gates remain blocked.
@@ -66,7 +69,7 @@ Phase 3 is not complete.
 | 3B | Caching and batching | Not started | **Merged; software validated within scope** | [Phase 3B validation](../validation/browser-analysis-phase3b.md), `*-phase3b.json` | Direct/cache/batching opt-in; single-tree batching/subtree reuse deferred; sustained memory open |
 | 3C | Competitive strength and stability | Not started | **In progress: 3C-A validation platform; external gates blocked** | [Phase 3C-A validation](../validation/browser-analysis-phase3c.md), [device matrix](../validation/device-matrix-phase3c.md) | Competitive checkpoints, tournaments, verified WebGPU, physical desktop/mobile, sustained memory, playing strength |
 | 3C-B | Competitive measurements, performance and stability | Not started | **Partial: software + structural measurements; external gates blocked** | [Phase 3C-B report](../validation/browser-analysis-phase3c-b.md) | Competitive models, physical devices, verified GPU, full tournaments, memory acceptance |
-| 4 | Production security and runtime integration | Not started | Not started | — | CSP, model distribution, offline storage, memory budgets |
+| 4 | Production security and runtime integration | Not started | **Implemented; structurally and browser validated; feature disabled by default** | [Phase 4 report](../validation/browser-analysis-phase4.md), [browser evidence](../validation/browser-analysis-phase4-browser.json), [neural browser evidence](../validation/browser-analysis-phase4-browser-neural.json) | Phase 5 UI; competitive/physical/sustained-memory gates remain external |
 | 5 | Production frontend integration | Not started | Not started | — | Deferred feature boundary, bundle budgets, design tokens |
 | 6 | Final acceptance and controlled rollout | Not started | Not started | — | All external gates |
 
@@ -566,18 +569,64 @@ Phase 3 is not complete.
 - **Evidence:** [Phase 3C-B report](../validation/browser-analysis-phase3c-b.md),
   `phase3cb-*` evidence files.
 
-## Phase 4 — Production security and runtime integration (subsequent PRs)
+## Phase 4 — Production security and runtime integration
 
-- **Status:** Not started.
-- **Scope:** same-origin pinned/integrity-verified runtime and model delivery,
-  dependency auditing and licensing/notices, explicit model publication
-  authorization, size/memory budgets, storage quotas/eviction, interrupted
-  downloads, cache invalidation, worker exhaustion, account/replay isolation,
-  logout cleanup, offline behavior, deployment/rollback.
-- **CSP note:** the current policy blocks WASM compilation; any adjustment must be
-  narrowly scoped, reviewed and tested against real application headers. No broad
-  `unsafe-eval`, no COOP/COEP without evaluating application impact. Server
-  authority over games, clocks, results, ratings and tournaments is preserved.
+- **Status:** Implemented and structurally/browser validated. Feature disabled by
+  default; no player-facing UI. External Phase 3C-B gates remain open.
+- **Delivered:**
+  - Pinned same-origin runtime distribution (`hnefatafl/browser_runtime.py`,
+    `browser_pins.py`): Pyodide 0.27.7 + ORT Web 1.22.0 with recorded digests,
+    deterministic content-addressed manifests, full-tree verification
+    (size/digest/extra-file/symlink/incompatible/stale), atomic activation and
+    prune-safe rollback. No CDN at runtime.
+  - Production Pyodide bridges expose only the bounded analysis/search protocol
+    (no spike fixtures, parity, benchmark or test-worker actions); the validated
+    worker/client JavaScript is distributed verbatim from the spike.
+  - Canonical export-artifact validation extracted to
+    `hnefatafl/onnx_artifacts.py` and shared with the spike staging tool (one
+    implementation; 31 spike export tests pass).
+  - Explicit administrator-only model publication
+    (`hnefatafl/browser_models.py`): validated-only export, graph/IO/opset/
+    encoder/runtime/size/source-fingerprint checks, immutable content-addressed
+    artifacts, atomic index, supersession/replacement, revocation, audit trail,
+    active-admin authorization via the application database. Server model
+    deletion never removes a published copy.
+  - Versioned, authenticated delivery endpoints (`availability`, published model
+    catalog/manifest, streamed no-store artifact, immutable runtime assets) with
+    the existing Origin/session boundary and API permission inventory.
+  - Narrow CSP change: only `script-src 'self' 'wasm-unsafe-eval'` and
+    `worker-src 'self'` when enabled; the disabled policy is byte-identical to
+    the previous strict policy. No broad eval/inline/wildcard/blob workers; no
+    COOP/COEP change.
+  - Browser-side bounded storage (IndexedDB content-addressed models, LRU/quota,
+    corruption invalidation, degradation to memory), streaming download manager
+    (size/digest verification, dedupe, cancellation, timeouts, bounded retries,
+    aggregate limits) and a lazy runtime manager (availability, capability
+    detection, verified asset loading, Jarl without ONNX, neural MCTS with
+    published models only, cancellation, provider reporting, disposal,
+    account-context invalidation).
+  - Feature flag `HNEFATAFL_BROWSER_ANALYSIS_ENABLED` (default `0`); ordinary
+    pages never load runtime/model assets; runtime absence leaves the app and
+    server analysis unaffected.
+  - Deployment/update/rollback integration: runtime and publication data live in
+    the persistent data root outside release directories; manifests pin the
+    application/encoder/worker versions so partial deployments and rollbacks
+    cannot activate incompatible pairs.
+  - Finding E1 resolved: `scripts/browser_analysis_lifecycle_sweep.sh` handles
+    validator exit statuses 0/1/2 explicitly, continues after valid partial
+    evidence without labelling it accepted, uses ownership-file cleanup on
+    failure/interruption, clears process tracking after reap and validates each
+    session-specific finalized report. Bounded stub-command tests cover it.
+- **Measured:** 37-file runtime (48,102,829 bytes); production-browser cold init
+  2,486–2,488 ms, second init 1,972–2,181 ms, Jarl depth-3 240–245 ms, 32-simulation
+  neural MCTS with the published smoke model; initial bundle unchanged
+  (573,936 raw / 183,181 gzip); lazy contract chunk 26,131 bytes. Details in the
+  [Phase 4 report](../validation/browser-analysis-phase4.md).
+- **Explicit non-claims:** no competitive playing strength, no verified GPU
+  execution, no physical-device compatibility, no sustained-memory acceptance, no
+  offline runtime execution (no service worker), no Phase 5 UI.
+- **Remaining:** Phase 5 integration; owner publication of competitive exports;
+  the unchanged Phase 3C-B external gates.
 
 ## Phase 5 — Frontend analysis UI integration (subsequent PRs)
 
@@ -635,7 +684,7 @@ Phase 3 is not complete.
 | Artifact integrity/lifecycle validation | Validated (structural negative tests) |
 | Runtime tensor validation | Validated (worker rejects malformed outputs) |
 | Playing-strength validation | Not started |
-| Production integration | Not started |
+| Production integration | Implemented (Phase 4 foundation; disabled by default; no UI) |
 | Phase 2 / Phase 1 follow-up corrections | Completed (retryable assets, lifecycle ownership, independent boundaries, mandatory identity) |
 | Phase 2 / shared PyTorch-free position encoding | Completed and exact-parity validated |
 | Phase 2 / cooperative browser search driver | Completed (software-validated) |
@@ -704,7 +753,7 @@ Phase 3 is not complete.
 | Phase 2 / abandoned inference error handling | Validated (success, cleanup/session failure, generic error, obsolete generation, drain timeout) |
 | Phase 2 / UI replacement admission after cancellation | Validated (23 browser checks; bounded cleanup awaited; immediate restart without sleeps) |
 | Phase 2 / experimental UI | Validated in the isolated spike (23 checks; position/settings ownership) |
-| Phase 2 / production integration | Not started |
+| Phase 2 / production integration | Phase 4 foundation implemented; Phase 5 UI not started |
 
 ## Open findings and technical debt
 
@@ -873,6 +922,7 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-25 | Phase 4 production integration: pinned same-origin runtime distribution and verification, explicit administrator model publication with immutable/audited artifacts, authenticated delivery API, narrow enabled-only WASM CSP, bounded IndexedDB storage/download/runtime lifecycle managers, disabled-by-default feature flag, deployment/rollback documentation, canonical export validation shared with the spike, E1 lifecycle-sweep correction and actual production-browser evidence. Browser analysis remains disabled; competitive/physical/sustained-memory gates remain open. |
 | 2026-11-24 | Phase 3C-B executable-workflow correction: compatible extended benchmark commands, reproducible 50-pair opening corpora, workload failure/accounting binding, nonterminal sustained selection, validated native neural artifacts, telemetry-only progress/ready handshake, lifecycle mode coverage and driver regressions. Historical memory outcomes preserved; 30-minute JS-heap step remains an unresolved investigation. |
 | 2026-11-24 | Phase 3C-B: shared provider-evidence validation, native neural tournament adapter, sustained workload driver, 32×2 structural parity/benchmark measurements, real 10/30-minute memory profiles, optimization comparisons, device/GPU blockers and Copenhagen depth-5 recommendation. External gates remain blocked. |
 | 2026-11-24 | Phase 3C-A ownership/evidence correction: token-verified process ownership resistant to group-id reuse, actual browser search provider/normalized-settings evidence, and eviction-independent lifecycle-event aggregates with reset handling. External gates remain blocked. |
