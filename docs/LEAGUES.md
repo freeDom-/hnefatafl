@@ -84,10 +84,13 @@ over a 60 ms burst, with a 3 ms handoff between attempts. Each transaction can
 commit one match and waits up to 20 ms for the SQLite writer. An in-flight
 transaction finishes even if the burst reaches its budget. Expiry and result
 accounting run before the burst. Rulesets rotate between and within bursts.
-Up to three empty discovery pages per ruleset advance the cursors in a burst.
-Unsuccessful rulesets back off from one to eight seconds. An observed change
-in pause settings clears that backoff. Waiting windows, seasons and expiry
-remain authoritative at commit.
+Unfinished starter and opponent searches remain eligible for the next burst.
+Completed searches with no match back off from one to eight seconds. When a
+rating window can expose new opponents, the worker revisits at its next known
+opening or after eight seconds, whichever comes first. SQLite contention
+leaves discovery ready for the next tick. The worker clears its in-memory
+schedule when it observes matching is unavailable or the pause version changes.
+Waiting windows, seasons and expiry remain authoritative at commit.
 
 Cap league pairings at three per unordered opponent pair per UTC day. Count
 committed pairings even if a result is later voided, so corrections cannot reopen
@@ -114,14 +117,21 @@ cancellation can therefore return an earlier outcome while a newer entry stays
 queued. Request records have no time-based expiry. Rate checks read the current
 rolling minute and UTC day using the account/time index.
 
-Canonical queue snapshots also expose the account's last accepted join ID as
+Canonical queue snapshots also expose the account's last accepted request ID as
 `join_generation`. An explicit browser join includes that value as
 `expected_generation`, including null for the initial generation. An unseen
 request with an older generation receives a conflict. A known request keeps
 its idempotent outcome. The browser stores only the pending request UUID,
 ruleset and expected generation under the current account. A fresh read can
 retire a committed or superseded intent. Navigation, reload and reconnect
-reconcile by reading the queue. Joining remains an explicit action.
+reconcile by reading the queue. Recovery offers an explicit retry with the
+original request data or a discard. With multiple unresolved requests, tabs
+show the first UUID in sorted order. A discard of an unseen current request
+records that UUID as cancelled and advances the generation, fencing the
+original and any sibling requests with the same expected generation. A new
+discard record shares the existing request budget. Repeated discards are
+idempotent. A committed join can still be cancelled by its original request
+unless it has already produced a game. Joining remains an explicit action.
 
 ## Results, revisions and recovery
 
@@ -184,6 +194,7 @@ it can discover remote session activity, eligibility, pause or clock changes.
 | `GET /api/leagues/queue` | Account eligibility, queue, server time and active game |
 | `POST /api/leagues/queue` | Join with a ruleset and request UUID |
 | `POST /api/leagues/queue/cancel` | Cancel or retrieve the outcome of the specified request UUID |
+| `POST /api/leagues/queue/discard` | Resolve a pending join with its ruleset, UUID and expected generation |
 | `GET /api/leagues/active-game` | The current official League game, if any |
 | `GET /api/leagues/admin/health` | Queue, worker, settlement and rebuild status |
 | `GET /api/leagues/admin/audit` | Private append-only administration history |
@@ -193,17 +204,23 @@ it can discover remote session activity, eligibility, pause or clock changes.
 
 The League worker shares the online lifespan configuration and periodically
 checks indexed due work, queue expiry and matchmaking. Administrative pause
-blocks queue admission and pairing. Expiry, results and existing gameplay
-continue according to the online authority and its clock gate. Deployment
-contention leaves pending writes available for a later cycle.
+blocks queue admission and pairing. The worker continues expiry and bounded
+eligibility reconciliation during administrative pause, disabled admission and
+clock pause. Existing gameplay and results continue according to the online
+authority and its clock gate. Deployment contention leaves pending writes
+available for a later cycle.
 
 The administration panel shows worker liveness, the last check and successful
 processing timestamps, deployment deferral, pending and retrying settlements,
 and the age of the oldest pending result. Rebuild jobs show their stage and
-durable attempt count and next retry. The stale queue list uses the expiry
-index and bounded keyset pages to find disabled, unverified and otherwise
-ineligible accounts. The cancellation action identifies the exact queue
-generation.
+durable attempt count and next retry. The stale queue list pages through the
+expiry index up to the first page's server time, then scans bounded ranges for
+disabled, unverified and otherwise ineligible accounts beyond that expiry
+boundary. Each page uses live queue rows and current account eligibility.
+Removed entries disappear and restored eligibility takes effect on unread
+pages. Refresh from the first page to see newly expired entries or changes
+behind the cursor. Cancellation checks current staleness and targets the exact
+queue request UUID.
 
 For a projection
 repair, submit the season revision displayed by the server and a reason. The

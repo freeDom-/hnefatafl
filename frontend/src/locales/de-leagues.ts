@@ -35,9 +35,11 @@ const leagues: Record<string, string> = {
   'Open league game': 'Ligapartie öffnen',
   'Refresh queue status': 'Warteschlangenstatus aktualisieren',
   'Refresh leagues': 'Ligadaten aktualisieren',
-  'A previous join is unconfirmed. Refresh to check the queue.':
-    'Ein vorheriger Beitritt ist noch unbestätigt. Aktualisiere den Warteschlangenstatus.',
+  'A previous join is unconfirmed for {ruleset}.':
+    'Ein vorheriger Beitritt für {ruleset} ist noch unbestätigt.',
+  'Checking previous join requests…': 'Vorherige Beitrittsanfragen werden geprüft…',
   'Retry previous join': 'Vorherigen Beitritt wiederholen',
+  'Discard pending join': 'Offene Beitrittsanfrage verwerfen',
   'Queue status may be out of date.': 'Der Warteschlangenstatus kann veraltet sein.',
   'Displayed league data may be out of date.': 'Die angezeigten Ligadaten können veraltet sein.',
   'Joining…': 'Beitritt läuft…',

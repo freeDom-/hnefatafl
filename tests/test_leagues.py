@@ -356,12 +356,13 @@ def test_opponent_cursor_reaches_deep_pages_and_rechecks_expanding_windows(rig):
     for previous in (f"Window-{MATCH_OPPONENTS - 1:02d}", f"Window-{MATCH_OPPONENTS * 2 - 1:02d}"):
         with rig.core._write() as c:
             first = service._valid_entry(c, "Oldest", "brandubh", at, cutoff)
-            assert not service._match_from(c, first, now, at, cutoff, at)
+            discovery = service._match_from(c, first, now, at, cutoff, at)
+            assert not discovery.matched and discovery.more
             assert service._queue_entry(c, "Oldest")["opponent_account"] == previous
         service = Leagues(rig.core)  # The per-entry cursor survives a restart.
     with rig.core._write() as c:
         first = service._valid_entry(c, "Oldest", "brandubh", at, cutoff)
-        assert service._match_from(c, first, now, at, cutoff, at)
+        assert service._match_from(c, first, now, at, cutoff, at).matched
         assert {row[0] for row in c.execute("SELECT account_id FROM league_active_players")} == {
             "Oldest",
             "Deep",
@@ -371,13 +372,13 @@ def test_opponent_cursor_reaches_deep_pages_and_rechecks_expanding_windows(rig):
     with rig.core._write() as c:
         seed_waiter(c, "NextOldest", 1500.0, at - 121_000_000, expires)
         first = service._valid_entry(c, "NextOldest", "brandubh", at, cutoff)
-        assert not service._match_from(c, first, now, at, cutoff, at)
+        assert not service._match_from(c, first, now, at, cutoff, at).matched
     now += timedelta(seconds=61)
     at = micros(now)
     with rig.core._write() as c:
         for _ in range(4):
             first = service._valid_entry(c, "NextOldest", "brandubh", at, cutoff)
-            if service._match_from(c, first, now, at, cutoff, at):
+            if service._match_from(c, first, now, at, cutoff, at).matched:
                 break
         else:
             pytest.fail("A newly compatible opponent was never revisited")
@@ -411,14 +412,17 @@ def test_background_budget_commits_separately_and_rotates_rulesets(rig, monkeypa
     assert service.drain(stop=stop)["matched"] == 0
 
 
-def test_unproductive_match_bursts_back_off_without_pausing_expiry(rig, monkeypatch):
+def test_only_completed_unsuccessful_sweeps_back_off_and_expiry_continues(rig, monkeypatch):
     service = Leagues(rig.core)
     at = micros(rig.clock.value)
     ticks = 100.0
     monkeypatch.setattr(leagues, "monotonic", lambda: ticks)
+    monkeypatch.setattr(leagues, "MATCH_TRANSACTIONS", 4)
     with rig.core._write() as c:
         for index in range(35):
-            seed_waiter(c, f"Disjoint-{index}", 1500 + 1000 * index, at, at + 600_000_000)
+            seed_waiter(
+                c, f"Disjoint-{index}", 1500 + 1000 * index, at - 300_000_000, at + 300_000_000
+            )
     with monkeypatch.context() as patch:
         calls = []
         original = service._match
@@ -430,15 +434,94 @@ def test_unproductive_match_bursts_back_off_without_pausing_expiry(rig, monkeypa
         patch.setattr(service, "_match", observe)
         stop = Event()
         assert service.drain(stop=stop)["matched"] == 0
-        assert len(calls) == leagues.MATCH_DISCOVERY_PASSES
+        assert len(calls) == 4
+        service.drain(stop=stop)
+        assert len(calls) == 5  # The unfinished sweep continues without a delay.
+        service.drain(stop=stop)
+        assert len(calls) == 5
         ticks += 1
         service.drain(stop=stop)
-        assert len(calls) > leagues.MATCH_DISCOVERY_PASSES
+        service.drain(stop=stop)
+        assert len(calls) == 10
         scanned = len(calls)
         ticks += 1
         rig.clock.value += timedelta(minutes=10)
         assert service.drain(stop=stop)["expired"] == 20
         assert len(calls) == scanned
+
+
+def test_sparse_tails_get_a_turn_across_rulesets_while_arrivals_and_cancellations_continue(
+    rig, monkeypatch
+):
+    service = Leagues(rig.core)
+    at = micros(rig.clock.value)
+    monkeypatch.setattr(leagues, "MATCH_TRANSACTIONS", 3)
+    monkeypatch.setattr(leagues, "monotonic", lambda: 100.0)
+    pools = ("brandubh", "copenhagen", "tablut")
+    with rig.core._write() as c:
+        for ruleset in pools:
+            for index in range(97):
+                seed_waiter(
+                    c,
+                    f"{ruleset}-older-{index:03d}",
+                    10_000 + 1000 * index,
+                    at,
+                    at + 600_000_000,
+                    ruleset,
+                )
+            for index in range(2):
+                seed_waiter(c, f"{ruleset}-tail-{index}", 1500, at + 1, at + 600_000_001, ruleset)
+        expired = seed_waiter(c, "Expired before discovery", 1500, at - 600_000_000, at, "brandubh")
+
+    stop = Event()
+    matched = 0
+    previous = None
+    for index in range(13):
+        rig.clock.value += timedelta(seconds=1)
+        now = micros(rig.clock.value)
+        with rig.core._write() as c:
+            if previous is not None:
+                service._cancel(c, f"Arrival-{index - 1}", "cancelled", previous)
+            previous = seed_waiter(
+                c, f"Arrival-{index}", 2750, now, now + 600_000_000, pools[index % 3]
+            )
+        matched += service.drain(stop=stop)["matched"]
+    assert matched == 3
+    rig.clock.value += timedelta(minutes=10)
+    service.drain(stop=stop)
+    with rig.store.connection() as c:
+        games = {
+            tuple(row)
+            for row in c.execute("SELECT first_account,second_account,ruleset FROM league_games")
+        }
+        assert games == {(f"{ruleset}-tail-0", f"{ruleset}-tail-1", ruleset) for ruleset in pools}
+        assert (
+            c.execute("SELECT status FROM league_requests WHERE id=?", (expired,)).fetchone()[0]
+            == "expired"
+        )
+        assert (
+            c.execute("SELECT count(*) FROM league_requests WHERE status='matched'").fetchone()[0]
+            == 6
+        )
+
+
+def test_window_opening_and_sqlite_busy_do_not_trigger_unsuccessful_backoff(rig, monkeypatch):
+    service = Leagues(rig.core)
+    at = micros(rig.clock.value)
+    ticks = 100.0
+    monkeypatch.setattr(leagues, "monotonic", lambda: ticks)
+    with rig.core._write() as c:
+        seed_waiter(c, "Older", 1500, at - 59_000_000, at + 541_000_000)
+        seed_waiter(c, "Younger", 1750, at - 58_000_000, at + 542_000_000)
+    stop = Event()
+    assert service.drain(stop=stop)["matched"] == 0
+    for _ in range(2):
+        ticks += 1
+        rig.clock.value += timedelta(seconds=1)
+        with rig.store.connection() as blocker:
+            blocker.execute("BEGIN IMMEDIATE")
+            assert service.drain(stop=stop)["matched"] == 0
+    assert service.drain(stop=stop)["matched"] == 1
 
 
 def test_round_robin_finds_compatible_players_beyond_old_candidate_batch(rig):
@@ -613,6 +696,7 @@ def test_deployment_lock_defers_work_without_attempts(rig):
         assert service.drain() == {
             "settled": 0,
             "expired": 0,
+            "reconciled": 0,
             "matched": 0,
             "deferred": True,
             "settlement_retries": 0,

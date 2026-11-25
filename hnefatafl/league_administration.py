@@ -2,6 +2,7 @@
 
 import json
 import logging
+import sqlite3
 from datetime import timedelta
 from typing import Literal
 
@@ -13,12 +14,13 @@ from .league_results import (
     write_game_result,
 )
 from .league_views import LeagueError, LeagueViews, season_view
+from .leagues import ELIGIBILITY_SCAN, queue_eligibility_page
 from .online_core import DeploymentLocked, instant, micros, stamp
 from .security_context import online_ineligibility
 
 LOGGER = logging.getLogger(__name__)
 STALE_LIMIT = 20
-STALE_SCAN = 128
+STALE_SCAN = ELIGIBILITY_SCAN
 
 
 def _audit(c, actor_id, action, now, reason, *, season_id=None, details=None):
@@ -48,43 +50,51 @@ class LeagueAdministration:
         self.online = self.core.online
 
     def _stale_entries(self, c, at, actor_id, cursor):
-        scope = ("stale_queue", actor_id, 1)
-        (after,) = self.views.cursors.decode(cursor, scope) if cursor else (0,)
-        expired = (
-            c.execute(
-                """SELECT request_id,ruleset,joined_at,expires_at FROM league_queue
-                    WHERE expires_at<=? ORDER BY expires_at,account_id LIMIT ?""",
-                (at, STALE_LIMIT),
+        scope = ("stale_queue", actor_id, 2)
+        cutoff, anchor, after = (
+            self.views.cursors.decode(cursor, scope) if cursor else (at, None, None)
+        )
+        entries: list[tuple[sqlite3.Row, str]] = []
+        position: tuple[int, str | None, int | None] | None = None
+        if after is None:
+            # Keep the expiry boundary fixed for the whole traversal. Use the
+            # retained request record to seek past a removed anchor without
+            # including an account ID in the browser's cursor.
+            predicate, keys = "", ()
+            if anchor is not None:
+                request = c.execute(
+                    "SELECT expires_at,account_id FROM league_requests WHERE id=?", (anchor,)
+                ).fetchone()
+                if request is None:
+                    raise LeagueError(409, "league_page_changed", "Reload the stale queue page.")
+                predicate, keys = "AND (expires_at,account_id)>(?,?)", tuple(request)
+            expired = c.execute(
+                f"""SELECT request_id,ruleset,joined_at,expires_at FROM league_queue
+                WHERE expires_at<=? {predicate}
+                ORDER BY expires_at,account_id LIMIT ?""",
+                (cutoff, *keys, STALE_LIMIT + 1),
             ).fetchall()
-            if cursor is None
-            else []
-        )
-        entries = [(row, "expired") for row in expired]
-        # Seek the queue rowid rather than scanning a potentially much larger
-        # accounts table for ineligible users. The row cap also bounds work
-        # when every account on this page remains eligible.
-        page = c.execute(
-            """SELECT q.rowid AS position,q.request_id,q.ruleset,q.joined_at,q.expires_at,
-                a.active,a.role,a.email_verified_at
-            FROM league_queue q JOIN accounts a ON a.id=q.account_id
-            WHERE q.rowid>? ORDER BY q.rowid LIMIT ?""",
-            (after, STALE_SCAN + 1),
-        ).fetchall()
-        ineligible = 0
-        visited = 0
-        for row in page[:STALE_SCAN]:
-            visited += 1
-            reason = _stale_reason(row, at)
-            if reason is not None and reason != "expired":
-                entries.append((row, reason))
-                ineligible += 1
-            if ineligible == STALE_LIMIT:
-                break
-        next_cursor = (
-            self.views.cursors.encode(scope, (page[visited - 1]["position"],))
-            if visited < len(page)
-            else None
-        )
+            entries.extend((row, "expired") for row in expired[:STALE_LIMIT])
+            if len(expired) > STALE_LIMIT:
+                position = (cutoff, expired[STALE_LIMIT - 1]["request_id"], None)
+            elif len(entries) == STALE_LIMIT:
+                position = (cutoff, None, 0)
+            after = 0
+        if position is None:
+            # Scan a bounded range of queue rows, applying current eligibility
+            # only to entries outside the expiry phase's fixed boundary.
+            page = queue_eligibility_page(c, after, STALE_SCAN + 1)
+            visited = 0
+            for row in page[:STALE_SCAN]:
+                visited += 1
+                if row["expires_at"] > cutoff:
+                    reason = online_ineligibility(dict(row))
+                    if reason is not None:
+                        entries.append((row, reason))
+                        if len(entries) == STALE_LIMIT:
+                            break
+            if visited < len(page):
+                position = (cutoff, None, page[visited - 1]["position"])
         return (
             [
                 {
@@ -96,7 +106,7 @@ class LeagueAdministration:
                 }
                 for row, reason in entries
             ],
-            next_cursor,
+            self.views.cursors.encode(scope, position) if position is not None else None,
         )
 
     def health(self, credential, stale_cursor=None):

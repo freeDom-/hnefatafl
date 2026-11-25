@@ -76,6 +76,7 @@ class LeagueWorker:
                     rebuild == "processed"
                     or result["settled"]
                     or result["expired"]
+                    or result["reconciled"]
                     or result["matched"]
                 ):
                     state = "processed"

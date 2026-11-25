@@ -2,8 +2,10 @@
 
 import fcntl
 import sqlite3
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
 from uuid import uuid4
 
@@ -15,7 +17,14 @@ from hnefatafl.online_core import micros
 from hnefatafl.server import create_app
 from test_leagues import seed_waiter
 from test_online_api import api as api
-from test_online_core import POLICY, account_template as account_template, move_for, rig as rig
+from test_online_core import (
+    POLICY,
+    account_template as account_template,
+    active,
+    move_for,
+    pause,
+    rig as rig,
+)
 
 LEAGUES = "/api/leagues"
 ONLINE_GAMES = "/api/online/games"
@@ -192,6 +201,93 @@ def test_delayed_join_cannot_replace_a_newer_generation_or_cross_account(rig, ap
         assert response.status_code == 409
         assert response.json()["code"] == "league_session_changed"
         assert intentional["request_id"] not in response.text
+
+
+def test_discard_fences_unseen_requests_and_does_not_cancel_replacements(rig, api):
+    app, client = api
+    archer, keeper = client(), client("Keeper")
+    path = LEAGUES + "/queue"
+    discard = path + "/discard"
+    original = {"ruleset": "brandubh", "request_id": str(uuid4()), "expected_generation": None}
+    sibling = {**original, "request_id": str(uuid4())}
+    assert TestClient(app).post(discard, json=original).status_code == 401
+    assert archer.post(discard, json=original, headers={"X-CSRF-Token": "wrong"}).status_code == 403
+    assert (
+        archer.post(
+            discard, json=original, headers={"X-League-Account": rig.accounts["Keeper"]["id"]}
+        ).status_code
+        == 409
+    )
+    assert (
+        archer.post(
+            discard, json={"ruleset": "brandubh", "request_id": original["request_id"]}
+        ).status_code
+        == 422
+    )
+    fenced = checked(archer.post(discard, json=original))
+    assert fenced["status"] == "cancelled" and fenced["queue"] is None
+    assert fenced["join_generation"] == original["request_id"]
+    assert checked(archer.post(path, json=original))["status"] == "cancelled"
+    assert archer.post(path, json=sibling).status_code == 409
+    assert keeper.post(discard, json=original).status_code == 409
+    replacement = {**sibling, "expected_generation": fenced["join_generation"], "ruleset": "tablut"}
+    assert (
+        checked(archer.post(path, json=replacement))["queue"]["request_id"] == sibling["request_id"]
+    )
+    replay = checked(archer.post(discard, json=original))
+    assert (
+        replay["status"] == "cancelled" and replay["queue"]["request_id"] == sibling["request_id"]
+    )
+    assert (
+        checked(archer.post(discard, json={**original, "request_id": str(uuid4())}))["queue"]
+        == replay["queue"]
+    )
+    with rig.store.connection() as c:
+        assert c.execute("SELECT count(*) FROM league_requests").fetchone()[0] == 2
+
+
+def test_discard_serializes_with_original_join_and_preserves_a_committed_game(rig, api):
+    _, client = api
+    archer = client()
+    path = LEAGUES + "/queue"
+    original = {"ruleset": "brandubh", "request_id": str(uuid4()), "expected_generation": None}
+    with ThreadPoolExecutor(max_workers=2) as writers:
+        join_result = writers.submit(archer.post, path, json=original)
+        discard_result = writers.submit(archer.post, path + "/discard", json=original)
+        assert checked(join_result.result())["status"] in {"queued", "cancelled"}
+        assert checked(discard_result.result())["status"] == "cancelled"
+    canonical = checked(archer.get(path))
+    assert canonical["queue"] is None
+    second = {
+        **original,
+        "request_id": str(uuid4()),
+        "expected_generation": canonical["join_generation"],
+    }
+    assert checked(archer.post(path, json=second))["status"] == "queued"
+    game = checked(join(client("Keeper")))["game_id"]
+    result = checked(archer.post(path + "/discard", json=second))
+    assert result["status"] == "matched" and result["active_game"]["game_id"] == game
+
+
+def test_new_discard_records_share_the_request_quota_and_retries_are_free(api):
+    _, client = api
+    player = client()
+    path = LEAGUES + "/queue/discard"
+    generation = None
+    for _ in range(10):
+        body = {
+            "ruleset": "brandubh",
+            "request_id": str(uuid4()),
+            "expected_generation": generation,
+        }
+        generation = checked(player.post(path, json=body))["join_generation"]
+    assert checked(player.post(path, json=body))["join_generation"] == generation
+    assert (
+        player.post(
+            path, json={**body, "request_id": str(uuid4()), "expected_generation": generation}
+        ).status_code
+        == 429
+    )
 
 
 def test_real_scoring_shared_ranks_archived_revisions_and_safe_history(rig, api):
@@ -397,12 +493,14 @@ def test_administrative_cancel_and_concurrent_replacement_target_different_gener
     archer, admin = client(), client("Odin")
     old = checked(join(archer))["request_id"]
     rig.clock.value += timedelta(minutes=10)
+    selected = checked(admin.get(LEAGUES + "/admin/health"))["queue"]["stale"][0]
+    assert selected["request_id"] == old
     replacement = str(uuid4())
     with ThreadPoolExecutor(max_workers=2) as workers:
         cancel = workers.submit(
             admin.post,
             LEAGUES + "/admin/queue/cancel",
-            json={"request_id": old, "reason": "Test expiry race"},
+            json={"request_id": selected["request_id"], "reason": "Test expiry race"},
         )
         rejoin = workers.submit(join, archer, "tablut", replacement)
         assert checked(rejoin.result())["queue"]["request_id"] == replacement
@@ -413,6 +511,69 @@ def test_administrative_cancel_and_concurrent_replacement_target_different_gener
             assert outcome.status_code == 409
             assert outcome.json()["code"] == "league_version_changed"
     assert checked(archer.get(LEAGUES + "/queue"))["queue"]["request_id"] == replacement
+
+
+def test_stale_pages_cover_expiry_then_live_eligibility_without_duplicates(rig, api):
+    _, client = api
+    admin = client("Odin")
+    path = LEAGUES + "/admin/health"
+    at = micros(rig.clock.value)
+    reasons = {}
+    with rig.core._write() as c:
+        for index in range(47):
+            name = f"Expired-{index:02d}"
+            reasons[seed_waiter(c, name, 1500, at - 600_000_001, at - 1)] = "expired"
+            c.execute("UPDATE accounts SET active=0 WHERE id=?", (name,))
+        for index in range(50):
+            name = f"Stale-{index:02d}"
+            request = seed_waiter(c, name, 1500, at, at + 60_000_000)
+            reason, update = (
+                ("disabled", "active=0"),
+                ("unverified", "email_verified_at=NULL"),
+                ("ineligible", "role='no-play'"),
+            )[index % 3]
+            reasons[request] = reason
+            c.execute(f"UPDATE accounts SET {update} WHERE id=?", (name,))
+        will_expire = seed_waiter(c, "Expires between pages", 1500, at, at + 1_000_000)
+    queue = checked(admin.get(path))["queue"]
+    assert len(queue["stale"]) == league_administration.STALE_LIMIT
+    anchor = queue["stale"][-1]["request_id"]
+    checked(
+        admin.post(
+            LEAGUES + "/admin/queue/cancel",
+            json={"request_id": anchor, "reason": "Page anchor removed"},
+        )
+    )
+    with rig.core._write() as c:
+        revived = c.execute(
+            "SELECT request_id FROM league_queue WHERE account_id='Stale-00'"
+        ).fetchone()[0]
+        c.execute("UPDATE accounts SET active=1 WHERE id='Stale-00'")
+    reasons.pop(revived)
+    rig.clock.value += timedelta(seconds=1)
+    seen = {}
+    for _ in range(10):
+        assert len(queue["stale"]) <= league_administration.STALE_LIMIT
+        for row in queue["stale"]:
+            request_id = row["request_id"]
+            assert request_id not in seen
+            seen[request_id] = row["reason"]
+        cursor = queue["stale_next_cursor"]
+        if cursor is None:
+            break
+        queue = checked(admin.get(path, params={"stale_cursor": cursor}))["queue"]
+    else:
+        pytest.fail("Stale queue cursor did not terminate")
+    assert seen == reasons
+    fresh = checked(admin.get(path))["queue"]
+    assert will_expire not in seen and fresh["expired"] == 47
+    for _ in range(2):
+        fresh = checked(admin.get(path, params={"stale_cursor": fresh["stale_next_cursor"]}))[
+            "queue"
+        ]
+    assert any(
+        row["request_id"] == will_expire and row["reason"] == "expired" for row in fresh["stale"]
+    )
 
 
 def test_rebuild_repairs_corruption_resumes_after_restart_and_catches_late_void(rig, api):
@@ -598,6 +759,123 @@ def test_lifespan_recovers_durable_work_and_matches_without_browser(rig, api, mo
                     == 1
                 )
     assert worker.thread is not None and not worker.thread.is_alive()
+
+
+@pytest.mark.parametrize("unavailable", ["admin", "admission", "clocks"])
+def test_lifespan_reconciles_eligibility_when_matching_is_unavailable(
+    rig, monkeypatch, unavailable
+):
+    active(rig)
+    if unavailable == "clocks":
+        pause(rig)
+    at = micros(rig.clock.value)
+    with rig.core._write() as c:
+        if unavailable == "admin":
+            c.execute("UPDATE league_settings SET paused=1")
+        for index in range(league_administration.STALE_SCAN + 1):
+            seed_waiter(c, f"Still eligible {index:03d}", 1500, at, at + 600_000_000)
+        disabled = seed_waiter(c, "Now disabled", 1500, at, at + 600_000_000)
+        unverified = seed_waiter(c, "Now unverified", 1500, at, at + 600_000_000)
+        expired = seed_waiter(c, "Already expired", 1500, at - 600_000_000, at)
+        c.execute("UPDATE accounts SET active=0 WHERE id='Now disabled'")
+        c.execute("UPDATE accounts SET email_verified_at=NULL WHERE id='Now unverified'")
+        original_game = tuple(c.execute("SELECT * FROM online_games").fetchone())
+    app = create_app(
+        rig.root,
+        online_settings=replace(POLICY, creation_policy_approved=unavailable != "admission"),
+        online_clock=rig.clock,
+        account_background=False,
+    )
+    worker = app.state.league_worker
+    monkeypatch.setattr(league_worker, "POLL_SECONDS", 0.025)
+
+    def requests():
+        with rig.store.connection() as c:
+            return dict(
+                c.execute(
+                    "SELECT id,status FROM league_requests WHERE id IN (?,?,?)",
+                    (disabled, unverified, expired),
+                )
+            )
+
+    with rig.auth.gate_path.open("rb") as gate:
+        fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with TestClient(app):
+            wait_for(lambda: worker.health()["state"] == "deployment_locked")
+            assert set(requests().values()) == {"queued"}
+            fcntl.flock(gate, fcntl.LOCK_UN)
+            wait_for(
+                lambda: (
+                    requests()
+                    == {disabled: "cancelled", unverified: "cancelled", expired: "expired"}
+                )
+            )
+            wait_for(lambda: worker.health()["last_success_at"] is not None)
+            queue = app.state.leagues.queue_status(rig.credentials["Archer"])
+            assert {
+                "admin": queue["paused"],
+                "admission": not queue["enabled"],
+                "clocks": not queue["clocks_enabled"],
+            }[unavailable]
+            with rig.store.connection() as c:
+                assert c.execute("SELECT count(*) FROM league_games").fetchone()[0] == 0
+                assert c.execute("SELECT count(*) FROM online_results").fetchone()[0] == 0
+                assert c.execute("SELECT count(*) FROM rating_events").fetchone()[0] == 0
+                assert tuple(c.execute("SELECT * FROM online_games").fetchone()) == original_game
+                assert (
+                    c.execute("SELECT count(*) FROM league_queue").fetchone()[0]
+                    == league_administration.STALE_SCAN + 1
+                )
+    assert not worker.thread.is_alive()
+
+
+def test_repeated_lifespan_closes_idle_and_outstanding_shared_writers(rig):
+    app = create_app(
+        rig.root, online_settings=POLICY, online_clock=rig.clock, account_background=False
+    )
+    store = app.state.store
+    acquired, returned = threading.Event(), threading.Event()
+
+    def late_lease():
+        with store.connection(reuse_writer=True) as leased:
+            acquired.set()
+            assert returned.wait(10)
+        return leased
+
+    with ThreadPoolExecutor(max_workers=1) as lease_thread:
+        try:
+            with TestClient(app):
+                old = lease_thread.submit(late_lease)
+                assert acquired.wait(5)
+                with app.state.online._write(wait_ms=20) as idle:
+                    assert idle.execute("PRAGMA busy_timeout").fetchone()[0] == 20
+                with app.state.player_tournaments._write() as shared:
+                    assert shared is idle
+                    assert shared.execute("PRAGMA busy_timeout").fetchone()[0] == 15_000
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                idle.execute("SELECT 1")
+            with store.connection(reuse_writer=True) as closed_cache:
+                closed_cache.execute("SELECT 1")
+            assert not store._idle_writers
+            with TestClient(app):
+                returned.set()
+                late = old.result(timeout=5)
+                with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                    late.execute("SELECT 1")
+                with app.state.player_tournaments._write() as fresh:
+                    assert fresh not in (late, idle, closed_cache)
+                    assert fresh.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+                with app.state.online._write() as reused:
+                    assert reused is fresh
+            assert not store._idle_writers
+            for worker in (
+                app.state.online,
+                app.state.tournament_settlement,
+                app.state.league_worker,
+            ):
+                assert worker.thread is None or not worker.thread.is_alive()
+        finally:
+            returned.set()
 
 
 def test_worker_health_separates_idle_success_from_durable_retry(rig, api, monkeypatch):

@@ -429,7 +429,9 @@ grant(
     "/api/leagues/queue",
     "/api/leagues/active-game",
 )
-grant("play", "POST", "/api/leagues/queue", "/api/leagues/queue/cancel")
+grant(
+    "play", "POST", "/api/leagues/queue", "/api/leagues/queue/cancel", "/api/leagues/queue/discard"
+)
 grant("accounts", "GET", "/api/leagues/admin/health", "/api/leagues/admin/audit")
 grant(
     "accounts",

@@ -61,6 +61,10 @@ class JoinRequest(QueueRequest):
     expected_generation: UUID | None = None
 
 
+class DiscardRequest(JoinRequest):
+    expected_generation: UUID | None = Field(...)
+
+
 class AdministrativeReason(LeagueRequest):
     reason: StrictStr = Field(min_length=1, max_length=1000)
 
@@ -170,6 +174,17 @@ def attach_leagues(app: FastAPI, online: OnlineCore) -> LeagueWorker:
     @app.post("/api/leagues/queue/cancel")
     def cancel(body: QueueRequest):
         return execute(lambda credential: core.cancel(credential, str(body.request_id)))
+
+    @app.post("/api/leagues/queue/discard")
+    def discard(body: DiscardRequest):
+        return execute(
+            lambda credential: core.discard(
+                credential,
+                body.ruleset,
+                str(body.request_id),
+                str(body.expected_generation) if body.expected_generation is not None else None,
+            )
+        )
 
     @app.get("/api/leagues/active-game")
     def active_game(query: Annotated[LeagueRequest, Query()]):

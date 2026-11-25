@@ -8,6 +8,7 @@ const leagues = '/api/leagues';
 const gamePath = (id: string) => `/api/online/games/${id}`;
 const current = `${leagues}/current?ruleset=brandubh`;
 const themes = ['classic-table', 'kings-table', 'iron-ash', 'saga-hall'];
+type JoinBody = { ruleset: string; request_id: string; expected_generation: string | null };
 
 test.use({ actionTimeout: 15000, reducedMotion: 'reduce' });
 
@@ -234,12 +235,8 @@ test('logout and an account switch preserve the right unresolved intent and fenc
   const name = `LeagueSolo${info.project.name}`;
   const solo = await login(page.request, name);
   await brandubh(page);
-  let captured!: (body: {
-    ruleset: string;
-    request_id: string;
-    expected_generation: string | null;
-  }) => void;
-  const submitted = new Promise<Parameters<typeof captured>[0]>((resolve) => {
+  let captured!: (body: JoinBody) => void;
+  const submitted = new Promise<JoinBody>((resolve) => {
     captured = resolve;
   });
   const pattern = '**/api/leagues/queue';
@@ -266,16 +263,109 @@ test('logout and an account switch preserve the right unresolved intent and fenc
   const restored = await login(page.request, name);
   await brandubh(page);
   await expect(page.getByText(/A previous join is unconfirmed/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Retry previous join' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Retry previous join' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Join queue', exact: true })).toBeDisabled();
+  expect((await json(page.request, `${leagues}/queue`)).queue).toBeNull();
+  await page.getByRole('button', { name: 'Discard pending join' }).click();
+  await watchQueue(page.request, 'cancelled');
+  const delayed = await restored.post(`${leagues}/queue`, old);
+  expect(delayed.ok()).toBe(true);
+  expect(await delayed.json()).toMatchObject({ status: 'cancelled', queue: null });
   await join(page);
   await watchQueue(page.request, 'queued');
   const replacement = (await json(page.request, `${leagues}/queue`)).queue.request_id;
   expect(replacement).not.toBe(old.request_id);
   await page.getByRole('button', { name: 'Cancel queue', exact: true }).click();
   await watchQueue(page.request, 'cancelled');
-  expect((await restored.post(`${leagues}/queue`, old)).status()).toBe(409);
+  const replay = await restored.post(`${leagues}/queue`, old);
+  expect(await replay.json()).toMatchObject({ status: 'cancelled', queue: null });
   await expect.poll(() => page.evaluate((id) => localStorage.getItem(id), key)).toBeNull();
   expect((await json(page.request, `${leagues}/queue`)).join_generation).toBe(replacement);
+});
+
+test('an uncommitted join stays explicit across reload and navigation and retries the original payload', async ({
+  page,
+}, info) => {
+  await login(page.request, `LeagueSolo${info.project.name}`);
+  await brandubh(page);
+  const pattern = '**/api/leagues/queue';
+  const attempts: JoinBody[] = [];
+  await page.route(pattern, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    attempts.push(route.request().postDataJSON());
+    if (attempts.length === 1) return route.abort('connectionreset');
+    return route.continue();
+  });
+  await join(page);
+  const retry = page.getByRole('button', { name: 'Retry previous join' });
+  await expect(retry).toBeEnabled();
+  await page.reload();
+  await expect(retry).toBeEnabled();
+  await openDestination(page, 'dashboard');
+  await openDestination(page, 'leagues');
+  await page.getByRole('combobox', { name: 'Ruleset', exact: true }).selectOption('tablut');
+  await expect(page.getByText('A previous join is unconfirmed for Brandubh.')).toBeVisible();
+  await expect(retry).toBeEnabled();
+  expect(attempts).toHaveLength(1);
+  expect((await json(page.request, `${leagues}/queue`)).queue).toBeNull();
+  await retry.click();
+  await watchQueue(page.request, 'queued');
+  expect(attempts).toEqual([attempts[0], attempts[0]]);
+  expect((await json(page.request, `${leagues}/queue`)).queue).toMatchObject({
+    request_id: attempts[0].request_id,
+    ruleset: 'brandubh',
+  });
+  await page.getByRole('button', { name: 'Cancel queue', exact: true }).click();
+  await watchQueue(page.request, 'cancelled');
+});
+
+test('tabs make the same recovery choice and a discard supersedes both delayed intents', async ({
+  page,
+}, info) => {
+  const solo = await login(page.request, `LeagueSolo${info.project.name}`);
+  await brandubh(page);
+  const [firstId, secondId] = [randomUUID(), randomUUID()].sort();
+  const canonical = await json(page.request, `${leagues}/queue`);
+  expect(canonical.queue).toBeNull();
+  const first: JoinBody = {
+    ruleset: 'brandubh',
+    request_id: firstId,
+    expected_generation: canonical.join_generation,
+  };
+  const second = { ...first, ruleset: 'tablut', request_id: secondId };
+  const prefix = `hnefatafl-league-join:${encodeURIComponent(solo.id)}:`;
+  await page.evaluate(
+    ({ prefix, intents }) => {
+      for (const intent of intents)
+        localStorage.setItem(
+          prefix + intent.request_id,
+          JSON.stringify({ ruleset: intent.ruleset, generation: intent.expected_generation }),
+        );
+    },
+    { prefix, intents: [second, first] },
+  );
+  const message = 'A previous join is unconfirmed for Brandubh.';
+  await page.reload();
+  await expect(page.getByText(message)).toBeVisible();
+  const tab = await page.context().newPage();
+  try {
+    await tab.goto('/leagues');
+    await expect(tab.getByText(message)).toBeVisible();
+    await tab.getByRole('button', { name: 'Discard pending join' }).click();
+    await expect(tab.getByRole('button', { name: 'Join queue', exact: true })).toBeEnabled();
+    await page.bringToFront();
+    await expect(page.getByRole('button', { name: 'Join queue', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Retry previous join' })).toHaveCount(0);
+    const late = await solo.post(`${leagues}/queue`, first);
+    expect(await late.json()).toMatchObject({ status: 'cancelled', queue: null });
+    expect((await solo.post(`${leagues}/queue`, second)).status()).toBe(409);
+    expect(await json(page.request, `${leagues}/queue`)).toMatchObject({
+      join_generation: firstId,
+      queue: null,
+    });
+  } finally {
+    await tab.close();
+  }
 });
 
 test('a real League game matches after mutual widening and settles Elo and points without an open League page', async ({

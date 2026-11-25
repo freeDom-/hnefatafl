@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError } from './api';
 import { useI18n } from './i18n';
 import { leagueError, RULESET_LABELS } from './leaguePresentation';
 import {
@@ -97,7 +96,7 @@ function QueueTiming({
   );
 }
 
-type QueueSnapshot = { status: LeagueQueueStatus; clock: ServerSample };
+type QueueSnapshot = { status: LeagueQueueStatus; clock: ServerSample; unresolved?: JoinIntent[] };
 export const queueSnapshot = (status: LeagueQueueStatus): QueueSnapshot => ({
   status,
   clock: sampleTime(status.server_time),
@@ -129,7 +128,6 @@ export default function LeagueQueue({
   const [failure, setFailure] = useState<unknown>(null);
   const mutation = useRef<AbortController | null>(null);
   const [pending, setPending] = useState(() => pendingJoins(accountId));
-  const [retry, setRetry] = useState<JoinIntent | null>(null);
   const channel = useRef<BroadcastChannel | null>(null);
   const lastGame = useRef<string | null>(initial.status.active_game?.game_id ?? null);
   const previousRuleset = useRef(ruleset);
@@ -145,13 +143,22 @@ export default function LeagueQueue({
         undefined,
         signal,
       );
+      const snapshot = queueSnapshot(status);
       if (!signal.aborted) {
+        snapshot.unresolved = [];
         for (const intent of unresolved) {
-          if (intent.generation !== status.join_generation) forgetJoin(accountId, intent.requestId);
+          if (
+            intent.generation !== status.join_generation ||
+            intent.requestId === status.join_generation
+          )
+            forgetJoin(accountId, intent.requestId);
+          else snapshot.unresolved.push(intent);
         }
-        setPending(pendingJoins(accountId));
+        const saved = pendingJoins(accountId);
+        setPending(saved);
+        if (unresolved.length && !saved.length) setFailure(null);
       }
-      return queueSnapshot(status);
+      return snapshot;
     },
     [accountId],
   );
@@ -159,7 +166,7 @@ export default function LeagueQueue({
     intervalMs: cadence,
     initialData: initial,
   });
-  const { status, clock } = poll.data ?? initial;
+  const { status, clock, unresolved } = poll.data ?? initial;
   // Mutation responses can describe an old request. The nested canonical state
   // is the only source for cancellation targets and playable official links.
   const active = status.active_game;
@@ -188,11 +195,15 @@ export default function LeagueQueue({
         ? new window.BroadcastChannel(`${prefix}changes`)
         : null;
     channel.current = connection;
+    const changed = () => {
+      setPending(pendingJoins(accountId));
+      refreshQueue();
+    };
     const stored = (event: StorageEvent) => {
-      if (event.key?.startsWith(prefix)) refreshQueue();
+      if (event.key?.startsWith(prefix)) changed();
     };
     window.addEventListener('storage', stored);
-    connection?.addEventListener('message', refreshQueue);
+    connection?.addEventListener('message', changed);
     return () => {
       window.removeEventListener('storage', stored);
       connection?.close();
@@ -205,7 +216,6 @@ export default function LeagueQueue({
   useEffect(() => {
     setBusy(false);
     setFailure(null);
-    setRetry(null);
     if (previousRuleset.current !== ruleset) {
       previousRuleset.current = ruleset;
       if (pendingJoins(accountId).length) refreshQueue();
@@ -220,40 +230,42 @@ export default function LeagueQueue({
     };
   }, [accountId, refreshQueue, resume, ruleset]);
 
-  const retryable =
-    retry &&
-    retry.generation === status.join_generation &&
-    pending.some((intent) => intent.requestId === retry.requestId)
-      ? retry
-      : null;
-  useEffect(() => {
-    if (retry && !pending.some((intent) => intent.requestId === retry.requestId)) {
-      setRetry(null);
-      setFailure(null);
-    }
-  }, [pending, retry]);
+  const recoverable = unresolved?.find((intent) =>
+    pending.some((saved) => saved.requestId === intent.requestId),
+  );
 
-  async function write(kind: 'join' | 'retry' | 'cancel') {
+  async function write(kind: 'join' | 'retry' | 'discard' | 'cancel') {
     if (mutation.current) return;
+    if (kind === 'join') {
+      const saved = pendingJoins(accountId);
+      if (saved.length) {
+        setPending(saved);
+        refreshQueue();
+        return;
+      }
+    }
     const intent =
-      kind === 'retry'
-        ? retryable
+      kind === 'retry' || kind === 'discard'
+        ? recoverable
         : kind === 'join'
           ? { requestId: crypto.randomUUID(), ruleset, generation: status.join_generation }
           : null;
     const requestId = kind === 'cancel' ? entry?.request_id : intent?.requestId;
     if (!requestId) return;
-    if (intent) rememberJoin(accountId, intent);
+    if (kind === 'join' && intent) rememberJoin(accountId, intent);
     const controller = new AbortController();
     mutation.current = controller;
     poll.hold();
     setBusy(true);
     setFailure(null);
-    setRetry(null);
     try {
       const next = await leagueApi<LeagueQueueStatus>(
         accountId,
-        intent ? '/leagues/queue' : '/leagues/queue/cancel',
+        kind === 'discard'
+          ? '/leagues/queue/discard'
+          : intent
+            ? '/leagues/queue'
+            : '/leagues/queue/cancel',
         intent
           ? {
               ruleset: intent.ruleset,
@@ -270,15 +282,8 @@ export default function LeagueQueue({
       channel.current?.postMessage('queue-changed');
     } catch (error) {
       if (controller.signal.aborted) return;
-      // A rejected retry does not establish the original request's outcome.
-      if (
-        kind === 'join' &&
-        error instanceof ApiError &&
-        error.status < 500 &&
-        error.status !== 408
-      )
-        forgetJoin(accountId, requestId);
-      else if (intent) setRetry(intent);
+      // Another tab may have submitted the same UUID. Reconcile it by reading
+      // the generation even if this particular attempt was rejected.
       setFailure(error);
       channel.current?.postMessage('queue-changed');
     } finally {
@@ -353,8 +358,14 @@ export default function LeagueQueue({
           })}
         </p>
       )}
-      {!active && !entry && pending.length > 0 && !busy && (
-        <p role="status">{t('A previous join is unconfirmed. Refresh to check the queue.')}</p>
+      {pending.length > 0 && !busy && (
+        <p role="status">
+          {recoverable
+            ? t('A previous join is unconfirmed for {ruleset}.', {
+                ruleset: t(RULESET_LABELS[recoverable.ruleset]),
+              })
+            : t('Checking previous join requests…')}
+        </p>
       )}
       {failure != null && (
         <p className="form-error" role="alert">
@@ -392,13 +403,13 @@ export default function LeagueQueue({
           <button
             className="button primary"
             type="button"
-            disabled={busy || !!unavailable || poll.phase === 'stale'}
+            disabled={busy || !!unavailable || poll.phase === 'stale' || pending.length > 0}
             onClick={() => void write('join')}
           >
             {t(busy ? 'Joining…' : 'Join queue')}
           </button>
         )}
-        {!active && !entry && retryable && (
+        {!active && !entry && recoverable && (
           <button
             className="button secondary"
             type="button"
@@ -406,6 +417,16 @@ export default function LeagueQueue({
             onClick={() => void write('retry')}
           >
             {t('Retry previous join')}
+          </button>
+        )}
+        {recoverable && (
+          <button
+            className="button secondary"
+            type="button"
+            disabled={busy || poll.phase === 'stale'}
+            onClick={() => void write('discard')}
+          >
+            {t('Discard pending join')}
           </button>
         )}
       </div>

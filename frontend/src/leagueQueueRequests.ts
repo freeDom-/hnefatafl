@@ -36,9 +36,10 @@ export function forgetJoin(accountId: string, requestId: string) {
 
 export function pendingJoins(accountId: string): JoinIntent[] {
   const prefix = joinIntentPrefix(accountId);
-  const entries = [...fallback]
-    .filter(([key]) => key.startsWith(prefix))
-    .map(([, intent]) => intent);
+  const entries = new Map<string, JoinIntent>();
+  for (const [key, intent] of fallback) {
+    if (key.startsWith(prefix)) entries.set(intent.requestId, intent);
+  }
   try {
     for (let index = 0; index < localStorage.length; index++) {
       const key = localStorage.key(index);
@@ -53,7 +54,7 @@ export function pendingJoins(accountId: string): JoinIntent[] {
           typeof ruleset === 'string' &&
           rulesets.has(ruleset)
         )
-          entries.push({ requestId, generation, ruleset: ruleset as LeagueRuleset });
+          entries.set(requestId, { requestId, generation, ruleset: ruleset as LeagueRuleset });
       } catch {
         // Ignore malformed metadata.
       }
@@ -61,5 +62,6 @@ export function pendingJoins(accountId: string): JoinIntent[] {
   } catch {
     // Storage access is optional for browsers that restrict it.
   }
-  return entries;
+  // Use the same recovery choice in every tab, irrespective of storage order.
+  return [...entries.values()].sort((a, b) => a.requestId.localeCompare(b.requestId));
 }
