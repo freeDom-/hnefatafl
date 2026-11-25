@@ -259,3 +259,59 @@ It reduces recurring SQLite schema and statement preparation. Session,
 authority, expiry and optimistic versions still load after writer acquisition.
 The deployment gate applies to every lease, and each lease sets its intended
 lock timeout before beginning the transaction.
+
+### Repeated shared-writer results
+
+Five repetitions per source used the same two-CPU-quota Linux host, SQLite
+build, temporary storage and common fixture. Table cells are the median of
+the per-run statistic with its observed minimum and maximum in brackets.
+Timings are in milliseconds unless the row names another unit.
+
+| Workload statistic | Main | Reviewed League | Revised League |
+| --- | ---: | ---: | ---: |
+| Common service operations/s | 379.74 [349.57–406.12] | 341.95 [313.97–369.97] | 621.06 [523.42–642.65] |
+| Common move p95 | 21.74 [8.89–27.61] | 22.66 [13.12–23.22] | 4.11 [2.20–22.88] |
+| Common move p99 | 81.70 [36.63–85.23] | 52.86 [37.32–107.59] | 36.15 [22.22–58.83] |
+| Common move writer wait p99 | 79.06 [34.45–80.60] | 34.52 [19.92–104.28] | 33.54 [18.68–53.86] |
+| Common move writer hold p50 | 2.31 [2.28–2.83] | 2.76 [2.52–2.78] | 1.13 [1.11–1.36] |
+| Common move SQL in writer p50 | 1.86 [1.85–2.30] | 2.26 [2.07–2.28] | 0.86 [0.84–0.99] |
+| Common tournament service p95 | 35.20 [28.75–40.83] | 34.35 [28.27–36.61] | 35.16 [24.82–44.70] |
+| Common tournament before writer p95 | 33.05 [26.38–38.08] | 30.49 [25.30–33.03] | 19.57 [17.92–22.45] |
+| Isolated nonterminal p95 | 1.84 [1.56–3.37] | 2.03 [1.75–2.41] | 0.69 [0.66–0.90] |
+| Isolated rated result p95 | 2.52 [2.40–2.75] | 2.87 [2.58–2.99] | 1.51 [1.41–1.71] |
+| Isolated tourney p95 | 2.80 [2.47–3.15] | 2.95 [2.88–3.30] | 2.01 [1.94–2.08] |
+| Live common move p95 | 84.11 [80.27–88.80] | 83.02 [82.13–84.87] | 56.82 [56.25–58.70] |
+| Live common move p99 | 132.25 [113.55–133.47] | 108.46 [87.19–110.18] | 83.59 [82.31–107.80] |
+| Live common tournament writer p95 | 2.38 [1.93–3.90] | 2.89 [2.53–7.08] | 1.26 [1.06–2.76] |
+| Live mixed move p95 | — | 106.41 [58.45–111.92] | 56.21 [36.91–57.29] |
+| Live mixed move p99 | — | 182.54 [83.75–185.77] | 84.74 [81.32–109.01] |
+| Live mixed tournament writer p95 | — | 2.75 [2.24–3.95] | 1.45 [1.08–2.35] |
+| Live mixed League pairs | — | 5.00 [5.00–5.00] | 52.00 [47.00–57.00] |
+| Live mixed League settlements | — | 40.00 [40.00–40.00] | 40.00 [40.00–40.00] |
+| Mixed service operations/s | — | 276.56 [262.59–280.86] | 466.52 [459.05–492.63] |
+| Mixed service tournament p95 | — | 65.54 [55.83–79.11] | 38.05 [29.16–54.43] |
+
+The repeatable change on the reviewed branch was lower common service
+throughput and a longer median move writer hold. The review's 58.83 ms move
+p95 exceeded all five reviewed p95 trials here. SQLite lock acquisition
+accounted for much of the variable tail. The direct tournament samples also
+include dispatch and serialization before the writer. The live tournament
+samples measure `BEGIN IMMEDIATE` through transaction completion.
+
+A separate first-statement probe measured the median session lookup at
+0.589 ms on main and 0.711 ms on the League build with fresh connections.
+Preparing the schema with a zero-row read before acquiring the lock moved the
+lookup to about 0.03 ms on both sources. Preparing on every write still
+incurred the cold work. Reusing the guarded connections reduced both
+preparation and time in the lock. The revised median direct tournament lock
+wait p95 was 1.12 ms, down from 3.20 ms on main. Its median writer hold was
+0.77 ms, down from 1.58 ms. These intervals include SQLite operations and
+local scheduling. The timed SQL subset excludes cursor fetch and commit.
+
+For an ordinary rated concession, the two reviewed League result statements
+cost 33.0 microseconds in total per result at the median across runs. The
+single indexed provenance lookup in the revision cost 6.3 microseconds. The
+shared service and worker trials recorded zero operation errors. In the live
+mixed arm all 40 League settlements completed in each run alongside the real
+tournament worker. The result supports the throughput and latency comparison
+on these disposable workloads. Busy-lock tails still vary with scheduling.
