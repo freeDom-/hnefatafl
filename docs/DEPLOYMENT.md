@@ -514,6 +514,30 @@ snapshots and tested off-host restores complement application snapshots. A local
 backup is not protection against loss of the Proxmox host. Never destructively
 test these procedures on production data.
 
+### League worker recovery
+
+Open **League administration** and refresh the health projection. A running
+worker reports its last check separately from the last successful processing
+cycle. Idle is expected when the queues are empty. During activation, the
+deployment lock defers pending writes until the updater releases the gate.
+
+If retry counts keep rising or the oldest pending settlement keeps aging,
+record the backlog, durable attempts, next retry time and any rebuilding
+season and stage. Check service logs and host storage availability and access.
+Take a supported backup and reproduce the failure on a disposable copy when
+an application or data repair is required. Restore normal service using the
+compatible update or rollback procedures above. Settlement retries and
+rebuild cursors survive restart and pick up from the recorded due time.
+
+For an incorrect official result, use the existing authorized online result
+controls and their audit trail. The resulting revision enters the durable
+settlement queue. If the authoritative results are sound and a projection
+needs repair, request a season rebuild with the displayed revision and a
+reason. An already running rebuild resumes from its saved stage once the cause
+of the retry is resolved. Verify that the retry backlog clears and the season
+publishes a new revision before closing the incident. League recovery derives
+all points and standings from the authoritative result ledger.
+
 ## Troubleshooting and target-host validation
 
 | Symptom | Action |

@@ -69,15 +69,25 @@ seat or incompatible ruleset may commit. Waiting time must not silently relax th
 maximum rating bound or substitute an AI. An empty queue explains the lack of
 players, expiry and cancellation rather than promising an estimated wait.
 
-Matchmaking processes a bounded age-ordered page in each ruleset. Within an
-entry's rating range it reads age-ordered candidate pages from indexed rating
-buckets. Each pass examines up to eight starting entries and revalidates up to
-eight opponents per starter. It saves both positions and wraps at the end, so
-incompatible or pair-capped entries cannot hold the scanner on the first page. A pass commits at
-most one match per ruleset. It prefers the oldest entries it visits. In a large,
-changing queue, the saved positions can advance to a younger compatible pair
-before an earlier pair has been revisited. Waiting windows and expiry remain
-authoritative throughout.
+Matchmaking processes bounded age-ordered pages in each ruleset. Each pass
+examines up to eight starters and revalidates up to eight opponents per starter
+from indexed rating buckets. It saves both positions and wraps at the end.
+Within a background sweep, new arrivals can be opponents immediately, while the
+starter horizon stays fixed so continuous arrivals cannot postpone wraparound.
+A changed rating resets that player's opponent position. A wider window can
+admit an earlier candidate when the scanner reaches it again after wrapping.
+The scanner prefers the oldest entries it visits. Large queues and churn can
+change the order relative to an exhaustive search.
+
+On the one-second cadence the worker can start up to 16 pairing transactions
+over a 60 ms burst, with a 3 ms handoff between attempts. Each transaction can
+commit one match and waits up to 20 ms for the SQLite writer. An in-flight
+transaction finishes even if the burst reaches its budget. Expiry and result
+accounting run before the burst. Rulesets rotate between and within bursts.
+Up to three empty discovery pages per ruleset advance the cursors in a burst.
+Unsuccessful rulesets back off from one to eight seconds. An observed change
+in pause settings clears that backoff. Waiting windows, seasons and expiry
+remain authoritative at commit.
 
 Cap league pairings at three per unordered opponent pair per UTC day. Count
 committed pairings even if a result is later voided, so corrections cannot reopen
@@ -103,6 +113,15 @@ Cancellation acts on the entry associated with the submitted ID. A delayed
 cancellation can therefore return an earlier outcome while a newer entry stays
 queued. Request records have no time-based expiry. Rate checks read the current
 rolling minute and UTC day using the account/time index.
+
+Canonical queue snapshots also expose the account's last accepted join ID as
+`join_generation`. An explicit browser join includes that value as
+`expected_generation`, including null for the initial generation. An unseen
+request with an older generation receives a conflict. A known request keeps
+its idempotent outcome. The browser stores only the pending request UUID,
+ruleset and expected generation under the current account. A fresh read can
+retire a committed or superseded intent. Navigation, reload and reconnect
+reconcile by reading the queue. Joining remains an explicit action.
 
 ## Results, revisions and recovery
 
@@ -145,6 +164,15 @@ in `YYYY-MM` format where applicable, and a page size from 1 to 50 for lists.
 List responses include an opaque `next_cursor`. Reload from the first page when
 the server reports a changed revision or the process has restarted. Standings
 keep one shared sporting rank for tied players across page boundaries.
+The Arena sends its expected account in `X-League-Account`. If a different
+session has replaced the cookie, the server returns a conflict before reading
+or writing League data for that session.
+
+The season selector applies to personal progression, standings and history.
+Matchmaking stays in the current UTC season. The shared **Refresh leagues**
+control updates the visible projections. Focus, visibility and reconnect also
+wake the reads. While idle, only the queue has a recurring one-minute read so
+it can discover remote session activity, eligibility, pause or clock changes.
 
 | Method and path | Result |
 | --- | --- |
@@ -169,15 +197,22 @@ blocks queue admission and pairing. Expiry, results and existing gameplay
 continue according to the online authority and its clock gate. Deployment
 contention leaves pending writes available for a later cycle.
 
-The administration panel shows pending and failed settlement counts, age of the
-oldest pending result, stale entries and current rebuild jobs. For a projection
+The administration panel shows worker liveness, the last check and successful
+processing timestamps, deployment deferral, pending and retrying settlements,
+and the age of the oldest pending result. Rebuild jobs show their stage and
+durable attempt count and next retry. The stale queue list uses the expiry
+index and bounded keyset pages to find disabled, unverified and otherwise
+ineligible accounts. The cancellation action identifies the exact queue
+generation.
+
+For a projection
 repair, submit the season revision displayed by the server and a reason. The
 worker clears and reconstructs contributions and standings in durable batches
 from League game provenance and effective rated results. A running rebuild
 reports the season as rebuilding. The worker catches up intervening result
 changes before it publishes the repaired standings and their new revision.
 Administrative audit and League authority participate in compatible restores.
-See [deployment and recovery](DEPLOYMENT.md#rollback-and-recovery).
+See [League worker recovery](DEPLOYMENT.md#league-worker-recovery).
 
 ## Acceptance gates
 
