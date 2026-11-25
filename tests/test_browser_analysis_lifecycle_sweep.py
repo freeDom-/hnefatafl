@@ -156,10 +156,12 @@ def test_collection_failure_preserves_status_and_cleans_up(sweep):
     assert any("--terminate-only" in line for line in calls)
 
 
-def test_workload_failure_is_recorded_and_does_not_validate(sweep):
+def test_workload_failure_is_distinct_from_partial_validator_evidence(sweep):
     run, log, _counter = sweep
     result = run(STUB_WORKLOAD_EXIT=9)
-    assert result.returncode == 2
+    # A workload failure must never be reported as validator exit code 2.
+    assert result.returncode == 6
+    assert "PARTIAL" not in result.stderr
     calls = _calls(log)
     assert sum(line.startswith("validate ") for line in calls) == 0
     assert any(line.startswith("finalize ") for line in calls)

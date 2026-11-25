@@ -1,4 +1,6 @@
 /** Shared deterministic fixtures for browser-analysis unit tests. */
+import { createHash } from 'node:crypto';
+
 import type { Availability, ModelManifest, RuntimeFile, RuntimeManifest } from './contracts';
 
 /** Fast deterministic 64-hex digest for tests (production uses SHA-256). */
@@ -13,7 +15,11 @@ export function testDigest(bytes: ArrayBuffer): string {
   return base.repeat(8);
 }
 
-export const digest: (bytes: ArrayBuffer) => Promise<string> = async (bytes) => testDigest(bytes);
+/** Real SHA-256 for artifact fixtures and identity checks (test-only Node crypto). */
+export const nodeDigest = async (bytes: ArrayBuffer): Promise<string> =>
+  createHash('sha256').update(new Uint8Array(bytes)).digest('hex');
+
+export const digest: (bytes: ArrayBuffer) => Promise<string> = nodeDigest;
 
 export function bytesFor(contents: string): { bytes: ArrayBuffer; sha256: string; size: number } {
   const encoded = new TextEncoder().encode(contents);
@@ -21,7 +27,11 @@ export function bytesFor(contents: string): { bytes: ArrayBuffer; sha256: string
     encoded.byteOffset,
     encoded.byteOffset + encoded.byteLength,
   ) as ArrayBuffer;
-  return { bytes: buffer, sha256: testDigest(buffer), size: buffer.byteLength };
+  return {
+    bytes: buffer,
+    sha256: createHash('sha256').update(encoded).digest('hex'),
+    size: buffer.byteLength,
+  };
 }
 
 export const RUNTIME_FILES: Array<[string, string]> = [
@@ -50,26 +60,62 @@ export const RUNTIME_FILES: Array<[string, string]> = [
   ['neural-worker.js', '// neural worker'],
 ];
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 export function runtimeManifest(overrides: Partial<RuntimeManifest> = {}): RuntimeManifest {
   const files: RuntimeFile[] = RUNTIME_FILES.map(([path, contents]) => {
     const { sha256, size } = bytesFor(contents);
     return { path, bytes: size, sha256 };
   });
-  return {
+  const base = {
     schema: 1,
-    runtimeId: 'abcdef0123456789',
+    runtimeId: '',
     pins: {
       pyodide: '0.27.7',
       onnxruntimeWeb: '1.22.0',
       encoderVersion: 'six-plane-v1',
       driverVersion: 1,
       searchProtocol: 1,
+      searchAlgorithm: 'neural-mcts-puct-v1',
       bridgeProtocol: 1,
+      architecture: 'tafl-policy-value-v1',
       applicationVersion: '0.41.1',
     },
     files,
     totalBytes: files.reduce((sum, entry) => sum + entry.bytes, 0),
-    basePath: '/browser-analysis/runtime/abcdef0123456789',
+    basePath: '',
+  } as RuntimeManifest;
+  const identity = canonicalJson({
+    files: [...files]
+      .map((entry) => [entry.path, entry.sha256])
+      .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)),
+    pins: {
+      pyodide: base.pins.pyodide,
+      onnxruntime_web: base.pins.onnxruntimeWeb,
+      encoder_version: base.pins.encoderVersion,
+      driver_version: base.pins.driverVersion,
+      search_protocol: base.pins.searchProtocol,
+      search_algorithm: base.pins.searchAlgorithm,
+      bridge_protocol: base.pins.bridgeProtocol,
+      architecture: base.pins.architecture,
+      application_version: base.pins.applicationVersion,
+    },
+  });
+  const runtimeId = createHash('sha256').update(identity).digest('hex').slice(0, 16);
+  return {
+    ...base,
+    runtimeId,
+    basePath: `/browser-analysis/runtime/${runtimeId}`,
     ...overrides,
   };
 }
@@ -86,7 +132,9 @@ export function runtimeWire(
       encoder_version: manifest.pins.encoderVersion,
       driver_version: manifest.pins.driverVersion,
       search_protocol: manifest.pins.searchProtocol,
+      search_algorithm: manifest.pins.searchAlgorithm,
       bridge_protocol: manifest.pins.bridgeProtocol,
+      architecture: manifest.pins.architecture,
       application_version: manifest.pins.applicationVersion,
     },
     files: manifest.files.map((entry) => ({

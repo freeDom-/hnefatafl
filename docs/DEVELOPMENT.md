@@ -55,7 +55,11 @@ HNEFATAFL_BROWSER_ANALYSIS_BROWSER=1 HNEFATAFL_BROWSER_ANALYSIS_DATA=/absolute/d
 ```
 
 `scripts/verify_browser_analysis.mjs --neural` additionally exercises published
-model download and neural MCTS; it requires an explicit publication. Never publish
+model download, verified-byte inference (one cold artifact transfer), provider
+evidence and effective settings; it requires an explicit publication. The
+actual-browser suite also stages a second verified runtime and asserts immutable
+identity handling during activation. Source-checkout runtime staging requires
+`--development`. Never publish
 private checkpoints from a development tree. The E1 lifecycle sweep is covered by
 stub-command tests (`tests/test_browser_analysis_lifecycle_sweep.py`) and does not
 require a browser or a sustained run.

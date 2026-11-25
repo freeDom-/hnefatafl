@@ -202,9 +202,7 @@ def _start_workload(tmp_path, *, telemetry_args=(), duration=3.0):
     return writer, telemetry, progress
 
 
-def _collect(tmp_path, workload_pid, telemetry, progress, **overrides):
-    import subprocess as sp
-
+def _collect_command(tmp_path, workload_pid, telemetry, progress, **overrides):
     output = tmp_path / "profile.json"
     command = [
         sys.executable,
@@ -241,12 +239,23 @@ def _collect(tmp_path, workload_pid, telemetry, progress, **overrides):
                 overrides.get("replacement_model", "b" * 64),
             ]
         )
+    return command, output
+
+
+def _finish_collect(output):
+    if not output.exists():
+        return None
+    report = json.loads(output.read_text())
+    _attach_simulated_parent_completion(report)
+    return report
+
+
+def _collect(tmp_path, workload_pid, telemetry, progress, **overrides):
+    import subprocess as sp
+
+    command, output = _collect_command(tmp_path, workload_pid, telemetry, progress, **overrides)
     result = sp.run(command, capture_output=True, text=True, timeout=60)
-    if output.exists():
-        report = json.loads(output.read_text())
-        _attach_simulated_parent_completion(report)
-        return result, report
-    return result, None
+    return result, _finish_collect(output)
 
 
 def test_live_memory_collection_separates_warmup_and_acceptance(tmp_path):

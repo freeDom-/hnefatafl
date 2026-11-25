@@ -286,3 +286,132 @@ def test_logout_invalidates_artifact_access(monkeypatch, tmp_path):
     client.cookies.delete(COOKIE)
     assert client.get("/api/browser-analysis/availability").status_code == 401
     assert client.get("/api/browser-analysis/models").status_code == 401
+
+
+def _second_runtime(data_dir: Path, monkeypatch, byte: bytes):
+    cache = data_dir / "asset-cache"
+    (cache / "pyodide" / "pyodide.js").write_bytes(byte)
+    pyodide = dict(browser_runtime.PYODIDE_ASSETS)
+    pyodide["pyodide.js"] = hashlib.sha256(byte).hexdigest()
+    monkeypatch.setattr(browser_runtime, "PYODIDE_ASSETS", pyodide)
+    return browser_runtime.build_runtime(
+        data_dir,
+        asset_cache=cache,
+        activate=True,
+        source_root=PROJECT_ROOT,
+        application_version=application_metadata()["package_version"],
+    )
+
+
+def test_runtime_identity_is_immutable_across_activation(monkeypatch, tmp_path):
+    app = _app(monkeypatch, tmp_path, enabled=True)
+    client = _login(TestClient(app), app)
+    first = client.get("/api/browser-analysis/availability").json()["runtime"]
+    first_id = first["runtime_id"]
+    first_asset = client.get(f"{first['base_path']}/runtime/pyodide.js")
+    assert first_asset.status_code == 200
+    old_bytes = first_asset.content
+
+    second = _second_runtime(tmp_path, monkeypatch, b"Y" * len(old_bytes))
+    assert second["runtime_id"] != first_id
+    latest = client.get("/api/browser-analysis/availability").json()["runtime"]
+    assert latest["runtime_id"] == second["runtime_id"]
+    new_asset = client.get(f"{latest['base_path']}/runtime/pyodide.js")
+    assert new_asset.status_code == 200
+    assert new_asset.content != old_bytes
+
+    # The retained identity still serves exactly its own immutable bytes.
+    retained = client.get(f"{first['base_path']}/runtime/pyodide.js")
+    assert retained.status_code == 200
+    assert retained.content == old_bytes
+    first_digest = next(
+        entry["sha256"] for entry in first["files"] if entry["path"] == "runtime/pyodide.js"
+    )
+    assert retained.headers["x-content-sha256"] == first_digest
+    # A same-size replacement under the retained identity is detected.
+    directory = tmp_path / "browser_runtime" / first_id
+    (directory / "runtime" / "pyodide.js").write_bytes(b"Z" * len(old_bytes))
+    assert client.get(f"{first['base_path']}/runtime/pyodide.js").status_code == 404
+
+    # Pruning removes the retained identity from delivery.
+    browser_runtime.prune_runtimes(tmp_path, keep=1)
+    assert client.get(f"{first['base_path']}/runtime/pyodide.js").status_code == 404
+    assert client.get(f"{latest['base_path']}/runtime/pyodide.js").status_code == 200
+
+
+def test_runtime_activation_after_cached_absence_is_detected(monkeypatch, tmp_path):
+    app = _app(monkeypatch, tmp_path, enabled=True, stage_runtime=False)
+    client = _login(TestClient(app), app)
+    missing = client.get("/api/browser-analysis/availability").json()
+    assert missing["runtime_available"] is False
+    assert missing["reason"] == "runtime-missing"
+    assert client.get("/browser-analysis/runtime/0/runtime/pyodide.js").status_code == 404
+
+    manifest = _synthetic_runtime(tmp_path, monkeypatch)
+    activated = client.get("/api/browser-analysis/availability").json()
+    assert activated["runtime_available"] is True
+    assert activated["runtime"]["runtime_id"] == manifest["runtime_id"]
+    assert (
+        client.get(
+            f"/browser-analysis/runtime/{manifest['runtime_id']}/runtime/pyodide.js"
+        ).status_code
+        == 200
+    )
+    # Deactivation removes delivery without a restart.
+    (tmp_path / "browser_runtime" / "current").unlink()
+    deactivated = client.get("/api/browser-analysis/availability").json()
+    assert deactivated["runtime_available"] is False
+    assert deactivated["reason"] == "runtime-missing"
+
+
+def _published_record(store, publication_id="7" * 24):
+    digest = hashlib.sha256(MODEL_BYTES).hexdigest()
+    (store.artifacts / f"{digest}.onnx").write_bytes(MODEL_BYTES)
+    record = {
+        "publication_id": publication_id,
+        "display_name": "Versioned model",
+        "ruleset": "brandubh",
+        "board_size": 7,
+        "architecture": {"name": "tafl-policy-value-v1", "channels": 32, "blocks": 2},
+        "encoder_version": "six-plane-v1",
+        "source_weights_sha256": "a" * 64,
+        "onnx_sha256": digest,
+        "artifact_bytes": len(MODEL_BYTES),
+        "runtime": {},
+        "io": {},
+        "status": "published",
+        "published_at": "2026-11-25T00:00:00+00:00",
+    }
+    store._write_index({"schema": 1, "publications": [record]})
+    return record
+
+
+def test_artifact_version_binding_and_revocation(monkeypatch, tmp_path):
+    app = _app(monkeypatch, tmp_path, enabled=True)
+    store = app.state.browser_models
+    record = _published_record(store)
+    client = _login(TestClient(app), app)
+    base = f"/api/browser-analysis/models/{record['publication_id']}/artifact"
+    assert client.get(f"{base}?version={record['onnx_sha256']}").status_code == 200
+    assert client.get(f"{base}?version={'f' * 64}").status_code == 404
+    assert client.get(f"{base}?version=not-a-digest").status_code == 404
+    manifest = client.get(f"/api/browser-analysis/models/{record['publication_id']}")
+    assert manifest.status_code == 200
+    assert manifest.json()["onnx_sha256"] == record["onnx_sha256"]
+
+    store.revoke(record["publication_id"], actor="Odin", reason="test")
+    assert client.get(base).status_code == 404
+    assert client.get(f"{base}?version={record['onnx_sha256']}").status_code == 404
+    assert client.get(f"/api/browser-analysis/models/{record['publication_id']}").status_code == 404
+
+
+def test_tampered_same_size_artifact_fails_closed(monkeypatch, tmp_path):
+    app = _app(monkeypatch, tmp_path, enabled=True)
+    store = app.state.browser_models
+    record = _published_record(store)
+    client = _login(TestClient(app), app)
+    (store.artifacts / f"{record['onnx_sha256']}.onnx").write_bytes(b"x" * len(MODEL_BYTES))
+    assert (
+        client.get(f"/api/browser-analysis/models/{record['publication_id']}/artifact").status_code
+        == 404
+    )

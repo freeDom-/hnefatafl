@@ -941,7 +941,7 @@ export class NeuralClient {
     }
   }
 
-  async load(modelUrl, { provider = "wasm", size, ruleset, expectedSha256 } = {}) {
+  _loadAdmission(provider) {
     if (!["wasm", "webgpu"].includes(provider))
       throw named("ProviderError", `Unsupported provider: ${provider}`);
     if (this.loading) throw named("ModelLoadError", "A model load is already in progress");
@@ -953,51 +953,123 @@ export class NeuralClient {
       throw named("DIRECT_BUSY", "A direct search owns the inference session");
     if (this.busy || this.batchInFlight || this.batchDraining || this.draining)
       throw named("SESSION_BUSY", "A neural session operation is already running");
+    // A worker that loaded a different ORT bundle cannot serve this provider,
+    // even when the previous load failed before publishing a model.
+    if (this.directChannel)
+      throw named("DIRECT_BUSY", "A direct search owns the inference session");
+    if (this.worker && this.workerProvider !== provider)
+      this.abort(named("AbortError", "Recreating worker for provider switch"));
+  }
+
+  /**
+   * Shared session publication for URL-fetched and application-verified bytes.
+   * Exactly one worker initialization path exists; callers differ only in how
+   * they obtained and verified the model buffer.
+   */
+  async _initializeSession(buffer, {
+    modelUrl,
+    provider,
+    size,
+    ruleset,
+    expectedSha256,
+    token,
+    generation,
+  }) {
+    if (this.generation !== generation || this.loading !== token)
+      throw named("AbortError", "Model load superseded");
+    if (!this.worker) this._spawn();
+    this.workerProvider = provider;
+    const previousModel = this.model;
+    const worker = this.worker;
+    // From here the worker may release the previous session, so the interface
+    // must not keep advertising it as active.
+    this.model = null;
+    let result;
+    try {
+      result = await this.request(
+        { action: "load", buffer, provider, size, ruleset, expectedSha256 },
+        { timeoutMs: LOAD_TIMEOUT_MS },
+      );
+    } catch (error) {
+      // A rejected admission did not touch the session: preserve the previous
+      // advertised identity only when the same worker generation is intact.
+      if (
+        previousModel &&
+        (error?.code === "DIRECT_BUSY" || error?.code === "SESSION_BUSY") &&
+        this.worker === worker &&
+        this.generation === generation
+      )
+        this.model = previousModel;
+      throw error;
+    }
+    if (this.generation !== generation || this.loading !== token)
+      throw named("AbortError", "Model load superseded during session creation");
+    this.model = { url: modelUrl, provider, size, ruleset, ...result };
+    return this.model;
+  }
+
+  async load(modelUrl, { provider = "wasm", size, ruleset, expectedSha256 } = {}) {
+    this._loadAdmission(provider);
     const token = ++this.sequenceLoad;
     this.loading = token;
     try {
-      // A worker that loaded a different ORT bundle cannot serve this provider,
-      // even when the previous load failed before publishing a model. Abort
-      // before capturing the generation so the new load owns the new worker.
-      if (this.directChannel)
-        throw named("DIRECT_BUSY", "A direct search owns the inference session");
-      if (this.worker && this.workerProvider !== provider) {
-        this.abort(named("AbortError", "Recreating worker for provider switch"));
-        this.loading = token;
-      }
+      this.loading = token;
       const generation = this.generation;
       const { buffer } = await this.fetchModel(modelUrl, { expectedSha256 });
+      return await this._initializeSession(buffer, {
+        modelUrl,
+        provider,
+        size,
+        ruleset,
+        expectedSha256,
+        token,
+        generation,
+      });
+    } finally {
+      if (this.loading === token) this.loading = null;
+    }
+  }
+
+  /**
+   * Load application-verified model bytes through the same session path.
+   *
+   * The buffer is validated again (size, digest, identity) and passed by
+   * structured clone, so the caller's persistent/cache buffer is never detached.
+   */
+  async loadModelBytes(
+    buffer,
+    { provider = "wasm", size, ruleset, expectedSha256 } = {},
+  ) {
+    const bytes =
+      buffer instanceof ArrayBuffer
+        ? buffer
+        : ArrayBuffer.isView(buffer)
+          ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+          : null;
+    if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0)
+      throw named("ModelLoadError", "Verified model bytes are required");
+    if (bytes.byteLength > MAX_MODEL_BYTES)
+      throw named("ModelLoadError", "Model bytes exceed the experimental size limit");
+    this._loadAdmission(provider);
+    const token = ++this.sequenceLoad;
+    this.loading = token;
+    try {
+      this.loading = token;
+      const generation = this.generation;
+      const digest = await this.digestFn(bytes);
       if (this.generation !== generation || this.loading !== token)
-        throw named("AbortError", "Model load superseded");
-      if (!this.worker) this._spawn();
-      this.workerProvider = provider;
-      const previousModel = this.model;
-      const worker = this.worker;
-      // From here the worker may release the previous session, so the interface
-      // must not keep advertising it as active.
-      this.model = null;
-      let result;
-      try {
-        result = await this.request(
-          { action: "load", buffer, provider, size, ruleset, expectedSha256 },
-          { timeoutMs: LOAD_TIMEOUT_MS },
-        );
-      } catch (error) {
-        // A rejected admission did not touch the session: preserve the previous
-        // advertised identity only when the same worker generation is intact.
-        if (
-          previousModel &&
-          (error?.code === "DIRECT_BUSY" || error?.code === "SESSION_BUSY") &&
-          this.worker === worker &&
-          this.generation === generation
-        )
-          this.model = previousModel;
-        throw error;
-      }
-      if (this.generation !== generation || this.loading !== token)
-        throw named("AbortError", "Model load superseded during session creation");
-      this.model = { url: modelUrl, provider, size, ruleset, ...result };
-      return this.model;
+        throw named("AbortError", "Model load superseded during verification");
+      if (expectedSha256 && digest !== expectedSha256)
+        throw named("ModelLoadError", "Verified model bytes failed their integrity check");
+      return await this._initializeSession(bytes, {
+        modelUrl: "verified-bytes",
+        provider,
+        size,
+        ruleset,
+        expectedSha256,
+        token,
+        generation,
+      });
     } finally {
       if (this.loading === token) this.loading = null;
     }

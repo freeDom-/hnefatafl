@@ -622,9 +622,43 @@ Phase 3 is not complete.
   neural MCTS with the published smoke model; initial bundle unchanged
   (573,936 raw / 183,181 gzip); lazy contract chunk 26,131 bytes. Details in the
   [Phase 4 report](../validation/browser-analysis-phase4.md).
+- **Review corrections (F1–F8):**
+  - F1 explicit operation ownership across availability, imports, verification,
+    worker/client/coordinator creation, model download/init, search, cancellation
+    and cleanup; idempotent initialization; generation- and runtime-bound resources;
+    deterministic deferred-promise tests assert actual worker counts.
+  - F2 immutable runtime snapshots per identity; no `current`-based asset
+    resolution; retained identities serve their own bytes; same-size replacement,
+    symlink and prune cases fail closed; stat-signature digest cache avoids
+    per-request full hashing; browser module caches bound to runtime identity;
+    activation after cached unavailability detected; actual-browser identity-change
+    test.
+  - F3 real coordinator provider evidence (`search.provider.execution_placement`),
+    no synthesised placement, no-inference `none`, fail-closed malformed/mismatched
+    evidence, preserved model identity/settings/simulations/inference counts;
+    separate Pyodide execution runtime from neural inference.
+  - F4 generation-scoped download reservations, subscriber tracking, last-subscriber
+    abort, already-aborted checks, bounded queue/retry/verification deadline,
+    conflicting-spec rejection, cancellation-safe cache admission.
+  - F5 verified model bytes loaded directly into the validated neural client (no
+    duplicate transfer), re-authorized before activation, safe non-detaching buffer
+    handling, serialized quota-safe admissions with retention reporting.
+  - F6 publication record/version/file resolved atomically, `?version=` binding,
+    revocation/​replacement races fail closed, same-size corruption/symlink/escape
+    rejected, audit/index rollback.
+  - F7 full Python/TypeScript compatibility contract and independent pinned-upstream
+    digest binding; canonical identity recomputed in the browser; `0+local`
+    development-only; cross-language test.
+  - F8 explicit `jarl`/`neural_mcts` algorithm, production Jarl alpha-beta profile
+    (no baseline fallback), bounded classical vs neural budgets, effective settings
+    exposed.
+  - E1 workload-failure exit code 6 distinct from validator partial 2; deterministic
+    telemetry producer-completion handshake stabilizes the transition-history test.
+  - Offline runtime execution retained as an explicit owner-approved deferral.
 - **Explicit non-claims:** no competitive playing strength, no verified GPU
   execution, no physical-device compatibility, no sustained-memory acceptance, no
-  offline runtime execution (no service worker), no Phase 5 UI.
+  offline runtime execution (no service worker; explicit proposed deferral), no
+  Phase 5 UI.
 - **Remaining:** Phase 5 integration; owner publication of competitive exports;
   the unchanged Phase 3C-B external gates.
 
@@ -922,6 +956,7 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-20 | Revision 4: integrated `main` `17d3819` (frontend feature splitting and bundle budgets); deterministic parity independent of work counters; acceptance cannot pass with mandatory failures; record depth/budget validated against the effective configuration; complete inference-response contract and independent batch order/association; output tensors released on every failure path; artifact trust chain covers sidecar and parity digests; actual-browser clean-state UI flows; provider evidence no longer claims GPU execution from session lists. |
 | 2026-11-20 | Revision 5: integrated `main` `1b4c4ae`; request-side model identity (digest/ruleset/size) validated against the active session for single and batched inference; operation ownership propagated through asset loading; hardware-independent provider tests; compact reference vectors keep Copenhagen within the 16 MiB budget; WASM inference infrastructure marked ready for Phase 2. |
 | 2026-11-20 | Phase 2 revision 1: existing Python neural MCTS now runs in the browser through a shared PyTorch-free encoder and a cooperative search worker; Level A exact parity (21/21), Level B smoke-model parity for all three rulesets (7/7 each), native/browser benchmarks with a measured timing breakdown, cancellation/lifecycle and experimental analysis UI. Phase 1 follow-ups (retryable assets, page lifecycle, independent corruption boundaries, mandatory model identity) completed. Competitive models, physical devices and playing strength remain open. |
+| 2026-11-25 | Phase 4 review corrections F1–F8: operation ownership, immutable runtime identity and snapshot delivery, real provider evidence, generation-safe download reservations, verified model bytes for inference, atomic publication/version binding, complete compatibility validation, explicit algorithm/effective-settings contract; E1 follow-up exit code 6 and deterministic transition-history producer handshake; actual production-browser Jarl/neural and runtime-identity-change evidence. Offline runtime execution remains an explicit proposed deferral. |
 | 2026-11-25 | Phase 4 production integration: pinned same-origin runtime distribution and verification, explicit administrator model publication with immutable/audited artifacts, authenticated delivery API, narrow enabled-only WASM CSP, bounded IndexedDB storage/download/runtime lifecycle managers, disabled-by-default feature flag, deployment/rollback documentation, canonical export validation shared with the spike, E1 lifecycle-sweep correction and actual production-browser evidence. Browser analysis remains disabled; competitive/physical/sustained-memory gates remain open. |
 | 2026-11-24 | Phase 3C-B executable-workflow correction: compatible extended benchmark commands, reproducible 50-pair opening corpora, workload failure/accounting binding, nonterminal sustained selection, validated native neural artifacts, telemetry-only progress/ready handshake, lifecycle mode coverage and driver regressions. Historical memory outcomes preserved; 30-minute JS-heap step remains an unresolved investigation. |
 | 2026-11-24 | Phase 3C-B: shared provider-evidence validation, native neural tournament adapter, sustained workload driver, 32×2 structural parity/benchmark measurements, real 10/30-minute memory profiles, optimization comparisons, device/GPU blockers and Copenhagen depth-5 recommendation. External gates remain blocked. |

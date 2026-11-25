@@ -7,19 +7,27 @@
  * is constructed from an unvalidated string.
  */
 import {
+  ARCHITECTURE,
+  BRIDGE_PROTOCOL,
   BrowserAnalysisError,
+  DRIVER_VERSION,
   ENCODER_VERSION,
   LIMITS,
+  MAX_RUNTIME_FILES,
   MODEL_MANIFEST_SCHEMA,
   ONNX_RUNTIME_WEB_VERSION,
+  PYODIDE_VERSION,
   REQUIRED_RUNTIME_FILES,
   RUNTIME_MANIFEST_SCHEMA,
+  SEARCH_ALGORITHM,
   SEARCH_PROTOCOL,
   type Availability,
   type ModelManifest,
   type RuntimeFile,
   type RuntimeManifest,
+  type RuntimePins,
 } from './contracts';
+import { sha256Hex, type DigestFn } from './storage';
 
 const HEX16 = /^[0-9a-f]{16}$/;
 const HEX24 = /^[0-9a-f]{24}$/;
@@ -72,20 +80,30 @@ export function validateRuntimeManifest(raw: unknown): RuntimeManifest {
   }
   const pins = raw.pins;
   if (!isRecord(pins)) fail('runtime-incompatible', 'Runtime pins are missing');
-  if (pins.encoder_version !== ENCODER_VERSION) {
-    fail('runtime-incompatible', 'Runtime encoder version is not supported');
+  const expectedPins: Array<[string, unknown, string]> = [
+    ['pyodide', PYODIDE_VERSION, 'Pyodide version'],
+    ['onnxruntime_web', ONNX_RUNTIME_WEB_VERSION, 'ONNX Runtime Web version'],
+    ['encoder_version', ENCODER_VERSION, 'encoder version'],
+    ['driver_version', DRIVER_VERSION, 'driver version'],
+    ['search_protocol', SEARCH_PROTOCOL, 'search protocol'],
+    ['bridge_protocol', BRIDGE_PROTOCOL, 'bridge protocol'],
+    ['search_algorithm', SEARCH_ALGORITHM, 'search algorithm'],
+    ['architecture', ARCHITECTURE, 'architecture'],
+  ];
+  for (const [key, expected, label] of expectedPins) {
+    if (pins[key] !== expected) {
+      fail('runtime-incompatible', `Runtime ${label} is not supported`);
+    }
   }
-  if (pins.onnxruntime_web !== ONNX_RUNTIME_WEB_VERSION) {
-    fail('runtime-incompatible', 'Runtime ORT Web version is not the pinned version');
-  }
-  if (pins.search_protocol !== SEARCH_PROTOCOL || pins.bridge_protocol !== SEARCH_PROTOCOL) {
-    fail('runtime-incompatible', 'Runtime worker protocol is not supported');
-  }
-  if (typeof pins.application_version !== 'string' || pins.application_version.length === 0) {
+  if (
+    typeof pins.application_version !== 'string' ||
+    pins.application_version.length === 0 ||
+    pins.application_version.length > 100
+  ) {
     fail('runtime-incompatible', 'Runtime application version is missing');
   }
   const files = raw.files;
-  if (!Array.isArray(files) || files.length === 0 || files.length > 4096) {
+  if (!Array.isArray(files) || files.length === 0 || files.length > MAX_RUNTIME_FILES) {
     fail('runtime-integrity', 'Runtime manifest file inventory is invalid');
   }
   const seen = new Set<string>();
@@ -96,7 +114,7 @@ export function validateRuntimeManifest(raw: unknown): RuntimeManifest {
     const path = safeRelativePath(entry.path);
     if (seen.has(path)) fail('runtime-integrity', 'Runtime inventory contains duplicate paths');
     seen.add(path);
-    const bytes = positiveInt(entry.bytes, LIMITS.maxRuntimeBytes);
+    const bytes = positiveInt(entry.bytes, Math.min(LIMITS.maxRuntimeBytes, 64 * 1024 * 1024));
     if (bytes === null) fail('runtime-integrity', `Invalid asset size: ${path}`);
     if (typeof entry.sha256 !== 'string' || !HEX64.test(entry.sha256)) {
       fail('runtime-integrity', `Invalid asset digest: ${path}`);
@@ -107,25 +125,82 @@ export function validateRuntimeManifest(raw: unknown): RuntimeManifest {
   if (total > LIMITS.maxRuntimeBytes) {
     fail('runtime-integrity', 'Runtime exceeds the configured size budget');
   }
+  if (raw.total_bytes !== undefined && raw.total_bytes !== total) {
+    fail('runtime-integrity', 'Declared runtime total size does not match its inventory');
+  }
   for (const required of REQUIRED_RUNTIME_FILES) {
     if (!seen.has(required)) fail('runtime-integrity', `Runtime asset is missing: ${required}`);
   }
+  const validatedPins: RuntimePins = {
+    pyodide: String(pins.pyodide),
+    onnxruntimeWeb: String(pins.onnxruntime_web),
+    encoderVersion: String(pins.encoder_version),
+    driverVersion: Number(pins.driver_version),
+    searchProtocol: Number(pins.search_protocol),
+    searchAlgorithm: String(pins.search_algorithm),
+    bridgeProtocol: Number(pins.bridge_protocol),
+    architecture: String(pins.architecture),
+    applicationVersion: pins.application_version,
+  };
   return {
     schema: RUNTIME_MANIFEST_SCHEMA,
     runtimeId: String(raw.runtime_id),
-    pins: {
-      pyodide: String(pins.pyodide),
-      onnxruntimeWeb: String(pins.onnxruntime_web),
-      encoderVersion: String(pins.encoder_version),
-      driverVersion: Number(pins.driver_version),
-      searchProtocol: Number(pins.search_protocol),
-      bridgeProtocol: Number(pins.bridge_protocol),
-      applicationVersion: pins.application_version,
-    },
+    pins: validatedPins,
     files: validated,
     totalBytes: total,
     basePath: `/browser-analysis/runtime/${String(raw.runtime_id)}`,
   };
+}
+
+/** Deterministic canonical JSON matching the Python manifest identity encoder. */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Content-derived runtime identity from canonical immutable content. */
+export async function computeRuntimeId(
+  manifest: RuntimeManifest,
+  digestFn: DigestFn = sha256Hex,
+): Promise<string> {
+  const files = [...manifest.files]
+    .map((entry) => [entry.path, entry.sha256] as [string, string])
+    .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0));
+  const identity = canonicalJson({
+    files,
+    pins: {
+      pyodide: manifest.pins.pyodide,
+      onnxruntime_web: manifest.pins.onnxruntimeWeb,
+      encoder_version: manifest.pins.encoderVersion,
+      driver_version: manifest.pins.driverVersion,
+      search_protocol: manifest.pins.searchProtocol,
+      search_algorithm: manifest.pins.searchAlgorithm,
+      bridge_protocol: manifest.pins.bridgeProtocol,
+      architecture: manifest.pins.architecture,
+      application_version: manifest.pins.applicationVersion,
+    },
+  });
+  const bytes = new TextEncoder().encode(identity);
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  return (await digestFn(buffer as ArrayBuffer)).slice(0, 16);
+}
+
+/** Reject a manifest whose identity does not match its canonical content. */
+export async function verifyRuntimeIdentity(
+  manifest: RuntimeManifest,
+  digestFn: DigestFn = sha256Hex,
+): Promise<void> {
+  const expected = await computeRuntimeId(manifest, digestFn);
+  if (expected !== manifest.runtimeId) {
+    fail('runtime-integrity', 'Runtime identity does not match its immutable content');
+  }
 }
 
 export function validateAvailability(raw: unknown): Availability {
@@ -260,6 +335,23 @@ export function assertModelRuntimeCompatible(model: ModelManifest, runtime: Runt
   }
   if (model.runtime.ortVersion !== runtime.pins.onnxruntimeWeb) {
     fail('runtime-incompatible', 'Model ORT requirement does not match the runtime');
+  }
+  if (
+    model.runtime.searchProtocol !== runtime.pins.searchProtocol ||
+    model.runtime.bridgeProtocol !== runtime.pins.bridgeProtocol
+  ) {
+    fail('runtime-incompatible', 'Model worker protocol does not match the runtime');
+  }
+  if (
+    model.runtime.runtimeManifestSchema !== RUNTIME_MANIFEST_SCHEMA ||
+    !Number.isInteger(model.runtime.minOpset) ||
+    !Number.isInteger(model.runtime.maxOpset) ||
+    model.runtime.minOpset < 13 ||
+    model.runtime.maxOpset > 21 ||
+    model.runtime.minOpset > model.runtime.maxOpset ||
+    model.architecture.name !== ARCHITECTURE
+  ) {
+    fail('runtime-incompatible', 'Model runtime compatibility metadata is invalid');
   }
 }
 

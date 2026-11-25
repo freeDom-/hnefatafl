@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import subprocess as sp
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -338,8 +340,9 @@ def test_model_replacement_requires_explicit_approved_model_set(tmp_path):
 
 
 def test_collector_and_validator_span_evicted_and_retained_history(tmp_path):
-    from test_phase3c_workflow import _collect, _start_workload
+    from test_phase3c_workflow import _collect_command, _finish_collect, _start_workload
 
+    completion = tmp_path / "transitions.complete"
     writer, telemetry, progress = _start_workload(
         tmp_path,
         telemetry_args=(
@@ -349,20 +352,38 @@ def test_collector_and_validator_span_evicted_and_retained_history(tmp_path):
             "5",
             "--interval",
             "0.002",
+            "--transition-complete-file",
+            str(completion),
         ),
-        duration=14.0,
+        duration=30.0,
     )
+    command, output = _collect_command(
+        tmp_path,
+        writer.pid,
+        telemetry,
+        None,
+        profile="model-replacement",
+        warmup=0.1,
+        duration=10.5,
+        interval=0.05,
+    )
+    collector = sp.Popen(command, stdout=sp.PIPE, stderr=sp.PIPE, text=True)
     try:
-        result, report = _collect(
-            tmp_path,
-            writer.pid,
-            telemetry,
-            None,
-            profile="model-replacement",
-            warmup=0.1,
-            duration=10.5,
-            interval=0.05,
-        )
+        # Deterministic producer-completion handshake instead of assuming the
+        # writer reaches the required transition index within a wall-clock window.
+        # The collector already samples while the producer completes the history,
+        # so samples still span the evicted and retained windows.
+        deadline = time.monotonic() + 25.0
+        while not completion.is_file():
+            if writer.poll() is not None:
+                raise AssertionError("telemetry writer exited before completing transitions")
+            if time.monotonic() > deadline:
+                raise AssertionError("telemetry writer did not complete transition history")
+            time.sleep(0.05)
+        assert int(completion.read_text()) >= 1100
+        stdout, stderr = collector.communicate(timeout=60)
+        result = sp.CompletedProcess(command, collector.returncode, stdout, stderr)
+        report = _finish_collect(output)
     finally:
         writer.terminate()
         writer.wait(timeout=10)

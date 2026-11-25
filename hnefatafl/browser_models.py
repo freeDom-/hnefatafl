@@ -31,6 +31,7 @@ import re
 import sqlite3
 import sys
 import tempfile
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,6 +53,7 @@ from .browser_bridge import BRIDGE_PROTOCOL
 PUBLICATION_SCHEMA = 1
 PUBLICATION_DIRECTORY = "browser_models"
 PUBLICATION_ID = re.compile(r"[0-9a-f]{24}\Z")
+_HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 RUNTIME_MANIFEST_SCHEMA = 1
 MODEL_MANIFEST_SCHEMA = 1
 MAX_INDEX_BYTES = 8 * 1024 * 1024
@@ -178,6 +180,8 @@ class PublishedModelStore:
         self.lock_path = self.root / ".publications.lock"
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts.mkdir(parents=True, exist_ok=True)
+        self._artifact_cache: dict[str, tuple[tuple[int, int, int], str]] = {}
+        self._artifact_lock = threading.Lock()
 
     # ------------------------------------------------------------ index access
     def _read_index(self) -> dict[str, Any]:
@@ -254,19 +258,89 @@ class PublishedModelStore:
             None,
         )
 
-    def artifact_path(self, publication_id: str, digest: str | None = None) -> Path:
-        """Resolve an authorized artifact path, validating its immutable identity."""
-        record = self.get_public(publication_id)
-        if record is None:
-            raise PublicationError("Published model not found", code="NOT_FOUND")
+    def _verified_artifact(self, record: dict[str, Any]) -> Path:
+        """Resolve and verify the immutable artifact belonging to one record."""
         expected = record["onnx_sha256"]
-        if digest is not None and digest != expected:
+        if not isinstance(expected, str) or not _HEX64.fullmatch(expected):
             raise PublicationError(
-                "The requested artifact version is not published", code="NOT_FOUND"
+                "Published artifact identity is invalid", code="ARTIFACT_MISSING"
             )
         path = self.artifacts / f"{expected}.onnx"
-        if not path.is_file():
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError:
+            raise PublicationError(
+                "Published artifact is missing", code="ARTIFACT_MISSING"
+            ) from None
+        if path.is_symlink() or not resolved.is_relative_to(self.artifacts.resolve()):
+            raise PublicationError("Published artifact path is invalid", code="ARTIFACT_MISSING")
+        if not resolved.is_file():
             raise PublicationError("Published artifact is missing", code="ARTIFACT_MISSING")
+        try:
+            stat = resolved.stat()
+        except OSError:
+            raise PublicationError(
+                "Published artifact is missing", code="ARTIFACT_MISSING"
+            ) from None
+        if stat.st_size != record["artifact_bytes"]:
+            raise PublicationError("Published artifact size is invalid", code="ARTIFACT_INTEGRITY")
+        signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        with self._artifact_lock:
+            cached = self._artifact_cache.get(expected)
+        if cached is not None and cached[0] == signature:
+            return resolved
+        actual = _digest_file(resolved)
+        if actual != expected:
+            with self._artifact_lock:
+                self._artifact_cache.pop(expected, None)
+            raise PublicationError(
+                "Published artifact integrity check failed", code="ARTIFACT_INTEGRITY"
+            )
+        with self._artifact_lock:
+            if len(self._artifact_cache) >= 64 and expected not in self._artifact_cache:
+                self._artifact_cache.pop(next(iter(self._artifact_cache)))
+            self._artifact_cache[expected] = (signature, actual)
+        return resolved
+
+    def resolve_artifact(
+        self, publication_id: str, artifact_version: str | None = None
+    ) -> tuple[dict[str, Any], Path]:
+        """Resolve record, immutable version and file identity under one lock.
+
+        A concurrent replacement or revocation cannot pair a new record with an
+        old file (or the reverse). The immutable file bytes are verified by a
+        bounded stat-signature cache so ordinary downloads do not re-hash the
+        whole model on every request.
+        """
+        if not isinstance(publication_id, str) or not PUBLICATION_ID.fullmatch(publication_id):
+            raise PublicationError("Published model not found", code="NOT_FOUND")
+        if artifact_version is not None and (
+            not isinstance(artifact_version, str) or not _HEX64.fullmatch(artifact_version)
+        ):
+            raise PublicationError("Published model not found", code="NOT_FOUND")
+        with _lock(self.lock_path):
+            payload = self._read_index()
+            record = next(
+                (
+                    entry
+                    for entry in payload["publications"]
+                    if entry.get("publication_id") == publication_id
+                    and entry.get("status") in PUBLIC_STATUSES
+                ),
+                None,
+            )
+            if record is None:
+                raise PublicationError("Published model not found", code="NOT_FOUND")
+            if artifact_version is not None and record["onnx_sha256"] != artifact_version:
+                raise PublicationError(
+                    "The requested artifact version is not published", code="NOT_FOUND"
+                )
+            path = self._verified_artifact(record)
+            return dict(record), path
+
+    def artifact_path(self, publication_id: str, digest: str | None = None) -> Path:
+        """Compatibility helper returning the verified immutable artifact path."""
+        _record, path = self.resolve_artifact(publication_id, digest)
         return path
 
     def _verify_registered_source(self, model_id: str, weights: str) -> None:
@@ -478,17 +552,29 @@ class PublishedModelStore:
                 "superseded_at": None,
                 "superseded_by": None,
             }
+            previous_index = json.loads(json.dumps(payload))
             records.append(record)
-            self._write_index(payload)
-            self._audit(
-                "publish",
-                actor,
-                publication_id=identifier,
-                onnx_sha256=digest,
-                source_weights_sha256=prepared["source_weights_sha256"],
-                ruleset=ruleset,
-                replaced=bool(current),
-            )
+            try:
+                self._write_index(payload)
+                self._audit(
+                    "publish",
+                    actor,
+                    publication_id=identifier,
+                    onnx_sha256=digest,
+                    source_weights_sha256=prepared["source_weights_sha256"],
+                    ruleset=ruleset,
+                    replaced=bool(current),
+                )
+            except OSError as error:
+                # The artifact is immutable and harmless if left orphaned; the
+                # index must not keep a publication the audit trail rejected.
+                try:
+                    self._write_index(previous_index)
+                except OSError:
+                    pass
+                raise PublicationError(
+                    f"Publication audit/index write failed: {error}", code="PUBLICATION_IO"
+                ) from error
             return {**record, "reused": False}
 
     def revoke(
@@ -510,18 +596,28 @@ class PublishedModelStore:
             )
             if record is None:
                 raise PublicationError("No published model for this identifier", code="NOT_FOUND")
+            previous_index = json.loads(json.dumps(payload))
             record["status"] = STATUS_REVOKED
             record["revoked_at"] = _now()
             record["revoked_by"] = actor
             record["revocation_reason"] = (reason or "revoked by administrator")[:200]
-            self._write_index(payload)
-            self._audit(
-                "revoke",
-                actor,
-                publication_id=publication_id,
-                onnx_sha256=record["onnx_sha256"],
-                reason=record["revocation_reason"],
-            )
+            try:
+                self._write_index(payload)
+                self._audit(
+                    "revoke",
+                    actor,
+                    publication_id=publication_id,
+                    onnx_sha256=record["onnx_sha256"],
+                    reason=record["revocation_reason"],
+                )
+            except OSError as error:
+                try:
+                    self._write_index(previous_index)
+                except OSError:
+                    pass
+                raise PublicationError(
+                    f"Revocation audit/index write failed: {error}", code="PUBLICATION_IO"
+                ) from error
             return dict(record)
 
     def history(self, publication_id: str | None = None) -> list[dict[str, Any]]:

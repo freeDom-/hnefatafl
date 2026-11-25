@@ -206,7 +206,10 @@ def test_staging_fails_closed_without_assets_or_on_digest_mismatch(tmp_path, mon
 def test_asset_resolution_is_an_exact_manifest_allowlist(tmp_path, monkeypatch):
     manifest = _stage(tmp_path, monkeypatch)
     data = tmp_path / "data"
-    path, entry = browser_runtime.runtime_asset(data, manifest, "runtime/pyodide.js")
+    snapshot = browser_runtime.runtime_snapshot(
+        data, manifest["runtime_id"], application_version=VERSION
+    )
+    path, entry = browser_runtime.resolve_runtime_asset(snapshot, "runtime/pyodide.js")
     assert path.is_file()
     assert entry["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
     for relative in (
@@ -218,7 +221,7 @@ def test_asset_resolution_is_an_exact_manifest_allowlist(tmp_path, monkeypatch):
         "runtime\\pyodide.js",
     ):
         with pytest.raises(browser_runtime.RuntimeAssetError):
-            browser_runtime.runtime_asset(data, manifest, relative)
+            browser_runtime.resolve_runtime_asset(snapshot, relative)
 
 
 def test_load_active_runtime_reports_stale_and_missing_states(tmp_path, monkeypatch):
@@ -300,3 +303,226 @@ def test_public_projection_hides_filesystem_paths(tmp_path, monkeypatch):
     assert public["base_path"] == f"/browser-analysis/runtime/{manifest['runtime_id']}"
     assert public["pins"]["application_version"] == VERSION
     assert all(entry["path"] and not entry["path"].startswith("/") for entry in public["files"])
+
+
+def _rewrite_manifest(directory: Path, mutate) -> dict:
+    path = directory / "runtime-manifest.json"
+    manifest = json.loads(path.read_text())
+    mutate(manifest)
+    pins = manifest["pins"]
+    inventory = sorted(
+        ([entry["path"], entry["sha256"]] for entry in manifest["files"]),
+        key=lambda item: item[0],
+    )
+    canonical = json.dumps(
+        {"files": inventory, "pins": pins}, sort_keys=True, separators=(",", ":")
+    ).encode()
+    manifest["runtime_id"] = hashlib.sha256(canonical).hexdigest()[:16]
+    manifest["total_bytes"] = sum(entry["bytes"] for entry in manifest["files"])
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return manifest
+
+
+def test_required_inventory_and_pins_are_independently_validated(tmp_path, monkeypatch):
+    manifest = _stage(tmp_path, monkeypatch)
+    data = tmp_path / "data"
+    directory = data / "browser_runtime" / manifest["runtime_id"]
+
+    original = directory / "runtime-manifest.json"
+    backup = original.read_text()
+
+    def missing_required(payload):
+        payload["files"] = [
+            entry for entry in payload["files"] if entry["path"] != "neural-worker.js"
+        ]
+
+    _rewrite_manifest(directory, missing_required)
+    with pytest.raises(browser_runtime.RuntimeAssetError) as error:
+        browser_runtime.verify_runtime(directory, application_version=VERSION)
+    assert error.value.reason == "missing-asset"
+
+    original.write_text(backup)
+    payload = json.loads(backup)
+    payload["runtime_id"] = manifest["runtime_id"]
+    payload["pins"]["search_algorithm"] = "something-else"
+    original.write_text(json.dumps(payload))
+    with pytest.raises(browser_runtime.RuntimeAssetError, match="expected identity"):
+        browser_runtime.verify_runtime(directory, application_version=VERSION)
+
+    original.write_text(backup)
+    payload = json.loads(backup)
+    payload["python_assets"] = [
+        entry for entry in payload["python_assets"] if entry["path"] != "runtime/pyodide.js"
+    ]
+    original.write_text(json.dumps(payload))
+    with pytest.raises(browser_runtime.RuntimeAssetError, match="missing pinned upstream"):
+        browser_runtime.verify_runtime(directory, application_version=VERSION)
+
+    original.write_text(backup)
+    payload = json.loads(backup)
+    payload["total_bytes"] = payload["total_bytes"] - 1
+    original.write_text(json.dumps(payload))
+    with pytest.raises(browser_runtime.RuntimeAssetError, match="declared total"):
+        browser_runtime.verify_runtime(directory, application_version=VERSION)
+
+
+def test_self_consistent_manifest_cannot_substitute_upstream_binaries(tmp_path, monkeypatch):
+    manifest = _stage(tmp_path, monkeypatch)
+    directory = tmp_path / "data" / "browser_runtime" / manifest["runtime_id"]
+    # Replace a pinned Pyodide binary with equal-length content and keep the
+    # manifest fully self-consistent (file digest, declared upstream digest, id).
+    target = directory / "runtime" / "pyodide.js"
+    replacement = b"X" * target.stat().st_size
+    target.write_bytes(replacement)
+    digest = hashlib.sha256(replacement).hexdigest()
+
+    def mutate(payload):
+        for entry in payload["files"]:
+            if entry["path"] == "runtime/pyodide.js":
+                entry["sha256"] = digest
+        for entry in payload["python_assets"]:
+            if entry["path"] == "runtime/pyodide.js":
+                entry["sha256"] = digest
+
+    _rewrite_manifest(directory, mutate)
+    with pytest.raises(browser_runtime.RuntimeAssetError) as error:
+        browser_runtime.verify_runtime(directory, application_version=VERSION)
+    assert error.value.reason == "digest-mismatch"
+
+
+def test_source_checkout_identity_is_development_only(tmp_path, monkeypatch):
+    cache = _synthetic_cache(tmp_path, monkeypatch)
+    data = tmp_path / "data"
+    manifest = browser_runtime.build_runtime(
+        data,
+        asset_cache=cache,
+        activate=True,
+        source_root=PROJECT_ROOT,
+        application_version="0+local",
+        development=True,
+    )
+    directory = data / "browser_runtime" / manifest["runtime_id"]
+    with pytest.raises(browser_runtime.RuntimeAssetError, match="development-only"):
+        browser_runtime.verify_runtime(directory, application_version="0+local")
+    assert (
+        browser_runtime.verify_runtime(directory, application_version="0+local", development=True)[
+            "runtime_id"
+        ]
+        == manifest["runtime_id"]
+    )
+    with pytest.raises(browser_runtime.RuntimeUnavailable):
+        browser_runtime.load_active_runtime(data, application_version="0+local")
+
+
+def test_manifest_identity_is_order_independent(tmp_path, monkeypatch):
+    manifest = _stage(tmp_path, monkeypatch)
+    directory = tmp_path / "data" / "browser_runtime" / manifest["runtime_id"]
+    path = directory / "runtime-manifest.json"
+    payload = json.loads(path.read_text())
+    payload["files"] = list(reversed(payload["files"]))
+    payload["total_bytes"] = sum(entry["bytes"] for entry in payload["files"])
+    path.write_text(json.dumps(payload))
+    verified = browser_runtime.verify_runtime(directory, application_version=VERSION)
+    assert verified["runtime_id"] == manifest["runtime_id"]
+
+
+def test_immutable_snapshot_never_resolves_another_runtime(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    first = _stage(tmp_path, monkeypatch, data_dir=data)
+    snapshot_a = browser_runtime.runtime_snapshot(
+        data, first["runtime_id"], application_version=VERSION
+    )
+    old_bytes = (snapshot_a["directory"] / "runtime" / "pyodide.js").read_bytes()
+
+    # A newer runtime with same-length but different content, then activation.
+    cache = tmp_path / "cache"
+    (cache / "pyodide" / "pyodide.js").write_bytes(b"Y" * len(old_bytes))
+    pyodide = dict(browser_runtime.PYODIDE_ASSETS)
+    pyodide["pyodide.js"] = hashlib.sha256(b"Y" * len(old_bytes)).hexdigest()
+    monkeypatch.setattr(browser_runtime, "PYODIDE_ASSETS", pyodide)
+    second = browser_runtime.build_runtime(
+        data,
+        asset_cache=cache,
+        activate=True,
+        source_root=PROJECT_ROOT,
+        application_version=VERSION,
+    )
+    assert second["runtime_id"] != first["runtime_id"]
+    assert browser_runtime.active_runtime_identity(data) == second["runtime_id"]
+
+    # The old snapshot still serves its own immutable bytes, never the new ones.
+    path, _entry = browser_runtime.resolve_runtime_asset(snapshot_a, "runtime/pyodide.js")
+    assert path.read_bytes() == old_bytes
+    snapshot_b = browser_runtime.runtime_snapshot(
+        data, second["runtime_id"], application_version=VERSION
+    )
+    new_path, _entry = browser_runtime.resolve_runtime_asset(snapshot_b, "runtime/pyodide.js")
+    assert new_path.read_bytes() != old_bytes
+
+    # A same-size replacement under A's identity is detected via the stat cache.
+    path.write_bytes(b"Z" * len(old_bytes))
+    with pytest.raises(browser_runtime.RuntimeAssetError) as error:
+        browser_runtime.resolve_runtime_asset(snapshot_a, "runtime/pyodide.js")
+    assert error.value.reason == "digest-mismatch"
+
+    # Pruning removes the directory: retained URL becomes a controlled 404.
+    browser_runtime.prune_runtimes(data, keep=1)
+    with pytest.raises(browser_runtime.RuntimeAssetError):
+        browser_runtime.resolve_runtime_asset(snapshot_a, "runtime/pyodide.js")
+
+
+def test_runtime_assets_reject_symlinks(tmp_path, monkeypatch):
+    manifest = _stage(tmp_path, monkeypatch)
+    directory = tmp_path / "data" / "browser_runtime" / manifest["runtime_id"]
+    snapshot = browser_runtime.runtime_snapshot(
+        tmp_path / "data", manifest["runtime_id"], application_version=VERSION
+    )
+    target = directory / "runtime" / "pyodide.js"
+    target.unlink()
+    target.symlink_to(directory / "runtime" / "pyodide.asm.js")
+    with pytest.raises(browser_runtime.RuntimeAssetError):
+        browser_runtime.resolve_runtime_asset(snapshot, "runtime/pyodide.js")
+
+
+def test_required_inventory_matches_the_typescript_contract():
+    source = (PROJECT_ROOT / "frontend/src/browserAnalysis/contracts.ts").read_text()
+    block = source[source.index("export const REQUIRED_RUNTIME_FILES") :]
+    block = block[: block.index("] as const;")]
+    ts_paths = set(__import__("re").findall(r"'([^']+)'", block))
+    assert ts_paths == set(browser_pins.REQUIRED_RUNTIME_FILES)
+
+
+def test_typescript_and_python_runtime_identity_agree(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node is required for the cross-language identity contract")
+    manifest = _stage(tmp_path, monkeypatch)
+    public = browser_runtime.public_manifest(manifest)
+    fixture = tmp_path / "runtime.json"
+    fixture.write_text(json.dumps(public))
+    script = """
+const fs = require('fs');
+const crypto = require('crypto');
+const m = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+const files = m.files.map((entry) => [entry.path, entry.sha256])
+  .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0));
+const identity = canonical({ files, pins: m.pins });
+process.stdout.write(crypto.createHash('sha256').update(identity).digest('hex').slice(0, 16));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script, str(fixture)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    assert completed.stdout == manifest["runtime_id"]

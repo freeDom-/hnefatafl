@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { BrowserAnalysisError } from './contracts';
 import {
   assertModelRuntimeCompatible,
+  computeRuntimeId,
+  verifyRuntimeIdentity,
   modelArtifactUrl,
   runtimeAssetUrl,
   validateAvailability,
@@ -10,7 +12,13 @@ import {
   validateModelManifest,
   validateRuntimeManifest,
 } from './manifests';
-import { availabilityWire, modelWire, runtimeWire } from './testSupport';
+import {
+  availabilityWire,
+  modelWire,
+  nodeDigest,
+  runtimeManifest,
+  runtimeWire,
+} from './testSupport';
 
 function expectCode(fn: () => unknown, code: string) {
   try {
@@ -26,8 +34,8 @@ function expectCode(fn: () => unknown, code: string) {
 describe('runtime manifest validation', () => {
   it('accepts the complete pinned manifest', () => {
     const manifest = validateRuntimeManifest(runtimeWire());
-    expect(manifest.runtimeId).toBe('abcdef0123456789');
-    expect(manifest.basePath).toBe('/browser-analysis/runtime/abcdef0123456789');
+    expect(manifest.runtimeId).toBe(runtimeManifest().runtimeId);
+    expect(manifest.basePath).toBe(`/browser-analysis/runtime/${manifest.runtimeId}`);
     expect(manifest.files).toHaveLength(23);
     expect(manifest.totalBytes).toBeGreaterThan(0);
   });
@@ -75,6 +83,22 @@ describe('runtime manifest validation', () => {
     expectCode(() => validateRuntimeManifest(oversized), 'runtime-integrity');
   });
 
+  it('recomputes the server runtime identity from canonical immutable content', async () => {
+    const manifest = validateRuntimeManifest(runtimeWire());
+    expect(await computeRuntimeId(manifest, nodeDigest)).toBe(manifest.runtimeId);
+    await expect(verifyRuntimeIdentity(manifest, nodeDigest)).resolves.toBeUndefined();
+    const tampered = {
+      ...manifest,
+      files: manifest.files.map((entry, index) =>
+        index === 0 ? { ...entry, sha256: 'f'.repeat(64) } : entry,
+      ),
+    };
+    expect(await computeRuntimeId(tampered, nodeDigest)).not.toBe(manifest.runtimeId);
+    await expect(verifyRuntimeIdentity(tampered, nodeDigest)).rejects.toMatchObject({
+      code: 'runtime-integrity',
+    });
+  });
+
   it('rejects a runtime without required assets', () => {
     const wire = structuredClone(runtimeWire()) as any;
     wire.files = wire.files.filter((entry: any) => entry.path !== 'search-worker.js');
@@ -84,7 +108,7 @@ describe('runtime manifest validation', () => {
   it('only builds URLs for manifest members', () => {
     const manifest = validateRuntimeManifest(runtimeWire());
     expect(runtimeAssetUrl(manifest, 'runtime/pyodide.js')).toBe(
-      '/browser-analysis/runtime/abcdef0123456789/runtime/pyodide.js',
+      `/browser-analysis/runtime/${manifest.runtimeId}/runtime/pyodide.js`,
     );
     expectCode(() => runtimeAssetUrl(manifest, 'other.js'), 'runtime-integrity');
     expectCode(() => runtimeAssetUrl(manifest, '../bridge.py'), 'runtime-integrity');
@@ -99,7 +123,7 @@ describe('availability and model manifests', () => {
     expect(disabled.enabled).toBe(false);
     expect(disabled.runtime).toBeNull();
     const enabled = validateAvailability(availabilityWire());
-    expect(enabled.runtime?.runtimeId).toBe('abcdef0123456789');
+    expect(enabled.runtime?.runtimeId).toBe(runtimeManifest().runtimeId);
   });
 
   it('rejects an enabled response claiming a runtime without a manifest', () => {
@@ -179,6 +203,6 @@ describe('availability and model manifests', () => {
     const wire = runtimeWire();
     (wire as any).base_path = 'https://evil.example/';
     const manifest = validateRuntimeManifest(wire);
-    expect(manifest.basePath).toBe('/browser-analysis/runtime/abcdef0123456789');
+    expect(manifest.basePath).toBe(`/browser-analysis/runtime/${manifest.runtimeId}`);
   });
 });

@@ -88,8 +88,10 @@ run_case() {
     return 5
   fi
   if [ "$workload_status" -ne 0 ]; then
+    # Distinct from validator exit code 2 (structurally valid partial evidence).
+    # Workload execution failure means the measurement itself is unusable.
     echo "lifecycle $mode: workload exited with status $workload_status" >&2
-    return 2
+    return 6
   fi
 
   "$PYTHON" "$SPIKE_DIR/memory_validation.py" "$final"

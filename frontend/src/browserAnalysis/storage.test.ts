@@ -52,10 +52,11 @@ describe('artifact cache', () => {
     expect(entries.map((entry: { key: string }) => entry.key).sort()).toEqual(['first', 'third']);
   });
 
-  it('rejects an artifact larger than the application quota', async () => {
+  it('reports an artifact larger than the application quota without retention', async () => {
     const cache = new ArtifactCache(new MemoryArtifactStore(), { maxBytes: 4 });
-    await expect(cache.admit('big', artifact('0123456789').bytes, {})).rejects.toMatchObject({
-      code: 'quota-exceeded',
+    await expect(cache.admit('big', artifact('0123456789').bytes, {})).resolves.toMatchObject({
+      retained: false,
+      reason: 'quota-exceeded',
     });
   });
 
@@ -75,7 +76,59 @@ describe('artifact cache', () => {
     };
     const cache = new ArtifactCache(failure);
     const { bytes } = artifact('model-d');
-    await expect(cache.admit('key', bytes, {})).rejects.toMatchObject({ code: 'quota-exceeded' });
+    await expect(cache.admit('key', bytes, {})).resolves.toMatchObject({
+      retained: false,
+      reason: 'storage-unavailable',
+    });
     await expect(cache.clear()).resolves.toBeUndefined();
+  });
+});
+
+describe('artifact cache — concurrent admission and retention', () => {
+  it('serializes concurrent admissions within byte and entry quotas', async () => {
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store, { maxBytes: 20, maxEntries: 5 });
+    const artifacts = [artifact('0123456789'), artifact('abcdefghij'), artifact('ABCDEFGHIJ')];
+    const results = await Promise.all(
+      artifacts.map((value, index) => cache.admit(`k${index}`, value.bytes, {})),
+    );
+    expect(results.filter((result) => result.retained)).toHaveLength(3);
+    // Serialized admission may evict an earlier artifact, but it can never leave
+    // the cache above its declared byte or entry limits.
+    expect(await cache.totalBytes()).toBeLessThanOrEqual(20);
+    expect((await store.list()).length).toBeLessThanOrEqual(2);
+  });
+
+  it('replaces the same key without evicting unrelated entries', async () => {
+    let clock = Date.now();
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store, {
+      maxBytes: 20,
+      maxEntries: 2,
+      now: () => clock++,
+    });
+    await cache.admit('a', artifact('0123456789').bytes, {});
+    await cache.admit('b', artifact('abcdefghij').bytes, {});
+    await cache.admit('b', artifact('abcdefghij').bytes, {});
+    const keys = (await store.list()).map((entry) => entry.key).sort();
+    expect(keys).toEqual(['a', 'b']);
+    expect(await cache.totalBytes()).toBe(20);
+  });
+
+  it('reports in-memory retention separately from persistent retention', async () => {
+    const cache = new ArtifactCache(new MemoryArtifactStore());
+    const result = await cache.admit('key', artifact('payload').bytes, {});
+    expect(result).toEqual({ retained: true, persistent: false, reason: 'stored' });
+  });
+
+  it('invalidates a cached artifact whose size does not match the publication', async () => {
+    const store = new MemoryArtifactStore();
+    const cache = new ArtifactCache(store);
+    const value = artifact('model');
+    await cache.admit('key', value.bytes, {});
+    expect(
+      await cache.getVerified('key', value.sha256, digest, value.bytes.byteLength + 1),
+    ).toBeNull();
+    expect(await store.list()).toHaveLength(0);
   });
 });

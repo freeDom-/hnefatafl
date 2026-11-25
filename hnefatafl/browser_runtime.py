@@ -32,6 +32,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 import urllib.request
 from pathlib import Path
 from typing import Any, Iterable
@@ -42,6 +43,9 @@ from .browser_pins import (
     JS_ASSETS,
     LICENSE_ASSETS,
     LIMITS,
+    MAX_RUNTIME_ASSET_BYTES,
+    MAX_RUNTIME_FILES,
+    REQUIRED_RUNTIME_FILES,
     MAX_MANIFEST_BYTES,
     MAX_RUNTIME_BYTES,
     ORT_ASSETS,
@@ -209,7 +213,9 @@ def _inventory(root: Path, files: Iterable[str]) -> list[dict[str, Any]]:
 
 
 def _runtime_id(inventory: list[dict[str, Any]], pins: dict[str, Any]) -> str:
-    identity = [[entry["path"], entry["sha256"]] for entry in inventory]
+    identity = sorted(
+        ([entry["path"], entry["sha256"]] for entry in inventory), key=lambda item: item[0]
+    )
     return digest_bytes(_canonical({"files": identity, "pins": pins}))[:16]
 
 
@@ -220,6 +226,7 @@ def stage_runtime(
     fetch: bool = False,
     source_root: Path | None = None,
     application_version: str | None = None,
+    development: bool = False,
 ) -> dict[str, Any]:
     """Stage a complete runtime under ``output`` and return its manifest.
 
@@ -376,7 +383,7 @@ def stage_runtime(
         "limits": LIMITS,
     }
     _write_json(output / RUNTIME_MANIFEST_NAME, manifest)
-    verify_runtime(output, application_version=package_version)
+    verify_runtime(output, application_version=package_version, development=development)
     return manifest
 
 
@@ -406,65 +413,158 @@ def _require(manifest: dict[str, Any], key: str, kind: type) -> Any:
     return value
 
 
+_SAFE_RUNTIME_PATH = re.compile(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\Z")
+_HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def _validated_pins(manifest: dict[str, Any]) -> dict[str, Any]:
+    pins = _require(manifest, "pins", dict)
+    expected = {
+        "pyodide": PYODIDE_VERSION,
+        "onnxruntime_web": ORT_VERSION,
+        "encoder_version": ENCODER_VERSION,
+        "driver_version": DRIVER_VERSION,
+        "search_protocol": SEARCH_PROTOCOL,
+        "search_algorithm": SEARCH_ALGORITHM,
+        "bridge_protocol": BRIDGE_PROTOCOL,
+        "architecture": ARCHITECTURE,
+    }
+    for key, value in expected.items():
+        actual = pins.get(key)
+        if type(actual) is not type(value) or actual != value:
+            raise RuntimeAssetError(
+                "runtime-incompatible", f"Runtime pin {key!r} is not the expected identity"
+            )
+    application_version = pins.get("application_version")
+    if not isinstance(application_version, str) or not application_version:
+        raise RuntimeAssetError("manifest-invalid", "Runtime application version is missing")
+    return pins
+
+
+def _validate_inventory(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    files = _require(manifest, "files", list)
+    if not files or len(files) > MAX_RUNTIME_FILES:
+        raise RuntimeAssetError("manifest-invalid", "Runtime file inventory is invalid")
+    expected: dict[str, dict[str, Any]] = {}
+    total = 0
+    for entry in files:
+        if not isinstance(entry, dict):
+            raise RuntimeAssetError("manifest-invalid", "Runtime inventory entry is invalid")
+        relative = entry.get("path")
+        if (
+            not isinstance(relative, str)
+            or not relative
+            or len(relative) > 512
+            or not _SAFE_RUNTIME_PATH.match(relative)
+            or ".." in relative.split("/")
+            or relative in expected
+        ):
+            raise RuntimeAssetError("manifest-invalid", "Runtime inventory path is invalid")
+        digest = entry.get("sha256")
+        if not isinstance(digest, str) or not _HEX64.match(digest):
+            raise RuntimeAssetError("manifest-invalid", "Runtime inventory digest is invalid")
+        size = entry.get("bytes")
+        if type(size) is not int or size < 0 or size > MAX_RUNTIME_ASSET_BYTES:
+            raise RuntimeAssetError("manifest-invalid", "Runtime inventory size is invalid")
+        total += size
+        expected[relative] = entry
+    if RUNTIME_MANIFEST_NAME in expected:
+        raise RuntimeAssetError("manifest-invalid", "Runtime manifest lists itself")
+    declared_total = manifest.get("total_bytes")
+    if type(declared_total) is not int or declared_total != total:
+        raise RuntimeAssetError("manifest-invalid", "Runtime declared total size does not match")
+    if total > MAX_RUNTIME_BYTES:
+        raise RuntimeAssetError("oversized-runtime", "Runtime exceeds the aggregate size budget")
+    missing = [path for path in REQUIRED_RUNTIME_FILES if path not in expected]
+    if missing:
+        raise RuntimeAssetError(
+            "missing-asset", f"Runtime inventory is missing required file: {missing[0]}"
+        )
+    return expected
+
+
+def _validate_upstream_assets(
+    manifest: dict[str, Any], expected: dict[str, dict[str, Any]]
+) -> None:
+    """Bind the actual pinned upstream binaries independently of the manifest.
+
+    A self-consistent manifest cannot prove that the expected Pyodide/ORT assets
+    were included; every pinned name must be present in both the manifest tree and
+    the declared upstream inventory with the recorded digest and size.
+    """
+    declarations = {
+        "runtime": (_require(manifest, "python_assets", list), PYODIDE_ASSETS),
+        "ort": (_require(manifest, "onnxruntime_assets", list), ORT_ASSETS),
+    }
+    for prefix, (declared_list, pins) in declarations.items():
+        declared: dict[str, dict[str, Any]] = {}
+        for entry in declared_list:
+            if not isinstance(entry, dict):
+                raise RuntimeAssetError("manifest-invalid", "Upstream inventory entry is invalid")
+            path = entry.get("path")
+            if not isinstance(path, str) or path in declared:
+                raise RuntimeAssetError("manifest-invalid", "Upstream inventory path is invalid")
+            declared[path] = entry
+        for name, digest in pins.items():
+            relative = f"{prefix}/{name}"
+            entry = expected.get(relative)
+            upstream = declared.get(relative)
+            if entry is None or upstream is None:
+                raise RuntimeAssetError(
+                    "missing-asset", f"Runtime is missing pinned upstream asset: {relative}"
+                )
+            if (
+                entry["sha256"] != digest
+                or upstream.get("sha256") != digest
+                or upstream.get("bytes") != entry["bytes"]
+            ):
+                raise RuntimeAssetError(
+                    "digest-mismatch", f"Pinned upstream asset identity mismatch: {relative}"
+                )
+
+
 def verify_runtime(
     directory: str | Path,
     *,
     runtime_id: str | None = None,
     application_version: str | None = None,
+    development: bool = False,
+    file_cache: "VerifiedFileCache | None" = None,
 ) -> dict[str, Any]:
     """Verify a staged runtime against its manifest and the running application.
 
     Missing, modified, unexpected or incompatible files fail closed. The check
     covers the complete staged tree, including indirectly loaded WASM, Python
-    modules and worker assets.
+    modules and worker assets, and independently re-binds every pinned upstream
+    binary digest. ``development`` explicitly permits the ``0+local`` source
+    checkout identity; production releases never do.
     """
     directory = Path(directory).resolve()
-    if not directory.is_dir():
+    if not directory.is_dir() or directory.is_symlink():
         raise RuntimeUnavailable("runtime-missing", "Runtime directory is missing")
     manifest = _load_manifest(directory)
-    pins = _require(manifest, "pins", dict)
-    if pins.get("pyodide") != PYODIDE_VERSION:
-        raise RuntimeAssetError("runtime-incompatible", "Runtime Pyodide version is not pinned")
-    if pins.get("onnxruntime_web") != ORT_VERSION:
-        raise RuntimeAssetError("runtime-incompatible", "Runtime ORT Web version is not pinned")
-    if pins.get("encoder_version") != ENCODER_VERSION:
-        raise RuntimeAssetError("encoder-incompatible", "Runtime encoder version is stale")
-    if pins.get("search_protocol") != SEARCH_PROTOCOL:
-        raise RuntimeAssetError("runtime-incompatible", "Runtime search protocol is stale")
-    if pins.get("bridge_protocol") != BRIDGE_PROTOCOL:
-        raise RuntimeAssetError("runtime-incompatible", "Runtime bridge protocol is stale")
-    expected_app = application_version
-    if expected_app is None:
-        expected_app = application_metadata()["package_version"]
-    # A source checkout (``0+local``) cannot establish release compatibility;
-    # release deployments bind the staged runtime to their package version.
-    permissive_app = expected_app == "0+local"
-    if not permissive_app and pins.get("application_version") != expected_app:
+    pins = _validated_pins(manifest)
+    expected = _validate_inventory(manifest)
+
+    expected_app = (
+        application_version
+        if application_version is not None
+        else application_metadata()["package_version"]
+    )
+    if expected_app == "0+local":
+        if not development:
+            raise RuntimeAssetError(
+                "runtime-incompatible",
+                "A source checkout identity is development-only, not a production runtime",
+            )
+    if pins["application_version"] != expected_app:
         raise RuntimeAssetError(
             "runtime-stale", "Runtime was staged for a different application release"
         )
 
-    files = _require(manifest, "files", list)
-    if not files:
-        raise RuntimeAssetError("manifest-invalid", "Runtime manifest has no files")
-    expected_paths: dict[str, dict[str, Any]] = {}
-    for entry in files:
-        if not isinstance(entry, dict):
-            raise RuntimeAssetError("manifest-invalid", "Runtime inventory entry is invalid")
-        relative = entry.get("path")
-        if not isinstance(relative, str) or relative in expected_paths:
-            raise RuntimeAssetError("manifest-invalid", "Runtime inventory path is invalid")
-        digest = entry.get("sha256")
-        size = entry.get("bytes")
-        if not isinstance(digest, str) or len(digest) != 64:
-            raise RuntimeAssetError("manifest-invalid", "Runtime inventory digest is invalid")
-        if type(size) is not int or size < 0:
-            raise RuntimeAssetError("manifest-invalid", "Runtime inventory size is invalid")
-        expected_paths[relative] = entry
-    if RUNTIME_MANIFEST_NAME in expected_paths:
-        raise RuntimeAssetError("manifest-invalid", "Runtime manifest lists itself")
+    _validate_upstream_assets(manifest, expected)
 
-    recomputed = _runtime_id(files, pins)
+    recomputed = _runtime_id(list(expected.values()), pins)
     if manifest.get("runtime_id") != recomputed:
         raise RuntimeAssetError("manifest-invalid", "Runtime manifest identity does not match")
     if runtime_id is not None and runtime_id != recomputed:
@@ -477,20 +577,111 @@ def verify_runtime(
         if path.is_file():
             actual.add(path.relative_to(directory).as_posix())
     actual.discard(RUNTIME_MANIFEST_NAME)
-    unknown = actual - set(expected_paths)
+    unknown = actual - set(expected)
     if unknown:
         raise RuntimeAssetError(
             "unexpected-asset", f"Unexpected runtime asset: {sorted(unknown)[0]}"
         )
-    for relative, entry in expected_paths.items():
-        path = _ensure_within(directory, relative)
-        if not path.is_file():
-            raise RuntimeAssetError("missing-asset", f"Missing runtime asset: {relative}")
-        if path.stat().st_size != entry["bytes"]:
-            raise RuntimeAssetError("size-mismatch", f"Runtime asset size mismatch: {relative}")
-        if _digest(path) != entry["sha256"]:
-            raise RuntimeAssetError("digest-mismatch", f"Runtime asset digest mismatch: {relative}")
+    cache = file_cache or VerifiedFileCache()
+    for relative, entry in expected.items():
+        cache.verify(directory, relative, entry)
     return manifest
+
+
+class VerifiedFileCache:
+    """Bounded stat-signature cache for per-request asset integrity checks.
+
+    The complete tree is hashed once when a snapshot is loaded. Individual HTTP
+    requests re-check size and a stat signature and reuse the verified digest;
+    any changed inode/size/mtime forces a re-hash and a mismatch fails closed.
+    This keeps same-size replacement detectable without hashing the distribution
+    on every request.
+    """
+
+    def __init__(self, max_entries: int = 128) -> None:
+        self._entries: dict[str, tuple[tuple[int, int, int], str]] = {}
+        self._max = max_entries
+        self._lock = threading.Lock()
+
+    def verify(self, directory: Path, relative: str, entry: dict[str, Any]) -> Path:
+        path = _ensure_within(directory, relative)
+        for parent in path.parents:
+            if parent == directory:
+                break
+            if parent.is_symlink():
+                raise RuntimeAssetError("invalid-path", "Runtime asset path uses a symlink")
+        try:
+            if path.is_symlink():
+                raise RuntimeAssetError("invalid-path", "Runtime asset is a symlink")
+            stat = path.stat()
+        except OSError as error:
+            raise RuntimeAssetError(
+                "missing-asset", f"Runtime asset is missing: {relative}"
+            ) from error
+        if not path.is_file():
+            raise RuntimeAssetError("missing-asset", f"Runtime asset is missing: {relative}")
+        if stat.st_size != entry["bytes"]:
+            raise RuntimeAssetError("size-mismatch", f"Runtime asset size mismatch: {relative}")
+        signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        with self._lock:
+            cached = self._entries.get(relative)
+        if cached is not None and cached[0] == signature and cached[1] == entry["sha256"]:
+            return path
+        actual = _digest(path)
+        if actual != entry["sha256"]:
+            with self._lock:
+                self._entries.pop(relative, None)
+            raise RuntimeAssetError("digest-mismatch", f"Runtime asset digest mismatch: {relative}")
+        with self._lock:
+            if len(self._entries) >= self._max and relative not in self._entries:
+                self._entries.pop(next(iter(self._entries)))
+            self._entries[relative] = (signature, actual)
+        return path
+
+
+def runtime_snapshot(
+    data_dir: str | Path,
+    runtime_id: str,
+    *,
+    application_version: str | None = None,
+    development: bool = False,
+    file_cache: VerifiedFileCache | None = None,
+) -> dict[str, Any]:
+    """Load and verify one immutable runtime identity (never the ``current`` link)."""
+    if not isinstance(runtime_id, str) or not RUNTIME_ID.fullmatch(runtime_id):
+        raise RuntimeAssetError("runtime-mismatch", "Runtime identity is invalid")
+    directory = runtime_root(data_dir) / runtime_id
+    if directory.is_symlink() or not directory.is_dir():
+        raise RuntimeUnavailable("runtime-missing", "Runtime identity is not staged")
+    manifest = verify_runtime(
+        directory,
+        runtime_id=runtime_id,
+        application_version=application_version,
+        development=development,
+        file_cache=file_cache,
+    )
+    inventory = {entry["path"]: entry for entry in manifest["files"]}
+    return {
+        "runtime_id": runtime_id,
+        "directory": directory,
+        "manifest": manifest,
+        "files": inventory,
+    }
+
+
+def resolve_runtime_asset(
+    snapshot: dict[str, Any],
+    relative: str,
+    *,
+    file_cache: VerifiedFileCache | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    """Resolve one asset inside the immutable snapshot identity."""
+    entry = snapshot["files"].get(relative)
+    if entry is None:
+        raise RuntimeAssetError("unknown-asset", "Runtime asset is not in the manifest")
+    cache = file_cache or VerifiedFileCache()
+    path = cache.verify(snapshot["directory"], relative, entry)
+    return path, entry
 
 
 def public_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -512,69 +703,68 @@ def public_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def runtime_asset(
-    data_dir: str | Path, manifest: dict[str, Any], relative: str
-) -> tuple[Path, dict[str, Any]]:
-    """Resolve one servable asset from the active verified runtime manifest."""
-    inventory = {
-        entry["path"]: entry
-        for entry in manifest.get("files", [])
-        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
-    }
-    entry = inventory.get(relative)
-    if entry is None:
-        raise RuntimeAssetError("unknown-asset", "Runtime asset is not in the active manifest")
-    directory = active_runtime_directory(data_dir)
-    path = _ensure_within(directory, relative)
-    if not path.is_file():
-        raise RuntimeAssetError("missing-asset", "Runtime asset is missing")
-    if path.stat().st_size != entry.get("bytes"):
-        raise RuntimeAssetError("size-mismatch", "Runtime asset size does not match")
-    return path, entry
-
-
 def runtime_root(data_dir: str | Path) -> Path:
     return Path(data_dir).resolve() / RUNTIME_DIRECTORY
 
 
-def active_runtime_directory(data_dir: str | Path) -> Path:
+def active_runtime_identity(data_dir: str | Path) -> str:
+    """Read the activated runtime identity without following it to a directory."""
     root = runtime_root(data_dir)
     current = root / "current"
     if not current.is_symlink():
         raise RuntimeUnavailable("runtime-missing", "No browser runtime is active")
     try:
-        target = current.resolve()
+        target = os.readlink(current)
     except OSError as error:
         raise RuntimeUnavailable("runtime-missing", str(error)) from error
-    if root.resolve() not in target.parents:
-        raise RuntimeAssetError("runtime-mismatch", "Active runtime escapes the runtime root")
+    if not RUNTIME_ID.fullmatch(target):
+        raise RuntimeAssetError("runtime-mismatch", "Active runtime identity is invalid")
+    if not (root / target).is_dir():
+        raise RuntimeUnavailable("runtime-missing", "Active runtime directory is missing")
     return target
 
 
+def active_runtime_directory(data_dir: str | Path) -> Path:
+    return runtime_root(data_dir) / active_runtime_identity(data_dir)
+
+
 def load_active_runtime(
-    data_dir: str | Path, *, application_version: str | None = None
+    data_dir: str | Path,
+    *,
+    application_version: str | None = None,
+    development: bool = False,
+    file_cache: VerifiedFileCache | None = None,
 ) -> dict[str, Any]:
     """Return the verified active manifest or raise :class:`RuntimeUnavailable`."""
-    directory = active_runtime_directory(data_dir)
-    runtime_id = directory.name
-    if not RUNTIME_ID.fullmatch(runtime_id):
-        raise RuntimeAssetError("runtime-mismatch", "Active runtime identity is invalid")
     try:
-        return verify_runtime(
-            directory, runtime_id=runtime_id, application_version=application_version
+        snapshot = runtime_snapshot(
+            data_dir,
+            active_runtime_identity(data_dir),
+            application_version=application_version,
+            development=development,
+            file_cache=file_cache,
         )
+    except RuntimeUnavailable:
+        raise
     except RuntimeAssetError as error:
         raise RuntimeUnavailable("runtime-invalid", error.detail) from error
+    return snapshot["manifest"]
 
 
 def activate_runtime(
-    data_dir: str | Path, directory: str | Path, *, application_version: str | None = None
+    data_dir: str | Path,
+    directory: str | Path,
+    *,
+    application_version: str | None = None,
+    development: bool = False,
 ) -> dict[str, Any]:
     """Atomically point ``current`` at a verified runtime directory."""
     root = runtime_root(data_dir)
     root.mkdir(parents=True, exist_ok=True)
     directory = Path(directory).resolve()
-    manifest = verify_runtime(directory, application_version=application_version)
+    manifest = verify_runtime(
+        directory, application_version=application_version, development=development
+    )
     if directory.parent != root.resolve():
         raise RuntimeAssetError(
             "runtime-mismatch", "Runtime directory must live under the runtime root"
@@ -594,6 +784,7 @@ def build_runtime(
     activate: bool = False,
     source_root: Path | None = None,
     application_version: str | None = None,
+    development: bool = False,
 ) -> dict[str, Any]:
     """Stage, verify and optionally activate a runtime for ``data_dir``."""
     root = runtime_root(data_dir)
@@ -606,21 +797,33 @@ def build_runtime(
             fetch=fetch,
             source_root=source_root,
             application_version=application_version,
+            development=development,
         )
         target = root / manifest["runtime_id"]
         pinned_version = manifest["pins"]["application_version"]
         if target.exists():
             verify_runtime(
-                target, runtime_id=manifest["runtime_id"], application_version=pinned_version
+                target,
+                runtime_id=manifest["runtime_id"],
+                application_version=pinned_version,
+                development=development,
             )
             shutil.rmtree(temporary)
         else:
             os.replace(temporary, target)
         verify_runtime(
-            target, runtime_id=manifest["runtime_id"], application_version=pinned_version
+            target,
+            runtime_id=manifest["runtime_id"],
+            application_version=pinned_version,
+            development=development,
         )
         if activate:
-            activate_runtime(data_dir, target, application_version=pinned_version)
+            activate_runtime(
+                data_dir,
+                target,
+                application_version=pinned_version,
+                development=development,
+            )
         return manifest
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
@@ -672,15 +875,23 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--activate", action="store_true", help="Activate after verification")
     build.add_argument("--source-root", type=Path, help="Repository root override")
     build.add_argument("--application-version", help="Release version bound into the manifest")
+    build.add_argument(
+        "--development",
+        action="store_true",
+        help="Permit the 0+local source-checkout identity (never for production)",
+    )
 
     verify = sub.add_parser("verify", help="Verify a staged runtime")
     verify.add_argument("directory", type=Path)
     verify.add_argument("--application-version")
+    verify.add_argument("--development", action="store_true")
 
     activate = sub.add_parser("activate", help="Verify and activate a staged runtime")
     activate.add_argument("directory", type=Path)
+    activate.add_argument("--development", action="store_true")
 
-    sub.add_parser("status", help="Report the active runtime")
+    status = sub.add_parser("status", help="Report the active runtime")
+    status.add_argument("--development", action="store_true")
     prune = sub.add_parser("prune", help="Remove inactive runtimes")
     prune.add_argument("--keep", type=int, default=2)
 
@@ -696,6 +907,7 @@ def main(argv: list[str] | None = None) -> int:
                 activate=args.activate,
                 source_root=args.source_root,
                 application_version=args.application_version,
+                development=args.development,
             )
             print(json.dumps(public_manifest(manifest), indent=2))
             return 0
@@ -706,14 +918,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "activate":
             if args.data_dir is None:
                 parser.error("--data-dir is required")
-            manifest = activate_runtime(args.data_dir, args.directory)
+            manifest = activate_runtime(args.data_dir, args.directory, development=args.development)
             print(json.dumps(public_manifest(manifest), indent=2))
             return 0
         if args.command == "status":
             if args.data_dir is None:
                 parser.error("--data-dir is required")
             try:
-                manifest = load_active_runtime(args.data_dir)
+                manifest = load_active_runtime(args.data_dir, development=args.development)
             except RuntimeUnavailable as error:
                 print(json.dumps({"available": False, "reason": error.reason}))
                 return 3

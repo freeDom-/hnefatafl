@@ -232,8 +232,9 @@ def test_failed_index_write_does_not_publish(tmp_path, store, monkeypatch):
     monkeypatch.setattr(
         store, "_write_index", lambda payload: (_ for _ in ()).throw(OSError("disk full"))
     )
-    with pytest.raises(OSError):
+    with pytest.raises(PublicationError) as error:
         store.publish(export, actor="Odin")
+    assert error.value.code == "PUBLICATION_IO"
     assert store.list_public() == []
     # No publication record survived the failed atomic index write. The orphaned
     # immutable artifact is harmless and a retry publishes exactly once.
@@ -291,3 +292,107 @@ def test_cli_requires_an_administrator_account(tmp_path, capsys):
     )
     assert code == 1
     assert "UNAUTHORIZED" in capsys.readouterr().out
+
+
+def _replace_export(tmp_path, monkeypatch, store, bytes_):
+    export = tmp_path / "replacement"
+    export.mkdir(exist_ok=True)
+    (export / "model.onnx").write_bytes(bytes_)
+    (export / "export-manifest.json").write_text('{"validated": true}\n')
+    (export / "VALIDATED.json").write_text('{"validated": true}\n')
+    monkeypatch.setattr(
+        browser_models,
+        "validate_export_dir",
+        lambda path, allow_unvalidated=False: _validation(bytes_),
+    )
+    return store.publish(export, actor="Odin", replace=True)
+
+
+def test_resolve_artifact_binds_record_version_and_file(tmp_path, store, monkeypatch):
+    record = store.publish(_export(tmp_path), actor="Odin")
+    resolved, path = store.resolve_artifact(record["publication_id"])
+    assert resolved["onnx_sha256"] == record["onnx_sha256"]
+    assert path.read_bytes() == MODEL_BYTES
+    resolved, path = store.resolve_artifact(record["publication_id"], record["onnx_sha256"])
+    assert path.read_bytes() == MODEL_BYTES
+    for version in ("f" * 64, "not-a-digest"):
+        with pytest.raises(PublicationError) as error:
+            store.resolve_artifact(record["publication_id"], version)
+        assert error.value.code == "NOT_FOUND"
+
+
+def test_replacement_is_atomic_for_record_version_and_file(tmp_path, store, monkeypatch):
+    first = store.publish(_export(tmp_path), actor="Odin")
+    first_path = store.artifacts / f"{first['onnx_sha256']}.onnx"
+    second_bytes = b"second validated model" * 128
+    second = _replace_export(tmp_path, monkeypatch, store, second_bytes)
+    assert second["publication_id"] == first["publication_id"]
+    assert second["onnx_sha256"] != first["onnx_sha256"]
+    resolved, path = store.resolve_artifact(first["publication_id"])
+    assert resolved["onnx_sha256"] == second["onnx_sha256"]
+    assert path.read_bytes() == second_bytes
+    with pytest.raises(PublicationError):
+        store.resolve_artifact(first["publication_id"], first["onnx_sha256"])
+    # An already-resolved immutable version remains readable after replacement.
+    assert first_path.read_bytes() == MODEL_BYTES
+
+
+def test_revocation_between_resolution_and_serving(tmp_path, store):
+    record = store.publish(_export(tmp_path), actor="Odin")
+    _resolved, path = store.resolve_artifact(record["publication_id"])
+    store.revoke(record["publication_id"], actor="Odin", reason="test")
+    # An already-started authorized download keeps the immutable bytes...
+    assert path.read_bytes() == MODEL_BYTES
+    # ...while every new request fails closed.
+    with pytest.raises(PublicationError) as error:
+        store.resolve_artifact(record["publication_id"])
+    assert error.value.code == "NOT_FOUND"
+
+
+def test_same_size_corrupted_artifact_is_rejected(tmp_path, store):
+    record = store.publish(_export(tmp_path), actor="Odin")
+    path = store.artifacts / f"{record['onnx_sha256']}.onnx"
+    corrupted = b"x" * len(MODEL_BYTES)
+    path.write_bytes(corrupted)
+    with pytest.raises(PublicationError) as error:
+        store.resolve_artifact(record["publication_id"])
+    assert error.value.code == "ARTIFACT_INTEGRITY"
+
+
+def test_symlinked_and_escaping_artifacts_are_rejected(tmp_path, store):
+    record = store.publish(_export(tmp_path), actor="Odin")
+    path = store.artifacts / f"{record['onnx_sha256']}.onnx"
+    outside = tmp_path / "outside.onnx"
+    outside.write_bytes(MODEL_BYTES)
+    path.unlink()
+    path.symlink_to(outside)
+    with pytest.raises(PublicationError):
+        store.resolve_artifact(record["publication_id"])
+    path.unlink()
+    missing = store.resolve_artifact
+    with pytest.raises(PublicationError) as error:
+        missing(record["publication_id"])
+    assert error.value.code == "ARTIFACT_MISSING"
+
+
+def test_audit_failure_rolls_back_publication_and_revocation(tmp_path, store, monkeypatch):
+    def broken(*args, **kwargs):
+        raise OSError("audit unavailable")
+
+    monkeypatch.setattr(store, "_audit", broken)
+    with pytest.raises(PublicationError) as error:
+        store.publish(_export(tmp_path), actor="Odin")
+    assert error.value.code == "PUBLICATION_IO"
+    assert store.list_public() == []
+    assert store.history() == []
+
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        browser_models, "validate_export_dir", lambda path, allow_unvalidated=False: _validation()
+    )
+    record = store.publish(_export(tmp_path), actor="Odin")
+    monkeypatch.setattr(store, "_audit", broken)
+    with pytest.raises(PublicationError) as error:
+        store.revoke(record["publication_id"], actor="Odin")
+    assert error.value.code == "PUBLICATION_IO"
+    assert store.get_public(record["publication_id"]) is not None

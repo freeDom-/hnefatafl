@@ -87,6 +87,35 @@ JS_ASSETS: tuple[str, ...] = (
     "neural-tensors.js",
 )
 
+# Mandatory runtime inventory. Kept in sync with the TypeScript contract by a
+# regression test; a self-consistent manifest that omits one of these entries is
+# rejected even if its own digests agree.
+REQUIRED_RUNTIME_FILES: tuple[str, ...] = (
+    "runtime/pyodide.js",
+    "runtime/pyodide.asm.js",
+    "runtime/pyodide.asm.wasm",
+    "runtime/python_stdlib.zip",
+    "runtime/pyodide-lock.json",
+    "ort/ort.min.js",
+    "ort/ort-wasm-simd-threaded.mjs",
+    "ort/ort-wasm-simd-threaded.wasm",
+    "ort/ort-wasm-simd-threaded.jsep.mjs",
+    "ort/ort-wasm-simd-threaded.jsep.wasm",
+    "python/hnefatafl/engine.py",
+    "python/hnefatafl/encoding.py",
+    "python/hnefatafl/mcts_driver.py",
+    "bridge.py",
+    "search_bridge.py",
+    "assets.json",
+    "search-assets.json",
+    "worker.js",
+    "analysis-client.js",
+    "search-worker.js",
+    "search-client.js",
+    "neural-client.js",
+    "neural-worker.js",
+)
+
 # Required third-party license texts distributed with the runtime. These are
 # source-controlled, not downloaded at build time, so reproduction is offline.
 LICENSE_ASSETS: dict[str, str] = {
@@ -97,6 +126,8 @@ LICENSE_ASSETS: dict[str, str] = {
 
 # ---------------------------------------------------------------- size budgets
 MAX_RUNTIME_BYTES = 160 * 1024 * 1024
+MAX_RUNTIME_FILES = 4096
+MAX_RUNTIME_ASSET_BYTES = 64 * 1024 * 1024
 MAX_MANIFEST_BYTES = 512 * 1024
 MAX_MODEL_BYTES = 64 * 1024 * 1024
 MAX_BRIDGE_BYTES = 512 * 1024

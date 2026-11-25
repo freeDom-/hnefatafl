@@ -26,10 +26,10 @@ from hnefatafl.engine import Move, State, apply_move, legal_moves
 
 BRIDGE_PROTOCOL = 1
 MAX_BRIDGE_BYTES = 512 * 1024
-MAX_ANALYSIS_TIME = 10.0
+MAX_ANALYSIS_TIME = 3.0
 
 ANALYSIS_RANGES = {
-    "depth": (1, 8),
+    "depth": (1, 5),
     "iterations": (1, 4096),
     "rollout_depth": (0, 50),
     "seed": (0, 2**32 - 1),
@@ -58,12 +58,19 @@ def snapshot(state: State) -> dict:
 
 
 def analysis_config(raw: object) -> dict:
-    """Validate bounded local-analysis settings; models are never loaded here."""
+    """Validate explicit bounded local-analysis settings; models are never loaded.
+
+    Production callers must name the algorithm: a missing algorithm is rejected
+    rather than silently falling back to the baseline agent. Jarl is the explicit
+    ``alpha_beta`` configuration supplied by the runtime manager.
+    """
     if not isinstance(raw, dict) or set(raw) - ANALYSIS_FIELDS:
         raise ValueError("Unsupported local analysis settings; no model loading")
-    config = {"algorithm": "baseline", "time_limit": 0.1, "seed": 7, **raw}
-    if config["algorithm"] not in {"baseline", "alpha_beta", "mcts"}:
-        raise ValueError("Only classical local analysis is supported")
+    if "algorithm" not in raw:
+        raise ValueError("An explicit analysis algorithm is required")
+    config = {"algorithm": "alpha_beta", "time_limit": 0.1, "seed": 7, **raw}
+    if config["algorithm"] not in {"alpha_beta", "mcts"}:
+        raise ValueError("Only explicit alpha_beta or classical mcts analysis is supported")
     if "heuristic" in config and config["heuristic"] not in ("shield_bearer", "shield_maiden"):
         raise ValueError("Unsupported search heuristic")
     for name, (low, high) in ANALYSIS_RANGES.items():

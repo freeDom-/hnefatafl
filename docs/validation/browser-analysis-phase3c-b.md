@@ -715,6 +715,7 @@ esac
 #   exit 3  readiness/ownership verification failure (cleanup already attempted)
 #   exit 4  collection failure (cleanup already attempted)
 #   exit 5  evidence finalization failure
+#   exit 6  workload execution failure (distinct from validator partial=2)
 STAGE_DIR=/private/spike-brandubh MODEL_SHA256="<64 hex>" \
   bash scripts/browser_analysis_lifecycle_sweep.sh
 #

@@ -389,8 +389,9 @@ Phase 4 limitations:
   manager for progress/quota/verification, then the validated client for the
   session); it is a documented efficiency limitation with no security impact.
 - Cross-tab aggregate RAM/search coordination is best-effort per tab.
-- Runtime requests are re-verified per initialization (Pyodide boot dominates
-  second-init timing); there is no runtime byte store.
+- Runtime assets are verified before first initialization and each served asset is
+  stat/digest checked at the origin; a repeated initialization that is already ready
+  is an idempotent no-op. There is no separate runtime byte store.
 - Publication is CLI-only (no management UI); competitive model publication is
   externally blocked.
 - The staged runtime pins the locally installed package version; the source
@@ -408,3 +409,228 @@ Phase 4 limitations:
    evidence; do not treat this report as device or competitive acceptance.
 5. Decide on a service worker/offline execution design only through a separately
    approved change.
+
+## 16. Review corrections (F1–F8, E1 follow-up, transition-history stabilization)
+
+This section records the corrections made after the first Phase 4 review. The
+original sections above remain as the initial implementation record; where they
+describe superseded behavior, this section is authoritative.
+
+### F1 — end-to-end asynchronous operation ownership (resolved)
+
+`frontend/src/browserAnalysis/runtime.ts` now captures an explicit operation at
+every public entry point before the first asynchronous boundary. An operation
+carries an owner context generation, the runtime identity it targets, its own
+`AbortController` (chained to the caller signal), and the provisional resources it
+created. Ownership is rechecked after every relevant await and before resource
+allocation, state publication, cache activation and result publication. An
+operation that loses ownership aborts, disposes only the resources it created and
+cannot create a worker, publish a model/result or clear newer state. Initialization
+is idempotent and joins one in-flight promise; repeated calls do not accumulate
+workers. Logout/account-switch/disposal bump the context generation, abort pending
+operations and downloads, cancel active search/inference work, await a bounded
+cleanup barrier and only then release/replace workers. Cancellation and
+reinitialization semantics are explicit; a disposed runtime rejects all further
+work. The runtime manager remains the integration point for the existing auth/logout
+lifecycle; no second authentication system exists.
+
+Deterministic tests use deferred promises at availability, module import, engine
+probe, model load and search, and assert actual worker creation/disposal counts
+(not just result absence): logout during availability/import/model loading/search,
+cancellation during initialization, disposal during import, repeated/concurrent
+initialization, overlapping account contexts, and obsolete completion after a newer
+runtime is ready.
+
+### F2 — immutable runtime artifact identity (resolved)
+
+The server no longer resolves request assets through the mutable `current` link.
+`runtime_snapshot()` loads and fully verifies the exact `<runtime_id>` directory
+(manifest, complete inventory, pinned upstream digests, canonical identity).
+Requests are served only from that snapshot; the active identity is discovered from
+`current` on each availability request, so activation/deactivation after a cached
+"unavailable" result is detected without a restart. Retained, still-present runtime
+identities are served from their own immutable bytes (loaded on demand and bounded
+in the process cache); pruned or unverifiable identities return a controlled 404.
+Per-request checks use a bounded `(inode, size, mtime_ns)` stat-signature digest
+cache, so same-size replacement is detected by re-hashing that file without hashing
+the distribution on every request. Symlinked/escaping assets are rejected, and
+response `X-Content-SHA256`/size always describe the exact resolved file. Browser
+module caches are keyed by `${runtimeId}:${module}`, and a runtime identity change
+disposes workers, clears modules/model/evidence/results and aborts old operations.
+The trusted boundary is documented: a privileged administrator who can replace the
+application code and its trusted manifests is outside the integrity claim.
+
+Actual-browser validation: `test_runtime_identity_change_in_actual_browser` stages a
+second verified runtime with a modified validated worker asset, activates it while
+the server runs, then in Chromium observes the new runtime identity, initializes
+it, and confirms the retained old URL still serves exactly the old digest/size.
+
+### F3 — actual provider and search-result evidence (resolved)
+
+The result contract now consumes the validated coordinator envelope
+(`{analysis, search, settings}`). `evidence` carries `executionRuntime: 'pyodide'`,
+`requestedProvider`, `observedPlacement`, `gpuExecutionVerified`, `inferenceObserved`,
+`inferences`, `completedSimulations`, `completionReason`. Observed placement is read
+only from `search.provider.execution_placement`; it is never synthesised from the
+request. Searches with no inference report `observedPlacement: 'none'` and
+`inferenceObserved: false`. Missing/malformed/contradictory evidence (missing provider
+after inference, requested-provider mismatch, unknown placement, non-boolean GPU
+verification, GPU placement for a WASM request, or provider evidence with zero
+inferences) fails closed. Mixed/unverified placements are preserved verbatim; GPU
+execution is reported exactly as the validated evidence reports it (the pinned
+runtime reports `false`), with no alternative verification mechanism. Effective
+settings, model identity, search id, completed simulations, inference counts and
+completion reason are preserved. Classical Jarl is distinguished as Pyodide
+execution with no neural inference.
+
+Tests cover WASM, WebGPU requested but unavailable, mixed placement, no-inference
+shortcuts, missing/malformed evidence, provider mismatch, effective settings and a
+real production-browser neural run (33 inferences, 32 simulations, `wasm`).
+
+### F4 — generation-safe download accounting and cancellation (resolved)
+
+`DownloadManager` now uses a generation-scoped reservation pool. Cancellation
+retires the current pool and creates a fresh one; old operations can release only
+into their retired pool, so they cannot free capacity owned by newer work. Aggregate
+byte counters are pool-scoped. Queued operations are rejected on cancellation and
+never counted as active transfers. Slots are acquired/released exactly once. Each
+shared transfer tracks its live subscribers; an individual cancel removes its
+listener immediately, and the underlying transfer is aborted only when the last
+subscriber leaves. Concurrent callers with the same key must agree on
+url/size/digest. Already-aborted signals never start a request; queue waiting,
+retries, transfer, hashing and cache admission are bounded by one operation
+deadline. Progress is delivered only to live subscribers. Cache admission is
+ownership-checked before and after and removed again if the operation was cancelled.
+Deterministic tests cover repeated `cancelAll`/restart, old completions, cancelled
+queued admissions, already-aborted signals, shared subscribers, last-subscriber
+cancellation, cancellation during hashing, aggregate/concurrency limits and
+reservation/listener leaks.
+
+### F5 — verified model bytes feed actual inference (resolved)
+
+The validated neural client exposes `loadModelBytes(buffer, options)` and shares one
+session-initialization path with URL loading (`_initializeSession`). The production
+runtime re-checks current publication authorization (metadata request, never a
+cached authorization claim), obtains verified bytes from the IndexedDB cache or one
+bounded manager download, re-verifies size/digest through the client, and passes the
+buffer by structured clone (never a transfer), so persistent/cached buffers are not
+detached. Model initialization no longer performs a second network transfer.
+Revocation is rechecked before every activation; previously downloaded bytes remain
+usable only while the publication is still authorized. The artifact cache serializes
+concurrent admissions, preserves byte/entry quotas, replaces the same key without
+evicting unrelated entries, verifies cached size+digest, and reports
+`{retained, persistent, reason}` separately. Actual-browser evidence: one model
+artifact request for an explicit download plus two neural searches; `modelMetadata`
+requests are authorization checks, not transfers.
+
+### F6 — atomic publication and delivery identity (resolved)
+
+`PublishedModelStore.resolve_artifact(publication_id, artifact_version)` reads the
+publication index once, selects the published record, binds the exact immutable
+version and verifies the file identity (not a symlink, inside the artifact root,
+declared size, cached stat-signature SHA-256) under one lock. The endpoint supports
+`?version=<sha256>` and consistently returns 404 for stale/unknown versions; response
+headers come from the resolved record/file. Revocation during an already-started
+download lets that authorized immutable stream finish, while all new requests fail;
+revocation cannot recall transferred bytes. Publication/revocation now roll back the
+index if the audit write fails and report `PUBLICATION_IO`, leaving recoverable state
+(orphaned immutable artifacts are harmless and retried publications reuse them).
+Tests cover replacement, revocation between resolve and serve, same-size corruption,
+symlink/missing artifacts, stale versions, authorization failures and audit rollback.
+
+### F7 — complete runtime compatibility validation (resolved)
+
+Python and TypeScript now validate the same contract: schema, 16-hex identity,
+Pyodide/ORT versions, encoder, driver, search algorithm, search/bridge protocols,
+architecture, application version, required inventory, per-file size, file count,
+declared total versus inventory, aggregate budget and canonical identity. Python
+independently re-binds every pinned upstream binary through both the file inventory
+and the declared upstream lists, so a self-consistent manifest cannot substitute a
+different Pyodide/ORT binary. `0+local` is explicitly development-only: verification
+requires `development=True` (CLI `--development`, used automatically by a source
+checkout server) and never counts as a production release match. The TypeScript side
+recomputes the canonical SHA-256 identity and rejects a mismatched manifest; a
+Python↔TypeScript cross-check test pins both implementations. Malformed, recomputed,
+missing-required, excessive-size and incompatible-version cases are covered.
+
+### F8 — explicit algorithm and effective-settings contract (resolved)
+
+`SearchRequest.algorithm` is required (`'jarl'` or `'neural_mcts'`). Jarl resolves to
+the existing production `alpha_beta` profile (`depth 5`, `time_limit 2`,
+`shield_maiden`, production search defaults) and never falls back to the baseline
+agent; unknown/out-of-contract settings, depth >5, a model/provier on a Jarl request,
+or a missing algorithm are rejected with structured errors. The production bridge
+requires an explicit algorithm (`alpha_beta` or classical `mcts`) and no longer
+defaults to `baseline`. Classical budgets are bounded at 3 s inside the existing
+5 s job watchdog; neural MCTS keeps its separate cooperative budget (≤10 s) and
+watchdog. Initialization, execution and shutdown deadlines remain separate.
+Effective settings are returned in `result.settings` and `status.lastSettings`.
+Production algorithms/defaults are unchanged. Actual-browser parity checks use
+explicit settings and assert the effective Jarl and neural configurations.
+
+### E1 follow-up and transition-history stabilization
+
+The lifecycle sweep script now returns **6** for workload execution failure, keeping
+it distinct from validator exit code 2 (structurally valid partial evidence), and
+preserves ownership-file cleanup diagnostics; stub tests assert the distinction.
+The flaky `test_collector_and_validator_span_evicted_and_retained_history` no longer
+relies on wall-clock completion: the telemetry writer emits an explicit
+`--transition-complete-file` handshake when the required 1,100 transitions have been
+produced, and the collector samples concurrently. The expected 1,100 total/1,024
+retained history and the evicted/retained sample-span assertion are unchanged and
+now deterministic.
+
+### Offline behavior — explicit proposed deferral
+
+Safe offline execution of the Pyodide/ORT runtime is **not implemented**. Verified
+published models remain readable from IndexedDB and are re-authorized before use,
+but worker execution loads origin URLs and the runtime has no service worker.
+Implementing offline runtime execution would require either a global service worker
+(interception of Pyodide's internal asset fetches) or blob-based worker/runtime
+execution with a broader `worker-src`/`connect-src` policy. Both are disproportionate
+for Phase 4, affect existing application caching/auth/spectator behavior, and need
+owner approval. Interrupted downloads, missing assets, storage denial and
+reconnection are handled by falling back to a clear unavailable/offline state; no
+offline acceptance is claimed.
+
+### Dependency and license audit (Phase 4 review)
+
+No dependency was added or upgraded. Distributed runtime components remain Pyodide
+0.27.7 (MPL-2.0), ONNX Runtime Web 1.22.0 (MIT) and the CPython stdlib inside Pyodide
+(PSF-2.0), pinned by recorded digests. Required license texts are committed and
+staged into every runtime. The audit confirms these permissive/weak-copyleft terms
+are compatible with distribution under the project license with notices preserved;
+`onnx`/`onnxruntime` remain optional administrator-only export tooling. Unresolved
+licensing action: the pinned Pyodide distribution embeds additional third-party
+components whose notices are governed by Pyodide's own distribution; the project
+ships the MPL/PSF core texts and points to the pinned upstream distribution for its
+complete notice set. No new security advisory was introduced; the existing
+`npm run audit:ci` policy is unchanged and no findings were suppressed.
+
+### Measurements after correction (actual production browser)
+
+| Measurement | Jarl-only | Jarl + published neural model |
+| --- | --- | --- |
+| Cold runtime initialization | 2,530.2 ms | 2,672.6 ms |
+| Second initialization (idempotent ready) | 5.9 ms | 6.6 ms |
+| Jarl depth-3 search | 234.6 ms | 251.1 ms |
+| Runtime asset requests | 57 | 86 |
+| Model artifact transfers | 0 | **1** (explicit download reused by two searches) |
+| Model metadata/authorization requests | 0 | 3 |
+| Initial bundle after merging current main | 585,882 raw / 186,757 gzip | same (budgets 600,000/200,000 pass) |
+
+Evidence: [Jarl browser report](browser-analysis-phase4-browser.json) ·
+[neural browser report](browser-analysis-phase4-browser-neural.json). The earlier
+report's two-transfer model count and 1,972–2,181 ms second initialization are
+superseded: one cold model transfer now suffices, and a repeated initialization that
+is already ready is an idempotent no-op (5.9–6.6 ms). The initial bundle grew from
+main's merged arena work, not from the lazy browser-analysis chunk; the chunk is
+absent from the initial manifest graph and both budgets still pass.
+
+### Remaining external gates (unchanged)
+
+Competitive checkpoints/playing strength, physical device matrix, verified GPU
+execution, unobservable WASM heap capacity, unresolved 30-minute JS heap growth,
+Copenhagen depth-5, physical Windows cleanup and the pre-existing Python 3.11
+frozen-reference failures remain outstanding exactly as documented above. No search
+algorithm, strength or default was changed by these corrections.

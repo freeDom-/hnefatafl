@@ -15,20 +15,32 @@ export {
   type BrowserAnalysisErrorCode,
   type BrowserAnalysisState,
   type DownloadProgress,
+  type ModelDownloadResult,
   type ModelManifest,
   type ProviderRequest,
   type RuntimeManifest,
   type RuntimeStatus,
+  type SearchExecutionEvidence,
   type SearchRequest,
   type SearchResult,
 } from './contracts';
-export { BrowserAnalysisRuntime, modelFromCatalog } from './runtime';
+export type { AnalysisAlgorithm };
+export { JARL_ALGORITHM, NEURAL_ALGORITHM } from './contracts';
+export {
+  BrowserAnalysisRuntime,
+  JARL_SETTINGS,
+  modelFromCatalog,
+  normalizeJarlSettings,
+  normalizeNeuralSettings,
+} from './runtime';
 export { ArtifactCache, openArtifactStore } from './storage';
 export { validateModelManifest, validateRuntimeManifest } from './manifests';
 
 import type {
   Availability,
+  AnalysisAlgorithm,
   DownloadProgress,
+  ModelDownloadResult,
   ModelManifest,
   RuntimeStatus,
   SearchRequest,
@@ -46,9 +58,9 @@ export interface BrowserAnalysisApi {
   downloadModel(
     model: ModelManifest,
     hooks?: { onProgress?: (progress: DownloadProgress) => void; signal?: AbortSignal },
-  ): Promise<void>;
+  ): Promise<ModelDownloadResult>;
   runSearch(request: SearchRequest, options?: { signal?: AbortSignal }): Promise<SearchResult>;
-  cancel(reason?: string): void;
+  cancel(reason?: string): Promise<void>;
   invalidateAccountContext(): Promise<void>;
   dispose(): Promise<void>;
   status(): RuntimeStatus;

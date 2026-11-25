@@ -312,12 +312,21 @@ Runtime assets (pinned Pyodide 0.27.7 and ONNX Runtime Web 1.22.0, the engine
 closure, workers, manifests and third-party license texts) are staged under the
 persistent data root outside release directories. They are served from the
 application origin only after full-tree manifest verification: every file's size
-and SHA-256, no unexpected files or symlinks, and matching application, encoder,
-driver and worker protocols. Serving is an exact manifest allowlist with
-immutable caching; a stale or incompatible runtime is reported unavailable rather
-than executed. A partially completed deployment or rollback therefore cannot
-activate an incompatible pair. Model artifacts are streamed from an immutable
-content-addressed store with `Cache-Control: no-store`.
+and SHA-256, no unexpected files or symlinks, matching application, encoder,
+driver, search-algorithm and worker protocols, required inventory, declared total
+and independently re-bound pinned upstream digests. The browser also recomputes the
+canonical runtime identity. Each request is resolved against the exact immutable
+`<runtime_id>` snapshot, never the mutable `current` link; a retained identity may
+serve its own verified bytes while present, and pruned/unverifiable identities
+return a controlled 404. A bounded stat-signature digest cache detects same-size
+replacement without hashing the distribution on every request. A stale,
+incompatible, tampered or symlinked runtime is reported unavailable rather than
+executed, so a partially completed deployment or rollback cannot activate an
+incompatible pair. Model artifacts are streamed from an immutable
+content-addressed store with `Cache-Control: no-store`. The trusted storage
+boundary assumes the application/data directory is controlled by the service
+owner; a privileged administrator who can replace the application and its trusted
+manifests is outside the integrity claim.
 
 A registered checkpoint is not a published browser model. Publication requires an
 active `ADMIN` account from the application database and a validated export: the
@@ -328,7 +337,14 @@ runtime compatibility, size budget and source-weight fingerprint. Publication is
 atomic and audited (`browser_models/audit.jsonl`), artifacts are immutable and
 content-addressed, replacement is explicit (the previous version becomes
 `superseded`), revocation is explicit and retains history, and deletion of a
-server model never deletes a published copy. Neither filesystem paths, optimizer
+server model never deletes a published copy. Delivery resolves the publication
+record, exact artifact version and verified file identity under one lock; protected
+downloads may bind `?version=<sha256>` and stale versions fail closed. Same-size
+corruption, symlinked/escaping artifacts and integrity-cache mismatches are
+rejected. A download already authorized and started may finish if the publication
+is revoked during streaming; every new request is denied, and revocation cannot
+recall bytes already transferred. An audit/index write failure rolls the index back
+so a failed operation cannot leave a publication without an audit trail. Neither filesystem paths, optimizer
 state, training-job state, replay buffers nor private training metadata are
 exposed. Distributing ONNX weights to a browser necessarily makes them accessible
 to the receiving client; access control restricts distribution but cannot keep
@@ -346,10 +362,15 @@ authoritative over moves, clocks, results, ratings, league progression,
 achievements and tournaments.
 
 The browser layer stores only content-addressed published model artifacts in
-IndexedDB (atomic writes, digest re-verification, LRU/byte quotas, corruption
-invalidation and degradation when storage is denied). Downloads are explicit,
-size-bounded, digest-verified, cancellable, deduplicated and never activated on
-HTTP success alone. Logout, session expiry or account switching invalidates the
+IndexedDB (serialized atomic admissions, byte/entry quotas, same-key replacement
+without unrelated eviction, size/digest re-verification, corruption invalidation
+and degradation when storage is denied). Downloads are explicit, size-bounded,
+digest-verified, cancellable, deduplicated with generation-scoped reservation
+accounting, and never activated on HTTP success alone. Verified bytes are passed
+directly to the validated neural client so inference never performs a second model
+transfer; current publication authorization is rechecked before activation. Every
+asynchronous operation has explicit ownership and cannot create workers or publish
+state after logout, account switching or disposal. Logout, session expiry or account switching invalidates the
 runtime generation, aborts downloads and searches, clears results and releases
 workers; a delayed completion cannot restore the previous account's state.
 Published models are shared public artifacts and may be retained. Server-side
@@ -360,6 +381,7 @@ while actual memory use remains estimated/observable only.
 
 Residual limitations are documented in the
 [Phase 4 validation report](validation/browser-analysis-phase4.md): no offline
-runtime execution, best-effort per-tab cross-tab coordination, a double model
-fetch per cold neural initialization, no verified GPU execution, no competitive
-model or playing-strength evidence, and no physical-device acceptance.
+runtime execution (explicit owner-approved deferral; models are offline-verifiable
+but runtime workers load origin URLs and there is no service worker), best-effort
+per-tab cross-tab coordination, no verified GPU execution, no competitive model or
+playing-strength evidence, and no physical-device acceptance.

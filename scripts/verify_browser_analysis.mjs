@@ -25,6 +25,8 @@ const dist = resolve(argument('dist', 'frontend/dist'));
 const statePath = argument('state');
 const output = argument('output');
 const neural = process.argv.includes('--neural');
+const expectRuntimeId = argument('expect-runtime-id');
+const previousManifestPath = argument('previous-manifest');
 const identity = argument('identity', process.env.BROWSER_ANALYSIS_IDENTITY ?? 'Browser');
 const password = argument('password', process.env.BROWSER_ANALYSIS_PASSWORD);
 if (!password) throw new Error('Provide --password or BROWSER_ANALYSIS_PASSWORD');
@@ -84,17 +86,37 @@ try {
   );
 
   observed.length = 0;
+  const previousManifest = previousManifestPath
+    ? JSON.parse(await readFile(resolve(previousManifestPath), 'utf8'))
+    : null;
   const evaluated = await page.evaluate(
-    async ({ entry, state, settings, neural }) => {
+    async ({ entry, state, settings, neural, expectRuntimeId, previousManifest }) => {
       const module = await import(entry);
       const api = await module.createBrowserAnalysis();
       const availability = await api.availability();
       const started = performance.now();
       const status = await api.initialize();
       const initialized = performance.now();
-      const result = await api.runSearch({ state, settings });
+      const result = await api.runSearch({ state, settings, algorithm: 'jarl' });
       const finished = performance.now();
+      let previousRuntimeAsset = null;
+      if (previousManifest) {
+        const path = previousManifest.files.find((entry) => entry.path === 'runtime/pyodide.js');
+        const response = await fetch(
+          `/browser-analysis/runtime/${previousManifest.runtime_id}/runtime/pyodide.js`,
+          { cache: 'no-store', credentials: 'same-origin' },
+        );
+        previousRuntimeAsset = {
+          status: response.status,
+          digest: response.headers.get('x-content-sha256'),
+          bytes: (await response.arrayBuffer()).byteLength,
+          expected: path?.sha256 ?? null,
+          expectedBytes: path?.bytes ?? null,
+          runtimeId: previousManifest.runtime_id,
+        };
+      }
       let neuralResult = null;
+      let neuralSecond = null;
       let neuralModel = null;
       if (neural) {
         const models = await api.listModels();
@@ -107,6 +129,14 @@ try {
           settings: { iterations: 32, time_limit: 1, seed: 7 },
           model,
           provider: 'wasm',
+          algorithm: 'neural_mcts',
+        });
+        neuralSecond = await api.runSearch({
+          state,
+          settings: { iterations: 8, time_limit: 1, seed: 7 },
+          model,
+          provider: 'wasm',
+          algorithm: 'neural_mcts',
         });
       }
       const usage = await api.storageUsage();
@@ -125,7 +155,9 @@ try {
         status,
         result,
         neuralResult,
+        neuralSecond,
         neuralModel,
+        previousRuntimeAsset,
         usage,
         cycles,
         hasWorker: typeof Worker === 'function',
@@ -136,7 +168,9 @@ try {
       entry: `/${entry.file}`,
       state,
       neural,
-      settings: { algorithm: 'alpha_beta', depth: 3, time_limit: 0.5, seed: 7 },
+      settings: { depth: 3, time_limit: 0.5, seed: 7 },
+      expectRuntimeId,
+      previousManifest,
     },
   );
   if (neural) {
@@ -153,25 +187,64 @@ try {
     );
     check(
       'neural provider reporting is honest',
-      evaluated.neuralResult?.provider?.requested === 'wasm' &&
-        evaluated.neuralResult?.provider?.gpuExecutionVerified === false,
+      evaluated.neuralResult?.evidence?.requestedProvider === 'wasm' &&
+        evaluated.neuralResult?.evidence?.observedPlacement === 'wasm' &&
+        evaluated.neuralResult?.evidence?.gpuExecutionVerified === false &&
+        evaluated.neuralResult?.evidence?.inferenceObserved === true,
+      JSON.stringify(evaluated.neuralResult?.evidence ?? null),
+    );
+    check(
+      'neural search reports completed simulations and effective settings',
+      Number.isInteger(evaluated.neuralResult?.evidence?.completedSimulations) &&
+        evaluated.neuralResult?.settings?.iterations === 32,
+      JSON.stringify(evaluated.neuralResult?.settings ?? null),
+    );
+    check(
+      'a second neural search reuses the verified model without another transfer',
+      Boolean(evaluated.neuralSecond?.analysis),
     );
     report.neural = {
       model: evaluated.neuralResult?.model ?? null,
-      provider: evaluated.neuralResult?.provider ?? null,
+      evidence: evaluated.neuralResult?.evidence ?? null,
+      settings: evaluated.neuralResult?.settings ?? null,
       analysis: evaluated.neuralResult?.analysis ?? null,
     };
   }
 
   check('availability reports an enabled runtime', evaluated.availability.enabled === true);
+  if (expectRuntimeId) {
+    check(
+      'activated runtime identity is observed end-to-end',
+      evaluated.availability.runtime?.runtimeId === expectRuntimeId &&
+        evaluated.status.runtimeId === expectRuntimeId,
+      JSON.stringify({ expected: expectRuntimeId, actual: evaluated.status.runtimeId }),
+    );
+  }
   check('runtime initializes', evaluated.status.state === 'ready', JSON.stringify(evaluated.status));
   check('engine identity is reported', Boolean(evaluated.status.engine));
   check(
     'Jarl search completes with a legal advisory analysis',
     Boolean(evaluated.result?.analysis) && evaluated.result.authoritative === false,
   );
+  check(
+    'Jarl reports the explicit alpha-beta algorithm and effective settings',
+    evaluated.result?.algorithm === 'jarl' &&
+      evaluated.result?.settings?.algorithm === 'alpha_beta' &&
+      evaluated.result?.settings?.depth === 3,
+    JSON.stringify(evaluated.result?.settings ?? null),
+  );
+  check(
+    'Jarl has no neural inference evidence',
+    evaluated.result?.evidence?.inferenceObserved === false &&
+      evaluated.result?.evidence?.observedPlacement === 'none',
+    JSON.stringify(evaluated.result?.evidence ?? null),
+  );
   check('no neural model was required for Jarl', evaluated.result?.model === null);
-  check('provider placement is honest', evaluated.result?.provider?.gpuExecutionVerified === false);
+  check(
+    'classical Jarl has no neural provider claim',
+    evaluated.result?.evidence?.gpuExecutionVerified === false &&
+      evaluated.result?.evidence?.requestedProvider === null,
+  );
   check(
     'runtime assets came from the application origin',
     observed
@@ -188,9 +261,33 @@ try {
   );
   report.requests = {
     runtimeAssets: observed.filter((url) => url.includes('/browser-analysis/runtime/')).length,
-    modelArtifacts: observed.filter((url) => url.includes('/api/browser-analysis/models/')).length,
+    modelArtifacts: observed.filter(
+      (url) => url.includes('/api/browser-analysis/models/') && url.endsWith('/artifact'),
+    ).length,
+    modelMetadata: observed.filter(
+      (url) =>
+        url.includes('/api/browser-analysis/models/') && !url.endsWith('/artifact'),
+    ).length,
     ordinaryPage: ordinaryRequests.length,
   };
+  if (neural) {
+    check(
+      'one cold model artifact transfer is sufficient for initialization and reuse',
+      report.requests.modelArtifacts === 1,
+      JSON.stringify(report.requests),
+    );
+  }
+  if (evaluated.previousRuntimeAsset) {
+    const asset = evaluated.previousRuntimeAsset;
+    check(
+      'a retained runtime identity still serves its own immutable bytes',
+      asset.status === 200 &&
+        asset.digest === asset.expected &&
+        asset.bytes === asset.expectedBytes,
+      JSON.stringify(asset),
+    );
+    report.previousRuntime = asset;
+  }
   report.runtime = {
     runtimeId: evaluated.status.runtimeId,
     pins: evaluated.availability.runtime?.pins ?? null,

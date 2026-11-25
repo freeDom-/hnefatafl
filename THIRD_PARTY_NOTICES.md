@@ -134,10 +134,16 @@ administrator build/activation; it is not part of the ordinary frontend bundle.
 | CPython standard library (inside Pyodide) | 3.12.x | PSF-2.0 | Inside the Pyodide bundle |
 
 The exact asset digests are recorded in `hnefatafl/browser_pins.py`; staging fails
-closed on any mismatch. The required license texts are source-controlled under
+closed on any mismatch, and a self-consistent manifest cannot substitute a
+different upstream binary (both the file inventory and declared upstream digests
+are re-bound to the pins). The required license texts are source-controlled under
 `hnefatafl/browser_licenses/` (MPL-2.0 for Pyodide, MIT for ONNX Runtime, PSF-2.0
 for CPython) and are included in every staged runtime under `licenses/`, covered
-by the runtime manifest digests. MPL-2.0 applies to Pyodide itself and does not
+by the runtime manifest digests. The pinned Pyodide distribution embeds further
+third-party components governed by Pyodide's own distribution notices; the project
+ships the core MPL/PSF texts and relies on the pinned upstream distribution for its
+complete notice set. This remains an owner/licensing review item for any wider
+redistribution; no component is relicensed under the project license. MPL-2.0 applies to Pyodide itself and does not
 relicense first-party project code; the project does not relicense any
 third-party component. `onnx`/`onnxruntime` Python packages remain optional
 administrator-side export/validation tooling and are not distributed to browsers.

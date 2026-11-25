@@ -541,8 +541,13 @@ HNEFATAFL_DATA_DIR=/var/lib/hnefatafl make browser-runtime-status
 Then set `HNEFATAFL_BROWSER_ANALYSIS_ENABLED=1` in the service configuration and
 restart. The enabled CSP adds only `script-src 'self' 'wasm-unsafe-eval'` and
 `worker-src 'self'`; disabled deployments keep the existing strict policy.
-Runtime assets are served from the application origin with immutable caching;
-model downloads are authenticated, streamed, `no-store` and digest-verified.
+Runtime assets are served from the application origin with immutable caching and
+per-identity snapshot verification; model downloads are authenticated, streamed,
+`no-store`, digest-verified and may bind the immutable artifact version with
+`?version=<sha256>` (stale versions return 404). Retained runtime identities keep
+serving their own bytes while present; pruning makes their URLs return a controlled
+404. Source-checkout (`0+local`) runtime staging requires the explicit
+`--development` flag and is never treated as production compatibility.
 
 Behavior across installation, update and rollback:
 
@@ -556,7 +561,9 @@ Behavior across installation, update and rollback:
   runtime. Re-run `build`/`activate`; `python -m hnefatafl.browser_runtime
   --data-dir ... prune --keep 2` removes inactive versions.
 - Backups: the existing stopped-writer full data-root snapshot already covers
-  `browser_models` (publication index, artifacts, audit trail). Restore the index
+  `browser_models` (publication index, artifacts, audit trail). A failed audit/index
+  write is rolled back and reported as `PUBLICATION_IO`; retry after fixing storage.
+  Restore the index
   and its content-addressed artifacts together. `browser_runtime` is reproducible
   from pinned inputs and can be excluded from a backup to save space, but then it
   must be staged again after restore.

@@ -15,6 +15,12 @@
  */
 import { BrowserAnalysisError, LIMITS } from './contracts';
 
+export interface AdmissionResult {
+  retained: boolean;
+  persistent: boolean;
+  reason: 'stored' | 'quota-exceeded' | 'storage-unavailable';
+}
+
 export interface StoredArtifact {
   key: string;
   publicationId: string | null;
@@ -227,6 +233,8 @@ export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
 
 /** Content-addressed cache with quota awareness, LRU eviction and verification. */
 export class ArtifactCache {
+  private chain: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly store: ArtifactStore,
     private readonly options: {
@@ -253,54 +261,74 @@ export class ArtifactCache {
   }
 
   /**
-   * Admit a fully downloaded, digest-verified artifact. Evicts least-recently
-   * used entries first; never evicts the incoming key's own older copy.
+   * Admit a fully downloaded, digest-verified artifact.
+   *
+   * Admissions are serialized so concurrent callers cannot each observe spare
+   * quota and jointly exceed the byte or entry limits. The incoming key's own
+   * older copy is replaced without evicting other entries. Storage failure is
+   * reported (`retained:false`) rather than breaking the download; the
+   * application remains usable without persistent retention.
    */
-  async admit(
+  admit(
     key: string,
     bytes: ArrayBuffer,
     meta: { publicationId?: string; displayName?: string },
-  ): Promise<void> {
+  ): Promise<AdmissionResult> {
+    const queued = this.chain.then(() => this.admitNow(key, bytes, meta));
+    this.chain = queued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queued;
+  }
+
+  private async admitNow(
+    key: string,
+    bytes: ArrayBuffer,
+    meta: { publicationId?: string; displayName?: string },
+  ): Promise<AdmissionResult> {
     if (bytes.byteLength > this.maxBytes) {
-      throw new BrowserAnalysisError('quota-exceeded', 'Artifact exceeds the storage quota');
+      return { retained: false, persistent: this.persistent, reason: 'quota-exceeded' };
     }
     try {
-      let entries = (await this.store.list()).sort((a, b) => a.lastUsed - b.lastUsed);
+      const entries = (await this.store.list()).sort((a, b) => a.lastUsed - b.lastUsed);
+      const existing = entries.find((entry) => entry.key === key);
       let total = entries.reduce((sum, entry) => sum + entry.size, 0);
+      let count = entries.length;
+      if (existing) total -= existing.size;
+      else count += 1;
+      const evictable = entries.filter((entry) => entry.key !== key);
       while (
-        (total + bytes.byteLength > this.maxBytes || entries.length >= this.maxEntries) &&
-        entries.length > 0
+        (total + bytes.byteLength > this.maxBytes || count > this.maxEntries) &&
+        evictable.length > 0
       ) {
-        const victim = entries.find((entry) => entry.key !== key) ?? entries[0];
+        const victim = evictable.shift()!;
         await this.store.remove(victim.key);
         total -= victim.size;
-        entries = entries.filter((entry) => entry.key !== victim.key);
+        count -= 1;
+      }
+      if (total + bytes.byteLength > this.maxBytes || count > this.maxEntries) {
+        return { retained: false, persistent: this.persistent, reason: 'quota-exceeded' };
       }
       await this.store.put(key, bytes, meta);
-      // Stamp admission with the cache clock so LRU ordering is deterministic and
-      // consistent between admissions and reuses.
       await this.store.touch(key, this.options.now?.() ?? Date.now()).catch(() => undefined);
-    } catch (error) {
-      if (error instanceof BrowserAnalysisError) throw error;
-      // A quota error from the browser storage implementation, a private-mode
-      // restriction or a closed database degrades to a non-persistent cache.
-      throw new BrowserAnalysisError(
-        'quota-exceeded',
-        'Browser storage could not retain the artifact',
-        true,
-      );
+      return { retained: true, persistent: this.persistent, reason: 'stored' };
+    } catch {
+      // Quota error, private-mode restriction or closed database: keep the
+      // downloaded bytes usable for this operation but do not claim retention.
+      return { retained: false, persistent: this.persistent, reason: 'storage-unavailable' };
     }
   }
 
   /**
    * Return verified bytes, deleting a corrupted persisted copy. A cache miss is
-   * `null`; a digest mismatch is invalidated and reported as a miss so the caller
-   * can download again.
+   * `null`; a size or digest mismatch is invalidated and reported as a miss.
    */
   async getVerified(
     key: string,
     digest: string,
     digestFn: DigestFn = sha256Hex,
+    expectedBytes?: number,
   ): Promise<ArrayBuffer | null> {
     let bytes: ArrayBuffer | null;
     try {
@@ -309,6 +337,10 @@ export class ArtifactCache {
       return null;
     }
     if (!bytes) return null;
+    if (expectedBytes !== undefined && bytes.byteLength !== expectedBytes) {
+      await this.remove(key);
+      return null;
+    }
     const actual = await digestFn(bytes);
     if (actual !== digest) {
       await this.remove(key);

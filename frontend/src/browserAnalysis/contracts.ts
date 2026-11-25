@@ -11,8 +11,17 @@ export const MODEL_MANIFEST_SCHEMA = 1;
 export const BROWSER_ANALYSIS_SCHEMA = 1;
 export const ENCODER_VERSION = 'six-plane-v1';
 export const SEARCH_PROTOCOL = 1;
+export const BRIDGE_PROTOCOL = 1;
+export const DRIVER_VERSION = 1;
+export const SEARCH_ALGORITHM = 'neural-mcts-puct-v1';
+export const ARCHITECTURE = 'tafl-policy-value-v1';
 export const ONNX_RUNTIME_WEB_VERSION = '1.22.0';
 export const PYODIDE_VERSION = '0.27.7';
+export const MAX_RUNTIME_FILES = 4096;
+/** Classical Jarl execution and neural MCTS are distinct algorithms. */
+export type AnalysisAlgorithm = 'jarl' | 'neural_mcts';
+export const JARL_ALGORITHM: AnalysisAlgorithm = 'jarl';
+export const NEURAL_ALGORITHM: AnalysisAlgorithm = 'neural_mcts';
 
 /** Conservative application-level limits (bytes unless noted). */
 export const LIMITS = {
@@ -27,8 +36,12 @@ export const LIMITS = {
   maxSearches: 1,
   maxSimulations: 4096,
   maxTimeLimitSeconds: 10,
+  /** Classical bridge/client ceiling; neural MCTS has its own cooperative limit. */
+  maxClassicalBudgetSeconds: 5,
+  maxNeuralBudgetSeconds: 10,
   initTimeoutMs: 45_000,
   maxJobTimeoutMs: 5_000,
+  neuralWatchdogMs: 20_000,
   shutdownTimeoutMs: 5_000,
 } as const;
 
@@ -116,18 +129,22 @@ export interface RuntimeFile {
   sha256: string;
 }
 
+export interface RuntimePins {
+  pyodide: string;
+  onnxruntimeWeb: string;
+  encoderVersion: string;
+  driverVersion: number;
+  searchProtocol: number;
+  searchAlgorithm: string;
+  bridgeProtocol: number;
+  architecture: string;
+  applicationVersion: string;
+}
+
 export interface RuntimeManifest {
   schema: number;
   runtimeId: string;
-  pins: {
-    pyodide: string;
-    onnxruntimeWeb: string;
-    encoderVersion: string;
-    driverVersion: number;
-    searchProtocol: number;
-    bridgeProtocol: number;
-    applicationVersion: string;
-  };
+  pins: RuntimePins;
   files: RuntimeFile[];
   totalBytes: number;
   basePath: string;
@@ -171,25 +188,57 @@ export interface Availability {
 }
 
 export type ProviderRequest = 'wasm' | 'webgpu';
+export type ObservedPlacement =
+  | 'wasm'
+  | 'webgpu-session-unverified'
+  | 'webgpu-mixed'
+  | 'cpu-fallback'
+  | 'placement-unknown'
+  | 'none';
 
 export interface SearchRequest {
   state: Record<string, unknown>;
+  /** Explicit algorithm selection: Jarl alpha-beta or neural MCTS. */
+  algorithm: AnalysisAlgorithm;
+  /** Optional model-free compatible settings; effective settings are returned. */
   settings?: Record<string, unknown>;
   model?: ModelManifest;
   provider?: ProviderRequest;
   trace?: boolean;
 }
 
+export interface SearchExecutionEvidence {
+  /** Classical Pyodide execution is distinct from neural inference placement. */
+  executionRuntime: 'pyodide';
+  requestedProvider: ProviderRequest | null;
+  observedPlacement: ObservedPlacement;
+  gpuExecutionVerified: boolean;
+  /** `none` when the search completed without any neural inference. */
+  inferenceObserved: boolean;
+  inferences: number;
+  completedSimulations: number | null;
+  completionReason: string | null;
+}
+
 export interface SearchResult {
   analysis: Record<string, unknown>;
-  provider: {
-    requested: ProviderRequest;
-    placement: 'wasm' | 'webgpu-session-unverified' | 'cpu-fallback' | 'placement-unknown';
-    gpuExecutionVerified: false;
-  };
+  algorithm: AnalysisAlgorithm;
+  /** Effective validated settings actually handed to the engine. */
+  settings: Record<string, unknown>;
+  evidence: SearchExecutionEvidence;
   model: { sha256: string; ruleset: string; size: number } | null;
+  positionIdentity: string | null;
+  searchId: string | null;
   elapsedMs: number;
   authoritative: false;
+}
+
+export interface ModelDownloadResult {
+  sha256: string;
+  bytes: number;
+  fromCache: boolean;
+  retained: boolean;
+  persistent: boolean;
 }
 
 export interface DownloadProgress {
@@ -203,6 +252,8 @@ export interface RuntimeStatus {
   runtimeId: string | null;
   /** Effective engine identity reported by the initialized worker. */
   engine: Record<string, unknown> | null;
-  provider: SearchResult['provider'] | null;
+  evidence: SearchExecutionEvidence | null;
+  /** Effective settings from the most recent completed search. */
+  lastSettings: Record<string, unknown> | null;
   error: { code: BrowserAnalysisErrorCode; message: string; retryable: boolean } | null;
 }
