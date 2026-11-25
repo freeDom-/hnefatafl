@@ -421,6 +421,28 @@ grant("accounts", "PATCH", "/api/online/timeout-gate")
 grant(
     "play",
     "GET",
+    "/api/leagues/current",
+    "/api/leagues/seasons",
+    "/api/leagues/progress",
+    "/api/leagues/standings",
+    "/api/leagues/history",
+    "/api/leagues/queue",
+    "/api/leagues/active-game",
+)
+grant(
+    "play", "POST", "/api/leagues/queue", "/api/leagues/queue/cancel", "/api/leagues/queue/discard"
+)
+grant("accounts", "GET", "/api/leagues/admin/health", "/api/leagues/admin/audit")
+grant(
+    "accounts",
+    "POST",
+    "/api/leagues/admin/matchmaking",
+    "/api/leagues/admin/queue/cancel",
+    "/api/leagues/admin/seasons/{season_id}/rebuild",
+)
+grant(
+    "play",
+    "GET",
     "/api/player-tournaments",
     "/api/player-tournaments/{tournament_id}",
     "/api/player-tournaments/{tournament_id}/bracket",
@@ -564,6 +586,8 @@ class SecurityBoundary:
         route_path = getattr(route, "path", "")
         permission = POLICY.get((method, route_path), "deny")
         online_mutation = method not in SAFE and route_path.startswith("/api/online/")
+        league = route_path.startswith("/api/leagues/")
+        league_mutation = method not in SAFE and league
         profile_mutation = method not in SAFE and route_path.startswith("/api/profile")
         personal_mutation = method not in SAFE and route_path.startswith("/api/personal/")
         if (
@@ -571,10 +595,13 @@ class SecurityBoundary:
             or profile_mutation
             or personal_mutation
             or online_mutation
+            or league_mutation
         ):
             size_error = (
                 "Online request too large"
                 if online_mutation
+                else "League request too large"
+                if league_mutation
                 else "Profile request too large."
                 if profile_mutation
                 else "Progression request too large."
@@ -643,6 +670,11 @@ class SecurityBoundary:
             if not allowed(account, permission):
                 status = 404 if route_path == "/{path:path}" and path.startswith("/api") else 403
                 return await JSONResponse({"detail": "Access denied"}, status)(scope, receive, send)
+        expected_account = request.headers.get("x-league-account") if league else None
+        if expected_account is not None and (account is None or account["id"] != expected_account):
+            return await JSONResponse(
+                {"detail": "League session changed.", "code": "league_session_changed"}, 409
+            )(scope, receive, send)
         if method not in SAFE and permission != "worker":
             origin = request.headers.get("origin")
             expected = self.auth.settings.public_url or str(request.base_url).rstrip("/")
@@ -666,12 +698,14 @@ class SecurityBoundary:
                 return await JSONResponse(
                     {"detail": "Login requires JSON and a same-origin Origin header"}, 403
                 )(scope, receive, send)
-            if online_mutation and (
+            if (online_mutation or league_mutation) and (
                 not origin
                 or request.headers.get("content-type", "").split(";")[0] != "application/json"
             ):
+                feature = "League" if league_mutation else "Online"
                 return await JSONResponse(
-                    {"detail": "Online actions require JSON and a same-origin Origin header"}, 403
+                    {"detail": f"{feature} actions require JSON and a same-origin Origin header"},
+                    403,
                 )(scope, receive, send)
 
         context = principal.set(account)
@@ -686,7 +720,11 @@ class SecurityBoundary:
                     fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 except BlockingIOError:
                     return await JSONResponse(
-                        {"detail": "Deployment in progress. Please retry shortly."}, 503
+                        {
+                            "detail": "Deployment in progress. Please retry shortly.",
+                            **({"code": "league_deployment_locked"} if league_mutation else {}),
+                        },
+                        503,
                     )(scope, receive, send)
             if method == "POST" and route_path in ACCOUNT_ACTIONS and self.auth.account_requests:
                 try:
@@ -718,6 +756,10 @@ def attach_auth(app, store):
 
     @app.exception_handler(RequestValidationError)
     async def safe_validation(request: Request, error: RequestValidationError):
+        if request.url.path.startswith("/api/leagues/"):
+            return JSONResponse(
+                {"detail": "Invalid league request.", "code": "league_invalid_request"}, 422
+            )
         if request.url.path.startswith(
             ("/api/auth/", "/api/online/", "/api/profile", "/api/player-tournaments")
         ):

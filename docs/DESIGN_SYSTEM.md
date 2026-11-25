@@ -22,6 +22,9 @@ Never replace desktop gameplay navigation with the old horizontal navbar.
 The theme label sits immediately left of its select, vertically centred in both
 English and German. Language stays beside the account menu. Skip links, route focus,
 keyboard controls, replay controls and visible focus indicators remain functional.
+The compact Arena bar uses two rows through 440 CSS px to keep all seven
+destinations readable. Its reserved space follows the rendered height at every
+interface scale. The Workshop compact bar uses one row.
 
 The Great Hall prioritizes introduction/status, hero and real board, selected profile,
 four standing cards, bounded game previews, compact leaderboard and recent records.

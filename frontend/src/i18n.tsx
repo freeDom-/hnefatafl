@@ -14,6 +14,7 @@ import online from './locales/de-online';
 import accounts from './locales/de-accounts';
 import personal from './locales/de-personal';
 import profile from './locales/de-profile';
+import leagues from './locales/de-leagues';
 
 export type Language = 'en' | 'de';
 export type TranslationValues = Record<string, string | number>;
@@ -35,6 +36,7 @@ const dictionary = {
   ...personal,
   ...statistics,
   ...profile,
+  ...leagues,
 };
 let current: Language = 'en';
 const listeners = new Set<() => void>();

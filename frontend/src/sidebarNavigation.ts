@@ -1,10 +1,8 @@
-/** Desktop-rail information architecture from the approved Arena references.
- * Real destinations reuse the canonical `workspaceNavigation` ids and hrefs, so
- * `aria-current` and every deep link keep working. Entries without a built route
- * are explicit placeholders rather than links to a fabricated page. */
+import { LEAGUES_DESTINATION } from './workspaceNavigation';
+
+/** Desktop-rail information architecture from the approved Arena references. */
 export type SidebarItem =
   | { kind: 'destination'; id: string; label: string; href: string }
-  | { kind: 'placeholder'; id: string; label: string }
   | { kind: 'group'; id: string; label: string; children: SidebarItem[] };
 
 export const ARENA_SIDEBAR_ITEMS: SidebarItem[] = [
@@ -24,7 +22,7 @@ export const ARENA_SIDEBAR_ITEMS: SidebarItem[] = [
         label: 'Player tournaments',
         href: '/player-tournaments',
       },
-      { kind: 'placeholder', id: 'leagues', label: 'Leagues' },
+      { kind: 'destination', ...LEAGUES_DESTINATION },
     ],
   },
   { kind: 'destination', id: 'archive', label: 'Hall of records', href: '/archive' },

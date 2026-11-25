@@ -16,6 +16,7 @@ export function safeDestination(value: string | null): string {
     '/training',
     '/tournaments',
     '/player-tournaments',
+    '/leagues',
     '/archive',
     '/online',
     '/watch',

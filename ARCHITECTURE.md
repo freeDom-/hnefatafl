@@ -18,10 +18,11 @@ human tournament UI, durable settlement, indexed scheduled starts, creator
 ownership and quotas, shared online clocks, and sequential/parallel matches.
 Workshop consolidation is merged in PR #92, deferred feature loading and bundle
 budgets in PR #93, and the disposable backend read benchmark in PR #97 with
-benchmark hardening in PR #105. Leagues remain a draft implementation in PR #99.
+benchmark hardening in PR #105. PR #99 adds [League Arena](docs/LEAGUES.md)
+through the authenticated `/leagues` route.
 Browser analysis is a merged isolated prototype (#89) plus merged Phase 1 research
 (#104); it is not a production analysis executor. The canonical migration
-head is schema 22. See the
+head on the League branch is schema 23. See the
 [current completeness matrix](docs/designs/arena-current-completeness.md),
 [current Arena contracts](docs/designs/arena-v2-contracts.md) and
 [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
@@ -72,6 +73,8 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [tournaments.py](hnefatafl/tournaments.py), [tournament_statistics.py](hnefatafl/tournament_statistics.py), [openings.py](hnefatafl/openings.py) | Separate tournament lifecycle, incremental role statistics and reproducible legal openings |
 | [player_tournament_settlement.py](hnefatafl/player_tournament_settlement.py) | Durable result outbox and indexed due-start consumer; bounded transactional starts/advancement and restart reconciliation without a browser |
 | [player_tournaments.py](hnefatafl/player_tournaments.py), [player_tournament_api.py](hnefatafl/player_tournament_api.py) | Double-elimination human tournaments over authoritative online games: bracket derivation, idempotent advancement, disputes/rebuilds and authenticated bounded projections |
+| [leagues.py](hnefatafl/leagues.py), [league_policy.py](hnefatafl/league_policy.py), [league_migrations.py](hnefatafl/league_migrations.py) | Matchmaking, season policy, official online game provenance and transactional per-ruleset projections |
+| [league_api.py](hnefatafl/league_api.py), [league_worker.py](hnefatafl/league_worker.py), [league_administration.py](hnefatafl/league_administration.py) | Authenticated League reads and writes, bounded background processing and resumable administrative recovery |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded TAR.GZ job migration with legacy ZIP import, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
 | [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, shared notifications, localization and appearance |
@@ -225,10 +228,28 @@ re-derives the whole bracket from the authoritative games and unlinks legs whose
 participants no longer match. The canonical migration chain carries schema 17
 (progression: achievement/portrait catalogs, awards, entitlements and the selected
 portrait), schema 18 (player tournaments), schema 19 (tournament queue and planned
-dates), schema 20 (account-scoped replay-analysis receipts) and schema 21
-(automatic award reconciliation). Draft PR #99 proposes schema 22 on its own
-branch; that number is not reserved on `main`.
+dates), schema 20 (account-scoped replay-analysis receipts), schema 21
+(automatic award reconciliation), schema 22 (synchronized modern tournament
+rounds and schedule generations) and schema 23 (League Arena).
 See [Player tournaments](docs/PLAYER_TOURNAMENTS.md).
+
+## League Arena
+
+Explicit authenticated queue requests seat two eligible accounts through the
+existing rated online game authority. Pairing, provenance, queue transitions
+and reserved seats commit in one guarded SQLite write. The normal online result
+transaction durably enqueues league work alongside the authoritative rating
+event. A lifespan-owned worker advances matchmaking and consumes due results
+without browser activity. Queue expiry prevents new pairings in an old season
+while already seated games can finish during that season's grace period.
+
+Season standings and personal progress are derived from ordered league
+contributions. The latest appended eligible result can update the projection
+directly. Earlier results, corrections and withdrawals replay the affected
+ledger in order to preserve the per-result zero floor. Administrator recovery
+reconstructs the projection from official league provenance and the effective
+online and rating records. Play and replay use existing authorized online
+routes. See [league policy, API and recovery](docs/LEAGUES.md).
 
 ## Training execution and inference
 

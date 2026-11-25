@@ -120,10 +120,10 @@ def test_online_downgrade_and_unknown_future_restore_are_refused(tmp_path):
 
 
 @pytest.mark.parametrize("from_version", [16, 17])
-def test_combined_upgrade_reaches_21_with_all_feature_tables(tmp_path, from_version):
+def test_combined_upgrade_reaches_22_with_all_feature_tables(tmp_path, from_version):
     # A schema-16 database predates both feature sets; a schema-17 database has
     # the progression tables but not the tournaments. Both upgrade paths must
-    # reach 21 with every progression, tournament and settlement table and append-only
+    # reach 22 with every progression, tournament, league and settlement table and append-only
     # trigger present, without renumbering either shipped migration.
     store = Store(tmp_path / "db.sqlite3")
     with store.connection() as c:

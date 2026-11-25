@@ -57,7 +57,8 @@ function bottomNavigationMetrics(page: Page) {
 
 test.describe('one primary navigation per viewport', () => {
   for (const viewport of [
-    { name: 'portrait phone', width: 390, height: 844, wrap: 'nowrap', reserved: 56 },
+    { name: 'wide phone', width: 441, height: 844, wrap: 'nowrap', reserved: 56 },
+    { name: 'portrait phone', width: 390, height: 844, wrap: 'wrap', reserved: 90 },
     { name: 'narrow phone', width: 320, height: 568, wrap: 'wrap', reserved: 89 },
   ]) {
     test(`shows only the compact bottom navigation on a ${viewport.name}`, async ({ page }) => {
@@ -141,6 +142,7 @@ test('the compact bottom navigation reaches every destination in both workspaces
   for (const [destination, path] of [
     ['play', null],
     ['online', '/online'],
+    ['leagues', '/leagues'],
     ['statistics', '/statistics'],
     ['leaderboard', '/leaderboard'],
     ['archive', '/archive'],
@@ -215,10 +217,15 @@ test('keeps a workshop section anchor on the route that owns it', async ({ page 
 
 test('reserves the bottom strip only where a bottom navigation exists', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ['/dashboard', '/statistics', '/training']) {
+  for (const [path, reserved] of [
+    ['/dashboard', 90],
+    ['/statistics', 90],
+    ['/leagues', 90],
+    ['/training', 56],
+  ] as const) {
     await page.goto(path);
     await expect(page.locator(bottomNav), path).toBeVisible();
-    expect(await reservedBottomSpace(page), path).toBe(56);
+    expect(await reservedBottomSpace(page), path).toBe(reserved);
   }
 
   // Signed out there is no bottom navigation, so no strip may be reserved.
@@ -282,6 +289,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'The Great Hall',
       play: 'Battlefield',
       online: 'Online Play',
+      leagues: 'Leagues',
       statistics: 'Statistics',
       leaderboard: 'Leaderboard',
       'player-tournaments': 'Player tournaments',
@@ -292,6 +300,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'Die große Halle',
       play: 'Schlachtfeld',
       online: 'Online spielen',
+      leagues: 'Ligen',
       statistics: 'Statistik',
       leaderboard: 'Rangliste',
       'player-tournaments': 'Spielerturniere',
@@ -304,6 +313,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'The Great Hall',
       play: 'Battlefield',
       online: 'Online Play',
+      leagues: 'Leagues',
       statistics: 'Statistics',
       leaderboard: 'Leaderboard',
       archive: 'Hall of records',
@@ -312,6 +322,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'Die große Halle',
       play: 'Schlachtfeld',
       online: 'Online spielen',
+      leagues: 'Ligen',
       statistics: 'Statistik',
       leaderboard: 'Rangliste',
       archive: 'Halle der Aufzeichnungen',
@@ -322,6 +333,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'Great Hall',
       play: 'Battlefield',
       online: 'Online',
+      leagues: 'Leagues',
       statistics: 'Stats',
       leaderboard: 'Trials',
       archive: 'Replays',
@@ -330,6 +342,7 @@ const APPROVED_LABELS: Record<NavKind, Record<NavLanguage, Record<string, string
       dashboard: 'Große Halle',
       play: 'Schlachtfeld',
       online: 'Online',
+      leagues: 'Ligen',
       statistics: 'Statistik',
       leaderboard: 'Wettstreit',
       archive: 'Wiederholungen',
@@ -686,8 +699,15 @@ test('compact navigation height tracks text resize and keeps Workshop unchanged'
   test.setTimeout(180000);
   const compact = APPROVED_LABELS.compact;
 
-  for (const width of [320, 360, 380, 390]) {
-    await page.setViewportSize({ width, height: width === 390 ? 844 : 640 });
+  for (const [width, rows] of [
+    [320, 2],
+    [360, 2],
+    [380, 2],
+    [390, 2],
+    [440, 2],
+    [441, 1],
+  ]) {
+    await page.setViewportSize({ width, height: width >= 390 ? 844 : 640 });
     await page.goto('/dashboard');
     await setNavigationDensity(page, 'default');
     for (const rootSize of [16, 24, 32]) {
@@ -704,14 +724,14 @@ test('compact navigation height tracks text resize and keeps Workshop unchanged'
         await page.locator('.language-select select').selectOption(language);
         const context = `${width}px-root-${rootSize}-${language}`;
         const nav = primaryNavigation(page);
-        await expect(nav.locator('a'), `${context}: all Arena destinations`).toHaveCount(6);
+        await expect(nav.locator('a'), `${context}: all Arena destinations`).toHaveCount(7);
         const metrics = await bottomNavigationMetrics(page);
         expect(metrics, `${context}: bottom navigation geometry`).not.toBeNull();
         expect(
           Math.abs(metrics!.height - metrics!.reserved),
           `${context}: navigation and reserved height stay synchronized`,
         ).toBeLessThanOrEqual(1);
-        expect(metrics!.rows, `${context}: narrow Arena rows`).toBe(width <= 380 ? 2 : 1);
+        expect(metrics!.rows, `${context}: responsive Arena rows`).toBe(rows);
         expect(
           metrics!.rowHeights.every((height) => height >= 44),
           `${context}: navigation row heights`,
@@ -876,10 +896,11 @@ const NAV_VIEWPORTS: readonly NavViewport[] = [
   { name: '1440-desktop', width: 1440, height: 900, kind: 'sidebar' },
 ];
 
-// Highest-risk scale/viewport pairs: the Large scale grows every label, and the
-// German compact names are longest on a 320px phone and the tablet header.
+// Large scale stresses both compact arrangements and the tablet header.
 const LARGE_RISK_VIEWPORTS: readonly NavViewport[] = [
   { name: '320-phone', width: 320, height: 568, kind: 'compact' },
+  { name: '390-phone', width: 390, height: 844, kind: 'compact' },
+  { name: '441-phone', width: 441, height: 900, kind: 'compact' },
   { name: '768-tablet', width: 768, height: 1024, kind: 'header' },
 ];
 

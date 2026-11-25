@@ -39,6 +39,14 @@ export function DestinationIcon({ id }: { id: string }) {
           strokeWidth="1.6"
           strokeLinejoin="round"
         />
+      ) : id === 'leagues' ? (
+        <path
+          d="M5 4h14v9l-7 6-7-6V4Zm4 5 3 3 3-3m-6 4 3 3 3-3"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       ) : id === 'training' ? (
         <path
           d="M4 5h16v12H4Zm0 16h16M8 9h8m-8 4h5"

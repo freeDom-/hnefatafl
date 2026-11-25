@@ -90,6 +90,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* One-row layouts allocate space from the translated labels and keep the
+   * shortest labels on a 44px target. */
+  .workspace-bottom-nav[data-workspace='arena'] a {
+    flex: 1 1 auto;
+    min-width: 44px;
+    padding-inline: 2px;
+  }
   /* Reserve the bar's space only where the bar actually exists: signed-out,
      loading and permission-denied views render no bottom navigation, so they must
      not keep a phantom strip below their content. Gameplay reserves the same space
@@ -118,10 +125,6 @@
   }
 }
 
-/* Narrow devices (320–360px) keep the six Arena destinations readable without
- * capping their font size. Two rows of three keep the 44px targets and let labels
- * follow the selected interface scale; the Workshop's four destinations keep
- * their original one-row compact layout. */
 @media (max-width: 380px) {
   .workspace-bottom-nav a {
     padding-inline: 2px;
@@ -132,6 +135,10 @@
     --bottom-nav-row-padding: 6px;
     --bottom-nav-icon-size: 18px;
   }
+}
+
+/* Give all seven Arena links room for localized labels on narrow phones. */
+@media (max-width: 440px) {
   body:has(.workspace-bottom-nav[data-workspace='arena']) {
     --bottom-nav-rows: 2;
     --bottom-nav-row-min: 44px;
@@ -141,16 +148,7 @@
     flex-wrap: wrap;
   }
   .workspace-bottom-nav[data-workspace='arena'] a {
-    flex: 0 0 calc(100% / 3);
-  }
-}
-
-/* The sixth Arena destination needs a little less inline padding than the
- * four-item Workshop bar to stay on one row on wider phones. */
-@media (min-width: 381px) and (max-width: 760px),
-  (min-width: 381px) and (max-height: 480px) and (pointer: coarse) {
-  .workspace-bottom-nav[data-workspace='arena'] a {
-    padding-inline: 2px;
+    flex: 0 0 25%;
   }
 }
 
