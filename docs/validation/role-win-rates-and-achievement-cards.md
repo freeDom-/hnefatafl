@@ -28,14 +28,17 @@ schema migration, achievement definition, award, score or rating policy changed.
   scale on viewports up to 420px, the headline uses two columns with the third
   metric spanning the row and a slightly smaller value size; the detailed
   metric cards use two columns there as well. This prevents adjacent values or
-  long German labels from overlapping at 320px. Other mobile, tablet and desktop
-  layouts retain the existing three-column or inline arrangement.
+  long German labels from overlapping at 320px. The third metric uses
+  `:last-of-type`, so an optional Elo element never changes which metric spans
+  the row; Elo occupies its own full-width row below. Other mobile, tablet and
+  desktop layouts retain the existing three-column or inline arrangement.
 
 ## Automated coverage
 
-The two personal browser specs deliberately use explicit viewports in the
-Chromium project and skip the duplicate mobile-emulation project. The matrix is
-risk-based rather than a full Cartesian product.
+The desktop matrix deliberately uses explicit viewports in the Chromium project
+rather than duplicating the full matrix in the mobile-emulation project. Focused
+iPhone 13 emulation smoke tests still run for both the Statistics page and the
+Hall of Renown. The matrix is risk-based rather than a full Cartesian product.
 
 | Dimension | Covered values |
 | --- | --- |
@@ -46,6 +49,7 @@ risk-based rather than a full Cartesian product.
 | Statistics modes | Single-player and online multiplayer |
 | Online states | Brandubh with Elo and a timeout, empty Tablut, mode switches and a restored Brandubh selection |
 | Removed achievement details | English `threshold` / `highest achieved` and German `Schwelle` / `höchste erreichte` stay absent |
+| Mobile emulation | Focused iPhone 13 smoke for online Statistics with Elo and for German Hall of Renown content |
 
 The scale helper writes the persisted appearance key and resolves automatic
 scale from the canonical `appearanceCatalog.largeViewport` query. Every case
@@ -54,11 +58,16 @@ reading geometry, so a viewport resize is never assumed to change the scale.
 
 Role-rate geometry checks assert that:
 
+- the complete headline stays inside its statistics card;
+- each metric stays inside the headline;
 - each percentage value and label stays inside its metric area;
 - adjacent metrics do not overlap;
 - labels can wrap and remain at a readable size;
 - percentages are neither clipped nor ellipsis-truncated;
 - Elo stays inside the headline below the metric row;
+- at 320px Large scale the headline has two explicit grid columns, the third
+  metric spans the full row and Elo spans its own row below, both with and
+  without an Elo rating;
 - the page has no horizontal overflow;
 - the detailed table remains visible, keyboard-focusable and inside its own
   horizontal scroll region, with mobile metric cells keeping their labels and
@@ -66,8 +75,10 @@ Role-rate geometry checks assert that:
 
 The online case checks overall, attacker and defender rates, Elo, the timeout
 count, per-side rows, rule-set switching, mode switching and restoring the
-previous values without stale text. German coverage checks translated role
-labels, localized decimal percentages and the preserved timeout wording.
+previous values without stale text. A separate 320px Large German online case
+checks the two-column arrangement with and without Elo. German coverage checks
+translated role labels, localized decimal percentages and the preserved timeout
+wording.
 
 The legacy unit cases cover both role fields omitted, only one field omitted,
 explicit null rates and a genuine 0% rate next to an unavailable role. Missing
@@ -91,22 +102,24 @@ as additional redundant screenshots.
 - [King's Table, 3840×2160, automatic Large](../screenshots/role-win-rates/kings-table-3840-large.webp)
 - [Iron & Ash, 390×844 mobile, explicit Compact, English](../screenshots/role-win-rates/iron-ash-compact-mobile.webp)
 - [Saga Hall, 320×640 mobile, explicit Large, German](../screenshots/role-win-rates/saga-hall-large-mobile.webp)
+- [Saga Hall online with Elo, 320×640 mobile, explicit Large, German](../screenshots/role-win-rates/saga-hall-online-large-mobile.webp)
 - [Achievement cards, King's Table, desktop 1920](../screenshots/achievement-cards/kings-table-desktop.webp)
 - [Achievement cards, Iron & Ash, mobile 390](../screenshots/achievement-cards/iron-ash-mobile.webp)
 
 Actual visual inspection covered the 320px German Large and 390px English
-Compact statistics cards, the 3840px automatic-Large desktop card and the 320px
-German Large Hall of Renown card. The 320px inspection found the real overlap
-that prompted the two-column fallback; the repaired screenshots above are from
-the final layout.
+Compact statistics cards, the corrected 320px German Large online card with Elo,
+the 3840px automatic-Large desktop card and the 320px German Large Hall of
+Renown card. The 320px inspection found the real overlap that prompted the
+two-column fallback; the corrected online screenshot confirms the Elo row and
+the full-width defender metric in the final layout.
 
 ## Checks performed
 
 | Check | Actual local result |
 | --- | --- |
 | `pytest tests/test_personal.py -q` | 41 passed, 1 existing TestClient deprecation warning; 25.27 s. |
-| Focused frontend units (statistics, Hall, badges, Dashboard, progression and notifications) | 80 passed in 8 files; 11.06 s. |
-| `role-win-rates` and `achievement-cards` browser specs | 4 passed in Chromium (explicit viewports), 4 expected mobile-project skips; 54.6 s. |
+| Focused frontend units (statistics, Hall, badges, Dashboard, progression and notifications) | 80 passed in 8 files; 8.38 s. |
+| `role-win-rates` and `achievement-cards` browser specs | 7 passed (explicit viewport matrix plus focused mobile-emulation smoke), 7 expected project skips; 1.0 min. |
 | Existing Dashboard statistics browser case | 2 passed (desktop and mobile projects). |
 | `make lint` | Ruff, Ruff formatting, appearance-catalog sync and Prettier passed. |
 | `make typecheck` | mypy 72 source files and TypeScript passed. |

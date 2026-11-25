@@ -112,6 +112,35 @@ async function login(page: Page) {
   await expect(page.getByRole('heading', { name: 'The Great Hall', exact: true })).toBeVisible();
 }
 
+async function expectHallContent(page: Page, language: Language) {
+  const labels = LABELS[language];
+  await expect(page.getByRole('heading', { name: labels.hall })).toBeVisible();
+  await expect(page.getByRole('heading', { name: labels.deeds })).toBeVisible();
+  const cards = page.locator('.portrait-achievement-list > li');
+  await expect(cards.first()).toBeVisible();
+  const card = page.locator('[data-family="rated-wins"]');
+  await expect(card).toBeVisible();
+  await expect(card.locator('p').first()).toHaveText(labels.earnedTier);
+  await expect(card.locator('p').nth(1)).toHaveText(labels.progress);
+  await expect(card).toContainText(labels.nextMilestone);
+  await expect(card.getByText(labels.rewards)).toBeVisible();
+  await expect(card).not.toContainText(labels.threshold);
+  await expect(card).not.toContainText(labels.highest);
+  await expect(
+    page.getByRole('progressbar', { name: /(Achievement Score|Errungenschaftspunkte)/ }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /(claim|collect|sammeln|abholen)/i })).toHaveCount(
+    0,
+  );
+  for (const achievement of await cards.all()) {
+    await expect(achievement).not.toContainText(labels.threshold);
+    await expect(achievement).not.toContainText(labels.highest);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
+    true,
+  );
+}
+
 test.beforeEach(async ({ request }) => {
   expect((await request.post('http://127.0.0.1:8010/reset-login-attempts')).status()).toBe(204);
 });
@@ -129,32 +158,7 @@ test('achievement cards omit removed details across interface scales, themes and
     const density = await expectAppliedAppearance(page, current.appearance);
     expect(density, `${current.name}: production density resolution`).toBe(current.expectedDensity);
     observedDensities.add(density);
-    const labels = LABELS[current.appearance.language];
-    await expect(page.getByRole('heading', { name: labels.hall })).toBeVisible();
-    await expect(page.getByRole('heading', { name: labels.deeds })).toBeVisible();
-    const cards = page.locator('.portrait-achievement-list > li');
-    await expect(cards.first()).toBeVisible();
-    const card = page.locator('[data-family="rated-wins"]');
-    await expect(card).toBeVisible();
-    await expect(card.locator('p').first()).toHaveText(labels.earnedTier);
-    await expect(card.locator('p').nth(1)).toHaveText(labels.progress);
-    await expect(card).toContainText(labels.nextMilestone);
-    await expect(card.getByText(labels.rewards)).toBeVisible();
-    await expect(card).not.toContainText(labels.threshold);
-    await expect(card).not.toContainText(labels.highest);
-    await expect(
-      page.getByRole('progressbar', { name: /(Achievement Score|Errungenschaftspunkte)/ }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: /(claim|collect|sammeln|abholen)/i }),
-    ).toHaveCount(0);
-    for (const achievement of await cards.all()) {
-      await expect(achievement).not.toContainText(labels.threshold);
-      await expect(achievement).not.toContainText(labels.highest);
-    }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
-      true,
-    );
+    await expectHallContent(page, current.appearance.language);
     if (current.capture) {
       await page.locator('.portrait-achievements').screenshot({
         path: info.outputPath(`achievement-cards-${current.name.replaceAll(' ', '-')}.png`),
@@ -162,4 +166,20 @@ test('achievement cards omit removed details across interface scales, themes and
     }
   }
   expect([...observedDensities].sort()).toEqual(['compact', 'default', 'large']);
+});
+
+test('mobile emulation smoke: Hall keeps achievement content and omits removed labels', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'mobile', 'Focused mobile-emulation coverage.');
+  await login(page);
+  const choice: AppearanceChoice = {
+    uiTheme: 'iron-ash',
+    density: 'default',
+    language: 'de',
+  };
+  await applyAppearance(page, choice);
+  await page.goto('/portraits');
+  await expectAppliedAppearance(page, choice);
+  await expectHallContent(page, 'de');
 });

@@ -229,6 +229,15 @@ function expectInside(
   expect(inner.bottom, `${context}: bottom edge`).toBeLessThanOrEqual(outer.bottom + 1);
 }
 
+function asRect(box: { x: number; y: number; width: number; height: number }) {
+  return {
+    left: box.x,
+    right: box.x + box.width,
+    top: box.y,
+    bottom: box.y + box.height,
+  };
+}
+
 function overlaps(
   a: { left: number; right: number; top: number; bottom: number },
   b: { left: number; right: number; top: number; bottom: number },
@@ -246,6 +255,15 @@ async function expectRoleHeadline(
   const labels = ROLE_LABELS[language];
   const metrics = await metricGeometry(card);
   expect(metrics).toHaveLength(3);
+  const cardBox = await card.boundingBox();
+  const headlineBox = await card.locator('.statistics-headline').boundingBox();
+  expect(cardBox).not.toBeNull();
+  expect(headlineBox).not.toBeNull();
+  const headlineRect = asRect(headlineBox!);
+  expectInside(headlineRect, asRect(cardBox!), 'headline stays inside the statistics card');
+  for (const [index, metric] of metrics.entries()) {
+    expectInside(metric.metric, headlineRect, `metric ${index} stays inside the headline`);
+  }
   expect(metrics.map((metric) => metric.label)).toEqual([
     labels.overall,
     labels.attacker,
@@ -308,6 +326,56 @@ async function expectNoPageOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true,
   );
+}
+
+async function expectNarrowLargeGrid(card: Locator, withElo: boolean) {
+  const layout = await card.evaluate((node) => {
+    const rect = (element: Element) => {
+      const value = element.getBoundingClientRect();
+      return {
+        left: value.left,
+        right: value.right,
+        top: value.top,
+        bottom: value.bottom,
+        width: value.width,
+      };
+    };
+    const headline = node.querySelector('.statistics-headline') as HTMLElement;
+    const metrics = [...headline.querySelectorAll('.statistics-headline-metric')];
+    const elo = headline.querySelector(':scope > small');
+    return {
+      columns: getComputedStyle(headline).gridTemplateColumns,
+      headline: rect(headline),
+      metrics: metrics.map((metric) => ({
+        ...rect(metric),
+        gridColumnStart: getComputedStyle(metric).gridColumnStart,
+        gridColumnEnd: getComputedStyle(metric).gridColumnEnd,
+      })),
+      elo: elo ? rect(elo) : null,
+    };
+  });
+  expect(layout.columns.split(' ').filter(Boolean)).toHaveLength(2);
+  const [overall, attacker, defender] = layout.metrics;
+  expect(overall).toBeDefined();
+  expect(attacker).toBeDefined();
+  expect(defender).toBeDefined();
+  expect(Math.abs(overall.bottom - attacker.bottom)).toBeLessThanOrEqual(1);
+  expect(overall.right).toBeLessThanOrEqual(attacker.left + 1);
+  expect(defender.top).toBeGreaterThanOrEqual(Math.max(overall.bottom, attacker.bottom) - 1);
+  expect(Math.abs(defender.left - layout.headline.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(defender.right - layout.headline.right)).toBeLessThanOrEqual(1);
+  expect(defender.width).toBeGreaterThanOrEqual(attacker.right - overall.left - 1);
+  expect(defender.gridColumnStart).toBe('1');
+  expect(defender.gridColumnEnd).toBe('-1');
+  if (withElo) {
+    expect(layout.elo).not.toBeNull();
+    expect(layout.elo!.width).toBeGreaterThanOrEqual(layout.headline.width - 1);
+    expect(layout.elo!.top).toBeGreaterThanOrEqual(
+      Math.max(...layout.metrics.map((metric) => metric.bottom)) - 1,
+    );
+  } else {
+    expect(layout.elo).toBeNull();
+  }
 }
 
 async function expectUsableTable(card: Locator, language: Language) {
@@ -535,4 +603,76 @@ test('online role rates, Elo, timeouts and mode/ruleset changes remain current a
   await expectRoleHeadline(onlineAgain, 'de', [0.6, 1, 0]);
   await expectElo(onlineAgain, 'Elo 1537');
   await expect(onlineAgain.getByText(/Spiele mit Zeitüberschreitung: 1/)).toBeVisible();
+});
+
+test('narrow Large online headline keeps the defender metric full width with and without Elo', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === 'mobile', 'Explicit viewport coverage runs once.');
+  const routes: { single: PersonalStatistics; online: PersonalStatistics } = {
+    single: singleStatistics,
+    online: multiplayerStatistics,
+  };
+  await installStatisticsRoutes(page, routes);
+  await login(page);
+  const choice: AppearanceChoice = {
+    uiTheme: 'saga-hall',
+    density: 'large',
+    language: 'de',
+  };
+  await page.setViewportSize({ width: 320, height: 640 });
+  await applyAppearance(page, choice);
+  await page.goto('/statistics?mode=multiplayer&ruleset=brandubh');
+  await expectAppliedAppearance(page, choice);
+  let card = await statisticsCard(page);
+  await expectRoleHeadline(card, 'de', [0.6, 1, 0]);
+  await expectElo(card, 'Elo 1537');
+  await expectNarrowLargeGrid(card, true);
+  await expect(card.getByText(/Spiele mit Zeitüberschreitung: 1/)).toBeVisible();
+  await expectUsableTable(card, 'de');
+  await expectNoPageOverflow(page);
+  await captureCard(
+    page,
+    card,
+    info.outputPath('role-win-rates-320-online-large-german-with-elo.png'),
+  );
+
+  const brandubh = multiplayerStatistics.groups.find((group) => group.ruleset === 'brandubh')!;
+  routes.online = {
+    ...multiplayerStatistics,
+    groups: [{ ...brandubh, agents: undefined, rating: null }],
+  };
+  await page.goto('/statistics?mode=multiplayer&ruleset=brandubh');
+  await expectAppliedAppearance(page, choice);
+  card = await statisticsCard(page);
+  await expectRoleHeadline(card, 'de', [0.6, 1, 0]);
+  await expect(card.locator('.statistics-headline > small')).toHaveCount(0);
+  await expectNarrowLargeGrid(card, false);
+  await expect(card.getByText(/Spiele mit Zeitüberschreitung: 1/)).toBeVisible();
+  await expectUsableTable(card, 'de');
+  await expectNoPageOverflow(page);
+});
+
+test('mobile emulation smoke: online role rates, Elo and detailed table remain usable', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'mobile', 'Focused mobile-emulation coverage.');
+  await installStatisticsRoutes(page, {
+    single: singleStatistics,
+    online: multiplayerStatistics,
+  });
+  await login(page);
+  const choice: AppearanceChoice = {
+    uiTheme: 'kings-table',
+    density: 'default',
+    language: 'en',
+  };
+  await applyAppearance(page, choice);
+  await page.goto('/statistics?mode=multiplayer&ruleset=brandubh');
+  await expectAppliedAppearance(page, choice);
+  const card = await statisticsCard(page);
+  await expectRoleHeadline(card, 'en', [0.6, 1, 0]);
+  await expectElo(card, 'Elo 1537');
+  await expectUsableTable(card, 'en');
+  await expectNoPageOverflow(page);
 });
