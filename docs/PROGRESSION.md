@@ -25,11 +25,13 @@ Unknown/retired IDs return 422, locked portraits 403, missing sessions 401.
 
 The Hall presents the introduction, ordered portrait gallery, then Deeds of Valor.
 The achievement score, percentage and milestone count sit below that heading.
-Family cards show current recorded progress, highest currently achieved threshold,
-highest permanently awarded tier, next target and incremental reward. The next
-target is the first threshold above current progress that has not already been
-awarded. A correction can reduce current progress without reducing an earned tier.
-A completed family has no further target or progress bar.
+Family cards show current recorded progress, the highest permanently awarded tier,
+next target and incremental reward. Threshold and highest-achieved values remain
+available in the API and drive eligibility, awards, scores and progress, but the
+cards do not repeat them as visible labels. The next target is the first threshold
+above current progress that has not already been awarded. A correction can reduce
+current progress without reducing an earned tier. A completed family has no
+further target or progress bar.
 
 Engraved, bronze, silver, gold and legendary treatments use shared Arena theme
 tokens and stable family runes. Server responses determine all awards. English and

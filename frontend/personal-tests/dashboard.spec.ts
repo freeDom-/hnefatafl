@@ -622,6 +622,11 @@ test('dashboard standing cards read the real ruleset statistics and link to the 
   ).toHaveClass(/primary/);
   await page.goto('/statistics?mode=single-player&ruleset=brandubh');
   await expect(page.getByRole('heading', { name: 'Your statistics' })).toBeVisible();
+  const roleMetric = (label: string) =>
+    page.locator('.statistics-headline-metric').filter({ hasText: label });
+  await expect(roleMetric('Win rate as attacker')).toContainText('100%');
+  await expect(roleMetric('Win rate as defender')).toContainText('0%');
+  await expect(page.locator('.statistics-headline-metric').first()).toContainText('20%');
   const table = page.getByRole('table', { name: 'Brandubh results by side' });
   await expect(table.getByRole('row', { name: /Overall/ })).toContainText('20 moves');
   await expect(table.getByRole('row', { name: /As attacker/ })).toContainText('18 moves');

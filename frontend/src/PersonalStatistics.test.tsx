@@ -53,6 +53,13 @@ it('compares all metrics overall and per side and expands an AI opponent', () =>
       }}
     />,
   );
+  const region = screen.getByRole('region', { name: 'Brandubh' });
+  const headline = region.querySelector('.statistics-headline') as HTMLElement;
+  expect(within(headline).getByText('Win rate')).toBeVisible();
+  expect(within(headline).getByText('Win rate as attacker').parentElement).toHaveTextContent('50%');
+  expect(within(headline).getByText('Win rate as defender').parentElement).toHaveTextContent(
+    '100%',
+  );
   const total = screen.getByRole('table', { name: 'Brandubh results by side' });
   expect(within(total).getByRole('row', { name: /As attacker/ })).toHaveTextContent('20 moves');
   expect(within(total).getByRole('row', { name: /As defender/ })).toHaveTextContent('50 moves');
@@ -61,6 +68,128 @@ it('compares all metrics overall and per side and expands an AI opponent', () =>
   fireEvent.click(screen.getByText('Shield bearer'));
   expect(screen.getByRole('table', { name: 'Shield bearer results by side' })).toBeVisible();
   expect(screen.getByText(/1 historical games/)).toBeVisible();
+});
+it('keeps role win rates distinct and renders unavailable rates as an em dash', () => {
+  const { rerender } = render(
+    <PersonalStatisticsView
+      statistics={{
+        groups: [
+          {
+            ...group,
+            played: 9,
+            completed: 9,
+            wins: 4,
+            losses: 4,
+            draws: 1,
+            win_rate: 4 / 9,
+            win_rate_attackers: 0.25,
+            win_rate_defenders: 1,
+          },
+        ],
+        coverage: { unattributed_games: 0 },
+      }}
+    />,
+  );
+  let headline = screen
+    .getByRole('region', { name: 'Brandubh' })
+    .querySelector('.statistics-headline') as HTMLElement;
+  expect(within(headline).getByText('Win rate').parentElement).toHaveTextContent('44.4%');
+  expect(within(headline).getByText('Win rate as attacker').parentElement).toHaveTextContent('25%');
+  expect(within(headline).getByText('Win rate as defender').parentElement).toHaveTextContent(
+    '100%',
+  );
+
+  rerender(
+    <PersonalStatisticsView
+      statistics={{
+        groups: [
+          {
+            ...group,
+            played: 0,
+            completed: 0,
+            wins: 0,
+            losses: 0,
+            draws: 0,
+            win_rate: null,
+            win_rate_attackers: null,
+            win_rate_defenders: null,
+          },
+        ],
+        coverage: { unattributed_games: 0 },
+      }}
+    />,
+  );
+  headline = screen
+    .getByRole('region', { name: 'Brandubh' })
+    .querySelector('.statistics-headline') as HTMLElement;
+  expect(within(headline).getByText('Win rate').parentElement).toHaveTextContent('—');
+  expect(within(headline).getByText('Win rate as attacker').parentElement).toHaveTextContent('—');
+  expect(within(headline).getByText('Win rate as defender').parentElement).toHaveTextContent('—');
+});
+type LegacyRoleField = 'win_rate_attackers' | 'win_rate_defenders';
+type LegacyPersonalStatisticGroup = Omit<PersonalStatisticGroup, LegacyRoleField> &
+  Partial<Pick<PersonalStatisticGroup, LegacyRoleField>>;
+
+/** Narrow legacy-response simulation: the fields are absent, not merely undefined. */
+function legacyGroup(
+  rates: Partial<Pick<PersonalStatisticGroup, LegacyRoleField>>,
+  omitted: LegacyRoleField[],
+): PersonalStatisticGroup {
+  const legacy: LegacyPersonalStatisticGroup = { ...group, ...rates };
+  for (const field of omitted) delete legacy[field];
+  return legacy as PersonalStatisticGroup;
+}
+
+function headlineMetric(label: string) {
+  const headline = screen
+    .getByRole('region', { name: 'Brandubh' })
+    .querySelector('.statistics-headline') as HTMLElement;
+  return within(headline).getByText(label).parentElement as HTMLElement;
+}
+
+it.each([
+  {
+    name: 'both role fields omitted',
+    rates: {},
+    omitted: ['win_rate_attackers', 'win_rate_defenders'] as LegacyRoleField[],
+    expected: ['—', '—'],
+  },
+  {
+    name: 'attacker field omitted',
+    rates: {},
+    omitted: ['win_rate_attackers'] as LegacyRoleField[],
+    expected: ['—', '100%'],
+  },
+  {
+    name: 'defender field omitted',
+    rates: {},
+    omitted: ['win_rate_defenders'] as LegacyRoleField[],
+    expected: ['50%', '—'],
+  },
+  {
+    name: 'actual 0% attacker with an unavailable defender',
+    rates: { win_rate_attackers: 0, win_rate_defenders: null },
+    omitted: ['win_rate_defenders'] as LegacyRoleField[],
+    expected: ['0%', '—'],
+  },
+  {
+    name: 'explicit null role rates',
+    rates: { win_rate_attackers: null, win_rate_defenders: null },
+    omitted: [] as LegacyRoleField[],
+    expected: ['—', '—'],
+  },
+])('renders legacy role fields safely: $name', ({ rates, omitted, expected }) => {
+  render(
+    <PersonalStatisticsView
+      statistics={{
+        groups: [legacyGroup(rates, omitted)],
+        coverage: { unattributed_games: 0 },
+      }}
+    />,
+  );
+  expect(headlineMetric('Win rate as attacker')).toHaveTextContent(expected[0]);
+  expect(headlineMetric('Win rate as defender')).toHaveTextContent(expected[1]);
+  expect(headlineMetric('Win rate')).toHaveTextContent('66.7%');
 });
 it('shows available Elo without inventing a score for an unplayed ruleset', () => {
   render(

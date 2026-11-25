@@ -140,8 +140,10 @@ pagination and filters:
   caused by an opponent's timeout.
 
 Win rate is `wins / (wins + losses + draws)`. Side-specific win rates use the same
-denominator restricted to games played on that side. Average length uses the same
-completed-game population and the existing accepted-ply ("moves") convention.
+denominator restricted to games played on that side. Each ruleset card shows the
+overall, attacker and defender win rates together, before the detailed per-side
+rows. Average length uses the same completed-game population and the existing
+accepted-ply ("moves") convention.
 Rates and averages with no eligible games render as an em dash. Unfinished games
 stay out of completed-result denominators. Lifecycle, effective result and the
 engine board outcome remain separate. Only account-scoped records enter personal
