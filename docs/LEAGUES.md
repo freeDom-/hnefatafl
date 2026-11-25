@@ -58,8 +58,9 @@ writes. Queue entries expire after ten minutes or at the UTC season boundary, wh
 comes first; cancellation does not cancel an
 already committed game. Cancellation targets its original queue request, so a
 delayed retry cannot cancel a later entry. Return the official game link when
-matching wins the race. New request IDs are limited to ten per minute and one
-hundred per UTC day per account; exact retries do not consume this budget.
+matching wins the race. New admission requests are limited to ten per minute
+and one hundred per UTC day per account. Exact retries preserve the available
+budget.
 
 Pair the oldest mutually compatible eligible entries. Both players must accept
 the rating window implied by their wait: initially 200 Elo, widening by 100 each
@@ -128,9 +129,12 @@ reconcile by reading the queue. Recovery offers an explicit retry with the
 original request data or a discard. With multiple unresolved requests, tabs
 show the first UUID in sorted order. A discard of an unseen current request
 records that UUID as cancelled and advances the generation, fencing the
-original and any sibling requests with the same expected generation. A new
-discard record shares the existing request budget. Repeated discards are
-idempotent. A committed join can still be cancelled by its original request
+original and any guarded sibling requests with the same expected generation.
+New withdrawal records have their own per-account allowance of ten per rolling
+minute and one hundred per UTC day. Exact retries and superseded discards need
+no new record. Existing request records keep their original accounting.
+The browser keeps the pending intent when withdrawal is unconfirmed. A
+committed join can still be cancelled by its original request
 unless it has already produced a game. Joining remains an explicit action.
 
 ## Results, revisions and recovery
@@ -218,8 +222,10 @@ expiry index up to the first page's server time, then scans bounded ranges for
 disabled, unverified and otherwise ineligible accounts beyond that expiry
 boundary. Each page uses live queue rows and current account eligibility.
 Removed entries disappear and restored eligibility takes effect on unread
-pages. Refresh from the first page to see newly expired entries or changes
-behind the cursor. Cancellation checks current staleness and targets the exact
+pages. **Refresh league health** and **Refresh leagues** start a new stale
+queue traversal to show newly expired entries and changes behind the cursor.
+Automatic health polling retains the current stale page. The audit keeps its
+own pagination. Cancellation checks current staleness and targets the exact
 queue request UUID.
 
 For a projection

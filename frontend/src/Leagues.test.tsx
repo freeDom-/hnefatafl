@@ -597,6 +597,142 @@ it('sends version-guarded admin commands with a reason and localizes denied stat
   expect(screen.getByRole('button', { name: 'Warteschlange beitreten' })).toBeDisabled();
 });
 
+it.each(['Refresh league health', 'Refresh leagues'])(
+  '%s restarts the stale queue traversal while polling and audit keep their own pages',
+  async (label) => {
+    vi.useFakeTimers();
+    auth.account!.permissions.push('accounts');
+    const advance = (ms = 0) => act(async () => vi.advanceTimersByTimeAsync(ms));
+    const stale = {
+      request_id: entry.request_id,
+      ruleset: 'brandubh',
+      reason: 'disabled',
+      joined_at: entry.joined_at,
+      expires_at: entry.expires_at,
+    } as const;
+    const first: LeagueHealth = {
+      ...health,
+      settlement: { ...health.settlement, pending: 1 },
+      queue: { ...health.queue, stale: [stale], stale_next_cursor: 'stale-page-2' },
+    };
+    const older: LeagueHealth = {
+      ...first,
+      queue: {
+        ...first.queue,
+        stale: [{ ...stale, request_id: 'older-entry', reason: 'unverified' }],
+        stale_next_cursor: null,
+      },
+    };
+    const reads: { cursor: string | null; signal: AbortSignal }[] = [];
+    let hold = false;
+    let finishOlder!: (data: LeagueHealth) => void;
+    let finishFirst!: (data: LeagueHealth) => void;
+    apiResponses((url, _body, _method, signal) => {
+      if (url.pathname === '/leagues/admin/audit') {
+        if (url.searchParams.get('cursor'))
+          return {
+            items: [
+              {
+                sequence: 1,
+                action: 'pause_matchmaking',
+                at: serverTime,
+                reason: 'Page two audit',
+              },
+            ],
+            next_cursor: null,
+          };
+        return { items: [], next_cursor: 'audit-page-2' };
+      }
+      if (url.pathname !== '/leagues/admin/health') return;
+      const cursor = url.searchParams.get('stale_cursor');
+      reads.push({ cursor, signal: signal! });
+      if (!hold) return cursor ? older : first;
+      return new Promise<LeagueHealth>((resolve) => {
+        if (cursor) finishOlder = resolve;
+        else finishFirst = resolve;
+      });
+    });
+    render(<Leagues />);
+    await advance();
+    const clickNext = (name: string) =>
+      fireEvent.click(
+        within(screen.getByRole('navigation', { name })).getByRole('button', { name: 'Next page' }),
+      );
+    clickNext('Stale queue pages');
+    await advance();
+    expect(screen.getByText('Email unverified')).toBeVisible();
+
+    const audit = screen.getByText('Private audit history').parentElement!;
+    audit.setAttribute('open', '');
+    fireEvent(audit, new Event('toggle'));
+    await advance();
+    clickNext('Audit pages');
+    await advance();
+    expect(screen.getByText('Page two audit')).toBeVisible();
+
+    await advance(15000);
+    expect(reads.map(({ cursor }) => cursor)).toEqual([null, 'stale-page-2', 'stale-page-2']);
+    expect(screen.getByText('Email unverified')).toBeVisible();
+    hold = true;
+    await advance(15000);
+    const refresh = screen.getByRole('button', { name: label });
+    refresh.focus();
+    fireEvent.click(refresh);
+    await advance();
+    expect(reads.map(({ cursor }) => cursor)).toEqual([
+      null,
+      'stale-page-2',
+      'stale-page-2',
+      'stale-page-2',
+      null,
+    ]);
+    expect(reads[3].signal.aborted).toBe(true);
+    expect(refresh).toHaveFocus();
+    expect(screen.getByText('Page two audit')).toBeVisible();
+    await act(async () => {
+      finishFirst({
+        ...first,
+        queue: {
+          ...first.queue,
+          expired: 1,
+          stale: [{ ...stale, request_id: 'newly-expired', reason: 'expired' }],
+        },
+      });
+      finishOlder(older);
+    });
+    expect(region('Stale league queue entries').getByText('Expired')).toBeVisible();
+    expect(screen.queryByText('Email unverified')).toBeNull();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Stale queue pages' })).getByRole('button', {
+        name: 'Previous page',
+      }),
+    ).toBeDisabled();
+  },
+);
+
+it.each([
+  [422, 'league_invalid_cursor'],
+  [409, 'league_page_changed'],
+] as const)('restarts stale queue pagination after a %s cursor error', async (status, code) => {
+  auth.account!.permissions.push('accounts');
+  const reads: (string | null)[] = [];
+  apiResponses((url) => {
+    if (url.pathname !== '/leagues/admin/health') return;
+    const cursor = url.searchParams.get('stale_cursor');
+    reads.push(cursor);
+    if (cursor) return Promise.reject(new ApiError(status, '', code));
+    return { ...health, queue: { ...health.queue, stale_next_cursor: 'stale-page-2' } };
+  });
+  const user = userEvent.setup();
+  render(<Leagues />);
+  const pages = await screen.findByRole('navigation', { name: 'Stale queue pages' });
+  await user.click(within(pages).getByRole('button', { name: 'Next page' }));
+  await user.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Retry' }));
+  await screen.findByRole('navigation', { name: 'Stale queue pages' });
+  expect(reads).toEqual([null, 'stale-page-2', null]);
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
 it('uses a localized public error message without rendering server details', async () => {
   setLanguage('de');
   apiResponses((url, _body, method) => {

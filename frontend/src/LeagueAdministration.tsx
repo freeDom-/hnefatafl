@@ -158,16 +158,20 @@ export default function LeagueAdministration({
     intervalMs: monitor ? ADMIN_POLL_INTERVAL : 0,
   });
   const health = poll.data;
-  const refresh = useCallback(() => {
+  const refresh = poll.refresh;
+  const refreshFirstPage = () => {
+    if (staleCursor) setStalePages([null]);
+    else void refresh();
+  };
+  const retry = () => {
     if (
-      staleCursor &&
       poll.error instanceof ApiError &&
-      poll.error.code === 'league_invalid_cursor'
+      ['league_invalid_cursor', 'league_page_changed'].includes(poll.error.code ?? '')
     )
-      setStalePages([null]);
-    else void poll.refresh();
-  }, [poll.error, poll.refresh, staleCursor]);
-  useLeagueRefresh(refresh);
+      refreshFirstPage();
+    else void refresh();
+  };
+  useLeagueRefresh((explicit) => (explicit ? refreshFirstPage() : retry()));
   useEffect(() => {
     if (!health) return;
     const pendingRebuilds = health.rebuilds.map((entry) => entry.season_id);
@@ -233,7 +237,6 @@ export default function LeagueAdministration({
       if (!controller.signal.aborted) {
         setAction(null);
         setChanges((previous) => previous + 1);
-        refresh();
         onChanged();
         notify.success(
           t(
@@ -246,7 +249,6 @@ export default function LeagueAdministration({
     } catch (error) {
       if (!controller.signal.aborted) {
         setFailure(error);
-        refresh();
         onChanged();
       }
     } finally {
@@ -264,7 +266,7 @@ export default function LeagueAdministration({
       <LeagueReadState
         error={poll.error}
         loading={poll.phase === 'loading'}
-        retry={refresh}
+        retry={retry}
         stale={!!health}
       />
       {health && (
@@ -379,10 +381,14 @@ export default function LeagueAdministration({
               ))}
             </ul>
           )}
-          <div className="page-toolbar">
-            <button className="button secondary" type="button" onClick={refresh}>
-              {t('Refresh league health')}
-            </button>
+        </>
+      )}
+      <div className="page-toolbar">
+        <button className="button secondary" type="button" onClick={refreshFirstPage}>
+          {t('Refresh league health')}
+        </button>
+        {health && (
+          <>
             <button
               className="button secondary"
               type="button"
@@ -408,7 +414,11 @@ export default function LeagueAdministration({
                 {t(ACTION_LABELS.rebuild)}
               </button>
             )}
-          </div>
+          </>
+        )}
+      </div>
+      {health && (
+        <>
           {health.queue.stale.length > 0 && (
             <LeagueTable label={t('Stale league queue entries')}>
               <thead>
@@ -452,12 +462,12 @@ export default function LeagueAdministration({
               next={(cursor) => setStalePages((pages) => [...pages, cursor])}
             />
           )}
-          <details onToggle={(event) => setAuditOpen(event.currentTarget.open)}>
-            <summary>{t('Private audit history')}</summary>
-            {auditOpen && <AdminAudit accountId={accountId} changes={changes} />}
-          </details>
         </>
       )}
+      <details onToggle={(event) => setAuditOpen(event.currentTarget.open)}>
+        <summary>{t('Private audit history')}</summary>
+        {auditOpen && <AdminAudit accountId={accountId} changes={changes} />}
+      </details>
       {target && (
         <Modal title={t(ACTION_LABELS[target.kind])} onClose={close} initialFocus="textarea">
           <form onSubmit={(event) => void submit(event)}>

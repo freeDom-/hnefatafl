@@ -213,7 +213,7 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
   const [displayedSeason, setDisplayedSeason] = useState<LeagueSeason | null>(null);
   const [cached, setCached] = useState<CurrentSnapshot | null>(null);
   const [historyActivity, setHistoryActivity] = useState(0);
-  const [refreshSignal, setRefreshSignal] = useState(0);
+  const [refreshSignal, setRefreshSignal] = useState({ revision: 0, explicitRevision: 0 });
   const load = useCallback(
     async (signal: AbortSignal): Promise<CurrentSnapshot> => {
       const model = await leagueApi<CurrentLeague>(
@@ -251,10 +251,16 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
     },
     [refreshCurrent],
   );
-  const refreshAll = useCallback(() => {
-    setRefreshSignal((previous) => previous + 1);
-    refreshCurrent();
-  }, [refreshCurrent]);
+  const refreshAll = useCallback(
+    (explicit = false) => {
+      setRefreshSignal((previous) => ({
+        revision: previous.revision + 1,
+        explicitRevision: previous.explicitRevision + (explicit ? 1 : 0),
+      }));
+      refreshCurrent();
+    },
+    [refreshCurrent],
+  );
   useEffect(() => {
     window.addEventListener('progression-changed', refreshCurrent);
     return () => window.removeEventListener('progression-changed', refreshCurrent);
@@ -316,7 +322,7 @@ function LeaguePage({ accountId, canAdmin }: { accountId: string; canAdmin: bool
           <button
             className="button secondary"
             type="button"
-            onClick={refreshAll}
+            onClick={() => refreshAll(true)}
             aria-busy={current.refreshing}
           >
             {t('Refresh leagues')}
