@@ -9,8 +9,10 @@ import {
   exitCode,
   newCounters,
   recordBatch,
+  recordBatchSuccess,
   recordFailure,
   recordSuccess,
+  recordWorkers,
   selectAnalysisPositions,
   telemetryRecord,
 } from "./sustained_workload_core.mjs";
@@ -55,9 +57,17 @@ const iterations = Number(option("iterations", "64"));
 const timeLimit = Number(option("time-limit", "2"));
 const exploration = Number(option("exploration", "1.4"));
 const cache = flag("cache");
+const cacheEntries = Number(
+  option("cache-entries", mode === "cache-churn" ? "4" : "8192"),
+);
+const cacheBytes = Number(
+  option("cache-bytes", String(mode === "cache-churn" ? 64 * 1024 : 64 * 1024 * 1024)),
+);
 const overwrite = flag("overwrite");
 const replacementModelFile = option("replacement-model-file", null);
 const replacementModelSha = option("replacement-model-sha256", null);
+const replacementModelFile2 = option("replacement-model-file-2", null);
+const replacementModelSha2 = option("replacement-model-sha256-2", null);
 if (!MODES.includes(mode)) {
   console.error(`sustained_workload: unsupported --mode (expected ${MODES.join(", ")})`);
   process.exit(2);
@@ -82,8 +92,13 @@ let browser = null;
 let context = null;
 let page = null;
 let model = null;
+let modelDescriptor = null;
+let originalDescriptor = null;
 let positions = [];
 let cursor = 0;
+let lastBatchStats = null;
+let pendingTransition = null;
+const replacementTargets = [];
 const counters = newCounters();
 const completionReasons = {};
 const placements = new Set();
@@ -118,14 +133,37 @@ async function loadModel({ file = null, sha256 = null } = {}) {
     },
   );
   placements.add(`${model.provider_requested}/${model.execution_placement}`);
+  const workers = await page.evaluate(() => {
+    const stats = window.neural.coordinator.workerStats();
+    return {
+      search_workers: stats.search_workers ?? 0,
+      inference_workers: window.neural.client.worker ? 1 : 0,
+    };
+  });
+  recordWorkers(counters, workers);
   if (cache) {
-    await page.evaluate(() =>
-      window.neural.client.configureInferenceCache({
-        enabled: true,
-        maxEntries: 8192,
-        maxBytes: 64 * 1024 * 1024,
-      }),
+    await page.evaluate(
+      ({ entries, bytes }) =>
+        window.neural.client.configureInferenceCache({
+          enabled: true,
+          maxEntries: entries,
+          maxBytes: bytes,
+        }),
+      { entries: cacheEntries, bytes: cacheBytes },
     );
+  }
+  modelDescriptor = {
+    file: selectedFile,
+    sha256: model.sha256,
+    ruleset: model.ruleset,
+    size: model.size,
+  };
+  if (!originalDescriptor) originalDescriptor = { ...modelDescriptor };
+  if (!replacementTargets.length) {
+    replacementTargets.push({ ...originalDescriptor });
+    replacementTargets.push({ file: replacementModelFile, sha256: replacementModelSha });
+    if (replacementModelFile2 && replacementModelSha2)
+      replacementTargets.push({ file: replacementModelFile2, sha256: replacementModelSha2 });
   }
 }
 
@@ -199,32 +237,48 @@ async function batchRound(positionsForRound) {
     async (payload) => {
       window.neural.client.enableBatching({ maxBatch: 4, maxQueue: 8 });
       const { NeuralSearchCoordinator } = await import("/search-client.js");
-      const coordinators = payload.positions.map(
-        () => new NeuralSearchCoordinator({ neural: window.neural.client }),
-      );
-      await Promise.all(coordinators.map((coordinator) => coordinator.load()));
-      const started = performance.now();
-      const outcomes = await Promise.all(
-        coordinators.map((coordinator, index) =>
-          coordinator.search({
-            state: payload.positions[index].state,
-            settings: payload.settings,
-            model: payload.model,
+      const coordinators = [];
+      try {
+        for (const _ of payload.positions) {
+          const coordinator = new NeuralSearchCoordinator({ neural: window.neural.client });
+          coordinators.push(coordinator);
+        }
+        await Promise.all(coordinators.map((coordinator) => coordinator.load()));
+        const workers = {
+          search_workers: coordinators.filter((coordinator) => coordinator.worker).length,
+          inference_workers: window.neural.client.worker ? 1 : 0,
+        };
+        const started = performance.now();
+        const outcomes = await Promise.all(
+          coordinators.map(async (coordinator, index) => {
+            const searchStarted = performance.now();
+            const outcome = await coordinator.search({
+              state: payload.positions[index].state,
+              settings: payload.settings,
+              model: payload.model,
+            });
+            return {
+              best_move: outcome.analysis?.best_move,
+              search: outcome.search,
+              settings: outcome.settings,
+              elapsed_ms: performance.now() - searchStarted,
+            };
           }),
-        ),
-      );
-      const elapsed_ms = performance.now() - started;
-      const batching = window.neural.client.batchStatistics();
-      await Promise.all(coordinators.map((coordinator) => coordinator.dispose()));
-      return {
-        batching,
-        elapsed_ms,
-        outcomes: outcomes.map((outcome) => ({
-          best_move: outcome.analysis?.best_move,
-          search: outcome.search,
-          settings: outcome.settings,
-        })),
-      };
+        );
+        const elapsed_ms = performance.now() - started;
+        return {
+          batching: window.neural.client.batchStatistics(),
+          workers,
+          elapsed_ms,
+          outcomes,
+        };
+      } finally {
+        await Promise.all(
+          coordinators.map((coordinator) =>
+            Promise.resolve(coordinator.dispose?.()).catch(() => {}),
+          ),
+        );
+      }
     },
     {
       positions: positionsForRound,
@@ -234,7 +288,55 @@ async function batchRound(positionsForRound) {
   );
 }
 
-async function telemetry() {
+async function replaceModel(position) {
+  let target = replacementTargets.length
+    ? replacementTargets[(counters.model_replacements + 1) % replacementTargets.length]
+    : null;
+  if (!target || target.sha256 === model.sha256) return false;
+  const previous = { ...modelDescriptor };
+  const previousSha = model.sha256;
+  await loadModel(target);
+  if (
+    model.ruleset !== originalDescriptor.ruleset ||
+    model.size !== originalDescriptor.size
+  ) {
+    await loadModel(previous);
+    throw new Error("replacement model ruleset changed unexpectedly");
+  }
+  if (cache) {
+    const stats = await page.evaluate(() => window.neural.client.inferenceCacheStats());
+    if ((stats?.entries ?? 0) > 0) {
+      counters.cache_invalidation_failures += 1;
+      await loadModel(previous);
+      throw new Error("inference cache was not invalidated by the model replacement");
+    }
+  }
+  let recovery;
+  try {
+    recovery = await search(position);
+    if (recovery?.best_move === undefined) throw new Error("replacement recovery has no move");
+    const counted = recordSuccess(counters, recovery);
+    completionReasons[counted.reason] = (completionReasons[counted.reason] ?? 0) + 1;
+  } catch (error) {
+    await loadModel(previous).catch(() => {});
+    throw error;
+  }
+  counters.model_replacements += 1;
+  const transition = {
+    sequence: counters.model_replacements,
+    from: previousSha,
+    to: model.sha256,
+    timestamp_ms: Date.now(),
+    recovered: true,
+    cache_invalidated: cache ? true : null,
+  };
+  modelTransitions.push(transition);
+  if (modelTransitions.length > 64) modelTransitions.shift();
+  pendingTransition = transition;
+  return true;
+}
+
+async function telemetry(final = false) {
   let live = null;
   try {
     live = await page.evaluate(async () => {
@@ -257,10 +359,27 @@ async function telemetry() {
   } catch {
     live = null;
   }
+  if (live && Number.isInteger(live.cache_evictions))
+    counters.cache_evictions = Math.max(counters.cache_evictions, live.cache_evictions);
+  if (live && Number.isInteger(live.workers))
+    recordWorkers(counters, {
+      search_workers: live.workers,
+      inference_workers: 0,
+    });
+  const extra = {
+    completion_reasons: { ...completionReasons },
+    provider_placements: [...placements],
+    workload_complete: final,
+  };
+  if (final) extra.workload_exit_status = exitCode(counters);
+  if (pendingTransition) {
+    extra.model_transition = { ...pendingTransition };
+    pendingTransition = null;
+  }
   const record = telemetryRecord(
     counters,
     { session, modelSha256: model.sha256, workload: "sustained-analysis" },
-    { completion_reasons: { ...completionReasons }, provider_placements: [...placements] },
+    extra,
   );
   if (live) {
     for (const [key, value] of Object.entries(live))
@@ -292,19 +411,8 @@ async function runIteration() {
     const outcome = await search(position);
     const result = recordSuccess(counters, outcome);
     completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
-    if (counters.completed_requests % 5 === 0) {
-      const previous = model.sha256;
-      await loadModel({ file: replacementModelFile, sha256: replacementModelSha });
-      counters.model_replacements += 1;
-      modelTransitions.push({ from: previous, to: model.sha256, at: Date.now() });
-      if (cache) {
-        const stats = await page.evaluate(() =>
-          window.neural.client.inferenceCacheStats(),
-        );
-        if ((stats?.entries ?? 0) > 0) counters.cache_invalidation_failures += 1;
-      }
-    }
-  } else if (mode === "worker-replacement" || mode === "client-disposal") {
+    if (counters.completed_requests % 5 === 0) await replaceModel(position);
+  } else if (mode === "worker-replacement") {
     const outcome = await search(position);
     const result = recordSuccess(counters, outcome);
     completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
@@ -314,23 +422,47 @@ async function runIteration() {
       await loadModel();
       counters.worker_replacements += 1;
     }
+  } else if (mode === "client-disposal") {
+    const outcome = await search(position);
+    const result = recordSuccess(counters, outcome);
+    completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
+    if (counters.completed_requests % 5 === 0) {
+      await page.evaluate(() => window.neural.shutdown("sustained probe disposal"));
+      await page.evaluate(() => window.neural.restoreAfterBfcache());
+      await loadModel();
+      counters.client_disposals += 1;
+    }
   } else if (mode === "cache-churn") {
     const outcome = await search(position);
     const result = recordSuccess(counters, outcome);
     completionReasons[result.reason] = (completionReasons[result.reason] ?? 0) + 1;
-    if (counters.completed_requests % 3 === 0) {
-      await page.evaluate(() => window.neural.client.clearInferenceCache());
-      counters.cache_clears += 1;
-    }
   } else if (mode === "batching") {
     const first = position;
     const second = await nextPosition();
     const result = await batchRound([first, second]);
+    recordBatch(counters, result.batching, lastBatchStats, result.elapsed_ms);
+    lastBatchStats = {
+      batches: result.batching.batches,
+      observed_max_batch: result.batching.observed_max_batch,
+    };
+    recordWorkers(counters, result.workers);
+    let valid = true;
     for (const outcome of result.outcomes) {
-      const counted = recordSuccess(counters, outcome);
-      completionReasons[counted.reason] = (completionReasons[counted.reason] ?? 0) + 1;
+      try {
+        const counted = recordSuccess(counters, outcome);
+        completionReasons[counted.reason] = (completionReasons[counted.reason] ?? 0) + 1;
+      } catch {
+        recordFailure(counters);
+        valid = false;
+      }
     }
-    recordBatch(counters, result.batching, result.elapsed_ms);
+    if (valid) {
+      const latencies = result.outcomes
+        .map((outcome) => outcome.elapsed_ms)
+        .filter((value) => Number.isFinite(value));
+      if (latencies.length)
+        recordBatchSuccess(counters, Math.max(...latencies));
+    }
   } else {
     const outcome = await search(position);
     const result = recordSuccess(counters, outcome);
@@ -386,6 +518,8 @@ async function run() {
       JSON.stringify({
         ready: true,
         session,
+        mode,
+        workload: "sustained-analysis",
         model_sha256: model.sha256,
         ruleset: model.ruleset,
         provider_requested: provider,
@@ -407,6 +541,7 @@ async function run() {
     await telemetry();
     if (interval > 0) await new Promise((done) => setTimeout(done, interval * 1000));
   }
+  await telemetry(true);
   const summary = {
     kind: "browser-sustained-workload",
     schema: 2,
@@ -421,6 +556,7 @@ async function run() {
     model_transitions: modelTransitions,
     duration_s: (Date.now() - started) / 1000,
     workload: "sustained-analysis",
+    workload_complete: true,
     counters,
     completion_reasons: completionReasons,
     positions: positions.map((entry) => ({ name: entry.name, kind: entry.kind })),

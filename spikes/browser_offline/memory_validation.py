@@ -33,6 +33,9 @@ PROFILES = (
     "model-reload",
     "worker-replacement",
     "independent-batching",
+    "model-replacement",
+    "client-disposal",
+    "cache-churn",
 )
 SUSTAINED_PROFILES = ("sustained-10m", "sustained-30m")
 METRICS = ("process_rss_bytes", "js_heap_used_bytes", "wasm_heap_capacity_bytes")
@@ -57,9 +60,20 @@ PROFILE_EVENTS = {
     "cancel-restart": ("cancellations", 1),
     "model-reload": ("reloads", 1),
     "worker-replacement": ("worker_replacements", 1),
+    "model-replacement": ("model_replacements", 1),
+    "client-disposal": ("client_disposals", 1),
+    "cache-churn": ("cache_evictions", 1),
     "independent-batching": ("batches", 1),
 }
-LIFECYCLE_PROFILES = ("cancel-restart", "model-reload", "worker-replacement")
+LIFECYCLE_PROFILES = (
+    "cancel-restart",
+    "model-reload",
+    "worker-replacement",
+    "model-replacement",
+    "client-disposal",
+    "cache-churn",
+    "independent-batching",
+)
 
 
 def _number(value, allow_none=True):
@@ -70,6 +84,14 @@ def _number(value, allow_none=True):
 
 def _positive_int(value) -> bool:
     return type(value) is int and value > 0
+
+
+def _hex_digest(value) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _reason_map(value, failures: list[str]) -> dict:
@@ -414,11 +436,26 @@ def validate_report(report: dict) -> dict:
             ):
                 fail(f"sample {index} telemetry identity is incomplete")
                 continue
-            if isinstance(identity, dict) and any(
-                telemetry.get(field) != identity.get(field)
-                for field in ("session_id", "model_sha256", "workload")
-            ):
-                fail(f"sample {index} telemetry identity is inconsistent")
+            if isinstance(identity, dict):
+                for field in ("session_id", "workload"):
+                    if telemetry.get(field) != identity.get(field):
+                        fail(f"sample {index} telemetry identity is inconsistent")
+                allowed_models = {identity.get("model_sha256")}
+                expected = report.get("expected_identity")
+                if isinstance(expected, dict) and isinstance(
+                    expected.get("model_sha256"), str
+                ):
+                    allowed_models.add(expected["model_sha256"])
+                transitions = (report.get("workload_telemetry") or {}).get(
+                    "model_transitions"
+                )
+                if profile == "model-replacement" and isinstance(transitions, list):
+                    for transition in transitions:
+                        if isinstance(transition, dict):
+                            allowed_models.add(transition.get("from"))
+                            allowed_models.add(transition.get("to"))
+                if telemetry.get("model_sha256") not in allowed_models:
+                    fail(f"sample {index} telemetry identity is inconsistent")
         sources = {
             sample.get("completed_requests_source") for sample in measured
         }
@@ -472,6 +509,127 @@ def validate_report(report: dict) -> dict:
                 and sample_failures != workload_failures
             ):
                 fail("workload failure summary does not match the sample telemetry")
+            if workload.get("workload_complete") is not True:
+                partial_reasons.append("final workload summary was not completed")
+            if workload.get("workload_exit_status") not in (None, 0):
+                partial_reasons.append(
+                    f"workload exit status {workload.get('workload_exit_status')} is not successful"
+                )
+            if workload.get("cache_invalidation_failures", 0) > 0:
+                partial_reasons.append("inference cache was not invalidated by model replacement")
+            successful = workload.get("successful_searches", 0)
+            neural = workload.get("neural_searches", 0)
+            shortcuts = workload.get("no_inference_shortcuts", 0)
+            if (
+                type(successful) is int
+                and type(neural) is int
+                and type(shortcuts) is int
+                and successful != neural + shortcuts
+            ):
+                fail("workload successful searches do not match neural/shortcut counts")
+            if (
+                type(workload.get("neural_inferences")) is int
+                and type(neural) is int
+                and workload["neural_inferences"] < neural
+            ):
+                fail("neural inference count is below the neural search count")
+            initial = report.get("expected_identity")
+            if isinstance(initial, dict):
+                if workload.get("session_id") != initial.get("session_id"):
+                    fail("workload telemetry session does not match the expected identity")
+                if workload.get("workload") != initial.get("workload"):
+                    fail("workload telemetry workload does not match the expected identity")
+            # Bind the summary to the maximum sample counters where present.
+            for field in (
+                "successful_searches",
+                "neural_searches",
+                "completed_simulations",
+                "neural_inferences",
+                "no_inference_shortcuts",
+                "batches",
+                "batch_successful_rounds",
+                "cache_evictions",
+                "client_disposals",
+                "model_replacements",
+            ):
+                sample_max = max(
+                    (
+                        sample.get(field, 0)
+                        for sample in measured
+                        if type(sample.get(field)) is int
+                    ),
+                    default=0,
+                )
+                if type(workload.get(field)) is int and sample_max != workload[field]:
+                    fail(f"workload {field} summary does not match the samples")
+            transitions = workload.get("model_transitions")
+            if profile == "model-replacement":
+                if not isinstance(transitions, list) or not transitions:
+                    partial_reasons.append("model replacement recorded no verified transition")
+                else:
+                    previous = (
+                        initial.get("model_sha256") if isinstance(initial, dict) else None
+                    )
+                    sequence = 0
+                    previous_timestamp = 0.0
+                    for transition in transitions:
+                        if not isinstance(transition, dict):
+                            fail("model transition entry is malformed")
+                            break
+                        if (
+                            transition.get("sequence") != sequence + 1
+                            or transition.get("from") != previous
+                            or transition.get("recovered") is not True
+                            or not _hex_digest(transition.get("to"))
+                            or not _number(transition.get("timestamp_ms"), allow_none=False)
+                            or transition["timestamp_ms"] < previous_timestamp
+                        ):
+                            fail("model transition chain is inconsistent")
+                            break
+                        if features.get("inference_cache") is True and transition.get(
+                            "cache_invalidated"
+                        ) is not True:
+                            partial_reasons.append(
+                                "model transition did not verify cache invalidation"
+                            )
+                        previous = transition.get("to")
+                        previous_timestamp = transition["timestamp_ms"]
+                        sequence += 1
+                    if previous != workload.get("model_sha256"):
+                        fail("final model identity does not match the transition chain")
+            elif transitions:
+                fail("model transitions are only authorized for model-replacement profiles")
+            if profile == "independent-batching":
+                if workload.get("batch_successful_rounds", 0) < 2:
+                    partial_reasons.append("insufficient successful multi-context batching rounds")
+                if workload.get("observed_max_batch", 0) < 2:
+                    partial_reasons.append("batching never reached two concurrent contexts")
+            if profile in SUSTAINED_PROFILES:
+                neural_series = [
+                    sample.get("neural_searches")
+                    for sample in measured
+                    if type(sample.get("neural_searches")) is int
+                ]
+                if len(neural_series) != len(measured):
+                    partial_reasons.append("neural search activity telemetry is missing")
+                elif any(
+                    neural_series[index] < neural_series[index - 1]
+                    for index in range(1, len(neural_series))
+                ):
+                    fail("neural search activity counters are non-monotonic")
+                elif len(neural_series) >= 2 and neural_series[-1] <= neural_series[0]:
+                    partial_reasons.append(
+                        "neural search activity did not progress inside the acceptance window"
+                    )
+                else:
+                    half = len(neural_series) // 2
+                    if not (
+                        neural_series[half] > neural_series[0]
+                        and neural_series[-1] > neural_series[half]
+                    ):
+                        partial_reasons.append(
+                            "neural search activity is not distributed across the window"
+                        )
     coverage: dict[str, dict] = {}
     coverage_window_start = window_start
     coverage_window_end = window_start + window_ms

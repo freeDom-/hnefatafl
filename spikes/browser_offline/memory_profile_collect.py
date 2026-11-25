@@ -49,6 +49,17 @@ WORKLOAD_FIELDS = (
     "completed_simulations",
     "neural_inferences",
     "no_inference_shortcuts",
+    "client_disposals",
+    "model_replacements",
+    "cache_evictions",
+    "cache_invalidation_failures",
+    "batches",
+    "batch_rounds",
+    "batch_successful_rounds",
+    "observed_max_batch",
+    "peak_search_workers",
+    "peak_inference_workers",
+    "peak_total_workers",
 )
 
 
@@ -189,12 +200,16 @@ class TelemetryStream:
         *,
         stale_after_ms: float,
         expected: dict | None = None,
+        allow_model_transitions: bool = False,
     ):
         self.path = path
         self.stale_after_ms = stale_after_ms
         self.expected = {
             key: value for key, value in (expected or {}).items() if value is not None
         }
+        self.allow_model_transitions = allow_model_transitions
+        self.model_transitions: deque[dict] = deque(maxlen=1024)
+        self._transition_sequence = 0
         self.offset = 0
         self.remainder = ""
         # Bounded history is sufficient for timestamp alignment and diagnostics.
@@ -211,6 +226,8 @@ class TelemetryStream:
         self.window_event_observed: dict[str, int] = {}
         self.window_event_last: dict[str, int] = {}
         self.event_resets = 0
+        self.workload_complete: bool | None = None
+        self.workload_exit_status: int | None = None
 
     def set_acceptance_window(self, start_ms: float, end_ms: float) -> None:
         self.acceptance_start_ms = float(start_ms)
@@ -251,21 +268,66 @@ class TelemetryStream:
             self.last_rejected_timestamp = record.get("timestamp_ms")
             return False
         identity = {field: record.get(field) for field in IDENTITY_FIELDS}
+        if self.identity is None:
+            for key, expected in self.expected.items():
+                if record.get(key) != expected:
+                    self.identity_mismatch += 1
+                    self.last_error = f"telemetry {key} does not match the expected identity"
+                    self.last_rejected_timestamp = record.get("timestamp_ms")
+                    return False
+            self.identity = identity
+            return True
+        for key in ("session_id", "workload"):
+            if record.get(key) != self.identity.get(key):
+                self.identity_mismatch += 1
+                self.last_error = f"telemetry {key} changed during collection"
+                self.last_rejected_timestamp = record.get("timestamp_ms")
+                return False
+        if record.get("model_sha256") != self.identity.get("model_sha256"):
+            if not self.allow_model_transitions:
+                self.identity_mismatch += 1
+                self.last_error = "telemetry model identity changed without authorization"
+                self.last_rejected_timestamp = record.get("timestamp_ms")
+                return False
+            transition = record.get("model_transition")
+            if not isinstance(transition, dict):
+                self.identity_mismatch += 1
+                self.last_error = "model identity change lacks a transition record"
+                self.last_rejected_timestamp = record.get("timestamp_ms")
+                return False
+            timestamp = record.get("timestamp_ms")
+            if (
+                transition.get("from") != self.identity.get("model_sha256")
+                or transition.get("to") != record.get("model_sha256")
+                or transition.get("sequence") != self._transition_sequence + 1
+                or transition.get("recovered") is not True
+                or not _finite_number(transition.get("timestamp_ms"))
+                or float(transition["timestamp_ms"]) > float(timestamp)
+            ):
+                self.identity_mismatch += 1
+                self.last_error = "model transition record is inconsistent"
+                self.last_rejected_timestamp = record.get("timestamp_ms")
+                return False
+            self._transition_sequence += 1
+            self.model_transitions.append(
+                {
+                    "sequence": transition.get("sequence"),
+                    "from": transition.get("from"),
+                    "to": transition.get("to"),
+                    "timestamp_ms": transition.get("timestamp_ms"),
+                    "recovered": True,
+                    "cache_invalidated": transition.get("cache_invalidated"),
+                }
+            )
+            self.identity = {**self.identity, "model_sha256": record.get("model_sha256")}
         for key, expected in self.expected.items():
+            if key == "model_sha256" and self.allow_model_transitions:
+                continue
             if record.get(key) != expected:
                 self.identity_mismatch += 1
                 self.last_error = f"telemetry {key} does not match the expected identity"
                 self.last_rejected_timestamp = record.get("timestamp_ms")
                 return False
-        if self.identity is None:
-            self.identity = identity
-        else:
-            for key, value in self.identity.items():
-                if record.get(key) != value:
-                    self.identity_mismatch += 1
-                    self.last_error = f"telemetry {key} changed during collection"
-                    self.last_rejected_timestamp = record.get("timestamp_ms")
-                    return False
         return True
 
     def _record(self, record: dict) -> None:
@@ -307,6 +369,18 @@ class TelemetryStream:
                 self.malformed += 1
                 self.last_error = f"telemetry {field} is malformed"
                 return
+        if "workload_complete" in record:
+            if not isinstance(record["workload_complete"], bool):
+                self.malformed += 1
+                self.last_error = "telemetry workload_complete is malformed"
+                return
+            self.workload_complete = record["workload_complete"]
+        if "workload_exit_status" in record:
+            if not _non_negative_int(record["workload_exit_status"]):
+                self.malformed += 1
+                self.last_error = "telemetry workload_exit_status is malformed"
+                return
+            self.workload_exit_status = record["workload_exit_status"]
         self.records.append(record)
         if (
             self.last_rejected_timestamp is not None
@@ -381,6 +455,7 @@ class TelemetryStream:
             "event_resets": self.event_resets,
             "last_error": self.last_error,
             "identity": self.identity,
+            "model_transitions": list(self.model_transitions),
         }
 
 
@@ -416,6 +491,7 @@ def collect(args) -> dict:
         args.telemetry_file,
         stale_after_ms=args.telemetry_stale_ms,
         expected=expected,
+        allow_model_transitions=args.profile == "model-replacement",
     )
     telemetry.set_acceptance_window(
         collection_wall_start + args.warmup_duration * 1000.0,
@@ -472,13 +548,19 @@ def collect(args) -> dict:
             telemetry_progress_samples += 1
             if args.progress_file is not None and file_progress != telemetry_progress:
                 progress_mismatches += 1
+        elif args.telemetry_file is not None:
+            # Telemetry is authoritative. A temporarily missing live record must
+            # not fall back to an absent compatibility file and look like a reset.
+            progress = previous_progress if previous_progress is not None else 0
+            progress_source = "telemetry-missing"
         else:
             progress = file_progress
             progress_source = "progress-file"
             progress_file_samples += 1
-        if previous_progress is not None and progress < previous_progress:
-            progress_reset_detected = True
-        previous_progress = progress
+        if progress_source != "telemetry-missing":
+            if previous_progress is not None and progress < previous_progress:
+                progress_reset_detected = True
+            previous_progress = progress
         sample = {
             "timestamp_ms": round((now - started) * 1000.0, 3),
             "wall_time_ms": round(wall_ms, 3),
@@ -504,6 +586,12 @@ def collect(args) -> dict:
                     workload_telemetry[field] = max(
                         workload_telemetry.get(field, 0), record[field]
                     )
+            if isinstance(record.get("workload_complete"), bool):
+                workload_telemetry["workload_complete"] = record["workload_complete"]
+            if _non_negative_int(record.get("workload_exit_status")):
+                workload_telemetry["workload_exit_status"] = record[
+                    "workload_exit_status"
+                ]
             placements = record.get("provider_placements")
             if isinstance(placements, list):
                 provider_placements.update(
@@ -521,6 +609,8 @@ def collect(args) -> dict:
                 for key in ("timestamp_ms", "session_id", "model_sha256", "workload")
                 if record.get(key) is not None
             }
+            if isinstance(record.get("workload_complete"), bool):
+                sample["workload_complete"] = record["workload_complete"]
             sample["telemetry_lag_ms"] = round(wall_ms - record["timestamp_ms"], 3)
         elif telemetry_reason:
             sample["telemetry_unavailable_reason"] = telemetry_reason
@@ -531,6 +621,19 @@ def collect(args) -> dict:
         if now >= acceptance_end:
             break
         time.sleep(min(args.interval, max(0.0, acceptance_end - now)))
+    if args.telemetry_file is not None:
+        final_deadline = time.monotonic() + args.final_summary_timeout
+        while telemetry.workload_complete is not True and time.monotonic() < final_deadline:
+            telemetry.poll()
+            if telemetry.workload_complete is True:
+                break
+            if _process_identity(args.pid) is None:
+                break
+            time.sleep(0.2)
+    if telemetry.workload_complete is not None:
+        workload_telemetry["workload_complete"] = telemetry.workload_complete
+    if telemetry.workload_exit_status is not None:
+        workload_telemetry["workload_exit_status"] = telemetry.workload_exit_status
     total_duration_ms = (time.monotonic() - started) * 1000.0
     if not samples:
         blocked_reasons.append("no samples were collected")
@@ -616,10 +719,15 @@ def collect(args) -> dict:
         "features": {"inference_cache": args.inference_cache},
         "events": events,
         "events_source": "telemetry",
+        "expected_identity": expected,
         "workload_telemetry": {
             **workload_telemetry,
             "provider_placements": sorted(provider_placements),
             "completion_reasons": completion_reasons,
+            "model_transitions": telemetry.diagnostics().get("model_transitions", []),
+            "session_id": telemetry.identity.get("session_id") if telemetry.identity else None,
+            "model_sha256": telemetry.identity.get("model_sha256") if telemetry.identity else None,
+            "workload": telemetry.identity.get("workload") if telemetry.identity else None,
         },
         "progress_consistency": progress_consistency,
         "telemetry": telemetry.diagnostics(),
@@ -649,6 +757,9 @@ def main() -> int:
             "model-reload",
             "worker-replacement",
             "independent-batching",
+            "model-replacement",
+            "client-disposal",
+            "cache-churn",
         ),
     )
     parser.add_argument(
@@ -675,6 +786,12 @@ def main() -> int:
     parser.add_argument("--telemetry-workload")
     parser.add_argument("--telemetry-stale-ms", type=float, default=5000.0)
     parser.add_argument(
+        "--final-summary-timeout",
+        type=float,
+        default=60.0,
+        help="bounded wait for the workload's final complete telemetry record",
+    )
+    parser.add_argument(
         "--inference-cache",
         action="store_true",
         help="declare that the inference cache is enabled for this profile",
@@ -691,6 +808,8 @@ def main() -> int:
         parser.error("--duration and --interval must be positive; warmup cannot be negative")
     if args.telemetry_stale_ms <= 0:
         parser.error("--telemetry-stale-ms must be positive")
+    if args.final_summary_timeout <= 0:
+        parser.error("--final-summary-timeout must be positive")
     if args.events_json is not None:
         parser.error(
             "--events-json is no longer accepted: lifecycle events must come from live telemetry"

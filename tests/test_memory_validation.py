@@ -333,6 +333,11 @@ def _schema3_report(**overrides):
             }
         },
         "progress_consistency": {"verified": True},
+        "expected_identity": {
+            "session_id": "session-a",
+            "model_sha256": "a" * 64,
+            "workload": "brandubh-opening",
+        },
         "workload_telemetry": {
             "successful_searches": 15,
             "workload_failures": 0,
@@ -340,7 +345,21 @@ def _schema3_report(**overrides):
             "completed_simulations": 960,
             "neural_inferences": 960,
             "no_inference_shortcuts": 0,
+            "client_disposals": 0,
+            "model_replacements": 0,
+            "cache_evictions": 0,
+            "cache_invalidation_failures": 0,
+            "batches": 0,
+            "batch_rounds": 0,
+            "batch_successful_rounds": 0,
+            "observed_max_batch": 0,
             "provider_placements": ["wasm"],
+            "model_transitions": [],
+            "workload_complete": True,
+            "workload_exit_status": 0,
+            "session_id": "session-a",
+            "model_sha256": "a" * 64,
+            "workload": "brandubh-opening",
         },
         "samples": [
             {
@@ -354,6 +373,24 @@ def _schema3_report(**overrides):
                 "os_processes": 9,
                 "completed_requests": index,
                 "completed_requests_source": "telemetry",
+                "successful_searches": index,
+                "workload_failures": 0,
+                "neural_searches": index,
+                "completed_simulations": index * 64,
+                "neural_inferences": index * 64,
+                "no_inference_shortcuts": 0,
+                "client_disposals": 0,
+                "model_replacements": 0,
+                "cache_evictions": 0,
+                "cache_invalidation_failures": 0,
+                "batches": 0,
+                "batch_rounds": 0,
+                "batch_successful_rounds": 0,
+                "observed_max_batch": 0,
+                "peak_search_workers": 2,
+                "peak_inference_workers": 1,
+                "peak_total_workers": 3,
+                "workload_complete": index == 15,
                 "telemetry": {
                     "session_id": "session-a",
                     "model_sha256": "a" * 64,
@@ -527,3 +564,87 @@ def test_cache_fill_is_bounded_by_the_cache_budget_not_growth_threshold():
     result = mv.validate_report(report)
     assert result["structural_ok"] is False
     assert any("cache_bytes exceeded" in failure for failure in result["failures"])
+
+
+def _sustained_report(neural_series=None):
+    report = _schema3_report(profile="sustained-10m", duration_ms=600000)
+    report["samples"] = []
+    for index in range(12):
+        report["samples"].append(
+            {
+                "timestamp_ms": index * 60000,
+                "process_rss_bytes": 100 * 1024 * 1024 + index * 1024,
+                "js_heap_used_bytes": 20 * 1024 * 1024,
+                "wasm_heap_capacity_bytes": 32 * 1024 * 1024,
+                "cache_entries": 10,
+                "cache_bytes": 1000,
+                "workers": 3,
+                "os_processes": 9,
+                "completed_requests": index,
+                "completed_requests_source": "telemetry",
+                "successful_searches": (
+                    neural_series[index] if neural_series is not None else index
+                ),
+                "workload_failures": 0,
+                "neural_searches": (neural_series[index] if neural_series is not None else index),
+                "completed_simulations": index * 64,
+                "neural_inferences": index * 64,
+                "no_inference_shortcuts": 0,
+                "client_disposals": 0,
+                "model_replacements": 0,
+                "cache_evictions": 0,
+                "cache_invalidation_failures": 0,
+                "batches": 0,
+                "batch_rounds": 0,
+                "batch_successful_rounds": 0,
+                "observed_max_batch": 0,
+                "peak_search_workers": 2,
+                "peak_inference_workers": 1,
+                "peak_total_workers": 3,
+                "workload_complete": index == 11,
+                "telemetry": {
+                    "session_id": "session-a",
+                    "model_sha256": "a" * 64,
+                    "workload": "brandubh-opening",
+                },
+            }
+        )
+    report["workload_telemetry"].update(
+        {
+            "successful_searches": report["samples"][-1]["successful_searches"],
+            "neural_searches": report["samples"][-1]["neural_searches"],
+            "completed_simulations": report["samples"][-1]["completed_simulations"],
+            "neural_inferences": report["samples"][-1]["neural_inferences"],
+            "workload_complete": True,
+            "workload_exit_status": 0,
+        }
+    )
+    return report
+
+
+def test_warmup_only_neural_activity_cannot_accept_sustained_profile():
+    series = [0, 1, 2, 3, 4, 5, 5, 5, 5, 5, 5, 5]
+    report = _sustained_report(series)
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is True, result["failures"]
+    assert result["acceptance_ok"] is False
+    assert any("neural search activity" in reason for reason in result["partial_reasons"])
+
+
+def test_workload_completion_consistency_and_cache_invalidation_are_required():
+    report = _sustained_report()
+    assert mv.validate_report(report)["acceptance_ok"] is True
+    report["workload_telemetry"]["workload_complete"] = False
+    assert mv.validate_report(report)["acceptance_ok"] is False
+
+    report = _sustained_report()
+    report["workload_telemetry"]["cache_invalidation_failures"] = 1
+    result = mv.validate_report(report)
+    assert result["acceptance_ok"] is False
+    assert any("cache" in reason.lower() for reason in result["partial_reasons"])
+
+    report = _sustained_report()
+    report["workload_telemetry"]["successful_searches"] += 1
+    result = mv.validate_report(report)
+    assert result["structural_ok"] is False
+    assert any("does not match the samples" in failure for failure in result["failures"])

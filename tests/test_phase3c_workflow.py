@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import pytest
 import sys
 from pathlib import Path
 
@@ -407,7 +408,7 @@ def test_telemetry_missing_identity_fields_after_establishment(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert report["telemetry"]["identity_mismatch"] >= 1
     measured = [s for s in report["samples"] if s["timestamp_ms"] >= 400]
-    assert any(s.get("completed_requests_source") == "progress-file" for s in measured)
+    assert any(s.get("completed_requests_source") == "telemetry-missing" for s in measured)
     assert report["progress_consistency"]["verified"] is False
 
     if str(SPIKE) not in sys.path:
@@ -711,3 +712,146 @@ def test_workload_failures_block_memory_acceptance(tmp_path):
     assert validation["structural_ok"] is True
     assert validation["acceptance_ok"] is False
     assert any("failed search" in reason for reason in validation["partial_reasons"])
+
+
+def test_model_replacement_transitions_are_authorized_and_bound(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path,
+        telemetry_args=(
+            "--transition-at",
+            "5",
+            "--transition-back-at",
+            "12",
+            "--to-model-sha256",
+            "b" * 64,
+        ),
+        duration=3.0,
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            profile="model-replacement",
+            warmup=0.2,
+            duration=1.2,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    transitions = report["workload_telemetry"]["model_transitions"]
+    assert [entry["from"] for entry in transitions] == ["a" * 64, "b" * 64]
+    assert [entry["to"] for entry in transitions] == ["b" * 64, "a" * 64]
+    assert report["telemetry"]["identity"]["model_sha256"] == "a" * 64
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["structural_ok"] is True, validation["failures"]
+    assert validation["acceptance_ok"] is True, validation["partial_reasons"]
+
+
+def test_unauthorized_model_change_is_rejected_for_ordinary_profiles(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path,
+        telemetry_args=("--transition-at", "4", "--to-model-sha256", "b" * 64),
+        duration=2.0,
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            progress,
+            profile="cancel-restart",
+            warmup=0.2,
+            duration=0.8,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0
+    assert report["telemetry"]["identity_mismatch"] >= 1
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    assert mv.validate_report(report)["acceptance_ok"] is False
+
+
+def test_model_transition_cache_invalidation_failure_blocks_acceptance(tmp_path):
+    writer, telemetry, progress = _start_workload(
+        tmp_path,
+        telemetry_args=("--transition-at", "5", "--to-model-sha256", "b" * 64),
+        duration=3.0,
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            profile="model-replacement",
+            warmup=0.2,
+            duration=1.2,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0
+    for transition in report["workload_telemetry"]["model_transitions"]:
+        transition["cache_invalidated"] = False
+    report["features"]["inference_cache"] = True
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["acceptance_ok"] is False
+    assert any("cache" in reason.lower() for reason in validation["partial_reasons"])
+
+
+@pytest.mark.parametrize(
+    "profile,telemetry_args,workload_overrides",
+    [
+        ("client-disposal", ("--client-disposals", "2"), {"client_disposals": 2}),
+        ("cache-churn", ("--cache-evictions", "3"), {"cache_evictions": 3}),
+        (
+            "independent-batching",
+            ("--batches", "4", "--batch-successful-rounds", "4", "--observed-max-batch", "2"),
+            {"batches": 4, "batch_successful_rounds": 4, "observed_max_batch": 2},
+        ),
+    ],
+)
+def test_lifecycle_profiles_collect_and_validate(
+    tmp_path, profile, telemetry_args, workload_overrides
+):
+    writer, telemetry, progress = _start_workload(
+        tmp_path, telemetry_args=telemetry_args, duration=2.5
+    )
+    try:
+        result, report = _collect(
+            tmp_path,
+            writer.pid,
+            telemetry,
+            None,
+            profile=profile,
+            warmup=0.3,
+            duration=1.0,
+        )
+    finally:
+        writer.terminate()
+        writer.wait(timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for field, value in workload_overrides.items():
+        assert report["workload_telemetry"][field] == value
+    if str(SPIKE) not in sys.path:
+        sys.path.insert(0, str(SPIKE))
+    import memory_validation as mv
+
+    validation = mv.validate_report(report)
+    assert validation["structural_ok"] is True, validation["failures"]
+    assert validation["acceptance_ok"] is True

@@ -90,6 +90,56 @@ This revision resolves the review findings A1–A8:
   available; actual-browser modes are opt-in via `SPIKE_NEURAL_DIR` and
   `SPIKE_REPLACEMENT_MODEL_*`.
 
+## A.2 Integration corrections (B1–B6)
+
+- **B1 model replacement:** model-replacement profiles authorize explicit
+  A↔B↔A transitions in the collector; ordinary profiles still reject model
+  changes. The driver alternates between distinct validated staged model
+  digests, skips loading the already-active model, counts a replacement only after
+  successful loading, cache invalidation and a successful recovery search, and
+  emits transition source/destination/sequence/timestamp. Transition history is
+  bounded, cache-invalidation failures make the workload non-accepted, and the
+  validator checks the chain from the original expected model to the final model.
+  Evidence: [profile](phase3cb-memory-model-replacement-r2-profile.json),
+  [validation](phase3cb-memory-model-replacement-r2-validation.json),
+  [workload](phase3cb-memory-model-replacement-r2-workload.json).
+- **B2 lifecycle profiles:** collector/validator now support
+  `model-replacement`, `client-disposal`, `cache-churn` and
+  `independent-batching`; driver mode→profile mapping is documented. Required
+  events are observed inside the acceptance window only. Client disposal is
+  distinct from worker replacement, cache-churn produces genuine bounded eviction
+  (small cache budgets), batching requires successful multi-context rounds, and
+  model reload/replacement remain distinct. Actual short lifecycle runs were
+  collected and validated (structural true; acceptance partial because WASM heap
+  capacity is unobservable). Evidence:
+  [model replacement](phase3cb-memory-model-replacement-r2-profile.json),
+  [client disposal](phase3cb-memory-client-disposal-r2-profile.json),
+  [cache churn](phase3cb-memory-cache-churn-r2-profile.json),
+  [independent batching](phase3cb-memory-batching-r2-profile.json).
+- **B3 meaningful work:** `recordSuccess` rejects empty/missing outcomes, missing
+  best moves, malformed/negative/non-integer counters, invalid completion reasons,
+  absent effective settings, provider fallback/contradictions and invented
+  observations. No-inference immediate-win/terminal shortcuts are valid but do not
+  count as neural searches. Sustained acceptance requires distributed neural-search
+  progress inside the measured window, monotonic counters, zero workload failures,
+  a completed final summary and consistent successful/neural/shortcut/inference
+  counts. Cache-invalidation failures and incomplete workloads are non-accepted.
+- **B4 batching:** cumulative `batchStatistics()` is converted to deltas with reset
+  handling, actual successful multi-context rounds and max batch size are recorded,
+  per-search foreground latency is separate from round elapsed time, and peak
+  search/inference/total workers come from the temporary coordinators themselves.
+  All temporary coordinators are disposed in `finally` on success, cancellation or
+  failure. Independent batching remains opt-in.
+- **B5 readiness:** `wait_for_ready.py` bounds startup (default 120 s), checks
+  process liveness, validates ready JSON session/model/mode/positions and
+  terminates the owned workload on early exit, timeout or mismatch. The owner
+  runbook uses it instead of unbounded polling.
+- **B6 attestation:** `competitive_manifest.py` reuses
+  `model_provenance`/`_load_manifest`, requires an explicit owner attestation
+  statement for competitive classification and records the actual UTC timestamp.
+  Structural tests only generate structural manifests; no competitive attestation
+  is fabricated in tests or evidence.
+
 ## B. Software delivered in Phase 3C-B
 
 1. **V1 provider-evidence consistency.** Live process-agent validation and saved
@@ -209,11 +259,13 @@ window excludes the 60 s warmup.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | sustained-10m (historical) | 600 s | 9,086 | 930.9 / 971.2 MB | 9.5 / 9.5 MB | 12.6 MB | 2 | partial: WASM capacity unavailable |
 | sustained-10m (telemetry-only rerun) | 600 s | 7,719 | see validation/profile | 9.5 MB stable | 12.6 MB | 2 | partial: WASM capacity unavailable; zero workload failures |
+| sustained-10m (corrected rerun) | 600 s | see workload | see profile | 9.5 MB stable | bounded | 2 | partial: WASM capacity unavailable; zero failures, complete summary |
 | sustained-30m (historical) | 1,800 s | 25,445 | 947.4 / 979.1 MB | 9.5 / 19.6 MB | 12.6 MB | 2 | invalid: JS-heap growth threshold; compatibility progress lag; WASM unavailable |
 | cancel-restart (historical) | 90 s | 2,143 | 907.3 / 945.1 MB | 9.5 / 9.5 MB | 12.5 MB | 2 | partial: WASM unavailable |
 | model-reload (historical) | 90 s | 1,760 | 877.7 / 957.4 MB | 9.5 / 9.5 MB | 0.3 MB | 2 | partial: WASM unavailable |
 | worker-replacement (90 s historical) | 90 s | 391 | 863.7 / 981.8 MB | 9.5 / 9.5 MB | 0.5 MB | 1–2 | invalid: RSS growth threshold; WASM unavailable |
 | worker-replacement (240 s rerun) | 240 s | 311 | 858→898 MB medians; peak 1,015 MB | 9.5 MB stable | 0.5 MB | 1–2 | partial: WASM unavailable; growth threshold not exceeded |
+| sustained-30m (corrected rerun) | 1,800 s | 18,136 | 936.9 MB median / 978.8 MB peak | 9.5→31.6 MB (plateau) | bounded | 2 | invalid: JS-heap growth threshold; partial: WASM unavailable |
 
 Observations:
 
@@ -241,21 +293,22 @@ Corrected telemetry-only rerun evidence:
 - The historical 30-minute run recorded eight transient progress-file/telemetry
   mismatches. The corrected recommended workflow is telemetry-only and does not
   require independent files to be atomic; the historical run remains non-accepted.
-- **Memory-growth investigation:** the 30-minute JS p95/p50 stepped from 9.5 MB to
-  19.6 MB at about 17 minutes and then stayed flat for the remaining 13 minutes.
-  Worker count remained 2, OS process count 7, cache bytes stayed within budget,
-  and no retained search/coordinator reference accumulation was found; the
-  coordinator holds only the active search, and completed search contexts are
-  released. The step is consistent with V8 old-space/GC growth rather than a
-  demonstrated unbounded leak, but it is not proven and the historical invalid
-  report is preserved. The 90-second worker-replacement run's RSS threshold failure
-  was a startup/replacement transient (baseline 765 MB, peak 982 MB); a corrected
-  240-second rerun with more replacements showed median 858→898 MB and peak 1,015 MB,
-  below the declared growth threshold, while workers stayed 1–2 and OS processes 7.
-  No code defect was reproduced; both findings remain investigation observations,
-  not acceptance. The 30-minute profile was not rerun after the telemetry-only
-  driver corrections (resource budget); its historical invalid report is preserved
-  and the corrected owner command is provided above for a fresh run.
+- **Memory-growth investigation:** the original 30-minute JS p50 stepped from
+  9.5 MB to 19.6 MB at ~17 minutes; the corrected B1–B4 30-minute rerun showed a
+  step to 31.6 MB at ~20 minutes and then a flat plateau through minute 30. Worker
+  count remained 2, OS process count 7, process RSS stayed around 912–954 MB
+  median, and cache remained bounded. No retained search/coordinator reference
+  accumulation was found: the coordinator holds only the active search, completed
+  contexts are released, and worker count did not grow. The step is consistent with
+  V8 old-space/GC growth rather than a demonstrated unbounded leak, but it is not
+  proven; the historical invalid reports and the corrected invalid report are
+  preserved. The 90-second worker-replacement RSS failure was a startup transient;
+  a corrected 240-second rerun (52 replacements) showed median 858→898 MB and peak
+  1,015 MB, below the declared threshold with stable workers/processes. No code
+  defect was reproduced; these remain investigation observations, not acceptance.
+  Corrected evidence: [10-minute r3](phase3cb-memory-10m-r3-profile.json),
+  [30-minute r3](phase3cb-memory-30m-r3-profile.json),
+  [30-minute validation](phase3cb-memory-30m-r3-validation.json).
 - WASM heap capacity is not exposed by the pinned ORT Web runtime, so these
   profiles remain partial/blocked rather than accepted. No substitute metric was
   used.
@@ -357,61 +410,26 @@ node spikes/browser_offline/test_independent_batching.mjs /private/spike-brandub
 node spikes/browser_offline/test_independent_batching.mjs /private/spike-brandubh \
   --mode batched --simulations 64 --output /tmp/batching-batched.json
 
-# 4. Competitive evidence manifest. Run this after collecting the reports above.
-#    It binds the private checkpoint/export digests and training metadata.
+# 4. Competitive evidence manifest: requires explicit owner classification and
+#    attestation. The timestamp is recorded at execution time; structural tests do
+#    not create competitive attestations. Reuse the validated provenance helper.
 export RULESET=brandubh CHECKPOINT=/private/brandubh.pt EXPORT=/private/export-brandubh
 export EVIDENCE=/tmp/phase3cb-evidence
 mkdir -p "$EVIDENCE"
-cp /tmp/native-a.json /tmp/browser-a.json /tmp/native-b.json /tmp/browser-b.json "$EVIDENCE"/
-cp /tmp/direct-relay-fixed.json /tmp/direct-relay-fixed-time.json "$EVIDENCE"/
-cp /tmp/native-bench.json /tmp/browser-bench.json "$EVIDENCE"/
-.venv/bin/python - <<'PY'
-import hashlib, json, os
-from pathlib import Path
-from hnefatafl.models import load_checkpoint
-
-checkpoint = Path(os.environ["CHECKPOINT"])
-export = Path(os.environ["EXPORT"])
-sidecar = json.loads((export / "model.json").read_text())
-_, payload = load_checkpoint(checkpoint.resolve(), device="cpu")
-metadata = payload.get("metadata") or {}
-canonical = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
-manifest = {
-    "kind": "browser-competitive-evidence",
-    "schema": 2,
-    "validation_level": "competitive-trained",
-    "acceptance_policy": "competitive",
-    "provenance": {
-        "training_status": "competitive-trained",
-        "checkpoint_sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
-        "onnx_sha256": hashlib.sha256((export / "model.onnx").read_bytes()).hexdigest(),
-        "source_weights_sha256": sidecar["source"]["weights_sha256"],
-        "ruleset": sidecar["ruleset"],
-        "architecture": {
-            "channels": sidecar["model_config"]["channels"],
-            "blocks": sidecar["model_config"]["blocks"],
-        },
-        "encoder_version": sidecar["source"]["encoder_version"],
-        "training": {
-            "classification": "competitive-trained",
-            "checkpoint_metadata_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
-            "attestation": {
-                "source": "owner",
-                "statement": "Owner attests this checkpoint is competitively trained.",
-                "recorded_at": "2026-11-24T00:00:00Z",
-            },
-        },
-    },
-    "evidence": {
-        "level_a": {"native": "native-a.json", "browser": "browser-a.json"},
-        "level_b": {"native": "native-b.json", "browser": "browser-b.json"},
-        "direct_relay": {"fixed": "direct-relay-fixed.json", "fixed_time": "direct-relay-fixed-time.json"},
-        "benchmarks": ["native-bench.json", "browser-bench.json"],
-    },
-}
-Path(os.environ["EVIDENCE"], "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-print("wrote", os.environ["EVIDENCE"] + "/manifest.json")
-PY
+cp /tmp/native-a.json "$EVIDENCE/native-a.json"
+cp /tmp/browser-a.json "$EVIDENCE/browser-a.json"
+cp /tmp/native-b.json "$EVIDENCE/native-b.json"
+cp /tmp/browser-b.json "$EVIDENCE/browser-b.json"
+cp /tmp/direct-relay-fixed.json "$EVIDENCE/direct-relay-fixed.json"
+cp /tmp/direct-relay-fixed-time.json "$EVIDENCE/direct-relay-fixed-time.json"
+cp /tmp/native-bench.json "$EVIDENCE/native-bench.json"
+cp /tmp/browser-bench.json "$EVIDENCE/browser-bench.json"
+export OWNER_ATTESTATION_STATEMENT="Owner attests this checkpoint was competitively trained."
+.venv/bin/python spikes/browser_offline/competitive_manifest.py \
+  --checkpoint "$CHECKPOINT" --export-dir "$EXPORT" --evidence-dir "$EVIDENCE" \
+  --validation-level competitive-trained --policy competitive \
+  --attestation-statement "$OWNER_ATTESTATION_STATEMENT" \
+  --output "$EVIDENCE/manifest.json"
 .venv/bin/python spikes/browser_offline/competitive_validation.py \
   --checkpoint "$CHECKPOINT" --export-dir "$EXPORT" \
   --report "$EVIDENCE/manifest.json" --output /tmp/competitive-validation.json
@@ -484,20 +502,55 @@ node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
   --telemetry "$TELEMETRY" --ready "$READY" --overwrite \
   --iterations 128 --time-limit 2 --cache --output /tmp/workload-10m.json &
 BROWSER_PID=$!
-while [ ! -s "$READY" ]; do sleep 0.2; done
+.venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "$READY" \
+  --pid "$BROWSER_PID" --timeout 180 --session "$SESSION" \
+  --model-sha256 "<64 hex>" --mode repeated
 .venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$BROWSER_PID" \
   --profile sustained-10m --warmup-duration 60 --duration 600 --interval 1 \
   --telemetry-file "$TELEMETRY" --telemetry-session-id "$SESSION" \
   --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
   --inference-cache --output /tmp/memory-10m.json
 wait "$BROWSER_PID"
+# wait_for_ready exits 3 and terminates the owned workload on early exit, timeout,
+# malformed JSON or an identity/mode mismatch.
 .venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json
 # 30 minutes: --duration 1890 on the driver, --profile sustained-30m --duration 1800 collector
-# Lifecycle profiles: repeat step 7 with --mode cancel-restart | model-reload |
-# worker-replacement | client-disposal | cache-churn | batching and matching collector profile.
-# Model replacement additionally needs:
+# Lifecycle profile mapping (driver mode -> collector --profile):
+#   repeated            -> sustained-10m / sustained-30m
+#   cancel-restart      -> cancel-restart
+#   model-reload        -> model-reload
+#   model-replacement   -> model-replacement (authorized A<->B transitions)
+#   worker-replacement  -> worker-replacement
+#   client-disposal     -> client-disposal
+#   cache-churn         -> cache-churn (use --cache-entries 4 --cache-bytes 65536)
+#   batching            -> independent-batching
+# Model replacement additionally needs two validated staged model files:
 #   --mode model-replacement --replacement-model-file models/alt.onnx \
-#   --replacement-model-sha256 "<alt digest>" (copy a second validated model into the staged root).
+#     --replacement-model-sha256 "<alt digest>" [--replacement-model-file-2 ...]
+# Copy alternate validated ONNX artifacts into the staged root under models/ and
+# use --cache for transitions/cache-churn.
+# A bounded lifecycle sweep (short structural mode; use the full windows above for
+# sustained acceptance):
+for spec in "cancel-restart cancel-restart" "model-reload model-reload" \
+            "worker-replacement worker-replacement" "client-disposal client-disposal" \
+            "cache-churn cache-churn" "batching independent-batching"; do
+  set -- $spec
+  SESSION="owner-$1-$(date +%s)"
+  node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
+    --duration 60 --mode "$1" --session "$SESSION" --provider wasm \
+    --telemetry "/tmp/$SESSION.jsonl" --ready "/tmp/$SESSION.ready" --overwrite \
+    --iterations 64 --time-limit 1 --cache --output "/tmp/$SESSION-workload.json" &
+  PID=$!
+  .venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "/tmp/$SESSION.ready" \
+    --pid "$PID" --timeout 180 --session "$SESSION" --model-sha256 "<64 hex>" --mode "$1"
+  .venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$PID" \
+    --profile "$2" --warmup-duration 10 --duration 30 \
+    --telemetry-file "/tmp/$SESSION.jsonl" --telemetry-session-id "$SESSION" \
+    --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
+    --inference-cache --output "/tmp/$SESSION-memory.json"
+  wait "$PID"
+  .venv/bin/python spikes/browser_offline/memory_validation.py "/tmp/$SESSION-memory.json"
+done
 
 # 8. Physical device matrix
 .venv/bin/python spikes/browser_offline/device_evidence.py /private/device-evidence.json \
@@ -516,13 +569,13 @@ before launching, and generated corpora record generator/seed/corpus identity.
 ## I.1 Local verification
 
 - Focused Python regression across the Phase 3C-B suites, competitive/device
-  validators, malformed-input suites and existing MCTS validation/benchmarks:
-  **226 passed, 3 skipped** (browser opt-in gates).
+  validators, malformed-input suites, readiness/manifest helpers and existing MCTS
+  validation/benchmarks: **238 passed, 3 browser opt-in gates skipped**.
 - Node lifecycle regressions: 67/67, 7/7, 30/30, 21/21, 8/8.
 - Optional actual-browser sustained-driver runs passed repeated, cancel/restart,
-  model reload, worker replacement, cache churn, batching and model replacement
-  with an alternate validated model; the telemetry-only driver test exercised the
-  ready handshake and clean shutdown.
+  reload, worker replacement, client disposal, cache churn, batching and A↔B↔A
+  model replacement with alternate validated models; telemetry-only collection,
+  bounded readiness and clean shutdown were exercised.
 - `make lint`, `make typecheck` and `make docs` pass.
 
 ## J. Readiness recommendation
