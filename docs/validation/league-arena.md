@@ -315,3 +315,144 @@ shared service and worker trials recorded zero operation errors. In the live
 mixed arm all 40 League settlements completed in each run alongside the real
 tournament worker. The result supports the throughput and latency comparison
 on these disposable workloads. Busy-lock tails still vary with scheduling.
+
+### Live matchmaking
+
+The worker ran at its normal one-second cadence. These are medians of three
+repetitions per source with minimum and maximum in brackets. Post-commit p95
+measures seconds from the start of actionable work among committed pairings.
+Queue p95 includes any time the fixture spent paused or waiting for a window.
+The fixed sample denominator is ten seconds, including the time between
+cycles. Entries are counted as expired once their authoritative lifetime
+elapses, even when cleanup still has them pending.
+
+| Scenario | Source | Pairs/s | Post-commit p95 s | Queue p95 s | Expired eligible entries | Worker lock wait p99 ms | Process CPU s | Worker writes | Ordinary move p95 ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| compatible | reviewed | 0.90 [0.90–0.90] | 9.10 [9.08–9.14] | 9.07 [9.06–9.09] | 0.00 [0.00–0.00] | 0.08 [0.07–0.36] | 0.42 [0.37–0.47] | 9.00 [9.00–9.00] | — |
+| compatible | revised | 12.00 [12.00–12.00] | 8.57 [8.56–9.55] | 8.53 [8.53–9.54] | 0.00 [0.00–0.00] | 0.05 [0.02–0.07] | 0.48 [0.47–0.48] | 121.00 [121.00–121.00] | — |
+| resume | reviewed | 0.90 [0.90–0.90] | 9.05 [8.98–9.05] | 11.12 [11.07–11.15] | 0.00 [0.00–0.00] | 0.23 [0.07–0.27] | 0.49 [0.38–0.60] | 12.00 [11.00–12.00] | — |
+| resume | revised | 12.00 [12.00–12.00] | 8.49 [8.43–9.45] | 10.54 [10.53–11.54] | 0.00 [0.00–0.00] | 0.04 [0.03–0.05] | 0.47 [0.46–0.50] | 121.00 [121.00–121.00] | — |
+| expanding_windows | reviewed | 1.00 [1.00–1.00] | 9.13 [9.10–9.13] | 69.08 [69.08–69.11] | 0.00 [0.00–0.00] | 0.14 [0.07–0.19] | 0.49 [0.46–0.62] | 11.00 [11.00–11.00] | — |
+| expanding_windows | revised | 12.00 [12.00–12.00] | 8.58 [8.56–8.58] | 68.55 [68.55–68.56] | 0.00 [0.00–0.00] | 0.04 [0.03–0.05] | 0.55 [0.54–0.57] | 125.00 [125.00–125.00] | — |
+| capped_and_incompatible | reviewed | 0.00 [0.00–0.00] | — | — | 0.00 [0.00–0.00] | 0.16 [0.05–0.16] | 0.40 [0.36–0.48] | 9.00 [9.00–9.00] | — |
+| capped_and_incompatible | revised | 0.00 [0.00–0.00] | — | — | 0.00 [0.00–0.00] | 0.16 [0.05–0.26] | 0.32 [0.32–0.33] | 11.00 [11.00–11.00] | — |
+| mixed_online | reviewed | 0.90 [0.90–0.90] | 9.09 [9.06–9.10] | 9.06 [9.06–9.07] | 0.00 [0.00–0.00] | 0.10 [0.07–0.11] | 0.67 [0.63–0.73] | 9.00 [9.00–9.00] | 38.20 [36.49–42.08] |
+| mixed_online | revised | 12.00 [12.00–12.00] | 8.56 [8.53–8.57] | 8.52 [8.51–8.53] | 0.00 [0.00–0.00] | 0.03 [0.03–0.07] | 0.65 [0.65–0.67] | 121.00 [121.00–121.00] | 22.99 [22.87–23.00] |
+| expiry | reviewed | 0.20 [0.20–0.20] | 2.02 [2.02–2.03] | 599.01 [599.01–599.02] | 236.00 [236.00–236.00] | 0.09 [0.09–0.75] | 0.41 [0.40–0.45] | 16.00 [16.00–16.00] | — |
+| expiry | revised | 2.70 [2.60–2.80] | 2.17 [2.16–2.17] | 599.12 [599.12–599.12] | 186.00 [184.00–188.00] | 0.08 [0.04–0.27] | 0.38 [0.35–0.42] | 42.00 [41.00–43.00] | — |
+
+The revised worker seated all 120 pairs in the compatible, resume, simultaneous
+expansion and mixed-online trials. In the compatible workload the last pairing
+became visible 9.59 seconds after the start at the median. The reviewed worker
+paired nine in the same window. With three seconds left in the expiry workload,
+the revised worker paired a median of 27 and 186 eligible entries expired.
+Two pairs formed and 236 entries expired on the reviewed worker. The
+incompatible and pair-capped fixture formed zero matches. The revised worker
+spent 0.32 seconds of process CPU over that roughly 10-second observation.
+The first sweeps can visit several small pages. After repeated misses, the
+steady backoff allows up to three discovery transactions per eligible ruleset
+every eight seconds.
+
+These are observed waits for the specified fixtures. A finite compatibility
+window, the remaining entry lifetime and concurrent writer contention all
+affect the queue. Starter and opponent positions favor age within each visited
+page, and an opponent that becomes compatible behind a saved cursor may wait
+for a wrap. The deterministic tests cover multiple pages, independently
+expanding windows, separate ruleset budgets, side assignment and lock deferral.
+
+### Personal rank
+
+Each cell below is p95 for 60 authenticated ASGI endpoint requests. The rank
+work probe counts SQLite VM instructions in the authoritative read snapshot
+in increments of 100. A quarter of each fixture forms one sporting tie, and
+all its members share the displayed rank. The `/current` response was also
+measured and is included in the raw results.
+
+| Qualified players per season | Account | Rank | SQLite VM work floor | Current 1 reader ms | Current 6 readers ms | Archived 1 reader ms | Archived 6 readers ms |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,024 | high | 1 | 1,400 | 5.26 | 30.58 | 4.97 | 32.76 |
+| 1,024 | tie | 129 | 1,900 | 4.60 | 34.93 | 5.05 | 28.43 |
+| 1,024 | middle | 513 | 3,500 | 6.42 | 30.08 | 7.52 | 35.39 |
+| 1,024 | low | 1,024 | 5,500 | 4.77 | 30.30 | 4.91 | 28.70 |
+| 16,384 | high | 1 | 1,400 | 4.14 | 32.04 | 4.59 | 29.28 |
+| 16,384 | tie | 2,049 | 9,600 | 4.76 | 30.27 | 5.06 | 41.48 |
+| 16,384 | middle | 8,193 | 34,200 | 5.04 | 30.30 | 4.86 | 34.18 |
+| 16,384 | low | 16,384 | 67,000 | 5.60 | 38.92 | 5.59 | 37.71 |
+| 131,072 | high | 1 | 1,400 | 4.23 | 33.80 | 4.21 | 29.50 |
+| 131,072 | tie | 16,385 | 67,000 | 10.50 | 31.56 | 6.28 | 33.58 |
+| 131,072 | middle | 65,537 | 263,600 | 8.43 | 40.95 | 8.66 | 44.30 |
+| 131,072 | low | 131,072 | 525,700 | 12.64 | 68.33 | 16.95 | 86.17 |
+
+All sporting ranges used the qualified standings index. Work grows with the
+population ahead of the player, including the cost of counting prior members
+of a large tie for lower-ranked players. The lowest-ranked archived read in
+the largest fixture measured 16.95 ms p95 alone and 86.17 ms p95 at six
+concurrent reads. Given this interactive workload and the consistency cost
+of another projection, the implementation keeps the exact indexed counts.
+
+[Repeated shared-writer and live-worker measurements](measurements/league-arena-review-backend.json) ·
+[Personal rank measurements](measurements/league-arena-review-rank.json)
+
+### Network, interface and compatibility
+
+The loopback Chromium 154 production probe at `d023e3d` observed four first-visit
+League reads and no League requests in the first 17 idle seconds. Through
+65 idle seconds it observed one queue read of 583 bytes. An explicit refresh
+made five reads. Joining made one POST and one reconciliation GET. The next
+17 queued seconds made four queue reads. The 4.5-second leave window had no
+League requests and the complete probe recorded zero HTTP or network errors.
+
+The measured initial JavaScript was 186,674 gzip bytes against its 200,000-byte
+budget. The deferred League chunk was 10,210 gzip bytes and its stylesheet was
+629 gzip bytes. Both loaded when the League navigation was used. The browser
+probe preceded moving the existing UTC season countdown into the matchmaking
+panel during archived inspection. The production build checks the final bundle.
+[Production browser measurements](measurements/league-arena-review-browser.json)
+
+The focused Playwright suite passed 14 cases across desktop and mobile Chromium.
+It covers lost join replies before navigation and reload, late original joins,
+account switches, reconnect, qualified and unqualified archived progress, empty
+history, revised rankings, rebuilds and recovery from a remote pause without
+reloading. The Arena checks cover four themes, English and German controls,
+keyboard focus, reduced motion and touch target sizes. The existing navigation
+suite covers interface scaling and the compact navigation breakpoint.
+
+The focused backend run passed 211 tests, including the account authorization,
+queue, result, restore, shared-writer and League recovery coverage.
+
+```sh
+.venv/bin/python -m pytest -q \
+  tests/test_leagues.py tests/test_league_api.py tests/test_league_migrations.py \
+  tests/test_league_restore.py tests/test_online_core.py tests/test_online_api.py \
+  tests/test_online_matches.py tests/test_online_migrations.py tests/test_security.py
+```
+
+The repository and browser gates use the existing disposable fixtures.
+
+```sh
+make lint
+make typecheck
+make foundation
+make check
+make historical-refs
+make deployment-check
+make deployment-cross-version
+npm --prefix frontend run test:scripts
+npm --prefix frontend run audit:ci
+uv audit --frozen --python-version 3.12
+.venv/bin/python scripts/audit_api.py
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:online -- leagues.spec.ts
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm --prefix frontend run test:e2e -- workspace-navigation.spec.ts
+```
+
+The authorization inventory matched 133 grants. The full and production npm
+audits reported zero affected packages. The lock update from OpenTelemetry API
+1.45.1 to 1.45.2 cleared the Python advisory. The rerun found zero known
+vulnerabilities across 52 packages. Schema 23 carries the additional
+request lookup index. Baseline and League fixtures exercised the existing
+schema 22 to 23 upgrade on copies of the same database.
+
+The PR verification includes the full backend and frontend tests, deployment
+lifecycle, pinned historical deployments, Node 22, production bundle budgets,
+and the public, Arena, registration, online and personal Chromium suites.
+[Final PR checks](https://github.com/freeDom-/hnefatafl/pull/99/checks)

@@ -1,0 +1,1124 @@
+{
+  "git_revision": "fbb987fe97a60165c3bd0d4d8c7a2d69f1707340",
+  "source_tree_dirty": false,
+  "source_sha256": {
+    "online_core.py": "06b93982fc11db377f60db668cbd39aa5c4864fa32bec332a70528224acf939b",
+    "player_tournaments.py": "d10dd3b528951060e389684e89cf50a1c8b9298be78ef4f488dc71f24cbe4dca",
+    "player_tournament_settlement.py": "40a1b572ebd67f1463ec105358b12e6df338b1afc7f64b5f31a168158d6ea4af",
+    "league_administration.py": "d8f6ee5bf5444ffaf94da1ef582a29a77575d42be626ab59eeb3af96af1782ae",
+    "league_api.py": "feecc728e737ce2dba3e0407d87d2cc460bd316e087f91985c4318fe663c5277",
+    "league_migrations.py": "4505bbca75d96f9024a15e055cade6a87af96317c4648701df80c5896b448d5c",
+    "league_policy.py": "2dcf48c09aaf8be15b96e2ae3cd137ac61926f7a8a00308e085cd474f0d89175",
+    "league_recovery_migrations.py": "c3ea21efb1ccfaf3a291774faba006c1ef03c41e0d514ef54543d4cea95a3e88",
+    "league_results.py": "915bf4f0feb91f7bdb332e65e1b82ba4c3f4961652c62637d830f33d86e2e10c",
+    "league_views.py": "73b3a3d283b869ec844a64533a00b07b7fdce51830018a2b90adccfe32171f8e",
+    "league_worker.py": "75f9afeac728c99aede26e7821a4c461b1e27691cd2c2f488cb02c79703ac101",
+    "leagues.py": "3a3269f6a1a6f8f05606446536b0d457b3d0af7d28aec218a69ecaf0c76755d1"
+  },
+  "populations": {
+    "1024": {
+      "current": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.2406,
+                "p95": 6.0791,
+                "p99": 11.1975
+              },
+              "reads_per_second": 219.24
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.4534,
+                "p95": 35.2978,
+                "p99": 44.9394
+              },
+              "reads_per_second": 252.17
+            }
+          }
+        },
+        "middle": {
+          "rank": 513,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 3500,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.3174,
+                "p95": 5.0923,
+                "p99": 34.4916
+              },
+              "reads_per_second": 202.22
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.8948,
+                "p95": 31.198,
+                "p99": 38.0345
+              },
+              "reads_per_second": 253.35
+            }
+          }
+        },
+        "low": {
+          "rank": 1024,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 5500,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.9915,
+                "p95": 4.6846,
+                "p99": 4.8745
+              },
+              "reads_per_second": 246.78
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 21.1174,
+                "p95": 30.1648,
+                "p99": 36.154
+              },
+              "reads_per_second": 267.3
+            }
+          }
+        },
+        "tie": {
+          "rank": 129,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 1900,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.8347,
+                "p95": 4.3293,
+                "p99": 37.1216
+              },
+              "reads_per_second": 225.86
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.8106,
+                "p95": 32.2307,
+                "p99": 40.1388
+              },
+              "reads_per_second": 257.62
+            }
+          }
+        }
+      },
+      "current_progress": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.7042,
+                "p95": 5.2621,
+                "p99": 7.3221
+              },
+              "reads_per_second": 251.93
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 21.4943,
+                "p95": 30.5797,
+                "p99": 32.8842
+              },
+              "reads_per_second": 269.14
+            }
+          }
+        },
+        "middle": {
+          "rank": 513,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 3500,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.2154,
+                "p95": 6.4179,
+                "p99": 8.6746
+              },
+              "reads_per_second": 224.21
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.7673,
+                "p95": 30.0785,
+                "p99": 44.3688
+              },
+              "reads_per_second": 257.03
+            }
+          }
+        },
+        "low": {
+          "rank": 1024,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 5500,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.3329,
+                "p95": 4.7666,
+                "p99": 5.0549
+              },
+              "reads_per_second": 229.51
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.1694,
+                "p95": 30.3043,
+                "p99": 33.341
+              },
+              "reads_per_second": 261.71
+            }
+          }
+        },
+        "tie": {
+          "rank": 129,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 1900,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.0297,
+                "p95": 4.6018,
+                "p99": 4.8009
+              },
+              "reads_per_second": 246.91
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 23.919,
+                "p95": 34.9339,
+                "p99": 39.5937
+              },
+              "reads_per_second": 237.01
+            }
+          }
+        }
+      },
+      "archived_progress": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.4182,
+                "p95": 4.9738,
+                "p99": 5.1959
+              },
+              "reads_per_second": 225.51
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 23.5805,
+                "p95": 32.7621,
+                "p99": 36.472
+              },
+              "reads_per_second": 235.66
+            }
+          }
+        },
+        "middle": {
+          "rank": 513,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 3500,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.5553,
+                "p95": 7.5201,
+                "p99": 9.3753
+              },
+              "reads_per_second": 201.87
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.5483,
+                "p95": 35.3901,
+                "p99": 39.617
+              },
+              "reads_per_second": 246.51
+            }
+          }
+        },
+        "low": {
+          "rank": 1024,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 5500,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.1358,
+                "p95": 4.9121,
+                "p99": 7.3094
+              },
+              "reads_per_second": 237.61
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 20.9755,
+                "p95": 28.7046,
+                "p99": 31.5507
+              },
+              "reads_per_second": 275.15
+            }
+          }
+        },
+        "tie": {
+          "rank": 129,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 1900,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.9984,
+                "p95": 5.0479,
+                "p99": 7.6822
+              },
+              "reads_per_second": 242.69
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 20.1632,
+                "p95": 28.4253,
+                "p99": 36.9061
+              },
+              "reads_per_second": 280.97
+            }
+          }
+        }
+      }
+    },
+    "16384": {
+      "current": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.9407,
+                "p95": 4.7034,
+                "p99": 5.4963
+              },
+              "reads_per_second": 248.33
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 21.7423,
+                "p95": 33.3175,
+                "p99": 35.841
+              },
+              "reads_per_second": 267.69
+            }
+          }
+        },
+        "middle": {
+          "rank": 8193,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 34200,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.5313,
+                "p95": 4.9893,
+                "p99": 5.1399
+              },
+              "reads_per_second": 222.0
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 23.335,
+                "p95": 33.2087,
+                "p99": 41.2159
+              },
+              "reads_per_second": 246.87
+            }
+          }
+        },
+        "low": {
+          "rank": 16384,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 67000,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.8251,
+                "p95": 5.3023,
+                "p99": 8.1738
+              },
+              "reads_per_second": 202.58
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 30.2679,
+                "p95": 39.5876,
+                "p99": 47.0581
+              },
+              "reads_per_second": 199.58
+            }
+          }
+        },
+        "tie": {
+          "rank": 2049,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 9600,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.1146,
+                "p95": 4.8171,
+                "p99": 31.9551
+              },
+              "reads_per_second": 216.15
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 24.0229,
+                "p95": 35.3785,
+                "p99": 36.6118
+              },
+              "reads_per_second": 238.63
+            }
+          }
+        }
+      },
+      "current_progress": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.7376,
+                "p95": 4.1446,
+                "p99": 4.8016
+              },
+              "reads_per_second": 264.84
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 21.6371,
+                "p95": 32.0399,
+                "p99": 35.307
+              },
+              "reads_per_second": 263.05
+            }
+          }
+        },
+        "middle": {
+          "rank": 8193,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 34200,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.2875,
+                "p95": 5.0437,
+                "p99": 5.522
+              },
+              "reads_per_second": 230.87
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 23.2924,
+                "p95": 30.3047,
+                "p99": 32.2122
+              },
+              "reads_per_second": 256.26
+            }
+          }
+        },
+        "low": {
+          "rank": 16384,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 67000,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 5.0731,
+                "p95": 5.6017,
+                "p99": 5.904
+              },
+              "reads_per_second": 196.18
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 28.2646,
+                "p95": 38.9165,
+                "p99": 45.7276
+              },
+              "reads_per_second": 202.74
+            }
+          }
+        },
+        "tie": {
+          "rank": 2049,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 9600,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.1311,
+                "p95": 4.7603,
+                "p99": 6.7168
+              },
+              "reads_per_second": 237.45
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 18.4801,
+                "p95": 30.2674,
+                "p99": 31.6488
+              },
+              "reads_per_second": 294.21
+            }
+          }
+        }
+      },
+      "archived_progress": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.8968,
+                "p95": 4.5932,
+                "p99": 5.5359
+              },
+              "reads_per_second": 249.33
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 21.5211,
+                "p95": 29.2787,
+                "p99": 30.8057
+              },
+              "reads_per_second": 268.93
+            }
+          }
+        },
+        "middle": {
+          "rank": 8193,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 34200,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.989,
+                "p95": 4.8574,
+                "p99": 7.2262
+              },
+              "reads_per_second": 235.12
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 21.1053,
+                "p95": 34.178,
+                "p99": 40.4253
+              },
+              "reads_per_second": 257.59
+            }
+          }
+        },
+        "low": {
+          "rank": 16384,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 67000,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 5.0004,
+                "p95": 5.5938,
+                "p99": 5.9219
+              },
+              "reads_per_second": 197.11
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 27.0599,
+                "p95": 37.7132,
+                "p99": 46.5106
+              },
+              "reads_per_second": 212.43
+            }
+          }
+        },
+        "tie": {
+          "rank": 2049,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 9600,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.0604,
+                "p95": 5.0553,
+                "p99": 7.7069
+              },
+              "reads_per_second": 237.87
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 25.1794,
+                "p95": 41.4751,
+                "p99": 49.6816
+              },
+              "reads_per_second": 220.84
+            }
+          }
+        }
+      }
+    },
+    "131072": {
+      "current": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.3076,
+                "p95": 4.6707,
+                "p99": 6.6191
+              },
+              "reads_per_second": 229.84
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 21.1559,
+                "p95": 55.2067,
+                "p99": 66.7418
+              },
+              "reads_per_second": 236.34
+            }
+          }
+        },
+        "middle": {
+          "rank": 65537,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 263600,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 7.6612,
+                "p95": 8.5516,
+                "p99": 14.5082
+              },
+              "reads_per_second": 127.97
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 31.9449,
+                "p95": 51.201,
+                "p99": 69.9231
+              },
+              "reads_per_second": 179.98
+            }
+          }
+        },
+        "low": {
+          "rank": 131072,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 525700,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 11.5741,
+                "p95": 13.1821,
+                "p99": 16.7692
+              },
+              "reads_per_second": 84.62
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 34.2398,
+                "p95": 59.2519,
+                "p99": 63.9213
+              },
+              "reads_per_second": 151.4
+            }
+          }
+        },
+        "tie": {
+          "rank": 16385,
+          "league_snapshot_sql_statements": 11,
+          "league_snapshot_vm_steps_floor": 67000,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 5.0588,
+                "p95": 6.3303,
+                "p99": 6.911
+              },
+              "reads_per_second": 194.07
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 28.2421,
+                "p95": 36.8377,
+                "p99": 47.7623
+              },
+              "reads_per_second": 213.87
+            }
+          }
+        }
+      },
+      "current_progress": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.801,
+                "p95": 4.2347,
+                "p99": 5.1104
+              },
+              "reads_per_second": 260.46
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 20.1555,
+                "p95": 33.7986,
+                "p99": 37.3932
+              },
+              "reads_per_second": 269.41
+            }
+          }
+        },
+        "middle": {
+          "rank": 65537,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 263600,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 7.6234,
+                "p95": 8.427,
+                "p99": 10.4035
+              },
+              "reads_per_second": 129.04
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 26.3346,
+                "p95": 40.9511,
+                "p99": 45.2436
+              },
+              "reads_per_second": 209.31
+            }
+          }
+        },
+        "low": {
+          "rank": 131072,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 525700,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 11.3469,
+                "p95": 12.6428,
+                "p99": 14.8305
+              },
+              "reads_per_second": 86.91
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 40.4447,
+                "p95": 68.331,
+                "p99": 82.2674
+              },
+              "reads_per_second": 135.67
+            }
+          }
+        },
+        "tie": {
+          "rank": 16385,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 67000,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.9522,
+                "p95": 10.496,
+                "p99": 33.0549
+              },
+              "reads_per_second": 163.85
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.1452,
+                "p95": 31.5591,
+                "p99": 35.0642
+              },
+              "reads_per_second": 259.38
+            }
+          }
+        }
+      },
+      "archived_progress": {
+        "high": {
+          "rank": 1,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 1400,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 3.7982,
+                "p95": 4.2119,
+                "p99": 5.4535
+              },
+              "reads_per_second": 259.12
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.1892,
+                "p95": 29.5012,
+                "p99": 37.5842
+              },
+              "reads_per_second": 272.16
+            }
+          }
+        },
+        "middle": {
+          "rank": 65537,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 263600,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 7.9594,
+                "p95": 8.6584,
+                "p99": 8.7605
+              },
+              "reads_per_second": 125.89
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 30.2755,
+                "p95": 44.3011,
+                "p99": 46.7001
+              },
+              "reads_per_second": 180.82
+            }
+          }
+        },
+        "low": {
+          "rank": 131072,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 525700,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 12.7557,
+                "p95": 16.9505,
+                "p99": 59.2256
+              },
+              "reads_per_second": 70.05
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 40.6845,
+                "p95": 86.1717,
+                "p99": 88.047
+              },
+              "reads_per_second": 134.89
+            }
+          }
+        },
+        "tie": {
+          "rank": 16385,
+          "league_snapshot_sql_statements": 6,
+          "league_snapshot_vm_steps_floor": 67000,
+          "rank_range_plan": [
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr><?)",
+            "SEARCH league_standings USING INDEX league_standings_qualified (season_id=? AND ruleset=? AND <expr>=? AND <expr>=? AND losses<?)"
+          ],
+          "reads": {
+            "1": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 4.6614,
+                "p95": 6.2766,
+                "p99": 6.7701
+              },
+              "reads_per_second": 206.49
+            },
+            "6": {
+              "samples": 60,
+              "latency_ms": {
+                "p50": 22.4225,
+                "p95": 33.5783,
+                "p99": 36.6262
+              },
+              "reads_per_second": 244.43
+            }
+          }
+        }
+      }
+    }
+  }
+}
