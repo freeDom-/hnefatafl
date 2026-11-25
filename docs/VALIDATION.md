@@ -2,6 +2,27 @@
 
 [Documentation index](README.md) · [Reproduce checks](#reproduce)
 
+## League Arena, randomised tournament seeding, progression refinements and browser analysis phases (`0.42` preparation)
+
+The [0.42 release notes](releases/0.42.md) identify integration coverage for the
+13 pull requests merged since `0.41.1`: #99, #108, #112, #113, #115, #116, #117,
+#118, #119, #120, #121, #122 and #123. Coverage includes the schema-23 League
+authority, queue and worker, round-synchronised player tournaments with
+randomised seeding, role win rates, manual portrait unlocking, the permanent
+Online Play destination, the noncommercial licence and support link, and the
+opt-in browser neural MCTS phases 2 through 3C-B. The online schema advances
+21 → 23; account schema 9, checkpoint tensor format 1 and job-archive schema 3
+are unchanged. Release identifiers now accept `X.Y` as well as `X.Y.Z`, so a
+release keeps its exact tag, package version and asset name.
+
+Release preparation records its exact local checks and release-PR Verify result
+separately from the feature-PR integration evidence. Successful release-PR and
+exact merged-main Verify remain required before tagging and stable publication.
+The milestone is not a `1.0` public-readiness declaration: combined capacity,
+recovery, physical-device/Safari, competitive-model and verified-GPU evidence,
+and target-host deployment remain outstanding. Historical evidence below is
+unchanged.
+
 ## League Arena (PR #99)
 
 League tests exercise the guarded rated-online pairing and result transactions,

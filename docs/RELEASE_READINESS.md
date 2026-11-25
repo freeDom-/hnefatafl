@@ -5,10 +5,10 @@ release-preparation report, not a release, tag, version-bump or deployment
 authorization.
 
 Reviewed source: merged `main`
-`ca1a640fe6b3971cf7f7764083eee19d1598a19a` (2026-11-20, PR #107 merge
-following release 0.41.0). The checklist originates from the historical post-PR #84 audit
+`1a0381a5f8513a8bf21b712f845b05b6eb0233d8` (2026-11-25, PR #123 merge
+during `0.42` preparation). The checklist originates from the historical post-PR #84 audit
 baseline `2579a86b82ed1eca91f39e7d8064196597e873ed` (2026-11-15). The merged
-0.41.0 milestone is a release artifact, not evidence of initial public deployment
+0.42 milestone is a release artifact, not evidence of initial public deployment
 readiness, and this checklist does not authorize deployment.
 [Current completeness and dependency graph](designs/arena-current-completeness.md) ·
 [Historical audit](designs/arena-completion.md) · [Deployment](DEPLOYMENT.md) ·
@@ -23,9 +23,8 @@ release evidence are not relabelled as fresh combined validation.
 
 | State | Scope |
 | --- | --- |
-| Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress and [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1 research ([#104](validation/browser-analysis-phase1.md), partially validated); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
-| Implemented on open branches | [League Arena](LEAGUES.md) in PR #99 includes the schema 23 migration, League API and page, automatic matchmaking and settlement, and administrator recovery |
-| Missing | Merged league functionality and UI; production classical/neural analysis execution modes; neural MCTS; combined capacity, recovery and deployment evidence; owner/legal confirmation of contributor aliases and generated-artwork terms |
+| Implemented and merged | [The Great Hall](DASHBOARD.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress, [automatic server-owned tiered achievements](validation/automatic-achievements.md) (#94, #101) and manual portrait unlocking (#123); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90), randomised seeding (#120) and synchronised rounds (#119); [League Arena](LEAGUES.md) with the schema 23 migration, League API and page, automatic matchmaking and settlement, and administrator recovery (#99); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1–3C-B research ([#104](validation/browser-analysis-phase1.md), [#108](validation/browser-analysis-phase2.md), [#112](validation/browser-analysis-phase3.md), [#115](validation/browser-analysis-phase3b.md), [#118](validation/browser-analysis-phase3c.md), [#121](validation/browser-analysis-phase3c-b.md), partially validated and opt-in); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
+| Missing | Production classical/neural analysis execution modes; combined capacity, recovery and deployment evidence; owner/legal confirmation of contributor aliases and generated-artwork terms |
 | Deferred | Browser-neural production integration is optional for the initial public release; durable UTC login/activity-day streaks remain excluded |
 | Final combined acceptance | **Not performed.** No release candidate has been evaluated as one system across performance, recovery, security, localization, accessibility and deployment |
 
@@ -34,13 +33,16 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
 
 ## Blocking product and evidence gaps
 
-- [ ] Carry League Arena through PR review and verify it on the integrated
-  release candidate. PR #99 records branch check results and disposable workload
-  evidence. See [League validation](VALIDATION.md#league-arena-pr-99).
+- [ ] Verify League Arena on the integrated release candidate. PR #99 is merged
+  with green PR checks and disposable workload evidence; combined release-candidate
+  verification of queueing, settlement, recovery and administration is still
+  outstanding. See [League validation](VALIDATION.md#league-arena-pr-99).
 - [ ] Production browser analysis has no execution-mode integration. Decide
   explicitly whether a full-strength Jarl executor ships in the initial release or
   is deferred; any shipped executor needs integration and regression acceptance.
-  Neural MCTS is a primary analysis target but is not implemented.
+  Neural MCTS is implemented only as an isolated, opt-in spike (Phases 2–3C-B) with
+  no production route, and competitive checkpoints, physical devices and verified
+  GPU execution remain blocked external gates.
 - [ ] Combined performance on the actual release candidate: route/page latency,
   request traces, 1/10/50-client p50/p95, mixed writes, bounded concurrent
   analysis, league workloads, realistic data volumes and production capacity.
@@ -138,7 +140,8 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
   intact.
 - [ ] Schema cleanup documents incompatible old formats and a recovery path. "No
   public compatibility requirement" never means silently deleting development data.
-  PR #99 advances the canonical schema from main's schema 22 to schema 23.
+  The release advances the online schema from `0.41.1`'s schema 21 to schema 23
+  through the additive schema 22 and 23 migrations.
 
 ## Operations and capacity
 
@@ -180,14 +183,17 @@ alpha-beta analysis and a genuinely trained neural network with MCTS. Neural MCT
 is a primary target; browser-neural production integration remains optional for the
 initial public release.
 
-- Existing evidence: an isolated current-engine Pyodide worker (#89), plus merged
+- Existing evidence: an isolated current-engine Pyodide worker (#89), merged
   PR #104 revision 5's partially validated Jarl comparison and smoke-model
-  ONNX/WASM inference. Neural MCTS is not implemented but Phase 2 is ready to begin
-  from the validated WASM inference boundary.
+  ONNX/WASM inference, and merged Phases 2–3C-B of the browser neural MCTS spike
+  (PR #108, #112, #115, #118, #121). Sequential parity is exact on the smoke
+  fixture and the legal-only transport, opt-in cache and validation platform are
+  documented; the spike has no production route or execution mode.
 - Not established: competitive trained weights for all rulesets, real
-  numerical parity for those weights, browser neural MCTS, completed-search
-  strength, CPU/memory/startup/physical-device benchmarks, production CSP/runtime
-  packaging/licensing, frontend execution modes and final rollout acceptance.
+  numerical parity for those weights, competitive browser neural MCTS
+  performance, completed-search strength, CPU/memory/startup/physical-device
+  benchmarks, production CSP/runtime packaging/licensing, frontend execution modes
+  and final rollout acceptance.
 - The dedicated [browser analysis roadmap](designs/browser-analysis-roadmap.md) and
   revision-5 evidence are merged in PR #104. Current records are
   [Phase 1 validation](validation/browser-analysis-phase1.md), the

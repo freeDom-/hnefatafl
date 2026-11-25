@@ -50,14 +50,19 @@ def test_stable_release_selection_pagination_and_versions(monkeypatch):
             ("4.0.0", False, False, None),
             ("2.0.0-rc1", False, False, "date"),
             ("v9.0.0", False, False, "date"),
+            ("0.42", False, False, "date"),
         ]
     ]
     monkeypatch.setattr(github, "fetch", lambda *a, **k: json.dumps(values).encode())
-    assert [r["tag_name"] for r in github.releases()] == ["1.10.0", "1.9.0"]
-    for invalid in ("main", "../../etc", "01.0.0", "v1.2.3", "1.2.3-rc1"):
+    assert [r["tag_name"] for r in github.releases()] == ["1.10.0", "1.9.0", "0.42"]
+    for invalid in ("main", "../../etc", "01.0.0", "v1.2.3", "1.2.3-rc1", "0.42.0.1"):
         with pytest.raises(ValueError):
             version_key(invalid)
     assert version_key("1.10.0") > version_key("1.9.0")
+    # A two-part stable identifier is a canonical release and orders above the
+    # preceding three-part release without changing its published identity.
+    assert version_key("0.42") == (0, 42, 0)
+    assert version_key("0.42") > version_key("0.41.1")
     assert repository("https://github.com/owner/repo.git") == "owner/repo"
     with pytest.raises(ValueError):
         repository("https://token@evil.test/repo")
@@ -75,6 +80,9 @@ def test_release_asset_requires_integrity_and_does_not_leak_token(tmp_path, monk
     assert "secret-fixture-token" not in str(error.value)
     with pytest.raises(ValueError, match="must publish"):
         github.download({"tag_name": "1.0.0"}, tmp_path / "archive")
+    # A two-part stable identifier keeps its exact tag in the required asset name.
+    with pytest.raises(ValueError, match=r"hnefatafl-0\.42\.tar\.gz"):
+        github.download({"tag_name": "0.42"}, tmp_path / "archive")
     release = {
         "tag_name": "1.0.0",
         "assets": [

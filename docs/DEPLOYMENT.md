@@ -23,9 +23,11 @@ reload server publicly. `.env` is not loaded automatically.
 
 ## Release prerequisites
 
-Production installations download published stable **X.Y.Z** GitHub releases,
-ignoring drafts/prereleases. A compatible release must publish
-`hnefatafl-X.Y.Z.tar.gz`, containing the repository files at the archive root.
+Production installations download published stable **X.Y** or **X.Y.Z** GitHub
+releases, ignoring drafts/prereleases. A compatible release must publish
+`hnefatafl-<tag>.tar.gz` (for example `hnefatafl-0.42.tar.gz`), containing the
+repository files at the archive root. Release identifiers are used verbatim and a
+release may omit the patch component; ordering treats `X.Y` as `X.Y.0`.
 GitHub's release asset API must report its SHA-256 digest. The updater verifies
 this digest, bounds extraction and rejects links, devices, traversal and privileged
 modes. Automatic GitHub source archives and older releases lacking authentication
@@ -351,7 +353,7 @@ As root, from any working directory:
 hnefatafl-update --check
 hnefatafl-update --list
 hnefatafl-update
-hnefatafl-update --version X.Y.Z
+hnefatafl-update --version X.Y.Z  # or a two-part identifier such as 0.42
 hnefatafl-backup
 ```
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hnefatafl"
-version = "0.41.1"
+version = "0.42"
 description = "Three tafl rulesets, browser gameplay, search opponents and self-play learning"
 requires-python = ">=3.11"
 license = "PolyForm-Noncommercial-1.0.0"

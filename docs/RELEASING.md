@@ -4,7 +4,13 @@ Milestone `0.x.0` Git tags are previews with an explicit scope. Their notes use
 `docs/releases/X.Y.Z.md` paths. `1.0.0` requires
 the initial acceptance checklist, working production startup and complete CPU
 training smoke tests. A GPU check is reported as unverified if hardware is absent.
-Release-note filenames are the unprefixed `X.Y.Z` tag in every case. The historical
+Release identifiers are used verbatim: the tag, the `docs/releases/<tag>.md`
+filename, the `pyproject.toml`/`package.json` version and the published asset
+`hnefatafl-<tag>.tar.gz` always match. A release may omit the patch component
+(`0.42` is the identifier, not `0.42.0`); the updater and publish workflow accept
+both `X.Y` and `X.Y.Z`, and version ordering treats `X.Y` as `X.Y.0` without
+renaming a published tag. Release-note filenames are the unprefixed tag in every
+case. The historical
 `vX.Y.Z.md` names were renamed to `X.Y.Z.md` for consistency; their contents are
 unchanged, and the already-published releases keep their original notes because
 those bodies point into the tagged trees. The publish workflow therefore still
@@ -51,7 +57,8 @@ or claim strength without a documented evaluation budget and results.
 
 ## Production updater assets
 
-Production installs accept published stable **X.Y.Z** releases, with neither draft
+Production installs accept published stable **X.Y** or **X.Y.Z** releases, with
+neither draft
 nor prerelease flags. The tag must match `pyproject.toml`. Older preview tags and
 GitHub automatic source archives are not production installation inputs.
 After committing, validating and tagging a secure deployment release:
