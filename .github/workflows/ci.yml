@@ -34,6 +34,11 @@ jobs:
       - run: make foundation
       - run: make docs
       - run: make deployment-check
+      - name: Privileged deployment with native systemd
+        run: >-
+          sudo -n env HNEFATAFL_TEST_SYSTEMD=1 "$PWD/.venv/bin/python" -m pytest
+          -o cache_dir="$RUNNER_TEMP/hnefatafl-privileged-pytest"
+          tests/test_deployment_environment.py -k privileged -q
       - run: .venv/bin/python -m pytest
       - run: .venv/bin/ruff check hnefatafl tests
       - run: .venv/bin/ruff format --check hnefatafl tests
