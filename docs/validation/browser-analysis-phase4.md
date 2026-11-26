@@ -971,3 +971,12 @@ Actual production browser on the final build passes the neural/recovery probe:
 one model artifact transfer, 3 metadata revalidations, zero transfers for verified
 cached bytes, healthy-session reuse, cold init 2.56 s, Jarl 274 ms, repeated
 idempotent init 0 ms and successful live cancellation recovery.
+
+### Current PR status after J1
+
+GitHub Actions on PR #124 passes all required jobs on the J1 head: `security`,
+`python`, `node22`, `deployment-cross-version` and `browser`. GitHub reports
+**CLEAN/MERGEABLE**; the previously reported `mergeable=false` no longer reproduces
+and no conflict resolution was required. This documentation follow-up does not
+change runtime code, tests, build inputs or bundle budgets. No merge, tag, release
+or deployment was performed.
