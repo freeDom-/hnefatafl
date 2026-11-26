@@ -1246,6 +1246,8 @@ stopped writers, keep matching `0.41.1` code with the backup, and require matchi
 schemas for restore. This release uses the two-part identifier `0.42` verbatim as
 tag, package version and asset name (`hnefatafl-0.42.tar.gz`); the updater and
 publish workflow accept `X.Y` as well as `X.Y.Z` and never rename a published tag.
+The updater installed by `0.41.1` only recognises three-part tags, so that one-time
+updater refresh from the verified `0.42` archive is required before the update.
 Workers must run the same `0.42` identifier. The deprecated tournament `seeds` and
 `registration_deadline` inputs are accepted and ignored.
 

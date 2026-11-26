@@ -9,7 +9,11 @@ filename, the `pyproject.toml`/`package.json` version and the published asset
 `hnefatafl-<tag>.tar.gz` always match. A release may omit the patch component
 (`0.42` is the identifier, not `0.42.0`); the updater and publish workflow accept
 both `X.Y` and `X.Y.Z`, and version ordering treats `X.Y` as `X.Y.0` without
-renaming a published tag. Release-note filenames are the unprefixed tag in every
+renaming a published tag. A two-part identifier is only discoverable by an updater
+whose installed `deployment.py` already accepts two-part tags, so the release notes
+and [deployment guide](DEPLOYMENT.md#updating) must state the one-time
+updater refresh for installations that still run an older three-part-only updater.
+Release-note filenames are the unprefixed tag in every
 case. The historical
 `vX.Y.Z.md` names were renamed to `X.Y.Z.md` for consistency; their contents are
 unchanged, and the already-published releases keep their original notes because
