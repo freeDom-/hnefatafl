@@ -4385,7 +4385,12 @@ json.dump(rows, sys.stdout)
 
         if not dry_run and can_delete:
             for path, record in recorded.items():
-                if not record.keep and path not in blocked and not os.path.lexists(path):
+                if (
+                    not record.keep
+                    and path not in blocked
+                    and not os.path.lexists(path)
+                    and os.path.lexists(self._staging_intent(path))
+                ):
                     try:
                         self._discard_staging(path, mixed=record.mixed)
                     except (OSError, DeploymentError) as error:

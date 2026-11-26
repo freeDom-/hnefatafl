@@ -1376,7 +1376,11 @@ def test_preparation_cleanup_waits_for_all_units_in_each_operation(
 
     failures.clear()
     running.discard(unit_names["1"])
-    harness._remove_orphan_staging()
+    if invocation == "cleanup":
+        resumed = harness.cleanup()
+        assert resumed.cleanup_complete and not resumed.errors
+    else:
+        harness._remove_orphan_staging()
     assert not any(path.exists() for paths in artifacts.values() for path in paths)
     assert running == {unrelated}
     harness._remove_orphan_staging()
