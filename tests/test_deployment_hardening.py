@@ -974,8 +974,8 @@ def download(release, destination):
     shutil.copyfile(source, destination)
     return 'sha256:' + 'a'*64
 
-def staging(*args):
-    value = stage(*args)
+def staging(*args, **kwargs):
+    value = stage(*args, **kwargs)
     if point == 'updater-payload': kill()
     return value
 
@@ -1158,3 +1158,282 @@ def test_legacy_pending_updater_is_removed_only_with_a_verified_payload(tmp_path
     harness.cleanup()
     assert not staging.exists()
     assert (unknown / "keep").read_bytes() == b"untrusted"
+
+
+@pytest.mark.parametrize("fault", ["none", "interrupted", "copy", "verify", "no-capacity"])
+def test_cross_filesystem_migration_only_copies_retained_history(tmp_path, monkeypatch, fault):
+    import tempfile
+
+    from deployment_fixtures import fault_process
+    from hnefatafl.deployment import FilesystemInfo
+
+    harness, active = valid_harness(
+        tmp_path, {"storage": {"headroom_mib": 0, "minimum_free_inodes": 0}}
+    )
+    shared = Path("/dev/shm")
+    if not shared.is_dir() or shared.stat().st_dev == tmp_path.stat().st_dev:
+        pytest.skip("requires a separate disposable backup filesystem")
+    with tempfile.TemporaryDirectory(dir=shared, prefix="hnefatafl-retention-") as directory:
+        legacy = harness.legacy_backups
+        legacy.mkdir(mode=0o700)
+        payload = b"L" * (256 * 1024)
+        sources = []
+        for index in range(1, 8):
+            snapshot = harness.make_backup(
+                f"2026010{index}T000000-{index:04x}", old=200 - index, payload=payload
+            )
+            source = legacy / snapshot.name
+            snapshot.rename(source)
+            sources.append(source)
+        protected = sources[0]
+        invalid = legacy / "20260108T000000-dead"
+        (invalid / "data").mkdir(parents=True)
+        (invalid / "config").mkdir()
+        invalid.chmod(0o700)
+        atomic_json(invalid / "manifest.json", {"data/missing": "0" * 64})
+        harness.backups = Path(directory) / "backups"
+        collision = harness.make_backup(protected.name, old=0, payload=b"C" * len(payload))
+        expired = harness.make_backup("20250101T000000-ffff", old=400, payload=b"X" * len(payload))
+        harness.set_state("2.0.0", active, backup=protected)
+        inode = protected.stat().st_ino
+        capacity = 945 * 1024
+
+        def capacity_at(path):
+            usage = scan_usage(harness.backups)
+            free = max(0, capacity - usage.allocated_bytes)
+            return FilesystemInfo(harness.backups.stat().st_dev, Path(path), free, 2048)
+
+        harness.filesystem_override = capacity_at
+        plan = harness.cleanup(dry_run=True)
+        copies = {entry.path for entry in plan.entries if entry.action == "copy"}
+        pruned = {entry.path for entry in plan.entries if entry.action == "remove"}
+        assert copies == {protected, sources[-1]}
+        assert pruned == {*sources[1:-1], expired}
+        assert any(entry.path == invalid and entry.status == "invalid" for entry in plan.retained)
+        assert all(source.exists() for source in sources)
+        assert expired.exists()
+        assert not harness.migration_journal.exists()
+        assert len(payload) * 3 < capacity < len(payload) * 7
+
+        if fault == "no-capacity":
+            capacity = 100 * 1024
+            with pytest.raises(StorageError, match="retained legacy snapshot copies"):
+                harness.ensure_layout()
+            assert all(source.exists() for source in sources)
+            assert expired.exists()
+            assert not harness.migration_journal.exists()
+            return
+        if fault == "interrupted":
+            script = """
+import os, signal, sys
+from pathlib import Path
+from hnefatafl import deployment
+root, backups = map(Path, sys.argv[1:3])
+capacity = int(sys.argv[3])
+updater = deployment.Deployment(
+    {'storage': {'headroom_mib': 0, 'minimum_free_inodes': 0}},
+    base=root/'opt', data=root/'data', etc=root/'etc', backups=backups,
+)
+updater.filesystem_info = lambda path: deployment.FilesystemInfo(
+    backups.stat().st_dev, path, max(0, capacity-deployment.scan_usage(backups).allocated_bytes), 2048,
+)
+record = deployment.atomic_json
+def interrupted(path, value):
+    record(path, value)
+    if path == updater.migration_journal and value['entries'][0]['phase'] == 'copied':
+        os.kill(os.getpid(), signal.SIGKILL)
+deployment.atomic_json = interrupted
+updater.ensure_layout()
+"""
+            result = fault_process(script, tmp_path, harness.backups, capacity)
+            assert result.returncode == -9, result.stdout + result.stderr
+        elif fault in {"copy", "verify"}:
+            original_copy = harness._copy_verified_snapshot
+            original_verify = harness.verify_snapshot
+
+            def copy(source, staging, **kwargs):
+                if fault == "copy" and source.name == protected.name:
+                    raise OSError(errno.EIO, "fixture copy failure")
+                return original_copy(source, staging, **kwargs)
+
+            def verify(path, **kwargs):
+                if fault == "verify" and path.name.startswith(".staging-backup-"):
+                    raise DeploymentError("fixture destination verification failure")
+                return original_verify(path, **kwargs)
+
+            with monkeypatch.context() as isolated:
+                isolated.setattr(harness, "_copy_verified_snapshot", copy)
+                isolated.setattr(harness, "verify_snapshot", verify)
+                with pytest.raises((OSError, DeploymentError), match="fixture"):
+                    harness.ensure_layout()
+        if fault != "none":
+            pending = json.loads(harness.migration_journal.read_text())
+            assert pending["schema"] == 2
+            assert len([entry for entry in pending["entries"] if entry["phase"] == "prune"]) == 5
+            assert protected.stat().st_ino == inode
+            assert json.loads(harness.state.read_text())["backup"] == str(protected)
+            assert all(source.exists() for source in sources)
+            assert collision.exists()
+
+        harness.ensure_layout()
+        assert not harness.migration_journal.exists()
+        assert not any(source.exists() for source in sources)
+        assert not expired.exists()
+        assert invalid.is_dir()
+        state = json.loads(harness.state.read_text())
+        mapped = Path(state["backup"])
+        assert mapped.parent == harness.backups and mapped != collision
+        assert (mapped / "data/sentinel").read_bytes() == payload
+        assert (collision / "data/sentinel").read_bytes() == b"C" * len(payload)
+        assert {path.name for path in harness.backups.iterdir()} == {
+            mapped.name,
+            collision.name,
+            sources[-1].name,
+        }
+        assert harness.cleanup().removed == []
+
+
+@pytest.mark.parametrize("invocation", ["cleanup", "orphan"])
+def test_preparation_cleanup_waits_for_all_units_in_each_operation(
+    tmp_path, monkeypatch, invocation
+):
+    import subprocess
+
+    from hnefatafl import deployment
+    from test_deployment_storage import configure_updater
+
+    harness, _ = valid_harness(tmp_path)
+    configure_updater(harness, tmp_path)
+    harness.updater_root.mkdir(parents=True)
+    monkeypatch.setattr(
+        harness, "_data_account", lambda: (harness.privileged_uid + 1, os.getegid())
+    )
+    artifacts = {}
+    running = set()
+    unit_names = {}
+    for digit in "1234":
+        token = digit * 16
+        if digit == "4":
+            workspace = harness.temporary_root / (".staging-prepare-" + token)
+            harness._begin_staging(workspace, "prepare", 0o711)
+            association = {}
+        else:
+            workspace = harness._temporary_workspace("prepare", preparation_id=token)
+            association = {"preparation_id": token}
+        release = harness.releases / ("1.0.0-" + token[:8])
+        pending = harness.updater_root / (".pending-" + token)
+        harness._begin_staging(release, "release", **association)
+        harness._begin_staging(pending, "pending", **association)
+        unit = f"hnefatafl-prepare-{token}-abcd1234.service"
+        unit_names[digit] = unit
+        running.add(unit)
+        if digit != "4":
+            atomic_json(workspace / ".units.json", {"units": [unit]})
+        (workspace / ".units-allowed").touch()
+        artifacts[digit] = (workspace, release, pending)
+
+    unrelated = "hnefatafl-prepare-" + "3" * 16 + "-ffffffff.service"
+    running.add(unrelated)
+    failures = {"1": "stop", "2": "inspect", "4": "still-active"}
+    calls = []
+
+    def list_units(args, **kwargs):
+        assert args[:2] == ["systemctl", "list-units"]
+        calls.append(("list", args[-1]))
+        if failures.get("2") == "inspect" and "2" * 16 in args[-1]:
+            raise subprocess.CalledProcessError(1, args)
+        lines = [f"{name} loaded active running Fixture" for name in sorted(running)]
+        return subprocess.CompletedProcess(args, 0, stdout="\n".join(lines))
+
+    def stop(args, **kwargs):
+        assert args[:2] == ["systemctl", "stop"]
+        calls.append(("stop", *args[2:]))
+        assert unrelated not in args
+        if failures.get("1") == "stop" and unit_names["1"] in args:
+            raise subprocess.CalledProcessError(1, args)
+        for name in args[2:]:
+            if not (failures.get("4") == "still-active" and name == unit_names["4"]):
+                running.discard(name)
+
+    monkeypatch.setattr(deployment.subprocess, "run", list_units)
+    monkeypatch.setattr(harness, "run", stop)
+    preview = harness.cleanup(dry_run=True)
+    assert not calls and not preview.errors
+    assert all((paths[0] / ".units-allowed").exists() for paths in artifacts.values())
+
+    if invocation == "cleanup":
+        result = harness.cleanup()
+        assert not result.cleanup_complete
+        assert any("Cannot confirm termination" in item for item in result.errors)
+    else:
+        harness._remove_orphan_staging()
+    assert all(path.exists() for digit in "124" for path in artifacts[digit])
+    assert not any(path.exists() for path in artifacts["3"])
+    assert unrelated in running
+    assert all(not (artifacts[digit][0] / ".units-allowed").exists() for digit in "124")
+
+    failures.clear()
+    running.discard(unit_names["1"])
+    harness._remove_orphan_staging()
+    assert not any(path.exists() for paths in artifacts.values() for path in paths)
+    assert running == {unrelated}
+    harness._remove_orphan_staging()
+    assert running == {unrelated}
+
+
+def test_changed_candidate_wrappers_are_refused_even_by_reviewed_repair(tmp_path):
+    harness, _staging, plan = updater_setup(tmp_path)
+    harness._publish_updater_plan(plan, tag="0.43")
+    changed = {**plan, "scripts/linux/backup.sh": b"#!/bin/bash\nexit 0\n"}
+    before = (harness.updater_root / "active.json").read_bytes()
+    for repair in (False, True):
+        with pytest.raises(DeploymentError, match="Unsupported maintenance wrapper"):
+            harness._publish_updater_plan(changed, tag="0.43", repair=repair)
+    assert (harness.updater_root / "active.json").read_bytes() == before
+    assert harness.updater_commands[1].read_bytes() == plan["scripts/linux/backup.sh"]
+
+
+def test_reviewed_wrapper_repair_is_resumable_after_first_replacement(tmp_path):
+    from deployment_fixtures import fault_process
+    from hnefatafl.deployment import install_reviewed_updater
+
+    harness, _staging, plan = updater_setup(tmp_path)
+    harness._publish_updater_plan(plan, tag="0.43")
+    update, backup = harness.updater_commands
+    update.write_bytes(plan["scripts/linux/update.sh"].replace(b" -I -B ", b" "))
+    backup.write_text("damaged wrapper\n")
+    backup.chmod(0o644)
+    before = harness._active_updater()
+    with pytest.raises(DeploymentError, match="reviewed installer"):
+        harness._publish_updater_plan(plan, tag="0.43")
+    assert harness._active_updater() == before
+    result = fault_process(
+        """
+import os, signal, sys
+from pathlib import Path
+from hnefatafl.deployment import install_reviewed_updater
+source, root, utilities, commands = map(Path, sys.argv[1:])
+replace = os.replace
+def replacing(old, new):
+    replace(old, new)
+    if Path(new) == commands / 'hnefatafl-update':
+        os.kill(os.getpid(), signal.SIGKILL)
+os.replace = replacing
+install_reviewed_updater(source, root/'etc', utilities, commands, root/'lock')
+""",
+        REPO,
+        tmp_path,
+        harness.updater_root,
+        update.parent,
+    )
+    assert result.returncode == -9, result.stdout + result.stderr
+    assert update.read_bytes() == plan["scripts/linux/update.sh"]
+    assert update.stat().st_mode & 0o111
+    assert backup.read_text() == "damaged wrapper\n"
+    assert harness._active_updater()["previous"] == before["generation"]
+    install_reviewed_updater(
+        REPO, harness.etc, harness.updater_root, update.parent, tmp_path / "lock"
+    )
+    assert backup.read_bytes() == plan["scripts/linux/backup.sh"]
+    assert backup.stat().st_mode & 0o111
+    assert update.read_bytes() == plan["scripts/linux/update.sh"]

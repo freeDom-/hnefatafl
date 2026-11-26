@@ -368,6 +368,14 @@ class Usage:
         )
 
 
+@dataclass(frozen=True)
+class StagingRecord:
+    operation: str
+    mixed: bool
+    keep: bool
+    preparation_id: str | None = None
+
+
 @dataclass
 class CleanupEntry:
     category: str
@@ -1320,6 +1328,7 @@ class Deployment:
         self._snapshot_schema_cache: dict[tuple[int, ...], int] = {}
         self._online_support: types.ModuleType | None = None
         self._layout_ready = False
+        self._blocked_staging: dict[Path, str] = {}
         self._held_gate: tuple[int, int] | None = None
         self.env = {
             "PATH": str(base / "tools/node/bin")
@@ -1365,7 +1374,14 @@ class Deployment:
         executable = shutil.which(command[0], path=environment["PATH"])
         if executable is None:
             raise DeploymentError(f"Preparation executable is unavailable: {command[0]}")
-        unit = f"hnefatafl-{workspace.name.removeprefix('.staging-')}-{secrets.token_hex(4)}"
+        unit = (
+            f"hnefatafl-{workspace.name.removeprefix('.staging-')}-{secrets.token_hex(4)}.service"
+        )
+        units = self._preparation_units(workspace) or set()
+        units.add(unit)
+        atomic_json(workspace / ".units.json", {"units": sorted(units)})
+        armed = workspace / ".units-allowed"
+        atomic_bytes(armed, b"")
         # Systemd reads this root-only file before switching to the service
         # account. Proxy credentials stay out of arguments and unit properties.
         environment_file = workspace / "environment"
@@ -1391,6 +1407,9 @@ class Deployment:
                 f"--gid={gid}",
                 f"--working-directory={cwd}",
                 "--property=ProtectSystem=strict",
+                "--property=KillMode=control-group",
+                "--property=TimeoutStopSec=30s",
+                f"--property=ConditionPathExists={armed}",
                 f"--property=InaccessiblePaths={self.data}",
                 f"--property=ReadWritePaths={workspace} {cwd}",
                 "--property=NoNewPrivileges=yes",
@@ -1462,7 +1481,14 @@ class Deployment:
     def _staging_intent(path: Path) -> Path:
         return path.with_name(f".staging-intent-{path.name.removeprefix('.')}.json")
 
-    def _begin_staging(self, path: Path, operation: str, mode: int = 0o700) -> tuple[int, int]:
+    def _begin_staging(
+        self,
+        path: Path,
+        operation: str,
+        mode: int = 0o700,
+        *,
+        preparation_id: str | None = None,
+    ) -> tuple[int, int]:
         root = self.fs.validate_root(
             path.parent,
             owner=self.privileged_uid,
@@ -1479,6 +1505,10 @@ class Deployment:
             "parent": [root.device, root.inode],
             "identity": None,
         }
+        if preparation_id is not None:
+            if not re.fullmatch(r"[a-f0-9]{16}", preparation_id):
+                raise DeploymentError("Invalid preparation operation identity")
+            intent["preparation_id"] = preparation_id
         atomic_json(marker, intent)
         with self.fs.open_directory(root) as directory:
             os.mkdir(path.name, mode, dir_fd=directory)
@@ -1529,6 +1559,11 @@ class Deployment:
             or intent.get("schema") != 1
             or intent.get("name") != path.name
             or "identity" not in intent
+            or "preparation_id" in intent
+            and (
+                not isinstance(intent["preparation_id"], str)
+                or not re.fullmatch(r"[a-f0-9]{16}", intent["preparation_id"])
+            )
             or intent.get("parent") != list(self.fs.identity_of(path.parent))
             or intent.get("identity") is not None
             and not valid_identity(intent["identity"])
@@ -1557,7 +1592,7 @@ class Deployment:
             self._safe_remove(path.parent, path, identity=identity, owners=owners, mixed=mixed)
         self._finish_staging(path)
 
-    def _temporary_workspace(self, operation: str) -> Path:
+    def _temporary_workspace(self, operation: str, *, preparation_id: str | None = None) -> Path:
         self._base_root()
         if not os.path.lexists(self.temporary_root):
             self.temporary_root.mkdir(mode=0o755)
@@ -1576,8 +1611,9 @@ class Deployment:
             mode=0o755,
             description="build temporary directory",
         )
-        temporary = self.temporary_root / f".staging-{operation}-{secrets.token_hex(8)}"
-        self._begin_staging(temporary, operation, 0o711)
+        identity = preparation_id or secrets.token_hex(8)
+        temporary = self.temporary_root / f".staging-{operation}-{identity}"
+        self._begin_staging(temporary, operation, 0o711, preparation_id=identity)
         return temporary
 
     def _preparation_environment(self, workspace: Path) -> dict[str, str]:
@@ -1597,7 +1633,7 @@ class Deployment:
             "UV_LINK_MODE": "copy",
         }
 
-    def ensure_layout(self) -> None:
+    def ensure_layout(self, *, protected_backups: set[Path] | None = None) -> None:
         """Validate and, when needed, migrate the root-owned deployment layout.
 
         A legacy installation kept verified snapshots directly inside the
@@ -1607,7 +1643,7 @@ class Deployment:
         """
         if self._layout_ready:
             return
-        self._migrate_legacy_backups()
+        self._migrate_legacy_backups(protected_backups)
         self._layout_ready = True
 
     @contextmanager
@@ -1686,59 +1722,222 @@ class Deployment:
                 return value.strip()
         raise DeploymentError("Cannot establish the mount identity of a backup location")
 
+    def _legacy_copy_required(self, source_fd: int, dest_fd: int) -> bool:
+        return os.fstat(source_fd).st_dev != os.fstat(dest_fd).st_dev or self._backup_mount_id(
+            source_fd
+        ) != self._backup_mount_id(dest_fd)
+
     def _backup_inventory(
         self,
     ) -> list[tuple[Path, os.stat_result, str, str, Path | None, str | None]]:
-        entries: list[tuple[Path, os.stat_result, str, str, Path | None, str | None]] = []
         with ExitStack() as stack:
-            destination = self._backup_root() if os.path.lexists(self.backups) else None
             dest_fd = (
-                stack.enter_context(self.fs.open_directory(destination)) if destination else None
+                stack.enter_context(self.fs.open_directory(self._backup_root()))
+                if os.path.lexists(self.backups)
+                else None
             )
-            if dest_fd is not None:
-                for name in sorted(os.listdir(dest_fd)):
-                    path = self.backups / name
-                    if name.startswith(".staging-intent-"):
-                        continue
-                    info = os.stat(name, dir_fd=dest_fd, follow_symlinks=False)
-                    status, detail = self._backup_status(path)
-                    entries.append((path, info, status, detail, None, None))
-            if not os.path.lexists(self.legacy_backups):
-                return entries
-            root, _, legacy_fd = stack.enter_context(self._open_legacy_backups())
-            planned = {
-                entry["source"]: entry["target"]
-                for entry in self._legacy_migration_entries(legacy_fd, dest_fd)
-            }
-            self.fs._validate_ancestors(self.backups, "backup directory")
-            destination_device = (
-                destination.device if destination else self.backups.parent.stat().st_dev
+            legacy_fd = (
+                stack.enter_context(self._open_legacy_backups())[2]
+                if os.path.lexists(self.legacy_backups)
+                else None
             )
-            with ExitStack() as mount:
-                target_fd = dest_fd
-                if target_fd is None:
-                    target_fd = os.open(
-                        self.backups.parent,
-                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                    )
-                    mount.callback(os.close, target_fd)
-                same_mount = self._backup_mount_id(legacy_fd) == self._backup_mount_id(target_fd)
-            kind = "move" if root.device == destination_device and same_mount else "copy"
-            for name in sorted(os.listdir(legacy_fd)):
-                info = os.stat(name, dir_fd=legacy_fd, follow_symlinks=False)
-                view = Path(f"/proc/self/fd/{legacy_fd}") / name
-                status, detail = self._inspect_legacy_backup(view, legacy_fd)
-                target = (
-                    self.backups / planned[name]
-                    if name in planned and status == "complete"
-                    else None
+            planned = (
+                self._legacy_migration_entries(legacy_fd, dest_fd) if legacy_fd is not None else []
+            )
+            return self._inventory_backups(legacy_fd, dest_fd, planned)
+
+    def _inventory_backups(
+        self,
+        source_fd: int | None,
+        dest_fd: int | None,
+        planned: list[dict],
+    ) -> list[tuple[Path, os.stat_result, str, str, Path | None, str | None]]:
+        entries: list[tuple[Path, os.stat_result, str, str, Path | None, str | None]] = []
+        if dest_fd is not None:
+            for name in sorted(os.listdir(dest_fd)):
+                if name.startswith(".staging-intent-"):
+                    continue
+                path = self.backups / name
+                info = os.stat(name, dir_fd=dest_fd, follow_symlinks=False)
+                status, detail = self._backup_status(path)
+                entries.append((path, info, status, detail, None, None))
+        if source_fd is None:
+            return entries
+        with ExitStack() as stack:
+            target_fd = dest_fd
+            if target_fd is None:
+                self.fs._validate_ancestors(self.backups, "backup directory")
+                target_fd = os.open(
+                    self.backups.parent,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
                 )
-                if status == "complete" and target is None:
-                    raise DeploymentError(
-                        f"Legacy backup inventory changed during inspection: {view}"
-                    )
-                entries.append((root.path / name, info, status, detail, target, kind))
+                stack.callback(os.close, target_fd)
+            kind = "copy" if self._legacy_copy_required(source_fd, target_fd) else "move"
+        names = {entry["source"]: entry["target"] for entry in planned}
+        for name in sorted(os.listdir(source_fd)):
+            info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
+            view = Path(f"/proc/self/fd/{source_fd}") / name
+            status, detail = self._inspect_legacy_backup(view, source_fd)
+            if status == "complete" and name not in names:
+                raise DeploymentError(f"Legacy backup inventory changed during inspection: {view}")
+            target = self.backups / names[name] if status == "complete" else None
+            entries.append((self.legacy_backups / name, info, status, detail, target, kind))
         return entries
+
+    def _retained_backups(
+        self,
+        entries: list[tuple[Path, float, Path]],
+        protected: set[Path],
+    ) -> set[Path]:
+        kept = {path for path, _, _ in entries if path in protected}
+        slots = max(0, self.retention["backups"] - len(kept))
+        ordered = sorted(entries, key=lambda item: (item[1], item[2].name), reverse=True)
+        kept.update([path for path, _, _ in ordered if path not in protected][:slots])
+        return kept
+
+    def _migration_protected_backups(self, extra: set[Path] | None = None) -> set[Path]:
+        state = self._installed_metadata()
+        journal, valid, reason = self._load_metadata(self.journal, "transaction journal")
+        if valid and journal is not None:
+            valid, reason = self.validate_transaction_metadata(journal)
+        if not valid:
+            raise DeploymentError(
+                f"Cannot plan backup migration with ambiguous recovery metadata: {reason}"
+            )
+        if journal is None or journal["phase"] in {"committed", "recovered"}:
+            active = self._require_active_state(state)
+            if active is not None and state is None:
+                raise DeploymentError(
+                    "Cannot plan backup retention without the active release's installed state"
+                )
+        _, protected = self._cleanup_protection(state, journal, None, extra)
+        protected.update(
+            (self.legacy_backups / name, "recorded legacy rollback reference")
+            for name in self._backup_references()
+        )
+        return set(protected)
+
+    def _migration_copy_requirement(self, usage: Usage) -> StorageRequirement:
+        return StorageRequirement(
+            self.backups,
+            usage.bytes,
+            "retained legacy snapshot copies",
+            usage.inodes,
+        )
+
+    def _plan_cross_filesystem_migration(
+        self,
+        journal: dict,
+        source_fd: int,
+        dest_fd: int,
+        protected_backups: set[Path] | None,
+    ) -> None:
+        inventory = self._inventory_backups(source_fd, dest_fd, journal["entries"])
+        protected = self._migration_protected_backups(protected_backups)
+        kept = self._retained_backups(
+            [
+                (path, info.st_mtime, target or path)
+                for path, info, status, _, target, _ in inventory
+                if status == "complete"
+            ],
+            protected,
+        )
+        statuses = {path: status for path, _, status, _, _, _ in inventory}
+        copies = Usage()
+        for entry in journal["entries"]:
+            name = entry["source"]
+            path = self.legacy_backups / name
+            if statuses[path] != "complete":
+                entry["phase"] = "retained"
+            elif path not in kept:
+                entry["phase"] = "prune"
+            else:
+                copies += scan_usage(Path(f"/proc/self/fd/{source_fd}") / name)
+        journal["schema"] = 2
+        journal["kept_destination"] = []
+        journal["prune_destination"] = []
+        credit = Usage()
+        for path, info, status, _, _, migration in inventory:
+            if migration is not None or status != "complete":
+                continue
+            record = {"name": path.name, "identity": list(file_identity(info))}
+            if path in kept:
+                journal["kept_destination"].append(record)
+            else:
+                journal["prune_destination"].append({**record, "phase": "prune"})
+                credit += scan_usage(path)
+        requirement = self._migration_copy_requirement(copies)
+        # Check the actual destination before trusting reclamation estimates.
+        capacity = self.filesystem_info(self.backups)
+        try:
+            self.check_storage([requirement], phase="cross-filesystem backup migration")
+        except StorageError as error:
+            if (
+                error.__cause__ is not None
+                or capacity.available_bytes + max(0, credit.allocated_bytes - credit.hardlink_bytes)
+                < error.required_bytes
+                or capacity.inode_reporting
+                and capacity.available_inodes + credit.inodes < error.required_inodes
+            ):
+                raise
+        journal["copy_bytes"] = requirement.bytes
+        journal["copy_inodes"] = requirement.inodes
+
+    def _prune_migration_backup(
+        self,
+        journal: dict,
+        entry: dict,
+        root: RootIdentity,
+        directory: int | None,
+        protected: set[Path],
+        *,
+        legacy: bool,
+    ) -> None:
+        if entry["phase"] in {"pruned", "retained"}:
+            return
+        name, expected = (
+            (entry["source"], entry["source_identity"])
+            if legacy
+            else (entry["name"], entry["identity"])
+        )
+        path = root.path / name
+        actual = self._entry_identity(directory, name)
+        if path in protected or actual not in (None, expected):
+            raise DeploymentError(
+                f"Snapshot retained because migration protection or identity changed: {path}"
+            )
+        if entry["phase"] == "prune":
+            if actual is None:
+                raise DeploymentError(f"Snapshot disappeared before the migration removal: {path}")
+            view = Path(f"/proc/self/fd/{directory}") / name
+            status, detail = (
+                self._inspect_legacy_backup(view, directory)
+                if legacy and directory is not None
+                else self._backup_status(path)
+            )
+            if status != "complete":
+                entry["phase"] = "retained"
+                atomic_json(self.migration_journal, journal)
+                print(f"Retained changed snapshot {path}: {detail}", file=sys.stderr)
+                return
+            entry["phase"] = "pruning"
+            atomic_json(self.migration_journal, journal)
+        if actual is not None:
+            assert directory is not None
+            self.fs._remove_entry(
+                root,
+                directory,
+                name,
+                path,
+                expected_owner=self.privileged_uid,
+                identity=(expected[0], expected[1]),
+                top=True,
+                allow_symlinks_inside=False,
+            )
+            os.fsync(directory)
+        entry["phase"] = "pruned"
+        atomic_json(self.migration_journal, journal)
+        print(f"Removed verified snapshot beyond retention during backup migration: {path}.")
 
     def _legacy_cleanup_entry(
         self, path: Path, identity: tuple[int, int] | None, *, dry_run: bool
@@ -1771,7 +1970,7 @@ class Deployment:
                     self._remove_empty_legacy_root(data_fd, [root.device, root.inode])
             return usage
 
-    def _migrate_legacy_backups(self) -> None:
+    def _migrate_legacy_backups(self, protected_backups: set[Path] | None = None) -> None:
         # The application can rename its legacy backup entry, but it cannot
         # change any contents behind an already opened, root-owned directory.
         legacy, current = self.legacy_backups, self.backups
@@ -1828,6 +2027,10 @@ class Deployment:
                     "entries": self._legacy_migration_entries(source_fd, destination_fd),
                 }
                 self._backup_references()
+                if self._legacy_copy_required(source_fd, destination_fd):
+                    self._plan_cross_filesystem_migration(
+                        journal, source_fd, destination_fd, protected_backups
+                    )
                 atomic_json(self.migration_journal, journal)
             elif (
                 journal["destination_identity"] != destination_identity
@@ -1838,8 +2041,50 @@ class Deployment:
                     f"A managed backup location changed during migration. Inspect {self.migration_journal}."
                 )
 
+            if journal["schema"] == 2:
+                protected = self._migration_protected_backups(protected_backups)
+                print(
+                    f"Backup migration plan requires {format_bytes(journal['copy_bytes'])} "
+                    f"and {journal['copy_inodes']} inodes for retained copies on {current}, plus headroom."
+                )
+                for entry in journal["prune_destination"]:
+                    self._prune_migration_backup(
+                        journal, entry, destination_root, destination_fd, protected, legacy=False
+                    )
+                if all(
+                    entry["phase"] in {"pending", "retained", "prune"}
+                    for entry in journal["entries"]
+                ):
+                    requirement = self._migration_copy_requirement(
+                        Usage(bytes=journal["copy_bytes"], inodes=journal["copy_inodes"])
+                    )
+                    self.check_storage([requirement], phase="cross-filesystem backup migration")
             for entry in journal["entries"]:
-                self._migrate_backup_entry(journal, entry, source_fd, destination_fd)
+                if entry["phase"] not in {"prune", "pruning", "pruned"}:
+                    self._migrate_backup_entry(journal, entry, source_fd, destination_fd)
+            if journal["schema"] == 2:
+                kept = [(entry["name"], entry["identity"]) for entry in journal["kept_destination"]]
+                kept.extend(
+                    (entry["target"], entry["target_identity"])
+                    for entry in journal["entries"]
+                    if entry["phase"] == "complete"
+                )
+                for name, identity in kept:
+                    if (
+                        self._entry_identity(destination_fd, name) != identity
+                        or self._backup_status(current / name)[0] != "complete"
+                    ):
+                        raise DeploymentError(
+                            f"A retained backup failed verification after migration: {current / name}"
+                        )
+                protected = self._migration_protected_backups(protected_backups)
+                device, inode = journal["source_identity"]
+                legacy_root = RootIdentity(legacy, device, inode, "legacy backup directory")
+                for entry in journal["entries"]:
+                    if entry["phase"] in {"prune", "pruning", "pruned"}:
+                        self._prune_migration_backup(
+                            journal, entry, legacy_root, source_fd, protected, legacy=True
+                        )
             if source_fd is not None and not os.listdir(source_fd):
                 self._remove_empty_legacy_root(parent_fd, source_identity)
             pending = self._backup_references()
@@ -1914,7 +2159,7 @@ class Deployment:
             )
 
         if (
-            journal.get("schema") != 1
+            journal.get("schema") not in (1, 2)
             or journal.get("operation") != "backup-migration"
             or journal.get("legacy") != str(self.legacy_backups)
             or journal.get("destination") != str(self.backups)
@@ -1928,12 +2173,16 @@ class Deployment:
             if not isinstance(entry, dict):
                 raise invalid()
             phase = entry.get("phase")
+            allowed = {"pending", "copying", "copied", "published", "retained", "complete"}
+            if journal["schema"] == 2:
+                allowed.update(("prune", "pruning", "pruned"))
             if (
-                phase not in ("pending", "copying", "copied", "published", "retained", "complete")
+                not isinstance(phase, str)
+                or phase not in allowed
                 or not valid_identity(entry.get("source_identity"))
                 or phase in ("copied", "published", "complete")
                 and not valid_identity(entry.get("target_identity"))
-                or phase in ("pending", "copying", "retained")
+                or phase in ("pending", "copying", "retained", "prune", "pruning", "pruned")
                 and entry.get("target_identity") is not None
             ):
                 raise invalid()
@@ -1950,6 +2199,27 @@ class Deployment:
                 ):
                     raise invalid()
                 names[key].add(name)
+        if journal["schema"] == 2:
+            for key in ("copy_bytes", "copy_inodes"):
+                if type(journal.get(key)) is not int or journal[key] < 0:
+                    raise invalid()
+            occupied = names["target"]
+            for key in ("kept_destination", "prune_destination"):
+                group = journal.get(key)
+                if not isinstance(group, list):
+                    raise invalid()
+                for item in group:
+                    if (
+                        not isinstance(item, dict)
+                        or not isinstance(item.get("name"), str)
+                        or not BACKUP_DIRECTORY.fullmatch(item["name"])
+                        or item["name"] in occupied
+                        or not valid_identity(item.get("identity"))
+                        or key == "prune_destination"
+                        and item.get("phase") not in ("prune", "pruning", "pruned", "retained")
+                    ):
+                        raise invalid()
+                    occupied.add(item["name"])
 
     @staticmethod
     def _entry_identity(directory: int | None, name: str) -> list[int] | None:
@@ -1993,6 +2263,10 @@ class Deployment:
             elif source_fd is not None and source_identity is not None:
                 source = Path(f"/proc/self/fd/{source_fd}") / name
                 if self._inspect_legacy_backup(source, source_fd)[0] != "complete":
+                    if journal["schema"] == 2:
+                        raise DeploymentError(
+                            f"Planned legacy backup failed verification: {source}"
+                        )
                     mark("retained")
                     return
                 try:
@@ -3416,7 +3690,7 @@ json.dump(rows, sys.stdout)
         verified_before = self.verification.verifications
         report = CleanupReport(dry_run=dry_run, retention=dict(self.retention))
         if not dry_run:
-            self.ensure_layout()
+            self.ensure_layout(protected_backups=protected_backups)
         state, state_ok, state_reason = self._load_metadata(self.state, "installed state")
         if state_ok and state is not None:
             state_ok, state_reason = self.validate_state_metadata(state)
@@ -3483,6 +3757,10 @@ json.dump(rows, sys.stdout)
             protected_backups,
         )
         recorded = self._recorded_staging(journal_for_protection)
+        blocked = self._settle_staging_units(recorded) if can_delete and not dry_run else {}
+        report.errors.extend(dict.fromkeys(blocked.values()))
+        if blocked:
+            report.cleanup_complete = False
         now = time.time()
 
         def add(
@@ -3526,8 +3804,11 @@ json.dump(rows, sys.stdout)
                 report.status_counts[status] = report.status_counts.get(status, 0) + 1
             return entry
 
-        for path, (operation, _mixed, protected) in recorded.items():
+        for path, record in recorded.items():
             if not os.path.lexists(path):
+                continue
+            if path in blocked:
+                add("staging", "retain", path, blocked[path], status="protected")
                 continue
             try:
                 identity = self._staging_identity(path)
@@ -3540,7 +3821,7 @@ json.dump(rows, sys.stdout)
                     status="invalid",
                 )
                 continue
-            if protected or path in protected_release_map or path in protected_backup_map:
+            if record.keep or path in protected_release_map or path in protected_backup_map:
                 add(
                     "staging",
                     "keep",
@@ -3553,7 +3834,7 @@ json.dump(rows, sys.stdout)
                     "staging",
                     "remove",
                     path,
-                    f"abandoned {operation} with a durable staging record",
+                    f"abandoned {record.operation} with a durable staging record",
                     status="incomplete",
                     identity=identity,
                 )
@@ -3566,6 +3847,8 @@ json.dump(rows, sys.stdout)
             path = entry["path"]
             key = self._path_key(str(path))
             kind = entry["kind"]
+            if path in blocked:
+                protected_release_map.setdefault(path, blocked[path])
             if path in recorded and kind != "complete":
                 continue
             if key in protected_release_map:
@@ -3809,6 +4092,23 @@ json.dump(rows, sys.stdout)
             report.refused = True
             report.cleanup_complete = False
             return report
+        if any(item[5] == "copy" for item in inventory) and can_delete:
+            try:
+                for path in self._migration_protected_backups():
+                    protected_backup_map.setdefault(path, "required by backup migration")
+            except (OSError, DeploymentError) as error:
+                can_delete = False
+                report.refused = True
+                note(f"Cannot safely plan backup migration: {describe_exception(error)}")
+        kept_backups = self._retained_backups(
+            [
+                (path, info.st_mtime, destination or path)
+                for path, info, status, _, destination, _ in inventory
+                if status == "complete"
+            ],
+            set(protected_backup_map),
+        )
+        copied = Usage()
         for path, info, status, detail, destination, migration in inventory:
             if path in recorded:
                 continue
@@ -3862,16 +4162,19 @@ json.dump(rows, sys.stdout)
                 "unrecognized": "unrecognized",
             }.get(status, "unrecognized")
             if status == "complete":
-                if destination is not None:
-                    add(
-                        "backup",
-                        migration,
-                        path,
-                        f"verified legacy snapshot to {destination}",
-                        status="migration",
-                        identity=identity,
-                    )
-                backup_entries.append((path, info.st_mtime, identity, destination or path))
+                if destination is not None and (migration == "move" or path in kept_backups):
+                    detail = f"verified legacy snapshot to {destination}"
+                    if migration == "copy":
+                        usage = self._legacy_cleanup_entry(path, identity, dry_run=True)
+                        copied += usage
+                        detail += f" requires {format_bytes(usage.bytes)} and {usage.inodes} inodes"
+                    add("backup", migration, path, detail, status="migration", identity=identity)
+                placement = (
+                    path
+                    if migration == "copy" and path not in kept_backups
+                    else destination or path
+                )
+                backup_entries.append((path, info.st_mtime, identity, placement))
             elif status == "incomplete":
                 if key in protected_backup_map:
                     add(
@@ -3923,7 +4226,11 @@ json.dump(rows, sys.stdout)
             for path, _mtime, _identity, _destination in backup_entries
             if self._path_key(str(path)) in protected_backup_map
         )
-        backup_slots = max(0, int(self.retention["backups"]) - protected_backup_count)
+        if copied.inodes:
+            print(
+                f"Retained legacy copies require {format_bytes(copied.bytes)} and "
+                f"{copied.inodes} inodes on {self.backups}, plus headroom."
+            )
         backup_entries.sort(key=lambda item: (item[1], item[3].name), reverse=True)
         unprotected_backups = []
         for path, mtime, identity, destination in backup_entries:
@@ -3939,8 +4246,8 @@ json.dump(rows, sys.stdout)
                 )
             else:
                 unprotected_backups.append((path, mtime, identity, destination))
-        for index, (path, _mtime, identity, destination) in enumerate(unprotected_backups):
-            if index < backup_slots:
+        for path, _mtime, identity, destination in unprotected_backups:
+            if path in kept_backups:
                 add(
                     "backup",
                     "keep",
@@ -4055,9 +4362,7 @@ json.dump(rows, sys.stdout)
             root = location_root(candidate)
             try:
                 if candidate.path in recorded:
-                    if root == self.temporary_root:
-                        self._stop_staging_units(candidate.path)
-                    self._discard_staging(candidate.path, mixed=recorded[candidate.path][1])
+                    self._discard_staging(candidate.path, mixed=recorded[candidate.path].mixed)
                 elif root == self.legacy_backups:
                     self._legacy_cleanup_entry(candidate.path, candidate.identity, dry_run=False)
                 else:
@@ -4079,10 +4384,10 @@ json.dump(rows, sys.stdout)
                 report.removed.append(candidate)
 
         if not dry_run and can_delete:
-            for path, (_, mixed, protected) in recorded.items():
-                if not protected and not os.path.lexists(path):
+            for path, record in recorded.items():
+                if not record.keep and path not in blocked and not os.path.lexists(path):
                     try:
-                        self._discard_staging(path, mixed=mixed)
+                        self._discard_staging(path, mixed=record.mixed)
                     except (OSError, DeploymentError) as error:
                         report.errors.append(f"Cannot finalize staging record for {path}: {error}")
                         report.cleanup_complete = False
@@ -4317,7 +4622,7 @@ json.dump(rows, sys.stdout)
     def _recorded_staging(
         self,
         journal: dict | None,
-    ) -> dict[Path, tuple[str, bool, bool]]:
+    ) -> dict[Path, StagingRecord]:
         restore = (journal or {}).get("restore") or {}
         protected = {restore.get("staging"), restore.get("retained")}
         pending = set()
@@ -4341,6 +4646,7 @@ json.dump(rows, sys.stdout)
                 intent, valid, _ = self._load_metadata(marker, "staging intent")
                 name = intent.get("name") if valid and intent else None
                 operation = intent.get("operation") if intent else None
+                preparation_id = intent.get("preparation_id") if intent else None
                 if (
                     not isinstance(name, str)
                     or not pattern.fullmatch(name)
@@ -4348,6 +4654,11 @@ json.dump(rows, sys.stdout)
                     or self._staging_intent(root / name) != marker
                 ):
                     print(f"Unrecognized staging record retained: {marker}", file=sys.stderr)
+                    if root == self.temporary_root:
+                        name_hint = "." + marker.stem.removeprefix(".staging-intent-")
+                        path = root / name_hint
+                        if STAGING_DIRECTORY.fullmatch(name_hint) and os.path.lexists(path):
+                            records[path] = StagingRecord("prepare", True, True)
                     continue
                 path = root / name
                 keep = (
@@ -4358,47 +4669,149 @@ json.dump(rows, sys.stdout)
                     or operation == "release"
                     and os.path.lexists(path / RELEASE_MARKER)
                 )
-                records[path] = (operation, mixed, keep)
+                if preparation_id is not None and (
+                    not isinstance(preparation_id, str)
+                    or not re.fullmatch(r"[a-f0-9]{16}", preparation_id)
+                    or root == self.temporary_root
+                    and path.name != f".staging-{operation}-{preparation_id}"
+                ):
+                    # Keep the workspace visible to the blocker pass, including
+                    # records from which dependent artifacts cannot be identified.
+                    preparation_id = None
+                    keep = True
+                records[path] = StagingRecord(operation, mixed, keep, preparation_id)
         for path in self.updater_root.glob(".pending-*"):
             if PENDING_UPDATER_DIRECTORY.fullmatch(path.name) and path not in records:
-                records[path] = ("pending updater", False, path in pending)
+                records[path] = StagingRecord("pending updater", False, path in pending)
         return records
 
-    def _remove_recorded_staging(self, journal: dict | None, protected: set[Path]) -> None:
-        for path, (operation, mixed, keep) in self._recorded_staging(journal).items():
-            if path in protected:
+    def _settle_staging_units(self, records: dict[Path, StagingRecord]) -> dict[Path, str]:
+        blocked: dict[Path, str] = {}
+        groups: dict[str | None, str] = {}
+        for path, record in records.items():
+            if path.parent != self.temporary_root or not os.path.lexists(path):
                 continue
-            if keep:
-                if operation == "release":
+            try:
+                if record.keep:
+                    raise DeploymentError("The preparation workspace association is invalid")
+                self._staging_identity(path)
+                self._stop_staging_units(path)
+            except (OSError, DeploymentError, subprocess.SubprocessError) as error:
+                message = (
+                    f"Cannot confirm termination of the preparation units for {path}: "
+                    f"{describe_exception(error)}. Inspect systemctl and retry cleanup."
+                )
+                blocked[path] = message
+                groups[record.preparation_id] = message
+                if record.keep:
+                    # An invalid new identifier cannot safely exclude any group.
+                    groups[""] = message
+        for path, record in records.items():
+            if record.operation in {"release", "pending", "pending updater"}:
+                reason = groups.get(record.preparation_id) or groups.get("")
+                if reason:
+                    blocked[path] = reason
+        return blocked
+
+    def _remove_recorded_staging(self, journal: dict | None, protected: set[Path]) -> None:
+        records = self._recorded_staging(journal)
+        blocked = self._settle_staging_units(records)
+        self._blocked_staging = blocked
+        for message in dict.fromkeys(blocked.values()):
+            print(message, file=sys.stderr)
+        for path, record in records.items():
+            if path in protected or path in blocked:
+                continue
+            if record.keep:
+                if record.operation == "release":
                     with suppress(DeploymentError):
                         self._require_complete_release(path)
                         self._finish_staging(path)
                 continue
             try:
-                if path.parent == self.temporary_root:
-                    self._stop_staging_units(path)
-                self._discard_staging(path, mixed=mixed)
-            except (OSError, DeploymentError, subprocess.CalledProcessError) as error:
+                self._discard_staging(path, mixed=record.mixed)
+            except (OSError, DeploymentError) as error:
                 print(
                     f"Staging cleanup warning for {path}: {describe_exception(error)}",
                     file=sys.stderr,
                 )
+
+    @staticmethod
+    def _staging_unit_prefix(path: Path) -> str:
+        if not re.fullmatch(r"\.staging-(?:prepare|verify|refresh)-[a-f0-9]{16}", path.name):
+            raise DeploymentError(f"Unknown preparation workspace: {path}")
+        return "hnefatafl-" + path.name.removeprefix(".staging-") + "-"
+
+    def _preparation_units(self, path: Path) -> set[str] | None:
+        prefix = self._staging_unit_prefix(path)
+        record, valid, _ = self._load_metadata(path / ".units.json", "preparation unit record")
+        if not valid:
+            raise DeploymentError(f"Cannot read the preparation unit record for {path}")
+        if record is None:
+            return None
+        names = record.get("units")
+        if not isinstance(names, list) or any(
+            not isinstance(name, str) or not re.fullmatch(prefix + r"[a-f0-9]{8}\.service", name)
+            for name in names
+        ):
+            raise DeploymentError(f"Invalid preparation unit names for {path}")
+        return set(names)
+
+    def _active_staging_units(self, path: Path, recorded: set[str] | None) -> set[str]:
+        prefix = self._staging_unit_prefix(path)
+        result = subprocess.run(
+            [
+                "systemctl",
+                "list-units",
+                "--type=service",
+                "--all",
+                "--full",
+                "--plain",
+                "--no-legend",
+                "--no-pager",
+                prefix + "????????.service",
+            ],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        active = set()
+        for line in result.stdout.splitlines():
+            columns = line.split()
+            if not columns or not re.fullmatch(prefix + r"[a-f0-9]{8}\.service", columns[0]):
+                continue
+            if recorded is not None and columns[0] not in recorded:
+                continue
+            if len(columns) < 4:
+                raise DeploymentError(f"Cannot interpret systemd state for {columns[0]}")
+            if columns[2] not in {"inactive", "failed"}:
+                active.add(columns[0])
+        return active
 
     def _clear_preparation_workspace(self, path: Path) -> None:
         self._stop_staging_units(path)
         self._discard_staging(path, mixed=True)
 
     def _stop_staging_units(self, path: Path) -> None:
-        if self._data_owner() != self.privileged_uid:
-            # A killed updater can leave a transient systemd build process behind.
-            # The glob is restricted to the authenticated staging name.
-            self.run(
-                [
-                    "systemctl",
-                    "stop",
-                    "hnefatafl-" + path.name.removeprefix(".staging-") + "-*.service",
-                ]
-            )
+        if self._data_owner() == self.privileged_uid:
+            return
+        # Disarm jobs that have not yet reached systemd, then stop and inspect
+        # the exact units recorded for this workspace. Older staging can only
+        # be identified by its complete, unpredictable unit-name prefix.
+        units = self._preparation_units(path)
+        intent, valid, _ = self._load_metadata(self._staging_intent(path), "staging intent")
+        if units is None and valid and intent and intent.get("preparation_id") is not None:
+            # Current staging records its unit names before systemd can run them.
+            return
+        (path / ".units-allowed").unlink(missing_ok=True)
+        sync_directory(path)
+        active = self._active_staging_units(path, units)
+        if active:
+            self.run(["systemctl", "stop", *sorted(active)])
+        if remaining := self._active_staging_units(path, units):
+            raise DeploymentError("Build units are still active: " + ", ".join(sorted(remaining)))
 
     def _remove_orphan_staging(self) -> None:
         """Remove only marked staging artifacts from an interrupted operation.
@@ -4637,6 +5050,20 @@ json.dump(rows, sys.stdout)
         **{name: f"hnefatafl/{name}.py" for name in UPDATER_SUPPORT_MODULES},
     }
 
+    # These version-one command entry points are stable across generations.
+    # Future migrations must explicitly support both command bodies through an
+    # interrupted replacement. Reviewed repair restores the canonical bytes.
+    MAINTENANCE_WRAPPERS = {
+        "scripts/linux/update.sh": (
+            b"#!/usr/bin/env bash\nset -euo pipefail\n"
+            b'exec /usr/bin/python3 -I -B /usr/local/lib/hnefatafl/deployment.py "$@"\n'
+        ),
+        "scripts/linux/backup.sh": (
+            b"#!/usr/bin/env bash\nset -euo pipefail\n"
+            b"exec /usr/local/bin/hnefatafl-update --backup\n"
+        ),
+    }
+
     @staticmethod
     def _read_archive_members(archive: Path, members: dict[str, str]) -> dict[str, bytes]:
         """Read exact regular-file members from a digest-verified archive."""
@@ -4784,27 +5211,21 @@ json.dump(rows, sys.stdout)
                     f"Refusing to install invalid restore support {member}: "
                     f"{describe_exception(error)}"
                 ) from error
-        for wrapper in ("scripts/linux/update.sh", "scripts/linux/backup.sh"):
-            content = payload.get(wrapper)
-            if not content:
-                raise DeploymentError(f"The candidate updater payload is missing {wrapper}")
-            try:
-                text = content.decode("utf-8", "strict")
-            except UnicodeDecodeError as error:
+        for wrapper, canonical in self.MAINTENANCE_WRAPPERS.items():
+            if payload.get(wrapper) != canonical:
                 raise DeploymentError(
-                    f"Refusing to install invalid updater wrapper {wrapper}"
-                ) from error
-            if (
-                not text.startswith("#!")
-                or "\x00" in text
-                or subprocess.run(
-                    ["/bin/bash", "-n"], input=text, text=True, capture_output=True, check=False
-                ).returncode
-            ):
-                raise DeploymentError(f"Refusing to install invalid updater wrapper {wrapper}")
+                    f"Unsupported maintenance wrapper for the stable command protocol: {wrapper}"
+                )
         return abi
 
-    def _stage_updater_payload(self, archive: Path, tag: str, digest: str) -> Path:
+    def _stage_updater_payload(
+        self,
+        archive: Path,
+        tag: str,
+        digest: str,
+        *,
+        preparation_id: str | None = None,
+    ) -> Path:
         """Persist authenticated updater sources in root-controlled storage."""
         self._managed_root(
             self.updater_root,
@@ -4818,8 +5239,10 @@ json.dump(rows, sys.stdout)
         token = re.sub(r"[^a-f0-9]", "", digest.lower())[-16:] or secrets.token_hex(8)
         staging = self.updater_root / (".pending-" + token)
         if staging.exists() or os.path.lexists(self._staging_intent(staging)):
+            if staging in self._blocked_staging:
+                raise DeploymentError(self._blocked_staging[staging])
             self._remove_pending_updater(staging)
-        self._begin_staging(staging, "pending")
+        self._begin_staging(staging, "pending", preparation_id=preparation_id)
         files = {}
         for member, content in payload.items():
             destination = staging / member
@@ -5064,12 +5487,20 @@ json.dump(rows, sys.stdout)
             if not os.path.lexists(command):
                 wrappers.append((command, files[name]))
                 continue
-            existing = self._utility_file(command).read_bytes()
-            if existing == files[name]:
+            existing = self._utility_file(command)
+            content = existing.read_bytes()
+            if content == files[name] and stat.S_IMODE(existing.stat().st_mode) == 0o755:
                 continue
-            legacy_wrapper = files[name].replace(b"/usr/bin/python3 -I -B ", b"/usr/bin/python3 ")
-            if name != "update.sh" or existing != legacy_wrapper:
-                raise DeploymentError(f"The existing updater wrapper is incompatible: {command}")
+            legacy_update = files[name].replace(b"/usr/bin/python3 -I -B ", b"/usr/bin/python3 ")
+            if (
+                not repair
+                and content != files[name]
+                and (name != "update.sh" or content != legacy_update)
+            ):
+                raise DeploymentError(
+                    f"The existing updater wrapper is incompatible: {command}. "
+                    "Use the reviewed installer to repair it."
+                )
             wrappers.append((command, files[name]))
         if legacy_entry and installed_launcher is not None:
             atomic_bytes(self.updater_root / "legacy-deployment.py", installed_launcher, 0o444)
@@ -5354,7 +5785,8 @@ for name, validate in (
             protected_releases=set(),
         )
         self._remove_orphan_staging()
-        workspace = self._temporary_workspace("refresh")
+        preparation_id = secrets.token_hex(8)
+        workspace = self._temporary_workspace("refresh", preparation_id=preparation_id)
         staging = None
         try:
             archive = workspace / "release.tar.gz"
@@ -5366,7 +5798,9 @@ for name, validate in (
             )
             if metadata.get("project", {}).get("version") != tag:
                 raise DeploymentError("Release tag and package version disagree")
-            staging = self._stage_updater_payload(archive, tag, digest)
+            staging = self._stage_updater_payload(
+                archive, tag, digest, preparation_id=preparation_id
+            )
             plan = self._updater_publication_plan(staging)
             self._publish_updater_plan(plan, tag=tag)
         finally:
@@ -5882,6 +6316,7 @@ for name, validate in (
         expected: dict | None,
         allow_legacy: bool,
         schema: int | None,
+        purpose: str = "pre-deployment",
     ) -> list[str]:
         association, valid, reason = self._load_metadata(
             backup / SNAPSHOT_METADATA, "snapshot metadata"
@@ -5897,9 +6332,9 @@ for name, validate in (
                     raise DeploymentError(
                         f"The snapshot was created for release {association['release']} and does not match the rollback directory"
                     )
-                if association["purpose"] != "pre-deployment":
+                if association["purpose"] != purpose:
                     raise DeploymentError(
-                        "The snapshot purpose is not suitable for deployment rollback"
+                        "The snapshot purpose is not suitable for the recorded deployment recovery"
                     )
                 metadata = self._require_complete_release(target)
                 if (
@@ -5976,6 +6411,45 @@ for name, validate in (
             "Snapshot uses legacy metadata. Using the verified artifact recorded by the root-owned deployment state."
         ]
 
+    def _initial_install_association(self, backup: Path, journal: dict | None) -> dict | None:
+        """Recognize a database-free initial snapshot bound to a durable installation."""
+        if (
+            journal is None
+            or journal.get("operation") not in {"install", "automatic-recovery"}
+            or journal.get("phase") not in {"migrating", "activating", "activated", "recovering"}
+            or journal.get("migration_started") is not True
+            or journal.get("previous") is not None
+            or journal.get("prior_state") is not None
+            or os.path.lexists(self.state)
+            or journal.get("backup") != str(backup)
+            or journal.get("snapshot_name") != backup.name
+        ):
+            return None
+        recorded, valid, _ = self._load_metadata(self.journal, "transaction journal")
+        if not valid or recorded != journal or not self.validate_transaction_metadata(journal)[0]:
+            return None
+        association = journal.get("backup_association")
+        if (
+            not isinstance(association, dict)
+            or association.get("purpose") != "initial-install"
+            or association.get("database_schema") is not None
+            or association.get("release") != journal["target"]
+            or association.get("snapshot") != journal.get("snapshot_id")
+            or association.get("transaction") != journal["transaction"]
+        ):
+            return None
+        active = self._require_active_state(None)
+        if active is not None and str(active) != journal["target"]:
+            return None
+        return association
+
+    @staticmethod
+    def _has_sqlite_authority(directory: Path) -> bool:
+        return any(
+            os.path.lexists(directory / ("hnefatafl.sqlite3" + suffix))
+            for suffix in ("", "-wal", "-shm", "-journal")
+        )
+
     def verify_snapshot_usable(
         self,
         backup: Path,
@@ -5985,6 +6459,7 @@ for name, validate in (
         allow_legacy: bool = True,
         check_compatibility: bool = True,
         service_state: str | None = "running",
+        recovery_journal: dict | None = None,
     ) -> list[str]:
         """Verify integrity and the recorded snapshot association before downtime."""
         backup = Path(backup)
@@ -6002,13 +6477,28 @@ for name, validate in (
             raise DeploymentError(
                 f"Refusing to interrupt the service: snapshot verification failed ({describe_exception(error)})"
             ) from error
-        warnings = self._verify_snapshot_association(
-            backup, target=target, expected=expected, allow_legacy=allow_legacy, schema=schema
-        )
-        if schema is None and os.path.lexists(self.data / "hnefatafl.sqlite3"):
-            raise DeploymentError(
-                "The live installation has a database but the snapshot has no regular SQLite database"
+        initial = self._initial_install_association(backup, recovery_journal)
+        if initial is not None:
+            if schema is not None or self._has_sqlite_authority(backup / "data"):
+                raise DeploymentError(
+                    "The initial snapshot is inconsistent with its recorded lack of a database"
+                )
+            warnings = self._verify_snapshot_association(
+                backup,
+                target=Path(initial["release"]),
+                expected=initial,
+                allow_legacy=False,
+                schema=None,
+                purpose="initial-install",
             )
+        else:
+            warnings = self._verify_snapshot_association(
+                backup, target=target, expected=expected, allow_legacy=allow_legacy, schema=schema
+            )
+            if schema is None and self._has_sqlite_authority(self.data):
+                raise DeploymentError(
+                    "The live installation has a database but the snapshot has no regular SQLite database"
+                )
         if check_compatibility and schema is not None:
             self._verify_restore_preflight(backup)
         self.check_storage(
@@ -6309,7 +6799,14 @@ for name, validate in (
         self._validate_restore_topology()
         backup = Path(backup)
         self.ensure_layout()
-        self.verify_snapshot_usable(backup, service_state="stopped", check_compatibility=False)
+        initial = self._initial_install_association(backup, journal)
+        if initial is not None and (journal is None or not journal["service_stopped"]):
+            raise DeploymentError(
+                "Confirm the failed installation service has stopped before recovering its data"
+            )
+        self.verify_snapshot_usable(
+            backup, service_state="stopped", check_compatibility=False, recovery_journal=journal
+        )
         token = transaction_id or secrets.token_hex(8)
         staging = self.data.with_name(".restore-" + token)
         retained = self.data.with_name(".retained-" + token)
@@ -6347,9 +6844,12 @@ for name, validate in (
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns(GATE_NAME, RESTORE_MARKER),
         )
-        self._prepare_restore_database(
-            self.data / "hnefatafl.sqlite3", staging / "hnefatafl.sqlite3"
-        )
+        if initial is None:
+            self._prepare_restore_database(
+                self.data / "hnefatafl.sqlite3", staging / "hnefatafl.sqlite3"
+            )
+        elif self._has_sqlite_authority(staging):
+            raise DeploymentError("SQLite files appeared in the database-free recovery candidate")
         self._prepare_staged_ownership(staging)
         sync_tree(staging)
         sync_directory(staging.parent)
@@ -6360,6 +6860,10 @@ for name, validate in (
             (self.data / RESTORE_MARKER).unlink(missing_ok=True)
             sync_directory(self.data)
         print(f"Restored pre-deployment state. Newer data retained at {retained}.")
+        if initial is not None:
+            print(
+                "Any accounts provisioned during the failed installation are in the retained data."
+            )
         return retained
 
     def _record_restore(self, journal: dict | None, restore: dict, phase: str) -> None:
@@ -6599,7 +7103,8 @@ for name, validate in (
         if not valid:
             raise DeploymentError(f"Cannot verify data authority for startup: {reason}")
         if journal is None or journal["phase"] in {"committed", "recovered"}:
-            self._require_active_state(self._installed_metadata())
+            if self._require_active_state(self._installed_metadata()) is None:
+                raise DeploymentError("Service startup is deferred until a release is installed")
         elif journal.get("operation") == "manual-backup" and journal["service_was_running"]:
             self._require_active_state(self._installed_metadata())
         else:
@@ -6755,9 +7260,22 @@ for name, validate in (
         def failed(error):
             raise error
 
-        # Remove application write access top-down. Symlinks are allowed in
-        # virtual environments, but their targets are never changed by root.
-        for _, directories, files, fd in os.fwalk(
+        def seal_file(pinned: int, info: os.stat_result, expected_links: int, name: str) -> None:
+            file_fd = os.open(f"/proc/self/fd/{pinned}", os.O_RDONLY | os.O_CLOEXEC)
+            try:
+                os.fchown(file_fd, self.privileged_uid, os.getegid())
+                if os.fstat(file_fd).st_nlink != expected_links:
+                    raise DeploymentError(f"A prepared file gained or lost links: {name}")
+                os.fchmod(file_fd, 0o555 if info.st_mode & 0o111 else 0o444)
+            finally:
+                os.close(file_fd)
+
+        # Lock down every containing directory before validating the hardlinks
+        # created by npm post-install scripts. Virtualenv symlink targets are
+        # never accessed here.
+        hardlinks: dict[tuple[int, int], list[Path]] = {}
+        dependency_root = target / "frontend/node_modules"
+        for directory, directories, files, fd in os.fwalk(
             target, topdown=True, follow_symlinks=False, onerror=failed
         ):
             info = os.fstat(fd)
@@ -6775,21 +7293,33 @@ for name, validate in (
                         not stat.S_ISREG(entry.st_mode)
                         or entry.st_dev != identity[0]
                         or entry.st_uid not in {uid, self.privileged_uid}
-                        or entry.st_nlink != 1
                     ):
                         raise DeploymentError(f"Unsafe file in the prepared release: {name}")
-                    file_fd = os.open(f"/proc/self/fd/{pinned}", os.O_RDONLY | os.O_CLOEXEC)
-                    try:
-                        os.fchown(file_fd, self.privileged_uid, os.getegid())
-                        if os.fstat(file_fd).st_nlink != 1:
-                            raise DeploymentError(
-                                f"A file in the prepared release gained additional links: {name}"
-                            )
-                        os.fchmod(file_fd, 0o555 if entry.st_mode & 0o111 else 0o444)
-                    finally:
-                        os.close(file_fd)
+                    path = Path(directory) / name
+                    if entry.st_nlink == 1:
+                        seal_file(pinned, entry, 1, name)
+                    elif path.is_relative_to(dependency_root):
+                        hardlinks.setdefault(file_identity(entry), []).append(path)
+                    else:
+                        raise DeploymentError(f"Unsafe hardlink in the prepared release: {path}")
                 finally:
                     os.close(pinned)
+        for identity_key, paths in hardlinks.items():
+            path = paths[0]
+            pinned = os.open(path, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                entry = os.fstat(pinned)
+                if (
+                    entry.st_nlink != len(paths)
+                    or file_identity(entry) != identity_key
+                    or any(file_identity(item.lstat()) != identity_key for item in paths[1:])
+                ):
+                    raise DeploymentError(
+                        f"Unsafe external hardlink in the prepared release: {path}"
+                    )
+                seal_file(pinned, entry, len(paths), str(path))
+            finally:
+                os.close(pinned)
 
     @staticmethod
     def _archive_has_launcher(archive: Path) -> bool:
@@ -6815,19 +7345,22 @@ for name, validate in (
         # shebang and pyvenv.cfg path stays valid. Publication is the atomic
         # creation of the completion marker, not a directory rename.
         final = self.releases / (tag + "-" + token[:8])
-        own_identity = self._begin_staging(final, "release", 0o755)
+        own_identity = self._begin_staging(final, "release", 0o755, preparation_id=token)
         published = False
+        units_settled = False
         refresh_utility = self.manage_updater
         workspace = None
         pending = None
         try:
-            workspace = self._temporary_workspace("prepare")
+            workspace = self._temporary_workspace("prepare", preparation_id=token)
             environment = self._preparation_environment(workspace)
             archive = workspace / "release.tar.gz"
             sha256 = github.download(release, archive)
             if self.manage_updater:
                 if self._archive_has_launcher(archive):
-                    pending = self._stage_updater_payload(archive, tag, sha256)
+                    pending = self._stage_updater_payload(
+                        archive, tag, sha256, preparation_id=token
+                    )
                 elif self._use_installed_updater(tag):
                     refresh_utility = False
                 else:
@@ -6901,6 +7434,8 @@ for name, validate in (
             self._release_size_cache = {}
             atomic_bytes(final / ".trusted-unit", unit["deployment/hnefatafl.service"], 0o444)
             self._verify_release_environment(final, environment)
+            self._stop_staging_units(workspace)
+            units_settled = True
             temporary_verification = scan_usage(workspace)
             release_metadata = {
                 "version": tag,
@@ -6927,8 +7462,9 @@ for name, validate in (
             self._finish_staging(final)
         except BaseException:
             try:
-                if workspace is not None and not published:
+                if workspace is not None and not units_settled:
                     self._stop_staging_units(workspace)
+                    units_settled = True
                 if not published:
                     self._discard_staging(final, mixed=True)
                     if pending is not None:
@@ -6942,9 +7478,9 @@ for name, validate in (
                 )
             raise
         finally:
-            if workspace is not None:
+            if workspace is not None and units_settled:
                 try:
-                    self._clear_preparation_workspace(workspace)
+                    self._discard_staging(workspace, mixed=True)
                 except (OSError, DeploymentError, subprocess.CalledProcessError) as error:
                     print(
                         f"Preparation directory cleanup warning: {describe_exception(error)}",
@@ -7669,6 +8205,8 @@ for name, validate in (
                 self.record(transaction)
                 if old or self.unit_file.exists():
                     self.service("stop")
+                transaction["service_stopped"] = True
+                self.record(transaction)
                 recovery_step = "unsupported rollback policy check"
                 if old:
                     self._ensure_rollback_target_supported(old, action="automatic recovery")
@@ -7679,6 +8217,7 @@ for name, validate in (
                         target=old,
                         expected=transaction.get("backup_association"),
                         service_state="stopped",
+                        recovery_journal=transaction,
                     )
                 recovery_step = "snapshot restoration"
                 if needs_restore:
@@ -7741,13 +8280,13 @@ for name, validate in (
                         "previous release restored and verified. " + context
                     ) from error
                 raise ReadinessError(
-                    f"{error} Automatic recovery: not applicable; "
-                    "initial installation has no previous release and remains stopped. " + context
+                    f"{error} Automatic recovery: succeeded. Initial installation remains stopped. "
+                    + context
                 ) from error
             if old:
                 outcome = "automatic recovery succeeded; previous release restored and verified"
             else:
-                outcome = "automatic recovery not applicable; initial installation remains stopped"
+                outcome = "automatic recovery succeeded; initial installation remains stopped"
             raise DeploymentStepError(
                 f"Deployment failed during {deployment_step}: "
                 f"{self._safe_failure_detail(error)}; {outcome}. {context} "
@@ -8023,8 +8562,6 @@ for name, validate in (
             )
             self._require_complete_release(previous)
             self._unit_content(previous)
-        if self._active_jobs():
-            raise DeploymentError("Finish/cancel training and tournaments before recovery")
         restore = transaction.get("restore")
         needs_restore = bool(
             rollback
@@ -8034,20 +8571,27 @@ for name, validate in (
                 transaction["phase"] in {"migrating", "activating", "activated"},
             )
         )
+        initial = False
         if needs_restore:
             if backup is None:
                 raise DeploymentError(
                     "Interrupted deployment may have modified the database, but no snapshot is recorded. Perform reviewed manual recovery."
                 )
             self._validate_restore_topology()
+            initial = self._initial_install_association(backup, transaction) is not None
             if rollback_plan is not None:
                 self._verify_restore_preflight(backup)
             elif restore is None or restore.get("phase") == "prepared":
                 warnings = self.verify_snapshot_usable(
-                    backup, target=previous, expected=transaction.get("backup_association")
+                    backup,
+                    target=previous,
+                    expected=transaction.get("backup_association"),
+                    recovery_journal=transaction,
                 )
                 for warning in warnings:
                     print(f"Recovery note: {warning}")
+        if not initial and self._active_jobs():
+            raise DeploymentError("Finish/cancel training and tournaments before recovery")
         if transaction.get("operation") == "rollback":
             assert previous is not None and backup is not None
             if "rollback_state" not in transaction:
@@ -8095,7 +8639,9 @@ for name, validate in (
                     already_healthy = False
             if not already_healthy:
                 step = "stopping current service"
-                self.service("stop")
+                # An interrupted first install can predate creation of its service unit.
+                if not initial or self.unit_file.exists():
+                    self.service("stop")
                 transaction["service_stopped"] = True
                 self.record(transaction)
                 if needs_restore:

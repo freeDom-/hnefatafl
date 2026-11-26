@@ -321,6 +321,12 @@ import os, sys
 from pathlib import Path
 assert os.geteuid() == {uid}
 assert Path(os.environ['npm_config_cache']).is_dir()
+if 'ci' in sys.argv:
+    dependencies = Path('frontend/node_modules')
+    dependencies.mkdir()
+    binary = dependencies / 'esbuild-platform'
+    binary.write_text('fixture binary')
+    os.link(binary, dependencies / 'esbuild')
 if 'build' in sys.argv:
     Path('frontend/dist').mkdir()
     Path('frontend/dist/index.html').write_text('<!doctype html><title>Preparation fixture</title>')
@@ -350,6 +356,7 @@ if 'build' in sys.argv:
     release = deployment.prepare(FakeGitHub(source), {"tag_name": tag})
     assert deployment._require_complete_release(release)["version"] == tag
     assert (release / "frontend/dist/index.html").is_file()
+    assert not (release / "frontend/node_modules").exists()
     assert not (release / "data").exists()
     assert not any(release.rglob("*.sqlite3"))
     assert not list(deployment.temporary_root.iterdir())
@@ -357,6 +364,22 @@ if 'build' in sys.argv:
         path.name: (path.stat().st_ino, path.read_bytes()) for path in production.iterdir()
     }
     verify_installed_startup_guard(deployment, release, root, uid, gid, native_systemd)
+
+    # A second candidate with a link outside node_modules must be refused
+    # without changing the original file's application ownership or mode.
+    external = production / "authority"
+    external.write_bytes(b"keep this inode")
+    os.chown(external, uid, gid)
+    external.chmod(0o600)
+    candidate = deployment.releases / "0.42-ffffffff"
+    dependencies = candidate / "frontend/node_modules"
+    dependencies.mkdir(parents=True)
+    os.link(external, dependencies / "foreign")
+    deployment._grant_build_access(candidate)
+    with pytest.raises(DeploymentError, match="Unsafe external hardlink"):
+        deployment._seal_release(candidate, deployment.fs.identity_of(candidate))
+    assert external.stat().st_uid == uid and stat.S_IMODE(external.stat().st_mode) == 0o600
+    assert external.read_bytes() == b"keep this inode"
 
 
 def test_privileged_legacy_cleanup_preview_matches_execution(privileged_deployment_root, capsys):
@@ -534,3 +557,113 @@ raise SystemExit(launcher['launch'](root / 'update.lock'))
             pytest.fail("the real systemd service did not become ready")
     finally:
         subprocess.run(["systemctl", "stop", unit], check=False)
+
+
+def test_privileged_killed_updater_stops_the_recorded_transient_unit(privileged_deployment_root):
+    import json
+    import secrets
+    import sys
+    import time
+
+    if os.environ.get("HNEFATAFL_TEST_SYSTEMD") != "1":
+        pytest.skip("requires a native systemd manager")
+
+    root, uid, gid = privileged_deployment_root
+    token = secrets.token_hex(8)
+    data = root / "data"
+    data.mkdir()
+    os.chown(data, uid, gid)
+    (root / "opt/releases").mkdir(parents=True)
+    (root / "etc").mkdir()
+    (root / "utilities").mkdir()
+    workspace = root / "opt/tmp" / (".staging-prepare-" + token)
+    release = root / "opt/releases" / ("0.42-" + token[:8])
+    pending = root / "utilities" / (".pending-" + token)
+    unrelated = f"hnefatafl-prepare-{token}-ffffffff.service"
+
+    class PrivilegedDeployment(Deployment):
+        def _data_account(self):
+            return uid, gid
+
+    deployment = PrivilegedDeployment(
+        {}, base=root / "opt", data=data, etc=root / "etc", updater_root=root / "utilities"
+    )
+    script = """
+import sys
+from pathlib import Path
+from hnefatafl.deployment import Deployment
+root, release, pending = map(Path, sys.argv[1:4])
+token, uid, gid = sys.argv[4], int(sys.argv[5]), int(sys.argv[6])
+class Fixture(Deployment):
+    def _data_account(self):
+        return uid, gid
+fixture = Fixture({}, base=root/'opt', data=root/'data', etc=root/'etc', updater_root=root/'utilities')
+workspace = fixture._temporary_workspace('prepare', preparation_id=token)
+fixture._begin_staging(release, 'release', 0o755, preparation_id=token)
+fixture._begin_staging(pending, 'pending', preparation_id=token)
+environment = fixture._preparation_environment(workspace)
+fixture.run(
+    ['/bin/sh', '-c', 'echo ready > "$TMPDIR/ready"; exec /usr/bin/sleep 200'],
+    cwd=release, user=True, extra_env=environment, preparation=True,
+)
+"""
+    unrelated_started = False
+    units = []
+    log_path = root / "preparation.log"
+    with log_path.open("w") as log:
+        updater = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(root),
+                str(release),
+                str(pending),
+                token,
+                str(uid),
+                str(gid),
+            ],
+            cwd=REPO,
+            stdout=log,
+            stderr=log,
+        )
+        try:
+            for _ in range(150):
+                if (workspace / "tmp/ready").exists():
+                    break
+                if updater.poll() is not None:
+                    pytest.fail(log_path.read_text())
+                time.sleep(0.1)
+            else:
+                pytest.fail("the transient preparation process did not become ready")
+            units = json.loads((workspace / ".units.json").read_text())["units"]
+            assert len(units) == 1 and unrelated not in units
+            updater.kill()
+            assert updater.wait(timeout=10) == -9
+            subprocess.run(
+                [
+                    "systemd-run",
+                    "--quiet",
+                    "--collect",
+                    f"--unit={unrelated}",
+                    "/usr/bin/sleep",
+                    "200",
+                ],
+                check=True,
+            )
+            unrelated_started = True
+            report = deployment.cleanup()
+            assert report.cleanup_complete, report.errors
+            assert not any(path.exists() for path in (workspace, release, pending))
+            assert subprocess.run(["systemctl", "is-active", "--quiet", *units]).returncode != 0
+            subprocess.run(["systemctl", "is-active", "--quiet", unrelated], check=True)
+        finally:
+            if updater.poll() is None:
+                updater.kill()
+                updater.wait(timeout=10)
+            if not units and (workspace / ".units.json").exists():
+                units = json.loads((workspace / ".units.json").read_text())["units"]
+            if unrelated_started:
+                units.append(unrelated)
+            if units:
+                subprocess.run(["systemctl", "stop", *units], check=False, capture_output=True)

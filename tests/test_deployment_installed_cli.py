@@ -119,7 +119,7 @@ def build_layout(tmp_path):
     return root, release, snapshot, database, installed, bin_directory
 
 
-def run_cli(installed, root, bin_directory, *arguments, interrupt=None):
+def run_cli(installed, root, bin_directory, *arguments, interrupt=None, install_scenario=None):
     env = {
         **os.environ,
         "PATH": str(bin_directory) + ":/usr/bin:/bin",
@@ -127,8 +127,11 @@ def run_cli(installed, root, bin_directory, *arguments, interrupt=None):
     }
     if interrupt:
         env["DISPOSABLE_UPDATER_INTERRUPTION"] = interrupt
+    if install_scenario is not None:
+        env["DISPOSABLE_INSTALL_SCENARIO"] = install_scenario
+        env["DISPOSABLE_APPLICATION_SOURCE"] = str(REPO)
     bootstrap = """
-import os, runpy, signal, sys
+import json, os, runpy, signal, subprocess, sys
 from pathlib import Path
 root = Path(sys.argv[2])
 module = runpy.run_path(sys.argv[1])
@@ -157,6 +160,46 @@ if point:
         if point == 'journal-committed' and value.get('phase') == 'recovered': stop()
     os.rename, os.replace, os.unlink = renaming, replacing, unlinking
     deployment.record = recording
+scenario = os.getenv('DISPOSABLE_INSTALL_SCENARIO')
+if scenario:
+    deployment = module['Deployment']
+    if scenario == 'guard':
+        try:
+            deployment({}, base=root/'opt', data=root/'data', etc=root/'etc',
+                       backups=root/'backups')._authorize_service_start()
+        except ValueError as error:
+            raise SystemExit(str(error))
+        raise SystemExit(0)
+    module['GitHub'].releases = lambda self: [{'tag_name': '1.0.0'}]
+    deployment.prepare = lambda self, github, release: root/'opt/releases/1.0.0-0001'
+    deployment.validate_configuration = lambda self, target: None
+    original_run, original_service = deployment.run, deployment.service
+    def run(self, args, **kwargs):
+        if list(args[1:3]) != ['-m', 'hnefatafl.accounts']:
+            return original_run(self, args, **kwargs)
+        action = args[3]
+        command = [sys.executable, *args[1:]]
+        env = {**os.environ, "PYTHONPATH": os.environ['DISPOSABLE_APPLICATION_SOURCE']}
+        if action == 'init-admin':
+            credentials = dict(username='Odin', email='fixture@example.test', password='Only a test password 234!')
+            subprocess.run([*command, '--credentials-stdin'], input=json.dumps(credentials),
+                           text=True, check=True, env=env)
+        else:
+            subprocess.run(command, check=True, env=env)
+        (root/'data/attempt-output').write_text(action)
+        if action == 'migrate' and scenario == 'kill':
+            os.kill(os.getpid(), signal.SIGKILL)
+        if (action, scenario) in {('migrate', 'migration'), ('init-admin', 'provisioning')}:
+            raise OSError('fixture failed after writing SQLite')
+    def service(self, action):
+        if action == 'start' and scenario == 'startup':
+            raise OSError('fixture refused to start')
+        return original_service(self, action)
+    def readiness(self):
+        if scenario == 'readiness':
+            raise module['ReadinessError']('fixture readiness failure')
+        assert (root/'running').exists()
+    deployment.run, deployment.service, deployment.probe = run, service, readiness
 raise SystemExit(module['main'](sys.argv[3:], layout={
     "config_dir": root / "etc", "base": root / "opt", "data": root / "data",
     "etc": root / "etc", "unit_file": root / "unit.service", "backups": root / "backups",
@@ -377,3 +420,118 @@ def test_killed_manual_backup_recovers_service_and_keeps_published_snapshot(tmp_
     assert (root / "actions").read_text() == "stop\nstart\nprobe\n"
     assert backup.is_dir()
     assert json.loads((root / "etc/transaction.json").read_text())["phase"] == "recovered"
+
+
+def build_fresh_layout(tmp_path):
+    root = tmp_path / "layout"
+    release = root / "opt/releases/1.0.0-0001"
+    installed = root / "usr/lib/hnefatafl"
+    bin_directory = root / "bin"
+    for path in (
+        release / "deployment",
+        installed / "updater_support",
+        root / "etc",
+        root / "data/models",
+        root / "backups",
+        bin_directory,
+    ):
+        path.mkdir(parents=True)
+    (root / "backups").chmod(0o700)
+    (root / "data/models/existing").write_text("keep")
+    atomic_json(
+        root / "etc/deployment.json",
+        {**CONFIG, "repository": "example/hnefatafl", "storage": {"headroom_mib": 0}},
+    )
+    (release / "deployment/hnefatafl.service").write_text("fixture unit\n")
+    atomic_json(release / ".release.json", {"version": "1.0.0", "sha256": "sha256:" + "a" * 64})
+    shutil.copyfile(REPO / "hnefatafl/deployment.py", installed / "deployment.py")
+    for name in SUPPORT:
+        shutil.copyfile(REPO / f"hnefatafl/{name}.py", installed / "updater_support" / f"{name}.py")
+    install_service_shim(root, bin_directory)
+    (bin_directory / "systemctl").chmod(0o755)
+    (root / "running").unlink()
+    return root, installed, bin_directory
+
+
+def assert_initial_snapshot_has_no_database(root, journal):
+    backup = Path(journal["backup"])
+    assert backup.is_relative_to(root / "backups")
+    assert not (backup / "data/hnefatafl.sqlite3").exists()
+    assert json.loads((backup / "snapshot.json").read_text()) == journal["backup_association"]
+    assert journal["backup_association"]["purpose"] == "initial-install"
+    assert journal["backup_association"]["database_schema"] is None
+
+
+def test_fresh_install_commits_when_the_initial_snapshot_has_no_sqlite(tmp_path):
+    root, installed, bin_directory = build_fresh_layout(tmp_path)
+    result = run_cli(installed, root, bin_directory, "--initialize", install_scenario="success")
+    assert result.returncode == 0, result.stdout + result.stderr
+    journal = json.loads((root / "etc/transaction.json").read_text())
+    assert journal["phase"] == "committed"
+    assert_initial_snapshot_has_no_database(root, journal)
+    with sqlite3.connect(root / "data/hnefatafl.sqlite3") as connection:
+        assert connection.execute("SELECT username FROM accounts").fetchall() == [("Odin",)]
+    assert (root / "running").is_file()
+
+
+@pytest.mark.parametrize("scenario", ["migration", "provisioning", "startup", "readiness", "kill"])
+def test_failed_initial_install_retains_the_created_database_and_can_retry(tmp_path, scenario):
+    root, installed, bin_directory = build_fresh_layout(tmp_path)
+    result = run_cli(installed, root, bin_directory, "--initialize", install_scenario=scenario)
+    assert result.returncode == (-9 if scenario == "kill" else 1), result.stdout + result.stderr
+    journal = json.loads((root / "etc/transaction.json").read_text())
+    assert_initial_snapshot_has_no_database(root, journal)
+    if scenario == "kill":
+        assert journal["phase"] == "migrating"
+        assert (root / "data/hnefatafl.sqlite3").is_file()
+        refused = run_cli(installed, root, bin_directory, install_scenario="guard")
+        assert refused.returncode == 1 and "startup is deferred" in refused.stderr
+        killed = run_cli(installed, root, bin_directory, "--recover", interrupt="old-data-renamed")
+        assert killed.returncode == -9, killed.stdout + killed.stderr
+    recovered = run_cli(installed, root, bin_directory, "--recover")
+    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    journal = json.loads((root / "etc/transaction.json").read_text())
+    assert journal["phase"] == "recovered" and journal["restore"] is None
+    assert not (root / "etc/installed.json").exists()
+    assert not (root / "opt/current").exists()
+    assert not (root / "running").exists()
+    assert not (root / "data/hnefatafl.sqlite3").exists()
+    assert (root / "data/models/existing").read_text() == "keep"
+    (retained,) = root.glob(".retained-*")
+    assert (retained / "data").exists() is False
+    assert (retained / "attempt-output").read_text() == (
+        "migrate" if scenario in {"migration", "kill"} else "init-admin"
+    )
+    database = retained / "hnefatafl.sqlite3"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        accounts = connection.execute("SELECT id, username FROM accounts").fetchall()
+    assert [row[1] for row in accounts] == ([] if scenario in {"migration", "kill"} else ["Odin"])
+    again = run_cli(installed, root, bin_directory, "--recover")
+    assert again.returncode == 0 and "No interrupted deployment" in again.stdout
+    assert list(root.glob(".retained-*")) == [retained]
+    retried = run_cli(installed, root, bin_directory, "--initialize", install_scenario="success")
+    assert retried.returncode == 0, retried.stdout + retried.stderr
+    with sqlite3.connect(root / "data/hnefatafl.sqlite3") as connection:
+        retry_accounts = connection.execute("SELECT id, username FROM accounts").fetchall()
+    assert [row[1] for row in retry_accounts] == ["Odin"]
+    assert retry_accounts != accounts
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT id, username FROM accounts").fetchall() == accounts
+    assert (root / "running").is_file()
+
+
+def test_installed_recovery_refuses_to_replace_established_database_with_files_only(tmp_path):
+    root, release, snapshot, database, installed, bin_directory = build_layout(tmp_path)
+    manifest_path = snapshot / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    (snapshot / "data/hnefatafl.sqlite3").unlink()
+    del manifest["data/hnefatafl.sqlite3"]
+    atomic_json(manifest_path, manifest)
+    before = database.read_bytes()
+    result = run_cli(installed, root, bin_directory, "--recover")
+    assert result.returncode == 1
+    assert "snapshot has no regular SQLite database" in result.stderr
+    assert database.read_bytes() == before
+    assert (root / "opt/current").resolve() == release
+    assert not list(root.glob(".retained-*"))

@@ -408,6 +408,20 @@ compatible utility. A compatible launcher protocol can likewise advance one
 version at a time, including when the active generation still needs the
 previous protocol.
 
+The two maintenance commands use a fixed wrapper contract. The update
+command executes the stable launcher with isolated Python, and the backup
+command delegates to it with `--backup`. Verified releases carry the canonical
+wrapper bytes. The publisher accepts the historical flat update wrapper during
+bootstrap and refuses other wrapper changes. A future contract change would
+need a reviewed migration that keeps both command forms compatible with the
+installed launcher throughout replacement.
+
+If either installed wrapper is damaged or has lost its executable mode, use
+`bash <extracted>/scripts/linux/install.sh --refresh-updater-only` from a reviewed
+checkout or digest-verified release. The installer takes the updater lock,
+verifies the utility generation, and restores each canonical command atomically.
+An interrupted repair can be run again from the same trusted source.
+
 If the installed launcher or its active generation is damaged, rerun
 `bash <extracted>/scripts/linux/install.sh --refresh-updater-only` from the same
 or a supported newer verified release. This entry point takes the updater lock
@@ -498,11 +512,21 @@ The first update, backup, recovery or executing cleanup on an older installation
 migrates verified backups
 from `/var/lib/hnefatafl/backups`. The migration records each source and destination
 identity before moving it. On the same filesystem it renames the existing
-snapshot. Across filesystems it checks destination space and inodes, creates a
-verified copy, and removes the source after persisting the updated references.
+snapshot. Across filesystems it first applies the shared retention policy to
+verified snapshots from both locations, including older snapshots protected by
+rollback or recovery metadata. It records the selected copies, eligible deletions
+and directory identities before changing storage. Preflight estimates bytes
+and inodes for just the retained copies and operational headroom. Verified
+destination snapshots beyond retention can make room for the copies. The
+migration verifies each destination copy before changing its reference or
+removing the source. It prunes other eligible legacy snapshots only after
+verification of the retained destination set.
+
 Name conflicts get a deterministic distinct destination. A retention preview
-uses the same descriptor-relative checks, marks verified snapshots as moves
-or copies, and applies the shared limit to the resulting inventory. Older
+uses the same descriptor-relative checks and shows moves, retained copies with
+their estimated storage needs, and snapshots eligible for removal without copying.
+If the destination cannot accommodate the retained set, free safe destination
+space or expand its filesystem before retrying. Older
 incomplete legacy snapshots can be removed from the legacy directory when
 their ownership, contents and lack of references are established. Invalid
 or ambiguous artifacts remain in place for inspection and contribute no
@@ -543,8 +567,14 @@ validated artifact identity and file metadata remain stable. Root-owned staging
 records identify downloads, release preparation, pending utility files,
 snapshots and restores through publication. Under the operation lock, cleanup
 can remove abandoned staging when its ownership and identity still match.
-Unrecognized artifacts, invalid records and unfinished transaction references
-remain available for recovery or inspection.
+Preparation workspaces, unfinished releases and pending utilities share an
+operation identifier. Before removing them, the updater disables pending starts,
+stops their recorded transient units and checks the resulting systemd state.
+If termination cannot be confirmed, all affected artifacts remain available and
+cleanup reports the blocker. Run cleanup again after the units have stopped.
+The dry run leaves services and files alone. Unrecognized artifacts, invalid
+records and unfinished transaction references remain available for recovery
+or inspection.
 
 ### Preflight and failure handling
 
@@ -585,6 +615,39 @@ tests and deployment templates remain. The development extra supplies the
 release security tests. Operators can set `prune_build_dependencies` to
 `false` to keep a rebuild-capable release. uv and npm cache maintenance
 uses their supported commands for older caches on the persistent data volume.
+Release sealing verifies the hardlinks created by npm when all names for an
+inode are inside `frontend/node_modules`. A link outside that tree prevents
+publication. This keeps sealing from changing an external file through a link.
+
+#### Preparation measurement
+
+Three real preparations used the locked Python and npm dependencies for the
+reviewed 0.42 application source, uv 0.12.23, Node 24.19.0 and Python 3.12.16
+on Debian 13.8 in a disposable two-CPU, 4 GiB Docker container. The release
+archive was read locally. Network figures are received bytes on the isolated
+container interface. Disk peaks are the largest allocated-byte measurements
+after preparation steps. RSS is the largest child process measurement.
+
+| Preparation | Wall time | Network received | Temporary disk peak | Release disk peak | User / system CPU | Peak child RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| First, empty caches | 86.90 s | 298,379,631 B | 990 MiB | 1,232 MiB | 73.62 / 24.50 s | 728 MiB |
+| Repeat, empty caches | 89.43 s | 298,373,203 B | 990 MiB | 1,232 MiB | 74.77 / 26.53 s | 727 MiB |
+| Repeat, experimental warm caches | 87.00 s | 5,072 B | 990 MiB | 1,232 MiB | 75.34 / 17.66 s | 729 MiB |
+
+The running application answered all 825 health probes during the repeat
+cold preparation and all 802 during the warm experiment. The median latency
+was 3.79 ms cold and 4.02 ms warm. The ten-second idle baseline had 94
+successful probes at a 3.31 ms median. The largest observed latencies were
+218 ms cold, 240 ms warm and 55 ms idle. These probes used a local Unix
+socket and covered health, with production gameplay and proxy performance
+outside the measurement.
+
+The warm experiment reduced download volume by about 298 MB and saved
+2.43 seconds of wall time in this sample. The deployment uses disposable
+caches to avoid retaining roughly 990 MiB and sharing writable build files
+between preparations. The experiment used a private disposable cache.
+The Docker test dropped privileges to the service account. Native systemd
+is exercised separately in CI.
 
 ### Administrative cleanup
 
@@ -628,6 +691,24 @@ rejects unsafe file types, ownership, hardlinks and mount redirects. Restore mov
 the same locked inode into the verified candidate before publishing it.
 
 ### Manual backups and recovery transactions
+
+#### Failed first installation
+
+If the first installation creates SQLite and later fails, recovery can restore
+a database-free initial snapshot when the protected journal and verified
+snapshot agree on the installation, release and absence of earlier database
+authority. The failed attempt's full data tree is retained under
+`/var/lib/.retained-<id>`, including its SQLite database, provisioned accounts
+and any sidecars. The service stays stopped. The updater reports the retained
+path and leaves the installer ready for a retry. Provision administrator
+credentials for the retry and keep any credentials from the earlier attempt
+private with its retained database.
+
+Run `hnefatafl-update --recover` if the updater was interrupted or automatic
+recovery did not complete. The command can resume the data-directory swap
+and finalize the journal. An established installation with live SQLite
+authority still requires a verified snapshot containing a compatible
+database.
 
 `hnefatafl-backup` and `hnefatafl-update --backup` preflight storage before service
 shutdown, then recheck actual free space before copying. The journal records the
@@ -972,8 +1053,33 @@ unprivileged service account, real application dependencies and a disposable
 data directory. Its native-systemd CI run exercises transient preparation units
 and the installed startup guard with a real application service. Target-host
 validation is still required for live Proxmox provisioning, production systemd
-and storage, private credentials and GPU execution. Read the checkout's
-[current validation](VALIDATION.md).
+and storage, private credentials and GPU execution. A Proxmox host was
+unavailable for this validation pass. The supported nesting-disabled LXC
+layout still needs verification on a target host.
+
+On a disposable Debian 13 Proxmox container with a tested off-host copy of
+the starting data, use this checklist.
+
+- Confirm with `pct config <ID>` that the container is unprivileged and nesting
+  is disabled. Use the standard installer layout and a released 0.41.1 or
+  0.42 application. Record the running application version and backup and
+  rollback references.
+- Bootstrap with the reviewed `--refresh-updater-only` installer. Run
+  `hnefatafl-update --cleanup --dry-run`, compare the proposed actions with
+  the legacy snapshots, and confirm the preview leaves the layout and
+  references intact. Run `hnefatafl-update --cleanup` and verify retained
+  snapshots and rewritten references.
+- Run a real update with uv and npm. Check the preparation units and
+  `journalctl` for namespace errors, and confirm preparation can import the
+  application from the sealed release. Check readiness and authenticated
+  access after activation. Keep container privileges and isolation settings
+  at their standard values.
+- Run `hnefatafl-backup`, restart `hnefatafl.service`, and verify readiness.
+  On the disposable instance, exercise a supported rollback and resume an
+  interrupted operation with `hnefatafl-update --recover`. Confirm SQLite,
+  retained data, model and job files, and the current release afterward.
+
+Read the checkout's [current validation](VALIDATION.md).
 
 Profile schema 15 is additive and idempotent. It preserves schema-14 consent as
 internal publication exceptions and retains old private birth years without
