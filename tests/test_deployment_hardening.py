@@ -1192,6 +1192,7 @@ def test_cross_filesystem_migration_only_copies_retained_history(tmp_path, monke
         invalid.chmod(0o700)
         atomic_json(invalid / "manifest.json", {"data/missing": "0" * 64})
         harness.backups = Path(directory) / "backups"
+        harness.backups.mkdir(mode=0o700)
         collision = harness.make_backup(protected.name, old=0, payload=b"C" * len(payload))
         expired = harness.make_backup("20250101T000000-ffff", old=400, payload=b"X" * len(payload))
         harness.set_state("2.0.0", active, backup=protected)
@@ -1205,6 +1206,7 @@ def test_cross_filesystem_migration_only_copies_retained_history(tmp_path, monke
 
         harness.filesystem_override = capacity_at
         plan = harness.cleanup(dry_run=True)
+        assert not plan.errors, plan.errors
         copies = {entry.path for entry in plan.entries if entry.action == "copy"}
         pruned = {entry.path for entry in plan.entries if entry.action == "remove"}
         assert copies == {protected, sources[-1]}
