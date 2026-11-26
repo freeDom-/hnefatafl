@@ -923,14 +923,28 @@ updater.snapshot()
     assert (unrelated / "retained").read_text() == "unrelated"
 
 
-@pytest.mark.parametrize("point", ["download", "updater-payload"])
+@pytest.mark.parametrize("point", ["download", "updater-payload", "prepare-failure"])
 def test_killed_preparation_removes_abandoned_download_and_pending_payload(tmp_path, point):
     from deployment_fixtures import fault_process
     from hnefatafl.deployment import Deployment
-    from test_deployment_storage import updater_archive
+    import tarfile
+
+    from test_deployment_storage import archive, updater_archive
 
     harness, active = valid_harness(tmp_path)
     source = updater_archive(tmp_path / "candidate.tar.gz")
+    if point == "prepare-failure":
+        with tarfile.open(source) as bundle:
+            entries = {member.name: bundle.extractfile(member).read() for member in bundle}
+        for name in (
+            "uv.lock",
+            "frontend/package-lock.json",
+            "hnefatafl/auth.py",
+            "tests/test_security.py",
+            "deployment/hnefatafl.service",
+        ):
+            entries[name] = b"placeholder"
+        archive(source, entries)
     (tmp_path / "usr").mkdir()
     script = """
 import os, shutil, signal, sys
@@ -966,14 +980,28 @@ def staging(*args):
     return value
 
 updater._stage_updater_payload = staging
+if point == 'prepare-failure':
+    discard = updater._discard_staging
+    def fail_build(*args, **kwargs):
+        (root/'build-failed').touch()
+        raise OSError("failed build")
+    def interrupted_cleanup(path, **kwargs):
+        if path.parent == updater.releases: kill()
+        return discard(path, **kwargs)
+    updater.run = fail_build
+    updater._discard_staging = interrupted_cleanup
 updater.prepare(SimpleNamespace(download=download), {'tag_name': '0.43'})
 """
     killed = fault_process(script, tmp_path, source, point)
     assert killed.returncode == -9, killed.stdout + killed.stderr
     (workspace,) = harness.temporary_root.glob(".staging-prepare-*")
-    assert (workspace / "release.tar.gz").is_file()
+    if point == "prepare-failure":
+        assert (tmp_path / "build-failed").exists()
+        assert not (workspace / "release.tar.gz").is_file()
+    else:
+        assert (workspace / "release.tar.gz").is_file()
     utility_root = tmp_path / "usr/lib"
-    assert bool(list(utility_root.glob(".pending-*"))) == (point == "updater-payload")
+    assert bool(list(utility_root.glob(".pending-*"))) == (point != "download")
     unrelated = harness.temporary_root / ".staging-prepare-0000000000000000"
     unrelated.mkdir()
     fresh = Deployment(

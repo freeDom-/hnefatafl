@@ -1366,6 +1366,19 @@ class Deployment:
         if executable is None:
             raise DeploymentError(f"Preparation executable is unavailable: {command[0]}")
         unit = f"hnefatafl-{workspace.name.removeprefix('.staging-')}-{secrets.token_hex(4)}"
+        # Systemd reads this root-only file before switching to the service
+        # account. Proxy credentials stay out of arguments and unit properties.
+        environment_file = workspace / "environment"
+        lines = []
+        for key, value in environment.items():
+            value = (
+                value.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("`", "\\`")
+                .replace("$", "\\$")
+            )
+            lines.append(f'{key}="{value}"\n')
+        atomic_bytes(environment_file, "".join(lines).encode())
         subprocess.run(
             [
                 "/usr/bin/systemd-run",
@@ -1382,7 +1395,7 @@ class Deployment:
                 f"--property=ReadWritePaths={workspace} {cwd}",
                 "--property=NoNewPrivileges=yes",
                 "--property=ProtectProc=invisible",
-                *(f"--setenv={key}={value}" for key, value in environment.items()),
+                f"--property=EnvironmentFile={environment_file}",
                 "--",
                 executable,
                 *command[1:],
@@ -1656,6 +1669,7 @@ class Deployment:
                 info = (Path(folder) / name).lstat()
                 if (
                     info.st_uid != self.privileged_uid
+                    or info.st_mode & 0o022
                     or info.st_dev != device
                     or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode))
                 ):
@@ -3345,8 +3359,8 @@ json.dump(rows, sys.stdout)
         ]
         while nested:
             prior = nested.pop()
-            for key in ("target", "previous"):
-                path = self._path_key(prior.get(key))
+            for field_name in ("target", "previous"):
+                path = self._path_key(prior.get(field_name))
                 if path is not None:
                     releases.setdefault(path, "recorded committed state reference")
             path = self._path_key(prior.get("backup"))
