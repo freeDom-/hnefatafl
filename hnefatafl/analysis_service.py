@@ -170,7 +170,7 @@ class AnalysisService:
                 return key, previous
             if len(self.tasks) >= MAX_ANALYSIS_TASKS:
                 raise AnalysisUnavailable("Analysis workers are busy. Retry shortly.")
-            token: tuple[str, float] | None = None
+            token: tuple[str, int] | None = None
             account_id = game.get("_analysis_account_id")
             if self.admission is not None and account_id is not None:
                 token = self.admission.admit_task(str(account_id))
@@ -192,7 +192,7 @@ class AnalysisService:
             task.add_done_callback(partial(self._forget, key, token=token))
         return key, task
 
-    def _forget(self, key: tuple, task: Future, token: tuple[str, float] | None = None) -> None:
+    def _forget(self, key: tuple, task: Future, token: tuple[str, int] | None = None) -> None:
         with self.lock:
             if self.tasks.get(key) is task:
                 self.tasks.pop(key, None)

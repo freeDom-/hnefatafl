@@ -82,6 +82,14 @@ export interface LocalAnalysisInput {
   onDownloadProgress?: (progress: { transferredBytes: number; totalBytes: number }) => void;
 }
 
+interface AdvisorContext {
+  effective_config: Record<string, unknown>;
+  requested_config?: Record<string, unknown>;
+  show_win_chances?: boolean;
+  revision?: number;
+  seed_with_ply?: boolean;
+}
+
 interface ContextPayload {
   schema: number;
   game_id: string;
@@ -90,52 +98,111 @@ interface ContextPayload {
   cursor: number;
   position_key: string;
   position_keys?: string[];
+  history_keys?: string[];
   states: Record<string, unknown>[];
+  advisor?: AdvisorContext | null;
   execution?: unknown;
 }
 
 interface CachedContext {
   states: Record<string, unknown>[];
+  historyKeys: string[];
   positionKey: string;
   positionKeys: string[];
+  advisor: AdvisorContext | null;
   version: number;
-  fetchedAt: number;
+  scope: string;
+  bytes: number;
+}
+
+interface ContextLease {
+  at: number;
+  account: string | null;
+  version: number;
+  gameId: string;
+}
+
+interface SharedContextRequest {
+  key: string;
+  generation: number;
+  controller: AbortController;
+  consumers: Set<AbortSignal>;
+  promise: Promise<CachedContext>;
 }
 
 const CONTEXT_LIMIT = 64;
+const CONTEXT_BYTE_LIMIT = 8 * 1024 * 1024;
 const MODEL_CACHE_MS = 5 * 60_000;
 
 let account: string | null = null;
+let generation = 0;
 let binding: Promise<void> = Promise.resolve();
 let bindSequence = 0;
 let runtimePromise: Promise<BrowserAnalysisApi> | null = null;
-let modelCache: { account: string | null; at: number; models: ModelManifest[] } | null = null;
+let runtimeGeneration = -1;
+let modelCache: {
+  account: string | null;
+  generation: number;
+  at: number;
+  models: ModelManifest[];
+} | null = null;
 const contexts = new Map<string, CachedContext>();
-const contextRequests = new Map<string, Promise<CachedContext>>();
+let contextBytes = 0;
+const contextRequests = new Map<string, SharedContextRequest>();
 const lastProviders = new Map<string, 'wasm' | 'webgpu'>();
+const contextLeases = new Map<string, ContextLease>();
+const modelLeases = new Map<string, { at: number; account: string | null; sha256: string }>();
 let onlineValidationRequired = true;
 let lastOnlineValidationAt = 0;
 
-function contextKey(input: Pick<LocalAnalysisInput, 'game' | 'basePath'>): string {
-  return `${input.basePath}:${input.game.id}:${input.game.version}`;
+function now(): number {
+  return Date.now();
+}
+
+function scopeKey(
+  input: Pick<LocalAnalysisInput, 'game' | 'basePath' | 'accountId' | 'settings'>,
+): string {
+  // Advisor/strength changes are their own context identity: cached analysis,
+  // effective configuration and offline authorization must not cross revisions.
+  return `${input.accountId ?? ''}:${input.basePath}:${input.game.id}:${input.game.version}:${input.settings.revision}`;
+}
+
+function assertGeneration(expected: number): void {
+  if (generation !== expected) {
+    throw failure('cancelled', 'Analysis was superseded by an account change', false, 'cancelled');
+  }
+}
+
+function abortContextRequests(): void {
+  for (const request of contextRequests.values()) request.controller.abort();
+  contextRequests.clear();
+}
+
+function clearAccountState(): void {
+  contexts.clear();
+  contextBytes = 0;
+  abortContextRequests();
+  lastProviders.clear();
+  contextLeases.clear();
+  modelLeases.clear();
+  modelCache = null;
+  onlineValidationRequired = true;
+  lastOnlineValidationAt = 0;
 }
 
 /**
  * Bind the runtime to the current account. A change invalidates every worker,
- * cached position and offline lease before a new search can start; logout
+ * cached position, catalogue and lease before a new search can start; logout
  * disposes the runtime entirely.
  */
 export function setAnalysisAccount(next: string | null): Promise<void> {
   if (next === account) return binding;
   const sequence = ++bindSequence;
+  generation += 1;
+  const targetGeneration = generation;
   const previous = runtimePromise;
   account = next;
-  contexts.clear();
-  contextRequests.clear();
-  lastProviders.clear();
-  modelCache = null;
-  onlineValidationRequired = true;
-  lastOnlineValidationAt = 0;
+  clearAccountState();
   binding = (async () => {
     if (!previous) return;
     let api: BrowserAnalysisApi;
@@ -149,8 +216,9 @@ export function setAnalysisAccount(next: string | null): Promise<void> {
       await api.dispose();
       return;
     }
-    if (bindSequence === sequence) {
+    if (bindSequence === sequence && generation === targetGeneration) {
       await api.invalidateAccountContext();
+      if (runtimePromise === previous) runtimeGeneration = targetGeneration;
     }
   })();
   if (next === null) runtimePromise = null;
@@ -160,13 +228,12 @@ export function setAnalysisAccount(next: string | null): Promise<void> {
 /** Test/logout hook: release the managed runtime and every cached context. */
 export async function disposeLocalAnalysis(): Promise<void> {
   bindSequence += 1;
+  generation += 1;
   account = null;
-  contexts.clear();
-  contextRequests.clear();
-  lastProviders.clear();
-  modelCache = null;
+  clearAccountState();
   const previous = runtimePromise;
   runtimePromise = null;
+  runtimeGeneration = -1;
   binding = Promise.resolve();
   if (previous) {
     try {
@@ -179,17 +246,38 @@ export async function disposeLocalAnalysis(): Promise<void> {
   }
 }
 
-async function getRuntime(accountId: string | null): Promise<BrowserAnalysisApi> {
+async function getRuntime(accountId: string | null, expected: number): Promise<BrowserAnalysisApi> {
   if (account !== accountId) await setAnalysisAccount(accountId);
   await binding;
+  assertGeneration(expected);
   if (!runtimePromise) {
     const creation = createBrowserAnalysis();
     runtimePromise = creation;
-    creation.catch(() => {
-      if (runtimePromise === creation) runtimePromise = null;
-    });
+    const creationGeneration = expected;
+    creation.then(
+      (api) => {
+        if (generation !== creationGeneration || account !== accountId) {
+          void api.clearOfflineAuthorization();
+          void api.dispose();
+          if (runtimePromise === creation) {
+            runtimePromise = null;
+            runtimeGeneration = -1;
+          }
+          return;
+        }
+        runtimeGeneration = creationGeneration;
+      },
+      () => {
+        if (runtimePromise === creation) runtimePromise = null;
+      },
+    );
   }
-  return runtimePromise;
+  const api = await runtimePromise;
+  assertGeneration(expected);
+  if (runtimeGeneration !== expected) {
+    throw failure('cancelled', 'The runtime belongs to an obsolete account context', false);
+  }
+  return api;
 }
 
 function isAbort(error: unknown): boolean {
@@ -231,8 +319,6 @@ function classify(error: unknown): LocalAnalysisError {
       return failure('browser-unsupported', text, true, code, false);
     }
     if (code === 'runtime-missing') {
-      // Runtime absence and malformed identity share an error code; identity
-      // failures are integrity failures and must fail closed.
       const integrity = /integrity|identity|digest|manifest/i.test(text);
       return failure(
         integrity ? 'integrity' : 'browser-unsupported',
@@ -257,8 +343,6 @@ function classify(error: unknown): LocalAnalysisError {
     if (code === 'disabled') return failure('disabled', text, false, code, false);
     if (code === 'superseded') return failure('cancelled', text, false, code, false);
     if (code === 'unsupported') {
-      // Unsupported settings/agents are normalized before the worker; this is a
-      // request incompatibility, never an integrity failure.
       return failure('unsupported-agent', text, true, code, false);
     }
     if (code === 'search-failed') {
@@ -267,9 +351,8 @@ function classify(error: unknown): LocalAnalysisError {
     }
     return failure('unknown', text, false, code, false);
   }
-  if (error instanceof TypeError) {
-    return failure('offline', 'The network is unavailable', false, 'network-unavailable', true);
-  }
+  // A generic TypeError is an engine/protocol fault, not proof of a network
+  // outage. Network failures are converted at the fetch boundary.
   return failure('unknown', (error as Error)?.message ?? 'Local analysis failed', false);
 }
 
@@ -281,6 +364,21 @@ function executionPolicy(raw: unknown, fallback: ExecutionPolicy): ExecutionPoli
   }
 }
 
+function policiesEqual(left: ExecutionPolicy, right: ExecutionPolicy): boolean {
+  return (
+    left.mode === right.mode &&
+    left.browserDelivery === right.browserDelivery &&
+    left.browserExecution === right.browserExecution &&
+    left.serverComputation === right.serverComputation &&
+    left.fallback === right.fallback &&
+    left.webgpu === right.webgpu &&
+    left.offlineAuthorizationSeconds === right.offlineAuthorizationSeconds &&
+    left.limits.maxConcurrent === right.limits.maxConcurrent &&
+    left.limits.maxPerUser === right.limits.maxPerUser &&
+    left.limits.requestsPerMinute === right.limits.requestsPerMinute
+  );
+}
+
 async function fetchJson(path: string, signal: AbortSignal): Promise<unknown> {
   let response: Response;
   try {
@@ -290,9 +388,15 @@ async function fetchJson(path: string, signal: AbortSignal): Promise<unknown> {
       headers: { accept: 'application/json' },
       signal,
     });
-  } catch (error) {
+  } catch {
     if (signal.aborted) throw failure('cancelled', 'Analysis was cancelled', false, 'cancelled');
-    throw error;
+    throw failure(
+      'offline',
+      'The analysis server is unreachable',
+      false,
+      'network-unavailable',
+      true,
+    );
   }
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
@@ -303,8 +407,11 @@ async function fetchJson(path: string, signal: AbortSignal): Promise<unknown> {
         'disabled',
         'Analysis is not available for this position',
         false,
-        'analysis_not_enabled',
+        'analysis_context_changed',
       );
+    }
+    if (response.status === 429) {
+      throw failure('search', 'Analysis is rate limited', false, 'analysis_rate_limited', true);
     }
     throw failure(
       'search',
@@ -317,7 +424,7 @@ async function fetchJson(path: string, signal: AbortSignal): Promise<unknown> {
   return response.json();
 }
 
-function validateContext(raw: unknown): ContextPayload {
+function validateContext(raw: unknown, input: LocalAnalysisInput): ContextPayload {
   if (
     !raw ||
     typeof raw !== 'object' ||
@@ -331,39 +438,146 @@ function validateContext(raw: unknown): ContextPayload {
     throw failure('integrity', 'The analysis position context is malformed', false);
   }
   const payload = raw as ContextPayload;
+  if (
+    payload.game_id !== input.game.id ||
+    payload.version !== input.game.version ||
+    payload.ruleset !== input.game.ruleset ||
+    payload.cursor !== input.cursor
+  ) {
+    throw failure('integrity', 'The analysis context does not match this request', false);
+  }
   if (payload.states.length > 4096) {
     throw failure('integrity', 'The analysis context is larger than the supported bound', false);
   }
   if (
-    payload.position_keys !== undefined &&
-    (!Array.isArray(payload.position_keys) ||
-      payload.position_keys.length !== payload.states.length ||
-      payload.position_keys.some((key) => typeof key !== 'string' || key.length === 0))
+    !Array.isArray(payload.history_keys) ||
+    payload.history_keys.length !== payload.states.length
+  ) {
+    throw failure('integrity', 'The analysis history keys are malformed', false);
+  }
+  if (
+    !Array.isArray(payload.position_keys) ||
+    payload.position_keys.length !== payload.states.length ||
+    payload.position_keys.some((key) => typeof key !== 'string' || key.length === 0)
   ) {
     throw failure('integrity', 'The analysis position keys are malformed', false);
   }
-  for (const state of payload.states) {
+  if (payload.history_keys.some((key) => typeof key !== 'string' || key.length === 0)) {
+    throw failure('integrity', 'The analysis history keys are malformed', false);
+  }
+  for (const [index, state] of payload.states.entries()) {
     if (
       !state ||
       typeof state !== 'object' ||
       !Array.isArray((state as { board?: unknown }).board) ||
-      typeof (state as { ruleset?: unknown }).ruleset !== 'string'
+      typeof (state as { ruleset?: unknown }).ruleset !== 'string' ||
+      (state as { ply?: unknown }).ply !== index
     ) {
       throw failure('integrity', 'A serialized analysis position is malformed', false);
+    }
+  }
+  const advisor = payload.advisor;
+  if (advisor !== null && advisor !== undefined) {
+    if (
+      typeof advisor !== 'object' ||
+      !advisor.effective_config ||
+      typeof advisor.effective_config !== 'object' ||
+      (advisor.show_win_chances !== undefined && typeof advisor.show_win_chances !== 'boolean') ||
+      (advisor.seed_with_ply !== undefined && typeof advisor.seed_with_ply !== 'boolean')
+    ) {
+      throw failure('integrity', 'The analysis advisor configuration is malformed', false);
+    }
+  }
+  if (payload.execution !== undefined && payload.execution !== null) {
+    const next = executionPolicy(payload.execution, input.policy);
+    if (!policiesEqual(next, input.policy)) {
+      throw failure(
+        'disabled',
+        'The analysis execution policy changed. Retry analysis.',
+        false,
+        'policy-changed',
+        true,
+      );
     }
   }
   return payload;
 }
 
+function contextFromPayload(payload: ContextPayload, scope: string): CachedContext {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+  return {
+    states: payload.states,
+    historyKeys: payload.history_keys ?? [],
+    positionKey: payload.position_key,
+    positionKeys: payload.position_keys ?? [payload.position_key],
+    advisor: payload.advisor ?? null,
+    version: payload.version,
+    scope,
+    bytes,
+  };
+}
+
+function cacheContext(key: string, context: CachedContext): void {
+  const existing = contexts.get(key);
+  if (existing) {
+    contextBytes -= existing.bytes;
+    contexts.delete(key);
+  }
+  contexts.set(key, context);
+  contextBytes += context.bytes;
+  while (
+    contexts.size > CONTEXT_LIMIT ||
+    (contextBytes > CONTEXT_BYTE_LIMIT && contexts.size > 1)
+  ) {
+    const oldest = contexts.keys().next().value;
+    if (oldest === undefined || oldest === key) break;
+    const removed = contexts.get(oldest);
+    if (removed) contextBytes -= removed.bytes;
+    contexts.delete(oldest);
+  }
+}
+
+function subscribe(request: SharedContextRequest, signal: AbortSignal): Promise<CachedContext> {
+  if (signal.aborted) {
+    return Promise.reject(failure('cancelled', 'Analysis was cancelled', false, 'cancelled'));
+  }
+  request.consumers.add(signal);
+  return new Promise<CachedContext>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      cleanup();
+      request.consumers.delete(signal);
+      if (request.consumers.size === 0) request.controller.abort();
+      reject(failure('cancelled', 'Analysis was cancelled', false, 'cancelled'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    request.promise.then(
+      (value) => {
+        cleanup();
+        request.consumers.delete(signal);
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        request.consumers.delete(signal);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function ensureContext(
   input: LocalAnalysisInput,
   offline: boolean,
+  expectedGeneration: number,
   force = false,
-): Promise<CachedContext> {
-  const key = contextKey(input);
-  if (force) contexts.delete(key);
+): Promise<{ context: CachedContext; fromNetwork: boolean }> {
+  const key = scopeKey(input);
+  // A forced revalidation fetches fresh authorization but keeps the previous
+  // prepared context until the replacement genuinely succeeds. An unreachable
+  // origin must not erase an otherwise valid warm position.
   const cached = contexts.get(key);
-  if (cached) return cached;
+  if (cached && !force) return { context: cached, fromNetwork: false };
   if (offline) {
     throw failure(
       'offline',
@@ -372,63 +586,74 @@ async function ensureContext(
       'offline-context-missing',
     );
   }
-  const pending = contextRequests.get(key);
-  if (pending) return pending;
-  const request = (async () => {
-    const path =
-      input.basePath === '/history/online'
-        ? `/api/history/online/${input.game.id}/analysis-context?cursor=${input.cursor}`
-        : `/api/games/${input.game.id}/analysis-context?cursor=${input.cursor}`;
-    const payload = validateContext(await fetchJson(path, input.signal));
-    if (payload.game_id !== input.game.id || payload.ruleset !== input.game.ruleset) {
-      throw failure('integrity', 'The analysis context does not match this game', false);
-    }
-    if (payload.execution !== undefined && payload.execution !== null) {
-      const next = executionPolicy(payload.execution, input.policy);
-      if (next.mode !== input.policy.mode) {
-        throw failure(
-          'disabled',
-          'The analysis execution policy changed. Retry analysis.',
-          false,
-          'policy-changed',
-          true,
-        );
-      }
-    }
-    const context: CachedContext = {
-      states: payload.states,
-      positionKey: payload.position_key,
-      positionKeys:
-        Array.isArray(payload.position_keys) &&
-        payload.position_keys.length === payload.states.length
-          ? payload.position_keys
-          : payload.states.map(() => payload.position_key),
-      version: payload.version,
-      fetchedAt: Date.now(),
+  const requestKey = `${key}:${force ? 'revalidated' : 'initial'}`;
+  let shared = contextRequests.get(requestKey);
+  if (!shared || shared.generation !== expectedGeneration) {
+    const controller = new AbortController();
+    const promise = (async () => {
+      const path =
+        input.basePath === '/history/online'
+          ? `/api/history/online/${input.game.id}/analysis-context?cursor=${input.cursor}&version=${input.game.version}`
+          : `/api/games/${input.game.id}/analysis-context?cursor=${input.cursor}&version=${input.game.version}`;
+      const payload = validateContext(await fetchJson(path, controller.signal), input);
+      assertGeneration(expectedGeneration);
+      const context = contextFromPayload(payload, key);
+      cacheContext(key, context);
+      return context;
+    })();
+    shared = {
+      key: requestKey,
+      generation: expectedGeneration,
+      controller,
+      consumers: new Set(),
+      promise,
     };
-    contexts.set(key, context);
-    while (contexts.size > CONTEXT_LIMIT) {
-      const oldest = contexts.keys().next().value;
-      if (oldest === undefined || oldest === key) break;
-      contexts.delete(oldest);
-    }
-    return context;
-  })();
-  contextRequests.set(key, request);
-  try {
-    return await request;
-  } finally {
-    if (contextRequests.get(key) === request) contextRequests.delete(key);
+    contextRequests.set(requestKey, shared);
+    promise.then(
+      () => {
+        if (contextRequests.get(requestKey) === shared) contextRequests.delete(requestKey);
+      },
+      () => {
+        if (contextRequests.get(requestKey) === shared) contextRequests.delete(requestKey);
+      },
+    );
   }
+  return { context: await subscribe(shared, input.signal), fromNetwork: true };
+}
+
+function contextLeaseValid(input: LocalAnalysisInput): boolean {
+  const lease = contextLeases.get(scopeKey(input));
+  return Boolean(
+    lease &&
+      lease.account === input.accountId &&
+      lease.gameId === input.game.id &&
+      lease.version === input.game.version &&
+      now() - lease.at <= input.policy.offlineAuthorizationSeconds * 1000,
+  );
+}
+
+function modelLeaseValid(input: LocalAnalysisInput, sha256: string): boolean {
+  const lease = modelLeases.get(`${input.accountId ?? ''}:${sha256}`);
+  return Boolean(
+    lease &&
+      lease.account === input.accountId &&
+      lease.sha256 === sha256 &&
+      now() - lease.at <= input.policy.offlineAuthorizationSeconds * 1000,
+  );
 }
 
 async function ensureModels(
   api: BrowserAnalysisApi,
   input: LocalAnalysisInput,
   offline: boolean,
+  expectedGeneration: number,
 ): Promise<ModelManifest[]> {
-  if (modelCache && modelCache.account === input.accountId) {
-    if (offline || Date.now() - modelCache.at < MODEL_CACHE_MS) return modelCache.models;
+  if (
+    modelCache &&
+    modelCache.account === input.accountId &&
+    modelCache.generation === expectedGeneration
+  ) {
+    if (offline || now() - modelCache.at < MODEL_CACHE_MS) return modelCache.models;
   }
   if (offline) {
     throw failure(
@@ -438,39 +663,87 @@ async function ensureModels(
       'offline-models-missing',
     );
   }
-  const models = await api.listModels();
-  modelCache = { account: input.accountId, at: Date.now(), models };
+  const models = await api.listModels({ signal: input.signal });
+  assertGeneration(expectedGeneration);
+  modelCache = {
+    account: input.accountId,
+    generation: expectedGeneration,
+    at: now(),
+    models,
+  };
   return models;
-}
-
-function neuralRequested(config: Record<string, unknown>): boolean {
-  return (
-    (config.algorithm === 'neural' && (config.search_wrapper ?? 'mcts') === 'mcts') ||
-    (config.algorithm === 'mcts' && Boolean(config.model_id))
-  );
-}
-
-function jarlRequested(config: Record<string, unknown>): boolean {
-  return config.algorithm === 'alpha_beta' || config.algorithm === 'alphabeta';
 }
 
 function numeric(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function effectiveSeed(input: LocalAnalysisInput, config: Record<string, unknown>): number {
-  const base = Number.isInteger(config.seed)
-    ? Number(config.seed)
-    : input.game.seed !== undefined
-      ? input.game.seed
-      : 7;
-  return (base + (input.game.seed !== undefined ? input.game.ply : 0)) >>> 0;
+function effectiveAlgorithm(config: Record<string, unknown>): 'jarl' | 'neural_mcts' | null {
+  if (config.algorithm === 'alpha_beta' || config.algorithm === 'alphabeta') return 'jarl';
+  if (
+    config.algorithm === 'neural' &&
+    (config.search_wrapper ?? 'mcts') === 'mcts' &&
+    Boolean(config.model_id)
+  ) {
+    return 'neural_mcts';
+  }
+  return null;
 }
 
-function jarlSettings(input: LocalAnalysisInput, config: Record<string, unknown>) {
-  const depth = numeric(config.depth) ?? 5;
+const JARL_CONFIG_FIELDS = new Set([
+  'algorithm',
+  'seed',
+  'time_limit',
+  'evaluation',
+  'heuristic',
+  'depth',
+  'search',
+  'heuristic_version',
+]);
+const NEURAL_CONFIG_FIELDS = new Set([
+  'algorithm',
+  'seed',
+  'time_limit',
+  'evaluation',
+  'iterations',
+  'rollout_depth',
+  'exploration',
+  'temperature',
+  'search_wrapper',
+  'model_id',
+]);
+
+function rejectUnsupportedConfig(config: Record<string, unknown>, allowed: Set<string>): void {
+  for (const key of Object.keys(config)) {
+    if (!allowed.has(key) && config[key] !== undefined && config[key] !== null) {
+      throw failure(
+        'unsupported-agent',
+        `Unsupported local analysis setting: ${key}`,
+        true,
+        'unsupported-setting',
+      );
+    }
+  }
+}
+
+function seedForState(
+  config: Record<string, unknown>,
+  state: Record<string, unknown>,
+  seedWithPly: boolean,
+): number {
+  const base = Number.isInteger(config.seed) ? Number(config.seed) : 0;
+  return (base + (seedWithPly ? Number(state.ply ?? 0) : 0)) >>> 0;
+}
+
+function jarlSettings(
+  config: Record<string, unknown>,
+  state: Record<string, unknown>,
+  seedWithPly: boolean,
+) {
+  rejectUnsupportedConfig(config, JARL_CONFIG_FIELDS);
+  const depth = numeric(config.depth) ?? 2;
   const seconds = numeric(config.time_limit) ?? 2;
-  if (!Number.isInteger(depth) || depth < 1 || depth > 5 || seconds > 3 || seconds < 0.01) {
+  if (!Number.isInteger(depth) || depth < 1 || depth > 5 || seconds > 5 || seconds < 0.01) {
     throw failure(
       'unsupported-budget',
       'The requested Jarl depth or time budget is not supported by local execution',
@@ -481,16 +754,29 @@ function jarlSettings(input: LocalAnalysisInput, config: Record<string, unknown>
   const settings: Record<string, unknown> = {
     depth,
     time_limit: seconds,
-    seed: effectiveSeed(input, config),
+    seed: seedForState(config, state, seedWithPly),
   };
   if (typeof config.heuristic === 'string') settings.heuristic = config.heuristic;
   if (config.search && typeof config.search === 'object') settings.search = config.search;
   return settings;
 }
 
-function neuralSettings(input: LocalAnalysisInput, config: Record<string, unknown>) {
-  const iterations = numeric(config.iterations) ?? 128;
-  const seconds = numeric(config.time_limit) ?? 1;
+function neuralSettings(
+  config: Record<string, unknown>,
+  state: Record<string, unknown>,
+  seedWithPly: boolean,
+) {
+  rejectUnsupportedConfig(config, NEURAL_CONFIG_FIELDS);
+  if ((config.search_wrapper ?? 'mcts') !== 'mcts') {
+    throw failure(
+      'unsupported-agent',
+      'The requested neural search wrapper is not available locally',
+      true,
+      'unsupported-agent',
+    );
+  }
+  const iterations = numeric(config.iterations) ?? 80;
+  const seconds = numeric(config.time_limit) ?? 2;
   if (
     !Number.isInteger(iterations) ||
     iterations < 1 ||
@@ -516,7 +802,7 @@ function neuralSettings(input: LocalAnalysisInput, config: Record<string, unknow
   return {
     iterations,
     time_limit: seconds,
-    seed: effectiveSeed(input, config),
+    seed: seedForState(config, state, seedWithPly),
     exploration: numeric(config.exploration) ?? 1.4,
   };
 }
@@ -559,8 +845,6 @@ async function runWithProvider(
         classified.category === 'initialization' ||
         classified.code === 'capability-missing')
     ) {
-      // Bounded recovery: the validated WASM baseline is attempted before any
-      // server fallback. Integrity and cancellation never take this path.
       return attempt('wasm');
     }
     throw classified;
@@ -568,8 +852,7 @@ async function runWithProvider(
 }
 
 function valueForSide(state: Record<string, unknown>, value: number): number {
-  const turn = state.turn;
-  return turn === 'defenders' ? value : -value;
+  return state.turn === 'defenders' ? value : -value;
 }
 
 function adaptReport(
@@ -617,9 +900,10 @@ function adaptReport(
     }
     best = { source: Number(move.source), target: Number(move.target) };
   }
-  const current = valueForSide(state, value);
   const advisor = input.settings.advisor;
   if (!advisor) throw failure('unsupported-agent', 'No advisor is selected', false);
+  const showChances = context.advisor?.show_win_chances ?? true;
+  const current = valueForSide(state, value);
   const evaluation: AgentEvaluation = {
     rune: advisor.rune,
     agent_id: 'advisor',
@@ -628,17 +912,15 @@ function adaptReport(
     profile_id: advisor.profile_id,
     profile_name: advisor.profile_name,
     model_name: advisor.model_name,
-    config: {
-      ...config,
-      ...result.settings,
-    } as AgentEvaluation['config'],
+    config: { ...config, ...result.settings } as AgentEvaluation['config'],
     source: source as AgentEvaluation['source'],
     value,
-    win_probability: Math.max(0, Math.min(1, (current + 1) / 2)),
+    win_probability: showChances ? Math.max(0, Math.min(1, (current + 1) / 2)) : null,
     estimated: source !== 'terminal',
     calibrated: source === 'terminal',
     best_move: best,
   };
+  if (!showChances) delete (evaluation as { value?: number }).value;
   const numbers = [
     'completed_depth',
     'simulations',
@@ -675,59 +957,102 @@ function adaptReport(
   };
 }
 
+function searchState(context: CachedContext, cursor: number): Record<string, unknown> {
+  const state = context.states[cursor];
+  if (!state) throw failure('integrity', 'The analyzed position is unavailable', false);
+  const history = context.historyKeys.slice(0, Math.max(1, Number(state.ply ?? 0) + 1));
+  return { ...state, history };
+}
+
 async function localAttempt(
   input: LocalAnalysisInput,
   offline: boolean,
+  expectedGeneration: number,
 ): Promise<LocalAnalysisOutcome> {
-  const api = await getRuntime(input.accountId);
+  const api = await getRuntime(input.accountId, expectedGeneration);
   const stage = (value: LocalAnalysisStage) => input.onStage?.(value);
   stage('preparing');
   stage('initializing');
-  await api.initialize();
-  if (!offline && input.accountId) {
-    api.noteOnlineAuthorization(input.accountId, input.policy.offlineAuthorizationSeconds);
-  }
+  await api.initialize({ signal: input.signal });
+  assertGeneration(expectedGeneration);
+
   let context: CachedContext;
+  let freshAuthorization = false;
   if (!offline) {
     const stale =
       onlineValidationRequired ||
-      Date.now() - lastOnlineValidationAt > input.policy.offlineAuthorizationSeconds * 1000;
+      now() - lastOnlineValidationAt > input.policy.offlineAuthorizationSeconds * 1000 ||
+      !contextLeaseValid(input);
     if (stale) {
-      // Revalidate the authenticated session and the runtime identity at the
-      // origin before further local work after reconnection or account changes.
-      await api.availability();
-      context = await ensureContext(input, false, true);
-      lastOnlineValidationAt = Date.now();
-      onlineValidationRequired = false;
+      await api.availability({ signal: input.signal });
+      assertGeneration(expectedGeneration);
+      ({ context } = await ensureContext(input, false, expectedGeneration, true));
+      freshAuthorization = true;
     } else {
-      context = await ensureContext(input, false);
+      ({ context } = await ensureContext(input, false, expectedGeneration));
     }
-    if (input.accountId) {
-      // A successful authorized position fetch is the narrow online boundary
-      // for warm-offline work. The lease is bound to this account and runtime.
-      api.noteOnlineAuthorization(input.accountId, input.policy.offlineAuthorizationSeconds);
+    if (freshAuthorization) {
+      if (input.accountId) {
+        api.noteOnlineAuthorization(input.accountId, input.policy.offlineAuthorizationSeconds);
+      }
+      contextLeases.set(scopeKey(input), {
+        at: now(),
+        account: input.accountId,
+        version: input.game.version,
+        gameId: input.game.id,
+      });
+      lastOnlineValidationAt = now();
+      onlineValidationRequired = false;
     }
   } else {
-    context = await ensureContext(input, true);
+    ({ context } = await ensureContext(input, true, expectedGeneration));
+    if (!contextLeaseValid(input)) {
+      throw failure(
+        'unauthorized',
+        'Offline analysis authorization has expired for this position',
+        false,
+        'offline-authorization-expired',
+      );
+    }
   }
 
   const advisor = input.settings.advisor;
   if (!advisor) throw failure('unsupported-agent', 'No advisor is selected', false);
-  const config = advisor.config as Record<string, unknown>;
-  let algorithm: 'jarl' | 'neural_mcts';
+  const effectiveConfig =
+    context.advisor?.effective_config ?? (advisor.config as Record<string, unknown>);
+  const seedWithPly = context.advisor?.seed_with_ply ?? input.game.seed !== undefined;
+  const state = searchState(context, input.cursor);
+  const algorithm = effectiveAlgorithm(effectiveConfig);
+  if (!algorithm) {
+    throw failure(
+      'unsupported-agent',
+      effectiveConfig.algorithm === 'mcts'
+        ? 'Classical MCTS is not available in local execution; no weaker agent was substituted'
+        : 'The selected agent is not available in local execution',
+      true,
+      'unsupported-agent',
+    );
+  }
+  if (algorithm === 'jarl' && (effectiveConfig.model_id || effectiveConfig.search_wrapper)) {
+    throw failure(
+      'unsupported-agent',
+      'Neural alpha-beta evaluation is not available in local execution',
+      true,
+      'unsupported-agent',
+    );
+  }
+
   let settings: Record<string, unknown>;
   let model: ModelManifest | null = null;
   let provider: 'wasm' | 'webgpu' = 'wasm';
   let fromCache = true;
 
-  if (jarlRequested(config)) {
-    algorithm = 'jarl';
-    settings = jarlSettings(input, config);
-  } else if (neuralRequested(config) && Boolean(config.model_id)) {
-    algorithm = 'neural_mcts';
-    settings = neuralSettings(input, config);
-    const models = await ensureModels(api, input, offline);
-    const requestedId = String(config.model_id);
+  if (algorithm === 'jarl') {
+    settings = jarlSettings(effectiveConfig, state, seedWithPly);
+  } else {
+    settings = neuralSettings(effectiveConfig, state, seedWithPly);
+    const models = await ensureModels(api, input, offline, expectedGeneration);
+    const requestedId = String(effectiveConfig.model_id);
     model =
       models.find(
         (candidate) =>
@@ -738,19 +1063,20 @@ async function localAttempt(
     if (!model) {
       throw failure(
         'model-unavailable',
-        `No compatible published model is available for the selected model (${requestedId}; published: ${
-          models
-            .map(
-              (candidate) =>
-                `${candidate.ruleset}/${candidate.boardSize}:${candidate.registeredModelIds.join(',') || 'unmapped'}`,
-            )
-            .join(' | ') || 'none'
-        })`,
+        'No compatible published model is available for the selected model',
         true,
         'model-not-published',
       );
     }
     provider = providerFor(input, model);
+    if (offline && !modelLeaseValid(input, model.onnxSha256)) {
+      throw failure(
+        'unauthorized',
+        'The selected model is not authorized for offline analysis',
+        false,
+        'offline-model-unauthorized',
+      );
+    }
     if (!api.modelReady(model, provider)) {
       if (offline) {
         throw failure(
@@ -765,54 +1091,41 @@ async function localAttempt(
         signal: input.signal,
         onProgress: input.onDownloadProgress,
       });
+      assertGeneration(expectedGeneration);
       fromCache = downloaded.fromCache;
       stage('loading-model');
+      modelLeases.set(`${input.accountId ?? ''}:${model.onnxSha256}`, {
+        at: now(),
+        account: input.accountId,
+        sha256: model.onnxSha256,
+      });
     }
-  } else if (config.algorithm === 'mcts') {
-    throw failure(
-      'unsupported-agent',
-      'Classical MCTS is not available in local execution; no weaker agent was substituted',
-      true,
-      'unsupported-agent',
-    );
-  } else {
-    throw failure(
-      'unsupported-agent',
-      'The selected agent is not available in local execution',
-      true,
-      'unsupported-agent',
-    );
   }
 
-  const state = context.states[input.cursor];
-  if (!state) {
-    throw failure('integrity', 'The analyzed position is unavailable', false);
-  }
   stage('searching');
   const result = await runWithProvider(
     api,
     input,
-    {
-      state,
-      algorithm,
-      settings,
-      model: model ?? undefined,
-    },
+    { state, algorithm, settings, model: model ?? undefined },
     provider,
     offline,
     model,
   );
-  if (!offline && input.accountId) {
-    api.noteOnlineAuthorization(input.accountId, input.policy.offlineAuthorizationSeconds);
-  }
+  assertGeneration(expectedGeneration);
   if (model) {
     lastProviders.set(
       `${model.onnxSha256}:${input.accountId ?? ''}`,
       result.evidence.requestedProvider ?? provider,
     );
+    if (!offline) {
+      modelLeases.set(`${input.accountId ?? ''}:${model.onnxSha256}`, {
+        at: now(),
+        account: input.accountId,
+        sha256: model.onnxSha256,
+      });
+    }
   }
-  const outcome = adaptReport(input, context, result, config, offline);
-  return { ...outcome, fromCache };
+  return { ...adaptReport(input, context, result, effectiveConfig, offline), fromCache };
 }
 
 /**
@@ -827,18 +1140,29 @@ export async function runLocalAnalysis(input: LocalAnalysisInput): Promise<Local
   if (input.policy.mode !== 'browser_only' && input.policy.mode !== 'browser_preferred') {
     throw failure('disabled', 'Browser analysis is not permitted', false, 'disabled');
   }
+  if (account !== input.accountId) await setAnalysisAccount(input.accountId);
+  const expectedGeneration = generation;
   const startOffline =
     input.offline === true || (typeof navigator !== 'undefined' && navigator.onLine === false);
   try {
-    return await localAttempt(input, startOffline);
+    return await localAttempt(input, startOffline, expectedGeneration);
   } catch (error) {
     const classified = classify(error);
     if (classified.category === 'cancelled') throw classified;
+    assertGeneration(expectedGeneration);
+    if (
+      !startOffline &&
+      (classified.category === 'unauthorized' ||
+        classified.category === 'integrity' ||
+        classified.category === 'model-unavailable')
+    ) {
+      // A known denial, revocation or integrity failure invalidates the affected
+      // continuation resources; it must not leave a stale offline lease behind.
+      contextLeases.clear();
+      modelLeases.clear();
+    }
     if (startOffline) {
-      if (classified.category === 'offline') throw classified;
-      // A warm offline attempt may fail for a non-network reason (integrity,
-      // missing model session). Preserve that classification; none of them is
-      // eligible for server fallback while disconnected.
+      // Offline failures never become server fallback or lease renewal.
       throw new LocalAnalysisError(
         classified.category,
         classified.message,
@@ -848,13 +1172,13 @@ export async function runLocalAnalysis(input: LocalAnalysisInput): Promise<Local
       );
     }
     if (classified.category === 'offline' && navigatorOnline() === false) {
-      throw classified;
+      throw new LocalAnalysisError(classified.category, classified.message, false, classified.code);
     }
     if (classified.category === 'offline') {
-      // The browser reported online but every request failed at the transport
-      // layer. Try the already-initialized warm context once without network.
+      // Origin unreachable while the browser still reports online. Reuse only an
+      // already-authorized warm context; never treat the failure as fresh auth.
       try {
-        return await localAttempt(input, true);
+        return await localAttempt(input, true, expectedGeneration);
       } catch (retry) {
         const second = classify(retry);
         throw second.category === 'cancelled' ? second : classified;
@@ -869,14 +1193,10 @@ function navigatorOnline(): boolean {
 }
 
 if (typeof window !== 'undefined') {
-  // Loaded only after local analysis was used, so server-only and disabled
-  // deployments never register this listener or import the runtime.
   window.addEventListener('hnefatafl:session-ended', () => {
     void disposeLocalAnalysis();
   });
   window.addEventListener('online', () => {
-    // The next local search must revalidate authorization and runtime identity
-    // before further work; the cached offline lease is not proof of permission.
     onlineValidationRequired = true;
   });
 }
@@ -885,8 +1205,14 @@ if (typeof window !== 'undefined') {
 export const __testing = {
   resetCaches() {
     contexts.clear();
-    contextRequests.clear();
+    contextBytes = 0;
+    abortContextRequests();
     lastProviders.clear();
+    contextLeases.clear();
+    modelLeases.clear();
     modelCache = null;
+  },
+  contextStats() {
+    return { entries: contexts.size, bytes: contextBytes };
   },
 };

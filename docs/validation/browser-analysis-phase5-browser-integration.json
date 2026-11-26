@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "baseUrl": "http://127.0.0.1:8011",
+  "baseUrl": "http://127.0.0.1:8013",
   "checks": [
     {
       "name": "login succeeds",
@@ -10,7 +10,7 @@
     {
       "name": "account game is created",
       "ok": true,
-      "detail": "{\"id\":\"92b9f3b0d4f44d5f87153a453e183006\",\"ruleset\":\"brandubh\",\"ruleset_version\":1,\"mode\":\"human-ai\",\"human_side\":\"attackers\",\"players\":{\"attackers\":{\"name\":\"admin\",\"account_id\":\"93e82cd3802a48f9a605a3015483b729\",\"kind\":\"human\",\"config\":{},\"username\":\"admin\",\"rune\":\"ᚠ\"},\"defenders\":{\"name\":\"Shield bearer\",\"kind\":\"ai\",\"profile_id\":\"baseline\",\"profile_name\":\"Shield bearer\",\"config\":{\"algorithm\":\"baseline\",\"seed\":2936911710,\"time_limit\":1.0,\"evaluation\":\"heuristic\"},\"variant_id\":\"ai:846ed51404db4f89279a0852\",\"rune\":\"ᚢ\"}},\"advisor\":null,\"analysis_enabled\":true,\"seed\":2936911710,\"moves\":[],\"cursor\":0,\"version\":0,\"created_at\":\"2026-11-26T12:35:44.430388+00:00\",\"ended_at\":null,\"recorded_result\":null,\"creation_policy\":1,\"size\":7,\"board\":[\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\"A\",\"A\",\"D\",\"K\",\"D\",\"A\",\"A\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\"],\"turn\":\"attackers\",\"ply\":0,\"winner\":null,\"reason\":null,\"total_moves\":0,\"recorded_winner\":null,\"recorded_reason\":null,\"recorded_plies\":0,\"legal_moves\":[{\"source\":3,\"target\":2},{\"source\":3,\"target\":1},{\"source\":3,\"target\":4},{\"source\":3,\"target\":5},{\"source\":10,\"target\":9},{\"source\":10,\"target\":8},{\"source\":10,\"target\":7},{\"source\":10,\"target\":11},{\"source\":10,\"target\":12},{\"source\":10,\"target\":13},{\"source\":21,\"target\":14},{\"source\":21,\"target\":7},{\"source\":21,\"target\":28},{\"source\":21,\"target\":35},{\"source\":22,\"target\":15},{\"source\":22,\"target\":8},{\"source\":22,\"target\":1},{\"source\":22,\"target\":29},{\"source\":22,\"target\":36},{\"source\":22,\"target\":43},{\"source\":26,\"target\":19},{\"source\":26,\"target\":12},{\"source\":26,\"target\":5},{\"source\":26,\"target\":33},{\"source\":26,\"target\":40},{\"source\":26,\"target\":47},{\"source\":27,\"target\":20},{\"source\":27,\"target\":13},{\"source\":27,\"target\":34},{\"source\":27,\"target\":41},{\"source\":38,\"target\":37},{\"source\":38,\"target\":36},{\"source\":38,\"target\":35},{\"source\":38,\"target\":39},{\"source\":38,\"target\":40},{\"source\":38,\"target\":41},{\"source\":45,\"target\":44},{\"source\":45,\"target\":43},{\"source\":45,\"target\":46},{\"source\":45,\"target\":47}],\"captured\":{\"attackers\":0,\"defenders\":0},\"analysis\":null,\"analytics\":{\"advisor\":null,\"time_limit\":5,\"show_win_chances\":true,\"revision\":0,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}}"
+      "detail": "{\"id\":\"022966e47d2f44d5b4fa96d3d6d8cdd6\",\"ruleset\":\"brandubh\",\"ruleset_version\":1,\"mode\":\"human-ai\",\"human_side\":\"attackers\",\"players\":{\"attackers\":{\"name\":\"admin\",\"account_id\":\"230c2985a5234e069cc4d286ead03c43\",\"kind\":\"human\",\"config\":{},\"username\":\"admin\",\"rune\":\"ᚠ\"},\"defenders\":{\"name\":\"Shield bearer\",\"kind\":\"ai\",\"profile_id\":\"baseline\",\"profile_name\":\"Shield bearer\",\"config\":{\"algorithm\":\"baseline\",\"seed\":2343441066,\"time_limit\":1.0,\"evaluation\":\"heuristic\"},\"variant_id\":\"ai:846ed51404db4f89279a0852\",\"rune\":\"ᚢ\"}},\"advisor\":null,\"analysis_enabled\":true,\"seed\":2343441066,\"moves\":[],\"cursor\":0,\"version\":0,\"created_at\":\"2026-11-26T16:39:30.425373+00:00\",\"ended_at\":null,\"recorded_result\":null,\"creation_policy\":1,\"size\":7,\"board\":[\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\"A\",\"A\",\"D\",\"K\",\"D\",\"A\",\"A\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\"],\"turn\":\"attackers\",\"ply\":0,\"winner\":null,\"reason\":null,\"total_moves\":0,\"recorded_winner\":null,\"recorded_reason\":null,\"recorded_plies\":0,\"legal_moves\":[{\"source\":3,\"target\":2},{\"source\":3,\"target\":1},{\"source\":3,\"target\":4},{\"source\":3,\"target\":5},{\"source\":10,\"target\":9},{\"source\":10,\"target\":8},{\"source\":10,\"target\":7},{\"source\":10,\"target\":11},{\"source\":10,\"target\":12},{\"source\":10,\"target\":13},{\"source\":21,\"target\":14},{\"source\":21,\"target\":7},{\"source\":21,\"target\":28},{\"source\":21,\"target\":35},{\"source\":22,\"target\":15},{\"source\":22,\"target\":8},{\"source\":22,\"target\":1},{\"source\":22,\"target\":29},{\"source\":22,\"target\":36},{\"source\":22,\"target\":43},{\"source\":26,\"target\":19},{\"source\":26,\"target\":12},{\"source\":26,\"target\":5},{\"source\":26,\"target\":33},{\"source\":26,\"target\":40},{\"source\":26,\"target\":47},{\"source\":27,\"target\":20},{\"source\":27,\"target\":13},{\"source\":27,\"target\":34},{\"source\":27,\"target\":41},{\"source\":38,\"target\":37},{\"source\":38,\"target\":36},{\"source\":38,\"target\":35},{\"source\":38,\"target\":39},{\"source\":38,\"target\":40},{\"source\":38,\"target\":41},{\"source\":45,\"target\":44},{\"source\":45,\"target\":43},{\"source\":45,\"target\":46},{\"source\":45,\"target\":47}],\"captured\":{\"attackers\":0,\"defenders\":0},\"analysis\":null,\"analytics\":{\"advisor\":null,\"time_limit\":5,\"show_win_chances\":true,\"revision\":0,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}}"
     },
     {
       "name": "Jarl analytics settings are saved",
@@ -50,7 +50,7 @@
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-26T12:35:48.216Z",
+        "created_at": "2026-11-26T16:39:34.742Z",
         "evaluations": [
           {
             "rune": "ᚨ",
@@ -61,8 +61,8 @@
             "profile_name": "Jarl",
             "config": {
               "algorithm": "alpha_beta",
-              "seed": 2936911710,
-              "time_limit": 1,
+              "seed": 2343441066,
+              "time_limit": 5,
               "evaluation": "heuristic",
               "heuristic": "shield_maiden",
               "depth": 3,
@@ -82,23 +82,23 @@
             "calibrated": false,
             "best_move": {
               "source": 3,
-              "target": 2
+              "target": 4
             },
             "completed_depth": 3,
             "searched_moves": 40,
-            "nodes": 144,
-            "evaluations": 2083,
-            "cutoffs": 99,
+            "nodes": 143,
+            "evaluations": 2088,
+            "cutoffs": 98,
             "transposition_hits": 0,
             "symmetry_moves_skipped": 0,
-            "search_seed": 2936911710
+            "search_seed": 2343441066
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
             "source": 3,
-            "target": 2
+            "target": 4
           }
         },
         "status": "complete",
@@ -113,7 +113,7 @@
     {
       "name": "neural analytics settings are saved",
       "ok": true,
-      "detail": "{\"advisor\":{\"name\":\"brandubh browser model (4x0)\",\"kind\":\"ai\",\"profile_id\":\"neural\",\"profile_name\":\"Trained model\",\"config\":{\"algorithm\":\"neural\",\"seed\":2936911710,\"time_limit\":1.0,\"evaluation\":\"neural\",\"iterations\":32,\"rollout_depth\":8,\"exploration\":1.4,\"temperature\":0.0,\"model_id\":\"85ff7b62fa7dd9230f2165c8\"},\"model_name\":\"Phase5 smoke\",\"rune\":\"ᚦ\"},\"time_limit\":5.0,\"show_win_chances\":true,\"revision\":2,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}"
+      "detail": "{\"advisor\":{\"name\":\"Phase5 smoke\",\"kind\":\"ai\",\"profile_id\":\"neural\",\"profile_name\":\"Trained model\",\"config\":{\"algorithm\":\"neural\",\"seed\":2343441066,\"time_limit\":1.0,\"evaluation\":\"neural\",\"iterations\":32,\"rollout_depth\":8,\"exploration\":1.4,\"temperature\":0.0,\"model_id\":\"9d3464e80507847c45a29189\"},\"model_name\":\"Phase5 smoke\",\"rune\":\"ᚦ\"},\"time_limit\":5.0,\"show_win_chances\":true,\"revision\":2,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}"
     },
     {
       "name": "analysis context data is readable",
@@ -128,45 +128,45 @@
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-26T12:35:50.720Z",
+        "created_at": "2026-11-26T16:39:37.909Z",
         "evaluations": [
           {
             "rune": "ᚦ",
             "agent_id": "advisor",
-            "name": "brandubh browser model (4x0)",
+            "name": "Phase5 smoke",
             "role": "advisor",
             "profile_id": "neural",
             "profile_name": "Trained model",
             "model_name": "Phase5 smoke",
             "config": {
               "algorithm": "mcts",
-              "seed": 2936911710,
-              "time_limit": 1,
+              "seed": 2343441066,
+              "time_limit": 5,
               "evaluation": "neural",
               "iterations": 32,
               "rollout_depth": 8,
               "exploration": 1.4,
               "temperature": 0,
-              "model_id": "85ff7b62fa7dd9230f2165c8"
+              "model_id": "9d3464e80507847c45a29189"
             },
             "source": "neural_search",
-            "value": -0.4184106970205903,
-            "win_probability": 0.7092053485102952,
+            "value": -0.4184432663023472,
+            "win_probability": 0.7092216331511736,
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 26,
-              "target": 12
+              "source": 21,
+              "target": 35
             },
             "simulations": 32,
-            "search_seed": 2936911710
+            "search_seed": 2343441066
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 26,
-            "target": 12
+            "source": 21,
+            "target": 35
           }
         },
         "status": "complete",
@@ -237,25 +237,25 @@
     "modelArtifacts": 1
   },
   "measurements": {
-    "jarlOnlineMs": 3266.199999988079,
-    "neuralOnlineMs": 2455.5,
-    "offlineJarlMs": 242,
-    "offlineNeuralMs": 80.89999997615814
+    "jarlOnlineMs": 3949.899999976158,
+    "neuralOnlineMs": 3110.699999988079,
+    "offlineJarlMs": 224,
+    "offlineNeuralMs": 99.60000002384186
   },
   "game": {
-    "id": "92b9f3b0d4f44d5f87153a453e183006",
+    "id": "022966e47d2f44d5b4fa96d3d6d8cdd6",
     "publication": "f8f0345749723a28f5a2b6f5",
     "model": "64c4a60e1c08bec38c1af909b9cb8193a36c8dcc48f6d49e4ee676e96ea80d74"
   },
   "results": {
     "jarl": {
-      "ms": 3266.199999988079,
+      "ms": 3949.899999976158,
       "report": {
         "cursor": 0,
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-26T12:35:48.216Z",
+        "created_at": "2026-11-26T16:39:34.742Z",
         "evaluations": [
           {
             "rune": "ᚨ",
@@ -266,8 +266,8 @@
             "profile_name": "Jarl",
             "config": {
               "algorithm": "alpha_beta",
-              "seed": 2936911710,
-              "time_limit": 1,
+              "seed": 2343441066,
+              "time_limit": 5,
               "evaluation": "heuristic",
               "heuristic": "shield_maiden",
               "depth": 3,
@@ -287,23 +287,23 @@
             "calibrated": false,
             "best_move": {
               "source": 3,
-              "target": 2
+              "target": 4
             },
             "completed_depth": 3,
             "searched_moves": 40,
-            "nodes": 144,
-            "evaluations": 2083,
-            "cutoffs": 99,
+            "nodes": 143,
+            "evaluations": 2088,
+            "cutoffs": 98,
             "transposition_hits": 0,
             "symmetry_moves_skipped": 0,
-            "search_seed": 2936911710
+            "search_seed": 2343441066
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
             "source": 3,
-            "target": 2
+            "target": 4
           }
         },
         "status": "complete",
@@ -324,51 +324,51 @@
       "model": null
     },
     "neural": {
-      "ms": 2455.5,
+      "ms": 3110.699999988079,
       "report": {
         "cursor": 0,
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-26T12:35:50.720Z",
+        "created_at": "2026-11-26T16:39:37.909Z",
         "evaluations": [
           {
             "rune": "ᚦ",
             "agent_id": "advisor",
-            "name": "brandubh browser model (4x0)",
+            "name": "Phase5 smoke",
             "role": "advisor",
             "profile_id": "neural",
             "profile_name": "Trained model",
             "model_name": "Phase5 smoke",
             "config": {
               "algorithm": "mcts",
-              "seed": 2936911710,
-              "time_limit": 1,
+              "seed": 2343441066,
+              "time_limit": 5,
               "evaluation": "neural",
               "iterations": 32,
               "rollout_depth": 8,
               "exploration": 1.4,
               "temperature": 0,
-              "model_id": "85ff7b62fa7dd9230f2165c8"
+              "model_id": "9d3464e80507847c45a29189"
             },
             "source": "neural_search",
-            "value": -0.4184106970205903,
-            "win_probability": 0.7092053485102952,
+            "value": -0.4184432663023472,
+            "win_probability": 0.7092216331511736,
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 26,
-              "target": 12
+              "source": 21,
+              "target": 35
             },
             "simulations": 32,
-            "search_seed": 2936911710
+            "search_seed": 2343441066
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 26,
-            "target": 12
+            "source": 21,
+            "target": 35
           }
         },
         "status": "complete",
@@ -393,13 +393,13 @@
       }
     },
     "offlineJarl": {
-      "ms": 242,
+      "ms": 224,
       "report": {
         "cursor": 0,
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-26T12:35:50.973Z",
+        "created_at": "2026-11-26T16:39:38.145Z",
         "evaluations": [
           {
             "rune": "ᚨ",
@@ -410,8 +410,8 @@
             "profile_name": "Jarl",
             "config": {
               "algorithm": "alpha_beta",
-              "seed": 2936911710,
-              "time_limit": 1,
+              "seed": 2343441066,
+              "time_limit": 5,
               "evaluation": "heuristic",
               "heuristic": "shield_maiden",
               "depth": 3,
@@ -431,23 +431,23 @@
             "calibrated": false,
             "best_move": {
               "source": 3,
-              "target": 2
+              "target": 4
             },
             "completed_depth": 3,
             "searched_moves": 40,
-            "nodes": 144,
-            "evaluations": 2083,
-            "cutoffs": 99,
+            "nodes": 143,
+            "evaluations": 2088,
+            "cutoffs": 98,
             "transposition_hits": 0,
             "symmetry_moves_skipped": 0,
-            "search_seed": 2936911710
+            "search_seed": 2343441066
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
             "source": 3,
-            "target": 2
+            "target": 4
           }
         },
         "status": "complete",
@@ -468,51 +468,51 @@
       "model": null
     },
     "offlineNeural": {
-      "ms": 80.89999997615814,
+      "ms": 99.60000002384186,
       "report": {
         "cursor": 0,
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-26T12:35:51.062Z",
+        "created_at": "2026-11-26T16:39:38.253Z",
         "evaluations": [
           {
             "rune": "ᚦ",
             "agent_id": "advisor",
-            "name": "brandubh browser model (4x0)",
+            "name": "Phase5 smoke",
             "role": "advisor",
             "profile_id": "neural",
             "profile_name": "Trained model",
             "model_name": "Phase5 smoke",
             "config": {
               "algorithm": "mcts",
-              "seed": 2936911710,
-              "time_limit": 1,
+              "seed": 2343441066,
+              "time_limit": 5,
               "evaluation": "neural",
               "iterations": 32,
               "rollout_depth": 8,
               "exploration": 1.4,
               "temperature": 0,
-              "model_id": "85ff7b62fa7dd9230f2165c8"
+              "model_id": "9d3464e80507847c45a29189"
             },
             "source": "neural_search",
-            "value": -0.4184106970205903,
-            "win_probability": 0.7092053485102952,
+            "value": -0.4184432663023472,
+            "win_probability": 0.7092216331511736,
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 26,
-              "target": 12
+              "source": 21,
+              "target": 35
             },
             "simulations": 32,
-            "search_seed": 2936911710
+            "search_seed": 2343441066
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 26,
-            "target": 12
+            "source": 21,
+            "target": 35
           }
         },
         "status": "complete",
@@ -537,6 +537,6 @@
       }
     }
   },
-  "ordinaryPageRequests": 735,
+  "ordinaryPageRequests": 737,
   "ok": true
 }

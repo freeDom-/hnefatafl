@@ -52,6 +52,8 @@ MAX_OFFLINE_SECONDS = 3600
 DEFAULT_MAX_CONCURRENT = 16
 DEFAULT_MAX_PER_USER = 4
 DEFAULT_REQUESTS_PER_MINUTE = 240
+MAX_RATE_BUCKETS = 4096
+RATE_BUCKET_CLEANUP_SECONDS = 30.0
 MAX_TASKS_BOUND = 64
 MAX_PER_USER_BOUND = 8
 MAX_RATE_BOUND = 600
@@ -206,6 +208,28 @@ class AnalysisAdmission:
         self.active_by_account: dict[str, int] = {}
         self.requests_by_account: dict[str, list[float]] = {}
         self.counters: dict[str, int] = {}
+        self.active_tokens: set[tuple[str, int]] = set()
+        self.token_sequence = 0
+        self.last_bucket_cleanup = 0.0
+
+    def _cleanup_buckets(self, now: float) -> None:
+        # Bound long-running buckets without a full-map sweep per request. The
+        # sweep runs at most once per window and removes only expired buckets.
+        if now - self.last_bucket_cleanup < RATE_BUCKET_CLEANUP_SECONDS:
+            return
+        self.last_bucket_cleanup = now
+        window = now - 60.0
+        for account, values in list(self.requests_by_account.items()):
+            recent = [value for value in values if value > window]
+            if recent:
+                self.requests_by_account[account] = recent
+            else:
+                self.requests_by_account.pop(account, None)
+        if len(self.requests_by_account) > MAX_RATE_BUCKETS:
+            for account in list(self.requests_by_account)[
+                : len(self.requests_by_account) - MAX_RATE_BUCKETS
+            ]:
+                self.requests_by_account.pop(account, None)
 
     def _count(self, name: str) -> None:
         self.counters[name] = self.counters.get(name, 0) + 1
@@ -228,6 +252,7 @@ class AnalysisAdmission:
         """Rate-limit one analysis request for an authenticated account."""
         with self.lock:
             now = self.clock()
+            self._cleanup_buckets(now)
             recent = self._prune(account_id, now)
             if len(recent) >= self.policy.requests_per_minute:
                 self._count("rate_rejected")
@@ -241,7 +266,7 @@ class AnalysisAdmission:
             recent.append(now)
             self.requests_by_account[account_id] = recent
 
-    def admit_task(self, account_id: str) -> tuple[str, float]:
+    def admit_task(self, account_id: str) -> tuple[str, int]:
         """Reserve one concurrent analysis task; release exactly once."""
         with self.lock:
             if self.enforce and self.active_global >= self.policy.max_concurrent:
@@ -265,12 +290,19 @@ class AnalysisAdmission:
                 )
             self.active_global += 1
             self.active_by_account[account_id] = self.active_by_account.get(account_id, 0) + 1
+            self.token_sequence += 1
+            token = (account_id, self.token_sequence)
+            self.active_tokens.add(token)
             self._count("admitted")
-            return account_id, self.clock()
+            return token
 
-    def release_task(self, token: tuple[str, float]) -> None:
+    def release_task(self, token: tuple[str, int]) -> None:
         account_id, _ = token
         with self.lock:
+            if token not in self.active_tokens:
+                self._count("duplicate_release")
+                return
+            self.active_tokens.remove(token)
             self.active_global = max(0, self.active_global - 1)
             remaining = self.active_by_account.get(account_id, 0) - 1
             if remaining > 0:

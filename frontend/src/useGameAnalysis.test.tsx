@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnalyticsSettings, PositionAnalysis } from './analysisTypes';
 import type { Game } from './types';
@@ -124,6 +124,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   vi.clearAllMocks();
 });
 
@@ -161,7 +162,6 @@ describe('useGameAnalysis execution-policy integration', () => {
       };
     });
     const hook = render('browser_only');
-    await new Promise((resolve) => setTimeout(resolve, 200));
     await waitFor(() => expect(local.runLocalAnalysis).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(hook.result.current.report?.position_key).toBe('key'));
     expect(apiMock.mock.calls.some(([path]) => String(path).endsWith('/analysis'))).toBe(false);
@@ -267,5 +267,148 @@ describe('useGameAnalysis execution-policy integration', () => {
     await waitFor(() => expect(local.runLocalAnalysis).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(hook.result.current.report?.position_key).toBe('key'));
     expect(hook.result.current.failed).toBe(false);
+  });
+
+  it('does not resurrect an older fallback when navigating A → B → A', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_preferred');
+      if (path.endsWith('/analysis')) return { ...localReport(), status: 'complete' };
+      throw new Error(`unexpected ${path}`);
+    });
+    let localCalls = 0;
+    local.runLocalAnalysis.mockImplementation(async ({ game }: any) => {
+      localCalls += 1;
+      if (game.id === 'g1' && localCalls === 1) {
+        throw Object.assign(new Error('unsupported browser'), {
+          category: 'browser-unsupported',
+          fallbackEligible: true,
+        });
+      }
+      return {
+        report: { ...localReport(), position_key: `${game.id}-${localCalls}` },
+        evidence: {},
+        provider: 'wasm',
+        offline: false,
+        model: null,
+        fromCache: true,
+      };
+    });
+    const base = game();
+    const second = { ...base, id: 'g2' };
+    const hook = renderHook(
+      ({ current }) => useGameAnalysis(current, true, false, '/games', false, 'account-1'),
+      { initialProps: { current: base } },
+    );
+    await waitFor(() =>
+      expect(apiMock.mock.calls.some(([path]) => String(path).endsWith('/analysis'))).toBe(true),
+    );
+    await waitFor(() => expect(hook.result.current.fallback).toBe(true));
+    hook.rerender({ current: second });
+    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('g2-2'));
+    hook.rerender({ current: base });
+    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('g1-3'));
+    expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith('/analysis'))).toHaveLength(
+      1,
+    );
+    expect(localCalls).toBe(3);
+  });
+
+  it('merges local advice with immutable stored playing-agent evaluations', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_only');
+      throw new Error(`unexpected ${path}`);
+    });
+    const stored: PositionAnalysis = {
+      cursor: 0,
+      ply: 0,
+      side_to_move: 'attackers',
+      position_key: 'key',
+      created_at: 'now',
+      status: 'complete',
+      advisor_revision: 0,
+      evaluations: [
+        {
+          agent_id: 'attackers',
+          role: 'attackers',
+          name: 'Hugin',
+          config: {},
+          source: 'heuristic',
+          win_probability: 0.7,
+          estimated: true,
+          calibrated: false,
+        },
+        {
+          agent_id: 'defenders',
+          role: 'defenders',
+          name: 'Munin',
+          config: {},
+          source: 'heuristic',
+          win_probability: 0.3,
+          estimated: true,
+          calibrated: false,
+        },
+      ],
+      hint: null,
+    };
+    local.runLocalAnalysis.mockResolvedValue({
+      report: localReport(),
+      evidence: {},
+      provider: 'wasm',
+      offline: false,
+      model: null,
+      fromCache: true,
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis({ ...game(), analysis: stored }, true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(hook.result.current.report?.evaluations).toHaveLength(3));
+    expect(hook.result.current.report?.evaluations.map((entry) => entry.agent_id)).toEqual([
+      'attackers',
+      'defenders',
+      'advisor',
+    ]);
+  });
+
+  it('fails closed when the server execution policy projection is malformed', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) {
+        return { ...settings('browser_only'), execution: { mode: 'local' } };
+      }
+      throw new Error('analysis endpoint must not be called');
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(hook.result.current.settings.execution).toBeDefined());
+    expect(hook.result.current.executionMode).toBe('disabled');
+    expect(hook.result.current.pending).toBe(false);
+    expect(local.runLocalAnalysis).not.toHaveBeenCalled();
+    expect(apiMock.mock.calls.some(([path]) => String(path).endsWith('/analysis'))).toBe(false);
+  });
+
+  it('refreshes changed policy and does not fall back under a stale browser_preferred decision', async () => {
+    let mode = 'browser_preferred';
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings(mode);
+      if (path.endsWith('/analysis')) return { ...localReport(), status: 'complete' };
+      throw new Error(`unexpected ${path}`);
+    });
+    local.runLocalAnalysis.mockImplementation(async () => {
+      mode = 'server_only';
+      throw Object.assign(new Error('policy changed'), {
+        category: 'disabled',
+        code: 'policy-changed',
+        fallbackEligible: false,
+      });
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(local.runLocalAnalysis).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(hook.result.current.executionMode).toBe('server_only'));
+    await waitFor(() => expect(hook.result.current.report?.status).toBe('complete'));
+    expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith('/analysis'))).toHaveLength(
+      1,
+    );
   });
 });

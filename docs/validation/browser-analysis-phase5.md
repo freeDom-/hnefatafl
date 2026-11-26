@@ -4,9 +4,11 @@
 [Deployment](../DEPLOYMENT.md) · [Security](../SECURITY.md) ·
 [Phase 4 runtime](browser-analysis-phase4.md) · [Phase 3C-B](browser-analysis-phase3c-b.md)
 
-Status: **Phase 5 implementation is complete at the software level and validated
-in a production-equivalent browser build. It is not production acceptance and the
-feature remains opt-in and disabled by default on existing installations.**
+Status: **Phase 5 implementation and the independent-review corrections K1–K16
+are complete at the software level and validated in a production-equivalent
+browser build. It is not production acceptance and the feature remains opt-in and
+disabled by default on existing installations. K10 (replay-analysis achievement
+credit under browser-only operation) remains an explicit owner-decision blocker.**
 
 Verified here: server-owned execution policy and enforcement, transparent local
 Jarl and neural MCTS through the existing analysis UI, automatic WASM selection,
@@ -300,17 +302,17 @@ Evidence files:
 
 | Measurement | Result |
 | --- | --- |
-| Cold runtime initialization (direct probe) | 3,037 ms |
+| Cold runtime initialization (direct probe) | 2,862.7 ms |
 | Repeated `initialize()` when ready | 0 ms |
-| Jarl depth-3 search (direct probe) | 244.6 ms |
+| Jarl depth-3 search (direct probe) | 277.8 ms |
 | Runtime asset requests (single direct probe) | 104 |
 | Model artifact transfers (cold model) | 1 |
 | Publication metadata checks | 3 |
 | Neural MCTS | 33 inferences, 32 simulations, provider `wasm`, `gpuExecutionVerified:false` |
-| Application integration: Jarl online (cold) | 3,266.2 ms |
-| Application integration: neural online (cold) | 2,455.5 ms |
-| Warm offline Jarl | 242.0 ms |
-| Warm offline neural MCTS | 80.9 ms |
+| Application integration: Jarl online (cold) | 3,949.9 ms |
+| Application integration: neural online (cold) | 3,110.7 ms |
+| Warm offline Jarl | 224.0 ms |
+| Warm offline neural MCTS | 99.6 ms |
 | Offline analysis/authorization requests | 0 |
 | Local searches causing server analysis computation | 0 (metrics counters unchanged) |
 | Production UI local indication | “Analysis runs on this device.” |
@@ -353,8 +355,8 @@ Current production initial bundle (authenticated graph):
 
 | Measurement | Phase 4 reported | Phase 5 measured | Budget |
 | --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **592,053** | 600,000 |
-| JavaScript gzip | 186,716 | **188,761** | 200,000 |
+| JavaScript raw | 585,756 | **595,409** | 600,000 |
+| JavaScript gzip | 186,716 | **189,735** | 200,000 |
 | CSS raw | — | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 35,000 |
 
@@ -398,6 +400,51 @@ suite, not by relying on PR descriptions.
 | I2 cleanup-barrier recovery | Preserved | No retirement changes |
 | J1 cache verification across generations | **Independently verified** | Reviewed the merged deduplicated outstanding-record set, exactly-once release, shared admission and `whenIdle()`/`drain()` coverage. Existing deterministic tests for cross-generation overlap, conflicting specs, byte budgets, repeated cancellation and replacement admission all pass in the 77-test runtime suite. No code rewrite was needed. |
 
+## K1–K16 review-correction matrix
+
+| Finding | Original problem / root cause | Correction | Files | Regression evidence | Remaining limitation |
+| --- | --- | --- | --- | --- | --- |
+| K1 canonical effective settings | Local integration read `advisor.config.time_limit` and current-game ply; server overrides with analytics `time_limit` and analyzed-state ply. Two default resolvers could diverge. | Server resolves one canonical advisor config (`effective_ai_config` + analytics time limit) and publishes requested/effective config, revision, show-chances and seed-ply semantics in the authorized context. Browser rejects unknown behaviour-affecting keys, uses the server config, derives seed from the analyzed state's ply, and never defaults/shortens the requested budget. | `hnefatafl/server.py`, `frontend/src/browserAnalysis/integration.ts` | Server context asserts requested `.1` vs effective `5`; integration tests cover time-limit conflict, historical seed/ply, show-chances off, unsupported settings/budgets, neural/Jarl. | UI still permits 15 s; local Jarl supports ≤5 s and neural ≤10 s. Larger/classical settings remain fallback/browser-only blockers (K8). |
+| K2 execution state machine | `fallbackFor` key state could survive navigation A→B→A and authorize an old server path; two effects could race. | One generation-owned effect executes locally, awaits retirement, then optionally falls back. No key-based fallback authorization remains; stale effects abort and cannot publish. | `frontend/src/useGameAnalysis.ts` | A→B→A test verifies one server call and the new local path; stale navigation, cancellation, reconnection, policy refresh and retry tests. | A server request already admitted before navigation may continue server-side; the browser stops observing it and never claims it retired. |
+| K3 offline authorization | Lease renewed after initialization, cache reuse and successful local search, which are not fresh server authorization. | Lease is issued only after a successful authenticated policy/context fetch. Per-context and per-model leases enforce TTL and account/version/model binding; local success never extends them; reconnection requires origin revalidation; network failure is distinct from denial. | `frontend/src/browserAnalysis/integration.ts`, `runtime.ts` | Expiry despite offline searches, unreachable origin with warm lease, explicit 401 denial, no lease on cache-hit-only, runtime model-authorization tests. | Revocation cannot be delivered to a disconnected browser; downloaded bytes cannot be recalled. Documented limitation. |
+| K4 integration ownership | Context/model/provider caches and requests lived outside the runtime generation. | Account/session generation now covers context caches (including revision), shared context requests, catalogue, leases and runtime acquisition; late responses cannot repopulate caches; subscribers cancel independently. | `frontend/src/browserAnalysis/integration.ts` | Delayed context during account switch, delayed catalogue/logout, A→B→A, concurrent consumers, cancellation during init, obsolete runtime creation. | Context consumers share one origin fetch; cancellation of the last consumer aborts it (intended). |
+| K5 server computation admission | Synchronous playing-agent `analyze_position()` bypassed task admission. | The synchronous AI-evaluation path now reserves/releases the same task admission as service tasks; overload is structured; browser-only/disabled guards remain before all optional computation. | `hnefatafl/server.py`, `hnefatafl/analysis_policy.py` | Sync AI-AI admission and rejection tests; existing policy/browser-only/disabled/cached tests. | Admission remains per-process on the supported single-API-worker deployment. |
+| K6 context identity | Request did not bind version; cached keys could be shared across settings; missing position keys were duplicated. | Version/cursor/game/ruleset/revision are bound; server rejects stale versions; browser rejects mismatched identity and missing/malformed history/position keys. | `hnefatafl/server.py`, `frontend/src/browserAnalysis/integration.ts` | Stale version, mismatched cursor, missing history/position keys and malformed state tests; server stale/version test. | Completed online replays retain immutable versions; active games intentionally use a new version. |
+| K7 context size/memory | Full game history serialized for every state, quadratic text duplication; only entry-count client cache. | Compact states + one shared history prefix + position keys; server immutable cache bounded to 8 entries/24 MiB; client 64 entries/8 MiB and 4096-state cap; histories injected immediately before search. | `hnefatafl/server.py`, `frontend/src/browserAnalysis/integration.ts`, `scripts/phase5_context_benchmark.py` | Compact/identity tests; context benchmark (0 duplicated history entries, linear response sizes). | Pyodide still reconstructs the authoritative state; no divergent JS rules engine. |
+| K8 capability compatibility | Local runtime covers Jarl/neural only; Jarl originally 3 s while the UI default was 5 s. | Classical Jarl budget extended to 5 s with matching 7.5 s watchdog and bridge validation; browser-only settings panel explains unsupported agents/time limits; unsupported agents remain explicit fallback/browser-only errors. | `hnefatafl/browser_bridge.py`, `frontend/src/browserAnalysis/{contracts,runtime,integration}.ts`, `AdvisorSelect.tsx` | Bridge budget tests; browser integration uses the default 5 s; unsupported-agent/budget tests. | Classical MCTS/baseline/neural wrapper `none`/alpha-beta and UI >5 s (Jarl) / >10 s (neural) remain unsupported locally. This is a documented server-decommissioning blocker, not silently substituted. |
+| K9 historical evaluations | Local adapter replaced the report with only new advice; a stored non-advisor complete report suppressed the requested advisor. | Local results merge with matching stored attacker/defender evaluations, filter only obsolete advisor/hint, and completeness is judged for the requested advisor/revision. | `frontend/src/useGameAnalysis.ts` | Merge test with old advisor revision; no-suppression and saved-report tests. | Local results remain advisory and are never uploaded to authoritative caches. |
+| K10 progression compatibility | Browser-only has no server-analysis POST, so replay-analysis achievement credit is unavailable. | No insecure client-generated credit was added. Explicit owner-decision blocker and proposed mechanism documented below. | `docs/designs/browser-analysis-roadmap.md`, this report | Audit of `record_completed_replay`/achievement path. | **Open owner decision.** Proposed: a server-verifiable authorized replay-review event/session protocol, not client search claims. |
+| K11 policy revalidation | Missing policy was treated like legacy; malformed policy was silently server-only; only mode name compared; stale fallback could survive policy change. | Missing projection retains legacy; malformed projection fails closed as `disabled`; full policy attributes are compared; context/policy change triggers analytics refresh; stale fallback becomes failed/refresh, never a fallback decision. | `frontend/src/useGameAnalysis.ts`, `frontend/src/browserAnalysis/integration.ts` | Malformed projection, policy transition/refresh, context policy mismatch tests. | There is no continuous policy polling; change detected on next context/retry/reconnect, by design to avoid background origin traffic. |
+| K12 error/recovery | Any `TypeError` meant network failure; retries were loosely bounded. | Fetch-boundary network errors are explicit; generic TypeError is unknown/engine fault; integrity fails closed; WebGPU and offline recovery are one-shot; server 429/503 retries are capped at 8 with Retry-After; cancelled requests cannot retry. | `frontend/src/browserAnalysis/integration.ts`, `useGameAnalysis.ts` | TypeError, integrity, WebGPU recovery, 429/503 backoff/cap, timer cleanup tests. | Server-side task duration remains bounded by its own service deadline. |
+| K13 admission accounting | Inactive rate buckets accumulated; duplicate releases could undercount. | Lazy bounded bucket cleanup (≤once/30 s), 4096-bucket cap; token ownership and duplicate-release detection; exactly-once release; global/per-account counters. | `hnefatafl/analysis_policy.py`, `analysis_service.py`, `server.py` | High-cardinality expiry, duplicate release, concurrent/rejected admission, failed-submission tests. | Supported deployment invariant remains one API worker; no multi-worker-global claim. |
+| K14 UI feedback/cancellation | Device line could contradict fallback state; no download progress/cancel action; raw error text surfaced. | Provenance now chooses local vs server text, determinate `<progress>` only with real byte totals, a local cancel action, and localized user-facing error categories; existing classes/tokens only. | `frontend/src/AgentAnalysis.tsx`, `useGameAnalysis.ts`, `locales/de-extra.ts` | Fallback provenance, progress/cancel, localized failure and theme/mobile snapshots. | Server fallback cancellation stops observation but not already-admitted server work (documented handover). |
+| K15 validation evidence | Large raw memory JSON increased repository/diff noise. | Raw evidence is gzip-compressed with SHA-256 recorded; summaries and reproducible commands retained. | `docs/validation/browser-analysis-phase5-memory-*.json.gz`, this report | `make docs`, hashes, validator runs against decompressed evidence. | Compression is a repository-storage choice; evidence is byte-identical after `gzip -dc`. |
+| K16 previous-phase preservation | New orchestration could regress runtime/account/download guarantees. | Phase 4 runtime, accounting, download and cleanup code preserved; runtime/account/offline tests extended; no threshold or budget loosened. | Runtime/analysis service/integration | 77 runtime tests plus 23 integration tests, full frontend/CI. | External acceptance gates remain unchanged. |
+
+### K8 local compatibility matrix
+
+| Existing analysis option | Local browser support | Handling |
+| --- | --- | --- |
+| Jarl alpha-beta, depth 1–5, time ≤5 s | Yes | Canonical server config; default 5 s supported |
+| Jarl depth >5 / time >5 s | No | `unsupported-budget`; fallback only in `browser_preferred`; browser-only explains limitation |
+| Neural MCTS with published registered model, ≤4096 simulations, time ≤10 s, temperature 0 | Yes | Published model/session authorization |
+| Neural MCTS time >10 s, wrapper `none`/`alpha_beta`, missing model | No | Explicit `unsupported-budget`/`unsupported-agent`/`model-unavailable`; no substitution |
+| Classical MCTS (`mcts`) | No | Explicit local blocker; fallback only where policy permits |
+| Baseline/other legacy advisor algorithms | No | Explicit local blocker; fallback only where policy permits |
+| All three rulesets | Jarl yes; neural only with a ruleset/board-compatible publication | Model ruleset/size checked |
+
+### K10 owner-decision proposal
+
+Replay-analysis achievements currently require a successful server analysis POST
+and stored advisor/agent evidence. Browser-only execution deliberately does not
+fabricate or upload client search claims. The safe compatible direction is a
+future server-verifiable "authorized replay review" activity record (bound to the
+account, replay permission, canonical position identity and an idempotent review
+session), awarded independently of expensive search computation. That changes
+progression semantics and requires owner approval; it is **not** implemented here.
+Until then, browser-only installations do not earn replay-analysis achievement
+credit, and the roadmap records this compatibility blocker.
+
 ## 12. Sustained-memory investigation
 
 The existing 10/30-minute workload infrastructure was reused conceptually, but a
@@ -408,27 +455,29 @@ runtime reuse and a separate initialization/disposal diagnostic. JS heap is samp
 RSS through `/proc`; cache bytes/entries through IndexedDB. WASM heap capacity is
 not exposed by the pinned runtime and is recorded as unavailable.
 
-Evidence: [30-minute profile](browser-analysis-phase5-memory-30m.json),
-[10-minute profile](browser-analysis-phase5-memory-10m.json). The acceptance
+Evidence: [30-minute profile](browser-analysis-phase5-memory-30m.json.gz),
+[10-minute profile](browser-analysis-phase5-memory-10m.json.gz) (gzip-compressed raw evidence; sha256
+`60e68d925f945f0dc0e67feac4869607d72751a1e5b5694cf8c3f7fe4afbf4f5` and
+`24de66be4a7fd86821f804f5c7d8af8b02bc5c5899c36c229940df0a2c56dc88`; decompress with `gzip -dc`). The acceptance
 validator is `spikes/browser_offline/memory_validation.py`.
 
 | Measurement (30 min post-warmup) | Result |
 | --- | ---: |
-| Completed local requests | 6,973 |
-| Successful searches | 6,641 |
+| Completed local requests | 12,635 |
+| Successful searches | 12,635 |
 | Workload failures | 0 |
 | Peak live workers | 3 |
-| Max JS heap | 7,049,924 bytes (~6.7 MiB) |
-| Max whole-browser RSS | 1,192,652,800 bytes (~1.11 GiB) |
+| Max JS heap | 8,703,596 bytes (~8.3 MiB) |
+| Max whole-browser RSS | 849,256,448 bytes (~810 MiB) |
 | Cache footprint | one published model (~47.5 KiB) |
-| First-third average heap | ~5.26 MiB |
-| Last-third average heap | ~5.76 MiB |
-| Linear slope over full window | ~23 KiB/min |
-| Observed pattern | ~4.4 → 5.2 MiB over the first ~10 min, then a stable sawtooth plateau around 5.1–5.9 MiB |
+| First-tenth average heap | ~6.1 MiB |
+| Last-tenth average heap | ~6.56 MiB |
+| Linear slope over full window | ~10.4 KiB/min |
+| Observed pattern | ~4.5 → 5.2 MiB early, then a stable sawtooth plateau around 4.9–5.2 MiB with GC spikes to ~8.3 MiB |
 
 **Conclusion:** the 30-minute JS heap shows a bounded high-water step, not
-continued unbounded growth: the last ~20 minutes average ~5.7 MiB with a stable
-GC sawtooth and a maximum ~6.7 MiB. The 10-minute profile showed the same pattern.
+continued unbounded growth: the last ten-minute averages stay around 6.8 MiB with a stable
+GC sawtooth and a maximum ~8.3 MiB. The 10-minute profile showed the same plateau (max ~8.6 MiB).
 This does not satisfy the unchanged sustained-memory acceptance rule, which flags
 the ~25 % growth from the early baseline. The validator also blocks on missing
 WASM heap-capacity telemetry. Therefore sustained-memory acceptance remains
@@ -441,6 +490,30 @@ no growth), and model transitions (none). The remaining V8 high-water step is
 consistent with browser/engine allocator and optimization behaviour; it is not
 proven to be a leak. A physical-platform acceptance rerun with observable WASM
 metrics remains the required gate.
+
+### Context delivery and cache bounds (K7)
+
+The context endpoint now sends each board position once, one shared
+`history_keys` prefix and one `position_keys` list instead of duplicating the
+growing repetition history in every state. The server caches immutable
+`(game, version, advisor revision)` contexts with 8 entries/24 MiB bounds; the
+browser cache keeps 64 entries but also enforces an 8 MiB aggregate bound. A
+4096-position hard limit is applied before expensive reconstruction, and stale
+version/cursor/position identity is rejected.
+
+Measured with `scripts/phase5_context_benchmark.py` against the real endpoint:
+
+| Game | Moves | Response bytes | Cold ms | Reused ms | Duplicated history entries |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Brandubh | 0 / 160 | 911 / 67,207 | 11 / 26 | 8 / 14 | 0 |
+| Tablut | 0 / 160 | 1,067 / 92,643 | 9 / 31 | 8 / 16 | 0 |
+| Copenhagen | 0 / 160 | 1,275 / 125,491 | 9 / 56 | 8 / 23 | 0 |
+
+Response size is linear in move count rather than quadratic in accumulated
+history text. Cold/cached timings include the authenticated HTTP test client and
+are server-side measurements; browser parsing/memory is covered by the sustained
+profile. Evidence: [context benchmark](browser-analysis-phase5-context-benchmark.json)
+(sha256 `f513b055cce13a09961065af1842ff93b5b3c5ee711b3e64405db393721fa055`).
 
 ## 13. Copenhagen depth-5 status
 
@@ -504,17 +577,17 @@ no licensing right is declared resolved without owner/legal acceptance.
 
 | Check | Result |
 | --- | --- |
-| `tests/test_analysis_policy.py` | 22 passed |
-| Focused backend policy/analysis/security set | 149 passed |
+| `tests/test_analysis_policy.py` | 25 passed |
+| Focused backend policy/analysis/security/browser set | 233 passed |
 | Full backend CI (`python` job) | **4,616 passed, 50 skipped**; deployment check 64 + 9 passed |
 | `tests/test_browser_analysis_api.py` | 12 passed |
 | `tests/test_analysis_api.py`, `test_background_analysis.py`, `test_analysis_coordination.py` | 102 passed (earlier focused run) |
-| Browser-analysis runtime Vitest | 77 passed in `runtime.test.ts` (Phase 4 lifecycle + new offline lease tests) |
-| Browser-analysis integration Vitest | 12 passed |
-| `useGameAnalysis` policy Vitest | 7 passed |
+| Browser-analysis runtime Vitest | 77 passed in `runtime.test.ts` (Phase 4 lifecycle + offline authorization tests) |
+| Browser-analysis integration Vitest | 25 passed |
+| `useGameAnalysis` policy Vitest | 11 passed |
 | Execution-policy projection Vitest | 3 passed |
-| Full frontend Vitest | **1,776 passed (116 files)** |
-| Production build + bundle budget | passed (592,053 raw / 188,761 gzip) |
+| Full frontend Vitest | **1,795 passed (116 files)** |
+| Production build + bundle budget | passed (595,409 raw / 189,735 gzip) |
 | TypeScript check | passed |
 | Ruff / format check / mypy | passed (89 mypy files) |
 | `scripts/audit_api.py` | 142 routes accounted for |
@@ -611,7 +684,15 @@ Rollback:
 7. **The Phase 5 memory driver is new** and feeds the existing validator; it does
    not replace the Phase 3C-B collector/telemetry architecture. The validator
    blocked on the real JS-heap step and unavailable WASM capacity rather than
-   accepting the profile.
+   accepting the profile. Raw profiles are gzip-compressed for repository storage;
+   decompression is byte-identical and hashes are recorded above.
+8. **Local Jarl now supports a 5-second budget** (the UI default) with a 7.5-second
+   watchdog and matching bridge validation. This is a measured compatibility
+   correction; Jarl budgets above 5 s, neural above 10 s, classical MCTS and
+   baseline agents remain explicitly unsupported locally for later Phase 8 work.
+9. **K10 is intentionally unresolved.** No client-generated search evidence is
+   trusted for achievements; the proposed authorized replay-review activity record
+   requires owner approval and is not part of this correction PR.
 
 ## 19. Remaining gates before Phase 7 acceptance
 

@@ -61,7 +61,7 @@ Phase 3 is not complete.
 | 3C | Competitive strength and stability | Not started | **In progress: 3C-A validation platform; external gates blocked** | [Phase 3C-A validation](../validation/browser-analysis-phase3c.md), [device matrix](../validation/device-matrix-phase3c.md) | Competitive checkpoints, tournaments, verified WebGPU, physical desktop/mobile, sustained memory, playing strength |
 | 3C-B | Competitive measurements, performance and stability | Not started | **Partial: software + structural measurements; external gates blocked** | [Phase 3C-B report](../validation/browser-analysis-phase3c-b.md) | Competitive models, physical devices, verified GPU, full tournaments, memory acceptance |
 | 4 | Production security and runtime integration | Not started | **Implemented; structurally and browser validated; feature disabled by default** | [Phase 4 report](../validation/browser-analysis-phase4.md), [browser evidence](../validation/browser-analysis-phase4-browser.json), [neural browser evidence](../validation/browser-analysis-phase4-browser-neural.json) | Competitive/physical/sustained-memory gates remain external |
-| 5 | Transparent browser-first integration | Not started | **Implemented; software and production-browser validated; external gates open** | [Phase 5 report](../validation/browser-analysis-phase5.md), [browser integration evidence](../validation/browser-analysis-phase5-browser-integration.json), [memory 30 m](../validation/browser-analysis-phase5-memory-30m.json) | Sustained-memory step, competitive weights/strength, physical devices, verified GPU, distribution licensing |
+| 5 | Transparent browser-first integration | Not started | **Implemented; software and production-browser validated; external gates open** | [Phase 5 report](../validation/browser-analysis-phase5.md), [browser integration evidence](../validation/browser-analysis-phase5-browser-integration.json), [memory 30 m](../validation/browser-analysis-phase5-memory-30m.json.gz) | Sustained-memory step, competitive weights/strength, physical devices, verified GPU, distribution licensing |
 | 6 | Offline readiness and resilience | Not started | Not started | — | Persistent verified runtime caching, cold offline initialization, storage/version lifecycle |
 | 7 | Production acceptance | Not started | Not started | — | All external gates, controlled rollout, browser-only default decision |
 | 8 | Server analysis decommissioning | Not started | Not started | — | Remove legacy analysis endpoints after Phase 7 acceptance |
@@ -718,9 +718,24 @@ Phase 3 is not complete.
   model. Local Jarl and 32-simulation neural MCTS executed through the application
   integration; warm offline searches completed with no analysis/authorization
   request; successful local analysis incremented no server computation counter.
-  Initial bundle 592,053 raw / 188,761 gzip (budgets 600,000/200,000); the runtime,
+  Initial bundle 595,409 raw / 189,735 gzip (budgets 600,000/200,000); the runtime,
   integration and entry chunks are absent from the initial graph. Details and
   limits are in the [Phase 5 report](../validation/browser-analysis-phase5.md).
+- **K1–K16 review corrections:** canonical server-resolved effective settings
+  (analytics time limit, analyzed-position seed, requested/effective split),
+  generation-owned single-path execution, per-context/per-model offline leases,
+  account-generation ownership for integration caches/requests, synchronous AI
+  evaluation admission, version/revision/position-bound contexts, compact bounded
+  context delivery (8-entry/24 MiB server cache, 64-entry/8 MiB browser cache),
+  historical-evaluation merging, policy revalidation/refresh, finite recovery
+  classification, bounded rate buckets and corrected UI provenance/cancellation.
+  Local Jarl now supports the default 5 s budget with a matching watchdog; classical
+  MCTS/baseline and UI budgets above 5 s (Jarl) / 10 s (neural) remain explicit
+  local blockers for Phase 8.
+- **K10 open owner decision:** browser-only execution does not earn replay-analysis
+  achievement credit because no server-verifiable analysis evidence exists. A
+  future authorized replay-review activity protocol could preserve credit without
+  server computation, but it changes progression semantics and requires approval.
 - **Open gates:** competitive trained checkpoints and playing-strength parity,
   physical device matrix, independently verified GPU execution, Copenhagen
   depth-5 fixed-work completion, sustained-memory acceptance (30-minute JS-heap
@@ -751,16 +766,18 @@ Phase 3 is not complete.
   preservation, physical Windows/Linux/Android/Safari acceptance, independently
   verified GPU execution evidence, sustained-memory acceptance, mobile
   resource-pressure validation, Copenhagen depth-5 acceptance, distribution
-  licensing acceptance, controlled rollout with measured fallback rates, and the
-  owner decision to make browser-only the production default.
+  licensing acceptance, controlled rollout with measured fallback rates, the K10
+  replay-credit owner decision, and the owner decision to make browser-only the
+  production default.
 
 ## Phase 8 — Server analysis decommissioning
 
 - **Status:** Not started.
 - **Scope:** disable legacy server analysis by default, resolve compatibility
-  dependencies, remove obsolete server-analysis endpoints and scheduling
-  infrastructure, and preserve native engines needed by AI opponents, training,
-  tournaments, testing and ordinary gameplay.
+  dependencies (including locally unsupported classical MCTS/baseline agents and
+  Jarl >5 s / neural >10 s budgets), remove obsolete server-analysis endpoints and
+  scheduling infrastructure, and preserve native engines needed by AI opponents,
+  training, tournaments, testing and ordinary gameplay.
 
 A full offline application startup remains a separate optional future task and is
 not part of Phases 5–8.

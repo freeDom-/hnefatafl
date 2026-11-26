@@ -204,16 +204,45 @@ function api(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function contextPayload(cursor = 0) {
+function contextPayload(
+  cursor = 0,
+  config: Record<string, unknown> = {},
+  execution: Record<string, unknown> = {},
+  gameId = 'game-1',
+) {
   const next = { ...state, ply: cursor };
+  const states = [state, next].slice(0, cursor + 1).map(({ history: _history, ...rest }) => rest);
+  const history = states.map((_, index) => `history-${index}`);
   return {
     schema: 1,
-    game_id: 'game-1',
+    game_id: gameId,
     version: 0,
     ruleset: 'brandubh',
     cursor,
     position_key: 'server-position-key',
-    states: [state, next].slice(0, cursor + 1),
+    position_keys: states.map((_, index) => `server-position-key-${index}`),
+    history_keys: history,
+    states,
+    advisor: {
+      effective_config:
+        config.algorithm !== undefined
+          ? { seed: 51, time_limit: 1, evaluation: 'heuristic', ...config }
+          : {
+              algorithm: 'alpha_beta',
+              seed: 51,
+              time_limit: 1,
+              evaluation: 'heuristic',
+              heuristic: 'shield_maiden',
+              depth: 3,
+            },
+      requested_config:
+        config.algorithm !== undefined
+          ? { ...config }
+          : { algorithm: 'alpha_beta', depth: 3, time_limit: 1 },
+      show_win_chances: true,
+      revision: 2,
+      seed_with_ply: true,
+    },
     execution: {
       mode: 'browser_preferred',
       browser_delivery: true,
@@ -223,18 +252,32 @@ function contextPayload(cursor = 0) {
       webgpu: false,
       offline_authorization_seconds: 900,
       limits: { max_concurrent: 16, max_per_user: 2, requests_per_minute: 30 },
+      ...execution,
     },
   };
 }
 
-function contextFetch(calls: string[] = []) {
+function contextFetch(
+  calls: string[] = [],
+  config: Record<string, unknown> = {},
+  execution: Record<string, unknown> = {},
+  advisor: Record<string, unknown> = {},
+) {
   return vi.fn(async (url: string) => {
     calls.push(url);
     const parsed = new URL(url, 'https://example.test');
     const cursor = Number(parsed.searchParams.get('cursor') ?? '0');
+    const gameId = parsed.pathname.match(/\/games\/([^/]+)\//)?.[1] ?? 'game-1';
     return {
       ok: true,
-      json: async () => contextPayload(cursor),
+      json: async () =>
+        ({
+          ...contextPayload(cursor, config, execution, gameId),
+          advisor: {
+            ...contextPayload(cursor, config, execution, gameId).advisor,
+            ...advisor,
+          },
+        }) as unknown,
     } as Response;
   });
 }
@@ -262,6 +305,7 @@ beforeEach(() => {
 afterEach(async () => {
   await disposeLocalAnalysis();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('transparent local analysis integration', () => {
@@ -284,12 +328,23 @@ describe('transparent local analysis integration', () => {
     });
     expect(outcome.report.hint?.move).toEqual({ source: 24, target: 17 });
     expect(outcome.report.status).toBe('complete');
-    expect(outcome.report.position_key).toBe('server-position-key');
+    expect(outcome.report.position_key).toBe('server-position-key-0');
     expect(outcome.provider).toBe('wasm');
     expect(runtime.downloadModel).not.toHaveBeenCalled();
   });
 
   it('executes neural MCTS with the published model bound through the registry', async () => {
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
     const runtime = api({ runSearch: vi.fn(async () => neuralResult()) });
     createBrowserAnalysis.mockResolvedValue(runtime);
     const outcome = await runLocalAnalysis(
@@ -332,6 +387,7 @@ describe('transparent local analysis integration', () => {
   });
 
   it('classifies unsupported agents and budgets without substituting a weaker agent', async () => {
+    vi.stubGlobal('fetch', contextFetch([], { algorithm: 'baseline' }));
     const runtime = api();
     createBrowserAnalysis.mockResolvedValue(runtime);
     const baseline = await runLocalAnalysis(
@@ -340,6 +396,8 @@ describe('transparent local analysis integration', () => {
     expect(baseline).toBeInstanceOf(LocalAnalysisError);
     expect(baseline.category).toBe('unsupported-agent');
     expect(baseline.fallbackEligible).toBe(true);
+    __testing.resetCaches();
+    vi.stubGlobal('fetch', contextFetch([], { algorithm: 'alpha_beta', depth: 6, time_limit: 1 }));
     const budget = await runLocalAnalysis(
       input({ settings: settings({ algorithm: 'alpha_beta', depth: 6, time_limit: 1 }) }),
     ).catch((error) => error);
@@ -349,6 +407,17 @@ describe('transparent local analysis integration', () => {
   });
 
   it('reports a missing published model without substituting another model', async () => {
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'not-published',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
     const runtime = api();
     createBrowserAnalysis.mockResolvedValue(runtime);
     const failure = await runLocalAnalysis(
@@ -363,6 +432,21 @@ describe('transparent local analysis integration', () => {
 
   it('recovers a recoverable WebGPU failure with WASM before any fallback', async () => {
     Object.defineProperty(navigator, 'gpu', { configurable: true, value: {} });
+    vi.stubGlobal(
+      'fetch',
+      contextFetch(
+        [],
+        {
+          algorithm: 'neural',
+          model_id: 'model-registered',
+          search_wrapper: 'mcts',
+          iterations: 32,
+          time_limit: 1,
+          temperature: 0,
+        },
+        { webgpu: true },
+      ),
+    );
     const runSearch = vi
       .fn()
       .mockRejectedValueOnce(new BrowserAnalysisError('capability-missing', 'WebGPU failed'))
@@ -390,6 +474,17 @@ describe('transparent local analysis integration', () => {
   });
 
   it('fails closed on integrity errors and cancellation without fallback', async () => {
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
     const integrity = api({
       runSearch: vi.fn(async () => {
         throw new BrowserAnalysisError('model-integrity', 'digest mismatch');
@@ -462,6 +557,8 @@ describe('transparent local analysis integration', () => {
     await runLocalAnalysis(input());
     await setAnalysisAccount('account-2');
     expect(runtime.invalidateAccountContext).toHaveBeenCalled();
+    const switched = await runLocalAnalysis(input({ accountId: 'account-2' }));
+    expect(switched.report.status).toBe('complete');
     await setAnalysisAccount(null);
     expect(runtime.dispose).toHaveBeenCalled();
     expect(runtime.clearOfflineAuthorization).toHaveBeenCalled();
@@ -493,5 +590,272 @@ describe('transparent local analysis integration', () => {
     expect(failure.category).toBe('disabled');
     expect(failure.fallbackEligible).toBe(false);
     expect(runtime.runSearch).not.toHaveBeenCalled();
+  });
+
+  it('uses the server-resolved analytics time limit over the advisor config default', async () => {
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], { algorithm: 'alpha_beta', depth: 3, time_limit: 5, seed: 51 }),
+    );
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    await runLocalAnalysis(
+      input({ settings: settings({ algorithm: 'alpha_beta', depth: 3, time_limit: 0.1 }) }),
+    );
+    const request = (runtime.runSearch.mock.calls[0] as any[])[0];
+    expect(request.settings.time_limit).toBe(5);
+    expect(runtime.runSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('derives the search seed from the analyzed position ply, not the current game ply', async () => {
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], { algorithm: 'alpha_beta', depth: 3, time_limit: 1, seed: 51 }),
+    );
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const base = game();
+    const outcome = await runLocalAnalysis(
+      input({ game: { ...base, cursor: 1, ply: 0 }, cursor: 1 }),
+    );
+    const request = (runtime.runSearch.mock.calls[0] as any[])[0];
+    expect(request.settings.seed).toBe(52);
+    expect((request.state as { history: string[] }).history).toHaveLength(2);
+    expect(outcome.report.position_key).toBe('server-position-key-1');
+  });
+
+  it('honours the server show_win_chances setting while retaining advice', async () => {
+    vi.stubGlobal(
+      'fetch',
+      contextFetch(
+        [],
+        { algorithm: 'alpha_beta', depth: 3, time_limit: 1, seed: 51 },
+        {},
+        { show_win_chances: false },
+      ),
+    );
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const outcome = await runLocalAnalysis(input());
+    expect(outcome.report.evaluations[0].win_probability).toBeNull();
+    expect(outcome.report.evaluations[0].value).toBeUndefined();
+    expect(outcome.report.hint).not.toBeNull();
+  });
+
+  it('does not renew offline authorization after successful offline searches', async () => {
+    const clock = { value: 1_000_000 };
+    vi.spyOn(Date, 'now').mockImplementation(() => clock.value);
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    await runLocalAnalysis(input());
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    clock.value += 800_000;
+    await runLocalAnalysis(input());
+    await runLocalAnalysis(input());
+    clock.value += 101_000;
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('unauthorized');
+    expect(failure.fallbackEligible).toBe(false);
+    expect(runtime.runSearch).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not renew a lease when revalidation is unreachable but can reuse a valid warm lease', async () => {
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    await runLocalAnalysis(input());
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('origin unreachable');
+      }),
+    );
+    window.dispatchEvent(new Event('online'));
+    const outcome = await runLocalAnalysis(input());
+    expect(outcome.offline).toBe(true);
+  });
+
+  it('fails closed when revalidation is explicitly denied', async () => {
+    const runtime = api({
+      availability: vi.fn(async () => {
+        throw new BrowserAnalysisError('unauthorized', 'denied');
+      }),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    window.dispatchEvent(new Event('online'));
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('unauthorized');
+    expect(failure.fallbackEligible).toBe(false);
+    expect(runtime.runSearch).not.toHaveBeenCalled();
+  });
+
+  it('does not cache a delayed context response after an account switch', async () => {
+    let rejectFetch!: (error: unknown) => void;
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectFetch = reject;
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          );
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const pending = runLocalAnalysis(input());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await setAnalysisAccount('account-2');
+    rejectFetch(new Error('late response'));
+    const failure = await pending.catch((error) => error);
+    expect(failure.category).toBe('cancelled');
+  });
+
+  it('keeps concurrent context consumers independent when one caller cancels', async () => {
+    let resolveFetch!: (value: Response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const first = runLocalAnalysis(input({ signal: firstController.signal }));
+    const second = runLocalAnalysis(input({ signal: secondController.signal }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    firstController.abort();
+    await expect(first).rejects.toMatchObject({ category: 'cancelled' });
+    resolveFetch({
+      ok: true,
+      json: async () => contextPayload(0, { algorithm: 'alpha_beta', depth: 3, time_limit: 1 }),
+    } as Response);
+    await expect(second).resolves.toMatchObject({ report: { status: 'complete' } });
+  });
+
+  it('cancels a neural catalogue lookup without installing an obsolete runtime', async () => {
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    let resolveModels!: (value: unknown[]) => void;
+    const runtime = api({
+      listModels: vi.fn(
+        () =>
+          new Promise<unknown[]>((resolve) => {
+            resolveModels = resolve;
+          }),
+      ),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const pending = runLocalAnalysis(
+      input({
+        settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+      }),
+    );
+    await vi.waitFor(() => expect(runtime.listModels).toHaveBeenCalledTimes(1));
+    await setAnalysisAccount(null);
+    resolveModels([model]);
+    const failure = await pending.catch((error) => error);
+    expect(failure.category).toBe('cancelled');
+    expect(runtime.runSearch).not.toHaveBeenCalled();
+  });
+
+  it('treats an unexpected TypeError as an unknown engine fault, not a network outage', async () => {
+    const runtime = api({
+      runSearch: vi.fn(async () => {
+        throw new TypeError('unexpected protocol shape');
+      }),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('unknown');
+    expect(failure.fallbackEligible).toBe(false);
+  });
+
+  it('rejects mismatched context identity and missing canonical position metadata', async () => {
+    const valid = contextPayload(0, {
+      algorithm: 'alpha_beta',
+      depth: 3,
+      time_limit: 1,
+      seed: 51,
+    });
+    const variants = [
+      { ...valid, version: 1 },
+      { ...valid, cursor: 1 },
+      { ...valid, history_keys: [] },
+      { ...valid, position_keys: undefined },
+      { ...valid, states: [{ ...valid.states[0], ply: 2 }] },
+    ];
+    for (const variant of variants) {
+      __testing.resetCaches();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => variant })) as unknown as typeof fetch,
+      );
+      const runtime = api();
+      createBrowserAnalysis.mockResolvedValue(runtime);
+      const failure = await runLocalAnalysis(input()).catch((error) => error);
+      expect(failure.category).toBe('integrity');
+      expect(failure.fallbackEligible).toBe(false);
+      expect(runtime.runSearch).not.toHaveBeenCalled();
+    }
+  });
+
+  it('bounds the client context cache by entry count across game versions', async () => {
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const parsed = new URL(url, 'https://example.test');
+        const version = Number(parsed.searchParams.get('version') ?? '0');
+        return {
+          ok: true,
+          json: async () => ({
+            ...contextPayload(0, { algorithm: 'alpha_beta', depth: 3, time_limit: 1 }),
+            version,
+          }),
+        } as Response;
+      }) as unknown as typeof fetch,
+    );
+    for (let version = 1; version <= 70; version += 1) {
+      await runLocalAnalysis(input({ game: { ...game(), version } }));
+    }
+    const stats = __testing.contextStats();
+    expect(stats.entries).toBeLessThanOrEqual(64);
+    expect(stats.bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+  });
+
+  it('propagates cancellation into runtime initialization without later stages', async () => {
+    const controller = new AbortController();
+    const runtime = api({
+      initialize: vi.fn(
+        ({ signal }: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError')),
+            );
+          }),
+      ),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const pending = runLocalAnalysis(input({ signal: controller.signal }));
+    await vi.waitFor(() => expect(runtime.initialize).toHaveBeenCalledTimes(1));
+    controller.abort();
+    const failure = await pending.catch((error) => error);
+    expect(failure.category).toBe('cancelled');
+    expect(runtime.runSearch).not.toHaveBeenCalled();
+    expect(runtime.downloadModel).not.toHaveBeenCalled();
   });
 });

@@ -268,17 +268,30 @@ def test_analysis_context_is_authorized_read_only_and_includes_rule_history(monk
     payload = response.json()
     assert payload["schema"] == 1 and payload["game_id"] == game["id"]
     assert len(payload["states"]) == 1
-    assert payload["states"][0]["history"]
+    assert payload["history_keys"] and len(payload["history_keys"]) == 1
+    assert "history" not in payload["states"][0]
+    assert payload["position_keys"] == [payload["position_key"]]
+    assert payload["advisor"]["effective_config"]["time_limit"] == 5
+    assert payload["advisor"]["requested_config"]["time_limit"] == 0.1
     assert payload["execution"]["mode"] == "browser_only"
 
     moved = client.post(
         f"/api/games/{game['id']}/moves",
         json={**game["legal_moves"][0], "version": game["version"]},
     ).json()
-    context = client.get(f"/api/games/{moved['id']}/analysis-context", params={"cursor": 1}).json()
+    context = client.get(
+        f"/api/games/{moved['id']}/analysis-context",
+        params={"cursor": 1, "version": moved["version"]},
+    ).json()
     assert len(context["states"]) == 2
-    assert len(context["states"][1]["history"]) == 2
-    assert context["cursor"] == 1
+    assert len(context["history_keys"]) == 2
+    assert context["cursor"] == 1 and context["version"] == moved["version"]
+    stale = client.get(
+        f"/api/games/{moved['id']}/analysis-context",
+        params={"cursor": 1, "version": game["version"]},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["code"] == "analysis_context_stale"
 
 
 def test_analysis_context_rejects_a_game_with_analysis_disabled(monkeypatch, tmp_path):
@@ -321,8 +334,32 @@ def test_admission_limits_are_global_and_per_account():
     assert global_limit.value.code == "analysis_overloaded"
     admission.release_task(token)
     admission.release_task(second)
+    # Duplicate release is detectably invalid and cannot drive counters negative
+    # or undercount another active reservation.
+    admission.release_task(token)
     assert admission.snapshot()["active"] == 0
     assert admission.snapshot()["admitted"] == 2
+    assert admission.snapshot()["duplicate_release"] == 1
+
+
+def test_rate_buckets_expire_without_unbounded_account_state():
+    policy = resolve_policy(
+        {
+            "HNEFATAFL_ANALYSIS_MODE": "browser_preferred",
+            "HNEFATAFL_ANALYSIS_REQUESTS_PER_MINUTE": "1",
+        }
+    )
+    clock = {"now": 0.0}
+    admission = AnalysisAdmission(policy, clock=lambda: clock["now"])
+    for index in range(200):
+        admission.limit_request(f"account-{index}")
+    assert len(admission.requests_by_account) == 200
+    clock["now"] = 61.0
+    admission.limit_request("fresh")
+    assert len(admission.requests_by_account) == 1
+    clock["now"] = 122.0
+    admission.limit_request("another")
+    assert len(admission.requests_by_account) == 1
 
 
 def test_rate_window_resets_and_old_requests_are_pruned():
@@ -348,3 +385,66 @@ def test_analysis_metrics_requires_administrator(monkeypatch, tmp_path):
     anonymous = RawTestClient(app)
     assert anonymous.get("/api/analysis/metrics").status_code == 401
     assert client.get("/api/analysis/metrics").status_code == 200
+
+
+def test_synchronous_playing_agent_evaluations_use_task_admission(monkeypatch, tmp_path):
+    app = _app(
+        tmp_path,
+        monkeypatch,
+        HNEFATAFL_ANALYSIS_MODE="browser_preferred",
+        HNEFATAFL_ANALYSIS_MAX_PER_USER="4",
+    )
+    client = TestClient(app)
+    game = historical_game(
+        client,
+        ruleset="brandubh",
+        seed=53,
+        mode="ai-ai",
+        players={
+            "attackers": {"profile_id": "baseline"},
+            "defenders": {"profile_id": "alpha_beta", "config": {"depth": 1, "time_limit": 0.1}},
+        },
+    )
+    admission = app.state.analysis_admission
+    original = admission.admit_task
+    admitted = []
+
+    def record(account_id):
+        token = original(account_id)
+        admitted.append(token)
+        return token
+
+    monkeypatch.setattr(admission, "admit_task", record)
+    response = _analysis(client, game)
+    assert response.status_code == 200, response.text
+    # Both playing-agent evaluations pass through the same task admission as
+    # advisor/background work; no direct synchronous path bypasses it.
+    assert len(admitted) >= 2
+    assert admission.snapshot()["active"] == 0
+    assert admission.snapshot()["admitted"] >= 2
+
+
+def test_synchronous_playing_agent_admission_rejection_is_structured(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_preferred")
+    client = TestClient(app)
+    game = historical_game(
+        client,
+        ruleset="brandubh",
+        seed=54,
+        mode="ai-ai",
+        players={"attackers": {"profile_id": "baseline"}, "defenders": {"profile_id": "baseline"}},
+    )
+
+    def reject(_account_id):
+        raise AnalysisPolicyError(
+            "Analysis capacity is busy. Retry shortly.",
+            code="analysis_overloaded",
+            status=503,
+            retry_after=1,
+        )
+
+    monkeypatch.setattr(app.state.analysis_admission, "admit_task", reject)
+    response = _analysis(client, game)
+    assert response.status_code == 503, response.text
+    assert response.json()["code"] == "analysis_overloaded"
+    assert response.headers["retry-after"] == "1"

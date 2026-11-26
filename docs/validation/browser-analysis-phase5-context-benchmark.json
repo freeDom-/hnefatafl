@@ -1,0 +1,218 @@
+{
+  "kind": "browser-analysis-context-benchmark",
+  "schema": 1,
+  "environment": {
+    "python": "3.12.16"
+  },
+  "records": [
+    {
+      "ruleset": "brandubh",
+      "moves": 0,
+      "response_bytes": 911,
+      "cold_ms": 10.718193952925503,
+      "cached_ms": [
+        9.073631023056805,
+        8.74484097585082,
+        7.893932983279228,
+        7.8380829654634,
+        8.518520975485444
+      ],
+      "states": 1,
+      "history_keys": 1,
+      "position_keys": 1,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "brandubh",
+      "moves": 20,
+      "response_bytes": 9184,
+      "cold_ms": 11.832404066808522,
+      "cached_ms": [
+        8.816621033474803,
+        8.338310988619924,
+        8.726542931981385,
+        8.346128044649959,
+        8.522856049239635
+      ],
+      "states": 21,
+      "history_keys": 21,
+      "position_keys": 21,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "brandubh",
+      "moves": 80,
+      "response_bytes": 34024,
+      "cold_ms": 15.937409014441073,
+      "cached_ms": [
+        11.205418035387993,
+        12.129879905842245,
+        12.824723031371832,
+        11.599402059800923,
+        11.14388508722186
+      ],
+      "states": 81,
+      "history_keys": 81,
+      "position_keys": 81,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "brandubh",
+      "moves": 160,
+      "response_bytes": 67207,
+      "cold_ms": 25.579325039871037,
+      "cached_ms": [
+        14.16952593717724,
+        14.338104985654354,
+        13.968479004688561,
+        14.641702990047634,
+        14.774595038034022
+      ],
+      "states": 161,
+      "history_keys": 161,
+      "position_keys": 161,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "tablut",
+      "moves": 0,
+      "response_bytes": 1067,
+      "cold_ms": 8.993973024189472,
+      "cached_ms": [
+        8.496316964738071,
+        8.39277298655361,
+        8.503661025315523,
+        8.390419068746269,
+        8.838898036628962
+      ],
+      "states": 1,
+      "history_keys": 1,
+      "position_keys": 1,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "tablut",
+      "moves": 20,
+      "response_bytes": 12500,
+      "cold_ms": 10.980374994687736,
+      "cached_ms": [
+        10.30495495069772,
+        9.66478104237467,
+        10.067583993077278,
+        9.154492989182472,
+        9.057992021553218
+      ],
+      "states": 21,
+      "history_keys": 21,
+      "position_keys": 21,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "tablut",
+      "moves": 80,
+      "response_bytes": 46820,
+      "cold_ms": 18.820278928615153,
+      "cached_ms": [
+        12.66872591804713,
+        12.367159011773765,
+        12.645844952203333,
+        20.029659033752978,
+        14.607979916036129
+      ],
+      "states": 81,
+      "history_keys": 81,
+      "position_keys": 81,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "tablut",
+      "moves": 160,
+      "response_bytes": 92643,
+      "cold_ms": 31.048921984620392,
+      "cached_ms": [
+        16.233897069469094,
+        17.57384790107608,
+        16.454962082207203,
+        16.410223906859756,
+        21.77204901818186
+      ],
+      "states": 161,
+      "history_keys": 161,
+      "position_keys": 161,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "copenhagen",
+      "moves": 0,
+      "response_bytes": 1275,
+      "cold_ms": 8.584107970818877,
+      "cached_ms": [
+        8.55832896195352,
+        8.208635030314326,
+        8.221893920563161,
+        8.535692002624273,
+        8.658889913931489
+      ],
+      "states": 1,
+      "history_keys": 1,
+      "position_keys": 1,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "copenhagen",
+      "moves": 20,
+      "response_bytes": 16788,
+      "cold_ms": 13.312204042449594,
+      "cached_ms": [
+        10.28987905010581,
+        9.692680090665817,
+        9.91536898072809,
+        9.936615941114724,
+        10.175696108490229
+      ],
+      "states": 21,
+      "history_keys": 21,
+      "position_keys": 21,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "copenhagen",
+      "moves": 80,
+      "response_bytes": 63348,
+      "cold_ms": 26.700622984208167,
+      "cached_ms": [
+        13.672764995135367,
+        15.042786952108145,
+        13.402172015048563,
+        14.581206953153014,
+        15.625969972461462
+      ],
+      "states": 81,
+      "history_keys": 81,
+      "position_keys": 81,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "copenhagen",
+      "moves": 160,
+      "response_bytes": 125491,
+      "cold_ms": 55.89328205678612,
+      "cached_ms": [
+        23.09749007690698,
+        23.61400902736932,
+        23.550521000288427,
+        22.55323203280568,
+        24.03876301832497
+      ],
+      "states": 161,
+      "history_keys": 161,
+      "position_keys": 161,
+      "duplicated_history_bytes": 0
+    }
+  ],
+  "limits": {
+    "max_states": 4096,
+    "cache_entries": 8,
+    "cache_bytes": 25165824
+  }
+}

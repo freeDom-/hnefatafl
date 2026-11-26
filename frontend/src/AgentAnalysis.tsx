@@ -19,6 +19,8 @@ export default function AgentAnalysis({
   fallback = false,
   offline = false,
   analysisError,
+  downloadProgress,
+  cancel,
 }: {
   game: Game;
   report: PositionAnalysis | null;
@@ -31,6 +33,8 @@ export default function AgentAnalysis({
   fallback?: boolean;
   offline?: boolean;
   analysisError?: string;
+  downloadProgress?: { transferred: number; total: number };
+  cancel?: () => void;
 }) {
   const { t, locale } = useI18n();
   const compact = useCompactPlay();
@@ -47,6 +51,21 @@ export default function AgentAnalysis({
     unavailable: t('Unavailable'),
   };
   const number = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 });
+  const failureMessages: Record<string, string> = {
+    'unsupported-agent': t('This advisor cannot run on this device.'),
+    'unsupported-budget': t('This analysis setting is not available on this device.'),
+    'model-unavailable': t('A compatible model is not available for this advisor.'),
+    'browser-unsupported': t('Local analysis is not available in this browser.'),
+    initialization: t('The local analysis engine could not start.'),
+    download: t('Required analysis resources could not be downloaded.'),
+    integrity: t('Analysis resources failed a safety check.'),
+    offline: t('This position is not available offline yet.'),
+    unauthorized: t('Analysis authorization is no longer valid.'),
+    cancelled: t('Analysis was cancelled.'),
+    'policy-changed': t('Analysis settings changed. Retry to use the updated policy.'),
+    'server-busy': t('Analysis capacity is busy. Retry shortly.'),
+    'server-failed': t('The analysis service is unavailable.'),
+  };
   const pendingMessages: Record<string, string> = {
     preparing: t('Preparing analysis…'),
     downloading: t('Downloading required analysis resources…'),
@@ -76,20 +95,40 @@ export default function AgentAnalysis({
             )}
           </p>
         )}
-        {local && (
-          <p className="subtle analysis-device">
+        {local && !fallback && (
+          <p className="subtle">
             {offline
               ? t('Analysis is running on this device without a network connection.')
               : t('Analysis runs on this device.')}
           </p>
         )}
-        {fallback && !pending && (
-          <p className="subtle analysis-device">{t('Analysis is running on the server.')}</p>
+        {fallback && (
+          <p className="subtle">
+            {pending
+              ? t('Waiting for server analysis capacity…')
+              : t('Analysis is running on the server.')}
+          </p>
+        )}
+        {downloadProgress && downloadProgress.total > 0 && pending && (
+          <label className="subtle">
+            {t('Downloading analysis resources…')}
+            <progress max={downloadProgress.total} value={downloadProgress.transferred} />
+          </label>
+        )}
+        {pending && local && !fallback && cancel && (
+          <button className="text-button" onClick={cancel}>
+            {t('Cancel analysis')}
+          </button>
         )}
         {failed ? (
           <div className="analysis-status">
             <p>{t('The evaluation is unavailable. You can keep playing.')}</p>
-            {analysisError && <p className="subtle">{analysisError}</p>}
+            {analysisError && (
+              <p className="subtle">
+                {failureMessages[analysisError] ??
+                  t('The analysis could not be completed. Retry to try again.')}
+              </p>
+            )}
             <button className="text-button" onClick={retry}>
               {t('Retry evaluation')}
             </button>

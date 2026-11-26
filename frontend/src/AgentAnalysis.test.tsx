@@ -135,7 +135,24 @@ it('ignores a delayed result after switching games and reuses a recorded replay 
     initialProps: { current: game },
   });
   expect(view.result.current.pending).toBe(true);
-  const saved: PositionAnalysis = { ...report, position_key: 'saved-position', status: 'complete' };
+  const saved: PositionAnalysis = {
+    ...report,
+    position_key: 'saved-position',
+    status: 'complete',
+    evaluations: [
+      ...report.evaluations,
+      {
+        agent_id: 'advisor',
+        role: 'advisor',
+        name: 'Advisor',
+        config: { algorithm: 'baseline' },
+        source: 'heuristic',
+        win_probability: 0.5,
+        estimated: true,
+        calibrated: false,
+      },
+    ],
+  };
   view.rerender({ current: { ...game, id: 'two', analysis: saved } });
   expect(view.result.current.report).toEqual(saved);
   await act(async () => finish(response(report)));
@@ -866,7 +883,7 @@ it('aborts an old in-flight poll and never publishes its delayed response or sta
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
-it.each([400, 401, 403, 422, 429, 500])(
+it.each([400, 401, 403, 422, 500])(
   'keeps HTTP %s failures terminal until manual retry',
   async (status) => {
     vi.useFakeTimers();
@@ -887,6 +904,26 @@ it.each([400, 401, 403, 422, 429, 500])(
     expect(view.result.current.report).toMatchObject({ status: 'complete' });
   },
 );
+
+it('retries a structured HTTP 429 with its retry guidance', async () => {
+  vi.useFakeTimers();
+  const busy429 = () =>
+    new Response(JSON.stringify({ detail: 'Rate limited' }), {
+      status: 429,
+      headers: { 'Retry-After': '2' },
+    });
+  const fetcher = vi
+    .fn()
+    .mockImplementationOnce(async () => busy429())
+    .mockResolvedValue(response({ ...report, status: 'complete' }));
+  vi.stubGlobal('fetch', fetcher);
+  const view = renderHook(() => useGameAnalysis(game, true));
+  await tick();
+  expect(view.result.current.waiting).toBe(true);
+  await tick(2000);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(view.result.current.report).toMatchObject({ status: 'complete' });
+});
 
 it('localizes the pending capacity message without hiding available estimates', () => {
   setLanguage('de', false);
@@ -1075,4 +1112,44 @@ it('persists one MCTS revision after rapid edits without undoing a search-time c
   view.unmount();
   render(<Controls />);
   expect(screen.getByRole('spinbutton', { name: 'MCTS Iterations' })).toHaveValue(4096);
+});
+
+it('shows only server provenance while a fallback is pending', () => {
+  setLanguage('de', false);
+  render(
+    <AgentAnalysis
+      game={game}
+      report={report}
+      pending
+      failed={false}
+      retry={vi.fn()}
+      local
+      fallback
+      stage="fallback"
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Warten auf freie Analysekapazität');
+  expect(screen.queryByText('Die Analyse läuft auf diesem Gerät.')).toBeNull();
+  expect(screen.getByText('Warten auf freie Server-Analysekapazität…')).toBeInTheDocument();
+});
+
+it('renders determinate download progress and a cancellation action', () => {
+  setLanguage('de', false);
+  const cancel = vi.fn();
+  render(
+    <AgentAnalysis
+      game={game}
+      report={null}
+      pending
+      failed={false}
+      retry={vi.fn()}
+      local
+      stage="downloading"
+      downloadProgress={{ transferred: 5, total: 10 }}
+      cancel={cancel}
+    />,
+  );
+  expect(screen.getByRole('progressbar')).toHaveAttribute('value', '5');
+  fireEvent.click(screen.getByRole('button', { name: 'Analyse abbrechen' }));
+  expect(cancel).toHaveBeenCalled();
 });

@@ -5,7 +5,11 @@ import {
   type AnalyticsSettings,
   type PositionAnalysis,
 } from './analysisTypes';
-import { normalizeExecutionPolicy, type ExecutionMode } from './analysisPolicy';
+import {
+  normalizeExecutionPolicy,
+  type ExecutionMode,
+  type ExecutionPolicy,
+} from './analysisPolicy';
 import { loadAnalysisIntegration } from './browserAnalysis/loader';
 import type { LocalAnalysisError, LocalAnalysisStage } from './browserAnalysis/integration';
 import type { Game } from './types';
@@ -21,15 +25,43 @@ interface AnalysisRequestState {
   local?: boolean;
   fallback?: boolean;
   offline?: boolean;
-  error?: string;
+  errorCategory?: string;
+  download?: { transferred: number; total: number };
 }
 
-function resolvePolicy(settings: AnalyticsSettings) {
+function mergeAdvisorReport(
+  stored: PositionAnalysis | undefined,
+  local: PositionAnalysis,
+): PositionAnalysis {
+  if (!stored || stored.cursor !== local.cursor || stored.position_key !== local.position_key) {
+    return local;
+  }
+  return {
+    ...local,
+    evaluations: [
+      ...stored.evaluations.filter((entry) => entry.agent_id !== 'advisor'),
+      ...local.evaluations,
+    ],
+    // The newly calculated advice is the requested hint; unrelated historical
+    // evaluations remain untouched.
+    hint: local.hint ?? stored.hint,
+  };
+}
+
+function resolvePolicy(settings: AnalyticsSettings): ExecutionPolicy {
   try {
     return normalizeExecutionPolicy(settings.execution, { browserDelivery: false });
   } catch {
-    // A malformed projection must not silently enable local execution.
-    return normalizeExecutionPolicy(undefined);
+    // A malformed modern projection fails closed: do not guess server-only or
+    // silently enable local execution.
+    return {
+      ...normalizeExecutionPolicy(undefined),
+      mode: 'disabled' as const,
+      browserDelivery: false,
+      browserExecution: false,
+      serverComputation: false,
+      fallback: false,
+    };
   }
 }
 
@@ -155,7 +187,7 @@ export function useGameAnalysis(
     () => resolvePolicy(settings),
     // Policy fields, not the whole settings object, determine execution.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [settingsPending, settings.execution],
+    [settings.execution],
   );
   const mode: ExecutionMode = policy.mode;
   const localMode = policy.browserExecution;
@@ -165,25 +197,73 @@ export function useGameAnalysis(
     : '';
   // Winning chances and the best-move hint belong to the selected move advisor.
   const needed = !!game && !!settings.advisor;
-  const stored =
-    !settingsPending &&
-    game?.analysis?.cursor === game?.cursor &&
-    (game?.analysis?.advisor_revision ?? 0) === settings.revision
-      ? game?.analysis
-      : null;
+  const rawStored =
+    !settingsPending && game?.analysis?.cursor === game?.cursor ? game?.analysis : null;
+  const storedAdvisorCurrent = (rawStored?.advisor_revision ?? 0) === settings.revision;
+  const stored = rawStored
+    ? storedAdvisorCurrent
+      ? rawStored
+      : {
+          ...rawStored,
+          evaluations: rawStored.evaluations.filter((entry) => entry.agent_id !== 'advisor'),
+          hint: null,
+        }
+    : null;
+  const storedAdvisorComplete = Boolean(
+    stored &&
+      stored.cursor === game?.cursor &&
+      stored.status === 'complete' &&
+      stored.evaluations.some(
+        (entry) =>
+          entry.agent_id === 'advisor' &&
+          entry.source !== 'unavailable' &&
+          !entry.unavailable_reason,
+      ) &&
+      ((stored.advisor_revision ?? 0) === settings.revision || settings.revision === 0),
+  );
   const [request, setRequest] = useState<AnalysisRequestState | null>(null);
-  const [fallbackFor, setFallbackFor] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [onlineEpoch, setOnlineEpoch] = useState(0);
+  const activeController = useRef<AbortController | null>(null);
+  const serverFallbackKeys = useRef(new Set<string>());
   const creditedReplay = useRef('');
 
-  // Revalidate the local authorization boundary when connectivity returns. An
-  // offline transition never cancels warm work; only reconnection reruns it.
+  const refreshSettings = useCallback(async () => {
+    if (!gameId) return;
+    const sequence = ++settingsSequence.current;
+    try {
+      const value = await api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`);
+      if (currentGame.current === gameId && settingsSequence.current === sequence) {
+        confirmedSettings.current = { gameId, value };
+        setPreferences({ gameId, value, pending: false, confirmed: true });
+      }
+    } catch {
+      // Keep the last confirmed settings; the failed execution remains visible
+      // and retry re-reads them.
+    }
+  }, [gameId, basePath]);
+
+  // Revalidate the local authorization boundary when connectivity returns.
   useEffect(() => {
     const online = () => setOnlineEpoch((value) => value + 1);
     window.addEventListener('online', online);
     return () => window.removeEventListener('online', online);
   }, []);
+
+  // Refresh the server-owned policy projection on reconnect or when a visible
+  // analysis surface resumes after a server restart/policy change.
+  useEffect(() => {
+    if (!gameId || !visible) return;
+    const refresh = () => {
+      if (!document.hidden) void refreshSettings();
+    };
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [gameId, visible, refreshSettings]);
 
   // Bind and invalidate the managed local runtime only when local execution is
   // permitted. A server-only or disabled deployment never imports this chunk.
@@ -199,150 +279,42 @@ export function useGameAnalysis(
     };
   }, [localMode, accountId]);
 
-  // Local execution path. It never runs concurrently with the server path: a
-  // fallback is only requested after the local promise has settled.
+  // One effect owns one logical request. It executes locally, retires it, then
+  // (only after a classified eligible failure) hands the same request to the
+  // server. No second effect or key-based fallback flag can resurrect an older
+  // execution path after navigation.
   useEffect(() => {
     if (
       !game ||
-      !localMode ||
       disabled ||
       !visible ||
       !needed ||
       settingsPending ||
       !settingsConfirmed ||
-      stored?.status === 'complete'
-    )
-      return;
-    let alive = true;
-    const controller = new AbortController();
-    setRequest({
-      key,
-      status: 'pending',
-      stage: 'preparing',
-      local: true,
-      report: stored ?? undefined,
-    });
-    const run = async () => {
-      try {
-        const integration = await loadAnalysisIntegration();
-        if (!alive || controller.signal.aborted) return;
-        const outcome = await integration.runLocalAnalysis({
-          accountId,
-          game,
-          basePath,
-          cursor: game.cursor,
-          settings,
-          policy,
-          signal: controller.signal,
-          offline: typeof navigator !== 'undefined' && navigator.onLine === false,
-          onStage: (stage) => {
-            if (alive && !controller.signal.aborted) {
-              setRequest((previous) =>
-                previous?.key === key
-                  ? { ...previous, status: 'pending', stage, local: true }
-                  : previous,
-              );
-            }
-          },
-        });
-        if (!alive || controller.signal.aborted) return;
-        setRequest({
-          key,
-          status: 'done',
-          report: outcome.report,
-          local: true,
-          offline: outcome.offline,
-        });
-      } catch (error) {
-        if (!alive || controller.signal.aborted) return;
-        const failure = error as Partial<LocalAnalysisError>;
-        if (failure?.category === 'cancelled') return;
-        if (
-          failure?.fallbackEligible === true &&
-          policy.fallback &&
-          mode === 'browser_preferred' &&
-          (typeof navigator === 'undefined' || navigator.onLine !== false)
-        ) {
-          // The server policy explicitly permits a bounded compatibility
-          // fallback. Do not retry locally in a loop; let the server path own it.
-          setRequest({
-            key,
-            status: 'waiting',
-            stage: 'fallback',
-            local: true,
-            fallback: true,
-            report: stored ?? undefined,
-          });
-          setFallbackFor(key);
-          return;
-        }
-        setRequest({
-          key,
-          status: 'failed',
-          local: true,
-          report: stored ?? undefined,
-          error: failure?.message,
-        });
-      }
-    };
-    void run();
-    return () => {
-      alive = false;
-      controller.abort();
-    };
-    // Stored reports arrive with gameplay responses; local work is keyed explicitly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    key,
-    visible,
-    needed,
-    settingsPending,
-    settingsConfirmed,
-    localMode,
-    disabled,
-    mode,
-    policy.fallback,
-    accountId,
-    attempt,
-    historical,
-    onlineEpoch,
-  ]);
-
-  const serverEligible = !localMode || fallbackFor === key;
-  useEffect(() => {
-    if (
-      !game ||
-      !serverEligible ||
-      disabled ||
-      !visible ||
-      !needed ||
-      settingsPending ||
-      !settingsConfirmed ||
-      stored?.status === 'complete'
+      storedAdvisorComplete
     )
       return;
     let alive = true;
     let running = false;
     let failures = 0;
     const controller = new AbortController();
+    activeController.current = controller;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const sequence = settingsSequence.current;
     const current = () =>
       alive && !controller.signal.aborted && settingsSequence.current === sequence;
-    if (localMode) {
-      setRequest((previous) =>
-        previous?.key === key
-          ? { ...previous, status: 'waiting', stage: 'fallback', fallback: true }
-          : { key, status: 'waiting', stage: 'fallback', fallback: true },
-      );
-    } else {
-      setRequest((previous) => ({
-        key,
-        status: 'pending',
-        report: previous?.key === key ? previous.report : (stored ?? undefined),
-      }));
-    }
-    const poll = async () => {
+    const baseReport = stored ?? undefined;
+    const stateFor = (
+      status: AnalysisRequestState['status'],
+      patch: Partial<AnalysisRequestState> = {},
+    ): AnalysisRequestState => ({
+      key,
+      status,
+      report: baseReport,
+      ...patch,
+    });
+
+    const pollServer = async () => {
       if (!current() || running) return;
       running = true;
       try {
@@ -359,18 +331,8 @@ export function useGameAnalysis(
           localMode ? { 'X-Analysis-Fallback': '1' } : undefined,
         );
         if (!current()) return;
-        // A response from before an advisor edit must never redraw its arrow.
         if ((report.advisor_revision ?? 0) !== settings.revision) {
-          const value = await api<AnalyticsSettings>(
-            `${basePath}/${game.id}/analytics`,
-            undefined,
-            undefined,
-            controller.signal,
-          );
-          if (current()) {
-            confirmedSettings.current = { gameId, value };
-            setPreferences({ gameId, value, pending: false, confirmed: true });
-          }
+          await refreshSettings();
           return;
         }
         failures = 0;
@@ -390,38 +352,155 @@ export function useGameAnalysis(
           creditedReplay.current = replayKey;
           window.dispatchEvent(new Event('progression-changed'));
         }
-        setRequest({
-          key,
-          status: pending ? 'pending' : 'done',
-          report,
-          local: localMode,
-          fallback: localMode,
-        });
-        if (pending) timer = setTimeout(() => void poll(), 300);
+        setRequest(
+          stateFor(pending ? 'pending' : 'done', {
+            status: pending ? 'pending' : 'done',
+            report,
+            local: localMode,
+            fallback: localMode,
+          }),
+        );
+        if (pending) timer = setTimeout(() => void pollServer(), 300);
+        else serverFallbackKeys.current.delete(key);
       } catch (error) {
         if (!current()) return;
-        const temporary = error instanceof ApiError && error.status === 503;
+        const temporary =
+          error instanceof ApiError && (error.status === 503 || error.status === 429);
+        const retry = temporary && failures < 8;
         setRequest((previous) => ({
           key,
-          status: temporary ? 'waiting' : 'failed',
-          report: previous?.key === key ? previous.report : (stored ?? undefined),
+          status: retry ? 'waiting' : 'failed',
+          report: previous?.key === key ? previous.report : baseReport,
           local: localMode,
           fallback: localMode,
+          errorCategory: retry ? 'server-busy' : 'server-failed',
         }));
-        if (temporary) {
-          // Match the existing poller's capped backoff, while retaining fast
-          // progress polling for an admitted search. Never spin during overload.
+        if (retry) {
           const delay = Math.min(30000, Math.max(1000 * 2 ** failures, error.retryAfterMs ?? 0));
-          failures = Math.min(failures + 1, 5);
-          timer = setTimeout(() => void poll(), delay);
+          failures += 1;
+          timer = setTimeout(() => void pollServer(), delay);
+        } else {
+          serverFallbackKeys.current.delete(key);
         }
       } finally {
         running = false;
       }
     };
-    void poll();
+
+    const run = async () => {
+      if (localMode && serverFallbackKeys.current.has(key)) {
+        // A server request admitted for this logical request may still be
+        // retiring. Observe/join it rather than starting an overlapping local
+        // search for the same position.
+        setRequest(
+          stateFor('waiting', {
+            status: 'waiting',
+            local: true,
+            fallback: true,
+            stage: 'fallback',
+          }),
+        );
+        await pollServer();
+        return;
+      }
+      if (localMode) {
+        setRequest(stateFor('pending', { status: 'pending', local: true, stage: 'preparing' }));
+        try {
+          const integration = await loadAnalysisIntegration();
+          if (!current()) return;
+          const outcome = await integration.runLocalAnalysis({
+            accountId,
+            game,
+            basePath,
+            cursor: game.cursor,
+            settings,
+            policy,
+            signal: controller.signal,
+            offline: typeof navigator !== 'undefined' && navigator.onLine === false,
+            onStage: (nextStage) => {
+              if (current()) {
+                setRequest((previous) =>
+                  previous?.key === key
+                    ? { ...previous, status: 'pending', stage: nextStage, local: true }
+                    : previous,
+                );
+              }
+            },
+            onDownloadProgress: (progress) => {
+              if (current()) {
+                setRequest((previous) =>
+                  previous?.key === key
+                    ? {
+                        ...previous,
+                        download: {
+                          transferred: progress.transferredBytes,
+                          total: progress.totalBytes,
+                        },
+                      }
+                    : previous,
+                );
+              }
+            },
+          });
+          if (!current()) return;
+          setRequest(
+            stateFor('done', {
+              status: 'done',
+              report: mergeAdvisorReport(baseReport, outcome.report),
+              local: true,
+              offline: outcome.offline,
+              stage: undefined,
+            }),
+          );
+          return;
+        } catch (error) {
+          if (!current()) return;
+          const failure = error as Partial<LocalAnalysisError>;
+          if (failure?.category === 'cancelled') return;
+          if (failure?.code === 'policy-changed') {
+            setRequest(
+              stateFor('failed', {
+                local: true,
+                errorCategory: 'policy-changed',
+              }),
+            );
+            void refreshSettings();
+            return;
+          }
+          if (
+            failure?.fallbackEligible === true &&
+            policy.fallback &&
+            mode === 'browser_preferred' &&
+            (typeof navigator === 'undefined' || navigator.onLine !== false)
+          ) {
+            serverFallbackKeys.current.add(key);
+            setRequest(
+              stateFor('waiting', {
+                status: 'waiting',
+                local: true,
+                fallback: true,
+                stage: 'fallback',
+              }),
+            );
+            await pollServer();
+            return;
+          }
+          setRequest(
+            stateFor('failed', {
+              local: true,
+              errorCategory: failure?.category ?? 'unknown',
+            }),
+          );
+          return;
+        }
+      }
+      setRequest(stateFor('pending', { status: 'pending' }));
+      await pollServer();
+    };
+    void run();
     return () => {
       alive = false;
+      activeController.current = null;
       if (timer) clearTimeout(timer);
       controller.abort();
     };
@@ -433,15 +512,27 @@ export function useGameAnalysis(
     needed,
     settingsPending,
     settingsConfirmed,
+    storedAdvisorComplete,
+    localMode,
+    disabled,
+    mode,
+    policy.fallback,
+    policy.offlineAuthorizationSeconds,
+    accountId,
     attempt,
     historical,
-    readOnlyHistory,
-    serverEligible,
-    disabled,
-    localMode,
+    onlineEpoch,
   ]);
   const current = request?.key === key ? request : null;
   const report = current?.report ?? stored ?? null;
+  const cancel = () => {
+    activeController.current?.abort();
+    setRequest((previous) =>
+      previous?.key === key
+        ? { ...previous, status: 'failed', errorCategory: 'cancelled' }
+        : previous,
+    );
+  };
   return {
     report,
     pending:
@@ -451,13 +542,13 @@ export function useGameAnalysis(
       !disabled &&
       (current
         ? current.status === 'pending' || current.status === 'waiting'
-        : !stored || stored.status === 'pending'),
+        : !storedAdvisorComplete),
     waiting: current?.status === 'waiting',
     failed: current?.status === 'failed',
     retry: () => {
-      setFallbackFor(null);
       setAttempt((value) => value + 1);
     },
+    cancel,
     show: !!game && !!settings.advisor,
     settings,
     updateSettings,
@@ -469,6 +560,7 @@ export function useGameAnalysis(
     stage: current?.stage,
     fallback: current?.fallback === true,
     offline: current?.offline === true,
-    analysisError: current?.error,
+    analysisError: current?.errorCategory,
+    downloadProgress: current?.download,
   };
 }

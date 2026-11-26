@@ -26,7 +26,7 @@ from hnefatafl.engine import Move, State, apply_move, legal_moves
 
 BRIDGE_PROTOCOL = 1
 MAX_BRIDGE_BYTES = 512 * 1024
-MAX_ANALYSIS_TIME = 3.0
+MAX_ANALYSIS_TIME = 5.0
 
 ANALYSIS_RANGES = {
     "depth": (1, 5),

@@ -130,7 +130,7 @@ try {
   sessionId = `phase5-${Date.now()}`;
 
   const games = [];
-  for (const ruleset of ['brandubh', 'tablut', 'copenhagen']) {
+  for (const ruleset of ['brandubh', 'tablut', 'copenhagen', 'brandubh']) {
     const created = await context.request.post(`${baseUrl}/api/games`, {
       data: {
         ruleset,
@@ -148,6 +148,35 @@ try {
   ).models[0];
   modelSha256 = published.onnx_sha256;
   const registeredId = published.registered_model_ids?.[0];
+  for (const [index, game] of games.entries()) {
+    const neural = index === games.length - 1;
+    const saved = await context.request.put(`${baseUrl}/api/games/${game.id}/analytics`, {
+      data: {
+        advisor: {
+          name: neural ? published.display_name : 'Jarl advisor',
+          profile_id: neural ? 'neural' : 'alpha_beta',
+          config: neural
+            ? {
+                algorithm: 'neural',
+                model_id: registeredId,
+                search_wrapper: 'mcts',
+                iterations: 8,
+                time_limit: 0.3,
+              }
+            : {
+                algorithm: 'alpha_beta',
+                depth: 2,
+                time_limit: 0.3,
+                heuristic: 'shield_maiden',
+              },
+        },
+        time_limit: 0.3,
+        show_win_chances: true,
+      },
+      headers,
+    });
+    if (saved.status() !== 200) throw new Error(`analytics failed: ${await saved.text()}`);
+  }
 
   const page = await context.newPage();
   await page.goto(`${baseUrl}/`, { waitUntil: 'load' });
@@ -182,45 +211,24 @@ try {
       window.__phase5 = integration;
       await integration.setAnalysisAccount('admin');
       const games = data.map((entry) => entry.game);
-      const policy = data[0].policy;
-      const jarl = (game, cursor = 0) => ({
-        accountId: 'admin',
-        game,
-        basePath: '/games',
-        cursor,
-        policy,
-        settings: {
-          ...data[0].analytics,
-          advisor: {
-            name: 'Jarl advisor',
-            profile_id: 'alpha_beta',
-            config: { algorithm: 'alpha_beta', depth: 2, time_limit: 0.3, heuristic: 'shield_maiden' },
-          },
-        },
-        signal: new AbortController().signal,
-      });
-      const neural = (game, cursor = 0) => ({
-        ...jarl(game, cursor),
-        settings: {
-          ...data[0].analytics,
-          advisor: {
-            name: publishedName,
-            profile_id: 'neural',
-            config: {
-              algorithm: 'neural',
-              model_id: registeredId,
-              search_wrapper: 'mcts',
-              iterations: 8,
-              time_limit: 0.3,
-            },
-          },
-        },
-      });
+      const jarl = (gameIndex, cursor = 0) => {
+        const entry = data[gameIndex];
+        return {
+          accountId: 'admin',
+          game: entry.game,
+          basePath: '/games',
+          cursor,
+          policy: entry.policy,
+          settings: entry.analytics,
+          signal: new AbortController().signal,
+        };
+      };
+      const neural = (cursor = 0) => jarl(games.length - 1, cursor);
       window.__phase5Run = { jarl, neural, games, integration };
-      await integration.runLocalAnalysis(jarl(games[0]));
-      await integration.runLocalAnalysis(neural(games[0]));
-      await integration.runLocalAnalysis(jarl(games[1]));
-      await integration.runLocalAnalysis(jarl(games[2]));
+      await integration.runLocalAnalysis(jarl(0));
+      await integration.runLocalAnalysis(jarl(1));
+      await integration.runLocalAnalysis(jarl(2));
+      await integration.runLocalAnalysis(neural());
     },
     {
       integrationPath: `/${integration.file}`,
@@ -239,8 +247,7 @@ try {
         const helpers = window.__phase5Run;
         // Neural inference is bound to the published Brandubh model; Jarl
         // exercises all three rulesets.
-        const game = helpers.games[kind === 'neural' ? 0 : gameIndex];
-        const input = kind === 'neural' ? helpers.neural(game, 0) : helpers.jarl(game, 0);
+        const input = kind === 'neural' ? helpers.neural(0) : helpers.jarl(gameIndex, 0);
         const started = performance.now();
         try {
           const outcome = await integration.runLocalAnalysis({
@@ -342,10 +349,10 @@ try {
         const controller = new AbortController();
         const pending = integration
           .runLocalAnalysis({
-            ...helpers.jarl(helpers.games[0]),
+            ...helpers.jarl(0),
             signal: controller.signal,
             settings: {
-              ...helpers.jarl(helpers.games[0]).settings,
+              ...helpers.jarl(0).settings,
               advisor: {
                 name: 'Jarl advisor',
                 profile_id: 'alpha_beta',

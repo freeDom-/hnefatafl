@@ -242,10 +242,7 @@ try {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(`${baseUrl}/games/${game.id}`, { waitUntil: 'load' });
   const openAnalytics = async () => {
-    await page.waitForSelector('.agent-analysis .analysis-device', {
-      state: 'attached',
-      timeout: 90_000,
-    });
+    await page.waitForSelector('.agent-analysis', { state: 'attached', timeout: 90_000 });
     const tabs = page.getByRole('tab', { name: 'Analytics' });
     for (let index = 0; index < (await tabs.count()); index += 1) {
       const candidate = tabs.nth(index);
@@ -254,11 +251,11 @@ try {
         break;
       }
     }
-    await page.waitForSelector('.agent-analysis .analysis-device', { timeout: 90_000 });
     await page.waitForSelector('.agent-estimate', { timeout: 90_000 });
   };
   await openAnalytics();
-  const deviceText = (await page.textContent('.agent-analysis .analysis-device')) ?? '';
+  const deviceText =
+    (await page.getByText('Analysis runs on this device.').first().textContent()) ?? '';
   check(
     'existing analysis UI indicates local execution',
     /this device|diesem Gerät/i.test(deviceText),

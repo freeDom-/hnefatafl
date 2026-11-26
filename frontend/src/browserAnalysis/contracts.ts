@@ -41,6 +41,8 @@ export const LIMITS = {
   maxNeuralBudgetSeconds: 10,
   initTimeoutMs: 45_000,
   maxJobTimeoutMs: 5_000,
+  /** Classical deadline + bounded recovery margin, still below the runtime ceiling. */
+  maxClassicalJobTimeoutMs: 7_500,
   neuralWatchdogMs: 20_000,
   shutdownTimeoutMs: 5_000,
   /** Conservative client-side bound for warm offline authorization. */

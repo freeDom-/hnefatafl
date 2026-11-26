@@ -56,7 +56,7 @@ let managedRuntimeInstances = 0;
 
 interface LocalAnalysisClientLike {
   load?(): Promise<unknown>;
-  request(payload: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+  request(payload: unknown, options?: { timeoutMs?: number; ceilingMs?: number }): Promise<unknown>;
   cancel(reason?: string): void;
   dispose(): void;
 }
@@ -386,6 +386,7 @@ export class BrowserAnalysisRuntime {
   private terminatedClients = new WeakSet<object>();
   private activeSearch: { op: Operation; promise: Promise<SearchResult> } | null = null;
   private offlineLease: { accountId: string; until: number; runtimeId: string } | null = null;
+  private modelAuthorizations = new Map<string, number>();
 
   constructor(private readonly options: RuntimeOptions = {}) {
     this.cache = options.cache ?? null;
@@ -1092,7 +1093,7 @@ export class BrowserAnalysisRuntime {
     if (!client) throw new BrowserAnalysisError('not-initialized', 'Runtime is not initialized');
     const effective = normalizeJarlSettings(request.settings);
     const watchdog = Math.min(
-      LIMITS.maxJobTimeoutMs,
+      LIMITS.maxClassicalJobTimeoutMs,
       Math.max(1000, Math.round(Number(effective.time_limit) * 1000) + 2000),
     );
     const cancelJarl = () => {
@@ -1121,7 +1122,7 @@ export class BrowserAnalysisRuntime {
       response = (await this.withTimeout(
         client.request(
           { action: 'analysis', state: request.state, config: effective },
-          { timeoutMs: watchdog },
+          { timeoutMs: watchdog, ceilingMs: LIMITS.maxClassicalJobTimeoutMs },
         ),
         watchdog,
         'Jarl search exceeded its watchdog',
@@ -1197,6 +1198,7 @@ export class BrowserAnalysisRuntime {
     if (!offline) {
       await this.revalidateModel(model, op);
       this.assertOwned(op);
+      this.modelAuthorizations.set(model.onnxSha256, now());
     }
     if (!this.neural) {
       const neuralModule = await this.loadRuntimeModule(op, RUNTIME_JS.neuralClient);
@@ -1234,6 +1236,13 @@ export class BrowserAnalysisRuntime {
       current.ruleset === model.ruleset &&
       current.size === model.boardSize &&
       current.provider === provider;
+    if (offline && !this.modelAuthorizations.has(model.onnxSha256)) {
+      throw new BrowserAnalysisError(
+        'unauthorized',
+        'The requested model has no offline authorization',
+        false,
+      );
+    }
     if (!healthy && offline) {
       // Warm offline execution may use only resources that are already
       // initialized. Reconstructing a model session from storage (or worse, the
@@ -1537,6 +1546,7 @@ export class BrowserAnalysisRuntime {
 
   clearOfflineAuthorization(): void {
     this.offlineLease = null;
+    this.modelAuthorizations.clear();
   }
 
   // ------------------------------------------------------------ cancellation & lifecycle
@@ -1725,6 +1735,7 @@ export class BrowserAnalysisRuntime {
   async invalidateAccountContext(): Promise<void> {
     this.context += 1;
     this.offlineLease = null;
+    this.modelAuthorizations.clear();
     const context = this.context;
     this.initState = null;
     this.abortOperations(() => true);
@@ -1800,6 +1811,8 @@ export class BrowserAnalysisRuntime {
     this.disposed = true;
     this.context += 1;
     this.offlineLease = null;
+    this.modelAuthorizations.clear();
+    this.modelAuthorizations.clear();
     this.abortOperations(() => true);
     this.downloads.cancelAll('Runtime disposed');
     const search = this.activeSearch;

@@ -2135,7 +2135,7 @@ describe('browser analysis runtime — warm offline authorization (Phase 5)', ()
         },
         { offline: { accountId: 'account-1' } },
       ),
-    ).rejects.toMatchObject({ code: 'not-initialized' });
+    ).rejects.toMatchObject({ code: 'unauthorized' });
     expect(env.modelRequests).toBe(0);
   });
 

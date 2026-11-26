@@ -52,9 +52,9 @@ import { BrowserAnalysisRuntime, type RuntimeOptions } from './runtime';
 export const BROWSER_ANALYSIS_DEFAULT_ENABLED = false;
 
 export interface BrowserAnalysisApi {
-  availability(): Promise<Availability>;
+  availability(options?: { signal?: AbortSignal }): Promise<Availability>;
   initialize(options?: { signal?: AbortSignal; skipProbe?: boolean }): Promise<RuntimeStatus>;
-  listModels(): Promise<ModelManifest[]>;
+  listModels(options?: { signal?: AbortSignal }): Promise<ModelManifest[]>;
   downloadModel(
     model: ModelManifest,
     hooks?: { onProgress?: (progress: DownloadProgress) => void; signal?: AbortSignal },
@@ -80,9 +80,9 @@ export async function createBrowserAnalysis(
 ): Promise<BrowserAnalysisApi> {
   const runtime = await BrowserAnalysisRuntime.create(options);
   return {
-    availability: () => runtime.availability(),
+    availability: (options) => runtime.availability(options),
     initialize: (initOptions) => runtime.initialize(initOptions),
-    listModels: () => runtime.listModels(),
+    listModels: (options) => runtime.listModels(options),
     downloadModel: (model, hooks) => runtime.downloadModel(model, hooks),
     runSearch: (request, searchOptions) => runtime.runSearch(request, searchOptions),
     cancel: (reason) => runtime.cancel(reason),
