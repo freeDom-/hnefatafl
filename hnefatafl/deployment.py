@@ -1657,7 +1657,8 @@ class Deployment:
         try:
             shutil.copyfile(source, temporary)
             os.chmod(temporary, mode)
-            os.chown(temporary, 0, 0)
+            if os.geteuid() == 0:
+                os.chown(temporary, 0, 0)
             os.replace(temporary, destination)
             descriptor = os.open(destination.parent, os.O_DIRECTORY)
             try:
