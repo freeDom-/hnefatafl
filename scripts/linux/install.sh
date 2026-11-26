@@ -59,7 +59,10 @@ PY
     }
     temporary="$destination.new.$$"
     install -m "$mode" "$source" "$temporary"
-    mv -f -- "$temporary" "$destination"
+    python3 - "$temporary" "$destination" <<'PY'
+import os, sys
+os.replace(sys.argv[1], sys.argv[2])
+PY
   done
 }
 verify_service() {
