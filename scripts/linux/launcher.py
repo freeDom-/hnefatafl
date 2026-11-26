@@ -11,6 +11,8 @@ import stat
 import sys
 from pathlib import Path
 
+LAUNCHER_PROTOCOL = 1
+
 
 def trusted(path, *, directory=False):
     info = path.lstat()
@@ -89,6 +91,9 @@ def launch(lock_path=Path("/run/lock/hnefatafl-update.lock")):
         metadata = json.loads(manifest)
         if metadata.get("abi") != active.get("abi") or active.get("schema") != 1:
             raise ValueError("Installed updater protocol does not match the active generation")
+        minimum = metadata.get("minimum_launcher_protocol", 1)
+        if type(minimum) is not int or not 1 <= minimum <= LAUNCHER_PROTOCOL:
+            raise ValueError("The active generation needs a newer deployment launcher")
         files = metadata["files"]
         if "deployment.py" not in files:
             raise ValueError("Installed updater generation is incomplete")

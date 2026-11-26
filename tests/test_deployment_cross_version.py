@@ -370,11 +370,19 @@ def test_historical_041_fails_under_exclusive_gate(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("tag", [support.REF_0411, support.REF_042])
-def test_released_legacy_backups_move_without_space_and_keep_rollback_reference(tmp_path, tag):
+def test_released_legacy_backups_move_without_space_and_keep_rollback_reference(
+    tmp_path, tag, monkeypatch
+):
     import subprocess
     import sys
 
-    from hnefatafl.deployment import FilesystemInfo, atomic_json
+    from hnefatafl import deployment as updater_module
+    from hnefatafl.deployment import (
+        Deployment,
+        FilesystemInfo,
+        atomic_json,
+        install_reviewed_updater,
+    )
 
     support.require_inputs()
     source = support.extract(tag, tmp_path / "source")
@@ -432,6 +440,34 @@ print(json.dumps([str(updater.snapshot()) for _ in range(5)]))
         deployment.journal,
         {key: committed[key] for key in ("target", "previous", "backup", "phase")},
     )
+    utilities, commands = tmp_path / "lib", tmp_path / "bin"
+    utilities.mkdir()
+    commands.mkdir()
+    flat = (source / "hnefatafl/deployment.py").read_bytes()
+    (utilities / "deployment.py").write_bytes(flat)
+    for name in ("update", "backup"):
+        wrapper = commands / f"hnefatafl-{name}"
+        wrapper.write_bytes((source / f"scripts/linux/{name}.sh").read_bytes())
+        wrapper.chmod(0o755)
+    before = (deployment.state.read_bytes(), deployment.journal.read_bytes())
+    monkeypatch.setattr(
+        updater_module,
+        "Deployment",
+        lambda config, **kwargs: Deployment(
+            config, base=deployment.base, data=deployment.data, backups=deployment.backups, **kwargs
+        ),
+    )
+    install_reviewed_updater(
+        Path(__file__).resolve().parents[1],
+        deployment.etc,
+        utilities,
+        commands,
+        tmp_path / "deployment.lock",
+    )
+    assert (utilities / "legacy-deployment.py").read_bytes() == flat
+    assert (utilities / "deployment.py").read_bytes() != flat
+    assert json.loads((utilities / "active.json").read_text())["abi"] >= 3
+    assert before == (deployment.state.read_bytes(), deployment.journal.read_bytes())
     deployment.filesystem_info = lambda path: FilesystemInfo(1, Path(path), 1024, 16)
     deployment.ensure_layout()
     assert not legacy.exists()

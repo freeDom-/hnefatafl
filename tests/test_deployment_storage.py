@@ -281,8 +281,13 @@ def test_incomplete_release_and_unknown_directories_are_conservative(harness):
     incomplete = harness.releases / "0.1.0-0001"
     incomplete.mkdir()
     (incomplete / "partial").write_bytes(b"x")
+    harness.fs.write_staging_marker(incomplete, "release")
     old = time.time() - 7200
     os.utime(incomplete, (old, old))
+    unmarked = harness.releases / "0.3.0-0004"
+    unmarked.mkdir()
+    (unmarked / "keep").write_text("unrelated directory")
+    os.utime(unmarked, (old, old))
     unknown = harness.releases / "notes"
     unknown.mkdir()
     (unknown / "keep").write_text("operator notes")
@@ -296,6 +301,7 @@ def test_incomplete_release_and_unknown_directories_are_conservative(harness):
     harness.set_state("1.0.0", active)
     report = harness.cleanup(dry_run=False)
     assert not incomplete.exists()
+    assert (unmarked / "keep").read_text() == "unrelated directory"
     assert unknown.exists() and (unknown / "keep").exists()
     assert outside.exists() and (outside / "secret").exists()
     assert symlink.is_symlink()
@@ -887,19 +893,153 @@ def test_accumulated_release_and_backup_history_is_bounded(harness):
     assert report.reclaimable_bytes > 0
 
 
-def test_separate_data_filesystem_is_checked_independently(harness):
+@pytest.mark.parametrize("separate_filesystems", [False, True])
+def test_snapshot_fits_but_automatic_recovery_requires_more_space(harness, separate_filesystems):
+    target = harness.release("2.0.0", "0001")
+    old = harness.release("1.0.0", "0002")
+    harness.activate(old)
+    harness.set_state("1.0.0", old)
+    with sqlite3.connect(harness.data / "hnefatafl.sqlite3") as database:
+        database.execute("CREATE TABLE history(payload BLOB)")
+        database.execute("INSERT INTO history VALUES(zeroblob(?))", (48 * 1024**2,))
+    with (harness.data / "jobs/job.log").open("rb+") as history:
+        history.truncate(192 * 1024**2)
+
+    backup_requirement = harness.snapshot_requirement()
+    free = backup_requirement.bytes + 32 * 1024**2
+    harness.storage_settings["headroom_mib"] = 0
+
     def filesystem(path):
         path = Path(path)
-        if str(path).startswith(str(harness.base)):
-            return FilesystemInfo(1, path, 10 * 1024**3, 100000)
-        return FilesystemInfo(2, path, 8 * 1024**2, 100000)
+        device = 2 if separate_filesystems and path == harness.backups else 1
+        return FilesystemInfo(device, path, free, 100000)
+
+    harness.filesystem_override = filesystem
+    harness.check_storage([backup_requirement], phase="standalone snapshot")
+    with pytest.raises(StorageError, match="restore candidate, private live SQLite authority"):
+        harness.deploy(target)
+    assert harness.actions == []
+    assert harness.current.resolve() == old
+    assert (harness.data / "jobs/job.log").stat().st_size == 192 * 1024**2
+    assert not harness.journal.exists()
+
+
+def test_storage_recheck_after_shutdown_before_snapshot(harness, monkeypatch):
+    old = harness.release("1.0.0", "0001")
+    target = harness.release("2.0.0", "0002")
+    harness.activate(old)
+    harness.set_state("1.0.0", old)
+
+    def filesystem(path):
+        available = 1 if harness.actions and harness.actions[-1] == "stop" else 10 * 1024**3
+        return FilesystemInfo(1, Path(path), available, 100000)
+
+    harness.filesystem_override = filesystem
+    monkeypatch.setattr(harness, "snapshot", lambda **kw: pytest.fail("unexpected snapshot"))
+    with pytest.raises(DeploymentStepError, match="post-stop storage preflight"):
+        harness.deploy(target)
+    assert harness.current.resolve() == old
+    assert harness.actions.count("start") == 1
+    assert not list(harness.data.parent.glob(".retained-*"))
+
+
+def test_failed_first_install_preserves_written_data_in_recovery_tree(harness, monkeypatch):
+    target = harness.release("1.0.0", "0001")
+    original = (harness.data / "models/weights").read_bytes()
+    run = harness.run
+
+    def fail_init(args, **kwargs):
+        if "init-admin" in args:
+            (harness.data / "models/install-output").write_bytes(b"created by failed installation")
+            raise OSError("fixture initialization failure")
+        return run(args, **kwargs)
+
+    monkeypatch.setattr(harness, "run", fail_init)
+    with pytest.raises(DeploymentStepError, match="initial administrator provisioning"):
+        harness.deploy(target, initialize=True)
+    assert not harness.current.exists()
+    assert (harness.data / "models/weights").read_bytes() == original
+    assert not (harness.data / "models/install-output").exists()
+    (retained,) = harness.data.parent.glob(".retained-*")
+    assert (retained / "models/install-output").read_bytes() == b"created by failed installation"
+    assert json.loads(harness.journal.read_text())["phase"] == "recovered"
+
+
+@pytest.mark.parametrize("limit", [1, 2, 3])
+def test_storage_reclamation_during_updater_refresh_protects_the_exact_target(tmp_path, limit):
+    harness = Harness(tmp_path, {"retention": {"releases": limit, "backups": limit}})
+    configure_updater(harness, tmp_path)
+    old = harness.release("1.0.0", "0001", prepared_at=4)
+    rollback = harness.release("0.99.0", "0002", prepared_at=3)
+    target = harness.release("0.43", "0003", prepared_at=1)
+    duplicate = harness.release("0.43", "0004", prepared_at=5)
+    harness.activate(old)
+    backup = harness.make_backup("20260101T000000-0001")
+    harness.set_state("1.0.0", old, previous=rollback, backup=backup)
+    source = updater_archive(tmp_path / "source.tar.gz")
+    digest = "sha256:" + "c" * 64
+    marker = target / ".release.json"
+    atomic_json(marker, {**json.loads(marker.read_text()), "sha256": digest})
+    harness._stage_updater_payload(source, "0.43", digest)
+
+    def filesystem(path):
+        path = Path(path)
+        if path == harness.updater_root:
+            for protected in (target, old, rollback, backup):
+                assert protected.is_dir()
+            return FilesystemInfo(2, path, 0 if duplicate.exists() else 10 * 1024**3, 100000)
+        return FilesystemInfo(1, path, 10 * 1024**3, 100000)
+
+    harness.filesystem_override = filesystem
+    harness.deploy(target)
+    assert harness.current.resolve() == target
+    assert harness._require_complete_release(target)["sha256"] == digest
+    assert not duplicate.exists()
+    assert old.is_dir()
+    assert json.loads((harness.updater_root / "active.json").read_text())["abi"] == 3
+
+
+@pytest.mark.parametrize("constrained", ["temporary bytes", "temporary inodes", "updater bytes"])
+def test_preparation_checks_separate_temporary_and_updater_filesystems(tmp_path, constrained):
+    harness = Harness(tmp_path)
+    configure_updater(harness, tmp_path)
+    devices = {harness.temporary_root: 2, harness.updater_root: 3}
+
+    def filesystem(path):
+        path = Path(path)
+        device = devices.get(path, 1)
+        byte_limited = (device, constrained) in ((2, "temporary bytes"), (3, "updater bytes"))
+        inode_limited = device == 2 and constrained == "temporary inodes"
+        return FilesystemInfo(
+            device,
+            path,
+            16 * 1024**2 if byte_limited else 20 * 1024**3,
+            1 if inode_limited else 100000,
+        )
 
     harness.filesystem_override = filesystem
     with pytest.raises(StorageError) as error:
-        harness.preflight_prepare(0)
-    assert error.value.filesystem.startswith(str(harness.data))
-    assert "Available: 8 MiB" in str(error.value)
-    assert "Estimated requirement:" in str(error.value)
+        harness.preflight_prepare(32 * 1024**2)
+    expected = harness.updater_root if constrained.startswith("updater") else harness.temporary_root
+    assert error.value.filesystem == str(expected)
+    assert not harness.actions
+
+
+def test_same_filesystem_preparation_accounts_for_the_archive_once(harness):
+    mib = 1024**2
+    archive_bytes = 1000 * mib
+    requirements = harness._prepare_requirements(archive_bytes)
+    assert sum(item.bytes for item in requirements if "download" in item.label) == archive_bytes
+    common = [item for item in requirements if item.stage is None]
+    expected_bytes = sum(item.bytes for item in common) + archive_bytes
+    expected_bytes += harness.storage_settings["headroom_mib"] * mib
+    limits = [expected_bytes, expected_bytes - 1]
+    harness.filesystem_override = lambda path: FilesystemInfo(1, Path(path), limits[0], 100000)
+    harness.check_storage(requirements, phase="shared release and download filesystem")
+    limits.pop(0)
+    with pytest.raises(StorageError) as error:
+        harness.check_storage(requirements, phase="shared release and download filesystem")
+    assert error.value.required_bytes == expected_bytes
 
 
 def test_0411_to_042_low_disk_scenario_refuses_before_service_stop(harness):

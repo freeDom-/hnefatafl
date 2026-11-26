@@ -238,12 +238,17 @@ def test_requirements_are_attributed_to_their_real_filesystems(tmp_path):
     assert harness.snapshot_requirement().path == harness.backups
     backup = harness.make_backup("20260101T000000-0001")
     assert harness.restore_requirement(backup).path == harness.data.parent
-    assert harness.updater_requirement(0)[0].path == harness.updater_root.parent
+    assert harness.updater_requirement(0)[0].path == harness.updater_root
     requirements = harness._prepare_requirements(1024)
-    assert {requirement.path for requirement in requirements} >= {
+    assert {requirement.path for requirement in requirements} == {
         harness.releases,
+        harness.temporary_root,
+        harness.etc,
+    }
+    assert {item.path for item in harness._deployment_requirements()} >= {
         harness.base,
-        harness.data / "cache",
+        harness.data,
+        harness.data.parent,
         harness.backups,
         harness.etc,
     }
@@ -845,3 +850,283 @@ def test_reviewed_installer_repairs_damaged_generation_without_loading_it(tmp_pa
     assert repaired["generation"] != active["generation"]
     assert repaired["previous"] == active["previous"]
     assert bad.read_text() == "broken generation\n"
+
+
+@pytest.mark.parametrize(
+    "point",
+    ["staging-created", "marker-removed", "manifest-being-written", "snapshot-verified"],
+)
+def test_killed_snapshot_staging_is_recognized_without_an_inner_marker(tmp_path, point):
+    from deployment_fixtures import fault_process
+
+    harness, active = valid_harness(tmp_path)
+    backup = harness.make_backup("20260101T000000-0001")
+    harness.set_state("2.0.0", active, backup=backup)
+    unrelated = harness.backups / ".staging-backup-1111111111111111"
+    unrelated.mkdir()
+    (unrelated / "retained").write_text("unrelated")
+    source = """
+import os, signal, sys
+from pathlib import Path
+from hnefatafl import deployment
+
+root, point = Path(sys.argv[1]), sys.argv[2]
+updater = deployment.Deployment({}, base=root/'opt', data=root/'data', etc=root/'etc')
+mkdir = os.mkdir
+remove = updater._remove_staging_marker
+atomic = deployment.atomic_json
+verify = updater.verify_snapshot
+
+def kill(): os.kill(os.getpid(), signal.SIGKILL)
+
+def creating(path, *args, **kwargs):
+    mkdir(path, *args, **kwargs)
+    if point == 'staging-created' and kwargs.get('dir_fd') is not None and str(path).startswith('.staging-backup-'):
+        kill()
+
+def removing(path):
+    remove(path)
+    if point == 'marker-removed': kill()
+
+def writing(path, value):
+    if point == 'manifest-being-written' and path.name == 'manifest.json':
+        path.write_text('{"partial":')
+        kill()
+    atomic(path, value)
+
+def verifying(path, *args, **kwargs):
+    verify(path, *args, **kwargs)
+    if point == 'snapshot-verified': kill()
+
+os.mkdir = creating
+updater._remove_staging_marker = removing
+updater.verify_snapshot = verifying
+deployment.atomic_json = writing
+updater.snapshot()
+"""
+    killed = fault_process(source, tmp_path, point)
+    assert killed.returncode == -9, killed.stdout + killed.stderr
+    (staging,) = set(harness.backups.glob(".staging-backup-*")) - {unrelated}
+    assert harness._staging_intent(staging).is_file()
+    assert not (staging / ".staging.json").exists()
+    from hnefatafl.deployment import Deployment
+
+    fresh = Deployment({}, base=harness.base, data=harness.data, etc=harness.etc)
+    preview = fresh.cleanup(dry_run=True)
+    assert any(entry.path == staging and entry.action == "remove" for entry in preview.entries)
+    assert staging.is_dir()
+    cleaned = fresh.cleanup()
+    assert any(entry.path == staging for entry in cleaned.removed)
+    assert not staging.exists()
+    assert not harness._staging_intent(staging).exists()
+    assert backup.is_dir()
+    assert (unrelated / "retained").read_text() == "unrelated"
+
+
+@pytest.mark.parametrize("point", ["download", "updater-payload"])
+def test_killed_preparation_removes_abandoned_download_and_pending_payload(tmp_path, point):
+    from deployment_fixtures import fault_process
+    from hnefatafl.deployment import Deployment
+    from test_deployment_storage import updater_archive
+
+    harness, active = valid_harness(tmp_path)
+    source = updater_archive(tmp_path / "candidate.tar.gz")
+    (tmp_path / "usr").mkdir()
+    script = """
+import os, shutil, signal, sys
+from pathlib import Path
+from types import SimpleNamespace
+from hnefatafl.deployment import Deployment
+
+root, source = map(Path, sys.argv[1:3])
+point = sys.argv[3]
+updater = Deployment(
+    {"storage": {"headroom_mib": 0, "cache_headroom_mib": 0, "release_estimate_mib": 128}},
+    base=root/'opt', data=root/'data', etc=root/'etc', updater_root=root/'usr/lib',
+)
+updater.manage_updater = True
+updater.updater_commands = (root/'usr/bin/hnefatafl-update', root/'usr/bin/hnefatafl-backup')
+stage = updater._stage_updater_payload
+
+def kill(): os.kill(os.getpid(), signal.SIGKILL)
+
+def download(release, destination):
+    if point == 'download':
+        with destination.open('wb') as output:
+            output.write(b'partial release archive')
+            output.flush()
+            os.fsync(output.fileno())
+        kill()
+    shutil.copyfile(source, destination)
+    return 'sha256:' + 'a'*64
+
+def staging(*args):
+    value = stage(*args)
+    if point == 'updater-payload': kill()
+    return value
+
+updater._stage_updater_payload = staging
+updater.prepare(SimpleNamespace(download=download), {'tag_name': '0.43'})
+"""
+    killed = fault_process(script, tmp_path, source, point)
+    assert killed.returncode == -9, killed.stdout + killed.stderr
+    (workspace,) = harness.temporary_root.glob(".staging-prepare-*")
+    assert (workspace / "release.tar.gz").is_file()
+    utility_root = tmp_path / "usr/lib"
+    assert bool(list(utility_root.glob(".pending-*"))) == (point == "updater-payload")
+    unrelated = harness.temporary_root / ".staging-prepare-0000000000000000"
+    unrelated.mkdir()
+    fresh = Deployment(
+        {}, base=harness.base, data=harness.data, etc=harness.etc, updater_root=utility_root
+    )
+    fresh._remove_orphan_staging()
+    assert list(harness.releases.iterdir()) == [active]
+    assert list(harness.temporary_root.iterdir()) == [unrelated]
+    assert not list(utility_root.glob(".pending-*"))
+
+
+@pytest.mark.parametrize(
+    ("abi", "protocol", "failure"),
+    [(3, 3, "Unsupported launcher protocol"), (5, 1, "Unsupported updater ABI")],
+)
+def test_unsupported_updater_transitions_leave_installed_files_unchanged(
+    tmp_path, abi, protocol, failure
+):
+    harness, _staging, original = updater_setup(tmp_path)
+    harness._publish_updater_plan(original, tag="2.0.0")
+    installed = [
+        harness.updater_module,
+        *harness.updater_commands,
+        harness.updater_root / "active.json",
+    ]
+    previous = {path: path.read_bytes() for path in installed}
+    payload = {
+        **original,
+        "scripts/linux/launcher.py": original["scripts/linux/launcher.py"].replace(
+            b"LAUNCHER_PROTOCOL = 1", f"LAUNCHER_PROTOCOL = {protocol}".encode()
+        ),
+        "hnefatafl/deployment.py": original["hnefatafl/deployment.py"].replace(
+            b"UPDATER_ABI = 3", f"UPDATER_ABI = {abi}".encode()
+        ),
+    }
+    with pytest.raises(DeploymentError, match=failure):
+        harness._publish_updater_plan(payload, tag="2.0.1")
+    assert previous == {path: path.read_bytes() for path in installed}
+
+
+def test_abi_successor_accepts_predecessor_journal_in_startup_guard(tmp_path):
+    import runpy
+
+    harness, _staging, plan = updater_setup(tmp_path)
+    target = harness.release("2.0.0")
+    harness.activate(target)
+    harness.set_state("2.0.0", target)
+    harness._publish_updater_plan(plan, tag="2.0.0")
+    prior = harness._active_updater()["generation"]
+    journal = {
+        "abi": 3,
+        "phase": "prepared",
+        "operation": "manual-backup",
+        "transaction": "1" * 32,
+        "snapshot_name": "20261126T050000-0001",
+        "snapshot_id": "2" * 32,
+        "service_was_running": True,
+    }
+    harness.record(journal)
+    advanced = {
+        **plan,
+        "hnefatafl/deployment.py": plan["hnefatafl/deployment.py"].replace(
+            b"UPDATER_ABI = 3", b"UPDATER_ABI = 4"
+        ),
+    }
+    harness._publish_updater_plan(advanced, tag="2.0.1")
+    active = harness._active_updater()
+    assert active["abi"] == 4 and active["previous"] == prior
+    candidate = harness.updater_root / "generations" / active["generation"] / "deployment.py"
+    current = runpy.run_path(str(candidate))["Deployment"](
+        harness.config,
+        base=harness.base,
+        data=harness.data,
+        etc=harness.etc,
+        updater_root=harness.updater_root,
+    )
+    current._authorize_service_start()
+    assert json.loads(harness.journal.read_text()) == journal
+
+
+def test_interrupted_compatible_launcher_replacement_can_resume(tmp_path):
+    from deployment_fixtures import fault_process
+
+    harness, staging, plan = updater_setup(tmp_path)
+    harness._publish_updater_plan(plan, tag="2.0.0")
+    previous = harness._active_updater()
+    source = """
+import os, signal, sys
+from pathlib import Path
+from hnefatafl.deployment import Deployment
+root, staging = map(Path, sys.argv[1:3])
+updater = Deployment({}, base=root/'opt', data=root/'data', etc=root/'etc', updater_root=root/'usr/lib/hnefatafl')
+updater.updater_commands = (root/'usr/bin/hnefatafl-update', root/'usr/bin/hnefatafl-backup')
+plan = updater._updater_publication_plan(staging)
+plan['scripts/linux/launcher.py'] = plan['scripts/linux/launcher.py'].replace(
+    b'LAUNCHER_PROTOCOL = 1', b'LAUNCHER_PROTOCOL = 2',
+)
+replace = os.replace
+
+def replacing(old, new):
+    replace(old, new)
+    if new == updater.updater_module:
+        os.kill(os.getpid(), signal.SIGKILL)
+
+os.replace = replacing
+updater._publish_updater_plan(plan, tag='2.0.1')
+"""
+    killed = fault_process(source, tmp_path, staging)
+    assert killed.returncode == -9, killed.stdout + killed.stderr
+    plan["scripts/linux/launcher.py"] = plan["scripts/linux/launcher.py"].replace(
+        b"LAUNCHER_PROTOCOL = 1", b"LAUNCHER_PROTOCOL = 2"
+    )
+    assert harness.updater_module.read_bytes() == plan["scripts/linux/launcher.py"]
+    assert harness._active_updater() == previous
+    harness._publish_updater_plan(plan, tag="2.0.1")
+    active = harness._active_updater()
+    assert active["previous"] == previous["generation"]
+    generation = harness.updater_root / "generations" / active["generation"]
+    assert harness._verify_generation(generation)["launcher_protocol"] == 2
+
+
+def test_reviewed_installer_repairs_a_damaged_stable_launcher(tmp_path):
+    from hnefatafl.deployment import install_reviewed_updater
+
+    harness, _staging, plan = updater_setup(tmp_path)
+    harness._publish_updater_plan(plan, tag="2.0.0")
+    previous = harness._active_updater()
+    harness.updater_module.chmod(0o600)
+    harness.updater_module.write_text("not a valid Python launcher!")
+    with pytest.raises(DeploymentError, match="reviewed installer"):
+        harness._publish_updater_plan(plan, tag="2.0.1")
+    assert harness._active_updater() == previous
+    install_reviewed_updater(
+        REPO,
+        harness.etc,
+        harness.updater_root,
+        harness.updater_commands[0].parent,
+        tmp_path / "lock",
+    )
+    assert harness.updater_module.read_bytes() == plan["scripts/linux/launcher.py"]
+    assert harness._active_updater()["previous"] == previous["generation"]
+
+
+def test_legacy_pending_updater_is_removed_only_with_a_verified_payload(tmp_path):
+    harness, staging, _plan = updater_setup(tmp_path)
+    harness._staging_intent(staging).unlink()
+    unknown = harness.updater_root / ".pending-1234567812345678"
+    unknown.mkdir(mode=0o700)
+    (unknown / "keep").write_bytes(b"untrusted")
+    preview = harness.cleanup(dry_run=True)
+    assert any(entry.path == staging and entry.action == "remove" for entry in preview.entries)
+    assert any(entry.path == unknown and entry.action == "retain" for entry in preview.entries)
+    assert staging.exists()
+    harness.cleanup()
+    assert not staging.exists()
+    assert (unknown / "keep").read_bytes() == b"untrusted"

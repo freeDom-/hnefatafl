@@ -177,6 +177,7 @@ first require `hnefatafl-update --recover` after inspecting its journal.
 | `/opt/hnefatafl/releases/X.Y.Z-<id>` | Replaceable code, frozen venv and frontend build |
 | `/opt/hnefatafl/current` | Atomically switched active release symlink |
 | `/opt/hnefatafl/tools` | Root-owned uv and Node build tools |
+| `/opt/hnefatafl/tmp` | Managed archive downloads, temporary build files, dependency caches and isolated verification data |
 | `/etc/hnefatafl/application.env` | Root-only production configuration, read by systemd |
 | `/etc/hnefatafl/deployment.json` | Root-only repository, port, HTTPS origin, retention and storage settings |
 | `/etc/hnefatafl/github.json` | Optional root-only read-only GitHub credential |
@@ -389,10 +390,30 @@ bash scripts/linux/install.sh --refresh-updater-only
 launcher selects the generation recorded in `active.json`. Each generation
 contains the updater and its schema-aware restore modules. Publication compiles
 Python, checks wrapper syntax, imports the complete standalone generation and
-synchronizes it to disk before activating it with one atomic pointer update. The
-previous working generation remains available. The installer can repair a damaged
-generation from the reviewed distribution without loading the damaged code. The
-recorded protocol prevents utility downgrades.
+synchronizes it to disk before activating it with one atomic pointer update.
+The previous working generation remains available. Each generation declares
+the updater ABI and the minimum launcher protocol it needs. Launcher changes
+come from the verified archive or reviewed installer. A compatible new
+launcher is installed atomically while the old generation still runs, then
+the pointer is switched. A flat legacy updater keeps its original entry point
+until the first generation is ready to use.
+
+An existing installation can stay on its current ABI or advance one ABI at a
+time after generation bootstrap. The candidate must be able to read its
+predecessor's transaction and installed-state formats. The publisher checks
+the recorded metadata with the candidate before switching. The systemd startup
+guard can therefore use the new utility while the preceding updater still
+owns the deployment transaction. Unsupported transitions require an intervening
+compatible utility. A compatible launcher protocol can likewise advance one
+version at a time, including when the active generation still needs the
+previous protocol.
+
+If the installed launcher or its active generation is damaged, rerun
+`bash <extracted>/scripts/linux/install.sh --refresh-updater-only` from the same
+or a supported newer verified release. This entry point takes the updater lock
+before replacing the launcher and authenticates the replacement files without
+importing the damaged utility. Then run `hnefatafl-update --recover` if the
+updater reports an unfinished operation.
 
 This installer mode leaves the service, application data and `/etc/hnefatafl`
 application configuration, installed state and deployment journal alone. It uses
@@ -414,10 +435,14 @@ The target builds directly at its permanent release path, so the virtual
 environment, generated console shebangs and activation scripts keep stable
 absolute paths. Publication is the atomic creation of `.release.json`; a directory
 without that completion marker is incomplete and is never activated. Before the
-marker is written, `python`, `uvicorn`, the Hnefatafl console command, database
-migration imports and the service imports are executed and checked. The active
-release is untouched on build failure. Dependency lockfiles, security tests and
-frontend builds must pass first.
+marker is written, the updater seals the release as root and verifies Python,
+uvicorn, the Hnefatafl console command, account migrations and the real service
+import as the application account. The dependency installs, frontend build,
+security tests and sealed-release checks run in transient systemd units. Each
+preparation gets its own writable `HNEFATAFL_DATA_DIR`, `HOME`, `TMPDIR` and
+dependency caches under `/opt/hnefatafl/tmp`. The transient units hide the
+production data root. Temporary SQLite databases, jobs, models and caches are
+discarded after verification.
 
 Before activation, active/queued training and tournaments are refused. After
 stopping the service, activity is checked again, then a full data/config snapshot
@@ -475,9 +500,14 @@ from `/var/lib/hnefatafl/backups`. The migration records each source and destina
 identity before moving it. On the same filesystem it renames the existing
 snapshot. Across filesystems it checks destination space and inodes, creates a
 verified copy, and removes the source after persisting the updated references.
-Name conflicts get a distinct destination. Invalid or unrecognized legacy
-artifacts remain in place for inspection. If interrupted, `hnefatafl-update
---recover` reconciles both locations and finishes the pending reference updates.
+Name conflicts get a deterministic distinct destination. A retention preview
+uses the same descriptor-relative checks, marks verified snapshots as moves
+or copies, and applies the shared limit to the resulting inventory. Older
+incomplete legacy snapshots can be removed from the legacy directory when
+their ownership, contents and lack of references are established. Invalid
+or ambiguous artifacts remain in place for inspection and contribute no
+reclaimable space. If interrupted, `hnefatafl-update --recover` reconciles both
+locations and finishes the pending reference updates.
 
 **Protected artifacts are never removed to satisfy a limit:**
 
@@ -509,50 +539,51 @@ Genuine legacy snapshots referenced by trusted deployment metadata can still be
 verified and restored. Incomplete or malformed association metadata is refused.
 
 Within one operation, content hashes and SQLite checks are reused while the
-validated artifact identity and file metadata remain stable. Recent staging,
-invalid manifests and unrecognized directories remain available for inspection.
-Cleanup only removes recognized, expired staging with sufficient ownership and
-operation evidence. It protects artifacts referenced by unfinished transactions.
+validated artifact identity and file metadata remain stable. Root-owned staging
+records identify downloads, release preparation, pending utility files,
+snapshots and restores through publication. Under the operation lock, cleanup
+can remove abandoned staging when its ownership and identity still match.
+Unrecognized artifacts, invalid records and unfinished transaction references
+remain available for recovery or inspection.
 
 ### Preflight and failure handling
 
-Before downloading a release, the updater estimates the compressed archive,
-extraction, frozen virtual environment, npm dependencies, frontend build, dependency
-cache growth, temporary build files and the subsequent snapshot. It counts
-directories as inode consumers as well as files and symlinks, uses allocated blocks
-(not only apparent size) plus per-file/directory overhead, measures historical
-prepared peak bytes **and inodes** where recorded, and applies the configured floor
-and headroom. It does not assume gzip size equals installed size. Filesystems that
-do not report an inode budget are labelled as such instead of silently passing an
-inode check; quota-limited filesystems still enforce the byte check. Requirements
-are attributed to the actual destination filesystems, including separately mounted
-release, cache, backup, configuration and temporary paths, and are recalculated
-after cleanup changes the assumptions. Restore requirements are computed from the
-actual snapshot and its destination. After preparation,
-and again after stopping the service, it rechecks the snapshot while the deployment
-gate is held. Byte and inode availability are evaluated per filesystem, so `/opt`,
-`/var/lib`, `/etc` and `/tmp` on separate mounts cannot borrow each other's space.
-If safe retention cleanup or unused uv/npm cache pruning cannot free enough room,
-the update is refused **while the service is still running** when possible.
+Before downloading a release, the updater estimates extraction, the frozen
+virtual environment, npm dependencies, the frontend build and deployment
+metadata. It also estimates the archive and the temporary build, cache and
+verification peak under `/opt/hnefatafl/tmp`. The archive remains on disk
+through extraction and is removed before the build. The preflight counts
+those temporary phases by their peak and accounts for updater files at their
+staging and installation destinations. Historical release peaks, directory
+and file counts, allocated blocks and configurable headroom are included.
+A separately mounted, root-controlled temporary root is supported. Managed
+artifact trees cannot contain nested mounts.
 
-Preparation uses a hidden staging directory, runs the frozen dependency install,
-frontend build and the release security tests, records peak/final sizes in
-`.release.json`, and then removes build-only `frontend/node_modules`, Vite caches
-and Python test/bytecode caches. Frozen Python runtime and training dependencies,
-`frontend/dist`, tests and deployment templates remain. The development extra is
-retained because it supplies the release's security-test toolchain; removing
-individual installed packages would risk shared transitive runtime imports. uv
-and npm cache maintenance uses their supported prune/verify commands only when
-space is needed or `--cleanup` is requested. `prune_build_dependencies` may be set
-to `false` if an operator deliberately needs a rebuild-capable release directory.
+Before stopping the service, the updater reserves space for a completed
+snapshot and checks the peak of the SQLite conversion and the possible
+recovery. Recovery can require a full restore candidate, database migration
+growth, a private copy of live SQLite authority, merge workspace and
+transaction metadata. The original data remains on disk if it becomes the
+retained recovery directory. Bytes and inodes are checked on the filesystem
+that will hold each allocation. The backup root can be on a different
+filesystem from the live data and restore staging. The live data root and
+its parent must share a filesystem for the atomic swaps during restore.
+Filesystems without inode reporting still enforce the byte requirement.
 
-Predictable failures therefore happen before downtime. Unexpected `ENOSPC`, `EDQUOT`,
-`EIO`, permission and nested `shutil.Error` failures still fail safely with the
-phase, errno, affected path, service state, migration state and whether persistent
-data was unchanged or restored. Failed preparations and snapshots are staged under
-hidden names and removed on failure; they are published only by atomic rename after
-verification. Cleanup errors are reported separately and do not turn an otherwise
-successful deployment into a failed one.
+The updater rechecks capacity after retention cleanup, after preparation
+and after shutdown before writing the snapshot. A later restore rechecks
+the actual snapshot and live database sizes. If safe retention or old cache
+maintenance cannot free enough space, predictable shortages are refused
+before downtime. Unexpected storage failures report the affected phase and
+recovery status.
+
+The dependency and frontend builds also record peak and final release sizes.
+After sealing, the updater removes build-only `frontend/node_modules`,
+Vite, test and bytecode caches. The frozen Python environment, `frontend/dist`,
+tests and deployment templates remain. The development extra supplies the
+release security tests. Operators can set `prune_build_dependencies` to
+`false` to keep a rebuild-capable release. uv and npm cache maintenance
+uses their supported commands for older caches on the persistent data volume.
 
 ### Administrative cleanup
 
@@ -935,9 +966,13 @@ Before internet exposure on the target Proxmox host, verify reboot/autostart,
 proxy TLS/Host/client-IP behavior, Secure cookies, login/logout, USER denial of
 training/tournaments, legal gameplay, real CPU training/checkpoint resumption,
 private release download, failed-update recovery and an isolated backup restore.
-Live Proxmox provisioning, target systemd, private credentials and GPU execution
-require target-host validation; unit mocks and local browser tests do not establish
-them. Read [current validation](VALIDATION.md) for this checkout's recorded checks.
+The privileged regression fixture uses a root-sealed release, a separate
+unprivileged service account, real application dependencies and a disposable
+data directory. Its native-systemd CI run exercises transient preparation units
+and the installed startup guard with a real application service. Target-host
+validation is still required for live Proxmox provisioning, production systemd
+and storage, private credentials and GPU execution. Read the checkout's
+[current validation](VALIDATION.md).
 
 Profile schema 15 is additive and idempotent. It preserves schema-14 consent as
 internal publication exceptions and retains old private birth years without

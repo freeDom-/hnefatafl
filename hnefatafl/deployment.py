@@ -29,7 +29,7 @@ import tempfile
 import time
 import tomllib
 import types
-from contextlib import ExitStack, closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager, suppress
 from dataclasses import dataclass, field
 import urllib.error
 import urllib.parse
@@ -70,6 +70,8 @@ DEFAULT_RECOVERY = {
 # replacement with a lower protocol number: it could not resume the journal phases
 # or interpret the retention/restore metadata written by this one.
 UPDATER_ABI = 3
+MIN_GENERATION_ABI = 3
+MIN_LAUNCHER_PROTOCOL = 1
 JOURNAL_PHASES = {
     "prepared",
     "snapshot",
@@ -124,6 +126,7 @@ RELEASE_DIRECTORY = re.compile(
 BACKUP_DIRECTORY = re.compile(r"^[0-9]{8}T[0-9]{6}-[0-9a-f]{4,32}$")
 STAGING_DIRECTORY = re.compile(r"^\.staging-[a-z]+-[0-9a-f]{8,32}$")
 DOWNLOAD_DIRECTORY = re.compile(r"^download-[A-Za-z0-9_]{8}$")
+PENDING_UPDATER_DIRECTORY = re.compile(r"^\.pending-[a-f0-9]{16}$")
 # 0.41.0 cannot start while the updater holds the exclusive deployment gate:
 # its lifespan takes the shared tournament-reconciliation lock. A rollback to
 # that immutable release would reproduce the original production failure.
@@ -314,6 +317,7 @@ class StorageRequirement:
     bytes: int
     label: str
     files: int = 0
+    stage: str | None = None
 
     @property
     def inodes(self) -> int:
@@ -604,10 +608,13 @@ def raise_walk_error(error: OSError) -> None:
     raise error
 
 
-def sync_tree(path: Path) -> None:
+def sync_tree(path: Path, *, allow_symlinks: bool = False) -> None:
     for directory, _, files in os.walk(path, topdown=False, onerror=raise_walk_error):
         for name in files:
-            descriptor = os.open(Path(directory) / name, os.O_NOFOLLOW | os.O_RDONLY | os.O_CLOEXEC)
+            entry = Path(directory) / name
+            if allow_symlinks and entry.is_symlink():
+                continue
+            descriptor = os.open(entry, os.O_NOFOLLOW | os.O_RDONLY | os.O_CLOEXEC)
             try:
                 os.fsync(descriptor)
             finally:
@@ -859,13 +866,14 @@ class PrivilegedFilesystem:
         root: RootIdentity,
         target: Path,
         *,
-        expected_owner: int,
+        expected_owner: int | set[int],
         identity: tuple[int, int] | None = None,
         allow_symlinks_inside: bool = True,
         allow_nested: bool = False,
     ) -> None:
         """Remove one validated artifact below ``root`` without following links."""
         target = Path(target)
+        owners = {expected_owner} if isinstance(expected_owner, int) else expected_owner
         try:
             relative = target.relative_to(root.path)
         except ValueError as error:
@@ -915,7 +923,7 @@ class PrivilegedFilesystem:
                         raise DeploymentError(
                             f"Refusing to cross the filesystem boundary at {root.path / part}"
                         )
-                    if info.st_uid != expected_owner:
+                    if info.st_uid not in owners:
                         raise DeploymentError(
                             f"Refusing to traverse {root.path / part}: it is owned by "
                             f"uid {info.st_uid}, expected {expected_owner}"
@@ -948,7 +956,7 @@ class PrivilegedFilesystem:
         name: str,
         display: Path,
         *,
-        expected_owner: int,
+        expected_owner: int | set[int],
         identity: tuple[int, int] | None,
         top: bool,
         allow_symlinks_inside: bool,
@@ -977,7 +985,8 @@ class PrivilegedFilesystem:
             raise DeploymentError(
                 f"Refusing to remove {display}: its identity changed since it was inspected"
             )
-        if info.st_uid != expected_owner:
+        owners = {expected_owner} if isinstance(expected_owner, int) else expected_owner
+        if info.st_uid not in owners:
             raise DeploymentError(
                 f"Refusing to remove {display}: it is owned by uid {info.st_uid}, "
                 f"expected uid {expected_owner}"
@@ -1060,7 +1069,12 @@ class PrivilegedFilesystem:
             info = os.lstat(marker)
         except OSError:
             return None
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != self.euid
+            or info.st_nlink != 1
+            or info.st_mode & 0o022
+        ):
             return None
         try:
             value = json.loads(marker.read_text())
@@ -1261,6 +1275,7 @@ class Deployment:
         self.base, self.data, self.etc = base, data, etc
         self.unit_file = unit_file
         self.releases = base / "releases"
+        self.temporary_root = base / "tmp"
         # Snapshots are root-owned secrets. Keeping them directly inside the
         # application-user-owned data root let that account rename the directory
         # and redirect privileged snapshot writes; the sibling default is outside
@@ -1333,11 +1348,48 @@ class Deployment:
             if name in os.environ:
                 self.env[name] = os.environ[name]
 
-    def run(self, args, *, cwd=None, user=False, extra_env=None):
+    def run(self, args, *, cwd=None, user=False, extra_env=None, preparation=False):
         command = [str(value) for value in args]
+        environment = {**self.env, **(extra_env or {})}
         if user:
-            command = ["runuser", "-u", "hnefatafl", "--", *command]
-        subprocess.run(command, cwd=cwd, env={**self.env, **(extra_env or {})}, check=True)
+            uid, gid = self._data_account()
+            if uid != self.privileged_uid:
+                if preparation:
+                    self._run_isolated_preparation(command, cwd, environment, uid, gid)
+                    return
+                command = ["runuser", "-u", pwd.getpwuid(uid).pw_name, "--", *command]
+        subprocess.run(command, cwd=cwd, env=environment, check=True)
+
+    def _run_isolated_preparation(self, command, cwd, environment, uid: int, gid: int) -> None:
+        workspace = Path(environment["HNEFATAFL_DATA_DIR"]).parent
+        executable = shutil.which(command[0], path=environment["PATH"])
+        if executable is None:
+            raise DeploymentError(f"Preparation executable is unavailable: {command[0]}")
+        unit = f"hnefatafl-{workspace.name.removeprefix('.staging-')}-{secrets.token_hex(4)}"
+        subprocess.run(
+            [
+                "/usr/bin/systemd-run",
+                "--quiet",
+                "--pipe",
+                "--wait",
+                "--collect",
+                f"--unit={unit}",
+                f"--uid={uid}",
+                f"--gid={gid}",
+                f"--working-directory={cwd}",
+                "--property=ProtectSystem=strict",
+                f"--property=InaccessiblePaths={self.data}",
+                f"--property=ReadWritePaths={workspace} {cwd}",
+                "--property=NoNewPrivileges=yes",
+                "--property=ProtectProc=invisible",
+                *(f"--setenv={key}={value}" for key, value in environment.items()),
+                "--",
+                executable,
+                *command[1:],
+            ],
+            env=environment,
+            check=True,
+        )
 
     def service(self, action):
         self.run(["systemctl", action, "hnefatafl.service"])
@@ -1367,12 +1419,19 @@ class Deployment:
         )
 
     def _base_root(self) -> RootIdentity:
-        return self._managed_root(
+        root = self.fs.validate_root(
             self.base,
             owner=self.privileged_uid,
             mode=0o755,
             description="deployment base directory",
+            allow_nested_mounts=True,
         )
+        unexpected = set(self.fs.nested_mounts(self.base)) - {self.temporary_root}
+        if unexpected:
+            raise DeploymentError(
+                f"The deployment base contains unsupported nested mount points: {sorted(unexpected)}"
+            )
+        return root
 
     def _managed_root(
         self, path: Path, *, owner: int, mode: int, description: str, write: bool = False
@@ -1386,6 +1445,145 @@ class Deployment:
                 pass
         return self.fs.validate_root(path, owner=owner, description=description, mode=mode)
 
+    @staticmethod
+    def _staging_intent(path: Path) -> Path:
+        return path.with_name(f".staging-intent-{path.name.removeprefix('.')}.json")
+
+    def _begin_staging(self, path: Path, operation: str, mode: int = 0o700) -> tuple[int, int]:
+        root = self.fs.validate_root(
+            path.parent,
+            owner=self.privileged_uid,
+            description="staging parent",
+            allow_nested_mounts=path.parent == self.data.parent,
+        )
+        marker = self._staging_intent(path)
+        if os.path.lexists(path) or os.path.lexists(marker):
+            raise DeploymentError(f"Staging already exists: {path}")
+        intent = {
+            "schema": 1,
+            "operation": operation,
+            "name": path.name,
+            "parent": [root.device, root.inode],
+            "identity": None,
+        }
+        atomic_json(marker, intent)
+        with self.fs.open_directory(root) as directory:
+            os.mkdir(path.name, mode, dir_fd=directory)
+            descriptor = os.open(
+                path.name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=directory,
+            )
+            try:
+                os.fchmod(descriptor, mode)
+                identity = file_identity(os.fstat(descriptor))
+                os.fsync(descriptor)
+                os.fsync(directory)
+            finally:
+                os.close(descriptor)
+        intent["identity"] = list(identity)
+        atomic_json(marker, intent)
+        return identity
+
+    def _finish_staging(self, path: Path) -> None:
+        self._staging_intent(path).unlink(missing_ok=True)
+        sync_directory(path.parent)
+
+    def _staging_identity(self, path: Path) -> tuple[int, int] | None:
+        marker = self._staging_intent(path)
+        intent, valid, _ = self._load_metadata(marker, "staging intent")
+        if (
+            valid
+            and intent is None
+            and path.parent == self.updater_root
+            and PENDING_UPDATER_DIRECTORY.fullmatch(path.name)
+        ):
+            manifest, readable, _ = self._load_metadata(
+                path / "manifest.json", "pending updater manifest"
+            )
+            digest = manifest.get("archive_sha256") if readable and manifest else None
+            if (
+                not isinstance(digest, str)
+                or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest)
+                or self._pending_updater_for(digest) != path
+            ):
+                raise DeploymentError(f"Pending updater has no verified operation record: {path}")
+            self._updater_publication_plan(path)
+            return self.fs.identity_of(path)
+        if (
+            not valid
+            or intent is None
+            or intent.get("schema") != 1
+            or intent.get("name") != path.name
+            or "identity" not in intent
+            or intent.get("parent") != list(self.fs.identity_of(path.parent))
+            or intent.get("identity") is not None
+            and not valid_identity(intent["identity"])
+        ):
+            raise DeploymentError(f"Staging ownership cannot be established for {path}")
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            return None
+        identity = file_identity(info)
+        expected = intent["identity"]
+        if not stat.S_ISDIR(info.st_mode):
+            raise DeploymentError(f"Staging is no longer a real directory: {path}")
+        if expected is None:
+            # Before the second record only mkdir/fchmod can have run.
+            if info.st_uid != self.privileged_uid or any(path.iterdir()):
+                raise DeploymentError(f"Unidentified staging directory retained: {path}")
+        elif expected != list(identity):
+            raise DeploymentError(f"Staging identity changed: {path}")
+        return identity
+
+    def _discard_staging(self, path: Path, *, mixed: bool = False) -> None:
+        identity = self._staging_identity(path)
+        if identity is not None:
+            owners = {self.privileged_uid, self._data_owner()} if mixed else {self.privileged_uid}
+            self._safe_remove(path.parent, path, identity=identity, owners=owners, mixed=mixed)
+        self._finish_staging(path)
+
+    def _temporary_workspace(self, operation: str) -> Path:
+        self._base_root()
+        if not os.path.lexists(self.temporary_root):
+            self.temporary_root.mkdir(mode=0o755)
+            descriptor = os.open(
+                self.temporary_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+            )
+            try:
+                os.fchmod(descriptor, 0o755)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            sync_directory(self.base)
+        self.fs.validate_root(
+            self.temporary_root,
+            owner=self.privileged_uid,
+            mode=0o755,
+            description="build temporary directory",
+        )
+        temporary = self.temporary_root / f".staging-{operation}-{secrets.token_hex(8)}"
+        self._begin_staging(temporary, operation, 0o711)
+        return temporary
+
+    def _preparation_environment(self, workspace: Path) -> dict[str, str]:
+        uid, gid = self._data_account()
+        for name in ("data", "home", "tmp", "uv", "npm"):
+            path = workspace / name
+            path.mkdir(mode=0o700)
+            if uid != self.privileged_uid:
+                os.chown(path, uid, gid, follow_symlinks=False)
+        return {
+            "HNEFATAFL_DATA_DIR": str(workspace / "data"),
+            "HOME": str(workspace / "home"),
+            "XDG_CACHE_HOME": str(workspace / "home/.cache"),
+            "TMPDIR": str(workspace / "tmp"),
+            "UV_CACHE_DIR": str(workspace / "uv"),
+            "npm_config_cache": str(workspace / "npm"),
+            "UV_LINK_MODE": "copy",
+        }
+
     def ensure_layout(self) -> None:
         """Validate and, when needed, migrate the root-owned deployment layout.
 
@@ -1398,6 +1596,166 @@ class Deployment:
             return
         self._migrate_legacy_backups()
         self._layout_ready = True
+
+    @contextmanager
+    def _open_legacy_backups(self):
+        legacy = self.legacy_backups
+        if self.fs.is_mount(legacy) or self.fs.nested_mounts(legacy):
+            raise DeploymentError(f"The legacy backup directory contains a mount: {legacy}")
+        with self.fs.open_directory(self._data_directory(self.data)) as data_fd:
+            try:
+                legacy_fd = os.open(
+                    "backups",
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=data_fd,
+                )
+            except OSError as error:
+                raise DeploymentError(
+                    f"The legacy backup location {legacy} is not a real directory or changed during inspection"
+                ) from error
+            try:
+                info = os.fstat(legacy_fd)
+                if info.st_uid != self.privileged_uid or stat.S_IMODE(info.st_mode) != 0o700:
+                    raise DeploymentError(
+                        f"The legacy backup location {legacy} must be owner-controlled 0700"
+                    )
+                root = RootIdentity(legacy, info.st_dev, info.st_ino, "legacy backup directory")
+                yield root, data_fd, legacy_fd
+            finally:
+                os.close(legacy_fd)
+
+    def _inspect_legacy_backup(self, path: Path, legacy_fd: int) -> tuple[str, str]:
+        status, detail = self._backup_status(path, parent_fd=legacy_fd)
+        if status == "incomplete":
+            parts = {item.name for item in path.iterdir()}
+            if (
+                "data" not in parts
+                or parts - {"data", "config"}
+                or any(
+                    not stat.S_ISDIR(item.lstat().st_mode)
+                    or item.lstat().st_uid != self.privileged_uid
+                    for item in path.iterdir()
+                )
+            ):
+                return (
+                    "invalid",
+                    "ambiguous legacy staging shape; review its contents before removing it",
+                )
+            try:
+                self._check_legacy_tree_ownership(path)
+            except DeploymentError as error:
+                return "invalid", str(error)
+        return status, detail
+
+    def _check_legacy_tree_ownership(self, path: Path) -> None:
+        if not stat.S_ISDIR(path.lstat().st_mode):
+            raise DeploymentError("A legacy snapshot is no longer a directory")
+        device = path.stat().st_dev
+        for folder, dirs, files in os.walk(path, followlinks=False, onerror=raise_walk_error):
+            for name in (*dirs, *files):
+                info = (Path(folder) / name).lstat()
+                if (
+                    info.st_uid != self.privileged_uid
+                    or info.st_dev != device
+                    or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode))
+                ):
+                    raise DeploymentError(
+                        "Untrusted content in incomplete legacy snapshot; review it before removing it"
+                    )
+
+    @staticmethod
+    def _backup_mount_id(directory: int) -> str:
+        details = Path(f"/proc/self/fdinfo/{directory}").read_text()
+        for line in details.splitlines():
+            key, _, value = line.partition(":")
+            if key == "mnt_id":
+                return value.strip()
+        raise DeploymentError("Cannot establish the mount identity of a backup location")
+
+    def _backup_inventory(
+        self,
+    ) -> list[tuple[Path, os.stat_result, str, str, Path | None, str | None]]:
+        entries: list[tuple[Path, os.stat_result, str, str, Path | None, str | None]] = []
+        with ExitStack() as stack:
+            destination = self._backup_root() if os.path.lexists(self.backups) else None
+            dest_fd = (
+                stack.enter_context(self.fs.open_directory(destination)) if destination else None
+            )
+            if dest_fd is not None:
+                for name in sorted(os.listdir(dest_fd)):
+                    path = self.backups / name
+                    if name.startswith(".staging-intent-"):
+                        continue
+                    info = os.stat(name, dir_fd=dest_fd, follow_symlinks=False)
+                    status, detail = self._backup_status(path)
+                    entries.append((path, info, status, detail, None, None))
+            if not os.path.lexists(self.legacy_backups):
+                return entries
+            root, _, legacy_fd = stack.enter_context(self._open_legacy_backups())
+            planned = {
+                entry["source"]: entry["target"]
+                for entry in self._legacy_migration_entries(legacy_fd, dest_fd)
+            }
+            self.fs._validate_ancestors(self.backups, "backup directory")
+            destination_device = (
+                destination.device if destination else self.backups.parent.stat().st_dev
+            )
+            with ExitStack() as mount:
+                target_fd = dest_fd
+                if target_fd is None:
+                    target_fd = os.open(
+                        self.backups.parent,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    )
+                    mount.callback(os.close, target_fd)
+                same_mount = self._backup_mount_id(legacy_fd) == self._backup_mount_id(target_fd)
+            kind = "move" if root.device == destination_device and same_mount else "copy"
+            for name in sorted(os.listdir(legacy_fd)):
+                info = os.stat(name, dir_fd=legacy_fd, follow_symlinks=False)
+                view = Path(f"/proc/self/fd/{legacy_fd}") / name
+                status, detail = self._inspect_legacy_backup(view, legacy_fd)
+                target = (
+                    self.backups / planned[name]
+                    if name in planned and status == "complete"
+                    else None
+                )
+                if status == "complete" and target is None:
+                    raise DeploymentError(
+                        f"Legacy backup inventory changed during inspection: {view}"
+                    )
+                entries.append((root.path / name, info, status, detail, target, kind))
+        return entries
+
+    def _legacy_cleanup_entry(
+        self, path: Path, identity: tuple[int, int] | None, *, dry_run: bool
+    ) -> Usage:
+        with self._open_legacy_backups() as (root, data_fd, legacy_fd):
+            if identity is None or list(identity) != self._entry_identity(legacy_fd, path.name):
+                raise DeploymentError(f"Legacy snapshot identity changed: {path}")
+            view = Path(f"/proc/self/fd/{legacy_fd}") / path.name
+            status, detail = self._inspect_legacy_backup(view, legacy_fd)
+            if status not in ("incomplete", "complete"):
+                raise DeploymentError(f"Legacy snapshot retained: {path}: {detail}")
+            usage = scan_usage(view)
+            if not dry_run:
+                if status != "incomplete":
+                    raise DeploymentError(
+                        f"Verified legacy snapshot must be migrated before removal: {path}"
+                    )
+                self.fs._remove_entry(
+                    root,
+                    legacy_fd,
+                    path.name,
+                    path,
+                    expected_owner=self.privileged_uid,
+                    identity=identity,
+                    top=True,
+                    allow_symlinks_inside=False,
+                )
+                os.fsync(legacy_fd)
+                if not os.listdir(legacy_fd):
+                    self._remove_empty_legacy_root(data_fd, [root.device, root.inode])
+            return usage
 
     def _migrate_legacy_backups(self) -> None:
         # The application can rename its legacy backup entry, but it cannot
@@ -1423,36 +1781,13 @@ class Deployment:
         self.fs.validate_root(
             self.etc, owner=self.privileged_uid, description="configuration directory"
         )
-        if self.fs.is_mount(legacy) or self.fs.nested_mounts(legacy):
-            raise DeploymentError(f"The legacy backup directory contains a mount: {legacy}")
         with ExitStack() as stack:
             source_fd = None
             source_identity = None
             parent_fd = None
             if os.path.lexists(legacy):
-                parent_fd = stack.enter_context(
-                    self.fs.open_directory(self._data_directory(self.data))
-                )
-                try:
-                    source_fd = os.open(
-                        "backups",
-                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                        dir_fd=parent_fd,
-                    )
-                except OSError as error:
-                    raise DeploymentError(
-                        f"The legacy backup location {legacy} is not a real directory or changed during inspection"
-                    ) from error
-                stack.callback(os.close, source_fd)
-                source_info = os.fstat(source_fd)
-                if (
-                    source_info.st_uid != self.privileged_uid
-                    or stat.S_IMODE(source_info.st_mode) != 0o700
-                ):
-                    raise DeploymentError(
-                        f"The legacy backup location {legacy} must be owner-controlled 0700"
-                    )
-                source_identity = list(file_identity(source_info))
+                root, parent_fd, source_fd = stack.enter_context(self._open_legacy_backups())
+                source_identity = [root.device, root.inode]
             elif journal is None:
                 raise DeploymentError(
                     f"The legacy backup location {legacy} disappeared during inspection"
@@ -1525,18 +1860,23 @@ class Deployment:
         os.rmdir("backups", dir_fd=data_fd)
         os.fsync(data_fd)
 
-    def _legacy_migration_entries(self, source_fd: int, destination_fd: int) -> list[dict]:
+    def _legacy_migration_entries(self, source_fd: int, destination_fd: int | None) -> list[dict]:
         entries = []
-        names = set(os.listdir(destination_fd))
+        names = set(os.listdir(destination_fd)) if destination_fd is not None else set()
         for name in sorted(os.listdir(source_fd)):
             if BACKUP_DIRECTORY.fullmatch(name) is None:
                 continue
             info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
             staging = ".staging-backup-" + secrets.token_hex(8)
             target = name
-            if target in names:
-                target = name.split("-")[0] + "-" + secrets.token_hex(8)
-            if target in names or staging in names:
+            attempt = 0
+            while target in names:
+                suffix = hashlib.sha256(
+                    f"{name}:{info.st_dev}:{info.st_ino}:{attempt}".encode()
+                ).hexdigest()[:16]
+                target = name.split("-")[0] + "-" + suffix
+                attempt += 1
+            if staging in names:
                 raise DeploymentError(
                     "A reserved backup migration destination already exists. Retry migration."
                 )
@@ -1638,7 +1978,7 @@ class Deployment:
                 mark("published")
             elif source_fd is not None and source_identity is not None:
                 source = Path(f"/proc/self/fd/{source_fd}") / name
-                if self._backup_status(source, parent_fd=source_fd)[0] != "complete":
+                if self._inspect_legacy_backup(source, source_fd)[0] != "complete":
                     mark("retained")
                     return
                 try:
@@ -1715,6 +2055,8 @@ class Deployment:
             )
             os.fsync(source_fd)
         mark("complete")
+        action = "Moved" if entry["source_identity"] == entry["target_identity"] else "Copied"
+        print(f"{action} verified legacy snapshot {self.legacy_backups / name} to {destination}.")
 
     def _copy_verified_snapshot(self, source: Path, staging: Path, *, parent_fd: int) -> None:
         if self._backup_status(source, parent_fd=parent_fd)[0] != "complete":
@@ -1878,7 +2220,7 @@ class Deployment:
                 or association["purpose"] != expected_purpose
             ):
                 return False, "installed state backup does not correspond to the recorded release"
-        elif abi == UPDATER_ABI and state.get("backup"):
+        elif abi is not None and abi >= MIN_GENERATION_ABI and state.get("backup"):
             return False, "installed state is missing the current snapshot identity"
         if state.get("prior_state") is not None:
             valid, reason = self.validate_state_metadata(state["prior_state"], depth=depth + 1)
@@ -1898,12 +2240,17 @@ class Deployment:
             return False, "transaction backup is outside the managed backup root"
         if operation is not None:
             identifier = journal.get("transaction")
-            if abi != UPDATER_ABI or operation not in (
-                "install",
-                "update",
-                "rollback",
-                "automatic-recovery",
-                "manual-backup",
+            if (
+                abi is None
+                or not MIN_GENERATION_ABI <= abi <= UPDATER_ABI
+                or operation
+                not in (
+                    "install",
+                    "update",
+                    "rollback",
+                    "automatic-recovery",
+                    "manual-backup",
+                )
             ):
                 return False, "unknown transaction operation or updater ABI"
             if not isinstance(identifier, str) or re.fullmatch(r"[a-f0-9]{32}", identifier) is None:
@@ -2008,7 +2355,7 @@ class Deployment:
                     valid, reason = self.validate_state_metadata(journal["commit_state"])
                     if not valid:
                         return False, "invalid installed-state intent: " + reason
-        elif abi == UPDATER_ABI or phase == "committing":
+        elif (abi is not None and abi >= MIN_GENERATION_ABI) or phase == "committing":
             return False, "current transaction is missing its operation"
         elif phase == "recovered" and set(journal) == {"phase"}:
             return True, ""  # Explicit terminal format written by legacy --rollback.
@@ -2384,13 +2731,14 @@ json.dump(rows, sys.stdout)
             "hnefatafl.sqlite3",
             "hnefatafl.sqlite3-wal",
             "hnefatafl.sqlite3-shm",
+            "hnefatafl.sqlite3-journal",
         }
 
-    def _database_size(self) -> tuple[int, int]:
+    def _database_size(self, root: Path | None = None) -> tuple[int, int]:
         """Conservatively account for SQLite and every live sidecar without opening them."""
         size, files = 0, 0
         for suffix in ("", "-wal", "-shm", "-journal"):
-            path = self.data / ("hnefatafl.sqlite3" + suffix)
+            path = (root or self.data) / ("hnefatafl.sqlite3" + suffix)
             try:
                 info = path.lstat()
             except FileNotFoundError:
@@ -2401,15 +2749,21 @@ json.dump(rows, sys.stdout)
             size += max(info.st_size, info.st_blocks * 512) + TREE_OVERHEAD_PER_FILE
         return size, files
 
-    def snapshot_requirement(self) -> StorageRequirement:
+    def snapshot_requirement(
+        self,
+        *,
+        data_usage: Usage | None = None,
+        database: tuple[int, int] | None = None,
+        include_conversion: bool = True,
+    ) -> StorageRequirement:
         """Estimate a snapshot using exactly the snapshot inclusion rules."""
         excluded = self._snapshot_excluded()
-        data_usage = scan_usage(self.data, excluded)
+        data_usage = data_usage if data_usage is not None else scan_usage(self.data, excluded)
         config_usage = self._usage(self.etc)
-        database_bytes, database_inodes = self._database_size()
+        database_bytes, database_inodes = database or self._database_size()
         manifest_bytes = max(MIB, (data_usage.inodes + config_usage.inodes + 32) * 512)
         usage = data_usage + config_usage
-        total = usage.bytes + 2 * database_bytes + manifest_bytes
+        total = usage.bytes + (2 if include_conversion else 1) * database_bytes + manifest_bytes
         margin = int(total * self.storage_settings["snapshot_margin_percent"] / 100)
         return StorageRequirement(
             self.backups,
@@ -2451,76 +2805,116 @@ json.dump(rows, sys.stdout)
 
     def _prepare_requirements(self, archive_size: int) -> list[StorageRequirement]:
         release_bytes, release_inodes = self._release_history_estimate()
-        archive_bytes = archive_size if archive_size > 0 else 64 * MIB
-        # Extraction, the frozen virtual environment, npm ci and the frontend
-        # build coexist temporarily. Historical prepared peaks are the primary
-        # measurement; the configured floor prevents an empty history from
-        # pretending a first release is tiny.
-        build_bytes = int(release_bytes * 1.15) + archive_bytes
+        archive_bytes = archive_size or 64 * MIB
         cache_bytes = int(self.storage_settings["cache_headroom_mib"]) * MIB
         return [
             StorageRequirement(
                 self.releases,
-                build_bytes,
-                "release extraction, virtual environment and frontend build",
+                int(release_bytes * 1.15),
+                "release extraction, frozen environment and frontend build",
                 release_inodes,
             ),
             StorageRequirement(
-                self.base,
-                archive_bytes,
-                "temporary archive download and extraction",
-                max(64, archive_bytes // (32 * 1024)),
+                self.temporary_root, archive_bytes, "compressed release download", 8, "download"
             ),
             StorageRequirement(
-                self.data / "cache",
-                cache_bytes,
-                "uv/npm dependency cache growth and temporary build files",
-                8000,
+                self.temporary_root,
+                max(128 * MIB, release_bytes // 8) + cache_bytes,
+                "temporary builds, dependency caches and isolated verification data",
+                max(8000, release_inodes // 4),
+                "build",
             ),
-            self.snapshot_requirement(),
             StorageRequirement(self.etc, 16 * MIB, "deployment metadata", 64),
+            *(self.updater_requirement() if self.manage_updater else []),
         ]
 
     def _deployment_requirements(self) -> list[StorageRequirement]:
-        margin = int(self.storage_settings["snapshot_margin_percent"]) / 100
+        usage = scan_usage(self.data, self._snapshot_excluded())
+        database_bytes, database_inodes = self._database_size()
+        persisted = self.snapshot_requirement(
+            data_usage=usage,
+            database=(database_bytes, database_inodes),
+            include_conversion=False,
+        )
+        margin = self.storage_settings["snapshot_margin_percent"]
+        # The original live tree already occupies disk space. Migration growth
+        # remains in that tree when it is retained, while restore adds its own
+        # candidate and a private copy of the possibly grown live database.
+        migration = max(64 * MIB, database_bytes)
+        recovery = self._restore_allocation(
+            usage.bytes + database_bytes,
+            usage.inodes + database_inodes,
+            database_bytes,
+            database_bytes + migration,
+            stage="recovery",
+        )
         return [
-            self.snapshot_requirement(),
+            persisted,
+            StorageRequirement(
+                self.backups,
+                database_bytes * (100 + margin) // 100,
+                "temporary second SQLite copy during snapshot conversion",
+                4,
+                "snapshot",
+            ),
             StorageRequirement(
                 self.data,
-                int(64 * MIB * (1 + margin)),
-                "migration and rollback headroom beside the data directory",
+                migration,
+                "database migration and retained database growth",
                 256,
+                "recovery",
             ),
+            recovery,
             StorageRequirement(self.base, 16 * MIB, "release activation metadata", 32),
             StorageRequirement(self.etc, 16 * MIB, "transaction journal", 64),
         ]
 
-    def restore_requirement(self, backup: Path) -> StorageRequirement:
-        """Restore-specific estimate against the actual snapshot destination."""
-        backup = Path(backup)
-        usage = scan_usage(backup / "data")
-        usage = usage + self._usage(backup / "config")
-        margin = int(self.storage_settings["snapshot_margin_percent"]) / 100
-        total = usage.bytes + int(usage.bytes * margin) + self._database_size()[0]
-        # The restore candidate is created beside the live data directory, so the
-        # requirement belongs to that filesystem, not the snapshot filesystem.
+    def _restore_allocation(
+        self, tree: int, inodes: int, saved_db: int, live_db: int, *, stage: str | None = None
+    ) -> StorageRequirement:
+        # SQLite may need additional journal pages and growth while merging live
+        # authority into the candidate. Keep a small floor for a fresh instance.
+        total = tree + live_db + max(16 * MIB, saved_db, live_db)
+        margin = self.storage_settings["snapshot_margin_percent"]
         return StorageRequirement(
             self.data.parent,
-            total,
-            "restore staging, live authority copy and migration headroom",
-            usage.inodes + 1024,
+            total * (100 + margin) // 100,
+            "restore candidate, private live SQLite authority and merge headroom",
+            inodes + 128,
+            stage,
         )
 
-    def updater_requirement(self, archive_size: int) -> list[StorageRequirement]:
-        archive_bytes = archive_size if archive_size > 0 else 64 * MIB
-        return [
+    def restore_requirement(self, backup: Path) -> StorageRequirement:
+        """Restore-specific estimate against the actual snapshot destination."""
+        data = Path(backup) / "data"
+        usage = scan_usage(data)
+        return self._restore_allocation(
+            usage.bytes, usage.inodes, self._database_size(data)[0], self._database_size()[0]
+        )
+
+    def updater_requirement(
+        self, archive_size: int | None = None, *, payload_size: int = 0
+    ) -> list[StorageRequirement]:
+        payload = max(payload_size, 8 * MIB)
+        requirements = [
             StorageRequirement(
-                self.updater_root.parent,
-                archive_bytes * 2 + 64 * MIB,
-                "updater archive staging and coherent utility replacement",
-                10000,
-            )
+                self.updater_root,
+                payload * 2,
+                "verified updater staging and generation installation",
+                128,
+            ),
+            *(
+                StorageRequirement(parent, MIB, "launcher and command publication", 16)
+                for parent in sorted({command.parent for command in self.updater_commands})
+            ),
         ]
+        if archive_size is not None:
+            requirements.append(
+                StorageRequirement(
+                    self.temporary_root, archive_size or 64 * MIB, "updater archive download", 8
+                )
+            )
+        return requirements
 
     def backup_requirements(self) -> list[StorageRequirement]:
         return [
@@ -2560,22 +2954,26 @@ json.dump(rows, sys.stdout)
                 info.device,
                 {
                     "info": info,
-                    "bytes": 0,
-                    "files": 0,
+                    "stages": {},
                     "labels": [],
                     "paths": set(),
                 },
             )
-            group["bytes"] += max(0, int(requirement.bytes))
-            group["files"] += max(0, int(requirement.inodes))
+            stage = group["stages"].setdefault(requirement.stage, [0, 0])
+            stage[0] += max(0, int(requirement.bytes))
+            stage[1] += max(0, int(requirement.inodes))
             group["labels"].append(requirement.label)
             group["paths"].add(str(requirement.path))
         headroom = int(self.storage_settings["headroom_mib"]) * MIB
         inode_reserve = int(self.storage_settings["minimum_free_inodes"])
         failures = []
         for group in groups.values():
-            required_bytes = group["bytes"] + headroom
-            required_inodes = group["files"] + inode_reserve
+            common_bytes, common_inodes = group["stages"].get(None, (0, 0))
+            phases = [cost for stage, cost in group["stages"].items() if stage is not None]
+            required_bytes = common_bytes + max((cost[0] for cost in phases), default=0) + headroom
+            required_inodes = (
+                common_inodes + max((cost[1] for cost in phases), default=0) + inode_reserve
+            )
             info = group["info"]
             bytes_short = info.available_bytes < required_bytes
             inodes_short = info.inode_reporting and info.available_inodes < required_inodes
@@ -2724,6 +3122,8 @@ json.dump(rows, sys.stdout)
             ) from error
         referenced = self._referenced_release_paths()
         for path in children:
+            if path.name.startswith(".staging-intent-"):
+                continue
             try:
                 info = path.lstat()
             except OSError as error:
@@ -2849,6 +3249,8 @@ json.dump(rows, sys.stdout)
             return "invalid", f"not root-owned (uid {info.st_uid})"
         if BACKUP_DIRECTORY.fullmatch(path.name) is None:
             return "unrecognized", "unrecognised backup name"
+        if location := self._backup_location_error(path, parent_fd=parent_fd):
+            return "invalid", location
         if not (path / "data").is_dir() or not (path / "config").is_dir():
             return "incomplete", "missing data or configuration directory"
         manifest = path / "manifest.json"
@@ -2932,6 +3334,26 @@ json.dump(rows, sys.stdout)
                 key = self._path_key(prior.get("backup"))
                 if key:
                     backups.setdefault(key, "prior committed rollback state")
+        # State intents nested inside recovery journals can carry another
+        # rollback pair even before the new installed state is published.
+        nested = [
+            field
+            for source in (state, journal)
+            if source
+            for key in ("prior_state", "rollback_state", "commit_state")
+            if isinstance((field := source.get(key)), dict)
+        ]
+        while nested:
+            prior = nested.pop()
+            for key in ("target", "previous"):
+                path = self._path_key(prior.get(key))
+                if path is not None:
+                    releases.setdefault(path, "recorded committed state reference")
+            path = self._path_key(prior.get("backup"))
+            if path is not None:
+                backups.setdefault(path, "recorded committed rollback state")
+            if isinstance(prior.get("prior_state"), dict):
+                nested.append(prior["prior_state"])
         for value in protected_releases or set():
             key = self._path_key(str(value))
             if key:
@@ -2941,19 +3363,6 @@ json.dump(rows, sys.stdout)
             if key:
                 backups[key] = "snapshot currently being created or verified"
         return releases, backups
-
-    def _backup_roots(self) -> list[RootIdentity]:
-        roots = []
-        if self.backups.exists() and self.backups != self.legacy_backups:
-            roots.append(
-                self.fs.validate_root(
-                    self.backups,
-                    owner=self.privileged_uid,
-                    description="backup directory",
-                    mode=0o700,
-                )
-            )
-        return roots
 
     def _data_owner(self) -> int:
         return self._data_account()[0]
@@ -3046,6 +3455,7 @@ json.dump(rows, sys.stdout)
             protected_releases,
             protected_backups,
         )
+        recorded = self._recorded_staging(journal_for_protection)
         now = time.time()
 
         def add(
@@ -3089,6 +3499,38 @@ json.dump(rows, sys.stdout)
                 report.status_counts[status] = report.status_counts.get(status, 0) + 1
             return entry
 
+        for path, (operation, _mixed, protected) in recorded.items():
+            if not os.path.lexists(path):
+                continue
+            try:
+                identity = self._staging_identity(path)
+            except (OSError, DeploymentError) as error:
+                add(
+                    "staging",
+                    "retain",
+                    path,
+                    f"{error}. Inspect the staging record.",
+                    status="invalid",
+                )
+                continue
+            if protected or path in protected_release_map or path in protected_backup_map:
+                add(
+                    "staging",
+                    "keep",
+                    path,
+                    "recorded by an active or completed operation",
+                    status="protected",
+                )
+            else:
+                add(
+                    "staging",
+                    "remove",
+                    path,
+                    f"abandoned {operation} with a durable staging record",
+                    status="incomplete",
+                    identity=identity,
+                )
+
         release_entries = self._release_entries()
         protected_release_count = 0
         protected_versions = set()
@@ -3097,6 +3539,8 @@ json.dump(rows, sys.stdout)
             path = entry["path"]
             key = self._path_key(str(path))
             kind = entry["kind"]
+            if path in recorded and kind != "complete":
+                continue
             if key in protected_release_map:
                 protected_release_count += 1
                 if entry["version"] and kind == "complete":
@@ -3132,7 +3576,18 @@ json.dump(rows, sys.stdout)
                         identity=entry.get("identity"),
                     )
             elif kind == "incomplete":
-                if age < INCOMPLETE_GRACE_SECONDS:
+                marker = self.fs.read_staging_marker(path)
+                if marker is None or marker["operation"] != "release":
+                    add(
+                        "release",
+                        "retain",
+                        path,
+                        "incomplete release without a staging record; retained for manual review",
+                        version=entry["version"],
+                        status="incomplete",
+                        identity=entry.get("identity"),
+                    )
+                elif age < INCOMPLETE_GRACE_SECONDS:
                     add(
                         "release",
                         "retain",
@@ -3318,127 +3773,133 @@ json.dump(rows, sys.stdout)
                 )
 
         backup_entries = []
-        if not dry_run:
-            # Validate the backup root before planning any destructive cleanup.
-            self._backup_roots()
-        search_roots = [self.backups]
-        if self.legacy_backups.exists() and self.legacy_backups != self.backups:
-            search_roots.append(self.legacy_backups)
-        for root in search_roots:
-            try:
-                backup_children = sorted(root.iterdir(), key=lambda item: item.name)
-            except (FileNotFoundError, OSError):
-                backup_children = []
-            for path in backup_children:
-                try:
-                    info = path.lstat()
-                except OSError as error:
+        try:
+            inventory = self._backup_inventory()
+        except (OSError, DeploymentError) as error:
+            report.errors.append(
+                f"Cannot safely inspect backup locations: {describe_exception(error)}"
+            )
+            report.refused = True
+            report.cleanup_complete = False
+            return report
+        for path, info, status, detail, destination, migration in inventory:
+            if path in recorded:
+                continue
+            identity = (int(info.st_dev), int(info.st_ino))
+            key = self._path_key(str(path))
+            if migration is None and STAGING_DIRECTORY.fullmatch(path.name):
+                marker = self.fs.read_staging_marker(path)
+                age = max(0.0, now - info.st_mtime)
+                if key in protected_backup_map:
+                    add(
+                        "backup",
+                        "keep",
+                        path,
+                        protected_backup_map[key],
+                        status="protected",
+                        identity=identity,
+                    )
+                elif marker is None:
                     add(
                         "backup",
                         "skip",
                         path,
-                        "unreadable entry: " + describe_exception(error),
+                        "staging-shaped directory without an operation marker; never "
+                        "automatically removed",
                         status="unrecognized",
+                        identity=identity,
                     )
-                    continue
-                identity = (int(info.st_dev), int(info.st_ino))
-                key = self._path_key(str(path))
-                if STAGING_DIRECTORY.fullmatch(path.name):
-                    marker = self.fs.read_staging_marker(path)
-                    age = max(0.0, now - info.st_mtime)
-                    if marker is None:
-                        add(
-                            "backup",
-                            "skip",
-                            path,
-                            "staging-shaped directory without an operation marker; never "
-                            "automatically removed",
-                            status="unrecognized",
-                            identity=identity,
-                        )
-                    elif age < INCOMPLETE_GRACE_SECONDS:
-                        add(
-                            "staging",
-                            "retain",
-                            path,
-                            "recent snapshot staging directory",
-                            status="incomplete",
-                            identity=identity,
-                        )
-                    else:
-                        add(
-                            "staging",
-                            "remove",
-                            path,
-                            "incomplete snapshot creation (marked staging directory)",
-                            status="incomplete",
-                            identity=identity,
-                        )
-                    continue
-                status, detail = self._backup_status(path)
-                entry_status = {
-                    "complete": "verified",
-                    "incomplete": "incomplete",
-                    "invalid": "invalid",
-                    "unrecognized": "unrecognized",
-                }.get(status, "unrecognized")
-                if status == "complete":
-                    backup_entries.append((path, info.st_mtime, identity))
-                elif status == "incomplete":
-                    if key in protected_backup_map:
-                        add(
-                            "backup",
-                            "keep",
-                            path,
-                            protected_backup_map[key],
-                            status=entry_status,
-                            identity=identity,
-                        )
-                    elif max(0.0, now - info.st_mtime) < INCOMPLETE_GRACE_SECONDS:
-                        add(
-                            "backup",
-                            "retain",
-                            path,
-                            detail + "; recent and not yet eligible",
-                            status=entry_status,
-                            identity=identity,
-                        )
-                    else:
-                        add(
-                            "backup",
-                            "remove",
-                            path,
-                            "incomplete snapshot (" + detail + ")",
-                            status=entry_status,
-                            identity=identity,
-                        )
-                elif status == "invalid":
+                elif age < INCOMPLETE_GRACE_SECONDS:
+                    add(
+                        "staging",
+                        "retain",
+                        path,
+                        "recent snapshot staging directory",
+                        status="incomplete",
+                        identity=identity,
+                    )
+                else:
+                    add(
+                        "staging",
+                        "remove",
+                        path,
+                        "incomplete snapshot creation (marked staging directory)",
+                        status="incomplete",
+                        identity=identity,
+                    )
+                continue
+            entry_status = {
+                "complete": "verified",
+                "incomplete": "incomplete",
+                "invalid": "invalid",
+                "unrecognized": "unrecognized",
+            }.get(status, "unrecognized")
+            if status == "complete":
+                if destination is not None:
+                    add(
+                        "backup",
+                        migration,
+                        path,
+                        f"verified legacy snapshot to {destination}",
+                        status="migration",
+                        identity=identity,
+                    )
+                backup_entries.append((path, info.st_mtime, identity, destination or path))
+            elif status == "incomplete":
+                if key in protected_backup_map:
+                    add(
+                        "backup",
+                        "keep",
+                        path,
+                        protected_backup_map[key],
+                        status=entry_status,
+                        identity=identity,
+                    )
+                elif max(0.0, now - info.st_mtime) < INCOMPLETE_GRACE_SECONDS:
                     add(
                         "backup",
                         "retain",
                         path,
-                        detail + "; retained for manual inspection",
+                        detail + "; recent and not yet eligible",
                         status=entry_status,
                         identity=identity,
                     )
                 else:
                     add(
                         "backup",
-                        "skip",
+                        "remove",
                         path,
-                        "unrecognized backup directory; never automatically removed",
+                        "incomplete snapshot (" + detail + ")",
                         status=entry_status,
                         identity=identity,
                     )
+            elif status == "invalid":
+                add(
+                    "backup",
+                    "retain",
+                    path,
+                    detail + "; retained for manual inspection",
+                    status=entry_status,
+                    identity=identity,
+                )
+            else:
+                add(
+                    "backup",
+                    "skip",
+                    path,
+                    "unrecognized backup directory; never automatically removed",
+                    status=entry_status,
+                    identity=identity,
+                )
         protected_backup_count = sum(
             1
-            for path, _mtime, _identity in backup_entries
+            for path, _mtime, _identity, _destination in backup_entries
             if self._path_key(str(path)) in protected_backup_map
         )
         backup_slots = max(0, int(self.retention["backups"]) - protected_backup_count)
-        backup_entries.sort(key=lambda item: (item[1], item[0].name), reverse=True)
+        backup_entries.sort(key=lambda item: (item[1], item[3].name), reverse=True)
         unprotected_backups = []
-        for path, mtime, identity in backup_entries:
+        for path, mtime, identity, destination in backup_entries:
             key = self._path_key(str(path))
             if key in protected_backup_map:
                 add(
@@ -3450,8 +3911,8 @@ json.dump(rows, sys.stdout)
                     identity=identity,
                 )
             else:
-                unprotected_backups.append((path, mtime, identity))
-        for index, (path, _mtime, identity) in enumerate(unprotected_backups):
+                unprotected_backups.append((path, mtime, identity, destination))
+        for index, (path, _mtime, identity, destination) in enumerate(unprotected_backups):
             if index < backup_slots:
                 add(
                     "backup",
@@ -3466,7 +3927,8 @@ json.dump(rows, sys.stdout)
                     "backup",
                     "remove",
                     path,
-                    "beyond configured backup retention",
+                    "beyond configured backup retention"
+                    + (f" after migration to {destination}" if destination != path else ""),
                     status="verified",
                     identity=identity,
                 )
@@ -3477,7 +3939,11 @@ json.dump(rows, sys.stdout)
                 "no protected backup was removed"
             )
 
-        self._plan_interrupted_restores(report, add, journal, journal_ok, now)
+        def add_restore(category, action, path, reason, **fields):
+            if path not in recorded:
+                add(category, action, path, reason, **fields)
+
+        self._plan_interrupted_restores(report, add_restore, journal, journal_ok, now)
 
         if include_caches:
             for name in ("uv", "npm"):
@@ -3509,6 +3975,8 @@ json.dump(rows, sys.stdout)
         }
 
         def location_root(candidate: CleanupEntry) -> Path:
+            if candidate.category == "backup":
+                return candidate.path.parent
             if candidate.category in {"staging"}:
                 if candidate.path.parent in {self.releases, self.backups}:
                     return candidate.path.parent
@@ -3534,7 +4002,11 @@ json.dump(rows, sys.stdout)
             if candidate.action != "remove":
                 continue
             try:
-                usage = scan_usage(candidate.path)
+                usage = (
+                    self._legacy_cleanup_entry(candidate.path, candidate.identity, dry_run=True)
+                    if candidate.path.parent == self.legacy_backups
+                    else scan_usage(candidate.path)
+                )
             except (OSError, DeploymentError) as error:
                 report.errors.append(
                     f"Cannot measure {candidate.path}: {describe_exception(error)}"
@@ -3549,18 +4021,26 @@ json.dump(rows, sys.stdout)
             candidate.allocated_bytes = usage.allocated_bytes
             candidate.hardlink_bytes = usage.hardlink_bytes
             report.hardlink_bytes += usage.hardlink_bytes
-            report.reclaimable_bytes += usage.bytes
             if dry_run:
+                if can_delete:
+                    report.reclaimable_bytes += usage.bytes
                 continue
             root = location_root(candidate)
             try:
-                self._safe_remove(
-                    root,
-                    candidate.path,
-                    identity=candidate.identity,
-                    owners=owners_for(candidate),
-                )
-            except (OSError, DeploymentError) as error:
+                if candidate.path in recorded:
+                    if root == self.temporary_root:
+                        self._stop_staging_units(candidate.path)
+                    self._discard_staging(candidate.path, mixed=recorded[candidate.path][1])
+                elif root == self.legacy_backups:
+                    self._legacy_cleanup_entry(candidate.path, candidate.identity, dry_run=False)
+                else:
+                    self._safe_remove(
+                        root,
+                        candidate.path,
+                        identity=candidate.identity,
+                        owners=owners_for(candidate),
+                    )
+            except (OSError, DeploymentError, subprocess.CalledProcessError) as error:
                 candidate.action = "failed"
                 candidate.reason = describe_exception(error)
                 report.failed.append(candidate)
@@ -3568,8 +4048,17 @@ json.dump(rows, sys.stdout)
                 report.cleanup_complete = False
             else:
                 candidate.action = "removed"
+                report.reclaimable_bytes += usage.bytes
                 report.removed.append(candidate)
 
+        if not dry_run and can_delete:
+            for path, (_, mixed, protected) in recorded.items():
+                if not protected and not os.path.lexists(path):
+                    try:
+                        self._discard_staging(path, mixed=mixed)
+                    except (OSError, DeploymentError) as error:
+                        report.errors.append(f"Cannot finalize staging record for {path}: {error}")
+                        report.cleanup_complete = False
         if include_caches and not dry_run and can_delete:
             report.reclaimable_bytes += self.reclaim_caches(dry_run=False, report=report)
         if not dry_run:
@@ -3694,6 +4183,7 @@ json.dump(rows, sys.stdout)
         *,
         identity: tuple[int, int] | None = None,
         owners: set[int] | None = None,
+        mixed: bool = False,
     ) -> None:
         """Remove one validated artifact below a validated managed root."""
         expected = owners or {self.privileged_uid}
@@ -3718,7 +4208,7 @@ json.dump(rows, sys.stdout)
         self.fs.remove_tree(
             root_identity,
             Path(path),
-            expected_owner=int(info.st_uid),
+            expected_owner=expected if mixed else int(info.st_uid),
             identity=identity,
         )
 
@@ -3755,8 +4245,8 @@ json.dump(rows, sys.stdout)
             print(headings[category] + ":")
             for entry in sorted(entries, key=lambda item: str(item.path)):
                 verb = entry.action.upper()
-                if report.dry_run and entry.action == "remove":
-                    verb = "WOULD REMOVE"
+                if report.dry_run and entry.action in {"remove", "move", "copy"}:
+                    verb = f"WOULD {verb}"
                 label = f"{entry.version} " if entry.version else ""
                 status = f" [{entry.status}]" if entry.status else ""
                 size = f" ({format_bytes(entry.bytes)})" if entry.bytes else ""
@@ -3797,6 +4287,92 @@ json.dump(rows, sys.stdout)
                 file=sys.stderr,
             )
 
+    def _recorded_staging(
+        self,
+        journal: dict | None,
+    ) -> dict[Path, tuple[str, bool, bool]]:
+        restore = (journal or {}).get("restore") or {}
+        protected = {restore.get("staging"), restore.get("retained")}
+        pending = set()
+        for entry in self._release_entries():
+            metadata = entry.get("metadata")
+            if entry["kind"] == "complete" and metadata and isinstance(metadata.get("sha256"), str):
+                path = self._pending_updater_for(metadata["sha256"])
+                if path is not None:
+                    pending.add(path)
+        roots = (
+            (self.temporary_root, STAGING_DIRECTORY, {"prepare", "verify", "refresh"}, True),
+            (self.releases, RELEASE_DIRECTORY, {"release"}, True),
+            (self.backups, STAGING_DIRECTORY, {"backup"}, False),
+            (self.data.parent, RESTORE_STAGING_DIRECTORY, {"restore"}, True),
+            (self.updater_root, PENDING_UPDATER_DIRECTORY, {"pending"}, False),
+            (self.updater_root / "generations", STAGING_DIRECTORY, {"generation"}, False),
+        )
+        records = {}
+        for root, pattern, operations, mixed in roots:
+            for marker in root.glob(".staging-intent-*.json"):
+                intent, valid, _ = self._load_metadata(marker, "staging intent")
+                name = intent.get("name") if valid and intent else None
+                operation = intent.get("operation") if intent else None
+                if (
+                    not isinstance(name, str)
+                    or not pattern.fullmatch(name)
+                    or operation not in operations
+                    or self._staging_intent(root / name) != marker
+                ):
+                    print(f"Unrecognized staging record retained: {marker}", file=sys.stderr)
+                    continue
+                path = root / name
+                keep = (
+                    str(path) in protected
+                    or path in pending
+                    or operation == "restore"
+                    and os.path.lexists(path / GATE_NAME)
+                    or operation == "release"
+                    and os.path.lexists(path / RELEASE_MARKER)
+                )
+                records[path] = (operation, mixed, keep)
+        for path in self.updater_root.glob(".pending-*"):
+            if PENDING_UPDATER_DIRECTORY.fullmatch(path.name) and path not in records:
+                records[path] = ("pending updater", False, path in pending)
+        return records
+
+    def _remove_recorded_staging(self, journal: dict | None, protected: set[Path]) -> None:
+        for path, (operation, mixed, keep) in self._recorded_staging(journal).items():
+            if path in protected:
+                continue
+            if keep:
+                if operation == "release":
+                    with suppress(DeploymentError):
+                        self._require_complete_release(path)
+                        self._finish_staging(path)
+                continue
+            try:
+                if path.parent == self.temporary_root:
+                    self._stop_staging_units(path)
+                self._discard_staging(path, mixed=mixed)
+            except (OSError, DeploymentError, subprocess.CalledProcessError) as error:
+                print(
+                    f"Staging cleanup warning for {path}: {describe_exception(error)}",
+                    file=sys.stderr,
+                )
+
+    def _clear_preparation_workspace(self, path: Path) -> None:
+        self._stop_staging_units(path)
+        self._discard_staging(path, mixed=True)
+
+    def _stop_staging_units(self, path: Path) -> None:
+        if self._data_owner() != self.privileged_uid:
+            # A killed updater can leave a transient systemd build process behind.
+            # The glob is restricted to the authenticated staging name.
+            self.run(
+                [
+                    "systemctl",
+                    "stop",
+                    "hnefatafl-" + path.name.removeprefix(".staging-") + "-*.service",
+                ]
+            )
+
     def _remove_orphan_staging(self) -> None:
         """Remove only marked staging artifacts from an interrupted operation.
 
@@ -3805,14 +4381,23 @@ json.dump(rows, sys.stdout)
         staging directory was created must be present and valid.
         """
         journal, journal_valid, _reason = self._load_metadata(self.journal, "transaction journal")
-        protected_restore = set()
-        if journal_valid and isinstance(journal, dict):
+        state, state_valid, _ = self._load_metadata(self.state, "installed state")
+        if state is not None and state_valid:
+            state_valid, _ = self.validate_state_metadata(state)
+        if journal is not None and journal_valid:
+            journal_valid, _ = self.validate_transaction_metadata(journal)
+        if not state_valid or not journal_valid:
+            return
+        protected_release, protected_backup = self._cleanup_protection(state, journal, None, None)
+        protected_restore = {str(path) for path in {*protected_release, *protected_backup}}
+        if isinstance(journal, dict):
             restore = journal.get("restore")
             if isinstance(restore, dict):
                 for key in ("staging", "retained"):
                     value = restore.get(key)
                     if isinstance(value, str) and value:
                         protected_restore.add(str(Path(value)))
+        self._remove_recorded_staging(journal, {*protected_release, *protected_backup})
         for root, pattern, owners in (
             (
                 self.releases,
@@ -3830,7 +4415,9 @@ json.dump(rows, sys.stdout)
             except (FileNotFoundError, OSError):
                 continue
             for path in children:
-                if pattern.fullmatch(path.name) is None:
+                if pattern.fullmatch(path.name) is None or os.path.lexists(
+                    self._staging_intent(path)
+                ):
                     continue
                 if (
                     str(path) in protected_restore
@@ -3908,6 +4495,7 @@ json.dump(rows, sys.stdout)
         phase: str,
         service_state: str | None,
         protected_releases: set[Path] | None,
+        protected_backups: set[Path] | None = None,
         persistent_data: str = "unchanged",
     ) -> None:
         def evaluated() -> list[StorageRequirement]:
@@ -3930,6 +4518,7 @@ json.dump(rows, sys.stdout)
                     automatic=True,
                     allow_unfinished=True,
                     protected_releases=protected_releases,
+                    protected_backups=protected_backups,
                 )
             except BaseException as error:
                 print(
@@ -4060,21 +4649,22 @@ json.dump(rows, sys.stdout)
         return payload
 
     @staticmethod
-    def _updater_abi(source: str) -> int | None:
+    def _declared_protocol(source: str, name: str, *, default: int = 0) -> int:
         import ast
 
         try:
             tree = ast.parse(source)
         except SyntaxError:
-            return None
+            return default
         for node in tree.body:
             if isinstance(node, ast.Assign):
                 for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "UPDATER_ABI":
+                    if isinstance(target, ast.Name) and target.id == name:
                         value = node.value
-                        if isinstance(value, ast.Constant) and isinstance(value.value, int):
+                        if isinstance(value, ast.Constant) and type(value.value) is int:
                             return int(value.value)
-        return None
+                        return 0
+        return default
 
     def _installed_updater_abi(self, *, verify_active: bool = True) -> int:
         active = self._active_updater(verify=verify_active)
@@ -4092,7 +4682,7 @@ json.dump(rows, sys.stdout)
         if os.path.lexists(self.updater_module):
             source = self._utility_file(self.updater_module).read_text()
             compile(source, str(self.updater_module), "exec")
-            abi = max(abi, self._updater_abi(source) or 1)
+            abi = max(abi, self._declared_protocol(source, "UPDATER_ABI", default=1))
         return abi
 
     def _validate_updater_payload(
@@ -4110,9 +4700,9 @@ json.dump(rows, sys.stdout)
             raise DeploymentError(
                 f"Refusing to install an invalid deployment utility: {describe_exception(error)}"
             ) from error
-        abi = self._updater_abi(module_source)
+        abi = self._declared_protocol(module_source, "UPDATER_ABI")
         installed = self._installed_updater_abi(verify_active=verify_active)
-        if abi is None or abi < 1:
+        if abi < 1:
             raise DeploymentError(
                 "The candidate deployment utility does not declare a supported protocol "
                 "version; refusing to install it"
@@ -4124,9 +4714,34 @@ json.dump(rows, sys.stdout)
                 "or retention metadata. Run a newer installer or use --refresh-updater "
                 "from a newer verified release."
             )
-        if abi < 3:
+        if abi < MIN_GENERATION_ABI:
             raise DeploymentError(
                 "The candidate updater does not support coherent utility generations"
+            )
+        minimum = self._declared_protocol(module_source, "MIN_GENERATION_ABI", default=abi)
+        upgrading = any(
+            os.path.lexists(path)
+            for path in (self.updater_module, self.updater_state, self.updater_root / "active.json")
+        )
+        if (
+            not 3 <= minimum <= abi
+            or upgrading
+            and abi > max(MIN_GENERATION_ABI, installed + 1)
+            or installed >= MIN_GENERATION_ABI
+            and minimum > installed
+        ):
+            raise DeploymentError(
+                "Unsupported updater ABI transition. Install the intervening compatible generation first."
+            )
+        journal, valid, reason = self._load_metadata(self.journal, "transaction journal")
+        if not valid:
+            raise DeploymentError(f"Cannot establish updater ABI compatibility: {reason}")
+        recorded = journal.get("abi") if journal else None
+        if recorded is not None and (
+            type(recorded) is not int or recorded > abi or 3 <= recorded < minimum
+        ):
+            raise DeploymentError(
+                "The candidate updater cannot read the recorded deployment transaction"
             )
         for member in (
             self.UPDATER_MEMBERS["launcher"],
@@ -4175,9 +4790,9 @@ json.dump(rows, sys.stdout)
         abi = self._validate_updater_payload(payload)
         token = re.sub(r"[^a-f0-9]", "", digest.lower())[-16:] or secrets.token_hex(8)
         staging = self.updater_root / (".pending-" + token)
-        if staging.exists():
+        if staging.exists() or os.path.lexists(self._staging_intent(staging)):
             self._remove_pending_updater(staging)
-        os.mkdir(staging, 0o700)
+        self._begin_staging(staging, "pending")
         files = {}
         for member, content in payload.items():
             destination = staging / member
@@ -4188,6 +4803,7 @@ json.dump(rows, sys.stdout)
                 handle.flush()
                 os.fsync(handle.fileno())
             files[member] = hashlib.sha256(content).hexdigest()
+        sync_tree(staging)
         atomic_json(
             staging / "manifest.json",
             {
@@ -4204,6 +4820,9 @@ json.dump(rows, sys.stdout)
 
     def _remove_pending_updater(self, staging: Path) -> None:
         staging = Path(staging)
+        if os.path.lexists(self._staging_intent(staging)):
+            self._discard_staging(staging)
+            return
         try:
             info = os.lstat(staging)
         except OSError:
@@ -4353,26 +4972,59 @@ json.dump(rows, sys.stdout)
         installed_launcher = None
         if os.path.lexists(self.updater_module):
             installed_launcher = self._utility_file(self.updater_module).read_bytes()
+        launcher_protocol = self._declared_protocol(
+            launcher.decode(), "LAUNCHER_PROTOCOL", default=1
+        )
+        module_source = files["deployment.py"].decode()
+        minimum_launcher = self._declared_protocol(
+            module_source, "MIN_LAUNCHER_PROTOCOL", default=1
+        )
+        active_launcher = None
+        active_minimum = 1
+        if active:
+            previous_generation = self.updater_root / "generations" / active["generation"]
+            try:
+                previous_metadata = self._verify_generation(previous_generation)
+            except (OSError, DeploymentError):
+                if not repair:
+                    raise
+            else:
+                active_launcher = (previous_generation / "launcher.py").read_bytes()
+                active_minimum = previous_metadata.get("minimum_launcher_protocol", 1)
+        protocol_source = active_launcher
+        if installed_launcher is not None and (
+            active_launcher is None or installed_launcher == launcher
+        ):
+            protocol_source = installed_launcher
+        installed_protocol = 1
+        if protocol_source is not None:
+            installed_protocol = self._declared_protocol(
+                protocol_source.decode(errors="replace"), "LAUNCHER_PROTOCOL", default=1
+            )
         if (
-            installed_launcher is not None
-            and b"def launch(lock_path=" in installed_launcher
-            and installed_launcher != launcher
+            type(active_minimum) is not int
+            or not 1 <= minimum_launcher <= launcher_protocol
+            or launcher_protocol < max(installed_protocol, active_minimum)
+            or (active is not None or installed_launcher is not None)
+            and launcher_protocol > installed_protocol + 1
         ):
             raise DeploymentError(
-                "The installed deployment launcher differs from the verified stable launcher"
+                "Unsupported launcher protocol transition for the installed or candidate generation"
             )
-        if active is not None and installed_launcher not in (None, launcher):
-            # A previous bootstrap can have persisted the generation before
-            # switching the old command to the launcher. The old module is
-            # still complete and is copied before attempting that switch again.
-            legacy = self.updater_root / "legacy-deployment.py"
-            if (
-                not legacy.is_file()
-                or self._utility_file(legacy).read_bytes() != installed_launcher
-            ):
-                raise DeploymentError(
-                    "The installed launcher is inconsistent with the active updater generation"
+        legacy_entry = False
+        if installed_launcher not in (None, launcher, active_launcher):
+            if active is None:
+                legacy_entry = True
+            else:
+                previous_flat = self.updater_root / "legacy-deployment.py"
+                legacy_entry = (
+                    previous_flat.is_file()
+                    and self._utility_file(previous_flat).read_bytes() == installed_launcher
                 )
+                if not legacy_entry and not repair:
+                    raise DeploymentError(
+                        "The installed launcher is inconsistent with the active updater generation. Use the reviewed installer to repair it."
+                    )
         wrappers: list[tuple[Path, bytes]] = []
         for command, name in zip(self.updater_commands, ("update.sh", "backup.sh"), strict=True):
             self._managed_root(
@@ -4392,7 +5044,7 @@ json.dump(rows, sys.stdout)
             if name != "update.sh" or existing != legacy_wrapper:
                 raise DeploymentError(f"The existing updater wrapper is incompatible: {command}")
             wrappers.append((command, files[name]))
-        if installed_launcher is not None and installed_launcher != launcher:
+        if legacy_entry and installed_launcher is not None:
             atomic_bytes(self.updater_root / "legacy-deployment.py", installed_launcher, 0o444)
 
         generations = self.updater_root / "generations"
@@ -4408,6 +5060,8 @@ json.dump(rows, sys.stdout)
                 "schema": 1,
                 "abi": abi,
                 "version": tag,
+                "launcher_protocol": launcher_protocol,
+                "minimum_launcher_protocol": minimum_launcher,
                 "files": {
                     name: hashlib.sha256(content).hexdigest() for name, content in files.items()
                 },
@@ -4430,7 +5084,8 @@ json.dump(rows, sys.stdout)
                     os.rename(damaged, generations / (".damaged-" + secrets.token_hex(8)))
                     sync_directory(generations)
         if not os.path.lexists(destination):
-            staging = Path(tempfile.mkdtemp(prefix=".stage-", dir=generations))
+            staging = generations / (".staging-generation-" + secrets.token_hex(8))
+            self._begin_staging(staging, "generation")
             try:
                 (staging / "updater_support").mkdir(mode=0o700)
                 for name, content in files.items():
@@ -4440,8 +5095,7 @@ json.dump(rows, sys.stdout)
                 os.rename(staging, destination)
                 sync_directory(generations)
             finally:
-                if staging.exists():
-                    self._safe_remove(generations, staging, identity=self.fs.identity_of(staging))
+                self._discard_staging(staging)
         self._verify_generation(destination)
         smoke = """
 import inspect, runpy, sys
@@ -4450,12 +5104,34 @@ path = Path(sys.argv[1])
 module = runpy.run_path(str(path / 'deployment.py'))
 inspect.signature(module['main']).bind([], installed_generation=path, deployment_lock=None)
 assert callable(module['guard_service_start'])
-updater = module['Deployment']({}, updater_root=path)
+updater = module['Deployment'](
+    {}, base=Path(sys.argv[2]), data=Path(sys.argv[3]), etc=Path(sys.argv[4]),
+    backups=Path(sys.argv[5]), updater_root=path,
+)
 updater._load_online_support()
+for name, validate in (
+    ('journal', updater.validate_transaction_metadata),
+    ('state', updater.validate_state_metadata),
+):
+    record, readable, reason = updater._load_metadata(getattr(updater, name), name)
+    if readable and record is not None:
+        readable, reason = validate(record)
+    if not readable:
+        raise ValueError(reason)
 """
         try:
             subprocess.run(
-                [sys.executable, "-I", "-B", "-c", smoke, str(destination)],
+                [
+                    sys.executable,
+                    "-I",
+                    "-B",
+                    "-c",
+                    smoke,
+                    *(
+                        str(path)
+                        for path in (destination, self.base, self.data, self.etc, self.backups)
+                    ),
+                ],
                 check=True,
                 capture_output=True,
                 timeout=30,
@@ -4464,6 +5140,12 @@ updater._load_online_support()
             raise DeploymentError(
                 "The candidate utility generation failed its standalone import check"
             ) from error
+        # Existing installations switch to the compatible launcher while it
+        # still selects the verified old generation. Flat bootstrap must put
+        # the pointer in place first because the flat command ignores it.
+        switched_launcher = active is not None and damaged is None and not legacy_entry
+        if switched_launcher and installed_launcher != launcher:
+            atomic_bytes(self.updater_module, launcher, 0o444)
         if previous != identifier or damaged is not None:
             atomic_json(
                 self.updater_root / "active.json",
@@ -4476,7 +5158,7 @@ updater._load_online_support()
             )
         # Older wrappers already invoke this exact file. The old module and its
         # support files remain usable up to this final atomic bootstrap step.
-        if installed_launcher != launcher:
+        if not switched_launcher and installed_launcher != launcher:
             atomic_bytes(self.updater_module, launcher, 0o444)
         for command, content in wrappers:
             atomic_bytes(command, content, 0o755)
@@ -4486,11 +5168,10 @@ updater._load_online_support()
         if active:
             protected.add(active.get("previous"))
         for entry in generations.iterdir():
-            if entry.name in protected or not re.fullmatch(
-                r"[a-f0-9]{64}|\.stage-[a-z0-9_]{8}", entry.name
-            ):
+            if entry.name in protected or not re.fullmatch(r"[a-f0-9]{64}", entry.name):
                 continue
             try:
+                self._verify_generation(entry)
                 self._safe_remove(generations, entry, identity=self.fs.identity_of(entry))
             except (OSError, DeploymentError) as error:
                 print(
@@ -4586,10 +5267,8 @@ updater._load_online_support()
         """Publish the updater set staged from the digest-verified archive."""
         if not self.manage_updater:
             return
-        metadata, valid, reason = self._load_metadata(
-            Path(target) / RELEASE_MARKER, "release metadata"
-        )
-        digest = metadata.get("sha256") if valid and metadata else None
+        metadata = self._require_complete_release(target)
+        digest = metadata.get("sha256")
         if not isinstance(digest, str):
             raise DeploymentError(
                 "Refusing to refresh the installed utility without the verified archive "
@@ -4611,11 +5290,15 @@ updater._load_online_support()
             )
         plan = self._updater_publication_plan(staging)
         self._preflight_or_reclaim(
-            lambda: self.updater_requirement(0),
+            lambda: self.updater_requirement(payload_size=sum(map(len, plan.values()))),
             phase="updater refresh",
             service_state="unchanged",
-            protected_releases=set(),
+            protected_releases={target},
         )
+        if self._require_complete_release(target) != metadata:
+            raise DeploymentError(
+                "Prepared release metadata changed during updater storage reclamation"
+            )
         self._publish_updater_plan(
             plan, tag=str(metadata.get("version", "")) if isinstance(metadata, dict) else ""
         )
@@ -4643,10 +5326,11 @@ updater._load_online_support()
             service_state="unchanged",
             protected_releases=set(),
         )
-        with tempfile.TemporaryDirectory(
-            dir=self.updater_root.parent, prefix=".updater-download-"
-        ) as temporary:
-            archive = Path(temporary) / "release.tar.gz"
+        self._remove_orphan_staging()
+        workspace = self._temporary_workspace("refresh")
+        staging = None
+        try:
+            archive = workspace / "release.tar.gz"
             digest = github.download(release, archive)
             metadata = tomllib.loads(
                 self._read_archive_members(archive, {"pyproject": "pyproject.toml"})[
@@ -4656,9 +5340,12 @@ updater._load_online_support()
             if metadata.get("project", {}).get("version") != tag:
                 raise DeploymentError("Release tag and package version disagree")
             staging = self._stage_updater_payload(archive, tag, digest)
-        plan = self._updater_publication_plan(staging)
-        self._publish_updater_plan(plan, tag=tag)
-        self._remove_pending_updater(staging)
+            plan = self._updater_publication_plan(staging)
+            self._publish_updater_plan(plan, tag=tag)
+        finally:
+            self._discard_staging(workspace, mixed=True)
+            if staging is not None:
+                self._remove_pending_updater(staging)
         print(f"Deployment utility refreshed from release {tag}.")
 
     @staticmethod
@@ -4888,10 +5575,14 @@ updater._load_online_support()
         )
         if os.path.lexists(final):
             raise DeploymentError(f"The snapshot destination already exists: {final}")
-        os.mkdir(backup, 0o700)
-        self.fs.write_staging_marker(backup, "backup")
+        self._begin_staging(backup, "backup")
         try:
-            excluded = self._snapshot_excluded() - {"hnefatafl.sqlite3", "hnefatafl.sqlite3-wal"}
+            self.fs.write_staging_marker(backup, "backup")
+            excluded = self._snapshot_excluded() - {
+                "hnefatafl.sqlite3",
+                "hnefatafl.sqlite3-wal",
+                "hnefatafl.sqlite3-journal",
+            }
             self._copy_snapshot_tree(self._data_directory(self.data), backup / "data", excluded)
             config = self.fs.validate_root(
                 self.etc, owner=self.privileged_uid, description="configuration directory"
@@ -4906,10 +5597,10 @@ updater._load_online_support()
             sync_tree(backup)
             os.rename(backup, final)
             sync_directory(self.backups)
+            self._finish_staging(backup)
         except BaseException:
             try:
-                if os.path.lexists(backup):
-                    self._safe_remove(self.backups, backup, owners={self.privileged_uid})
+                self._discard_staging(backup)
             except (OSError, DeploymentError) as cleanup_error:
                 print(
                     f"Snapshot staging cleanup warning: {describe_exception(cleanup_error)}",
@@ -5613,7 +6304,7 @@ updater._load_online_support()
             "gate_identity": list(self._held_gate),
         }
         self._record_restore(journal, restore, "prepared")
-        os.mkdir(staging, 0o700)
+        self._begin_staging(staging, "restore")
         atomic_json(
             staging / RESTORE_MARKER,
             {
@@ -5722,6 +6413,7 @@ updater._load_online_support()
             self._record_restore(journal, restore, "gate-moved")
             os.rename(staging, data)
             sync_directory(data.parent)
+            self._finish_staging(staging)
             physical[data] = self._data_directory(data, staging=True)
             del physical[staging]
             self._record_restore(journal, restore, "published")
@@ -5767,7 +6459,12 @@ updater._load_online_support()
                     raise DeploymentError(
                         "Unfinished restore staging holds a deployment gate and has been preserved"
                     )
-                self._safe_remove(staging.parent, staging, identity=self.fs.identity_of(staging))
+                if os.path.lexists(self._staging_intent(staging)):
+                    self._discard_staging(staging, mixed=True)
+                else:
+                    self._safe_remove(
+                        staging.parent, staging, identity=self.fs.identity_of(staging)
+                    )
             journal["restore"] = None
             self.record(journal)
             return False
@@ -5925,13 +6622,17 @@ updater._load_online_support()
             extra_env=values,
         )
 
-    def _verify_release_environment(self, target: Path) -> None:
-        """Verify the published environment still works at its permanent path.
-
-        Virtual environments and generated entry points embed absolute paths. This
-        release is prepared directly at its final path, so these checks are both a
-        relocation regression test and the completion gate before publication.
-        """
+    def _verify_release_environment(
+        self, target: Path, environment: dict[str, str] | None = None
+    ) -> None:
+        """Verify the frozen environment and entry points at their permanent path."""
+        if environment is None:
+            workspace = self._temporary_workspace("verify")
+            try:
+                self._verify_release_environment(target, self._preparation_environment(workspace))
+            finally:
+                self._clear_preparation_workspace(workspace)
+            return
         target = Path(target)
         python = target / ".venv/bin/python"
         if python.is_symlink():
@@ -5986,7 +6687,7 @@ updater._load_online_support()
             try:
                 # Production runs the frozen environment as the application user;
                 # disposable layouts already run as their own unprivileged account.
-                self.run(command, cwd=target, user=self.manage_updater)
+                self.run(command, cwd=target, user=True, extra_env=environment, preparation=True)
             except (OSError, subprocess.CalledProcessError) as error:
                 raise DeploymentError(
                     f"Prepared release verification failed for {description}: "
@@ -6003,18 +6704,18 @@ updater._load_online_support()
                 )
 
     def _grant_build_access(self, target: Path) -> None:
-        if self.base != Path("/opt/hnefatafl"):
-            return
         uid, gid = self._data_account()
+        if uid == self.privileged_uid:
+            return
         for _, _, files, fd in os.fwalk(target, topdown=False, follow_symlinks=False):
             for name in files:
                 os.chown(name, uid, gid, dir_fd=fd, follow_symlinks=False)
             os.fchown(fd, uid, gid)
 
     def _seal_release(self, target: Path, identity: tuple[int, int]) -> None:
-        if self.base != Path("/opt/hnefatafl"):
-            return
         uid, _ = self._data_account()
+        if uid == self.privileged_uid:
+            return
         if (
             self.fs.is_mount(target)
             or self.fs.nested_mounts(target)
@@ -6087,26 +6788,26 @@ updater._load_online_support()
         # shebang and pyvenv.cfg path stays valid. Publication is the atomic
         # creation of the completion marker, not a directory rename.
         final = self.releases / (tag + "-" + token[:8])
-        os.mkdir(final, 0o755)
-        own_identity = self.fs.identity_of(final)
-        self.fs.write_staging_marker(final, "release")
+        own_identity = self._begin_staging(final, "release", 0o755)
         published = False
         refresh_utility = self.manage_updater
+        workspace = None
+        pending = None
         try:
-            with tempfile.TemporaryDirectory(dir=self.base, prefix="download-") as temporary:
-                archive = Path(temporary) / "release.tar.gz"
-                sha256 = github.download(release, archive)
-                if self.manage_updater:
-                    if self._archive_has_launcher(archive):
-                        self._stage_updater_payload(archive, tag, sha256)
-                    elif self._use_installed_updater(tag):
-                        refresh_utility = False
-                    else:
-                        raise DeploymentError(
-                            "The verified archive is missing its deployment launcher"
-                        )
-                unit = self._read_archive_members(archive, {"unit": "deployment/hnefatafl.service"})
-                extract(archive, final)
+            workspace = self._temporary_workspace("prepare")
+            environment = self._preparation_environment(workspace)
+            archive = workspace / "release.tar.gz"
+            sha256 = github.download(release, archive)
+            if self.manage_updater:
+                if self._archive_has_launcher(archive):
+                    pending = self._stage_updater_payload(archive, tag, sha256)
+                elif self._use_installed_updater(tag):
+                    refresh_utility = False
+                else:
+                    raise DeploymentError("The verified archive is missing its deployment launcher")
+            unit = self._read_archive_members(archive, {"unit": "deployment/hnefatafl.service"})
+            extract(archive, final)
+            archive.unlink()
             for required in (
                 "pyproject.toml",
                 "uv.lock",
@@ -6135,10 +6836,23 @@ updater._load_online_support()
                 ],
                 cwd=final,
                 user=True,
-                extra_env={"UV_LINK_MODE": "copy"},
+                extra_env=environment,
+                preparation=True,
             )
-            self.run(["npm", "--prefix", "frontend", "ci"], cwd=final, user=True)
-            self.run(["npm", "--prefix", "frontend", "run", "build"], cwd=final, user=True)
+            self.run(
+                ["npm", "--prefix", "frontend", "ci"],
+                cwd=final,
+                user=True,
+                extra_env=environment,
+                preparation=True,
+            )
+            self.run(
+                ["npm", "--prefix", "frontend", "run", "build"],
+                cwd=final,
+                user=True,
+                extra_env=environment,
+                preparation=True,
+            )
             self.run(
                 [
                     final / ".venv/bin/python",
@@ -6149,15 +6863,16 @@ updater._load_online_support()
                 ],
                 cwd=final,
                 user=True,
+                extra_env=environment,
+                preparation=True,
             )
             self._seal_release(final, own_identity)
             peak = scan_usage(final)
             self._prune_build_outputs(final)
             size = scan_usage(final)
-            self._remove_staging_marker(final)
             self._release_size_cache = {}
             atomic_bytes(final / ".trusted-unit", unit["deployment/hnefatafl.service"], 0o444)
-            self._verify_release_environment(final)
+            self._verify_release_environment(final, environment)
             release_metadata = {
                 "version": tag,
                 "sha256": sha256,
@@ -6170,27 +6885,24 @@ updater._load_online_support()
                 "updater_abi": UPDATER_ABI,
                 "refresh_utility": refresh_utility,
             }
-            # Publication: the completion marker is the single atomic transition
-            # from "incomplete preparation" to "usable release".
+            # Persist the sealed tree before making its completion marker visible.
+            sync_tree(final, allow_symlinks=True)
             atomic_bytes(
                 final / RELEASE_MARKER,
                 (json.dumps(release_metadata, indent=2) + "\n").encode(),
                 0o644,
             )
             published = True
+            self._finish_staging(final)
         except BaseException:
             try:
-                if not published and final.exists() and not final.is_symlink():
-                    # This operation created the directory and holds the deployment
-                    # lock. The captured identity makes a concurrent replacement
-                    # detectable instead of deleting a different directory.
-                    self._safe_remove(
-                        self.releases,
-                        final,
-                        identity=own_identity,
-                        owners={self.privileged_uid, self._data_owner()},
-                    )
-            except (OSError, DeploymentError) as cleanup_error:
+                if workspace is not None and not published:
+                    self._stop_staging_units(workspace)
+                if not published:
+                    self._discard_staging(final, mixed=True)
+                    if pending is not None:
+                        self._remove_pending_updater(pending)
+            except (OSError, DeploymentError, subprocess.CalledProcessError) as cleanup_error:
                 print(
                     "Failed release cleanup warning: "
                     f"{describe_exception(cleanup_error)}. The original preparation "
@@ -6198,6 +6910,15 @@ updater._load_online_support()
                     file=sys.stderr,
                 )
             raise
+        finally:
+            if workspace is not None:
+                try:
+                    self._clear_preparation_workspace(workspace)
+                except (OSError, DeploymentError, subprocess.CalledProcessError) as error:
+                    print(
+                        f"Preparation directory cleanup warning: {describe_exception(error)}",
+                        file=sys.stderr,
+                    )
         try:
             descriptor = os.open(self.releases, os.O_DIRECTORY)
             try:
@@ -6815,7 +7536,7 @@ updater._load_online_support()
                 )
             deployment_step = "post-stop storage preflight"
             self.check_storage(
-                requirements,
+                self._deployment_requirements(),
                 phase="pre-deployment snapshot",
                 service_state="stopped",
                 protected_releases={Path(target)},
@@ -7442,7 +8163,9 @@ def install_reviewed_updater(
     """Bootstrap from the same administrator-reviewed distribution as install.sh."""
     with closing(os.fdopen(_open_deployment_lock(lock), "r+")) as handle:
         _lock_deployment(handle.fileno())
-        deployment = Deployment({}, etc=etc, updater_root=utilities)
+        config_path = etc / "deployment.json"
+        config = protected_json(config_path) if os.path.lexists(config_path) else {}
+        deployment = Deployment(config, etc=etc, updater_root=utilities)
         deployment.updater_commands = (commands / "hnefatafl-update", commands / "hnefatafl-backup")
         deployment.recover_updater_refresh()
         payload = {}
