@@ -58,8 +58,10 @@ queues one bounded reconciliation row per account, season and ruleset. The Leagu
 worker validates each row from `league_games` and effective official result
 provenance: the durable game, applied rating revision and authoritative seats,
 never cached standings or a partially cleared contribution table. Schema 25 adds
-streaming cursor, accumulated-standing and evidence-revision state, so a scope is
-verified in fixed-size pages across short transactions. It
+streaming cursor and accumulated-standing state; schema 26 adds scope-specific
+evidence generations and league-sequence keyset indexes. A scope is verified in
+fixed-size pages across short transactions, and unrelated settlements in the same
+season do not invalidate accumulated work. It
 folds eligible contributions in stable result sequence, applies the zero floor
 after every result, requires three eligible results and records the highest
 qualified tier. The process is idempotent and preserves existing awards. A

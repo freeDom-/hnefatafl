@@ -11,7 +11,12 @@ import pytest
 
 from hnefatafl import league_policy as policy
 from hnefatafl.engine import RULESETS
-from hnefatafl.league_results import RECONCILIATION_ROWS, settle_result
+from hnefatafl.league_results import (
+    RECONCILIATION_ROWS,
+    authoritative_contribution_chunk,
+    settle_result,
+    validated_account_contribution,
+)
 from hnefatafl.league_administration import LeagueAdministration
 from hnefatafl.league_views import LeagueCursors, LeagueViews
 from hnefatafl import leagues as leagues_module
@@ -984,6 +989,7 @@ def seed_synthetic_league_history(
     ruleset="brandubh",
     base_sequence=10_000,
     label="synthetic",
+    include_league=True,
 ):
     """Seed authoritative provenance without paying engine cost per game."""
     acct = rig.accounts["Archer"]["id"]
@@ -1062,17 +1068,101 @@ def seed_synthetic_league_history(
                        VALUES(?,?,?,?,?,1500,1500,0,1500,0.5,?,?,1)""",
                     (game_id, account, ruleset, index, other, score, offset + 1),
                 )
-            c.execute(
-                """INSERT INTO league_games
-                   (game_id,season_id,ruleset,first_account,second_account,paired_at,
-                    sequence,result_revision,state)
-                   VALUES(?,?,?,?,?,?,?,1,'eligible')""",
-                (game_id, season.identifier, ruleset, first, second, start + offset, index),
-            )
+            if include_league:
+                c.execute(
+                    """INSERT INTO league_games
+                       (game_id,season_id,ruleset,first_account,second_account,paired_at,
+                        sequence,result_revision,state)
+                       VALUES(?,?,?,?,?,?,?,1,'eligible')""",
+                    (game_id, season.identifier, ruleset, first, second, start + offset, index),
+                )
 
 
-def test_large_history_reconciliation_is_chunked_restartable_and_revision_aware(rig):
+def test_reconciliation_progress_survives_unrelated_same_season_activity(rig):
+    season = policy.season_for(datetime(2030, 1, 10, tzinfo=timezone.utc))
+    rig.clock.value = datetime(2030, 1, 10, 3, 4, 5, tzinfo=timezone.utc)
+    seed_synthetic_league_history(
+        rig,
+        900,
+        ["win"] * 900,
+        season,
+        base_sequence=10_000,
+        label="continuous",
+    )
+    seed_synthetic_league_history(
+        rig,
+        1,
+        ["win"],
+        season,
+        ruleset="tablut",
+        base_sequence=30_000,
+        label="other-ruleset",
+    )
+    acct = rig.accounts["Archer"]["id"]
+    service = Leagues(rig.core)
+    with rig.core._write() as c:
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,candidate_tier,due_at)
+               VALUES(?,?, 'brandubh',5,0)""",
+            (acct, season.identifier),
+        )
+
+    with rig.store.connection() as c:
+        c.execute("UPDATE league_seasons SET revision=revision+1 WHERE id=?", (season.identifier,))
+
+    assert service.drain()["achievements"] == 0
+    with rig.store.connection() as c:
+        cursor = c.execute(
+            """SELECT cursor_sequence FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+            (acct, season.identifier),
+        ).fetchone()[0]
+    assert cursor == 10_000 + RECONCILIATION_ROWS - 1
+
+    # A different ruleset involving the same account changes the season revision
+    # but not the Brandubh evidence generation.
+    with rig.core._write() as c:
+        assert settle_result(c, "other-ruleset-30000", rig.clock.value)
+    service.drain()
+    with rig.store.connection() as c:
+        cursor = c.execute(
+            """SELECT cursor_sequence FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+            (acct, season.identifier),
+        ).fetchone()[0]
+    assert cursor == 10_000 + 2 * RECONCILIATION_ROWS - 1
+
+    # Unrelated accounts settling in the same season also leave the scope intact.
+    finish_league_game(service, rig, "Odin", order=("Visitor", "Odin"))
+    assert service.drain(limit=1)["settled"] == 1
+    with rig.store.connection() as c:
+        cursor = c.execute(
+            """SELECT cursor_sequence FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+            (acct, season.identifier),
+        ).fetchone()[0]
+    assert cursor == 10_000 + 3 * RECONCILIATION_ROWS - 1
+
+    rig.clock.value += timedelta(days=1)
+    finish_league_game(service, rig, "Odin", order=("Visitor", "Odin"))
+    for _ in range(4):
+        service.drain()
+        with rig.store.connection() as c:
+            remaining = c.execute(
+                """SELECT COUNT(*) FROM league_achievement_reconciliation
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (acct, season.identifier),
+            ).fetchone()[0]
+        if not remaining:
+            break
+    assert remaining == 0
+    assert peak(rig, acct, "brandubh") == 5
+
+
+def test_large_history_reconciliation_is_chunked_restartable_and_evidence_aware(rig):
     season = policy.season_for(datetime(2030, 1, 15, tzinfo=timezone.utc))
+    rig.clock.value = datetime(2030, 1, 15, 3, 4, 5, tzinfo=timezone.utc)
     outcomes = ["win", "win", "win"] + ["loss"] * 597
     seed_synthetic_league_history(rig, len(outcomes), outcomes, season)
     acct = rig.accounts["Archer"]["id"]
@@ -1084,38 +1174,35 @@ def test_large_history_reconciliation_is_chunked_restartable_and_revision_aware(
             (acct, season.identifier),
         )
 
-    first = Leagues(rig.core).drain()
+    service = Leagues(rig.core)
+    first = service.drain()
     assert first["achievements"] == 0
     with rig.store.connection() as c:
         row = c.execute(
-            """SELECT cursor_sequence,evidence_revision,progress_tier
+            """SELECT cursor_sequence,evidence_generation,progress_tier
                FROM league_achievement_reconciliation
                WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
             (acct, season.identifier),
         ).fetchone()
     assert row["cursor_sequence"] == 10_000 + RECONCILIATION_ROWS - 1
-    assert row["evidence_revision"] is not None
+    assert row["evidence_generation"] == 0
     assert row["progress_tier"] == 2
     assert peak(rig, acct, "brandubh") == 0
 
-    # A corrected evidence generation resets the durable cursor and replays from
-    # the beginning rather than committing a mixed-generation peak.
-    with rig.core._write() as c:
-        c.execute(
-            "UPDATE league_seasons SET revision=revision+1 WHERE id=?",
-            (season.identifier,),
-        )
+    # A relevant official result in this scope invalidates the accumulated
+    # evidence and resets the durable cursor before a mixed-generation award.
+    finish_league_game(service, rig, "Archer", order=("Archer", "Visitor"))
     restarted = Leagues(rig.core)
     restarted.drain()
     with rig.store.connection() as c:
         row = c.execute(
-            """SELECT cursor_sequence,evidence_revision
+            """SELECT cursor_sequence,evidence_generation
                FROM league_achievement_reconciliation
                WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
             (acct, season.identifier),
         ).fetchone()
     assert row["cursor_sequence"] == 10_000 + RECONCILIATION_ROWS - 1
-    assert row["evidence_revision"] == 1
+    assert row["evidence_generation"] == 1
 
     for _ in range(5):
         Leagues(rig.core).drain()
@@ -1170,12 +1257,70 @@ def test_reconciliation_query_count_is_bounded_by_pages_not_games(rig, monkeypat
         if not remaining:
             break
     assert remaining == 0
-    chunk_queries = sum("FROM rating_applications a" in sql for sql in statements)
+    chunk_queries = sum("WITH first_seat AS" in sql for sql in statements)
     assert chunk_queries == (count + RECONCILIATION_ROWS - 1) // RECONCILIATION_ROWS
     assert chunk_queries == 3
     # A per-game implementation would need at least 600 effective-result queries.
     assert len(statements) < 100
     assert peak(rig, acct, "brandubh") == 5
+
+
+def test_sparse_league_evidence_uses_league_sequence_keyset(rig):
+    season = policy.season_for(datetime(2032, 1, 15, tzinfo=timezone.utc))
+    base = 200_000
+    for offset, ruleset in enumerate(("brandubh", "tablut", "copenhagen")):
+        seed_synthetic_league_history(
+            rig,
+            5_000,
+            ["win"] * 5_000,
+            season,
+            ruleset=ruleset,
+            base_sequence=100_000 + offset * 10_000,
+            label=f"unrelated-{ruleset}",
+            include_league=False,
+        )
+    seed_synthetic_league_history(
+        rig,
+        600,
+        ["win"] * 600,
+        season,
+        base_sequence=base,
+        label="sparse",
+    )
+    acct = rig.accounts["Archer"]["id"]
+
+    with rig.store.connection() as c:
+        early = authoritative_contribution_chunk(
+            c, acct, season.identifier, "brandubh", 0, "", RECONCILIATION_ROWS
+        )
+        assert len(early) == RECONCILIATION_ROWS
+        assert {row["game_id"].split("-")[0] for row in early} == {"sparse"}
+        middle = authoritative_contribution_chunk(
+            c,
+            acct,
+            season.identifier,
+            "brandubh",
+            base + 299,
+            f"sparse-{base + 299}",
+            RECONCILIATION_ROWS,
+        )
+        assert len(middle) == RECONCILIATION_ROWS
+        late = authoritative_contribution_chunk(
+            c,
+            acct,
+            season.identifier,
+            "brandubh",
+            base + 549,
+            f"sparse-{base + 549}",
+            RECONCILIATION_ROWS,
+        )
+        assert len(late) == 50
+        assert late[-1]["game_id"] == f"sparse-{base + 599}"
+        assert all(row["game_id"].startswith("sparse-") for row in (*early, *middle, *late))
+        assert all(
+            validated_account_contribution(row, acct) is not None
+            for row in (*early, *middle, *late)
+        )
 
 
 def test_scale_migration_and_reconciliation_across_rulesets_and_seasons(rig):

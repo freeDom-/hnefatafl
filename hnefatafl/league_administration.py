@@ -17,7 +17,7 @@ from .league_results import (
 from .league_views import LeagueError, LeagueViews, season_view
 from .leagues import ELIGIBILITY_SCAN, queue_eligibility_page
 from .online_core import DeploymentLocked, instant, micros, stamp
-from .progression import record_league_candidate
+from .progression import bump_league_evidence_for_season, record_league_candidate
 from .security_context import online_ineligibility
 
 LOGGER = logging.getLogger(__name__)
@@ -409,6 +409,7 @@ class LeagueAdministration:
             return
         c.execute("UPDATE league_seasons SET revision=revision+1 WHERE id=?", (identifier,))
         at = micros(now)
+        bump_league_evidence_for_season(c, identifier)
         c.execute(
             """UPDATE league_achievement_reconciliation
                SET due_at=MIN(due_at,?),attempts=0,last_error=NULL

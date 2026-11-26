@@ -6,7 +6,7 @@ import sqlite3
 
 from . import league_policy as policy
 from .online_core import OnlineError, micros
-from .progression import record_league_tier, wake_league_reconciliation
+from .progression import invalidate_league_evidence, record_league_tier
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,8 @@ def _effective_result_evidence(row: sqlite3.Row):
         or not row["starts_at"] <= row["paired_at"] < row["ends_at"]
     ):
         raise ValueError("League provenance does not match the official online game")
+    if row["sequence"] is not None and row["rating_sequence"] != row["sequence"]:
+        raise ValueError("A settled league result must match its authoritative rating sequence")
     if row["rating_sequence"] is not None and (
         row["pool"] != row["ruleset"]
         or row["rating_attackers"] != row["attackers_id"]
@@ -271,7 +273,7 @@ def settle_result(c: sqlite3.Connection, game_id: str, now: datetime) -> bool:
             sequence=contribution.sequence if contribution is not None else None,
             replay=account not in append,
         )
-        wake_league_reconciliation(c, account, result.season_id, result.ruleset, micros(now))
+        invalidate_league_evidence(c, account, result.season_id, result.ruleset, micros(now))
     write_game_result(c, result)
     c.execute("UPDATE league_seasons SET revision=revision+1 WHERE id=?", (result.season_id,))
     c.execute("DELETE FROM league_active_players WHERE game_id=?", (game_id,))
@@ -297,32 +299,56 @@ def authoritative_contribution_chunk(
     settlement, so chunking cannot introduce a divergent eligibility rule.
     """
     return c.execute(
-        """SELECT l.game_id,l.season_id,l.ruleset,l.first_account,l.second_account,l.paired_at,
-            l.result_revision,l.sequence,l.state,
-            g.result_revision AS official_revision,g.ruleset AS official_ruleset,
-            g.attackers_id,g.defenders_id,m.rated,
-            s.starts_at,s.ends_at,s.grace_ends_at,
-            r.sequence AS rating_sequence,r.pool,r.state AS rating_state,
-            r.effective_revision,r.attackers_id AS rating_attackers,
-            r.defenders_id AS rating_defenders,r.winner,r.completed_at
-        FROM rating_applications a
-        JOIN rating_events r ON r.game_id=a.game_id AND r.pool=a.pool
-            AND r.sequence=a.sequence AND r.state='applied'
-        JOIN league_games l ON l.game_id=a.game_id
-        JOIN online_games g ON g.id=l.game_id
-        JOIN online_matches m ON m.id=g.match_id
-        JOIN league_seasons s ON s.id=l.season_id
-        WHERE a.account_id=? AND a.pool=? AND l.season_id=? AND l.ruleset=?
-          AND (a.sequence>? OR (a.sequence=? AND a.game_id>?))
-        ORDER BY a.sequence,a.game_id LIMIT ?""",
+        """WITH first_seat AS (
+            SELECT l.game_id,l.season_id,l.ruleset,l.first_account,l.second_account,
+              l.paired_at,l.result_revision,l.sequence,l.state,
+              g.result_revision AS official_revision,g.ruleset AS official_ruleset,
+              g.attackers_id,g.defenders_id,m.rated,
+              s.starts_at,s.ends_at,s.grace_ends_at,
+              r.sequence AS rating_sequence,r.pool,r.state AS rating_state,
+              r.effective_revision,r.attackers_id AS rating_attackers,
+              r.defenders_id AS rating_defenders,r.winner,r.completed_at
+            FROM league_games l
+            JOIN online_games g ON g.id=l.game_id
+            JOIN online_matches m ON m.id=g.match_id
+            JOIN league_seasons s ON s.id=l.season_id
+            LEFT JOIN rating_events r ON r.game_id=l.game_id AND r.pool=l.ruleset
+            WHERE l.first_account=? AND l.season_id=? AND l.ruleset=?
+              AND l.sequence IS NOT NULL AND (l.sequence,l.game_id)>(?,?)
+            ORDER BY l.sequence,l.game_id LIMIT ?
+        ), second_seat AS (
+            SELECT l.game_id,l.season_id,l.ruleset,l.first_account,l.second_account,
+              l.paired_at,l.result_revision,l.sequence,l.state,
+              g.result_revision AS official_revision,g.ruleset AS official_ruleset,
+              g.attackers_id,g.defenders_id,m.rated,
+              s.starts_at,s.ends_at,s.grace_ends_at,
+              r.sequence AS rating_sequence,r.pool,r.state AS rating_state,
+              r.effective_revision,r.attackers_id AS rating_attackers,
+              r.defenders_id AS rating_defenders,r.winner,r.completed_at
+            FROM league_games l
+            JOIN online_games g ON g.id=l.game_id
+            JOIN online_matches m ON m.id=g.match_id
+            JOIN league_seasons s ON s.id=l.season_id
+            LEFT JOIN rating_events r ON r.game_id=l.game_id AND r.pool=l.ruleset
+            WHERE l.second_account=? AND l.season_id=? AND l.ruleset=?
+              AND l.sequence IS NOT NULL AND (l.sequence,l.game_id)>(?,?)
+            ORDER BY l.sequence,l.game_id LIMIT ?
+        )
+        SELECT * FROM first_seat UNION ALL SELECT * FROM second_seat
+        ORDER BY rating_sequence,game_id LIMIT ?""",
         (
             account_id,
-            ruleset,
             season_id,
             ruleset,
             after_sequence,
+            after_game_id,
+            limit,
+            account_id,
+            season_id,
+            ruleset,
             after_sequence,
             after_game_id,
+            limit,
             limit,
         ),
     ).fetchall()

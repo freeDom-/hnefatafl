@@ -1,6 +1,7 @@
 """Additive fresh/upgrade/restore coverage without touching development data."""
 
 import sqlite3
+from datetime import datetime, timezone
 
 import pytest
 
@@ -122,6 +123,43 @@ def test_reviewed_league_preview_upgrades_preserving_authority_and_exact_retries
         assert candidate.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
+def test_fresh_reconciliation_progress_tier_constraint(rig):
+    season = policy.season_for(datetime(2033, 1, 15, tzinfo=timezone.utc))
+    account = rig.accounts["Archer"]["id"]
+    with rig.store.connection() as c:
+        c.execute(
+            """INSERT OR IGNORE INTO league_seasons
+               (id,starts_at,ends_at,grace_ends_at,policy_version)
+               VALUES(?,?,?,?,1)""",
+            (
+                season.identifier,
+                int(season.start.timestamp() * 1_000_000),
+                int(season.end.timestamp() * 1_000_000),
+                int(season.grace_end.timestamp() * 1_000_000),
+            ),
+        )
+        for invalid in (0, 6):
+            with pytest.raises(sqlite3.IntegrityError):
+                c.execute(
+                    """INSERT INTO league_achievement_reconciliation
+                       (account_id,season_id,ruleset,progress_tier,due_at)
+                       VALUES(?,?,'brandubh',?,0)""",
+                    (account, season.identifier, invalid),
+                )
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,progress_tier,due_at)
+               VALUES(?,?,'brandubh',5,0)""",
+            (account, season.identifier),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                """UPDATE league_achievement_reconciliation SET progress_tier=0
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (account, season.identifier),
+            )
+
+
 def test_schema_24_reconciliation_table_upgrades_in_place(rig):
     season = policy.season_for(rig.clock.value)
     account = rig.accounts["Archer"]["id"]
@@ -175,6 +213,7 @@ def test_schema_24_reconciliation_table_upgrades_in_place(rig):
             "standing_losses",
             "progress_tier",
             "evidence_revision",
+            "evidence_generation",
         } <= columns
         row = c.execute(
             "SELECT candidate_tier,due_at,attempts,last_error,cursor_sequence FROM league_achievement_reconciliation"
@@ -182,7 +221,20 @@ def test_schema_24_reconciliation_table_upgrades_in_place(rig):
         assert tuple(row) == (3, 7, 2, "retry", 0)
         indexes = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='index'")}
         assert "league_achievement_reconciliation_due" in indexes
-        assert "rating_applications_account_sequence" in indexes
+        assert "league_games_first_sequence" in indexes
+        assert "league_games_second_sequence" in indexes
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='league_achievement_evidence'"
+            ).fetchone()[0]
+            == 1
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="progress tier"):
+            c.execute(
+                """UPDATE league_achievement_reconciliation SET progress_tier=99
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (account, season.identifier),
+            )
 
 
 @pytest.mark.parametrize("previous_schema", [21, 22])
@@ -270,14 +322,6 @@ def test_queue_and_standing_discovery_have_matching_indexes(tmp_path):
             SELECT 1 FROM pending WHERE
               (result_revision IS NOT NULL AND official_revision IS NOT result_revision)
               OR (rating_state='applied' AND rating_sequence<9) LIMIT 1""",
-        "rating_applications_account_sequence": """SELECT l.game_id FROM rating_applications a
-            JOIN rating_events r ON r.game_id=a.game_id AND r.pool=a.pool
-              AND r.sequence=a.sequence AND r.state='applied'
-            JOIN league_games l ON l.game_id=a.game_id
-            WHERE a.account_id='alice' AND a.pool='brandubh'
-              AND l.season_id='2026-11' AND l.ruleset='brandubh'
-              AND (a.sequence>1 OR (a.sequence=1 AND a.game_id>'fixture'))
-            ORDER BY a.sequence,a.game_id LIMIT 256""",
         "league_achievement_reconciliation_due": """SELECT account_id FROM league_achievement_reconciliation r
             LEFT JOIN league_rebuild_jobs j ON j.season_id=r.season_id
             WHERE r.due_at<=1 AND (r.due_at,r.account_id,r.season_id,r.ruleset)>(0,'','','')
@@ -302,3 +346,25 @@ def test_queue_and_standing_discovery_have_matching_indexes(tmp_path):
         )
         assert "SCAN league_contributions" not in tail
         assert "TEMP B-TREE" not in tail
+        chunk_plan = " ".join(
+            row[3]
+            for row in c.execute(
+                """EXPLAIN QUERY PLAN WITH first_seat AS (
+                    SELECT l.game_id,l.sequence FROM league_games l
+                    WHERE l.first_account='alice' AND l.season_id='2026-11'
+                      AND l.ruleset='brandubh' AND l.sequence IS NOT NULL
+                      AND (l.sequence,l.game_id)>(1,'')
+                    ORDER BY l.sequence,l.game_id LIMIT 256
+                  ), second_seat AS (
+                    SELECT l.game_id,l.sequence FROM league_games l
+                    WHERE l.second_account='alice' AND l.season_id='2026-11'
+                      AND l.ruleset='brandubh' AND l.sequence IS NOT NULL
+                      AND (l.sequence,l.game_id)>(1,'')
+                    ORDER BY l.sequence,l.game_id LIMIT 256
+                  )
+                  SELECT * FROM first_seat UNION ALL SELECT * FROM second_seat
+                  ORDER BY sequence,game_id LIMIT 256"""
+            )
+        )
+        assert "league_games_first_sequence" in chunk_plan
+        assert "league_games_second_sequence" in chunk_plan

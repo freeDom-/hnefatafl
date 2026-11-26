@@ -1001,6 +1001,69 @@ def league_season_rebuilding(c: sqlite3.Connection, season_id: str) -> bool:
     )
 
 
+def league_evidence_generation(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+) -> int:
+    row = c.execute(
+        """SELECT generation FROM league_achievement_evidence
+           WHERE account_id=? AND season_id=? AND ruleset=?""",
+        (account_id, season_id, ruleset),
+    ).fetchone()
+    return row[0] if row is not None else 0
+
+
+def invalidate_league_evidence(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    now: int,
+) -> None:
+    """Bump and wake only a reconciliation scope that has accumulated work."""
+    if (
+        c.execute(
+            """SELECT 1 FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset=?""",
+            (account_id, season_id, ruleset),
+        ).fetchone()
+        is None
+    ):
+        return
+    c.execute(
+        """INSERT INTO league_achievement_evidence(account_id,season_id,ruleset,generation)
+           VALUES(?,?,?,1)
+           ON CONFLICT(account_id,season_id,ruleset) DO UPDATE SET
+             generation=generation+1""",
+        (account_id, season_id, ruleset),
+    )
+    c.execute(
+        """UPDATE league_achievement_reconciliation
+           SET due_at=MIN(due_at,?),attempts=0,last_error=NULL
+           WHERE account_id=? AND season_id=? AND ruleset=? AND due_at>?""",
+        (now, account_id, season_id, ruleset, now),
+    )
+
+
+def bump_league_evidence_for_season(c: sqlite3.Connection, season_id: str) -> None:
+    """Invalidate reconciliation scopes affected by a completed season rebuild."""
+    scopes = c.execute(
+        """SELECT account_id,ruleset FROM league_achievement_reconciliation
+           WHERE season_id=?""",
+        (season_id,),
+    ).fetchall()
+    for account_id, ruleset in scopes:
+        c.execute(
+            """INSERT INTO league_achievement_evidence(account_id,season_id,ruleset,generation)
+               VALUES(?,?,?,1)
+               ON CONFLICT(account_id,season_id,ruleset) DO UPDATE SET
+                 generation=generation+1""",
+            (account_id, season_id, ruleset),
+        )
+
+
 def record_league_candidate(
     c: sqlite3.Connection,
     account_id: str,
@@ -1077,22 +1140,6 @@ def record_league_tier(
         record_league_candidate(c, account_id, season_id, ruleset, candidate, now)
         return False
     return record_league_peak(c, account_id, ruleset, candidate, now)
-
-
-def wake_league_reconciliation(
-    c: sqlite3.Connection,
-    account_id: str,
-    season_id: str,
-    ruleset: str,
-    now: int,
-) -> None:
-    """Bring a backed-off reconciliation scope forward after new evidence."""
-    c.execute(
-        """UPDATE league_achievement_reconciliation
-           SET due_at=MIN(due_at,?),attempts=0,last_error=NULL
-           WHERE account_id=? AND season_id=? AND ruleset=? AND due_at>?""",
-        (now, account_id, season_id, ruleset, now),
-    )
 
 
 def record_league_peak(

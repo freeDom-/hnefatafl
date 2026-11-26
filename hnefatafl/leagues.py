@@ -25,7 +25,11 @@ from .league_results import (
     validated_account_contribution,
 )
 from .online_core import DeploymentLocked, OnlineCore, OnlineError, instant, micros, stamp
-from .progression import league_achievement_reconciliation_pending, record_league_peak
+from .progression import (
+    league_achievement_reconciliation_pending,
+    league_evidence_generation,
+    record_league_peak,
+)
 from .security_context import online_eligible, online_ineligibility
 
 LOGGER = logging.getLogger(__name__)
@@ -762,30 +766,21 @@ class Leagues:
                     ):
                         self._defer_achievement_row(c, current, "evidence_pending", micros(now))
                         continue
-                    season = c.execute(
-                        "SELECT revision FROM league_seasons WHERE id=?", (row["season_id"],)
-                    ).fetchone()
-                    if season is None:
-                        c.execute(
-                            """DELETE FROM league_achievement_reconciliation
-                               WHERE account_id=? AND season_id=? AND ruleset=?""",
-                            (row["account_id"], row["season_id"], row["ruleset"]),
-                        )
-                        completed += 1
-                        continue
-                    revision = season[0]
+                    generation = league_evidence_generation(
+                        c, row["account_id"], row["season_id"], row["ruleset"]
+                    )
                     if (
-                        current["evidence_revision"] is None
-                        or current["evidence_revision"] != revision
+                        current["evidence_generation"] is None
+                        or current["evidence_generation"] != generation
                     ):
                         c.execute(
                             """UPDATE league_achievement_reconciliation
                                SET cursor_sequence=0,cursor_game_id='',
                                  standing_points=0,standing_wins=0,
                                  standing_draws=0,standing_losses=0,
-                                 progress_tier=NULL,evidence_revision=?
+                                 progress_tier=NULL,evidence_generation=?
                                WHERE account_id=? AND season_id=? AND ruleset=?""",
-                            (revision, row["account_id"], row["season_id"], row["ruleset"]),
+                            (generation, row["account_id"], row["season_id"], row["ruleset"]),
                         )
                         current = {
                             "cursor_sequence": 0,
@@ -825,7 +820,7 @@ class Leagues:
                                SET cursor_sequence=?,cursor_game_id=?,
                                  standing_points=?,standing_wins=?,standing_draws=?,
                                  standing_losses=?,progress_tier=?,due_at=?,
-                                 attempts=0,last_error=NULL,evidence_revision=?
+                                 attempts=0,last_error=NULL,evidence_generation=?
                                WHERE account_id=? AND season_id=? AND ruleset=?""",
                             (
                                 last["rating_sequence"],
@@ -836,7 +831,7 @@ class Leagues:
                                 progress.standing.losses,
                                 policy.tier_rank(progress.highest_tier) or None,
                                 micros(now),
-                                revision,
+                                generation,
                                 row["account_id"],
                                 row["season_id"],
                                 row["ruleset"],
