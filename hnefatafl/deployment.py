@@ -2083,7 +2083,7 @@ class Deployment:
         return True, ""
 
     def _data_account(self) -> tuple[int, int]:
-        if self.base == Path("/opt/hnefatafl"):
+        if (self.base, self.data) == (Path("/opt/hnefatafl"), Path("/var/lib/hnefatafl")):
             try:
                 account = pwd.getpwnam("hnefatafl")
             except KeyError as error:
