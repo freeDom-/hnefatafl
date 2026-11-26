@@ -205,9 +205,9 @@ def test_privileged_preparation_imports_the_real_application_after_sealing(
     if native_systemd:
         # The hosted runner provisions a relocatable uv-managed CPython. Its
         # home directory is private, so provide the service account with a copy.
-        base = Path(sys.base_prefix)
+        base = Path(sys.base_prefix).resolve()
         runtime = shutil.copytree(base, root / "python", symlinks=True)
-        build_python = runtime / build_python.relative_to(base)
+        build_python = runtime / build_python.resolve().relative_to(base)
         packages = shutil.copytree(packages, root / "dependencies", symlinks=True)
         subprocess.run(["chmod", "-R", "a+rX", str(runtime), str(packages)], check=True)
     subprocess.run([build_python, "-c", "import sqlite3, venv"], user=uid, group=gid, check=True)
