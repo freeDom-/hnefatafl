@@ -80,6 +80,14 @@ const translations: Record<string, string> = {
   'Winning chances': 'Gewinnchancen',
   'For the current player: {side}': 'Für die Seite am Zug: {side}',
   'Evaluating this position…': 'Stellung wird bewertet…',
+  'Preparing analysis…': 'Analyse wird vorbereitet…',
+  'Downloading required analysis resources…': 'Benötigte Analyseressourcen werden heruntergeladen…',
+  'Starting the analysis engine…': 'Analyse-Engine wird gestartet…',
+  'Loading the analysis model…': 'Analysemodell wird geladen…',
+  'Analysis runs on this device.': 'Die Analyse läuft auf diesem Gerät.',
+  'Analysis is running on this device without a network connection.':
+    'Die Analyse läuft ohne Netzwerkverbindung auf diesem Gerät.',
+  'Analysis is running on the server.': 'Die Analyse läuft auf dem Server.',
   'Waiting for analysis capacity…': 'Warten auf freie Analysekapazität…',
   'The evaluation is unavailable. You can keep playing.':
     'Die Bewertung ist nicht verfügbar. Du kannst weiterspielen.',

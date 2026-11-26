@@ -69,7 +69,18 @@ def test_browser_analysis_is_disabled_by_default(monkeypatch, tmp_path):
     client = _login(TestClient(app), app)
     response = client.get("/api/browser-analysis/availability")
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert {
+        key: body[key]
+        for key in (
+            "schema",
+            "enabled",
+            "runtime_available",
+            "runtime",
+            "reason",
+            "published_models",
+        )
+    } == {
         "schema": 1,
         "enabled": False,
         "runtime_available": False,
@@ -77,6 +88,9 @@ def test_browser_analysis_is_disabled_by_default(monkeypatch, tmp_path):
         "reason": "disabled",
         "published_models": 0,
     }
+    assert body["analysis_mode"] == "server_only"
+    assert body["execution"]["browser_execution"] is False
+    assert body["execution"]["server_computation"] is True
     assert client.get("/api/browser-analysis/models").status_code == 404
     assert client.get("/api/browser-analysis/models/" + "0" * 24 + "/artifact").status_code == 404
     assert client.get("/browser-analysis/runtime/0/runtime/pyodide.js").status_code in (401, 404)

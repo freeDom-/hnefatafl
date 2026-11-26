@@ -43,6 +43,8 @@ export const LIMITS = {
   maxJobTimeoutMs: 5_000,
   neuralWatchdogMs: 20_000,
   shutdownTimeoutMs: 5_000,
+  /** Conservative client-side bound for warm offline authorization. */
+  maxOfflineAuthorizationMs: 60 * 60 * 1000,
 } as const;
 
 export const RUNTIME_JS = {
@@ -161,6 +163,32 @@ export interface ModelRuntimeCompatibility {
   bridgeProtocol: number;
 }
 
+export interface ExecutionPolicy {
+  mode: 'browser_only' | 'browser_preferred' | 'server_only' | 'disabled';
+  browserDelivery: boolean;
+  browserExecution: boolean;
+  serverComputation: boolean;
+  fallback: boolean;
+  webgpu: boolean;
+  offlineAuthorizationSeconds: number;
+  limits: {
+    maxConcurrent: number;
+    maxPerUser: number;
+    requestsPerMinute: number;
+  };
+}
+
+export interface AnalysisPositionContext {
+  schema: number;
+  gameId: string;
+  version: number;
+  ruleset: string;
+  cursor: number;
+  positionKey: string;
+  states: Record<string, unknown>[];
+  execution: ExecutionPolicy;
+}
+
 export interface ModelManifest {
   schema: number;
   publicationId: string;
@@ -177,6 +205,8 @@ export interface ModelManifest {
   io: { input: unknown; outputs: unknown };
   status: string;
   publishedAt: string;
+  /** Registered model ids whose verified weights produced this publication. */
+  registeredModelIds: string[];
 }
 
 export interface Availability {
@@ -186,6 +216,8 @@ export interface Availability {
   runtime: RuntimeManifest | null;
   reason: string | null;
   publishedModels: number;
+  analysisMode: ExecutionPolicy['mode'];
+  execution: ExecutionPolicy;
 }
 
 export type ProviderRequest = 'wasm' | 'webgpu';

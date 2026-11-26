@@ -259,6 +259,8 @@ export default function RecordedReview({
     !!analysisAllowed && !playback.playing,
     accountReview,
     onlineReview ? '/history/online' : '/games',
+    false,
+    accountId,
   );
 
   if (poll.phase === 'loading') {

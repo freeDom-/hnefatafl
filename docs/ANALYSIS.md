@@ -170,6 +170,25 @@ games hide AI playback and restart controls, including when seeking to an earlie
 position. Captured kings remain visible in the finished board presentation;
 the authoritative engine state and capture rules are unchanged.
 
+## Execution policy and local analysis
+
+The server deployment, not the player, chooses where optional analysis runs:
+`browser_only`, `browser_preferred`, `server_only` or `disabled`
+(`HNEFATAFL_ANALYSIS_MODE`). There is no Local/Server/Auto selector in the UI. In
+browser modes the existing analysis controls execute the same advisor/model search
+locally through the shared Python engine in a worker; the server's
+`analysis-context` read supplies the authoritative position (including repetition
+history). `browser_preferred` retains the server endpoint as a bounded fallback for
+classified failures only. `browser_only` rejects all server analysis computation,
+while `disabled` suppresses optional analysis without affecting replay, gameplay,
+AI opponents, training or tournaments.
+
+Local results are advisory and render through the existing panel. They do not
+write authoritative game state, clocks, ratings, league/tournament progression or
+replay-achievement credit. See the
+[Phase 5 validation](validation/browser-analysis-phase5.md) and
+[deployment guide](DEPLOYMENT.md#browser-local-analysis-distribution-optional).
+
 ## Replay achievement evidence
 
 Schema 20 records account-scoped successful analysis of completed replays for

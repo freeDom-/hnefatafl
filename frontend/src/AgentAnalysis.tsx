@@ -14,6 +14,11 @@ export default function AgentAnalysis({
   failed,
   retry,
   waiting = false,
+  local = false,
+  stage,
+  fallback = false,
+  offline = false,
+  analysisError,
 }: {
   game: Game;
   report: PositionAnalysis | null;
@@ -21,6 +26,11 @@ export default function AgentAnalysis({
   failed: boolean;
   retry: () => void;
   waiting?: boolean;
+  local?: boolean;
+  stage?: string;
+  fallback?: boolean;
+  offline?: boolean;
+  analysisError?: string;
 }) {
   const { t, locale } = useI18n();
   const compact = useCompactPlay();
@@ -37,6 +47,14 @@ export default function AgentAnalysis({
     unavailable: t('Unavailable'),
   };
   const number = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 });
+  const pendingMessages: Record<string, string> = {
+    preparing: t('Preparing analysis…'),
+    downloading: t('Downloading required analysis resources…'),
+    initializing: t('Starting the analysis engine…'),
+    'loading-model': t('Loading the analysis model…'),
+    searching: t('Evaluating this position…'),
+    fallback: t('Waiting for analysis capacity…'),
+  };
   return (
     <section
       className={`panel agent-analysis${compact ? ' compact-analysis' : ''}`}
@@ -51,12 +69,27 @@ export default function AgentAnalysis({
         {pending && (
           <p className="analysis-status" role="status">
             <i className="analysis-spinner" />
-            {t(waiting ? 'Waiting for analysis capacity…' : 'Evaluating this position…')}
+            {t(
+              waiting
+                ? 'Waiting for analysis capacity…'
+                : (stage && pendingMessages[stage]) || 'Evaluating this position…',
+            )}
           </p>
+        )}
+        {local && (
+          <p className="subtle analysis-device">
+            {offline
+              ? t('Analysis is running on this device without a network connection.')
+              : t('Analysis runs on this device.')}
+          </p>
+        )}
+        {fallback && !pending && (
+          <p className="subtle analysis-device">{t('Analysis is running on the server.')}</p>
         )}
         {failed ? (
           <div className="analysis-status">
             <p>{t('The evaluation is unavailable. You can keep playing.')}</p>
+            {analysisError && <p className="subtle">{analysisError}</p>}
             <button className="text-button" onClick={retry}>
               {t('Retry evaluation')}
             </button>

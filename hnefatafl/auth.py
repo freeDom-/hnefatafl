@@ -15,7 +15,7 @@ import re
 import secrets
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import quote, urlparse
 from uuid import uuid4
 from typing import Callable
@@ -29,6 +29,7 @@ from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Match
 
 from .security_context import PERMISSIONS, allowed, principal, session_identity
+from .analysis_policy import AnalysisPolicy, resolve_policy
 from .account_policy import (
     normalize,
     username as validate_username,
@@ -107,15 +108,6 @@ def verify(password: str, encoded: str) -> bool:
         return False
 
 
-def _enabled(value: str) -> bool:
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off", ""}:
-        return False
-    raise ValueError("HNEFATAFL_BROWSER_ANALYSIS_ENABLED must be 0 or 1")
-
-
 @dataclass(frozen=True)
 class SecuritySettings:
     production: bool = False
@@ -123,6 +115,11 @@ class SecuritySettings:
     hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "testserver")
     session_seconds: int = 43200
     browser_analysis: bool = False
+    analysis_policy: AnalysisPolicy = field(default_factory=lambda: resolve_policy({}))
+
+    @property
+    def analysis_mode(self) -> str:
+        return self.analysis_policy.mode
 
     @classmethod
     def environment(cls):
@@ -140,7 +137,8 @@ class SecuritySettings:
         ttl = int(os.environ.get("HNEFATAFL_SESSION_SECONDS", "43200"))
         if not 60 <= ttl <= 604800:
             raise ValueError("Session lifetime must be between 60 and 604800 seconds")
-        browser_analysis = _enabled(os.environ.get("HNEFATAFL_BROWSER_ANALYSIS_ENABLED", "0"))
+        analysis_policy = resolve_policy(os.environ)
+        browser_analysis = analysis_policy.browser_delivery
         if production:
             parsed = urlparse(url)
             if (
@@ -169,7 +167,7 @@ class SecuritySettings:
                 network = ipaddress.ip_network(proxy.strip(), strict=False)
                 if network.prefixlen == 0:
                     raise ValueError("Trust individual proxies or narrow proxy networks")
-        return cls(production, url, hosts, ttl, browser_analysis)
+        return cls(production, url, hosts, ttl, browser_analysis, analysis_policy)
 
 
 def public_account(account: dict) -> dict:
@@ -517,7 +515,10 @@ grant(
     "/api/browser-analysis/models",
     "/api/browser-analysis/models/{publication_id}",
     "/api/browser-analysis/models/{publication_id}/artifact",
+    "/api/games/{game_id}/analysis-context",
+    "/api/history/online/{game_id}/analysis-context",
 )
+grant("accounts", "GET", "/api/analysis/metrics")
 grant(
     "training",
     "GET",

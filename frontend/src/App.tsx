@@ -146,6 +146,7 @@ export default function App() {
     playHistory.reviewing,
     '/games',
     playHistory.reviewing,
+    account?.id ?? null,
   );
 
   const reportError = useCallback((message: unknown) => {

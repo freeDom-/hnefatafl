@@ -12,28 +12,19 @@ Related: [Phase 2 validation](../validation/browser-analysis-phase2.md) ·
 [isolated spike](../../spikes/browser_offline/README.md) ·
 [documentation index](../README.md).
 
-**Current integration revision:** Phase 4 production security/runtime integration
-is implemented on top of merged Phase 3C-B (PR #121). Browser analysis remains
-disabled by default and has no player-facing UI; Phase 5 consumes the lazy
-`frontend/src/browserAnalysis` contract. Phase 3A and Phase 3B are merged on
-`main` (PR #112 and PR #115). Phase 3B direct transport, inference caching and
+**Current integration revision:** Phase 5 transparent browser-first integration
+is implemented on the merged Phase 4 runtime (PR #124 /
+`37684e4362498361530bb8e3a833c2b68ddbf2b7`). The server owns a deployment execution
+policy (`browser_only`, `browser_preferred`, `server_only`, `disabled`); the
+existing analysis UI executes locally without a player-facing mode selector and
+falls back to the server only under `browser_preferred` and only for classified
+failures. Warm offline Jarl and neural searches were validated in a production
+browser build. Browser analysis remains opt-in and disabled by default on existing
+installations. Competitive-model, playing-strength, physical-device, verified-GPU,
+sustained-memory and distribution-licensing gates remain open; Phase 5 is not
+production acceptance. Phase 3B direct transport, inference caching and
 independent batching remain opt-in; single-tree batching and subtree reuse remain
-deferred. Phase 3C-A validation infrastructure is in progress; competitive-model,
-playing-strength, physical-device and sustained-memory gates remain blocked.
-Phase 2 executes the existing Python neural MCTS generator in the browser through
-the validated Phase 1B inference boundary; its revisions 1–4 are preserved in
-[the Phase 2 report](../validation/browser-analysis-phase2.md). Phase 3A closes
-the remaining Phase 2 findings (independent workload identity, non-negative
-diagnostics, build-time-isolated test hooks), adds profiling fields and
-repeated-workload controls, removes an unused serialized-state allocation, and
-delivers the first measured optimization: legal-only inference transport with
-base64 planes decoded directly in the inference worker, now backed by an
-end-to-end full/compact search parity gate. Phase 3B delivered the opt-in direct transport, exact inference cache and
-independent batching; single-tree batching/subtree reuse remain deferred. Phase
-3C-A adds strict cleanup validation, competitive-checkpoint validation,
-role-balanced tournament infrastructure, sustained-memory validation and physical
-device runbooks. External competitive/hardware evidence remains outstanding;
-Phase 3 is not complete.
+deferred.
 
 ## Status definitions
 
@@ -69,9 +60,11 @@ Phase 3 is not complete.
 | 3B | Caching and batching | Not started | **Merged; software validated within scope** | [Phase 3B validation](../validation/browser-analysis-phase3b.md), `*-phase3b.json` | Direct/cache/batching opt-in; single-tree batching/subtree reuse deferred; sustained memory open |
 | 3C | Competitive strength and stability | Not started | **In progress: 3C-A validation platform; external gates blocked** | [Phase 3C-A validation](../validation/browser-analysis-phase3c.md), [device matrix](../validation/device-matrix-phase3c.md) | Competitive checkpoints, tournaments, verified WebGPU, physical desktop/mobile, sustained memory, playing strength |
 | 3C-B | Competitive measurements, performance and stability | Not started | **Partial: software + structural measurements; external gates blocked** | [Phase 3C-B report](../validation/browser-analysis-phase3c-b.md) | Competitive models, physical devices, verified GPU, full tournaments, memory acceptance |
-| 4 | Production security and runtime integration | Not started | **Implemented; structurally and browser validated; feature disabled by default** | [Phase 4 report](../validation/browser-analysis-phase4.md), [browser evidence](../validation/browser-analysis-phase4-browser.json), [neural browser evidence](../validation/browser-analysis-phase4-browser-neural.json) | Phase 5 UI; competitive/physical/sustained-memory gates remain external |
-| 5 | Production frontend integration | Not started | Not started | — | Deferred feature boundary, bundle budgets, design tokens |
-| 6 | Final acceptance and controlled rollout | Not started | Not started | — | All external gates |
+| 4 | Production security and runtime integration | Not started | **Implemented; structurally and browser validated; feature disabled by default** | [Phase 4 report](../validation/browser-analysis-phase4.md), [browser evidence](../validation/browser-analysis-phase4-browser.json), [neural browser evidence](../validation/browser-analysis-phase4-browser-neural.json) | Competitive/physical/sustained-memory gates remain external |
+| 5 | Transparent browser-first integration | Not started | **Implemented; software and production-browser validated; external gates open** | [Phase 5 report](../validation/browser-analysis-phase5.md), [browser integration evidence](../validation/browser-analysis-phase5-browser-integration.json), [memory 30 m](../validation/browser-analysis-phase5-memory-30m.json) | Sustained-memory step, competitive weights/strength, physical devices, verified GPU, distribution licensing |
+| 6 | Offline readiness and resilience | Not started | Not started | — | Persistent verified runtime caching, cold offline initialization, storage/version lifecycle |
+| 7 | Production acceptance | Not started | Not started | — | All external gates, controlled rollout, browser-only default decision |
+| 8 | Server analysis decommissioning | Not started | Not started | — | Remove legacy analysis endpoints after Phase 7 acceptance |
 
 ## Phase 0 — Browser engine feasibility
 
@@ -675,29 +668,102 @@ Phase 3 is not complete.
 - **Remaining:** Phase 5 integration; owner publication of competitive exports;
   the unchanged Phase 3C-B external gates.
 
-## Phase 5 — Frontend analysis UI integration (subsequent PRs)
+## Phase 5 — Transparent browser-first integration
+
+- **Status:** Implemented and validated at the software and production-browser
+  level; **not** production acceptance.
+- **Owner-approved architecture:** the deployment controls execution. There is no
+  player-facing `Local`/`Server`/`Auto`/`Disabled` selector, no provider selector
+  and no separate browser-analysis page. The server policy is
+  `browser_only`, `browser_preferred`, `server_only` or `disabled`.
+  `HNEFATAFL_BROWSER_ANALYSIS_ENABLED` remains the compatibility flag; an explicit
+  policy wins, and the legacy flag alone keeps the historical server-only
+  behaviour with browser delivery available for diagnostics.
+- **Delivered:**
+  - Server-authoritative policy resolution, validation, capability projection,
+    CSP/delivery gating and rejection of direct endpoint bypasses.
+  - `browser_only` rejects all server analysis computation; `disabled` suppresses
+    optional analysis while replay, gameplay, validation, AI opponents, training
+    and tournaments continue.
+  - `browser_preferred` keeps the server endpoints as a strictly bounded
+    compatibility fallback with per-account/global concurrency, request-rate and
+    queue limits; direct and fallback requests share the same controls and client
+    claims never grant capacity.
+  - Transparent integration through `useGameAnalysis` and `AgentAnalysis`; the
+    existing agent/strength controls, settings, board overlay, progress and error
+    components are reused. A narrowly scoped lazy orchestration layer normalizes
+    requests, owns the Phase 4 managed runtime, selects WASM (WebGPU only when a
+    deployment enables the evidence-gated path), recovers WebGPU to WASM, and
+    adapts advisory results without inventing fields or changing requested
+    strength.
+  - Authenticated read-only analysis-context delivery of the authoritative
+    serialized positions (including repetition history), so local execution uses
+    the same engine semantics and no divergent JavaScript rules engine.
+  - Automatic published-model resolution through the server-exposed registered
+    model mapping; no model/agent substitution when a compatible publication is
+    absent.
+  - Warm offline execution after online initialization: repeated Jarl and neural
+    searches, prepared replay positions, cancellation/recovery and no network
+    revalidation during the warm offline window. The offline lease is account,
+    runtime and TTL bound; logout/account changes dispose it; reconnection forces
+    origin authorization revalidation before further work.
+  - Lifecycle coordination for React Strict Mode, unmounting, rapid navigation,
+    stale results, account changes, model/ruleset/settings changes and runtime
+    replacement, reusing the Phase 4 ownership/retirement contract.
+  - Coarse server metrics (`/api/analysis/metrics`, administrator-only) and
+    local execution evidence; no per-search telemetry, external analytics or
+    position history is transmitted.
+- **Measured:** production browser build with real FastAPI, CSP, workers, WASM and
+  a staged 48,106,695-byte runtime; one published 47,540-byte structural smoke
+  model. Local Jarl and 32-simulation neural MCTS executed through the application
+  integration; warm offline searches completed with no analysis/authorization
+  request; successful local analysis incremented no server computation counter.
+  Initial bundle 592,053 raw / 188,761 gzip (budgets 600,000/200,000); the runtime,
+  integration and entry chunks are absent from the initial graph. Details and
+  limits are in the [Phase 5 report](../validation/browser-analysis-phase5.md).
+- **Open gates:** competitive trained checkpoints and playing-strength parity,
+  physical device matrix, independently verified GPU execution, Copenhagen
+  depth-5 fixed-work completion, sustained-memory acceptance (30-minute JS-heap
+  step remains above the unchanged growth threshold; evidence is bounded
+  high-water, not proven unbounded growth), and complete distribution licensing.
+- **Non-claims:** no browser-only production default, no public rollout, no
+  competitive strength claim, no physical-device or verified-GPU acceptance, no
+  cold offline startup (Phase 6), and no claim that client-side restrictions can
+  prevent a determined player from extracting or independently using a
+  distributed engine.
+
+## Phase 6 — Offline readiness and resilience
 
 - **Status:** Not started.
-- **Scope:** normalized `Auto`/`Local`/`Server`/`Disabled` execution modes,
-  lazy-loaded local execution, no eager bundle growth, no automatic runtime/model
-  download on public spectator pages, no silent agent/strength substitution, and
-  reuse of existing design tokens and components.
-- **Latest frontend architecture to integrate with:** the merged feature-splitting
-  work (`perf/frontend-feature-splitting`, `docs/validation/frontend-feature-splitting.md`)
-  with deferred feature modules (`frontend/src/deferredFeature.tsx`), shared
-  stylesheet coordination, `useGameAnalysis`/`AgentAnalysis` analysis components and
-  the bundle-budget check (`frontend/scripts/check-bundle-budget.mjs`). Local
-  browser analysis must join the deferred/lazy-loaded boundary, must not increase
-  the initial bundle, and must satisfy the existing bundle budgets. Production UI
-  and design system are unchanged by this PR.
+- **Scope:** persistent verified runtime caching sufficient for cold offline
+  initialization, service-worker architecture if required, browser-restart and
+  offline recovery, storage eviction handling, runtime/model version lifecycle,
+  comprehensive offline authorization and revocation semantics, and additional
+  offline lifecycle validation.
+- **Boundary:** Phase 5 deliberately implements only warm offline execution after
+  successful online initialization. It does not implement offline application
+  startup, offline login, offline online-game submission or a full PWA.
 
-## Phase 6 — Final production acceptance
+## Phase 7 — Production acceptance
 
 - **Status:** Not started.
-- **Scope:** strength preservation, parity, resource limits, device/browser
-  compatibility, theme/language integration, permission isolation, model
-  distribution security, download/init experience, server fallback, deployment and
-  regression resistance. The feature stays opt-in until acceptance is met.
+- **Scope:** competitive trained-model validation and playing-strength
+  preservation, physical Windows/Linux/Android/Safari acceptance, independently
+  verified GPU execution evidence, sustained-memory acceptance, mobile
+  resource-pressure validation, Copenhagen depth-5 acceptance, distribution
+  licensing acceptance, controlled rollout with measured fallback rates, and the
+  owner decision to make browser-only the production default.
+
+## Phase 8 — Server analysis decommissioning
+
+- **Status:** Not started.
+- **Scope:** disable legacy server analysis by default, resolve compatibility
+  dependencies, remove obsolete server-analysis endpoints and scheduling
+  infrastructure, and preserve native engines needed by AI opponents, training,
+  tournaments, testing and ordinary gameplay.
+
+A full offline application startup remains a separate optional future task and is
+not part of Phases 5–8.
 
 ## Sub-status matrix
 

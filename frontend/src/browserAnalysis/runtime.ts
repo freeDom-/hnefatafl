@@ -385,6 +385,7 @@ export class BrowserAnalysisRuntime {
   private retirementSequence = 0;
   private terminatedClients = new WeakSet<object>();
   private activeSearch: { op: Operation; promise: Promise<SearchResult> } | null = null;
+  private offlineLease: { accountId: string; until: number; runtimeId: string } | null = null;
 
   constructor(private readonly options: RuntimeOptions = {}) {
     this.cache = options.cache ?? null;
@@ -988,7 +989,7 @@ export class BrowserAnalysisRuntime {
   // -------------------------------------------------------------------------- search
   async runSearch(
     request: SearchRequest,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; offline?: { accountId: string } } = {},
   ): Promise<SearchResult> {
     if (this.disposed) throw new BrowserAnalysisError('unsupported', 'Runtime is disposed');
     if (!this.enabled) {
@@ -997,6 +998,8 @@ export class BrowserAnalysisRuntime {
     if (!this.available || !this.manifest || !this.runtimeId) {
       throw new BrowserAnalysisError('runtime-missing', 'Browser runtime is unavailable');
     }
+    const offline = options.offline ?? null;
+    if (offline) this.assertOfflineLease(offline.accountId);
     if (!this.jarl) {
       throw new BrowserAnalysisError('not-initialized', 'Initialize the runtime first');
     }
@@ -1017,7 +1020,7 @@ export class BrowserAnalysisRuntime {
       throw new BrowserAnalysisError('superseded', 'Another search is already active');
     }
     const op = this.begin(this.runtimeId, options.signal);
-    const promise = this.executeSearch(op, request, algorithm);
+    const promise = this.executeSearch(op, request, algorithm, offline !== null);
     this.activeSearch = { op, promise };
     promise.then(
       () => {
@@ -1034,6 +1037,7 @@ export class BrowserAnalysisRuntime {
     op: Operation,
     request: SearchRequest,
     algorithm: AnalysisAlgorithm,
+    offline: boolean,
   ): Promise<SearchResult> {
     const started = now();
     const model = request.model ?? null;
@@ -1050,7 +1054,7 @@ export class BrowserAnalysisRuntime {
       if (algorithm === JARL_ALGORITHM) {
         result = await this.runJarl(op, request, started);
       } else {
-        result = await this.runNeural(op, request, model as ModelManifest, started);
+        result = await this.runNeural(op, request, model as ModelManifest, started, offline);
       }
       this.assertOwned(op, 'Search result was superseded');
       this.result = result;
@@ -1170,6 +1174,7 @@ export class BrowserAnalysisRuntime {
     request: SearchRequest,
     model: ModelManifest,
     started: number,
+    offline = false,
   ): Promise<SearchResult> {
     const manifest = this.manifest;
     if (!manifest) throw new BrowserAnalysisError('runtime-missing', 'Runtime manifest is missing');
@@ -1189,8 +1194,10 @@ export class BrowserAnalysisRuntime {
       );
     }
     const effective = normalizeNeuralSettings(request.settings);
-    await this.revalidateModel(model, op);
-    this.assertOwned(op);
+    if (!offline) {
+      await this.revalidateModel(model, op);
+      this.assertOwned(op);
+    }
     if (!this.neural) {
       const neuralModule = await this.loadRuntimeModule(op, RUNTIME_JS.neuralClient);
       this.assertOwned(op);
@@ -1227,6 +1234,16 @@ export class BrowserAnalysisRuntime {
       current.ruleset === model.ruleset &&
       current.size === model.boardSize &&
       current.provider === provider;
+    if (!healthy && offline) {
+      // Warm offline execution may use only resources that are already
+      // initialized. Reconstructing a model session from storage (or worse, the
+      // network) is outside the Phase 5 warm-offline contract.
+      throw new BrowserAnalysisError(
+        'not-initialized',
+        'The requested model session is not initialized for offline analysis',
+        false,
+      );
+    }
     if (!healthy) {
       const bytes = await this.ensureModelBytes(model, op);
       this.assertOwned(op);
@@ -1485,6 +1502,43 @@ export class BrowserAnalysisRuntime {
     };
   }
 
+  /**
+   * Record that the server authorized this account and runtime while online.
+   * The lease is deliberately local, short-lived and never treated as
+   * server-verifiable proof of permission. Model identity is still checked by
+   * the normal session/manifest contract on every offline search.
+   */
+  noteOnlineAuthorization(accountId: string, seconds: number): void {
+    if (this.disposed || typeof accountId !== 'string' || accountId.length === 0) return;
+    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    const bounded = Math.min(seconds * 1000, LIMITS.maxOfflineAuthorizationMs);
+    this.offlineLease = {
+      accountId,
+      until: now() + bounded,
+      runtimeId: this.runtimeId ?? '',
+    };
+  }
+
+  private assertOfflineLease(accountId: string): void {
+    const lease = this.offlineLease;
+    if (
+      !lease ||
+      lease.accountId !== accountId ||
+      lease.runtimeId !== (this.runtimeId ?? '') ||
+      now() > lease.until
+    ) {
+      throw new BrowserAnalysisError(
+        'unauthorized',
+        'Offline analysis authorization has expired or does not match this account',
+        false,
+      );
+    }
+  }
+
+  clearOfflineAuthorization(): void {
+    this.offlineLease = null;
+  }
+
   // ------------------------------------------------------------ cancellation & lifecycle
   /** Cooperative cancellation of the active search/initialization and inference work. */
   async cancel(reason = 'Search cancelled'): Promise<void> {
@@ -1670,6 +1724,7 @@ export class BrowserAnalysisRuntime {
    */
   async invalidateAccountContext(): Promise<void> {
     this.context += 1;
+    this.offlineLease = null;
     const context = this.context;
     this.initState = null;
     this.abortOperations(() => true);
@@ -1744,6 +1799,7 @@ export class BrowserAnalysisRuntime {
     if (this.disposalPromise) return this.disposalPromise;
     this.disposed = true;
     this.context += 1;
+    this.offlineLease = null;
     this.abortOperations(() => true);
     this.downloads.cancelAll('Runtime disposed');
     const search = this.activeSearch;
@@ -1837,6 +1893,18 @@ export class BrowserAnalysisRuntime {
 
   getLastResult(): SearchResult | null {
     return this.result;
+  }
+
+  /** True only when the live inference session already matches this model/provider. */
+  modelReady(model: ModelManifest, provider: ProviderRequest): boolean {
+    const live = this.neural?.sessionIdentity?.() ?? null;
+    return (
+      live !== null &&
+      live.sha256 === model.onnxSha256 &&
+      live.ruleset === model.ruleset &&
+      live.size === model.boardSize &&
+      live.provider === provider
+    );
   }
 
   async storageUsage(): Promise<{ persistent: boolean; bytes: number }> {

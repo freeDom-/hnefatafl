@@ -59,12 +59,19 @@ export interface BrowserAnalysisApi {
     model: ModelManifest,
     hooks?: { onProgress?: (progress: DownloadProgress) => void; signal?: AbortSignal },
   ): Promise<ModelDownloadResult>;
-  runSearch(request: SearchRequest, options?: { signal?: AbortSignal }): Promise<SearchResult>;
+  runSearch(
+    request: SearchRequest,
+    options?: { signal?: AbortSignal; offline?: { accountId: string } },
+  ): Promise<SearchResult>;
   cancel(reason?: string): Promise<void>;
   invalidateAccountContext(): Promise<void>;
+  /** Record a successful online authorization for bounded warm-offline work. */
+  noteOnlineAuthorization(accountId: string, seconds: number): void;
+  clearOfflineAuthorization(): void;
   dispose(): Promise<RuntimeDisposalOutcome>;
   status(): RuntimeStatus;
   lastResult(): SearchResult | null;
+  modelReady(model: ModelManifest, provider: 'wasm' | 'webgpu'): boolean;
   storageUsage(): Promise<{ persistent: boolean; bytes: number }>;
 }
 
@@ -80,9 +87,13 @@ export async function createBrowserAnalysis(
     runSearch: (request, searchOptions) => runtime.runSearch(request, searchOptions),
     cancel: (reason) => runtime.cancel(reason),
     invalidateAccountContext: () => runtime.invalidateAccountContext(),
+    noteOnlineAuthorization: (accountId, seconds) =>
+      runtime.noteOnlineAuthorization(accountId, seconds),
+    clearOfflineAuthorization: () => runtime.clearOfflineAuthorization(),
     dispose: () => runtime.dispose(),
     status: () => runtime.getStatus(),
     lastResult: () => runtime.getLastResult(),
+    modelReady: (model, provider) => runtime.modelReady(model, provider),
     storageUsage: () => runtime.storageUsage(),
   };
 }

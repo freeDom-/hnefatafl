@@ -28,6 +28,7 @@ import {
   type RuntimePins,
 } from './contracts';
 import { sha256Hex, type DigestFn } from './storage';
+import { normalizeExecutionPolicy } from '../analysisPolicy';
 
 const HEX16 = /^[0-9a-f]{16}$/;
 const HEX24 = /^[0-9a-f]{24}$/;
@@ -211,6 +212,13 @@ export function validateAvailability(raw: unknown): Availability {
   }
   const runtime = raw.runtime_available ? validateRuntimeManifest(raw.runtime) : null;
   const count = positiveInt(raw.published_models, 10_000);
+  const execution = normalizeExecutionPolicy(raw.execution, {
+    browserDelivery: raw.enabled === true,
+  });
+  const mode = typeof raw.analysis_mode === 'string' ? raw.analysis_mode : execution.mode;
+  if (mode !== execution.mode) {
+    fail('runtime-incompatible', 'Analysis mode contradicts the execution policy');
+  }
   return {
     schema: 1,
     enabled: raw.enabled,
@@ -218,6 +226,8 @@ export function validateAvailability(raw: unknown): Availability {
     runtime,
     reason: typeof raw.reason === 'string' ? raw.reason : null,
     publishedModels: count ?? 0,
+    analysisMode: execution.mode,
+    execution,
   };
 }
 
@@ -291,6 +301,11 @@ export function validateModelManifest(raw: unknown): ModelManifest {
       : { input: null, outputs: null },
     status: 'published',
     publishedAt: String(raw.published_at ?? ''),
+    registeredModelIds: Array.isArray(raw.registered_model_ids)
+      ? raw.registered_model_ids.filter(
+          (entry): entry is string => typeof entry === 'string' && entry.length > 0,
+        )
+      : [],
   };
 }
 

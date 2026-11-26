@@ -1,0 +1,542 @@
+{
+  "schema": 1,
+  "baseUrl": "http://127.0.0.1:8011",
+  "checks": [
+    {
+      "name": "login succeeds",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "name": "account game is created",
+      "ok": true,
+      "detail": "{\"id\":\"92b9f3b0d4f44d5f87153a453e183006\",\"ruleset\":\"brandubh\",\"ruleset_version\":1,\"mode\":\"human-ai\",\"human_side\":\"attackers\",\"players\":{\"attackers\":{\"name\":\"admin\",\"account_id\":\"93e82cd3802a48f9a605a3015483b729\",\"kind\":\"human\",\"config\":{},\"username\":\"admin\",\"rune\":\"ᚠ\"},\"defenders\":{\"name\":\"Shield bearer\",\"kind\":\"ai\",\"profile_id\":\"baseline\",\"profile_name\":\"Shield bearer\",\"config\":{\"algorithm\":\"baseline\",\"seed\":2936911710,\"time_limit\":1.0,\"evaluation\":\"heuristic\"},\"variant_id\":\"ai:846ed51404db4f89279a0852\",\"rune\":\"ᚢ\"}},\"advisor\":null,\"analysis_enabled\":true,\"seed\":2936911710,\"moves\":[],\"cursor\":0,\"version\":0,\"created_at\":\"2026-11-26T12:35:44.430388+00:00\",\"ended_at\":null,\"recorded_result\":null,\"creation_policy\":1,\"size\":7,\"board\":[\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\"A\",\"A\",\"D\",\"K\",\"D\",\"A\",\"A\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\"],\"turn\":\"attackers\",\"ply\":0,\"winner\":null,\"reason\":null,\"total_moves\":0,\"recorded_winner\":null,\"recorded_reason\":null,\"recorded_plies\":0,\"legal_moves\":[{\"source\":3,\"target\":2},{\"source\":3,\"target\":1},{\"source\":3,\"target\":4},{\"source\":3,\"target\":5},{\"source\":10,\"target\":9},{\"source\":10,\"target\":8},{\"source\":10,\"target\":7},{\"source\":10,\"target\":11},{\"source\":10,\"target\":12},{\"source\":10,\"target\":13},{\"source\":21,\"target\":14},{\"source\":21,\"target\":7},{\"source\":21,\"target\":28},{\"source\":21,\"target\":35},{\"source\":22,\"target\":15},{\"source\":22,\"target\":8},{\"source\":22,\"target\":1},{\"source\":22,\"target\":29},{\"source\":22,\"target\":36},{\"source\":22,\"target\":43},{\"source\":26,\"target\":19},{\"source\":26,\"target\":12},{\"source\":26,\"target\":5},{\"source\":26,\"target\":33},{\"source\":26,\"target\":40},{\"source\":26,\"target\":47},{\"source\":27,\"target\":20},{\"source\":27,\"target\":13},{\"source\":27,\"target\":34},{\"source\":27,\"target\":41},{\"source\":38,\"target\":37},{\"source\":38,\"target\":36},{\"source\":38,\"target\":35},{\"source\":38,\"target\":39},{\"source\":38,\"target\":40},{\"source\":38,\"target\":41},{\"source\":45,\"target\":44},{\"source\":45,\"target\":43},{\"source\":45,\"target\":46},{\"source\":45,\"target\":47}],\"captured\":{\"attackers\":0,\"defenders\":0},\"analysis\":null,\"analytics\":{\"advisor\":null,\"time_limit\":5,\"show_win_chances\":true,\"revision\":0,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}}"
+    },
+    {
+      "name": "Jarl analytics settings are saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "server policy is browser-first",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "production document loads",
+      "ok": true,
+      "detail": 200
+    },
+    {
+      "name": "ordinary game page does not initialize the runtime",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "server analysis metrics are available",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "analysis context data is readable",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "Jarl executes through the application integration layer",
+      "ok": true,
+      "detail": {
+        "cursor": 0,
+        "ply": 0,
+        "side_to_move": "attackers",
+        "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+        "created_at": "2026-11-26T12:35:48.216Z",
+        "evaluations": [
+          {
+            "rune": "ᚨ",
+            "agent_id": "advisor",
+            "name": "Jarl advisor",
+            "role": "advisor",
+            "profile_id": "alpha_beta",
+            "profile_name": "Jarl",
+            "config": {
+              "algorithm": "alpha_beta",
+              "seed": 2936911710,
+              "time_limit": 1,
+              "evaluation": "heuristic",
+              "heuristic": "shield_maiden",
+              "depth": 3,
+              "search": {
+                "legacy": false,
+                "transposition": true,
+                "move_ordering": true,
+                "symmetry_transposition": false,
+                "symmetry_pruning": false,
+                "table_capacity": 100000
+              }
+            },
+            "source": "heuristic",
+            "value": -0.05272882825841763,
+            "win_probability": 0.5263644141292089,
+            "estimated": true,
+            "calibrated": false,
+            "best_move": {
+              "source": 3,
+              "target": 2
+            },
+            "completed_depth": 3,
+            "searched_moves": 40,
+            "nodes": 144,
+            "evaluations": 2083,
+            "cutoffs": 99,
+            "transposition_hits": 0,
+            "symmetry_moves_skipped": 0,
+            "search_seed": 2936911710
+          }
+        ],
+        "hint": {
+          "agent_id": "advisor",
+          "move": {
+            "source": 3,
+            "target": 2
+          }
+        },
+        "status": "complete",
+        "advisor_revision": 1
+      }
+    },
+    {
+      "name": "Jarl runs without neural inference",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "neural analytics settings are saved",
+      "ok": true,
+      "detail": "{\"advisor\":{\"name\":\"brandubh browser model (4x0)\",\"kind\":\"ai\",\"profile_id\":\"neural\",\"profile_name\":\"Trained model\",\"config\":{\"algorithm\":\"neural\",\"seed\":2936911710,\"time_limit\":1.0,\"evaluation\":\"neural\",\"iterations\":32,\"rollout_depth\":8,\"exploration\":1.4,\"temperature\":0.0,\"model_id\":\"85ff7b62fa7dd9230f2165c8\"},\"model_name\":\"Phase5 smoke\",\"rune\":\"ᚦ\"},\"time_limit\":5.0,\"show_win_chances\":true,\"revision\":2,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}"
+    },
+    {
+      "name": "analysis context data is readable",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "neural MCTS executes through the application integration layer",
+      "ok": true,
+      "detail": {
+        "cursor": 0,
+        "ply": 0,
+        "side_to_move": "attackers",
+        "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+        "created_at": "2026-11-26T12:35:50.720Z",
+        "evaluations": [
+          {
+            "rune": "ᚦ",
+            "agent_id": "advisor",
+            "name": "brandubh browser model (4x0)",
+            "role": "advisor",
+            "profile_id": "neural",
+            "profile_name": "Trained model",
+            "model_name": "Phase5 smoke",
+            "config": {
+              "algorithm": "mcts",
+              "seed": 2936911710,
+              "time_limit": 1,
+              "evaluation": "neural",
+              "iterations": 32,
+              "rollout_depth": 8,
+              "exploration": 1.4,
+              "temperature": 0,
+              "model_id": "85ff7b62fa7dd9230f2165c8"
+            },
+            "source": "neural_search",
+            "value": -0.4184106970205903,
+            "win_probability": 0.7092053485102952,
+            "estimated": true,
+            "calibrated": false,
+            "best_move": {
+              "source": 26,
+              "target": 12
+            },
+            "simulations": 32,
+            "search_seed": 2936911710
+          }
+        ],
+        "hint": {
+          "agent_id": "advisor",
+          "move": {
+            "source": 26,
+            "target": 12
+          }
+        },
+        "status": "complete",
+        "advisor_revision": 2
+      }
+    },
+    {
+      "name": "provider evidence remains honest",
+      "ok": true,
+      "detail": {
+        "executionRuntime": "pyodide",
+        "requestedProvider": "wasm",
+        "observedPlacement": "wasm",
+        "gpuExecutionVerified": false,
+        "inferenceObserved": true,
+        "inferences": 33,
+        "completedSimulations": 32,
+        "completionReason": "simulations"
+      }
+    },
+    {
+      "name": "warm offline Jarl completes locally",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "warm offline neural MCTS completes locally with the same model",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "no analysis or authorization request was needed during warm offline searches",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "existing analysis UI indicates local execution",
+      "ok": true,
+      "detail": "Analysis runs on this device."
+    },
+    {
+      "name": "the existing analysis UI renders an advisory evaluation",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "the production UI never posts to the server analysis endpoint",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "successful local analysis caused zero server analysis computation",
+      "ok": true,
+      "detail": {
+        "before": {
+          "active": 0,
+          "active_accounts": 0
+        },
+        "after": {
+          "active": 0,
+          "active_accounts": 0
+        }
+      }
+    }
+  ],
+  "requests": {
+    "runtimeAssets": 516,
+    "modelArtifacts": 1
+  },
+  "measurements": {
+    "jarlOnlineMs": 3266.199999988079,
+    "neuralOnlineMs": 2455.5,
+    "offlineJarlMs": 242,
+    "offlineNeuralMs": 80.89999997615814
+  },
+  "game": {
+    "id": "92b9f3b0d4f44d5f87153a453e183006",
+    "publication": "f8f0345749723a28f5a2b6f5",
+    "model": "64c4a60e1c08bec38c1af909b9cb8193a36c8dcc48f6d49e4ee676e96ea80d74"
+  },
+  "results": {
+    "jarl": {
+      "ms": 3266.199999988079,
+      "report": {
+        "cursor": 0,
+        "ply": 0,
+        "side_to_move": "attackers",
+        "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+        "created_at": "2026-11-26T12:35:48.216Z",
+        "evaluations": [
+          {
+            "rune": "ᚨ",
+            "agent_id": "advisor",
+            "name": "Jarl advisor",
+            "role": "advisor",
+            "profile_id": "alpha_beta",
+            "profile_name": "Jarl",
+            "config": {
+              "algorithm": "alpha_beta",
+              "seed": 2936911710,
+              "time_limit": 1,
+              "evaluation": "heuristic",
+              "heuristic": "shield_maiden",
+              "depth": 3,
+              "search": {
+                "legacy": false,
+                "transposition": true,
+                "move_ordering": true,
+                "symmetry_transposition": false,
+                "symmetry_pruning": false,
+                "table_capacity": 100000
+              }
+            },
+            "source": "heuristic",
+            "value": -0.05272882825841763,
+            "win_probability": 0.5263644141292089,
+            "estimated": true,
+            "calibrated": false,
+            "best_move": {
+              "source": 3,
+              "target": 2
+            },
+            "completed_depth": 3,
+            "searched_moves": 40,
+            "nodes": 144,
+            "evaluations": 2083,
+            "cutoffs": 99,
+            "transposition_hits": 0,
+            "symmetry_moves_skipped": 0,
+            "search_seed": 2936911710
+          }
+        ],
+        "hint": {
+          "agent_id": "advisor",
+          "move": {
+            "source": 3,
+            "target": 2
+          }
+        },
+        "status": "complete",
+        "advisor_revision": 1
+      },
+      "evidence": {
+        "executionRuntime": "pyodide",
+        "requestedProvider": null,
+        "observedPlacement": "none",
+        "gpuExecutionVerified": false,
+        "inferenceObserved": false,
+        "inferences": 0,
+        "completedSimulations": null,
+        "completionReason": null
+      },
+      "provider": "wasm",
+      "offline": false,
+      "model": null
+    },
+    "neural": {
+      "ms": 2455.5,
+      "report": {
+        "cursor": 0,
+        "ply": 0,
+        "side_to_move": "attackers",
+        "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+        "created_at": "2026-11-26T12:35:50.720Z",
+        "evaluations": [
+          {
+            "rune": "ᚦ",
+            "agent_id": "advisor",
+            "name": "brandubh browser model (4x0)",
+            "role": "advisor",
+            "profile_id": "neural",
+            "profile_name": "Trained model",
+            "model_name": "Phase5 smoke",
+            "config": {
+              "algorithm": "mcts",
+              "seed": 2936911710,
+              "time_limit": 1,
+              "evaluation": "neural",
+              "iterations": 32,
+              "rollout_depth": 8,
+              "exploration": 1.4,
+              "temperature": 0,
+              "model_id": "85ff7b62fa7dd9230f2165c8"
+            },
+            "source": "neural_search",
+            "value": -0.4184106970205903,
+            "win_probability": 0.7092053485102952,
+            "estimated": true,
+            "calibrated": false,
+            "best_move": {
+              "source": 26,
+              "target": 12
+            },
+            "simulations": 32,
+            "search_seed": 2936911710
+          }
+        ],
+        "hint": {
+          "agent_id": "advisor",
+          "move": {
+            "source": 26,
+            "target": 12
+          }
+        },
+        "status": "complete",
+        "advisor_revision": 2
+      },
+      "evidence": {
+        "executionRuntime": "pyodide",
+        "requestedProvider": "wasm",
+        "observedPlacement": "wasm",
+        "gpuExecutionVerified": false,
+        "inferenceObserved": true,
+        "inferences": 33,
+        "completedSimulations": 32,
+        "completionReason": "simulations"
+      },
+      "provider": "wasm",
+      "offline": false,
+      "model": {
+        "sha256": "64c4a60e1c08bec38c1af909b9cb8193a36c8dcc48f6d49e4ee676e96ea80d74",
+        "ruleset": "brandubh",
+        "size": 7
+      }
+    },
+    "offlineJarl": {
+      "ms": 242,
+      "report": {
+        "cursor": 0,
+        "ply": 0,
+        "side_to_move": "attackers",
+        "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+        "created_at": "2026-11-26T12:35:50.973Z",
+        "evaluations": [
+          {
+            "rune": "ᚨ",
+            "agent_id": "advisor",
+            "name": "Jarl advisor",
+            "role": "advisor",
+            "profile_id": "alpha_beta",
+            "profile_name": "Jarl",
+            "config": {
+              "algorithm": "alpha_beta",
+              "seed": 2936911710,
+              "time_limit": 1,
+              "evaluation": "heuristic",
+              "heuristic": "shield_maiden",
+              "depth": 3,
+              "search": {
+                "legacy": false,
+                "transposition": true,
+                "move_ordering": true,
+                "symmetry_transposition": false,
+                "symmetry_pruning": false,
+                "table_capacity": 100000
+              }
+            },
+            "source": "heuristic",
+            "value": -0.05272882825841763,
+            "win_probability": 0.5263644141292089,
+            "estimated": true,
+            "calibrated": false,
+            "best_move": {
+              "source": 3,
+              "target": 2
+            },
+            "completed_depth": 3,
+            "searched_moves": 40,
+            "nodes": 144,
+            "evaluations": 2083,
+            "cutoffs": 99,
+            "transposition_hits": 0,
+            "symmetry_moves_skipped": 0,
+            "search_seed": 2936911710
+          }
+        ],
+        "hint": {
+          "agent_id": "advisor",
+          "move": {
+            "source": 3,
+            "target": 2
+          }
+        },
+        "status": "complete",
+        "advisor_revision": 1
+      },
+      "evidence": {
+        "executionRuntime": "pyodide",
+        "requestedProvider": null,
+        "observedPlacement": "none",
+        "gpuExecutionVerified": false,
+        "inferenceObserved": false,
+        "inferences": 0,
+        "completedSimulations": null,
+        "completionReason": null
+      },
+      "provider": "wasm",
+      "offline": true,
+      "model": null
+    },
+    "offlineNeural": {
+      "ms": 80.89999997615814,
+      "report": {
+        "cursor": 0,
+        "ply": 0,
+        "side_to_move": "attackers",
+        "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+        "created_at": "2026-11-26T12:35:51.062Z",
+        "evaluations": [
+          {
+            "rune": "ᚦ",
+            "agent_id": "advisor",
+            "name": "brandubh browser model (4x0)",
+            "role": "advisor",
+            "profile_id": "neural",
+            "profile_name": "Trained model",
+            "model_name": "Phase5 smoke",
+            "config": {
+              "algorithm": "mcts",
+              "seed": 2936911710,
+              "time_limit": 1,
+              "evaluation": "neural",
+              "iterations": 32,
+              "rollout_depth": 8,
+              "exploration": 1.4,
+              "temperature": 0,
+              "model_id": "85ff7b62fa7dd9230f2165c8"
+            },
+            "source": "neural_search",
+            "value": -0.4184106970205903,
+            "win_probability": 0.7092053485102952,
+            "estimated": true,
+            "calibrated": false,
+            "best_move": {
+              "source": 26,
+              "target": 12
+            },
+            "simulations": 32,
+            "search_seed": 2936911710
+          }
+        ],
+        "hint": {
+          "agent_id": "advisor",
+          "move": {
+            "source": 26,
+            "target": 12
+          }
+        },
+        "status": "complete",
+        "advisor_revision": 2
+      },
+      "evidence": {
+        "executionRuntime": "pyodide",
+        "requestedProvider": "wasm",
+        "observedPlacement": "wasm",
+        "gpuExecutionVerified": false,
+        "inferenceObserved": true,
+        "inferences": 33,
+        "completedSimulations": 32,
+        "completionReason": "simulations"
+      },
+      "provider": "wasm",
+      "offline": true,
+      "model": {
+        "sha256": "64c4a60e1c08bec38c1af909b9cb8193a36c8dcc48f6d49e4ee676e96ea80d74",
+        "ruleset": "brandubh",
+        "size": 7
+      }
+    }
+  },
+  "ordinaryPageRequests": 735,
+  "ok": true
+}

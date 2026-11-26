@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
+from .analysis_policy import AnalysisAdmission, AnalysisPolicyError
 from .account_policy import (
     BIDI_CONTROLS,
     game_accounts,
@@ -403,6 +404,12 @@ def create_app(
     from .auth import attach_auth
 
     auth = attach_auth(app, store)
+    analysis_policy = auth.settings.analysis_policy
+    analysis_admission = AnalysisAdmission(
+        analysis_policy, enforce=analysis_policy.mode == "browser_preferred"
+    )
+    app.state.analysis_policy = analysis_policy
+    app.state.analysis_admission = analysis_admission
     from .account_api import attach_accounts
 
     account_options = {"settings": account_settings, "transport": mail_transport}
@@ -562,12 +569,16 @@ def create_app(
         return hashlib.sha256(encoded.encode()).hexdigest()
 
     def analytics_settings(game: dict) -> dict:
-        return store.analytics(game["id"]) or {
+        settings = store.analytics(game["id"]) or {
             "advisor": game.get("advisor"),
             "time_limit": 5,
             "show_win_chances": True,
             "revision": 0,
         }
+        # The server, not a browser preference, owns the execution policy. It is
+        # delivered with the existing per-game settings payload so transparent
+        # browser execution needs no additional capability round-trip.
+        return {**settings, "execution": analysis_policy.public()}
 
     def referenced_agents(game: dict) -> list[dict]:
         advisor = analytics_settings(game)["advisor"]
@@ -1172,8 +1183,44 @@ def create_app(
 
     from .analysis_service import AnalysisService, AnalysisUnavailable, SupersededAnalysis
 
-    analyses = AnalysisService(store, evaluate_background)
+    analyses = AnalysisService(store, evaluate_background, analysis_admission)
     app.state.analyses = analyses
+
+    @app.exception_handler(AnalysisPolicyError)
+    async def _analysis_policy_error(_request, error: AnalysisPolicyError):
+        headers = {"Retry-After": str(error.retry_after)} if error.retry_after else None
+        return JSONResponse(
+            {"detail": error.message, "code": error.code},
+            status_code=error.status,
+            headers=headers,
+        )
+
+    def require_analysis_computation(http_request: Request | None = None) -> None:
+        """Reject server analysis that the deployment policy does not permit.
+
+        The check runs before any cache read, scheduling or evaluation so a direct
+        request cannot bypass the policy. Browser-reported failure reasons never
+        influence admission; only the authenticated account and server limits do.
+        """
+        from .security_context import principal
+
+        admission = app.state.analysis_admission
+        if http_request is not None:
+            fallback = http_request.headers.get("x-analysis-fallback") == "1"
+            admission.count("fallback_request" if fallback else "direct_request")
+        if analysis_policy.mode in {"browser_only", "disabled"}:
+            raise AnalysisPolicyError(
+                "Server-side analysis is disabled by the deployment policy.",
+                code="analysis_server_disabled",
+                status=409,
+            )
+        if analysis_policy.mode == "browser_preferred":
+            identity = principal.get()
+            if identity is None:
+                raise AnalysisPolicyError(
+                    "Sign in to request analysis.", code="analysis_unauthorized", status=401
+                )
+            admission.limit_request(str(identity["id"]))
 
     @app.exception_handler(AnalysisUnavailable)
     async def _analysis_unavailable(_request, error: AnalysisUnavailable):
@@ -1212,7 +1259,7 @@ def create_app(
                 )
             )
             try:
-                return store.save_analytics(
+                saved = store.save_analytics(
                     game_id,
                     {
                         "advisor": advisor,
@@ -1220,6 +1267,7 @@ def create_app(
                         "show_win_chances": request.show_win_chances,
                     },
                 )
+                return {**saved, "execution": analysis_policy.public()}
             except ConflictError as exc:
                 fail(str(exc), 409)
 
@@ -1286,7 +1334,8 @@ def create_app(
         return rendered
 
     @app.post("/api/games/{game_id}/analysis")
-    def analyze_game(game_id: str, request: AnalysisRequest):
+    def analyze_game(game_id: str, request: AnalysisRequest, http_request: Request):
+        require_analysis_computation(http_request)
         from .ai import analyze_position
 
         from .security_context import principal
@@ -1433,6 +1482,60 @@ def create_app(
         except ConflictError as exc:
             fail(str(exc), 409)
 
+    def analysis_context_payload(game: dict, cursor: int) -> dict:
+        """Authoritative serialized positions for browser-local analysis.
+
+        This endpoint is a read: it schedules and evaluates nothing. It returns
+        the same rule-relevant state (including repetition history) the server
+        engine uses, so a local search is not a divergent implementation. Access
+        follows the existing analysis surface exactly: a game that cannot be
+        analyzed on the server is not exposed as a local analysis context.
+        """
+        if not game.get("analysis_enabled") and store.analytics(game["id"]) is None:
+            raise AnalysisPolicyError(
+                "Analysis is not enabled for this game.",
+                code="analysis_not_enabled",
+                status=409,
+            )
+        states = [new_game(game["ruleset"]).to_dict()]
+        try:
+            for recorded in game["moves"]:
+                states.append(
+                    apply_move(
+                        State.from_dict(states[-1]),
+                        Move(recorded["source"], recorded["target"]),
+                    ).to_dict()
+                )
+        except (KeyError, TypeError, ValueError):
+            fail("Stored game history failed deterministic validation.", 409)
+        if len(states) > 4096:
+            fail("This replay is too long for browser analysis context delivery.", 422)
+        if not 0 <= cursor < len(states):
+            fail("The requested position is outside this recorded game.", 422)
+        return {
+            "schema": 1,
+            "game_id": game["id"],
+            "version": game.get("version", 0),
+            "ruleset": game["ruleset"],
+            "cursor": cursor,
+            "position_key": position_key(State.from_dict(states[cursor])),
+            # Keys for every prepared position: offline navigation must never
+            # depend on a second network request or a divergent client rules engine.
+            "position_keys": [position_key(State.from_dict(state)) for state in states],
+            "states": states,
+            "execution": analysis_policy.public(),
+        }
+
+    @app.get("/api/games/{game_id}/analysis-context")
+    def game_analysis_context(game_id: str, cursor: int | None = Query(default=None, ge=0)):
+        game = game_or_404(game_id)
+        return analysis_context_payload(game, game["cursor"] if cursor is None else cursor)
+
+    @app.get("/api/history/online/{game_id}/analysis-context")
+    def online_analysis_context(game_id: str, cursor: int | None = Query(default=None, ge=0)):
+        game = online_analysis_game(game_id)
+        return analysis_context_payload(game, len(game["moves"]) if cursor is None else cursor)
+
     def online_analysis_game(identifier: str) -> dict:
         """Read-only analysis view of a completed online game.
 
@@ -1517,7 +1620,7 @@ def create_app(
                 existing if same_advisor else normalise_advisor(request.advisor, game["ruleset"], 0)
             )
             try:
-                return store.save_analytics(
+                saved = store.save_analytics(
                     game_id,
                     {
                         "advisor": advisor,
@@ -1526,11 +1629,13 @@ def create_app(
                     },
                     allow_online=True,
                 )
+                return {**saved, "execution": analysis_policy.public()}
             except ConflictError as exc:
                 fail(str(exc), 409)
 
     @app.post("/api/history/online/{game_id}/analysis")
-    def analyze_online_game(game_id: str, request: AnalysisRequest):
+    def analyze_online_game(game_id: str, request: AnalysisRequest, http_request: Request):
+        require_analysis_computation(http_request)
         game = online_analysis_game(game_id)
         if not 0 <= request.cursor <= len(game["moves"]):
             fail("The requested position is outside this recorded game.", 422)
@@ -3463,6 +3568,27 @@ def create_app(
             # artifact discovery.
             raise HTTPException(404, "Browser analysis is unavailable")
 
+    def registered_model_ids(weights: object) -> list[str]:
+        """Map a published weight fingerprint to already-visible model ids.
+
+        Model ids are part of the existing play-facing inference catalogue, and
+        the fingerprint mapping only lets a browser resolve the model an advisor
+        already references. No checkpoint bytes or training metadata are exposed.
+        """
+        if not isinstance(weights, str):
+            return []
+        return sorted(
+            entry["id"]
+            for entry in registry().list()
+            if entry.get("weights_sha256") == weights and isinstance(entry.get("id"), str)
+        )
+
+    def browser_model_record(record: dict) -> dict:
+        return {
+            **browser_models.public_record(record),
+            "registered_model_ids": registered_model_ids(record.get("source_weights_sha256")),
+        }
+
     @app.get("/api/browser-analysis/availability")
     def browser_analysis_availability():
         enabled = auth.settings.browser_analysis
@@ -3477,12 +3603,20 @@ def create_app(
             ),
             "reason": None if snapshot is not None else reason,
             "published_models": len(browser_models.list_public()) if enabled else 0,
+            # Policy is always reported, including disabled/unavailable modes, so
+            # the front-end can choose server, local or no execution without a
+            # second capability request. It never grants server computation.
+            "analysis_mode": analysis_policy.mode,
+            "execution": analysis_policy.public(),
         }
 
     @app.get("/api/browser-analysis/models")
     def browser_analysis_models():
         require_browser_analysis()
-        return {"schema": 1, "models": browser_models.list_public()}
+        return {
+            "schema": 1,
+            "models": [browser_model_record(record) for record in browser_models.list_public()],
+        }
 
     @app.get("/api/browser-analysis/models/{publication_id}")
     def browser_analysis_model(publication_id: str):
@@ -3491,7 +3625,24 @@ def create_app(
             record, _path = browser_models.resolve_artifact(publication_id)
         except PublicationError:
             raise HTTPException(404, "Published model not found") from None
-        return browser_models.public_record(record)
+        return browser_model_record(record)
+
+    @app.get("/api/analysis/metrics")
+    def analysis_metrics():
+        """Coarse, privacy-preserving server-analysis counters for operators.
+
+        Client-reported local failures are not trusted as evidence; these counts
+        describe actual server admissions and rejections only.
+        """
+        from .security_context import allowed as permits, principal
+
+        if not permits(principal.get(), "accounts"):
+            fail("Administrator access required.", 403)
+        return {
+            "schema": 1,
+            "policy": analysis_policy.public(),
+            "counters": analysis_admission.snapshot(),
+        }
 
     @app.get("/api/browser-analysis/models/{publication_id}/artifact")
     def browser_analysis_artifact(publication_id: str, version: str | None = None):

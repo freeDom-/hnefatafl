@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, TimeoutError
+from functools import partial
 from typing import Callable
+
+from .analysis_policy import AnalysisAdmission
 
 from .storage import ConflictError, Store
 
@@ -41,9 +44,12 @@ class AnalysisUnavailable(Exception):
 
 
 class AnalysisService:
-    def __init__(self, store: Store, evaluate: Callable):
+    def __init__(
+        self, store: Store, evaluate: Callable, admission: AnalysisAdmission | None = None
+    ):
         self.store = store
         self.evaluate = evaluate
+        self.admission = admission
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="board-analysis")
         self.lock = threading.RLock()
         self.requester_lock = threading.RLock()
@@ -164,6 +170,10 @@ class AnalysisService:
                 return key, previous
             if len(self.tasks) >= MAX_ANALYSIS_TASKS:
                 raise AnalysisUnavailable("Analysis workers are busy. Retry shortly.")
+            token: tuple[str, float] | None = None
+            account_id = game.get("_analysis_account_id")
+            if self.admission is not None and account_id is not None:
+                token = self.admission.admit_task(str(account_id))
             if role == "advisor":
                 self.latest_advisor[game["id"]] = key
                 # Superseded queued work checks this key before evaluation. Keep
@@ -172,12 +182,17 @@ class AnalysisService:
             if requester:
                 with self.requester_lock:
                     self.requesters[key] = {requester}
-            task = self.executor.submit(self._run, game, snapshot, role, agent, settings, state)
+            try:
+                task = self.executor.submit(self._run, game, snapshot, role, agent, settings, state)
+            except Exception:
+                if token is not None and self.admission is not None:
+                    self.admission.release_task(token)
+                raise
             self.tasks[key] = task
-            task.add_done_callback(lambda finished: self._forget(key, finished))
+            task.add_done_callback(partial(self._forget, key, token=token))
         return key, task
 
-    def _forget(self, key: tuple, task: Future) -> None:
+    def _forget(self, key: tuple, task: Future, token: tuple[str, float] | None = None) -> None:
         with self.lock:
             if self.tasks.get(key) is task:
                 self.tasks.pop(key, None)
@@ -185,6 +200,11 @@ class AnalysisService:
                     self.requesters.pop(key, None)
                 if self.latest_advisor.get(key[0]) == key:
                     self.latest_advisor.pop(key[0], None)
+        # Admission belongs to this task, not to the key: a replacement task may
+        # legitimately reuse the key before this callback runs. Release exactly
+        # once regardless of whether a newer task currently occupies the key.
+        if token is not None and self.admission is not None:
+            self.admission.release_task(token)
 
     def _run(self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict, state=None):
         revision = settings["revision"] if role == "advisor" else None
