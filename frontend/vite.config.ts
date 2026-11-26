@@ -33,7 +33,15 @@ function bundleModuleOwnership(): Plugin {
 
 export default defineConfig({
   plugins: [react(), bundleModuleOwnership()],
-  build: { manifest: true },
+  build: {
+    manifest: true,
+    rollupOptions: {
+      // Phase 4 browser-analysis runtime contract: its own lazy chunk, never part
+      // of the initial application graph. Ordinary routes never import it.
+      input: ['index.html', 'src/browserAnalysis/entry.ts'],
+      preserveEntrySignatures: 'exports-only',
+    },
+  },
   server: {
     proxy: {
       '/api': { target: env.VITE_API_TARGET ?? 'http://127.0.0.1:8000', changeOrigin: false },

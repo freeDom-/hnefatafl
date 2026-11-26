@@ -185,6 +185,8 @@ first require `hnefatafl-update --recover` after inspecting its journal.
 | `/var/lib/hnefatafl/models` | Inference model registry |
 | `/var/lib/hnefatafl/jobs` | Existing training output/checkpoints/logs; paths remain stable |
 | `/var/lib/hnefatafl/tournaments` | Retained tournament worker output |
+| `/var/lib/hnefatafl/browser_runtime` | Optional staged browser-analysis runtime; content-addressed versions plus an atomic `current` symlink |
+| `/var/lib/hnefatafl/browser_models` | Explicitly published browser inference artifacts, publication index and audit trail |
 | `/var/lib/hnefatafl/backups` | Root-only verified full pre-migration snapshots and manual backups |
 | journald | API and service logs |
 
@@ -696,6 +698,66 @@ snapshots and tested off-host restores complement application snapshots. A local
 backup is not protection against loss of the Proxmox host. Never destructively
 test these procedures on production data.
 
+## Browser-local analysis distribution (optional)
+
+Browser-local analysis ships **disabled** and has no player-facing UI. Enabling it
+requires an explicitly staged, pinned runtime and explicitly published models; an
+installation without either continues to start and serve every ordinary page.
+
+```sh
+# As the data-directory owner, from the active release directory.
+# Downloads only the pinned, digest-verified Pyodide 0.27.7 and ORT Web 1.22.0
+# assets (or pass --asset-cache for an air-gapped, pre-verified cache), verifies
+# the complete staged tree and atomically activates it.
+HNEFATAFL_DATA_DIR=/var/lib/hnefatafl make browser-runtime
+HNEFATAFL_DATA_DIR=/var/lib/hnefatafl make browser-runtime-status
+
+# Publish one validated export (administrator account from the application DB).
+.venv/bin/python -m hnefatafl.browser_models --data-dir /var/lib/hnefatafl \
+  publish /secure/export-brandubh --account Odin --name "Brandubh v3" --replace
+.venv/bin/python -m hnefatafl.browser_models --data-dir /var/lib/hnefatafl list
+.venv/bin/python -m hnefatafl.browser_models --data-dir /var/lib/hnefatafl \
+  revoke <publication_id> --account Odin --reason "replaced"
+```
+
+Then set `HNEFATAFL_BROWSER_ANALYSIS_ENABLED=1` in the service configuration and
+restart. The enabled CSP adds only `script-src 'self' 'wasm-unsafe-eval'` and
+`worker-src 'self'`; disabled deployments keep the existing strict policy.
+Runtime assets are served from the application origin with immutable caching and
+per-identity snapshot verification; model downloads are authenticated, streamed,
+`no-store`, digest-verified and may bind the immutable artifact version with
+`?version=<sha256>` (stale versions return 404). Retained runtime identities keep
+serving their own bytes while present; pruning makes their URLs return a controlled
+404. Source-checkout (`0+local`) runtime staging requires the explicit
+`--development` flag and is never treated as production compatibility.
+
+Behavior across installation, update and rollback:
+
+- Runtime and publication data are under the persistent data root, never inside a
+  release directory. The updater and rollback do not move them.
+- Each runtime manifest binds the application version, encoder, driver and worker
+  protocols. After an upgrade (or a rollback), the previously staged runtime is
+  reported unavailable until a matching runtime is staged and activated; it is
+  never executed against incompatible code. Re-run `make browser-runtime`.
+- An interrupted build leaves an unusable staging directory and no new active
+  runtime. Re-run `build`/`activate`; `python -m hnefatafl.browser_runtime
+  --data-dir ... prune --keep 2` removes inactive versions.
+- Backups: the existing stopped-writer full data-root snapshot already covers
+  `browser_models` (publication index, artifacts, audit trail). A failed audit/index
+  write is rolled back and reported as `PUBLICATION_IO`; retry after fixing storage.
+  Restore the index
+  and its content-addressed artifacts together. `browser_runtime` is reproducible
+  from pinned inputs and can be excluded from a backup to save space, but then it
+  must be staged again after restore.
+- Recovery after an interrupted update: follow the normal `--recover` procedure.
+  If the restored release does not match the staged runtime, the server starts with
+  browser analysis unavailable; stage a matching runtime before re-enabling.
+- Delete a published model only through `revoke` (or `publish --replace`); the
+  artifact store is immutable and the audit trail is append-only. Revocation stops
+  future protected downloads but cannot recall copies already downloaded.
+- Do not publish private training checkpoints, optimizer state, replay buffers or
+  unrelated files. Only a validated browser-compatible ONNX export can be
+  published; distributing it necessarily makes the weights accessible to clients.
 ### League worker recovery
 
 Open **League administration** and refresh the health projection. A running

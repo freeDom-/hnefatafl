@@ -4,7 +4,7 @@ export npm_config_cache ?= $(CURDIR)/.cache/npm
 export OMP_NUM_THREADS ?= 2
 export MKL_NUM_THREADS ?= 2
 
-.PHONY: install foundation test lint format typecheck build check serve docs deployment-check historical-refs deployment-cross-version
+.PHONY: install foundation test lint format typecheck build check serve docs deployment-check historical-refs deployment-cross-version browser-runtime browser-runtime-status browser-model-verify
 install:
 	uv sync --frozen --extra train --extra dev
 	npm --prefix frontend ci
@@ -56,3 +56,17 @@ deployment-cross-version:
 
 serve:
 	$(PYTHON) -m uvicorn hnefatafl.server:app --host 0.0.0.0 --port 8000
+
+# Optional browser-analysis runtime distribution. Assets are staged outside the
+# release directory, verified against pinned digests and activated atomically.
+# Browser analysis stays disabled until HNEFATAFL_BROWSER_ANALYSIS_ENABLED=1.
+browser-runtime:
+	$(PYTHON) -m hnefatafl.browser_runtime --data-dir "$${HNEFATAFL_DATA_DIR:?set HNEFATAFL_DATA_DIR}" build --fetch --activate
+
+browser-runtime-status:
+	$(PYTHON) -m hnefatafl.browser_runtime --data-dir "$${HNEFATAFL_DATA_DIR:?set HNEFATAFL_DATA_DIR}" status
+
+# Validate an export before publication (no state change).
+browser-model-verify:
+	@test -n "$${HNEFATAFL_DATA_DIR}" -a -n "$${EXPORT_DIR}" || (echo "set HNEFATAFL_DATA_DIR and EXPORT_DIR" >&2; exit 2)
+	$(PYTHON) -m hnefatafl.browser_models --data-dir "$$HNEFATAFL_DATA_DIR" verify "$$EXPORT_DIR"
