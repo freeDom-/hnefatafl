@@ -517,6 +517,8 @@ grant(
     "/api/browser-analysis/models/{publication_id}/artifact",
     "/api/games/{game_id}/analysis-context",
     "/api/history/online/{game_id}/analysis-context",
+    "/api/games/{game_id}/analysis-status",
+    "/api/history/online/{game_id}/analysis-status",
 )
 grant("accounts", "GET", "/api/analysis/metrics")
 grant(

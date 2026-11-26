@@ -614,6 +614,13 @@ export class BrowserAnalysisRuntime {
       });
     } catch (error) {
       if (op.controller.signal.aborted) throw cancelled();
+      if (error instanceof TypeError) {
+        throw new BrowserAnalysisError(
+          'network-unavailable',
+          'The analysis origin is unreachable',
+          true,
+        );
+      }
       throw error;
     }
     if (!response.ok) throw classifyFetchFailure(response.status);

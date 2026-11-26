@@ -255,7 +255,10 @@ try {
   };
   await openAnalytics();
   const deviceText =
-    (await page.getByText('Analysis runs on this device.').first().textContent()) ?? '';
+    (await page
+      .getByText(/Analysis (runs|completed) on this device/)
+      .first()
+      .textContent()) ?? '';
   check(
     'existing analysis UI indicates local execution',
     /this device|diesem Gerät/i.test(deviceText),

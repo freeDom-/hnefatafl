@@ -83,6 +83,9 @@ export interface LocalAnalysisInput {
 }
 
 interface AdvisorContext {
+  name?: string;
+  profile_id?: string;
+  model_name?: string;
   effective_config: Record<string, unknown>;
   requested_config?: Record<string, unknown>;
   show_win_chances?: boolean;
@@ -116,10 +119,14 @@ interface CachedContext {
 }
 
 interface ContextLease {
-  at: number;
   account: string | null;
-  version: number;
   gameId: string;
+  version: number;
+  revision: number;
+  policyMode: ExecutionPolicy['mode'];
+  offlineSeconds: number;
+  runtimeId: string;
+  expiresAt: number;
 }
 
 interface SharedContextRequest {
@@ -151,7 +158,17 @@ let contextBytes = 0;
 const contextRequests = new Map<string, SharedContextRequest>();
 const lastProviders = new Map<string, 'wasm' | 'webgpu'>();
 const contextLeases = new Map<string, ContextLease>();
-const modelLeases = new Map<string, { at: number; account: string | null; sha256: string }>();
+const modelLeases = new Map<
+  string,
+  {
+    account: string | null;
+    sha256: string;
+    publicationId: string;
+    runtimeId: string;
+    expiresAt: number;
+  }
+>();
+let lastPolicySignature: string | null = null;
 let onlineValidationRequired = true;
 let lastOnlineValidationAt = 0;
 
@@ -186,6 +203,7 @@ function clearAccountState(): void {
   contextLeases.clear();
   modelLeases.clear();
   modelCache = null;
+  lastPolicySignature = null;
   onlineValidationRequired = true;
   lastOnlineValidationAt = 0;
 }
@@ -247,9 +265,16 @@ export async function disposeLocalAnalysis(): Promise<void> {
 }
 
 async function getRuntime(accountId: string | null, expected: number): Promise<BrowserAnalysisApi> {
-  if (account !== accountId) await setAnalysisAccount(accountId);
   await binding;
   assertGeneration(expected);
+  if (account !== accountId) {
+    throw failure(
+      'cancelled',
+      'Analysis belongs to an obsolete account context',
+      false,
+      'account-context-changed',
+    );
+  }
   if (!runtimePromise) {
     const creation = createBrowserAnalysis();
     runtimePromise = creation;
@@ -315,6 +340,9 @@ function classify(error: unknown): LocalAnalysisError {
     if (code === 'model-not-published') {
       return failure('model-unavailable', text, true, code, false);
     }
+    if (code === 'network-unavailable') {
+      return failure('offline', text, false, code, true);
+    }
     if (code === 'capability-missing') {
       return failure('browser-unsupported', text, true, code, false);
     }
@@ -343,7 +371,10 @@ function classify(error: unknown): LocalAnalysisError {
     if (code === 'disabled') return failure('disabled', text, false, code, false);
     if (code === 'superseded') return failure('cancelled', text, false, code, false);
     if (code === 'unsupported') {
-      return failure('unsupported-agent', text, true, code, false);
+      // Runtime-internal unsupported/disposed states are not evidence that a
+      // server fallback is appropriate; user-requested incompatibilities are
+      // rejected before entering the runtime with a structured decision.
+      return failure('initialization', text, false, code, false);
     }
     if (code === 'search-failed') {
       const memory = /memory|resource|exhaust/i.test(text);
@@ -399,15 +430,33 @@ async function fetchJson(path: string, signal: AbortSignal): Promise<unknown> {
     );
   }
   if (!response.ok) {
+    let errorCode = '';
+    try {
+      const payload = (await response.clone().json()) as { code?: unknown };
+      errorCode = typeof payload?.code === 'string' ? payload.code : '';
+    } catch {
+      // A non-JSON error keeps the status-based classification.
+    }
     if (response.status === 401 || response.status === 403) {
       throw failure('unauthorized', 'Sign in to analyze this position', false, 'unauthorized');
     }
     if (response.status === 409) {
       throw failure(
         'disabled',
-        'Analysis is not available for this position',
+        errorCode === 'analysis_revision_stale'
+          ? 'The move advisor changed. Refresh analysis settings.'
+          : 'Analysis is not available for this position',
         false,
-        'analysis_context_changed',
+        errorCode || 'analysis_context_changed',
+        true,
+      );
+    }
+    if (response.status === 413 || response.status === 422) {
+      throw failure(
+        'integrity',
+        'The analysis context is too large or invalid',
+        false,
+        errorCode || 'analysis_context_invalid',
       );
     }
     if (response.status === 429) {
@@ -465,28 +514,70 @@ function validateContext(raw: unknown, input: LocalAnalysisInput): ContextPayloa
   if (payload.history_keys.some((key) => typeof key !== 'string' || key.length === 0)) {
     throw failure('integrity', 'The analysis history keys are malformed', false);
   }
+  if (payload.position_keys[input.cursor] !== payload.position_key) {
+    throw failure('integrity', 'The analysis position key association is inconsistent', false);
+  }
+  const boardSize = Math.round(Math.sqrt(input.game.board.length));
+  if (
+    boardSize * boardSize !== input.game.board.length ||
+    payload.states.length !== payload.position_keys.length
+  ) {
+    throw failure('integrity', 'The analysis board/context shape is invalid', false);
+  }
   for (const [index, state] of payload.states.entries()) {
     if (
       !state ||
       typeof state !== 'object' ||
       !Array.isArray((state as { board?: unknown }).board) ||
-      typeof (state as { ruleset?: unknown }).ruleset !== 'string' ||
+      (state as { board: unknown[] }).board.length !== input.game.board.length ||
+      (state as { board: unknown[] }).board.some((piece) => typeof piece !== 'string') ||
+      (state as { ruleset?: unknown }).ruleset !== payload.ruleset ||
+      ((state as { turn?: unknown }).turn !== 'attackers' &&
+        (state as { turn?: unknown }).turn !== 'defenders') ||
       (state as { ply?: unknown }).ply !== index
     ) {
       throw failure('integrity', 'A serialized analysis position is malformed', false);
     }
   }
   const advisor = payload.advisor;
-  if (advisor !== null && advisor !== undefined) {
-    if (
-      typeof advisor !== 'object' ||
-      !advisor.effective_config ||
-      typeof advisor.effective_config !== 'object' ||
-      (advisor.show_win_chances !== undefined && typeof advisor.show_win_chances !== 'boolean') ||
-      (advisor.seed_with_ply !== undefined && typeof advisor.seed_with_ply !== 'boolean')
-    ) {
-      throw failure('integrity', 'The analysis advisor configuration is malformed', false);
-    }
+  if (
+    advisor === null ||
+    advisor === undefined ||
+    typeof advisor !== 'object' ||
+    !advisor.effective_config ||
+    typeof advisor.effective_config !== 'object' ||
+    typeof advisor.show_win_chances !== 'boolean' ||
+    typeof advisor.seed_with_ply !== 'boolean' ||
+    !Number.isInteger(advisor.revision) ||
+    advisor.revision !== input.settings.revision
+  ) {
+    throw failure(
+      'integrity',
+      'Canonical advisor configuration or revision is missing or stale',
+      false,
+    );
+  }
+  const requested = input.settings.advisor;
+  const requestedConfig = requested?.config as Record<string, unknown> | undefined;
+  const effective = advisor.effective_config;
+  if (
+    requested &&
+    ((advisor.profile_id !== undefined &&
+      requested.profile_id !== undefined &&
+      advisor.profile_id !== requested.profile_id) ||
+      (advisor.name !== undefined &&
+        requested.name !== undefined &&
+        advisor.name !== requested.name) ||
+      (requestedConfig?.model_id !== undefined && effective.model_id !== requestedConfig.model_id))
+  ) {
+    throw failure('integrity', 'The analysis advisor identity changed', false);
+  }
+  const normalizeAlgorithm = (value: unknown) => (value === 'alphabeta' ? 'alpha_beta' : value);
+  if (
+    requestedConfig?.algorithm !== undefined &&
+    normalizeAlgorithm(effective.algorithm) !== normalizeAlgorithm(requestedConfig.algorithm)
+  ) {
+    throw failure('integrity', 'The analysis advisor algorithm changed', false);
   }
   if (payload.execution !== undefined && payload.execution !== null) {
     const next = executionPolicy(payload.execution, input.policy);
@@ -517,23 +608,45 @@ function contextFromPayload(payload: ContextPayload, scope: string): CachedConte
   };
 }
 
+function trimLeases(): void {
+  while (contextLeases.size > 128) {
+    const oldest = contextLeases.keys().next().value;
+    if (oldest === undefined) break;
+    contextLeases.delete(oldest);
+  }
+  while (modelLeases.size > 16) {
+    const oldest = modelLeases.keys().next().value;
+    if (oldest === undefined) break;
+    modelLeases.delete(oldest);
+  }
+  while (lastProviders.size > 16) {
+    const oldest = lastProviders.keys().next().value;
+    if (oldest === undefined) break;
+    lastProviders.delete(oldest);
+  }
+}
+
 function cacheContext(key: string, context: CachedContext): void {
   const existing = contexts.get(key);
   if (existing) {
     contextBytes -= existing.bytes;
     contexts.delete(key);
   }
+  if (context.bytes > CONTEXT_BYTE_LIMIT) {
+    // A single oversized context is usable for this request but never retained
+    // in either the byte-bounded cache or its authorization registry.
+    contextLeases.delete(key);
+    return;
+  }
   contexts.set(key, context);
   contextBytes += context.bytes;
-  while (
-    contexts.size > CONTEXT_LIMIT ||
-    (contextBytes > CONTEXT_BYTE_LIMIT && contexts.size > 1)
-  ) {
+  while (contexts.size > CONTEXT_LIMIT || contextBytes > CONTEXT_BYTE_LIMIT) {
     const oldest = contexts.keys().next().value;
     if (oldest === undefined || oldest === key) break;
     const removed = contexts.get(oldest);
     if (removed) contextBytes -= removed.bytes;
     contexts.delete(oldest);
+    contextLeases.delete(oldest);
   }
 }
 
@@ -593,9 +706,13 @@ async function ensureContext(
     const promise = (async () => {
       const path =
         input.basePath === '/history/online'
-          ? `/api/history/online/${input.game.id}/analysis-context?cursor=${input.cursor}&version=${input.game.version}`
-          : `/api/games/${input.game.id}/analysis-context?cursor=${input.cursor}&version=${input.game.version}`;
-      const payload = validateContext(await fetchJson(path, controller.signal), input);
+          ? `/api/history/online/${input.game.id}/analysis-context?cursor=${input.cursor}&version=${input.game.version}&revision=${input.settings.revision}`
+          : `/api/games/${input.game.id}/analysis-context?cursor=${input.cursor}&version=${input.game.version}&revision=${input.settings.revision}`;
+      const raw = await fetchJson(path, controller.signal);
+      if (controller.signal.aborted) {
+        throw failure('cancelled', 'Analysis was cancelled', false, 'cancelled');
+      }
+      const payload = validateContext(raw, input);
       assertGeneration(expectedGeneration);
       const context = contextFromPayload(payload, key);
       cacheContext(key, context);
@@ -621,24 +738,48 @@ async function ensureContext(
   return { context: await subscribe(shared, input.signal), fromNetwork: true };
 }
 
-function contextLeaseValid(input: LocalAnalysisInput): boolean {
+function policySignature(policy: ExecutionPolicy): string {
+  return JSON.stringify({
+    mode: policy.mode,
+    browserExecution: policy.browserExecution,
+    serverComputation: policy.serverComputation,
+    fallback: policy.fallback,
+    webgpu: policy.webgpu,
+    offline: policy.offlineAuthorizationSeconds,
+    limits: policy.limits,
+  });
+}
+
+function contextLeaseValid(input: LocalAnalysisInput, runtimeId: string): boolean {
   const lease = contextLeases.get(scopeKey(input));
   return Boolean(
     lease &&
       lease.account === input.accountId &&
       lease.gameId === input.game.id &&
       lease.version === input.game.version &&
-      now() - lease.at <= input.policy.offlineAuthorizationSeconds * 1000,
+      lease.revision === input.settings.revision &&
+      lease.policyMode === input.policy.mode &&
+      lease.offlineSeconds === input.policy.offlineAuthorizationSeconds &&
+      lease.runtimeId === runtimeId &&
+      now() <= lease.expiresAt,
   );
 }
 
-function modelLeaseValid(input: LocalAnalysisInput, sha256: string): boolean {
-  const lease = modelLeases.get(`${input.accountId ?? ''}:${sha256}`);
+function modelLeaseValid(
+  input: LocalAnalysisInput,
+  model: ModelManifest,
+  runtimeId: string,
+): boolean {
+  const lease = modelLeases.get(
+    `${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`,
+  );
   return Boolean(
     lease &&
       lease.account === input.accountId &&
-      lease.sha256 === sha256 &&
-      now() - lease.at <= input.policy.offlineAuthorizationSeconds * 1000,
+      lease.sha256 === model.onnxSha256 &&
+      lease.publicationId === model.publicationId &&
+      lease.runtimeId === runtimeId &&
+      now() <= lease.expiresAt,
   );
 }
 
@@ -809,7 +950,10 @@ function neuralSettings(
 
 function providerFor(input: LocalAnalysisInput, model: ModelManifest | null): 'wasm' | 'webgpu' {
   if (!model) return 'wasm';
-  const previous = lastProviders.get(`${model.onnxSha256}:${input.accountId ?? ''}`);
+  if (!input.policy.webgpu) return 'wasm';
+  const previous = lastProviders.get(
+    `${model.publicationId}:${model.onnxSha256}:${input.accountId ?? ''}`,
+  );
   if (previous) return previous;
   return input.policy.webgpu &&
     typeof navigator !== 'undefined' &&
@@ -973,8 +1117,39 @@ async function localAttempt(
   const stage = (value: LocalAnalysisStage) => input.onStage?.(value);
   stage('preparing');
   stage('initializing');
-  await api.initialize({ signal: input.signal });
+  const initialized = await api.initialize({ signal: input.signal });
   assertGeneration(expectedGeneration);
+  if (initialized.state === 'disabled') {
+    throw failure('disabled', 'Browser analysis is disabled', false, 'disabled');
+  }
+  if (initialized.state === 'unavailable') {
+    throw failure(
+      'browser-unsupported',
+      initialized.error?.message ?? 'The browser analysis runtime is unavailable',
+      true,
+      initialized.error?.code ?? 'runtime-missing',
+      true,
+    );
+  }
+  if (initialized.state === 'error') {
+    throw failure(
+      'initialization',
+      initialized.error?.message ?? 'The browser analysis runtime failed',
+      true,
+      initialized.error?.code ?? 'initialization-failed',
+      true,
+    );
+  }
+  if (initialized.state !== 'ready') {
+    throw failure(
+      'browser-unsupported',
+      'The browser analysis runtime is not ready',
+      true,
+      'runtime-unavailable',
+      true,
+    );
+  }
+  const runtimeId = api.status().runtimeId ?? '';
 
   let context: CachedContext;
   let freshAuthorization = false;
@@ -982,7 +1157,7 @@ async function localAttempt(
     const stale =
       onlineValidationRequired ||
       now() - lastOnlineValidationAt > input.policy.offlineAuthorizationSeconds * 1000 ||
-      !contextLeaseValid(input);
+      !contextLeaseValid(input, runtimeId);
     if (stale) {
       await api.availability({ signal: input.signal });
       assertGeneration(expectedGeneration);
@@ -996,17 +1171,22 @@ async function localAttempt(
         api.noteOnlineAuthorization(input.accountId, input.policy.offlineAuthorizationSeconds);
       }
       contextLeases.set(scopeKey(input), {
-        at: now(),
         account: input.accountId,
-        version: input.game.version,
         gameId: input.game.id,
+        version: input.game.version,
+        revision: input.settings.revision,
+        policyMode: input.policy.mode,
+        offlineSeconds: input.policy.offlineAuthorizationSeconds,
+        runtimeId,
+        expiresAt: now() + input.policy.offlineAuthorizationSeconds * 1000,
       });
       lastOnlineValidationAt = now();
       onlineValidationRequired = false;
+      trimLeases();
     }
   } else {
     ({ context } = await ensureContext(input, true, expectedGeneration));
-    if (!contextLeaseValid(input)) {
+    if (!contextLeaseValid(input, runtimeId)) {
       throw failure(
         'unauthorized',
         'Offline analysis authorization has expired for this position',
@@ -1018,9 +1198,11 @@ async function localAttempt(
 
   const advisor = input.settings.advisor;
   if (!advisor) throw failure('unsupported-agent', 'No advisor is selected', false);
-  const effectiveConfig =
-    context.advisor?.effective_config ?? (advisor.config as Record<string, unknown>);
-  const seedWithPly = context.advisor?.seed_with_ply ?? input.game.seed !== undefined;
+  const effectiveConfig = context.advisor?.effective_config;
+  if (!effectiveConfig) {
+    throw failure('integrity', 'Canonical advisor configuration is unavailable', false);
+  }
+  const seedWithPly = context.advisor?.seed_with_ply === true;
   const state = searchState(context, input.cursor);
   const algorithm = effectiveAlgorithm(effectiveConfig);
   if (!algorithm) {
@@ -1069,7 +1251,7 @@ async function localAttempt(
       );
     }
     provider = providerFor(input, model);
-    if (offline && !modelLeaseValid(input, model.onnxSha256)) {
+    if (offline && !modelLeaseValid(input, model, runtimeId)) {
       throw failure(
         'unauthorized',
         'The selected model is not authorized for offline analysis',
@@ -1094,10 +1276,12 @@ async function localAttempt(
       assertGeneration(expectedGeneration);
       fromCache = downloaded.fromCache;
       stage('loading-model');
-      modelLeases.set(`${input.accountId ?? ''}:${model.onnxSha256}`, {
-        at: now(),
+      modelLeases.set(`${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`, {
         account: input.accountId,
         sha256: model.onnxSha256,
+        publicationId: model.publicationId,
+        runtimeId,
+        expiresAt: now() + input.policy.offlineAuthorizationSeconds * 1000,
       });
     }
   }
@@ -1118,10 +1302,12 @@ async function localAttempt(
       result.evidence.requestedProvider ?? provider,
     );
     if (!offline) {
-      modelLeases.set(`${input.accountId ?? ''}:${model.onnxSha256}`, {
-        at: now(),
+      modelLeases.set(`${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`, {
         account: input.accountId,
         sha256: model.onnxSha256,
+        publicationId: model.publicationId,
+        runtimeId,
+        expiresAt: now() + input.policy.offlineAuthorizationSeconds * 1000,
       });
     }
   }
@@ -1140,8 +1326,24 @@ export async function runLocalAnalysis(input: LocalAnalysisInput): Promise<Local
   if (input.policy.mode !== 'browser_only' && input.policy.mode !== 'browser_preferred') {
     throw failure('disabled', 'Browser analysis is not permitted', false, 'disabled');
   }
-  if (account !== input.accountId) await setAnalysisAccount(input.accountId);
+  const signature = policySignature(input.policy);
+  if (lastPolicySignature !== null && lastPolicySignature !== signature) {
+    // A changed policy invalidates all continuation authorizations issued under
+    // the older policy; authority must be freshly obtained online.
+    contextLeases.clear();
+    modelLeases.clear();
+    lastProviders.clear();
+  }
+  lastPolicySignature = signature;
   const expectedGeneration = generation;
+  if (account !== input.accountId) {
+    throw failure(
+      'cancelled',
+      'Analysis belongs to an obsolete account context',
+      false,
+      'account-context-changed',
+    );
+  }
   const startOffline =
     input.offline === true || (typeof navigator !== 'undefined' && navigator.onLine === false);
   try {

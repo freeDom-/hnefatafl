@@ -218,17 +218,15 @@ class AnalysisAdmission:
         if now - self.last_bucket_cleanup < RATE_BUCKET_CLEANUP_SECONDS:
             return
         self.last_bucket_cleanup = now
+        self._expire_all(now)
+
+    def _expire_all(self, now: float) -> None:
         window = now - 60.0
         for account, values in list(self.requests_by_account.items()):
             recent = [value for value in values if value > window]
             if recent:
                 self.requests_by_account[account] = recent
             else:
-                self.requests_by_account.pop(account, None)
-        if len(self.requests_by_account) > MAX_RATE_BUCKETS:
-            for account in list(self.requests_by_account)[
-                : len(self.requests_by_account) - MAX_RATE_BUCKETS
-            ]:
                 self.requests_by_account.pop(account, None)
 
     def _count(self, name: str) -> None:
@@ -253,6 +251,22 @@ class AnalysisAdmission:
         with self.lock:
             now = self.clock()
             self._cleanup_buckets(now)
+            if (
+                account_id not in self.requests_by_account
+                and len(self.requests_by_account) >= MAX_RATE_BUCKETS
+            ):
+                # Capacity is enforced at admission, not only on the periodic
+                # sweep. Reclaim only genuinely expired buckets; active history
+                # is never discarded to make room.
+                self._expire_all(now)
+                if len(self.requests_by_account) >= MAX_RATE_BUCKETS:
+                    self._count("rate_capacity_rejected")
+                    raise AnalysisPolicyError(
+                        "Analysis request-rate capacity is busy. Retry shortly.",
+                        code="analysis_rate_capacity",
+                        status=503,
+                        retry_after=1,
+                    )
             recent = self._prune(account_id, now)
             if len(recent) >= self.policy.requests_per_minute:
                 self._count("rate_rejected")

@@ -42,9 +42,8 @@ function mergeAdvisorReport(
       ...stored.evaluations.filter((entry) => entry.agent_id !== 'advisor'),
       ...local.evaluations,
     ],
-    // The newly calculated advice is the requested hint; unrelated historical
-    // evaluations remain untouched.
-    hint: local.hint ?? stored.hint,
+    // The newly calculated advice owns the hint, including an explicit null.
+    hint: local.hint,
   };
 }
 
@@ -86,6 +85,9 @@ export function useGameAnalysis(
   } | null>(null);
   const settingsQueue = useRef<Promise<unknown>>(Promise.resolve());
   const settingsSequence = useRef(0);
+  const refreshSequence = useRef(0);
+  const accountRef = useRef(accountId);
+  accountRef.current = accountId;
   const inlineSettings = game?.analytics;
   const confirmedSettings = useRef<{ gameId: string; value: AnalyticsSettings } | null>(null);
   useEffect(() => {
@@ -225,23 +227,42 @@ export function useGameAnalysis(
   const [attempt, setAttempt] = useState(0);
   const [onlineEpoch, setOnlineEpoch] = useState(0);
   const activeController = useRef<AbortController | null>(null);
-  const serverFallbackKeys = useRef(new Set<string>());
+  const serverRetirements = useRef(new Map<string, number>());
   const creditedReplay = useRef('');
 
   const refreshSettings = useCallback(async () => {
     if (!gameId) return;
-    const sequence = ++settingsSequence.current;
+    const requestSequence = ++refreshSequence.current;
+    const settingsSequenceAtStart = settingsSequence.current;
+    const requestedAccount = accountRef.current;
     try {
       const value = await api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`);
-      if (currentGame.current === gameId && settingsSequence.current === sequence) {
-        confirmedSettings.current = { gameId, value };
-        setPreferences({ gameId, value, pending: false, confirmed: true });
+      const currentConfirmed =
+        confirmedSettings.current?.gameId === gameId
+          ? confirmedSettings.current.value
+          : preferences?.value;
+      const unchanged =
+        currentConfirmed !== undefined &&
+        JSON.stringify(currentConfirmed) === JSON.stringify(value);
+      if (
+        currentGame.current !== gameId ||
+        accountRef.current !== requestedAccount ||
+        refreshSequence.current !== requestSequence ||
+        settingsSequence.current !== settingsSequenceAtStart ||
+        unchanged
+      ) {
+        return;
       }
+      // A genuine settings/policy change is a new ownership generation. An
+      // unchanged visibility/online refresh must not cancel running analysis.
+      settingsSequence.current += 1;
+      confirmedSettings.current = { gameId, value };
+      setPreferences({ gameId, value, pending: false, confirmed: true });
     } catch {
       // Keep the last confirmed settings; the failed execution remains visible
       // and retry re-reads them.
     }
-  }, [gameId, basePath]);
+  }, [gameId, basePath, preferences?.value]);
 
   // Revalidate the local authorization boundary when connectivity returns.
   useEffect(() => {
@@ -297,12 +318,53 @@ export function useGameAnalysis(
     let alive = true;
     let running = false;
     let failures = 0;
+    const retryDeadline = Date.now() + 120_000;
     const controller = new AbortController();
     activeController.current = controller;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const sequence = settingsSequence.current;
     const current = () =>
       alive && !controller.signal.aborted && settingsSequence.current === sequence;
+    // Retirements are observation metadata only. They never authorize a
+    // fallback request; they only prevent a new local search from overlapping
+    // server work that was already admitted for the same logical position.
+    const pruneRetirements = () => {
+      const timestamp = Date.now();
+      for (const [retiredKey, startedAt] of serverRetirements.current) {
+        if (timestamp - startedAt > 60_000) serverRetirements.current.delete(retiredKey);
+      }
+      while (serverRetirements.current.size > 16) {
+        const oldest = serverRetirements.current.keys().next().value;
+        if (oldest === undefined) break;
+        serverRetirements.current.delete(oldest);
+      }
+    };
+    const waitForRetiredServer = async (): Promise<boolean> => {
+      pruneRetirements();
+      if (!serverRetirements.current.has(key)) return true;
+      const deadline = Date.now() + 30_000;
+      while (current() && Date.now() < deadline) {
+        try {
+          const status = await api<{ active: boolean }>(
+            `${basePath}/${game.id}/analysis-status?version=${game.version}&cursor=${game.cursor}`,
+            undefined,
+            undefined,
+            controller.signal,
+          );
+          if (!status?.active) {
+            serverRetirements.current.delete(key);
+            return true;
+          }
+        } catch {
+          // Unknown retirement state: do not start an equivalent local search.
+          return false;
+        }
+        await new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, 300);
+        });
+      }
+      return false;
+    };
     const baseReport = stored ?? undefined;
     const stateFor = (
       status: AnalysisRequestState['status'],
@@ -316,6 +378,17 @@ export function useGameAnalysis(
 
     const pollServer = async () => {
       if (!current() || running) return;
+      if (Date.now() > retryDeadline) {
+        setRequest(
+          stateFor('failed', {
+            local: localMode,
+            fallback: localMode,
+            errorCategory: 'server-failed',
+          }),
+        );
+        serverRetirements.current.delete(key);
+        return;
+      }
       running = true;
       try {
         const report = await api<PositionAnalysis>(
@@ -335,8 +408,10 @@ export function useGameAnalysis(
           await refreshSettings();
           return;
         }
-        failures = 0;
         const pending = report.status === 'pending';
+        // Only genuine completion clears the retry budget. A pending response
+        // followed by another 503 must not restart the retry allowance.
+        if (!pending) failures = 0;
         const replayKey = `${basePath}/${game.id}`;
         if (
           !pending &&
@@ -361,7 +436,7 @@ export function useGameAnalysis(
           }),
         );
         if (pending) timer = setTimeout(() => void pollServer(), 300);
-        else serverFallbackKeys.current.delete(key);
+        else serverRetirements.current.delete(key);
       } catch (error) {
         if (!current()) return;
         const temporary =
@@ -375,12 +450,12 @@ export function useGameAnalysis(
           fallback: localMode,
           errorCategory: retry ? 'server-busy' : 'server-failed',
         }));
-        if (retry) {
+        if (retry && Date.now() + 1000 < retryDeadline) {
           const delay = Math.min(30000, Math.max(1000 * 2 ** failures, error.retryAfterMs ?? 0));
           failures += 1;
-          timer = setTimeout(() => void pollServer(), delay);
+          timer = setTimeout(() => void pollServer(), Math.min(delay, retryDeadline - Date.now()));
         } else {
-          serverFallbackKeys.current.delete(key);
+          serverRetirements.current.delete(key);
         }
       } finally {
         running = false;
@@ -388,20 +463,21 @@ export function useGameAnalysis(
     };
 
     const run = async () => {
-      if (localMode && serverFallbackKeys.current.has(key)) {
-        // A server request admitted for this logical request may still be
-        // retiring. Observe/join it rather than starting an overlapping local
-        // search for the same position.
-        setRequest(
-          stateFor('waiting', {
-            status: 'waiting',
-            local: true,
-            fallback: true,
-            stage: 'fallback',
-          }),
-        );
-        await pollServer();
-        return;
+      if (localMode) {
+        // A server request admitted for this logical position may still be
+        // retiring. Observe its authoritative status without starting server
+        // computation; only then start local work. A key alone is never
+        // authorization to run a fallback.
+        if (!(await waitForRetiredServer())) {
+          if (!current()) return;
+          setRequest(
+            stateFor('failed', {
+              local: true,
+              errorCategory: 'server-busy',
+            }),
+          );
+          return;
+        }
       }
       if (localMode) {
         setRequest(stateFor('pending', { status: 'pending', local: true, stage: 'preparing' }));
@@ -421,7 +497,13 @@ export function useGameAnalysis(
               if (current()) {
                 setRequest((previous) =>
                   previous?.key === key
-                    ? { ...previous, status: 'pending', stage: nextStage, local: true }
+                    ? {
+                        ...previous,
+                        status: 'pending',
+                        stage: nextStage,
+                        local: true,
+                        download: nextStage === 'downloading' ? previous.download : undefined,
+                      }
                     : previous,
                 );
               }
@@ -473,7 +555,7 @@ export function useGameAnalysis(
             mode === 'browser_preferred' &&
             (typeof navigator === 'undefined' || navigator.onLine !== false)
           ) {
-            serverFallbackKeys.current.add(key);
+            serverRetirements.current.set(key, Date.now());
             setRequest(
               stateFor('waiting', {
                 status: 'waiting',

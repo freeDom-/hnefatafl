@@ -89,17 +89,25 @@ export default function AgentAnalysis({
           <p className="analysis-status" role="status">
             <i className="analysis-spinner" />
             {t(
-              waiting
-                ? 'Waiting for analysis capacity…'
-                : (stage && pendingMessages[stage]) || 'Evaluating this position…',
+              fallback
+                ? waiting
+                  ? 'Waiting for analysis capacity…'
+                  : 'Running analysis on the server…'
+                : waiting
+                  ? 'Waiting for analysis capacity…'
+                  : (stage && pendingMessages[stage]) || 'Evaluating this position…',
             )}
           </p>
         )}
         {local && !fallback && (
           <p className="subtle">
-            {offline
-              ? t('Analysis is running on this device without a network connection.')
-              : t('Analysis runs on this device.')}
+            {pending
+              ? offline
+                ? t('Analysis is running on this device without a network connection.')
+                : t('Analysis runs on this device.')
+              : offline
+                ? t('Analysis completed on this device offline.')
+                : t('Analysis completed on this device.')}
           </p>
         )}
         {fallback && (

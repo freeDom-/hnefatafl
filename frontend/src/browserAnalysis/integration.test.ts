@@ -219,7 +219,7 @@ function contextPayload(
     version: 0,
     ruleset: 'brandubh',
     cursor,
-    position_key: 'server-position-key',
+    position_key: `server-position-key-${cursor}`,
     position_keys: states.map((_, index) => `server-position-key-${index}`),
     history_keys: history,
     states,
@@ -295,11 +295,12 @@ function input(overrides: Partial<LocalAnalysisInput> = {}): LocalAnalysisInput 
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   createBrowserAnalysis.mockReset();
   __testing.resetCaches();
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
   vi.stubGlobal('fetch', contextFetch());
+  await setAnalysisAccount('account-1');
 });
 
 afterEach(async () => {
@@ -373,6 +374,17 @@ describe('transparent local analysis integration', () => {
   });
 
   it('reuses a healthy neural session without another model transfer', async () => {
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
     const runtime = api({
       runSearch: vi.fn(async () => neuralResult()),
       modelReady: vi.fn(() => true),
@@ -857,5 +869,148 @@ describe('transparent local analysis integration', () => {
     expect(failure.category).toBe('cancelled');
     expect(runtime.runSearch).not.toHaveBeenCalled();
     expect(runtime.downloadModel).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale or conflicting canonical advisor identity', async () => {
+    const base = contextPayload(0, {
+      algorithm: 'alpha_beta',
+      depth: 3,
+      time_limit: 1,
+      seed: 51,
+    });
+    const variants = [
+      { ...base, advisor: { ...base.advisor, revision: input().settings.revision + 1 } },
+      { ...base, advisor: null },
+      { ...base, advisor: { ...base.advisor, effective_config: undefined } },
+      { ...base, advisor: { ...base.advisor, profile_id: 'other-profile' } },
+      {
+        ...base,
+        advisor: {
+          ...base.advisor,
+          effective_config: { ...base.advisor.effective_config, algorithm: 'mcts' },
+        },
+      },
+    ];
+    for (const variant of variants) {
+      __testing.resetCaches();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => variant })) as unknown as typeof fetch,
+      );
+      const runtime = api();
+      createBrowserAnalysis.mockResolvedValue(runtime);
+      const failure = await runLocalAnalysis(input()).catch((error) => error);
+      expect(failure.category).toBe('integrity');
+      expect(failure.fallbackEligible).toBe(false);
+      expect(runtime.runSearch).not.toHaveBeenCalled();
+    }
+  });
+
+  it('rejects a canonical model identity that differs from the requested model', async () => {
+    __testing.resetCaches();
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'different-model',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const failure = await runLocalAnalysis(
+      input({
+        settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+      }),
+    ).catch((error) => error);
+    expect(failure.category).toBe('integrity');
+    expect(runtime.runSearch).not.toHaveBeenCalled();
+  });
+
+  it('does not install a runtime created for an obsolete account generation', async () => {
+    let resolveCreation!: (value: ReturnType<typeof api>) => void;
+    createBrowserAnalysis.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreation = resolve;
+      }),
+    );
+    const pending = runLocalAnalysis(input());
+    await vi.waitFor(() => expect(createBrowserAnalysis).toHaveBeenCalledTimes(1));
+    const switching = setAnalysisAccount('account-2');
+    const obsolete = api();
+    resolveCreation(obsolete);
+    await switching;
+    const failure = await pending.catch((error) => error);
+    expect(failure.category).toBe('cancelled');
+    await vi.waitFor(() => expect(obsolete.dispose).toHaveBeenCalled());
+  });
+
+  it('does not extend an existing context lease when a later policy duration increases', async () => {
+    const clock = { value: 2_000_000 };
+    vi.spyOn(Date, 'now').mockImplementation(() => clock.value);
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    await runLocalAnalysis(input({ policy: policy({ offlineAuthorizationSeconds: 900 }) }));
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    clock.value += 800_000;
+    const failure = await runLocalAnalysis(
+      input({ offline: true, policy: policy({ offlineAuthorizationSeconds: 3600 }) }),
+    ).catch((error) => error);
+    expect(failure.category).toBe('unauthorized');
+    expect(runtime.runSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates a context lease when the runtime identity changes', async () => {
+    let runtimeId = 'runtime-a';
+    const runtime = api({
+      status: vi.fn(() => ({ state: 'ready', runtimeId })),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    await runLocalAnalysis(input());
+    runtimeId = 'runtime-b';
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    const failure = await runLocalAnalysis(input({ offline: true })).catch((error) => error);
+    expect(failure.category).toBe('unauthorized');
+  });
+
+  it('fails explicitly when runtime initialization returns unavailable', async () => {
+    const runtime = api({
+      initialize: vi.fn(async () => ({
+        state: 'unavailable',
+        error: { code: 'runtime-missing', message: 'runtime missing', retryable: true },
+      })),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('browser-unsupported');
+    expect(failure.fallbackEligible).toBe(true);
+    expect(runtime.runSearch).not.toHaveBeenCalled();
+  });
+
+  it('classifies runtime availability transport failure as offline, not an engine fault', async () => {
+    const runtime = api({
+      availability: vi.fn(async () => {
+        throw new BrowserAnalysisError('network-unavailable', 'origin unreachable', true);
+      }),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('offline');
+    expect(failure.fallbackEligible).toBe(false);
+  });
+
+  it('does not authorize fallback for runtime-internal unsupported states', async () => {
+    const runtime = api({
+      runSearch: vi.fn(async () => {
+        throw new BrowserAnalysisError('unsupported', 'runtime disposed');
+      }),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('initialization');
+    expect(failure.fallbackEligible).toBe(false);
   });
 });

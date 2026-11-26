@@ -718,7 +718,7 @@ Phase 3 is not complete.
   model. Local Jarl and 32-simulation neural MCTS executed through the application
   integration; warm offline searches completed with no analysis/authorization
   request; successful local analysis incremented no server computation counter.
-  Initial bundle 595,409 raw / 189,735 gzip (budgets 600,000/200,000); the runtime,
+  Initial bundle 596,620 raw / 190,104 gzip (budgets 600,000/200,000); the runtime,
   integration and entry chunks are absent from the initial graph. Details and
   limits are in the [Phase 5 report](../validation/browser-analysis-phase5.md).
 - **K1–K16 review corrections:** canonical server-resolved effective settings
@@ -732,6 +732,16 @@ Phase 3 is not complete.
   Local Jarl now supports the default 5 s budget with a matching watchdog; classical
   MCTS/baseline and UI budgets above 5 s (Jarl) / 10 s (neural) remain explicit
   local blockers for Phase 8.
+- **L1–L11 second-review corrections:** fallback no longer uses position-key
+  authorization or computation-capable POSTs as retirement probes (read-only
+  `analysis-status` handover), canonical advisor revision/config/model identity is
+  bound into contexts, account identity is exclusively owned by auth lifecycle,
+  settings refreshes do not invalidate unchanged running work, offline leases have
+  immutable absolute expiry and full identity binding, context caches are
+  concurrency-safe and strictly bounded, synchronous optional server analysis uses
+  the bounded executor, rate-bucket capacity is enforced at admission, runtime
+  network/unavailable states are classified, historical hints are authoritative,
+  and UI provenance/progress/cancellation terminology is corrected.
 - **K10 open owner decision:** browser-only execution does not earn replay-analysis
   achievement credit because no server-verifiable analysis evidence exists. A
   future authorized replay-review activity protocol could preserve credit without

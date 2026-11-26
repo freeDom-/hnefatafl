@@ -107,6 +107,7 @@ export type BrowserAnalysisErrorCode =
   | 'download-aborted'
   | 'download-failed'
   | 'download-timeout'
+  | 'network-unavailable'
   | 'size-mismatch'
   | 'digest-mismatch'
   | 'cancelled'

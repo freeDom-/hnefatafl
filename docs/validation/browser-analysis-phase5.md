@@ -302,17 +302,17 @@ Evidence files:
 
 | Measurement | Result |
 | --- | --- |
-| Cold runtime initialization (direct probe) | 2,862.7 ms |
+| Cold runtime initialization (direct probe) | 2,652.4 ms |
 | Repeated `initialize()` when ready | 0 ms |
-| Jarl depth-3 search (direct probe) | 277.8 ms |
+| Jarl depth-3 search (direct probe) | 243.2 ms |
 | Runtime asset requests (single direct probe) | 104 |
 | Model artifact transfers (cold model) | 1 |
 | Publication metadata checks | 3 |
 | Neural MCTS | 33 inferences, 32 simulations, provider `wasm`, `gpuExecutionVerified:false` |
-| Application integration: Jarl online (cold) | 3,949.9 ms |
-| Application integration: neural online (cold) | 3,110.7 ms |
-| Warm offline Jarl | 224.0 ms |
-| Warm offline neural MCTS | 99.6 ms |
+| Application integration: Jarl online (cold) | 2,809.6 ms |
+| Application integration: neural online (cold) | 2,259.6 ms |
+| Warm offline Jarl | 207.4 ms |
+| Warm offline neural MCTS | 78.5 ms |
 | Offline analysis/authorization requests | 0 |
 | Local searches causing server analysis computation | 0 (metrics counters unchanged) |
 | Production UI local indication | “Analysis runs on this device.” |
@@ -355,8 +355,8 @@ Current production initial bundle (authenticated graph):
 
 | Measurement | Phase 4 reported | Phase 5 measured | Budget |
 | --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **595,409** | 600,000 |
-| JavaScript gzip | 186,716 | **189,735** | 200,000 |
+| JavaScript raw | 585,756 | **596,620** | 600,000 |
+| JavaScript gzip | 186,716 | **190,104** | 200,000 |
 | CSS raw | — | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 35,000 |
 
@@ -417,9 +417,9 @@ suite, not by relying on PR descriptions.
 | K11 policy revalidation | Missing policy was treated like legacy; malformed policy was silently server-only; only mode name compared; stale fallback could survive policy change. | Missing projection retains legacy; malformed projection fails closed as `disabled`; full policy attributes are compared; context/policy change triggers analytics refresh; stale fallback becomes failed/refresh, never a fallback decision. | `frontend/src/useGameAnalysis.ts`, `frontend/src/browserAnalysis/integration.ts` | Malformed projection, policy transition/refresh, context policy mismatch tests. | There is no continuous policy polling; change detected on next context/retry/reconnect, by design to avoid background origin traffic. |
 | K12 error/recovery | Any `TypeError` meant network failure; retries were loosely bounded. | Fetch-boundary network errors are explicit; generic TypeError is unknown/engine fault; integrity fails closed; WebGPU and offline recovery are one-shot; server 429/503 retries are capped at 8 with Retry-After; cancelled requests cannot retry. | `frontend/src/browserAnalysis/integration.ts`, `useGameAnalysis.ts` | TypeError, integrity, WebGPU recovery, 429/503 backoff/cap, timer cleanup tests. | Server-side task duration remains bounded by its own service deadline. |
 | K13 admission accounting | Inactive rate buckets accumulated; duplicate releases could undercount. | Lazy bounded bucket cleanup (≤once/30 s), 4096-bucket cap; token ownership and duplicate-release detection; exactly-once release; global/per-account counters. | `hnefatafl/analysis_policy.py`, `analysis_service.py`, `server.py` | High-cardinality expiry, duplicate release, concurrent/rejected admission, failed-submission tests. | Supported deployment invariant remains one API worker; no multi-worker-global claim. |
-| K14 UI feedback/cancellation | Device line could contradict fallback state; no download progress/cancel action; raw error text surfaced. | Provenance now chooses local vs server text, determinate `<progress>` only with real byte totals, a local cancel action, and localized user-facing error categories; existing classes/tokens only. | `frontend/src/AgentAnalysis.tsx`, `useGameAnalysis.ts`, `locales/de-extra.ts` | Fallback provenance, progress/cancel, localized failure and theme/mobile snapshots. | Server fallback cancellation stops observation but not already-admitted server work (documented handover). |
-| K15 validation evidence | Large raw memory JSON increased repository/diff noise. | Raw evidence is gzip-compressed with SHA-256 recorded; summaries and reproducible commands retained. | `docs/validation/browser-analysis-phase5-memory-*.json.gz`, this report | `make docs`, hashes, validator runs against decompressed evidence. | Compression is a repository-storage choice; evidence is byte-identical after `gzip -dc`. |
-| K16 previous-phase preservation | New orchestration could regress runtime/account/download guarantees. | Phase 4 runtime, accounting, download and cleanup code preserved; runtime/account/offline tests extended; no threshold or budget loosened. | Runtime/analysis service/integration | 77 runtime tests plus 23 integration tests, full frontend/CI. | External acceptance gates remain unchanged. |
+| K14–K15 UI feedback/cancellation | Device line could contradict fallback state; no download progress/cancel action; raw error text surfaced. | Provenance now chooses local vs server text, determinate `<progress>` only with real byte totals, a local cancel action, and localized user-facing error categories; existing classes/tokens only. | `frontend/src/AgentAnalysis.tsx`, `useGameAnalysis.ts`, `locales/de-extra.ts` | Fallback provenance, progress/cancel, localized failure and theme/mobile snapshots. | Server fallback cancellation stops observation but not already-admitted server work (documented handover). |
+| K16 validation evidence organization | Large raw memory JSON increased repository/diff noise. | Raw evidence is gzip-compressed with SHA-256 recorded; summaries and reproducible commands retained. | `docs/validation/browser-analysis-phase5-memory-*.json.gz`, this report | `make docs`, hashes, validator runs against decompressed evidence. | Compression is a repository-storage choice; evidence is byte-identical after `gzip -dc`. |
+| Previous-phase preservation (E1/F/G/H/I/J regression requirement) | New orchestration could regress runtime/account/download guarantees. | Phase 4 runtime, accounting, download and cleanup code preserved; runtime/account/offline tests extended; no threshold or budget loosened. | Runtime/analysis service/integration | 77 runtime tests plus 23 integration tests, full frontend/CI. | External acceptance gates remain unchanged. |
 
 ### K8 local compatibility matrix
 
@@ -445,6 +445,22 @@ progression semantics and requires owner approval; it is **not** implemented her
 Until then, browser-only installations do not earn replay-analysis achievement
 credit, and the roadmap records this compatibility blocker.
 
+## L1–L11 second-review correction matrix
+
+| Finding | Root cause | Correction | Files | Regression tests | Remaining limitation |
+| --- | --- | --- | --- | --- | --- |
+| L1 fallback/retirement separation | `serverFallbackKeys` retained position keys and used a computation-capable POST to observe old work. | Removed key-based fallback authority. Fallback is only started by the current effect after a classified local failure. Retired server work is tracked as bounded observation metadata; a narrow read-only `analysis-status` endpoint reports actual admitted tasks, and local work waits for inactivity before running. Status is never permission to start a fallback. | `useGameAnalysis.ts`, `server.py` | Genuinely pending A→B→A test uses status barrier; existing A→B→A, cancel/retry, account/policy/offline tests. | Already-admitted server work may continue after HTTP cancellation; observation is bounded and documented, not claimed retired. |
+| L2 canonical context identity | Revision/advisor/effective-config identity was not fully bound; missing canonical config fell back to frontend defaults. | Context request/response now binds version, cursor, advisor revision, game/ruleset, canonical effective config, requested/effective agent identity, model ID, position/position-key association, board shape, turn/ply and history. Missing/malformed canonical metadata fails closed; revision conflicts refresh settings. | `server.py`, `integration.ts` | Revision/version/cursor, missing advisor/config, wrong agent/model/algorithm, position-key, history/board tests; K1 parity retained. | JavaScript does not reimplement rules; canonical identity is computed by the server engine and validated structurally by the browser. |
+| L3 account binding | `runLocalAnalysis`/`getRuntime` could bind to an input account; generation was captured after async binding. | Authentication lifecycle exclusively calls `setAnalysisAccount`. Operations capture generation first and reject account mismatch; runtime acquisition cannot install an obsolete generation; cache/lease/runtime mutations are generation-guarded. | `integration.ts`, hook account effect | Obsolete runtime creation, context/account switching, abort consumers, late catalogue/context, Strict Mode/hook cleanup. | Authoritative login state remains the owner of account identity; analysis never logs in/out. |
+| L4 refresh ownership | `refreshSettings` always incremented `settingsSequence`, cancelling valid running work even when unchanged. | Settings refresh has its own request sequence and compares full settings/policy; unchanged responses do not invalidate analysis. Genuine changes increment analysis ownership; stale/failed refresh does not block offline continuation or leave work permanently pending. | `useGameAnalysis.ts` | Visibility/unchanged refresh during local search, policy change refresh, navigation, mutation/refresh tests. | Policy changes are observed on context/visibility/reconnect/retry rather than a dedicated polling loop. |
+| L5 offline authorization scope | Lease expiry could be computed from a later policy duration; identity did not include revision/runtime/publication/policy; provider cache could bypass WebGPU policy. | Context leases store immutable absolute expiry and bind account/generation, runtime, game/version/revision and policy. Model leases bind publication/artifact/runtime. Policy changes invalidate continuation leases; runtime identity changes invalidate; WebGPU policy overrides provider cache; only authenticated revalidation issues/renews. | `integration.ts`, `runtime.ts` | Duration increase/decrease, policy disable, runtime identity, expiry without renewal, unreachable origin, denial, logout/account tests. | Revocation cannot reach disconnected clients; downloaded bytes cannot be recalled. |
+| L6 cache concurrency and limits | Server cache accesses/evictions were partly unsynchronized, concurrent misses rebuilt, cache replacements could miscount, oversized responses escaped limits; browser byte limit allowed one oversized entry. | All cache mutation under lock, per-key build locks deduplicate reconstruction, byte accounting replaces correctly, strict 2 MiB response limit, 4096-position pre-check, compact incremental reconstruction, bounded 8 entry/24 MiB server cache; browser 64 entry/8 MiB cache rejects single oversized entries and trims lease/provider maps with eviction. | `server.py`, `integration.ts` | Concurrent misses/lookup-eviction, overdue/replacement, context-version churn, offline navigation tests; context benchmark. | Pyodide still reconstructs authoritative state; no JS rules engine. |
+| L7 server computation isolation | Synchronous playing-agent evaluations still ran `analyze_position()` in the HTTP thread. | Synchronous AI analysis now waits on the existing bounded `AnalysisService` executor/admission path; HTTP threads no longer execute optional engine work. Synchronous waiter limits and response shape are preserved. | `server.py`, `analysis_service.py` | Sync AI-AI admission/rejection, advisor/background mixed tests, cached-result and overload tests. | Mandatory AI gameplay/training/legal validation remain outside optional analysis admission by design. |
+| L8 rate bucket capacity | Bucket capacity was only trimmed on periodic cleanup and could exceed the limit between sweeps; active history could be discarded. | Admission enforces capacity when creating a new bucket, reclaims only expired buckets, rejects overflow with structured `analysis_rate_capacity`/503, and never drops active history to make room. | `analysis_policy.py` | High-cardinality capacity, active preservation, expiry, duplicate release/precision tests. | Supported deployment remains one API worker; no multi-worker-global claim. |
+| L9 runtime recovery | Fetch TypeError could escape unclassified; unavailable initialization was ignored; internal unsupported states could look fallback-eligible; server retry deadline was unbounded/reset by pending responses. | Runtime fetch boundary maps transport failure to `network-unavailable`; initialization state is checked for ready/unavailable/disabled/error; internal unsupported is non-fallback; finite 120 s server deadline, no reset on pending, 429/503 Retry-After honored. | `runtime.ts`, `integration.ts`, `useGameAnalysis.ts` | Transport, unavailable runtime, internal unsupported, pending/overload alternation, deadline/cancel tests. | A server task already running is bounded by its own service deadline; browser cancellation stops observation only. |
+| L10 historical hint | Merge restored `stored.hint` when new advice explicitly had none. | New advisor hint is authoritative, including explicit null; immutable playing-agent evaluations remain preserved. | `useGameAnalysis.ts` | Stored hint followed by no-hint local result. | None within the local presentation contract. |
+| L11 UI state | Device/server provenance could contradict; download progress survived stage changes; completed local/offline wording was imprecise. | Status text distinguishes local/server provenance and waiting/running/completed/offline; download progress is cleared outside the download stage; localized error categories and cancellation preserved; existing classes/tokens only. | `AgentAnalysis.tsx`, `useGameAnalysis.ts`, `locales/de-extra.ts` | Fallback provenance, progress/cancel, completed offline, theme/mobile snapshots. | Server cancellation stops observation but not already-admitted server work. |
+
 ## 12. Sustained-memory investigation
 
 The existing 10/30-minute workload infrastructure was reused conceptually, but a
@@ -457,27 +473,27 @@ not exposed by the pinned runtime and is recorded as unavailable.
 
 Evidence: [30-minute profile](browser-analysis-phase5-memory-30m.json.gz),
 [10-minute profile](browser-analysis-phase5-memory-10m.json.gz) (gzip-compressed raw evidence; sha256
-`60e68d925f945f0dc0e67feac4869607d72751a1e5b5694cf8c3f7fe4afbf4f5` and
-`24de66be4a7fd86821f804f5c7d8af8b02bc5c5899c36c229940df0a2c56dc88`; decompress with `gzip -dc`). The acceptance
+`99cdd88068472fa959c1e798d88262f7c37f9a84ed504142ce546b507f0733d4` and
+`a94dcd2fac503890c11e662962079b402ae949ca9d3bf0662125a2f71362add0`; decompress with `gzip -dc`). The acceptance
 validator is `spikes/browser_offline/memory_validation.py`.
 
 | Measurement (30 min post-warmup) | Result |
 | --- | ---: |
-| Completed local requests | 12,635 |
-| Successful searches | 12,635 |
+| Completed local requests | 12,489 |
+| Successful searches | 12,489 |
 | Workload failures | 0 |
 | Peak live workers | 3 |
-| Max JS heap | 8,703,596 bytes (~8.3 MiB) |
-| Max whole-browser RSS | 849,256,448 bytes (~810 MiB) |
+| Max JS heap | 8,831,080 bytes (~8.4 MiB) |
+| Max whole-browser RSS | 809,807,872 bytes (~772 MiB) |
 | Cache footprint | one published model (~47.5 KiB) |
 | First-tenth average heap | ~6.1 MiB |
 | Last-tenth average heap | ~6.56 MiB |
-| Linear slope over full window | ~10.4 KiB/min |
+| Linear slope over full window | ~8.3 KiB/min |
 | Observed pattern | ~4.5 → 5.2 MiB early, then a stable sawtooth plateau around 4.9–5.2 MiB with GC spikes to ~8.3 MiB |
 
 **Conclusion:** the 30-minute JS heap shows a bounded high-water step, not
 continued unbounded growth: the last ten-minute averages stay around 6.8 MiB with a stable
-GC sawtooth and a maximum ~8.3 MiB. The 10-minute profile showed the same plateau (max ~8.6 MiB).
+GC sawtooth and a maximum ~8.4 MiB. The 10-minute profile showed the same plateau (max ~8.68 MiB).
 This does not satisfy the unchanged sustained-memory acceptance rule, which flags
 the ~25 % growth from the early baseline. The validator also blocks on missing
 WASM heap-capacity telemetry. Therefore sustained-memory acceptance remains
@@ -513,7 +529,7 @@ Response size is linear in move count rather than quadratic in accumulated
 history text. Cold/cached timings include the authenticated HTTP test client and
 are server-side measurements; browser parsing/memory is covered by the sustained
 profile. Evidence: [context benchmark](browser-analysis-phase5-context-benchmark.json)
-(sha256 `f513b055cce13a09961065af1842ff93b5b3c5ee711b3e64405db393721fa055`).
+(sha256 `5b626b2073878c7f2cdcd71f46655cec82b0e2305e595f088969761b6552c8e7`).
 
 ## 13. Copenhagen depth-5 status
 
@@ -577,20 +593,20 @@ no licensing right is declared resolved without owner/legal acceptance.
 
 | Check | Result |
 | --- | --- |
-| `tests/test_analysis_policy.py` | 25 passed |
-| Focused backend policy/analysis/security/browser set | 233 passed |
+| `tests/test_analysis_policy.py` | 28 passed |
+| Focused backend policy/analysis/security/browser set | 182 passed on final L head (233 on K head) |
 | Full backend CI (`python` job) | **4,616 passed, 50 skipped**; deployment check 64 + 9 passed |
 | `tests/test_browser_analysis_api.py` | 12 passed |
 | `tests/test_analysis_api.py`, `test_background_analysis.py`, `test_analysis_coordination.py` | 102 passed (earlier focused run) |
 | Browser-analysis runtime Vitest | 77 passed in `runtime.test.ts` (Phase 4 lifecycle + offline authorization tests) |
-| Browser-analysis integration Vitest | 25 passed |
-| `useGameAnalysis` policy Vitest | 11 passed |
+| Browser-analysis integration Vitest | 33 passed |
+| `useGameAnalysis` policy Vitest | 14 passed |
 | Execution-policy projection Vitest | 3 passed |
-| Full frontend Vitest | **1,795 passed (116 files)** |
-| Production build + bundle budget | passed (595,409 raw / 189,735 gzip) |
+| Full frontend Vitest | **1,807 passed (116 files)** |
+| Production build + bundle budget | passed (596,620 raw / 190,104 gzip) |
 | TypeScript check | passed |
 | Ruff / format check / mypy | passed (89 mypy files) |
-| `scripts/audit_api.py` | 142 routes accounted for |
+| `scripts/audit_api.py` | 144 routes accounted for |
 | `make docs` / Prettier check | passed |
 | Production-browser direct runtime probe | 26/26 checks, `ok:true` |
 | Production-browser integration/offline/UI probe | 21/21 checks, `ok:true` |

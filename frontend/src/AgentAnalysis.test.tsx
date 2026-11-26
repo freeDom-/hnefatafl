@@ -780,7 +780,7 @@ it('backs off repeated 503s to a capped delay without overlapping polls or decla
   expect(fetcher).toHaveBeenCalledTimes(calls);
 });
 
-it('caps excessive retry guidance and resets backoff after successful progress', async () => {
+it('caps excessive retry guidance and does not reset the retry budget on pending progress', async () => {
   vi.useFakeTimers();
   const fetcher = vi
     .fn()
@@ -797,7 +797,7 @@ it('caps excessive retry guidance and resets backoff after successful progress',
   expect(fetcher).toHaveBeenCalledTimes(2);
   await tick(300);
   expect(view.result.current.waiting).toBe(true);
-  await tick(1000);
+  await tick(2000);
   expect(fetcher).toHaveBeenCalledTimes(4);
   expect(view.result.current.pending).toBe(false);
 });
@@ -1121,6 +1121,7 @@ it('shows only server provenance while a fallback is pending', () => {
       game={game}
       report={report}
       pending
+      waiting
       failed={false}
       retry={vi.fn()}
       local
@@ -1152,4 +1153,34 @@ it('renders determinate download progress and a cancellation action', () => {
   expect(screen.getByRole('progressbar')).toHaveAttribute('value', '5');
   fireEvent.click(screen.getByRole('button', { name: 'Analyse abbrechen' }));
   expect(cancel).toHaveBeenCalled();
+});
+
+it('uses completed local/offline terminology after analysis finishes', () => {
+  setLanguage('de', false);
+  const view = render(
+    <AgentAnalysis
+      game={game}
+      report={report}
+      pending={false}
+      failed={false}
+      retry={vi.fn()}
+      local
+      offline
+    />,
+  );
+  expect(screen.getByText('Analyse offline auf diesem Gerät abgeschlossen.')).toBeInTheDocument();
+  view.rerender(
+    <AgentAnalysis
+      game={game}
+      report={report}
+      pending
+      failed={false}
+      retry={vi.fn()}
+      local
+      fallback
+      stage="fallback"
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Analyse läuft auf dem Server…');
+  expect(screen.queryByRole('progressbar')).toBeNull();
 });

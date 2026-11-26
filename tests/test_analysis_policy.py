@@ -1,6 +1,7 @@
 """Server-owned analysis execution policy and fallback admission boundaries."""
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from auth_support import AuthenticatedClient as TestClient
@@ -9,6 +10,7 @@ from record_fixtures import historical_game
 
 from hnefatafl import ai
 from hnefatafl.analysis_policy import (
+    MAX_RATE_BUCKETS,
     AnalysisAdmission,
     AnalysisPolicyError,
     resolve_policy,
@@ -272,6 +274,7 @@ def test_analysis_context_is_authorized_read_only_and_includes_rule_history(monk
     assert "history" not in payload["states"][0]
     assert payload["position_keys"] == [payload["position_key"]]
     assert payload["advisor"]["effective_config"]["time_limit"] == 5
+    assert payload["advisor"]["revision"] == 0
     assert payload["advisor"]["requested_config"]["time_limit"] == 0.1
     assert payload["execution"]["mode"] == "browser_only"
 
@@ -292,6 +295,52 @@ def test_analysis_context_is_authorized_read_only_and_includes_rule_history(monk
     )
     assert stale.status_code == 409
     assert stale.json()["code"] == "analysis_context_stale"
+    stale_revision = client.get(
+        f"/api/games/{moved['id']}/analysis-context",
+        params={"cursor": 1, "version": moved["version"], "revision": 99},
+    )
+    assert stale_revision.status_code == 409
+    assert stale_revision.json()["code"] == "analysis_revision_stale"
+
+
+def test_concurrent_context_misses_share_one_bounded_cache_entry(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_only")
+    client = TestClient(app)
+    game = _game(client)
+    url = f"/api/games/{game['id']}/analysis-context"
+    params = {"cursor": 0, "version": game["version"], "revision": 0}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(pool.map(lambda _: client.get(url, params=params), range(4)))
+    assert all(response.status_code == 200 for response in responses)
+    cache = app.state.analysis_context_cache
+    assert len(cache) == 1
+    assert all(
+        response.json()["position_key"] == responses[0].json()["position_key"]
+        for response in responses
+    )
+
+
+def test_analysis_status_is_read_only_and_reports_only_admitted_work(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_preferred")
+    client = TestClient(app)
+    game = _game(client)
+    status = client.get(
+        f"/api/games/{game['id']}/analysis-status",
+        params={"cursor": 0, "version": game["version"]},
+    )
+    assert status.status_code == 200, status.text
+    assert status.json()["active"] is False
+    assert status.json()["position_key"]
+
+    # The endpoint reports an already-admitted task; it never schedules one.
+    monkeypatch.setattr(app.state.analyses, "active", lambda _key: True)
+    assert (
+        client.get(
+            f"/api/games/{game['id']}/analysis-status",
+            params={"cursor": 0, "version": game["version"]},
+        ).json()["active"]
+        is True
+    )
 
 
 def test_analysis_context_rejects_a_game_with_analysis_disabled(monkeypatch, tmp_path):
@@ -360,6 +409,24 @@ def test_rate_buckets_expire_without_unbounded_account_state():
     clock["now"] = 122.0
     admission.limit_request("another")
     assert len(admission.requests_by_account) == 1
+
+
+def test_rate_bucket_capacity_is_enforced_without_discarding_active_accounts():
+    policy = resolve_policy(
+        {
+            "HNEFATAFL_ANALYSIS_MODE": "browser_preferred",
+            "HNEFATAFL_ANALYSIS_REQUESTS_PER_MINUTE": "1",
+        }
+    )
+    admission = AnalysisAdmission(policy, clock=lambda: 100.0)
+    for index in range(MAX_RATE_BUCKETS):
+        admission.limit_request(f"account-{index}")
+    with pytest.raises(AnalysisPolicyError) as capacity:
+        admission.limit_request("overflow")
+    assert capacity.value.code == "analysis_rate_capacity"
+    assert capacity.value.status == 503
+    assert len(admission.requests_by_account) == MAX_RATE_BUCKETS
+    assert "account-0" in admission.requests_by_account
 
 
 def test_rate_window_resets_and_old_requests_are_pruned():

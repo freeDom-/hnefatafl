@@ -411,4 +411,123 @@ describe('useGameAnalysis execution-policy integration', () => {
       1,
     );
   });
+
+  it('does not restore a stale stored hint when new advice has no hint', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_only');
+      throw new Error('unexpected analysis endpoint');
+    });
+    local.runLocalAnalysis.mockResolvedValue({
+      report: { ...localReport(), hint: null },
+      evidence: {},
+      provider: 'wasm',
+      offline: false,
+      model: null,
+      fromCache: true,
+    });
+    const stored: PositionAnalysis = {
+      ...localReport(),
+      advisor_revision: 1,
+      hint: { agent_id: 'advisor', move: { source: 1, target: 2 } },
+      evaluations: [
+        {
+          ...localReport().evaluations[0],
+          agent_id: 'advisor',
+          source: 'unavailable',
+          unavailable_reason: 'model_unavailable',
+        },
+      ],
+    };
+    const hook = renderHook(() =>
+      useGameAnalysis({ ...game(), analysis: stored }, true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(hook.result.current.report?.status).toBe('complete'));
+    expect(hook.result.current.report?.hint).toBeNull();
+  });
+
+  it('does not invalidate a running local search on an unchanged visibility refresh', async () => {
+    let finish!: (value: any) => void;
+    local.runLocalAnalysis.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_only');
+      throw new Error(`unexpected ${path}`);
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(local.runLocalAnalysis).toHaveBeenCalledTimes(1));
+    const analyticsReads = apiMock.mock.calls.filter(([path]) =>
+      String(path).endsWith('/analytics'),
+    ).length;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() =>
+      expect(
+        apiMock.mock.calls.filter(([path]) => String(path).endsWith('/analytics')).length,
+      ).toBeGreaterThan(analyticsReads),
+    );
+    expect(local.runLocalAnalysis).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.pending).toBe(true);
+    finish({
+      report: { ...localReport(), position_key: 'server-position-key-0' },
+      evidence: {},
+      provider: 'wasm',
+      offline: false,
+      model: null,
+      fromCache: true,
+    });
+    await waitFor(() => expect(hook.result.current.pending).toBe(false));
+  });
+
+  it('observes a genuinely pending retired server task instead of starting a new fallback', async () => {
+    let statusReads = 0;
+    let localA = 0;
+    local.runLocalAnalysis.mockImplementation(async ({ game: current }: any) => {
+      if (current.id === 'g1') {
+        localA += 1;
+        if (localA === 1) {
+          throw Object.assign(new Error('unsupported browser'), {
+            category: 'browser-unsupported',
+            fallbackEligible: true,
+          });
+        }
+      }
+      return {
+        report: { ...localReport(), position_key: `${current.id}-${localA}` },
+        evidence: {},
+        provider: 'wasm',
+        offline: false,
+        model: null,
+        fromCache: true,
+      };
+    });
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_preferred');
+      if (String(path).includes('/analysis-status')) return { active: ++statusReads < 2 };
+      if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
+      throw new Error(`unexpected ${path}`);
+    });
+    const base = game();
+    const other = { ...base, id: 'g2' };
+    const hook = renderHook(
+      ({ current }) => useGameAnalysis(current, true, false, '/games', false, 'account-1'),
+      { initialProps: { current: base } },
+    );
+    await waitFor(() =>
+      expect(apiMock.mock.calls.some(([path]) => String(path).endsWith('/analysis'))).toBe(true),
+    );
+    await waitFor(() => expect(hook.result.current.fallback).toBe(true));
+    hook.rerender({ current: other });
+    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('g2-1'));
+    hook.rerender({ current: base });
+    await waitFor(() => expect(statusReads).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('g1-2'));
+    expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith('/analysis'))).toHaveLength(
+      1,
+    );
+  });
 });

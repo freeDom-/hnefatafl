@@ -114,6 +114,9 @@ const translations: Record<string, string> = {
   'The analysis service is unavailable.': 'Der Analysedienst ist nicht verfügbar.',
   'The analysis could not be completed. Retry to try again.':
     'Die Analyse konnte nicht abgeschlossen werden. Erneut versuchen.',
+  'Running analysis on the server…': 'Analyse läuft auf dem Server…',
+  'Analysis completed on this device.': 'Analyse auf diesem Gerät abgeschlossen.',
+  'Analysis completed on this device offline.': 'Analyse offline auf diesem Gerät abgeschlossen.',
   'This advisor is not available for local analysis. Choose Jarl or a neural MCTS model.':
     'Dieser Berater ist für die lokale Analyse nicht verfügbar. Jarl oder ein neuronales MCTS-Modell wählen.',
   'Local analysis supports at most {seconds} seconds for this advisor.':
