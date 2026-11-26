@@ -618,9 +618,8 @@ GitHub Actions on the correction head passed every required job (`security`,
 `python`, `node22`, `deployment-cross-version`, `browser`) after a rerun of the
 browser job. The first browser run timed out in the unrelated mobile
 shield-maiden interaction test; the targeted local Playwright run passed, and the
-CI rerun passed (50m11s). No test, timeout or budget was weakened. The full backend
-suite reported 4,616 passed / 50 skipped on the prior head and passed again on the
-correction head. Tests that require external hardware, private checkpoints or
+CI rerun passed (50m11s). No test, timeout or budget was weakened. The full backend suite reported **4,660 passed / 50 skipped** on the final L
+head. Tests that require external hardware, private checkpoints or
 licensing evidence are explicitly blocked rather than reported as passing here. The actual
 browser scripts are reproducible with the disposable setup commands below.
 
