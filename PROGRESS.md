@@ -13,6 +13,55 @@ The formerly unreleased online phases are consolidated in the
 [0.32.0 release preparation](docs/releases/0.32.0.md). Their original phase status,
 test counts and rollout limits below remain historical evidence.
 
+## Storage-aware deployment retention and recovery (unreleased)
+
+The production updater now manages release and backup storage as a bounded recovery
+lifecycle instead of accumulating every artifact. Default retention keeps at most
+three release directories and three verified backups after successful operations;
+existing installations need no configuration change, and `retention`, `storage`
+and `recovery` settings may be added to root-owned `deployment.json`. Protected
+artifacts are never evicted to satisfy a limit: the active release, committed
+rollback release/snapshot, unfinished transaction references, the current operation
+and a just-created manual backup. When protected recovery inputs exceed the limit,
+the updater reports a retention exception rather than compromising recovery.
+
+Preflight measures bytes and inodes per filesystem before release preparation,
+before stopping the service and again after shutdown/gate acquisition. It covers
+the compressed archive, extraction, venv, npm/frontend build peak (historical
+metadata), dependency-cache growth, the actual snapshot inclusion/exclusion rules,
+and configured headroom. Safe cleanup of already-excess unprotected artifacts or
+unused uv/npm caches is attempted first; otherwise the update is refused while
+the service still runs. Storage failures expose phase, errno, path, service and
+migration state without exposing credentials or response bodies.
+
+Releases and snapshots are built in hidden staging directories and published by
+atomic rename only after completion markers, SHA-256 manifests and SQLite integrity
+checks pass. Failed or interrupted staging is removed; older incomplete artifacts
+are recognised conservatively, while invalid metadata, unrecognised directories
+and unverifiable manifests are retained and reported. `hnefatafl-update --cleanup
+--dry-run` previews and `--cleanup` applies retention/cache maintenance under the
+same exclusive lock without stopping games or training. `--check`/`--list` remain
+read-only.
+
+Recovery no longer restores persistent data for failures before migration or for
+failed snapshots, and preserves committed `previous`/`backup` rollback metadata
+when the previous release remains valid. Readiness verification is bounded and
+configurable for normal and recovery paths, distinguishes a still-starting unit
+from a repeated failure and only reports successful recovery after health and
+authentication probes pass. The installed updater can be refreshed independently
+with `scripts/linux/install.sh --refresh-updater-only` or the new updater's
+`--refresh-updater`, preserving configuration, installed state and application
+data; prepared releases also refresh the installed utility before activation.
+
+Validation in this checkout: `tests/test_deployment.py` and
+`tests/test_deployment_storage.py` (96 focused tests), plus the deployment
+lifecycle, cross-version old-updater/target-application, release-packaging,
+security and worker-version suites (171 passed, 7 cross-version skips eliminated
+after a production frontend build), formatting/lint, type checks and the
+documentation link checker. This records implementation and local fixture evidence,
+not target-host disk exhaustion, real systemd restart loops, Proxmox thin-pool
+pressure or off-host restore validation.
+
 ## Deployment-safe tournament recovery (`0.41.1` hotfix)
 
 `0.41.0` startup reconciliation took the shared deployment gate during the FastAPI

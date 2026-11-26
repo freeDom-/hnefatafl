@@ -126,6 +126,7 @@ pct enter 185
 pct exec 185 -- systemctl status hnefatafl
 pct exec 185 -- journalctl -u hnefatafl -f
 pct exec 185 -- /usr/local/bin/hnefatafl-update --check
+pct exec 185 -- /usr/local/bin/hnefatafl-update --cleanup --dry-run
 pct exec 185 -- /usr/local/bin/hnefatafl-backup
 ```
 
@@ -177,14 +178,14 @@ first require `hnefatafl-update --recover` after inspecting its journal.
 | `/opt/hnefatafl/current` | Atomically switched active release symlink |
 | `/opt/hnefatafl/tools` | Root-owned uv and Node build tools |
 | `/etc/hnefatafl/application.env` | Root-only production configuration, read by systemd |
-| `/etc/hnefatafl/deployment.json` | Root-only repository, port and HTTPS origin |
+| `/etc/hnefatafl/deployment.json` | Root-only repository, port, HTTPS origin, retention and storage settings |
 | `/etc/hnefatafl/github.json` | Optional root-only read-only GitHub credential |
 | `/etc/hnefatafl/installed.json`, `transaction.json` | Installed version and durable recovery journal |
 | `/var/lib/hnefatafl/hnefatafl.sqlite3` | Games, accounts, sessions, stats source, players, jobs and tournaments |
 | `/var/lib/hnefatafl/models` | Inference model registry |
 | `/var/lib/hnefatafl/jobs` | Existing training output/checkpoints/logs; paths remain stable |
 | `/var/lib/hnefatafl/tournaments` | Retained tournament worker output |
-| `/var/lib/hnefatafl/backups` | Root-only verified full pre-migration snapshots |
+| `/var/lib/hnefatafl/backups` | Root-only verified full pre-migration snapshots and manual backups |
 | journald | API and service logs |
 
 Set `HNEFATAFL_DATA_DIR` for development/test isolation. Production uses its fixed
@@ -334,6 +335,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scri
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --list
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --version 0.22.1
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --backup
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --cleanup --dry-run
+bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --cleanup
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --rollback
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185 --recover
 ```
@@ -354,6 +357,9 @@ hnefatafl-update --check
 hnefatafl-update --list
 hnefatafl-update
 hnefatafl-update --version X.Y.Z  # or a two-part identifier such as 0.42
+hnefatafl-update --cleanup --dry-run
+hnefatafl-update --cleanup
+hnefatafl-update --refresh-updater
 hnefatafl-backup
 ```
 
@@ -362,22 +368,172 @@ stable releases. Already-current/older selections report no newer version; use
 recorded rollback for a downgrade. A release may carry a two-part identifier such
 as `0.42`; the updater accepts `X.Y` and `X.Y.Z` and orders `X.Y` as `X.Y.0`.
 An updater installed by an older release whose code only accepted three-part tags
-cannot discover a two-part release: refresh `/usr/local/lib/hnefatafl/deployment.py`
-and the `hnefatafl-update`/`hnefatafl-backup` wrappers from the verified source
-archive of the target release (or rerun `scripts/linux/install.sh` from it), then
-run the update. A single exclusive lock protects install,
-update, backup and recovery. The target builds in its own final release directory,
-so absolute venv paths remain valid and the active release is untouched on build
-failure. Dependency lockfiles, security tests and frontend builds must pass first.
+cannot discover a two-part release, and an older updater also lacks storage
+preflight and retention. Refresh the installed utility **before** the first update
+after upgrading to a release containing these controls:
+
+```sh
+# From a reviewed checkout or extracted verified release archive:
+bash scripts/linux/install.sh --refresh-updater-only
+/usr/local/bin/hnefatafl-update --cleanup --dry-run
+/usr/local/bin/hnefatafl-update
+```
+
+`--refresh-updater-only` installs only `/usr/local/lib/hnefatafl/deployment.py`
+and the `hnefatafl-update`/`hnefatafl-backup` wrappers, atomically and after a
+syntax check. It does not download or build the application, does not stop the
+service and does not rewrite `/etc/hnefatafl` configuration, installed state or
+transaction metadata. It is the supported low-space recovery path. New updaters
+installed this way also refresh those files from the verified prepared release
+before activation, so later updates keep the installed utility current.
+`hnefatafl-update --refresh-updater` performs the same refresh by downloading and
+digest-verifying the selected published release; it is available when the installed
+updater already contains these controls. For a nearly full Debian or Proxmox LXC
+filesystem, do not rerun the complete installer: download the verified
+`hnefatafl-X.Y.Z.tar.gz` release asset, confirm its SHA-256 digest against the
+digest reported by the GitHub release API, extract it into a temporary directory
+(with enough space for the archive and extraction, not a full build), run
+`bash <extracted>/scripts/linux/install.sh --refresh-updater-only`, then run
+`--cleanup --dry-run` and `--cleanup` before the update. Inside a Proxmox container,
+transfer only those reviewed files with `pct push`/`pct exec`; do not download and
+execute an unverified script as root. A single exclusive lock protects install,
+update, backup, cleanup, recovery and updater refresh.
+The target builds in its own staging release directory and is published by an atomic rename, so absolute venv
+paths remain valid and the active release is untouched on build failure. Dependency
+lockfiles, security tests and frontend builds must pass first.
 
 Before activation, active/queued training and tournaments are refused. After
 stopping the service, activity is checked again, then a full data/config snapshot
 is made and verified with file SHA-256 hashes and SQLite integrity checking.
 Migrations run before atomic symlink activation. The service restarts and must
 pass health, authenticated account/permission/catalog probes and anonymous rejection.
-Only then is the release recorded as installed. Old releases and snapshots remain;
-no automatic pruning deletes your data. Ensure disk space for two releases and a
-complete data snapshot, particularly large checkpoints.
+Only then is the release recorded as installed. See the next section for automatic
+release/backup retention and storage preflight.
+
+## Storage retention, preflight and cleanup
+
+Application releases and snapshots are replaceable recovery artifacts, not user
+data. `/var/lib/hnefatafl/hnefatafl.sqlite3`, `models`, `jobs`, `tournaments`,
+uploads, accounts and `/etc/hnefatafl` configuration are never cleanup targets.
+
+After every successful update, backup or recovery (and after the pre-deployment
+snapshot), the updater retains at most **three release directories** and **three
+verified backups** by default. Existing installations need no manual change:
+missing settings use these defaults in memory, while `/etc/hnefatafl/deployment.json`
+remains untouched. Configure limits and safety margins there as root:
+
+```json
+{
+  "repository": "freeDom-/hnefatafl",
+  "port": 8000,
+  "public_url": "https://tafl.example.org",
+  "retention": {"releases": 3, "backups": 3},
+  "storage": {
+    "headroom_mib": 256,
+    "snapshot_margin_percent": 15,
+    "cache_headroom_mib": 512,
+    "minimum_free_inodes": 2048,
+    "release_estimate_mib": 2048,
+    "prune_build_dependencies": true
+  },
+  "recovery": {
+    "readiness_attempts": 30,
+    "readiness_interval_seconds": 1,
+    "recovery_readiness_attempts": 30
+  }
+}
+```
+
+Unknown keys are preserved. Invalid values are refused instead of being silently
+coerced. The limits are per category; automatic pre-deployment snapshots and
+manual `hnefatafl-backup` backups share the same three-backup budget.
+
+**Protected artifacts are never removed to satisfy a limit:**
+
+- the active release referenced by `/opt/hnefatafl/current`;
+- the release and snapshot recorded as the committed rollback target in
+  `installed.json`;
+- references in an unfinished deployment/recovery `transaction.json` (including
+  its recorded prior committed rollback state);
+- a release or snapshot currently being prepared, activated, verified or restored;
+- a newly requested manual backup for the cleanup pass that follows it.
+
+If more protected artifacts exist than the configured limit, cleanup reports a
+retention exception and deletes nothing protected. Releases are ordered by their
+recorded preparation/activation time (falling back to directory time for older
+installations), not by semantic version alone: an explicitly selected older
+release or a rollback reactivation remains a valid newest deployment. Multiple
+directories for the same version are reduced to the protected or newest known-good
+copy, and a protected copy is never removed merely because a same-version copy
+exists.
+
+A backup counts against retention only after its `manifest.json`, data/configuration
+directories, file SHA-256 hashes and SQLite integrity have verified. A manifest
+alone is insufficient. Recognised incomplete snapshots older than one hour are
+removed; recent staging, invalid manifests and unrecognised directories are retained
+and reported for manual inspection. Partially completed artifacts referenced by a
+live transaction are never deleted.
+
+### Preflight and failure handling
+
+Before downloading a release, the updater estimates the compressed archive,
+extraction, frozen virtual environment, npm dependencies, frontend build, dependency
+cache growth, temporary build files and the subsequent snapshot. It measures
+historical prepared peaks where available and applies a configured floor and
+headroom; it does not assume gzip size equals installed size. After preparation,
+and again after stopping the service, it rechecks the snapshot while the deployment
+gate is held. Byte and inode availability are evaluated per filesystem, so `/opt`,
+`/var/lib`, `/etc` and `/tmp` on separate mounts cannot borrow each other's space.
+If safe retention cleanup or unused uv/npm cache pruning cannot free enough room,
+the update is refused **while the service is still running** when possible.
+
+Preparation uses a hidden staging directory, runs the frozen dependency install,
+frontend build and the release security tests, records peak/final sizes in
+`.release.json`, and then removes build-only `frontend/node_modules`, Vite caches
+and Python test/bytecode caches. Frozen Python runtime and training dependencies,
+`frontend/dist`, tests and deployment templates remain. The development extra is
+retained because it supplies the release's security-test toolchain; removing
+individual installed packages would risk shared transitive runtime imports. uv
+and npm cache maintenance uses their supported prune/verify commands only when
+space is needed or `--cleanup` is requested. `prune_build_dependencies` may be set
+to `false` if an operator deliberately needs a rebuild-capable release directory.
+
+Predictable failures therefore happen before downtime. Unexpected `ENOSPC`, `EDQUOT`,
+`EIO`, permission and nested `shutil.Error` failures still fail safely with the
+phase, errno, affected path, service state, migration state and whether persistent
+data was unchanged or restored. Failed preparations and snapshots are staged under
+hidden names and removed on failure; they are published only by atomic rename after
+verification. Cleanup errors are reported separately and do not turn an otherwise
+successful deployment into a failed one.
+
+### Administrative cleanup
+
+```sh
+hnefatafl-update --cleanup --dry-run
+hnefatafl-update --cleanup
+```
+
+Dry-run lists releases and backups, configured limits, protected references and
+reasons, cleanup candidates, invalid/unrecognised artifacts and estimated
+reclaimable space. It performs no deletion and does not restart the service. The
+executing form applies the same retention policy and unused uv/npm cache maintenance.
+Both use the exclusive deployment lock and may run while the application is serving;
+neither stops games/training nor executes a deployment or migration. Cleanup is
+idempotent. It refuses destructive action while a transaction is unfinished or
+state metadata is invalid, and never follows symlinks, crosses unexpected mount
+boundaries or removes paths outside managed release/backup/cache directories.
+`--check` and `--list` remain read-only and never trigger cleanup.
+
+### Releases versus persistent data and off-host copies
+
+Removing a release removes replaceable code, its virtual environment and built
+frontend; it never touches the live database, WAL/SHM files, accounts, games,
+replays, tournaments, jobs, checkpoints, models, uploads or configuration. Keep at
+least one independently tested off-host backup. Local retention protects against
+accumulation, not against loss of the container, Proxmox pool or host. Container
+free-space checks also cannot guarantee unallocated capacity in an underlying
+Proxmox LVM-thin pool: monitor `lvs -a -o vg_name,lv_name,lv_size,data_percent,metadata_percent`
+and `pvesm status` on the host.
 
 An OS file lock drains admitted HTTP mutations before activity is checked. During
 activation, recovery and backup, new mutations receive 503; health/authenticated
@@ -414,6 +570,12 @@ worker resumes indexed reconciliation and processing after the updater releases
 the gate. Inspect the queue, pending work and rebuild status under League
 administration. See [League operations](LEAGUES.md).
 
+Readiness verification uses a bounded, configurable attempt/interval window; recovery
+uses its own configured window rather than raising one global timeout. The error
+message distinguishes a still-starting unit from repeated failure, reports allowlisted
+systemd state and restart count, and only reports successful automatic recovery after
+health, authenticated permission/catalog and anonymous-rejection checks pass again.
+
 Readiness failures now report sanitized operator diagnostics: the original
 deployment target, previous, currently probed and installed releases, failure
 phase (stop/snapshot/migration/activation/startup/readiness/commit), probe and
@@ -428,7 +590,9 @@ tokens are never included.
 These enhanced diagnostics and the rollback policy below exist only in the
 corrected updater. An update initiated by the already installed `0.40.0` updater
 gains the corrected application startup fix but still uses the old updater's
-generic readiness message and lacks the new preflight policy.
+generic readiness message and lacks the new preflight/retention policy. Refresh the
+installed utility from the verified target release first (see
+[updating](#updating)) when these guarantees are required for that same update.
 
 ## Rollback and recovery
 
@@ -444,6 +608,16 @@ Current account/password/role/status state is retained when account schemas matc
 sessions are invalidated and restored worker credentials are revoked. Re-login
 and re-enroll workers. A changed/incompatible account schema requires explicit
 manual recovery; the updater refuses to overwrite security state blindly.
+
+Recovery distinguishes a failure before service shutdown, a failed pre-deployment
+snapshot, an interruption before migration, a failed migration, activation or
+readiness failure. A failure before database migration does not restore persistent
+data and does not replace a still-valid committed rollback target. When recovery
+before migration or activation is needed, the previous committed `previous` and
+`backup` references in `installed.json` are preserved rather than rewritten as
+null. A recorded rollback without a verified matching snapshot is refused. If the
+previous release is still running and passes health/authentication checks, it is
+not restarted unnecessarily.
 
 `0.41.0` is a known-incompatible rollback target: its application cannot start
 while the updater holds the exclusive deployment gate. The corrected updater

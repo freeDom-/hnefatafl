@@ -88,6 +88,14 @@ pinned historical `0.40.0`/`0.41.0`/schema-20 Git objects and runs the genuine
 old-updater/target-application subprocess suite. A tag alone is insufficient.
 Neither installer nor updater publishes a release.
 
+A release does not automatically replace the already installed
+`/usr/local/lib/hnefatafl/deployment.py`: an old updater executes its own installed
+copy. Existing installations adopting deployment/storage changes must first run
+`bash scripts/linux/install.sh --refresh-updater-only` from the reviewed checkout
+or extracted verified release archive (or use the new updater's
+`--refresh-updater`) without reinstalling the application. State that requirement
+in release notes whenever the updater protocol or retention behavior changes.
+
 Alternatively, after pushing the annotated tag, publish through the manually
 triggered [release workflow](../.github/workflows/release.yml):
 

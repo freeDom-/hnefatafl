@@ -77,11 +77,24 @@ indices. Turns and results use `attackers`, `defenders`, and `draw` for draws.
 | [league_api.py](hnefatafl/league_api.py), [league_worker.py](hnefatafl/league_worker.py), [league_administration.py](hnefatafl/league_administration.py) | Authenticated League reads and writes, bounded background processing and resumable administrative recovery |
 | [job_archives.py](hnefatafl/job_archives.py), [job_studies.py](hnefatafl/job_studies.py) | Bounded TAR.GZ job migration with legacy ZIP import, staged publication and contained Optuna study rebasing |
 | [remote_training.py](hnefatafl/remote_training.py), [remote_worker.py](hnefatafl/remote_worker.py) | Server leases/artifact ingestion and outbound worker subprocess supervision |
+| [deployment.py](hnefatafl/deployment.py) | Root-only verified stable-release lifecycle: filesystem/inode preflight, atomic release and snapshot publication, protected retention, bounded recovery and administrative cleanup; no application request handling |
 | [frontend/src](frontend/src/) | React board/setup, replay, records, tournament, model/training controls, shared notifications, localization and appearance |
 
 Long-running training runs in separate worker processes, never in the API request
 loop. Retained files (SQLite, checkpoints, model metadata and worker logs) are
 separate from live processes, which must restart after machine restoration.
+
+Deployment treats `/opt/hnefatafl/releases`, `/var/lib/hnefatafl/backups` and
+dependency caches as managed, replaceable storage; persistent application data and
+configuration are outside retention. Release and snapshot directories are staged
+privately and published only by atomic rename after verification. Retention
+protects the active release, the committed rollback target/snapshot, unfinished
+transaction references and the artifact being operated on; if protected artifacts
+exceed configured limits, it reports an exception instead of deleting recovery
+inputs. Storage checks are evaluated per filesystem in bytes and inodes and refuse
+predictable insufficient-capacity updates before service shutdown. A refreshed
+updater installs only verified `deployment.py` and maintenance wrappers, preserving
+root-owned configuration and recovery metadata.
 
 ## Process ownership and tournaments
 

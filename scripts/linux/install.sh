@@ -21,6 +21,47 @@ case $(dpkg --print-architecture) in
   *) echo 'Supported architectures: amd64 and arm64.' >&2; exit 1 ;;
 esac
 script_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+refresh_only=0
+forwarded=()
+for argument in "$@"; do
+  case $argument in
+    --refresh-updater-only) refresh_only=1 ;;
+    *) forwarded+=("$argument") ;;
+  esac
+done
+if ((${#forwarded[@]})); then
+  set -- "${forwarded[@]}"
+else
+  set --
+fi
+install_deployment_utilities() {
+  stage='Installing the verified deployment utility'
+  local source destination mode temporary
+  python3 - "$script_root/hnefatafl/deployment.py" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+compile(path.read_text(), str(path), 'exec')
+PY
+  bash -n "$script_root/scripts/linux/update.sh"
+  bash -n "$script_root/scripts/linux/backup.sh"
+  install -d -m 755 /usr/local/lib/hnefatafl /usr/local/bin
+  for spec in \
+    "hnefatafl/deployment.py:/usr/local/lib/hnefatafl/deployment.py:644" \
+    "scripts/linux/update.sh:/usr/local/bin/hnefatafl-update:755" \
+    "scripts/linux/backup.sh:/usr/local/bin/hnefatafl-backup:755"; do
+    source="$script_root/${spec%%:*}"
+    spec="${spec#*:}"
+    destination="${spec%%:*}"
+    mode="${spec##*:}"
+    [[ -f $source && ! -L $source ]] || {
+      echo "Deployment utility source is missing or unsafe: $source" >&2
+      return 1
+    }
+    temporary="$destination.new.$$"
+    install -m "$mode" "$source" "$temporary"
+    mv -f -- "$temporary" "$destination"
+  done
+}
 verify_service() {
   stage='Enabling and verifying systemd service'
   systemctl enable hnefatafl.service
@@ -75,9 +116,12 @@ install -d -m 700 /etc/hnefatafl
 configure_root_cli_path
 if [[ -f /etc/hnefatafl/deployment.json ]]; then
   echo 'Existing configuration and accounts retained. Running the stable-release updater.'
-  install -m 644 "$script_root/hnefatafl/deployment.py" /usr/local/lib/hnefatafl/deployment.py
-  install -m 755 "$script_root/scripts/linux/update.sh" /usr/local/bin/hnefatafl-update
-  install -m 755 "$script_root/scripts/linux/backup.sh" /usr/local/bin/hnefatafl-backup
+  install_deployment_utilities
+  if [[ $refresh_only -eq 1 ]]; then
+    verify_cli_commands
+    echo 'Deployment utility refreshed. Configuration, installed state, transactions and application data were retained.'
+    exit 0
+  fi
   stage='Resuming stable-release installation/update'
   if [[ -f /etc/hnefatafl/installed.json ]]; then
     /usr/local/bin/hnefatafl-update "$@"
@@ -152,9 +196,7 @@ root=pathlib.Path('/etc/hnefatafl')
 (root/'application.env').write_text(f'HNEFATAFL_ENV=production\nHNEFATAFL_PUBLIC_URL={origin}\nHNEFATAFL_ALLOWED_HOSTS={url.hostname},127.0.0.1,localhost\nHNEFATAFL_TRUSTED_PROXIES={proxies}\nHNEFATAFL_HOST=0.0.0.0\nHNEFATAFL_PORT={port}\n')
 PY
 chmod 600 /etc/hnefatafl/*.json /etc/hnefatafl/application.env
-install -m 644 "$script_root/hnefatafl/deployment.py" /usr/local/lib/hnefatafl/deployment.py
-install -m 755 "$script_root/scripts/linux/update.sh" /usr/local/bin/hnefatafl-update
-install -m 755 "$script_root/scripts/linux/backup.sh" /usr/local/bin/hnefatafl-backup
+install_deployment_utilities
 stage='Installing stable release, initializing administrator and verifying application readiness'
 /usr/local/bin/hnefatafl-update --initialize "$@"
 verify_service

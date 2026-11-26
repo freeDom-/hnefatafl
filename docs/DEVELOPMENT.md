@@ -97,7 +97,7 @@ cases sharing one peer; the production default remains five. See
 
 Backend online integration uses independent disposable SQLite connections/processes,
 barriers and controlled UTC clocks. Run
-`.venv/bin/python -m pytest tests/test_online_core.py tests/test_online_api.py tests/test_online_matches.py tests/test_online_migrations.py tests/test_lifecycle.py tests/test_security.py tests/test_account_migrations.py tests/test_deployment.py -q`
+`.venv/bin/python -m pytest tests/test_online_core.py tests/test_online_api.py tests/test_online_matches.py tests/test_online_migrations.py tests/test_lifecycle.py tests/test_security.py tests/test_account_migrations.py tests/test_deployment.py tests/test_deployment_storage.py -q`
 before `make check`. Production deployment changes additionally run
 `make deployment-check`, which starts a real lifespan under a real exclusive
 deployment flock and covers disposable update/rollback/recovery integration.
