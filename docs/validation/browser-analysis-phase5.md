@@ -506,6 +506,7 @@ no licensing right is declared resolved without owner/legal acceptance.
 | --- | --- |
 | `tests/test_analysis_policy.py` | 22 passed |
 | Focused backend policy/analysis/security set | 149 passed |
+| Full backend CI (`python` job) | **4,616 passed, 50 skipped**; deployment check 64 + 9 passed |
 | `tests/test_browser_analysis_api.py` | 12 passed |
 | `tests/test_analysis_api.py`, `test_background_analysis.py`, `test_analysis_coordination.py` | 102 passed (earlier focused run) |
 | Browser-analysis runtime Vitest | 77 passed in `runtime.test.ts` (Phase 4 lifecycle + new offline lease tests) |
@@ -524,9 +525,11 @@ no licensing right is declared resolved without owner/legal acceptance.
 | Copenhagen depth-5 reassessment | measured; depth 5 not completed (blocker retained) |
 | Physical device / verified GPU / competitive strength | blocked; not claimed |
 
-The full backend suite, `make docs`, full Prettier check and CI are run on the pull
-request; tests that require external hardware, private checkpoints or licensing
-evidence are explicitly blocked rather than reported as passing here. The actual
+GitHub Actions on the Phase 5 head passed every required job (`security`,
+`python`, `node22`, `deployment-cross-version`, `browser`); the full backend job
+completed 4,616 passed / 50 skipped. Tests that require external hardware, private
+checkpoints or licensing evidence are explicitly blocked rather than reported as
+passing here. The actual
 browser scripts are reproducible with the disposable setup commands below.
 
 ## 17. Enabling and verifying on an existing test installation
