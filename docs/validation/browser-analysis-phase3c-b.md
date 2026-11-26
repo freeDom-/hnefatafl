@@ -632,19 +632,22 @@ JSON
   --agent-a-config /tmp/browser-neural.json --agent-b-config /tmp/browser-webgpu.json \
   --output /tmp/tournament-wasm-webgpu.json
 
-# 7. Sustained memory: telemetry-only progress, fresh files, ready handshake
-set -euo pipefail
+# 7. Sustained memory: telemetry-only progress, fresh files, ready handshake.
+# No `set -e`: validator statuses are handled explicitly (0 accepted, 1 invalid,
+# 2 structurally valid but partial). Cleanup is ownership-file based; the active
+# workload identity is cleared only after the workload has been reaped.
+set -uo pipefail
 SESSION="owner-$(date +%s)"; TELEMETRY="/tmp/$SESSION.jsonl"; READY="/tmp/$SESSION.ready"
 SUMMARY="/tmp/$SESSION-workload.json"; OWNERSHIP="$READY.owner.json"
 COLLECTED="/tmp/$SESSION-memory-collected.json"; FINAL="/tmp/$SESSION-memory.json"
-BROWSER_PID=""
+WORKLOAD_PID=""
 cleanup_owner() {
   status=$?
-  if [ -n "$BROWSER_PID" ]; then
+  trap - EXIT INT TERM
+  if [ -n "$WORKLOAD_PID" ]; then
     .venv/bin/python spikes/browser_offline/wait_for_ready.py --terminate-only \
       --ownership-file "$OWNERSHIP" || true
   fi
-  trap - EXIT INT TERM
   exit "$status"
 }
 trap cleanup_owner EXIT INT TERM
@@ -652,30 +655,36 @@ node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
   --duration 690 --mode repeated --session "$SESSION" --provider wasm \
   --telemetry "$TELEMETRY" --ready "$READY" --overwrite \
   --iterations 128 --time-limit 2 --cache --output "$SUMMARY" &
-BROWSER_PID=$!
-# Readiness failure exits 3 and terminates the owned workload; set -e stops the run.
+WORKLOAD_PID=$!
+# Readiness failure exits 3 and terminates the owned workload; the trap above
+# preserves the failure status and useful cleanup diagnostics.
 .venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "$READY" \
-  --pid "$BROWSER_PID" --ownership-file "$OWNERSHIP" --timeout 180 \
+  --pid "$WORKLOAD_PID" --ownership-file "$OWNERSHIP" --timeout 180 \
   --session "$SESSION" --model-sha256 "<64 hex>" --mode repeated
-.venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$BROWSER_PID" \
+.venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$WORKLOAD_PID" \
   --profile sustained-10m --warmup-duration 60 --duration 600 --interval 1 \
   --telemetry-file "$TELEMETRY" --telemetry-session-id "$SESSION" \
   --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
   --inference-cache --final-summary-timeout 120 --output "$COLLECTED"
 WORKLOAD_STATUS=0
-if wait "$BROWSER_PID"; then WORKLOAD_STATUS=0; else WORKLOAD_STATUS=$?; fi
-BROWSER_PID=""
+if wait "$WORKLOAD_PID"; then WORKLOAD_STATUS=0; else WORKLOAD_STATUS=$?; fi
+WORKLOAD_PID=""
 # The collector is not the parent. Persist the actual wait status and reconcile the
 # final summary before validation; the original ownership file is reused for cleanup.
 .venv/bin/python spikes/browser_offline/finalize_workload_evidence.py \
   --profile "$COLLECTED" --workload-summary "$SUMMARY" \
   --ownership-file "$OWNERSHIP" --exit-status "$WORKLOAD_STATUS" --output "$FINAL"
 test "$WORKLOAD_STATUS" -eq 0
+# Validate the session-specific finalized report, never an earlier collected or
+# historical file. Exit 2 is structurally valid partial evidence, not acceptance.
 .venv/bin/python spikes/browser_offline/memory_validation.py "$FINAL"
-# Readiness/collection failures are cleaned up by wait_for_ready or the EXIT trap;
-# interrupted runs preserve the signal status.
-.venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json
-# 30 minutes: --duration 1890 on the driver, --profile sustained-30m --duration 1800 collector
+VALIDATOR_STATUS=$?
+case "$VALIDATOR_STATUS" in
+  0) echo "accepted: $FINAL" ;;
+  2) echo "partial (not accepted): $FINAL" ;;
+  *) echo "invalid evidence: $FINAL"; exit 1 ;;
+esac
+# 30 minutes: --duration 1890 on the driver, --profile sustained-30m --duration 1800 collector.
 # Lifecycle profile mapping (driver mode -> collector --profile):
 #   repeated            -> sustained-10m / sustained-30m
 #   cancel-restart      -> cancel-restart
@@ -695,39 +704,23 @@ test "$WORKLOAD_STATUS" -eq 0
 #   completion: finalize_workload_evidence.py with the summary and actual wait status
 # Copy alternate validated ONNX artifacts into the staged root under models/ and
 # use --cache for transitions/cache-churn.
-# A bounded lifecycle sweep (short structural mode; use the full windows above for
-# sustained acceptance):
-for spec in "cancel-restart cancel-restart" "model-reload model-reload" \
-            "worker-replacement worker-replacement" "client-disposal client-disposal" \
-            "cache-churn cache-churn" "batching independent-batching"; do
-  set -- $spec
-  SESSION="owner-$1-$(date +%s)"
-  OWNERSHIP="/tmp/$SESSION.ready.owner.json"
-  node spikes/browser_offline/sustained_workload.mjs /private/spike-brandubh \
-    --duration 60 --mode "$1" --session "$SESSION" --provider wasm \
-    --telemetry "/tmp/$SESSION.jsonl" --ready "/tmp/$SESSION.ready" --overwrite \
-    --iterations 64 --time-limit 1 --cache --output "/tmp/$SESSION-workload.json" &
-  PID=$!
-  if ! .venv/bin/python spikes/browser_offline/wait_for_ready.py --ready "/tmp/$SESSION.ready" \
-    --pid "$PID" --ownership-file "$OWNERSHIP" --timeout 180 --session "$SESSION" \
-    --model-sha256 "<64 hex>" --mode "$1"; then
-    exit 3
-  fi
-  .venv/bin/python spikes/browser_offline/memory_profile_collect.py --pid "$PID" \
-    --profile "$2" --warmup-duration 10 --duration 30 \
-    --telemetry-file "/tmp/$SESSION.jsonl" --telemetry-session-id "$SESSION" \
-    --telemetry-model-sha256 "<64 hex>" --telemetry-workload sustained-analysis \
-    --inference-cache --final-summary-timeout 120 \
-    --output "/tmp/$SESSION-memory-collected.json"
-  WORKLOAD_STATUS=0
-  if wait "$PID"; then WORKLOAD_STATUS=0; else WORKLOAD_STATUS=$?; fi
-  .venv/bin/python spikes/browser_offline/finalize_workload_evidence.py \
-    --profile "/tmp/$SESSION-memory-collected.json" \
-    --workload-summary "/tmp/$SESSION-workload.json" --ownership-file "$OWNERSHIP" \
-    --exit-status "$WORKLOAD_STATUS" --output "/tmp/$SESSION-memory.json"
-  if [ "$WORKLOAD_STATUS" -ne 0 ]; then exit 2; fi
-  .venv/bin/python spikes/browser_offline/memory_validation.py "/tmp/$SESSION-memory.json"
-done
+#
+# Bounded lifecycle sweep. Use the script for every sweep; it owns the loop,
+# validator exit-status policy, ownership-file cleanup, process-tracking reset and
+# per-case finalized report path. It never labels partial evidence as accepted:
+#
+#   exit 0  every case accepted
+#   exit 1  structurally invalid evidence or unexpected execution failure
+#   exit 2  at least one structurally valid partial result (not acceptance)
+#   exit 3  readiness/ownership verification failure (cleanup already attempted)
+#   exit 4  collection failure (cleanup already attempted)
+#   exit 5  evidence finalization failure
+#   exit 6  workload execution failure (distinct from validator partial=2)
+STAGE_DIR=/private/spike-brandubh MODEL_SHA256="<64 hex>" \
+  bash scripts/browser_analysis_lifecycle_sweep.sh
+#
+# Bounded tests for this workflow (stub commands, no browser, no sustained run):
+#   .venv/bin/python -m pytest tests/test_browser_analysis_lifecycle_sweep.py -q
 
 # 8. Physical device matrix
 .venv/bin/python spikes/browser_offline/device_evidence.py /private/device-evidence.json \
@@ -735,7 +728,9 @@ done
 
 # 9. Evidence validation summary
 .venv/bin/python spikes/browser_offline/competitive_validation.py --validate /tmp/competitive-validation.json
-.venv/bin/python spikes/browser_offline/memory_validation.py /tmp/memory-10m.json --output /tmp/memory-10m-validation.json
+# Validate the finalized session-specific reports produced above (never a
+# historical /tmp/memory-10m.json path).
+.venv/bin/python spikes/browser_offline/memory_validation.py "$FINAL" --output "${FINAL%.json}-validation.json"
 ```
 
 Structural smoke mode remains available through the existing quick benchmark/parity

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import mimetypes
 import os
 import secrets
 import shutil
@@ -22,7 +23,7 @@ from typing import Any, Literal, NoReturn
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
@@ -3354,6 +3355,219 @@ def create_app(
         job.update(status="cancelling")
         store.save_job(job)
         return read_job(job_id)
+
+    # ---------------------------------------------------------- browser analysis
+    # Secure, same-origin distribution of the optional browser-analysis runtime
+    # and of explicitly published inference artifacts. Disabled by default: no
+    # runtime asset is served and the CSP is not relaxed unless the owner enables
+    # ``HNEFATAFL_BROWSER_ANALYSIS_ENABLED``.
+    from .browser_models import PublicationError, PublishedModelStore
+    from .browser_runtime import RuntimeAssetError, RuntimeUnavailable
+    from .browser_runtime import public_manifest as runtime_public_manifest
+
+    def stream_verified_file(handle):
+        try:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            handle.close()
+
+    mimetypes.add_type("application/wasm", ".wasm")
+    mimetypes.add_type("text/javascript", ".mjs")
+    mimetypes.add_type("text/javascript", ".js")
+
+    browser_models = PublishedModelStore(root)
+    app.state.browser_models = browser_models
+    from .browser_runtime import (
+        VerifiedFileCache,
+        active_runtime_identity,
+        open_runtime_asset,
+        runtime_snapshot,
+    )
+
+    # Per-process verified snapshots, keyed by immutable runtime identity. The
+    # mutable ``current`` symlink is only consulted to discover the identity;
+    # assets are always resolved inside the exact snapshot directory.
+    browser_runtime_state: dict[str, Any] = {
+        "snapshots": {},
+        "file_cache": VerifiedFileCache(),
+        "reason": None,
+        "identity": None,
+    }
+    browser_runtime_lock = threading.Lock()
+    development_runtime = package_version == "0+local"
+
+    def refresh_browser_runtime() -> None:
+        """Forget cached snapshots (tests/administrative refresh only)."""
+        with browser_runtime_lock:
+            browser_runtime_state["snapshots"] = {}
+            browser_runtime_state["reason"] = None
+            browser_runtime_state["identity"] = None
+
+    app.state.refresh_browser_runtime = refresh_browser_runtime
+
+    def browser_runtime_snapshot() -> dict[str, Any] | None:
+        if not auth.settings.browser_analysis:
+            browser_runtime_state["reason"] = "disabled"
+            browser_runtime_state["identity"] = None
+            return None
+        try:
+            identity = active_runtime_identity(root)
+        except RuntimeUnavailable as error:
+            with browser_runtime_lock:
+                browser_runtime_state["identity"] = None
+                browser_runtime_state["reason"] = error.reason
+            return None
+        except RuntimeAssetError as error:
+            with browser_runtime_lock:
+                browser_runtime_state["identity"] = None
+                browser_runtime_state["reason"] = error.reason
+            return None
+        with browser_runtime_lock:
+            browser_runtime_state["identity"] = identity
+            snapshot = browser_runtime_state["snapshots"].get(identity)
+        if snapshot is not None:
+            browser_runtime_state["reason"] = None
+            return snapshot
+        try:
+            snapshot = runtime_snapshot(
+                root,
+                identity,
+                application_version=package_version,
+                development=development_runtime,
+                file_cache=browser_runtime_state["file_cache"],
+            )
+        except (RuntimeUnavailable, RuntimeAssetError) as error:
+            with browser_runtime_lock:
+                browser_runtime_state["reason"] = getattr(error, "reason", "runtime-invalid")
+            return None
+        with browser_runtime_lock:
+            # Keep snapshots bounded: the active identity plus a small rollback
+            # window. Pruned identities are dropped and later return a controlled
+            # unavailable response.
+            snapshots = browser_runtime_state["snapshots"]
+            snapshots[identity] = snapshot
+            if len(snapshots) > 4:
+                for stale in [key for key in snapshots if key != identity][: len(snapshots) - 4]:
+                    snapshots.pop(stale, None)
+            browser_runtime_state["reason"] = None
+        return snapshot
+
+    def require_browser_analysis() -> None:
+        if not auth.settings.browser_analysis:
+            # Disabled and unavailable states intentionally share one response:
+            # neither exposes protected artifacts or differs in a way that helps
+            # artifact discovery.
+            raise HTTPException(404, "Browser analysis is unavailable")
+
+    @app.get("/api/browser-analysis/availability")
+    def browser_analysis_availability():
+        enabled = auth.settings.browser_analysis
+        snapshot = browser_runtime_snapshot() if enabled else None
+        reason = None if snapshot is not None else browser_runtime_state["reason"] or "disabled"
+        return {
+            "schema": 1,
+            "enabled": enabled,
+            "runtime_available": snapshot is not None,
+            "runtime": (
+                runtime_public_manifest(snapshot["manifest"]) if snapshot is not None else None
+            ),
+            "reason": None if snapshot is not None else reason,
+            "published_models": len(browser_models.list_public()) if enabled else 0,
+        }
+
+    @app.get("/api/browser-analysis/models")
+    def browser_analysis_models():
+        require_browser_analysis()
+        return {"schema": 1, "models": browser_models.list_public()}
+
+    @app.get("/api/browser-analysis/models/{publication_id}")
+    def browser_analysis_model(publication_id: str):
+        require_browser_analysis()
+        try:
+            record, _path = browser_models.resolve_artifact(publication_id)
+        except PublicationError:
+            raise HTTPException(404, "Published model not found") from None
+        return browser_models.public_record(record)
+
+    @app.get("/api/browser-analysis/models/{publication_id}/artifact")
+    def browser_analysis_artifact(publication_id: str, version: str | None = None):
+        require_browser_analysis()
+        try:
+            # Record, immutable version and the verified descriptor are resolved
+            # together; replacement/revocation cannot mix identities or bytes.
+            record, handle, size = browser_models.open_artifact(publication_id, version)
+        except PublicationError:
+            raise HTTPException(404, "Published model not found") from None
+        # Streaming the verified descriptor never buffers the model in memory.
+        return StreamingResponse(
+            stream_verified_file(handle),
+            media_type="application/octet-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Length": str(size),
+                "ETag": f'"{record["onnx_sha256"]}"',
+                "X-Content-SHA256": record["onnx_sha256"],
+                "Content-Disposition": (f'attachment; filename="hnefatafl-{publication_id}.onnx"'),
+            },
+        )
+
+    @app.get("/browser-analysis/runtime/{runtime_id}/{asset_path:path}", include_in_schema=False)
+    def browser_runtime_asset(runtime_id: str, asset_path: str):
+        if not auth.settings.browser_analysis:
+            raise HTTPException(404, "Browser runtime asset not found")
+        snapshot = browser_runtime_snapshot()
+        if snapshot is None:
+            raise HTTPException(404, "Browser runtime asset not found")
+        if runtime_id != snapshot["runtime_id"]:
+            # Retained immutable snapshots may still serve their own identity, but
+            # never the active runtime's bytes under another identity. A retained
+            # identity is loaded on demand (immutable directory + verified
+            # manifest); a pruned or unverifiable identity is a controlled 404.
+            with browser_runtime_lock:
+                retained = browser_runtime_state["snapshots"].get(runtime_id)
+            if retained is None:
+                try:
+                    retained = runtime_snapshot(
+                        root,
+                        runtime_id,
+                        application_version=package_version,
+                        development=development_runtime,
+                        file_cache=browser_runtime_state["file_cache"],
+                    )
+                except (RuntimeUnavailable, RuntimeAssetError):
+                    retained = None
+                else:
+                    with browser_runtime_lock:
+                        snapshots = browser_runtime_state["snapshots"]
+                        if len(snapshots) >= 4 and runtime_id not in snapshots:
+                            snapshots.pop(next(iter(snapshots)))
+                        snapshots[runtime_id] = retained
+            snapshot = retained
+        if snapshot is None:
+            raise HTTPException(404, "Browser runtime asset not found")
+        try:
+            handle, entry, size = open_runtime_asset(
+                snapshot, asset_path, file_cache=browser_runtime_state["file_cache"]
+            )
+        except RuntimeAssetError:
+            raise HTTPException(404, "Browser runtime asset not found") from None
+        media_type = mimetypes.guess_type(asset_path)[0] or "application/octet-stream"
+        return StreamingResponse(
+            stream_verified_file(handle),
+            media_type=media_type,
+            headers={
+                # Content-addressed, immutable release assets. Model delivery
+                # (authorization-sensitive) is deliberately not cached.
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "Content-Length": str(size),
+                "Cross-Origin-Resource-Policy": "same-origin",
+                "X-Content-SHA256": entry["sha256"],
+            },
+        )
 
     # Serve a production Vite build, retaining JSON 404s for all unknown API paths.
     build = PROJECT_ROOT / "frontend" / "dist"

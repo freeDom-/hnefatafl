@@ -32,6 +32,38 @@ requires the built frontend and starts one API worker. It honors `HNEFATAFL_HOST
 and `HNEFATAFL_PORT`; `dev.sh` uses its fixed API host/port. `.env` is not loaded
 automatically. See [Deployment](DEPLOYMENT.md) for persistent/service configuration.
 
+## Browser-analysis runtime integration
+
+Phase 4 browser-analysis work is opt-in and disabled by default. Focused backend
+checks (bounded, no sustained measurements):
+
+```sh
+.venv/bin/python -m pytest tests/test_browser_runtime_distribution.py   tests/test_browser_model_publication.py tests/test_browser_analysis_api.py   tests/test_browser_analysis_lifecycle_sweep.py tests/test_security.py -q
+npm --prefix frontend run test -- src/browserAnalysis
+npm --prefix frontend run build
+```
+
+The canonical export validator is exercised by
+`tests/test_browser_neural_export.py` when the optional ONNX dependencies are
+installed (`uv pip install --python .venv/bin/python -r
+spikes/browser_offline/requirements-onnx.txt`). Actual-browser verification needs
+a production build, Chromium and a staged runtime:
+
+```sh
+HNEFATAFL_BROWSER_ANALYSIS_ENABLED=1 HNEFATAFL_DATA_DIR=/absolute/disposable   .venv/bin/python -m hnefatafl.browser_runtime --data-dir "$HNEFATAFL_DATA_DIR"   build --fetch --activate
+HNEFATAFL_BROWSER_ANALYSIS_BROWSER=1 HNEFATAFL_BROWSER_ANALYSIS_DATA=/absolute/disposable   .venv/bin/python -m pytest tests/test_browser_analysis_browser.py -q
+```
+
+`scripts/verify_browser_analysis.mjs --neural` additionally exercises published
+model download, verified-byte inference (one cold artifact transfer), provider
+evidence and effective settings; it requires an explicit publication. The
+actual-browser suite also stages a second verified runtime and asserts immutable
+identity handling during activation. Source-checkout runtime staging requires
+`--development`. Never publish
+private checkpoints from a development tree. The E1 lifecycle sweep is covered by
+stub-command tests (`tests/test_browser_analysis_lifecycle_sweep.py`) and does not
+require a browser or a sustained run.
+
 ## Branch and pull request workflow
 
 Never commit to `main` directly. Update `main`, branch off it with a type prefix

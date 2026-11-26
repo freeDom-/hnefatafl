@@ -42,6 +42,11 @@ def main() -> int:
     parser.add_argument("--final-successful-offset", type=int, default=0)
     parser.add_argument("--transition-count", type=int)
     parser.add_argument("--transition-every", type=int, default=1)
+    parser.add_argument(
+        "--transition-complete-file",
+        type=Path,
+        help="Deterministic producer-completion handshake for transition history tests",
+    )
     args = parser.parse_args()
     started = time.monotonic()
     completed = 0
@@ -63,6 +68,7 @@ def main() -> int:
             telemetry.flush()
         index = 0
         transition_sequence = 0
+        transition_completion_written = False
         streamed_model = args.model_sha256
         while time.monotonic() - started < args.duration:
             index += 1
@@ -185,6 +191,16 @@ def main() -> int:
             telemetry.write(json.dumps(record) + "\n")
             telemetry.flush()
             args.progress.write_text(str(completed))
+            if (
+                args.transition_complete_file is not None
+                and not transition_completion_written
+                and args.transition_count is not None
+                and transition_sequence >= args.transition_count
+            ):
+                # Explicit producer-completion handshake: tests wait for this
+                # instead of assuming the loop reaches the required index in time.
+                args.transition_complete_file.write_text(str(transition_sequence))
+                transition_completion_written = True
             time.sleep(args.interval)
         final_record = dict(record)
         final_record["timestamp_ms"] = time.time() * 1000.0
