@@ -19,6 +19,9 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
       'analyzed-replays': 5,
       'rated-win-streak': 4,
       'local-first-game': 1,
+      'brandubh-league': 3,
+      'tablut-league': 0,
+      'copenhagen-league': 5,
     };
     const counts: Record<string, number> = {
       'rated-wins': 40,
@@ -31,6 +34,9 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
       'analyzed-replays': 55,
       'rated-win-streak': 10,
       'local-first-game': 1,
+      'brandubh-league': 3,
+      'tablut-league': 0,
+      'copenhagen-league': 5,
     };
     progress.items = progress.items.map((item) => ({
       ...item,
@@ -53,21 +59,28 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
       });
       await page.goto('/portraits');
       const list = page.locator('.portrait-achievement-list');
-      await expect(list.locator('> li')).toHaveCount(10);
+      await expect(list.locator('> li')).toHaveCount(13);
       for (const [family, tier] of Object.entries(collected))
         await expect(list.locator(`[data-family="${family}"]`)).toHaveAttribute(
           'data-tier',
           String(tier),
         );
-      await expect(list.locator('.achievement-engraved')).toHaveCount(2);
+      await expect(list.locator('.achievement-engraved')).toHaveCount(3);
       await expect(list.locator('.achievement-bronze')).toHaveCount(2);
-      await expect(list.locator('.achievement-silver')).toHaveCount(2);
+      await expect(list.locator('.achievement-silver')).toHaveCount(3);
       await expect(list.locator('.achievement-gold')).toHaveCount(1);
-      await expect(list.locator('.achievement-legendary')).toHaveCount(3);
+      await expect(list.locator('.achievement-legendary')).toHaveCount(4);
+      const league = list.locator('[data-family="brandubh-league"]');
+      await expect(league).toHaveAttribute('data-tier', '3');
+      await expect(league.locator('.achievement-league-tiers > li')).toHaveCount(5);
+      await expect(league.locator('.achievement-league-state')).toHaveCount(5);
+      await expect(
+        league.locator('.achievement-league-tiers > li[data-state="current"]'),
+      ).toHaveCount(1);
       const completed = list.locator('[data-family="brandubh-wins"]');
       await expect(completed).toHaveAttribute('data-state', 'complete');
       await expect(completed.locator('progress')).toHaveCount(0);
-      await expect(page.locator('#achievement-score')).toHaveAttribute('max', '6290');
+      await expect(page.locator('#achievement-score')).toHaveAttribute('max', '6770');
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
       ).toBe(true);

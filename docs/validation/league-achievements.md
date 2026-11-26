@@ -43,8 +43,21 @@ highest-achieved labels are absent. TypeScript, Vite build, bundle budget and th
 documentation link/anchor check passed. Backend Ruff, formatting and mypy checks
 passed.
 
+Targeted browser checks also passed with real Chromium:
+
+```sh
+cd frontend
+./node_modules/.bin/playwright test --project=chromium   tests/portraits.spec.ts tests/achievement-tiers.spec.ts
+./node_modules/.bin/playwright test --project=mobile   tests/portraits.spec.ts tests/achievement-tiers.spec.ts
+```
+
+Each project passed 9 tests. They cover the four Arena themes, desktop and mobile
+viewports, the thirteen achievement families, league tier states and the absence
+of horizontal overflow.
+
 ## Remaining validation limits
 
-The automated UI coverage uses jsdom and theme attributes, not a fresh visual
-screenshot matrix. No live multi-installation upgrade or production-size ledger
-timing is claimed here; GitHub Actions remains the full-suite gate.
+The complete Playwright suite was not run locally; the targeted Hall coverage and
+GitHub Actions run the full browser matrix. No live multi-installation upgrade or
+production-size ledger timing is claimed here; GitHub Actions remains the
+full-suite gate.

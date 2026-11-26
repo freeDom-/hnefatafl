@@ -122,7 +122,7 @@ for (const theme of themes) {
         await expect(page.locator('html')).toHaveAttribute('data-density', density);
         const gallery = page.locator('.portrait-gallery');
         await expect(gallery.locator('> li')).toHaveCount(12);
-        await expect(page.locator('.portrait-achievement-list > li')).toHaveCount(10);
+        await expect(page.locator('.portrait-achievement-list > li')).toHaveCount(13);
         await expect(page.locator('[data-family="rated-wins"]')).toHaveAttribute('data-tier', '0');
         await expect(page.locator('#achievement-score')).toHaveAttribute('value', '10');
         await expect(gallery.locator('[data-portrait-state="selected"]')).toHaveCount(1);
