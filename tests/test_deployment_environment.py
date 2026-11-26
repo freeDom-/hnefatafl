@@ -120,8 +120,8 @@ def test_published_release_keeps_functional_entry_points(tmp_path):
     python = install(target)
 
     assert (target / ".venv/bin/hnefatafl").is_file()
-    shebang = (target / ".venv/bin/hnefatafl").read_text().splitlines()[0]
-    assert str(target) in shebang
+    entry_point = (target / ".venv/bin/hnefatafl").read_text()
+    assert str(target / ".venv/bin/python") in entry_point
     deployment._verify_release_environment(target)
 
     console = subprocess.run(
@@ -203,9 +203,14 @@ def test_privileged_preparation_imports_the_real_application_after_sealing(
     build_python = Path(sys._base_executable)
     packages = Path(sysconfig.get_path("purelib"))
     if native_systemd:
-        # A hosted runner's virtual environment can live below a private home.
+        # The hosted runner provisions a relocatable uv-managed CPython. Its
+        # home directory is private, so provide the service account with a copy.
+        base = Path(sys.base_prefix)
+        runtime = shutil.copytree(base, root / "python", symlinks=True)
+        build_python = runtime / build_python.relative_to(base)
         packages = shutil.copytree(packages, root / "dependencies", symlinks=True)
-        subprocess.run(["chmod", "-R", "a+rX", str(packages)], check=True)
+        subprocess.run(["chmod", "-R", "a+rX", str(runtime), str(packages)], check=True)
+    subprocess.run([build_python, "-c", "import sqlite3, venv"], user=uid, group=gid, check=True)
 
     class PrivilegedDeployment(Deployment):
         def _data_account(self):
@@ -213,7 +218,21 @@ def test_privileged_preparation_imports_the_real_application_after_sealing(
 
         def _run_isolated_preparation(self, command, cwd, environment, uid, gid):
             if native_systemd:
-                return super()._run_isolated_preparation(command, cwd, environment, uid, gid)
+                try:
+                    return super()._run_isolated_preparation(command, cwd, environment, uid, gid)
+                except subprocess.CalledProcessError:
+                    subprocess.run(
+                        [
+                            "journalctl",
+                            "--no-pager",
+                            "-n",
+                            "50",
+                            "-u",
+                            "hnefatafl-prepare-*.service",
+                        ],
+                        check=False,
+                    )
+                    raise
             # The Debian container test exercises real filesystem ownership and
             # the native CI step exercises the systemd mount namespace as well.
             subprocess.run(

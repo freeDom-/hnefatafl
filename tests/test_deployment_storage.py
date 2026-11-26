@@ -1027,7 +1027,7 @@ def test_preparation_checks_separate_temporary_and_updater_filesystems(tmp_path,
 
 def test_same_filesystem_preparation_accounts_for_the_archive_once(harness):
     mib = 1024**2
-    archive_bytes = 1000 * mib
+    archive_bytes = 2048 * mib
     requirements = harness._prepare_requirements(archive_bytes)
     assert sum(item.bytes for item in requirements if "download" in item.label) == archive_bytes
     common = [item for item in requirements if item.stage is None]
@@ -1115,3 +1115,24 @@ def test_invalid_updater_source_is_not_installed(tmp_path):
         harness._stage_updater_payload(source, "2.0.0", "sha256:" + "c" * 64)
     assert harness.updater_module.read_text() == "# original\n"
     assert not harness.updater_commands[0].exists()
+
+
+def test_preparation_reuses_recorded_temporary_peak(harness):
+    release = harness.release("0.42")
+    marker = release / ".release.json"
+    peak = 2 * 1024**3
+    atomic_json(
+        marker,
+        {
+            **json.loads(marker.read_text()),
+            "temporary_peak_bytes": peak,
+            "temporary_peak_inodes": 60300,
+        },
+    )
+    workspace = next(
+        item
+        for item in harness._prepare_requirements(0)
+        if item.path == harness.temporary_root and item.stage == "build"
+    )
+    assert workspace.bytes == peak * 115 // 100
+    assert workspace.inodes == 60300 * 115 // 100

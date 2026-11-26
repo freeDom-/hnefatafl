@@ -2821,6 +2821,19 @@ json.dump(rows, sys.stdout)
         release_bytes, release_inodes = self._release_history_estimate()
         archive_bytes = archive_size or 64 * MIB
         cache_bytes = int(self.storage_settings["cache_headroom_mib"]) * MIB
+        # The cold uv/npm caches can hold extracted dependencies concurrently
+        # with the copies in the release. Reuse observed workspace sizes when
+        # a previous preparation has recorded them.
+        temporary_bytes = max(128 * MIB, release_bytes // 2) + cache_bytes
+        temporary_inodes = max(8000, release_inodes)
+        for entry in self._release_entries():
+            metadata = entry.get("metadata") or {}
+            peak_bytes = metadata.get("temporary_peak_bytes")
+            peak_inodes = metadata.get("temporary_peak_inodes")
+            if type(peak_bytes) is int and peak_bytes > 0:
+                temporary_bytes = max(temporary_bytes, peak_bytes * 115 // 100)
+            if type(peak_inodes) is int and peak_inodes > 0:
+                temporary_inodes = max(temporary_inodes, peak_inodes * 115 // 100)
         return [
             StorageRequirement(
                 self.releases,
@@ -2833,9 +2846,9 @@ json.dump(rows, sys.stdout)
             ),
             StorageRequirement(
                 self.temporary_root,
-                max(128 * MIB, release_bytes // 8) + cache_bytes,
+                temporary_bytes,
                 "temporary builds, dependency caches and isolated verification data",
-                max(8000, release_inodes // 4),
+                temporary_inodes,
                 "build",
             ),
             StorageRequirement(self.etc, 16 * MIB, "deployment metadata", 64),
@@ -6880,6 +6893,7 @@ for name, validate in (
                 extra_env=environment,
                 preparation=True,
             )
+            temporary_build = scan_usage(workspace)
             self._seal_release(final, own_identity)
             peak = scan_usage(final)
             self._prune_build_outputs(final)
@@ -6887,12 +6901,15 @@ for name, validate in (
             self._release_size_cache = {}
             atomic_bytes(final / ".trusted-unit", unit["deployment/hnefatafl.service"], 0o444)
             self._verify_release_environment(final, environment)
+            temporary_verification = scan_usage(workspace)
             release_metadata = {
                 "version": tag,
                 "sha256": sha256,
                 "prepared_at": time.time(),
                 "peak_bytes": peak.bytes,
                 "peak_inodes": peak.inodes,
+                "temporary_peak_bytes": max(temporary_build.bytes, temporary_verification.bytes),
+                "temporary_peak_inodes": max(temporary_build.inodes, temporary_verification.inodes),
                 "size_bytes": size.bytes,
                 "size_inodes": size.inodes,
                 "file_count": size.files,

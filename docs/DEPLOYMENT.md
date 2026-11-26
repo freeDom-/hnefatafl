@@ -554,8 +554,9 @@ metadata. It also estimates the archive and the temporary build, cache and
 verification peak under `/opt/hnefatafl/tmp`. The archive remains on disk
 through extraction and is removed before the build. The preflight counts
 those temporary phases by their peak and accounts for updater files at their
-staging and installation destinations. Historical release peaks, directory
-and file counts, allocated blocks and configurable headroom are included.
+staging and installation destinations. Historical release and temporary
+workspace peaks, directory and file counts, allocated blocks and configurable
+headroom are included.
 A separately mounted, root-controlled temporary root is supported. Managed
 artifact trees cannot contain nested mounts.
 
