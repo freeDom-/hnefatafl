@@ -625,8 +625,10 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
     config.mkdir(parents=True)
     retained = config / "deployment.json"
     retained.write_text('{"repository":"retained/repository","port":8123}')
+    retained.chmod(0o600)
     if installed:
         (config / "installed.json").write_text('{"version":"0.22.1"}')
+        (config / "installed.json").chmod(0o600)
     for name in ("usr/local/bin", "usr/local/lib/hnefatafl", "root"):
         (container / name).mkdir(parents=True)
     os_release = container / "os-release"
@@ -647,11 +649,19 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
         "\n".join(line for line in source.splitlines() if not line.startswith("export PATH="))
         + "\n"
     )
-    script.write_text(source)
-    updater = host.checkout / "scripts/linux/update.sh"
-    updater.write_text(
+    # Publication must validate the genuine wrappers. Substitute only the
+    # subsequent updater call, which would reach the production paths.
+    installed_command = container / "usr/local/bin/hnefatafl-update"
+    delegate = host.bin / "fixture-update"
+    delegate.write_text(
         '#!/bin/bash\nprintf "%s\\n" "$@" > "$DELEGATE"\nexit "${UPDATE_STATUS:-0}"\n'
     )
+    delegate.chmod(0o755)
+    for arguments in ('"$@"', '--initialize "$@"'):
+        expected = f"    {installed_command} {arguments}"
+        assert expected in source
+        source = source.replace(expected, f'    "{delegate}" {arguments}', 1)
+    script.write_text(source)
     (host.bin / "install").symlink_to(shutil.which("install"))
     (host.bin / "grep").symlink_to(shutil.which("grep"))
     dpkg = host.bin / "dpkg"
@@ -669,6 +679,10 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
         capture_output=True,
     )
     assert retained.read_text() == '{"repository":"retained/repository","port":8123}'
+    assert installed_command.read_bytes() == (ROOT / "scripts/linux/update.sh").read_bytes()
+    assert (installed_command.parent / "hnefatafl-backup").read_bytes() == (
+        ROOT / "scripts/linux/backup.sh"
+    ).read_bytes()
     assert Path(host.env["DELEGATE"]).exists(), (result.returncode, result.stderr)
     assert Path(host.env["DELEGATE"]).read_text().splitlines() == (
         [""] if installed else ["--initialize"]
