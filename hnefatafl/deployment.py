@@ -14,6 +14,7 @@ import http.client
 import importlib.util
 import json
 import os
+import pwd
 import re
 import secrets
 import shutil
@@ -28,7 +29,7 @@ import tempfile
 import time
 import tomllib
 import types
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from dataclasses import dataclass, field
 import urllib.error
 import urllib.parse
@@ -68,7 +69,7 @@ DEFAULT_RECOVERY = {
 # Transaction phases this utility understands. A utility must never install a
 # replacement with a lower protocol number: it could not resume the journal phases
 # or interpret the retention/restore metadata written by this one.
-UPDATER_ABI = 2
+UPDATER_ABI = 3
 JOURNAL_PHASES = {
     "prepared",
     "snapshot",
@@ -76,6 +77,7 @@ JOURNAL_PHASES = {
     "activating",
     "activated",
     "committed",
+    "committing",
     "recovered",
     "recovering",
 }
@@ -105,6 +107,7 @@ UPDATER_SUPPORT_MODULES = (
 STAGING_MARKER = ".staging.json"
 RELEASE_MARKER = ".release.json"
 SNAPSHOT_METADATA = "snapshot.json"
+GATE_NAME = ".deployment-gate"
 RESTORE_MARKER = ".restore.json"
 RESTORE_STAGING_DIRECTORY = re.compile(r"^\.restore-[0-9a-f]{8,32}$")
 RETAINED_DIRECTORY = re.compile(r"^\.retained-[0-9a-f]{8,32}$")
@@ -563,19 +566,59 @@ def extract(archive: Path, destination: Path):
         bundle.extractall(destination, members=members, filter="data")
 
 
-def atomic_json(path: Path, value):
-    temporary = path.with_suffix(".new")
-    with temporary.open("w") as handle:
-        json.dump(value, handle, indent=2)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
-    fd = os.open(path.parent, os.O_DIRECTORY)
+def sync_directory(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def atomic_bytes(path: Path, content: bytes, mode: int = 0o600) -> None:
+    descriptor, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}-")
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            os.fchmod(handle.fileno(), mode)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        sync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def atomic_json(path: Path, value) -> None:
+    atomic_bytes(path, (json.dumps(value, indent=2, allow_nan=False) + "\n").encode())
+
+
+def raise_walk_error(error: OSError) -> None:
+    raise error
+
+
+def sync_tree(path: Path) -> None:
+    for directory, _, files in os.walk(path, topdown=False, onerror=raise_walk_error):
+        for name in files:
+            descriptor = os.open(Path(directory) / name, os.O_NOFOLLOW | os.O_RDONLY | os.O_CLOEXEC)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        sync_directory(Path(directory))
+
+
+def file_identity(info: os.stat_result) -> tuple[int, int]:
+    return info.st_dev, info.st_ino
+
+
+def valid_identity(value) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and all(type(part) is int and part >= 0 for part in value)
+        and value[1] > 0
+    )
 
 
 def checksum(path: Path) -> str:
@@ -639,6 +682,9 @@ class PrivilegedFilesystem:
     def __init__(self, *, mountinfo: Path = Path("/proc/self/mountinfo"), euid=None):
         self.mountinfo = Path(mountinfo)
         self.euid = os.geteuid() if euid is None else euid
+        # An unprivileged namespace can present its system root with a mapped
+        # owner. The privileged CLI still requires uid 0 for trusted ancestors.
+        self.system_uid = 0 if self.euid == 0 else os.stat("/").st_uid
         self._mounts: tuple[Path, ...] | None = None
         self._mount_set: set[str] | None = None
 
@@ -697,38 +743,16 @@ class PrivilegedFilesystem:
                     "are refused."
                 ) from error
             if stat.S_ISLNK(info.st_mode):
-                try:
-                    resolved = ancestor.resolve(strict=True)
-                    target = os.stat(resolved)
-                except (OSError, RuntimeError) as error:
-                    raise DeploymentError(
-                        f"The ancestor {ancestor} of {description} is an unresolved "
-                        f"symlink ({describe_exception(error)}); refusing privileged "
-                        "filesystem operations"
-                    ) from error
-                if not stat.S_ISDIR(target.st_mode):
-                    raise DeploymentError(
-                        f"The ancestor {ancestor} of {description} does not resolve to a "
-                        "directory; refusing privileged filesystem operations"
-                    )
-                if target.st_uid not in {0, self.euid}:
-                    raise DeploymentError(
-                        f"The ancestor {ancestor} of {description} resolves into a "
-                        "directory owned by an untrusted account; refusing privileged "
-                        "filesystem operations"
-                    )
-                if not self._acceptable_ancestor_mode(target.st_mode):
-                    raise DeploymentError(
-                        f"The ancestor {ancestor} of {description} resolves into a "
-                        "writable directory controlled by another account; refusing "
-                        "privileged filesystem operations"
-                    )
+                raise DeploymentError(
+                    f"The ancestor {ancestor} of {description} is a symlink; refusing "
+                    "privileged filesystem operations"
+                )
             elif not stat.S_ISDIR(info.st_mode):
                 raise DeploymentError(
                     f"The ancestor {ancestor} of {description} is not a directory; "
                     "refusing privileged filesystem operations"
                 )
-            elif info.st_uid not in {0, self.euid}:
+            elif info.st_uid not in {self.system_uid, self.euid}:
                 raise DeploymentError(
                     f"The ancestor {ancestor} of {description} is owned by an untrusted "
                     "account; refusing privileged filesystem operations"
@@ -754,6 +778,7 @@ class PrivilegedFilesystem:
         owner: int,
         description: str,
         mode: int | None = None,
+        allow_nested_mounts: bool = False,
     ) -> RootIdentity:
         path = Path(path)
         if not path.is_absolute() or ".." in path.parts:
@@ -791,7 +816,7 @@ class PrivilegedFilesystem:
             )
         self._validate_ancestors(path, description)
         nested = self.nested_mounts(path)
-        if nested:
+        if nested and not allow_nested_mounts:
             shown = ", ".join(str(item) for item in nested[:3])
             raise DeploymentError(
                 f"The {description} ({path}) contains nested mount points ({shown}); "
@@ -799,6 +824,19 @@ class PrivilegedFilesystem:
                 "another filesystem"
             )
         return RootIdentity(path, int(info.st_dev), int(info.st_ino), description)
+
+    @contextmanager
+    def open_directory(self, root: RootIdentity):
+        descriptor = os.open(root.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            info = os.fstat(descriptor)
+            if (info.st_dev, info.st_ino) != (root.device, root.inode):
+                raise DeploymentError(
+                    f"The {root.description} changed during inspection: {root.path}"
+                )
+            yield descriptor
+        finally:
+            os.close(descriptor)
 
     def identity_of(self, path: Path) -> tuple[int, int]:
         try:
@@ -1008,7 +1046,6 @@ class PrivilegedFilesystem:
                 "pid": os.getpid(),
             },
         )
-        os.chmod(marker, 0o600)
 
     def read_staging_marker(self, directory: Path) -> dict | None:
         marker = Path(directory) / STAGING_MARKER
@@ -1233,6 +1270,7 @@ class Deployment:
         self.journal = etc / "transaction.json"
         self.state = etc / "installed.json"
         self.updater_state = etc / "updater.json"
+        self.migration_journal = etc / "backup-migration.json"
         self.retention = self.config["retention"]
         self.storage_settings = self.config["storage"]
         self.recovery_settings = self.config["recovery"]
@@ -1257,8 +1295,10 @@ class Deployment:
         self.privileged_uid = os.geteuid()
         self._release_size_cache: dict[Path, tuple[tuple[int, ...], Usage]] = {}
         self.verification = VerificationCache()
+        self._snapshot_schema_cache: dict[tuple[int, ...], int] = {}
         self._online_support: types.ModuleType | None = None
         self._layout_ready = False
+        self._held_gate: tuple[int, int] | None = None
         self.env = {
             "PATH": str(base / "tools/node/bin")
             + ":"
@@ -1303,17 +1343,28 @@ class Deployment:
     # ------------------------------------------------------------------
     def _release_root(self, *, write: bool = False) -> RootIdentity:
         return self._managed_root(
-            self.releases, owner=0, mode=0o755, description="release directory", write=write
+            self.releases,
+            owner=self.privileged_uid,
+            mode=0o755,
+            description="release directory",
+            write=write,
         )
 
     def _backup_root(self, *, write: bool = False) -> RootIdentity:
         return self._managed_root(
-            self.backups, owner=0, mode=0o700, description="backup directory", write=write
+            self.backups,
+            owner=self.privileged_uid,
+            mode=0o700,
+            description="backup directory",
+            write=write,
         )
 
     def _base_root(self) -> RootIdentity:
         return self._managed_root(
-            self.base, owner=0, mode=0o755, description="deployment base directory"
+            self.base,
+            owner=self.privileged_uid,
+            mode=0o755,
+            description="deployment base directory",
         )
 
     def _managed_root(
@@ -1321,15 +1372,11 @@ class Deployment:
     ) -> RootIdentity:
         path = Path(path)
         if write and not path.exists():
-            if not path.parent.is_dir():
-                raise DeploymentError(
-                    f"Cannot create the {description}: parent {path.parent} is missing"
-                )
-            os.mkdir(path, 0o700 if mode & 0o077 == 0 else 0o755)
-            if os.geteuid() == 0:
-                os.chown(path, owner, owner)
-        if not path.exists():
-            raise DeploymentError(f"The {description} does not exist: {path}")
+            self.fs._validate_ancestors(path, description)
+            try:
+                path.mkdir(mode)
+            except FileExistsError:
+                pass
         return self.fs.validate_root(path, owner=owner, description=description, mode=mode)
 
     def ensure_layout(self) -> None:
@@ -1346,312 +1393,897 @@ class Deployment:
         self._layout_ready = True
 
     def _migrate_legacy_backups(self) -> None:
+        # The application can rename its legacy backup entry, but it cannot
+        # change any contents behind an already opened, root-owned directory.
         legacy, current = self.legacy_backups, self.backups
-        try:
-            info = os.lstat(legacy)
-        except FileNotFoundError:
+        critical = (self.data, self.base, self.etc, self.updater_root)
+        if any(current.is_relative_to(path) or current in path.parents for path in critical):
+            raise DeploymentError(
+                "The backup directory must be disjoint from the persistent data root"
+            )
+        journal, valid, reason = self._load_metadata(
+            self.migration_journal, "backup migration journal"
+        )
+        if not valid:
+            raise DeploymentError(
+                f"Invalid backup migration journal: {reason}. Inspect {self.migration_journal}."
+            )
+        if journal is None and not os.path.lexists(legacy):
+            self._adopt_previously_moved_backups()
             return
-        except OSError as error:
-            raise DeploymentError(
-                "Cannot inspect the legacy backup directory "
-                f"({legacy}): {describe_exception(error)}. Refusing privileged "
-                "operations until it is resolved."
-            ) from error
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-            raise DeploymentError(
-                f"The legacy backup location {legacy} is not a real directory. The "
-                "application account could redirect privileged backup writes; stop "
-                "and inspect the installation before continuing."
-            )
-        if info.st_uid != self.privileged_uid or stat.S_IMODE(info.st_mode) & 0o077:
-            raise DeploymentError(
-                f"The legacy backup location {legacy} is not root-owned 0700. Refusing "
-                "to trust or move it; inspect it manually and set the expected "
-                "ownership."
-            )
-        nested = self.fs.nested_mounts(legacy)
-        if nested:
-            raise DeploymentError(
-                f"The legacy backup location {legacy} contains nested mounts "
-                "and cannot be migrated automatically."
-            )
-        moved = []
-        if not current.exists():
-            try:
-                os.rename(legacy, current)
-            except OSError as error:
-                if error.errno != errno.EXDEV:
-                    raise DeploymentError(
-                        f"Cannot relocate the legacy backup directory to {current}: "
-                        f"{describe_exception(error)}"
-                    ) from error
-        current_exists = current.exists()
-        if current_exists:
-            current_info = os.lstat(current)
-            if stat.S_ISLNK(current_info.st_mode) or not stat.S_ISDIR(current_info.st_mode):
-                raise DeploymentError(
-                    f"The backup directory {current} is not a real directory; refusing "
-                    "privileged snapshot operations"
+        if journal is not None:
+            self._validate_backup_migration(journal)
+        self.fs.validate_root(
+            self.etc, owner=self.privileged_uid, description="configuration directory"
+        )
+        if self.fs.is_mount(legacy) or self.fs.nested_mounts(legacy):
+            raise DeploymentError(f"The legacy backup directory contains a mount: {legacy}")
+        with ExitStack() as stack:
+            source_fd = None
+            source_identity = None
+            parent_fd = None
+            if os.path.lexists(legacy):
+                parent_fd = stack.enter_context(
+                    self.fs.open_directory(self._data_directory(self.data))
                 )
-            if (
-                current_info.st_uid != self.privileged_uid
-                or stat.S_IMODE(current_info.st_mode) & 0o077
+                try:
+                    source_fd = os.open(
+                        "backups",
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                        dir_fd=parent_fd,
+                    )
+                except OSError as error:
+                    raise DeploymentError(
+                        f"The legacy backup location {legacy} is not a real directory or changed during inspection"
+                    ) from error
+                stack.callback(os.close, source_fd)
+                source_info = os.fstat(source_fd)
+                if (
+                    source_info.st_uid != self.privileged_uid
+                    or stat.S_IMODE(source_info.st_mode) != 0o700
+                ):
+                    raise DeploymentError(
+                        f"The legacy backup location {legacy} must be owner-controlled 0700"
+                    )
+                source_identity = list(file_identity(source_info))
+            elif journal is None:
+                raise DeploymentError(
+                    f"The legacy backup location {legacy} disappeared during inspection"
+                )
+
+            destination_root = self._backup_root(write=True)
+            destination_identity = [destination_root.device, destination_root.inode]
+            destination_fd = stack.enter_context(self.fs.open_directory(destination_root))
+            if journal is None:
+                assert source_fd is not None
+                if not os.listdir(source_fd):
+                    # Leaving this reserved, empty directory would also be safe,
+                    # but older installations expect it to disappear after migration.
+                    self._remove_empty_legacy_root(parent_fd, source_identity)
+                    self._adopt_previously_moved_backups()
+                    return
+                journal = {
+                    "schema": 1,
+                    "operation": "backup-migration",
+                    "legacy": str(legacy),
+                    "destination": str(current),
+                    "source_identity": source_identity,
+                    "destination_identity": destination_identity,
+                    "entries": self._legacy_migration_entries(source_fd, destination_fd),
+                }
+                self._backup_references()
+                atomic_json(self.migration_journal, journal)
+            elif (
+                journal["destination_identity"] != destination_identity
+                or source_identity is not None
+                and journal["source_identity"] != source_identity
             ):
                 raise DeploymentError(
-                    f"The backup directory {current} is not root-owned 0700; refusing "
-                    "privileged snapshot operations"
+                    f"A managed backup location changed during migration. Inspect {self.migration_journal}."
                 )
-            if legacy.exists() and legacy != current:
-                try:
-                    children = sorted(legacy.iterdir(), key=lambda item: item.name)
-                except OSError as error:
-                    raise DeploymentError(
-                        f"Cannot inspect the legacy backup directory: {describe_exception(error)}"
-                    ) from error
-                for child in children:
-                    destination = current / child.name
-                    if destination.exists():
-                        print(
-                            f"Legacy backup migration warning: {destination} already exists; "
-                            f"leaving {child} in {legacy} for manual review.",
-                            file=sys.stderr,
-                        )
-                        continue
-                    try:
-                        os.rename(child, destination)
-                    except OSError as error:
-                        if error.errno != errno.EXDEV:
-                            raise DeploymentError(
-                                f"Cannot relocate the legacy snapshot {child}: "
-                                f"{describe_exception(error)}"
-                            ) from error
-                        self._copy_verified_snapshot(child, destination)
-                    moved.append(child.name)
-                try:
-                    legacy.rmdir()
-                except OSError:
-                    print(
-                        f"Legacy backup migration: {legacy} still contains unrecognized "
-                        "entries and was retained for manual review.",
-                        file=sys.stderr,
-                    )
-        if legacy.exists() and legacy != current:
-            if not moved:
-                return
-        self._rewrite_backup_references(legacy, current)
-        print(f"Migrated verified backups from {legacy} to the root-owned {current}.")
 
-    def _copy_verified_snapshot(self, source: Path, destination: Path) -> None:
-        staging = Path(destination).with_name(".staging-backup-" + secrets.token_hex(8))
-        try:
-            shutil.copytree(source, staging, symlinks=True)
-            self.verify_snapshot(staging)
-            os.chmod(staging, 0o700)
-            if os.geteuid() == 0:
-                self.run(["chown", "-R", "root:root", staging])
-            os.replace(staging, destination)
-        except BaseException:
-            shutil.rmtree(staging, ignore_errors=True)
-            raise
+            for entry in journal["entries"]:
+                self._migrate_backup_entry(journal, entry, source_fd, destination_fd)
+            if source_fd is not None and not os.listdir(source_fd):
+                self._remove_empty_legacy_root(parent_fd, source_identity)
+            pending = self._backup_references()
+            # Keep unverified artifacts and their references as evidence. If an
+            # old reference has no remaining source or verified destination, the
+            # journal must survive for reviewed recovery.
+            retained = {
+                entry["source"] for entry in journal["entries"] if entry["phase"] == "retained"
+            }
+            if set(pending) - retained:
+                raise DeploymentError(
+                    f"Some recorded legacy snapshots are still missing. Inspect {self.migration_journal} and {legacy}."
+                )
+            self.migration_journal.unlink()
+            sync_directory(self.etc)
+            if source_fd is not None and os.listdir(source_fd):
+                print(
+                    f"Unverified legacy artifacts were retained for inspection in {legacy}.",
+                    file=sys.stderr,
+                )
 
-    def _rewrite_backup_references(self, legacy: Path, current: Path) -> None:
-        def rewritten(value):
-            if not isinstance(value, str) or not value:
-                return value
-            candidate = Path(value)
-            try:
-                relative = candidate.relative_to(legacy)
-            except ValueError:
-                return value
-            return str(current / relative)
+    def _remove_empty_legacy_root(self, data_fd: int | None, identity) -> None:
+        assert data_fd is not None
+        info = os.stat("backups", dir_fd=data_fd, follow_symlinks=False)
+        if list(file_identity(info)) != identity:
+            raise DeploymentError(
+                f"The legacy backup directory changed before finalization: {self.legacy_backups}"
+            )
+        os.rmdir("backups", dir_fd=data_fd)
+        os.fsync(data_fd)
 
-        for metadata_path in (self.state, self.journal):
-            value, valid, _reason = self._load_metadata(metadata_path, metadata_path.name)
-            if not valid or value is None:
+    def _legacy_migration_entries(self, source_fd: int, destination_fd: int) -> list[dict]:
+        entries = []
+        names = set(os.listdir(destination_fd))
+        for name in sorted(os.listdir(source_fd)):
+            if BACKUP_DIRECTORY.fullmatch(name) is None:
                 continue
-            changed = False
-            for key in ("backup",):
-                if key in value:
-                    replacement = rewritten(value.get(key))
-                    if replacement != value.get(key):
-                        value[key] = replacement
-                        changed = True
-            for nested_key in ("prior_state", "restore"):
-                nested = value.get(nested_key)
-                if isinstance(nested, dict) and "backup" in nested:
-                    replacement = rewritten(nested.get("backup"))
-                    if replacement != nested.get("backup"):
-                        nested["backup"] = replacement
-                        changed = True
-            if changed:
-                try:
-                    atomic_json(metadata_path, value)
-                except OSError as error:
-                    raise DeploymentError(
-                        f"Relocated snapshots but cannot update {metadata_path}: "
-                        f"{describe_exception(error)}. Update the recorded backup paths "
-                        "manually before continuing."
-                    ) from error
+            info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
+            staging = ".staging-backup-" + secrets.token_hex(8)
+            target = name
+            if target in names:
+                target = name.split("-")[0] + "-" + secrets.token_hex(8)
+            if target in names or staging in names:
+                raise DeploymentError(
+                    "A reserved backup migration destination already exists. Retry migration."
+                )
+            names.update((target, staging))
+            entries.append(
+                {
+                    "source": name,
+                    "target": target,
+                    "staging": staging,
+                    "phase": "pending",
+                    "source_identity": list(file_identity(info)),
+                    "target_identity": None,
+                }
+            )
+        return entries
 
-    def _path_within(self, value, root: Path) -> bool:
-        if not isinstance(value, str) or not value:
-            return False
+    def _validate_backup_migration(self, journal: dict) -> None:
+        def invalid():
+            return DeploymentError(
+                f"Invalid backup migration metadata. Inspect {self.migration_journal}."
+            )
+
+        if (
+            journal.get("schema") != 1
+            or journal.get("operation") != "backup-migration"
+            or journal.get("legacy") != str(self.legacy_backups)
+            or journal.get("destination") != str(self.backups)
+            or not valid_identity(journal.get("source_identity"))
+            or not valid_identity(journal.get("destination_identity"))
+            or not isinstance(journal.get("entries"), list)
+        ):
+            raise invalid()
+        names: dict[str, set[str]] = {key: set() for key in ("source", "target", "staging")}
+        for entry in journal["entries"]:
+            if not isinstance(entry, dict):
+                raise invalid()
+            phase = entry.get("phase")
+            if (
+                phase not in ("pending", "copying", "copied", "published", "retained", "complete")
+                or not valid_identity(entry.get("source_identity"))
+                or phase in ("copied", "published", "complete")
+                and not valid_identity(entry.get("target_identity"))
+                or phase in ("pending", "copying", "retained")
+                and entry.get("target_identity") is not None
+            ):
+                raise invalid()
+            for key, pattern in (
+                ("source", BACKUP_DIRECTORY),
+                ("target", BACKUP_DIRECTORY),
+                ("staging", STAGING_DIRECTORY),
+            ):
+                name = entry.get(key)
+                if (
+                    not isinstance(name, str)
+                    or pattern.fullmatch(name) is None
+                    or name in names[key]
+                ):
+                    raise invalid()
+                names[key].add(name)
+
+    @staticmethod
+    def _entry_identity(directory: int | None, name: str) -> list[int] | None:
+        if directory is None:
+            return None
         try:
-            candidate = Path(value)
-            if not candidate.is_absolute() or ".." in candidate.parts:
-                return False
-            candidate.relative_to(root)
-            return True
-        except (ValueError, OSError):
+            return list(file_identity(os.stat(name, dir_fd=directory, follow_symlinks=False)))
+        except FileNotFoundError:
+            return None
+
+    def _migrate_backup_entry(
+        self, journal: dict, entry: dict, source_fd: int | None, destination_fd: int
+    ) -> None:
+        def mark(phase: str) -> None:
+            entry["phase"] = phase
+            atomic_json(self.migration_journal, journal)
+
+        name, target = entry["source"], entry["target"]
+        source_identity = self._entry_identity(source_fd, name)
+        target_identity = self._entry_identity(destination_fd, target)
+        destination = self.backups / target
+        if entry["phase"] == "retained":
+            return
+        if source_identity not in (None, entry["source_identity"]):
+            raise DeploymentError(f"The legacy snapshot {name} changed during migration")
+        if entry["phase"] == "complete":
+            if target_identity != entry["target_identity"]:
+                raise DeploymentError(
+                    f"The migrated snapshot {destination} changed before finalization"
+                )
+            return
+        same_inode = False
+        if entry["phase"] == "pending":
+            if target_identity is not None:
+                if source_identity is not None or target_identity != entry["source_identity"]:
+                    raise DeploymentError(
+                        f"Ambiguous legacy snapshot migration destination: {destination}"
+                    )
+                entry["target_identity"] = target_identity
+                mark("published")
+            elif source_fd is not None and source_identity is not None:
+                source = Path(f"/proc/self/fd/{source_fd}") / name
+                if self._backup_status(source, parent_fd=source_fd)[0] != "complete":
+                    mark("retained")
+                    return
+                try:
+                    os.rename(name, target, src_dir_fd=source_fd, dst_dir_fd=destination_fd)
+                except OSError as error:
+                    if error.errno != errno.EXDEV:
+                        raise
+                    mark("copying")
+                else:
+                    os.fsync(destination_fd)
+                    os.fsync(source_fd)
+                    entry["target_identity"] = source_identity
+                    mark("published")
+                    same_inode = True
+                    source_identity = None
+            else:
+                raise DeploymentError(
+                    f"The legacy snapshot {name} is missing from both backup locations"
+                )
+        if entry["phase"] == "copying":
+            if source_fd is None or source_identity is None or target_identity is not None:
+                raise DeploymentError(f"Cannot resume the cross-filesystem copy of {name}")
+            source = Path(f"/proc/self/fd/{source_fd}") / name
+            staging = self.backups / entry["staging"]
+            if os.path.lexists(staging):
+                self._safe_remove(self.backups, staging, identity=self.fs.identity_of(staging))
+            self._copy_verified_snapshot(source, staging, parent_fd=source_fd)
+            entry["target_identity"] = self._entry_identity(destination_fd, entry["staging"])
+            mark("copied")
+        if entry["phase"] == "copied":
+            if target_identity is None:
+                if (
+                    self._entry_identity(destination_fd, entry["staging"])
+                    != entry["target_identity"]
+                ):
+                    raise DeploymentError(
+                        f"The cross-filesystem copy of {name} changed before publication"
+                    )
+                os.rename(
+                    entry["staging"], target, src_dir_fd=destination_fd, dst_dir_fd=destination_fd
+                )
+                os.fsync(destination_fd)
+            elif (
+                target_identity != entry["target_identity"]
+                or self._entry_identity(destination_fd, entry["staging"]) is not None
+            ):
+                raise DeploymentError(
+                    f"Ambiguous copied backup migration destination: {destination}"
+                )
+            mark("published")
+        if self._entry_identity(destination_fd, target) != entry["target_identity"]:
+            raise DeploymentError(f"The migrated snapshot {destination} changed identity")
+        if same_inode:
+            self.verification.put(destination, "complete")
+        elif self._backup_status(destination)[0] != "complete":
+            raise DeploymentError(f"The migrated snapshot {destination} failed verification")
+        # Both references can be rewritten repeatedly while this journal protects
+        # the verified destination. Only then can a leftover source be removed.
+        self._backup_references({name: target})
+        if source_fd is not None and source_identity is not None:
+            device, inode = journal["source_identity"]
+            source_root = RootIdentity(
+                self.legacy_backups, device, inode, "legacy backup directory"
+            )
+            self.fs._remove_entry(
+                source_root,
+                source_fd,
+                name,
+                self.legacy_backups / name,
+                identity=(source_identity[0], source_identity[1]),
+                expected_owner=self.privileged_uid,
+                top=True,
+                allow_symlinks_inside=False,
+            )
+            os.fsync(source_fd)
+        mark("complete")
+
+    def _copy_verified_snapshot(self, source: Path, staging: Path, *, parent_fd: int) -> None:
+        if self._backup_status(source, parent_fd=parent_fd)[0] != "complete":
+            raise DeploymentError(f"The legacy snapshot {source.name} failed verification")
+        usage = scan_usage(source)
+        self.check_storage(
+            [
+                StorageRequirement(
+                    self.backups,
+                    max(usage.bytes, usage.apparent_bytes),
+                    "legacy snapshot copy",
+                    usage.inodes,
+                )
+            ],
+            phase="cross-filesystem backup migration",
+        )
+        shutil.copytree(source, staging, symlinks=True)
+        sync_tree(staging)
+        self.verify_snapshot(staging)
+        sync_directory(staging.parent)
+
+    def _backup_references(
+        self, replacements: dict[str, str] | None = None, *, require_valid: bool = True
+    ) -> dict[str, set[str]]:
+        references: dict[str, set[str]] = {}
+
+        def visit(value: dict) -> bool:
+            changed = False
+            backup = value.get("backup")
+            if isinstance(backup, str) and Path(backup).parent == self.legacy_backups:
+                name = Path(backup).name
+                if replacements and name in replacements:
+                    value["backup"] = str(self.backups / replacements[name])
+                    changed = True
+                else:
+                    previous = value.get("previous")
+                    if isinstance(previous, str):
+                        references.setdefault(name, set()).add(previous)
+                    else:
+                        references.setdefault(name, set())
+            for key in ("prior_state", "restore", "rollback_state", "commit_state"):
+                nested = value.get(key)
+                if isinstance(nested, dict) and visit(nested):
+                    changed = True
+            return changed
+
+        for path, validator in (
+            (self.state, self.validate_state_metadata),
+            (self.journal, self.validate_transaction_metadata),
+        ):
+            value, valid, reason = self._load_metadata(path, path.name)
+            if valid and value is not None:
+                valid, reason = validator(value)
+            if not valid:
+                if require_valid:
+                    raise DeploymentError(f"Cannot migrate backup references in {path}: {reason}")
+                continue
+            if value is not None and visit(value):
+                atomic_json(path, value)
+        return references
+
+    def _adopt_previously_moved_backups(self) -> None:
+        references = self._backup_references(require_valid=False)
+        if not references:
+            return
+        # Updaters predating the migration journal could rename the entire
+        # legacy directory before updating its references. Require corroborating
+        # release identity from the verified snapshot's copied installed state.
+        self._backup_root()
+        matches = {}
+        for name, releases in references.items():
+            artifact = self.backups / name
+            if self._backup_status(artifact)[0] != "complete":
+                raise DeploymentError(
+                    f"The recorded legacy snapshot {name} was not found or did not verify at {artifact}"
+                )
+            state, valid, _ = self._load_metadata(
+                artifact / "config/installed.json", "snapshot installed state"
+            )
+            if (
+                not valid
+                or state is None
+                or len(releases) != 1
+                or state.get("target") is not None
+                and state["target"] not in releases
+                or state.get("target") is None
+                and state.get("version") != self.release_version(Path(next(iter(releases))))
+            ):
+                raise DeploymentError(
+                    f"Cannot prove that {artifact} is the recorded legacy snapshot. Preserve both backup locations for review."
+                )
+            matches[name] = name
+        self._backup_references(matches)
+
+    def _release_reference(self, value) -> bool:
+        if not isinstance(value, str):
             return False
+        path = Path(value)
+        return (
+            path.is_absolute()
+            and path.parent == self.releases
+            and RELEASE_DIRECTORY.fullmatch(path.name) is not None
+        )
+
+    def _backup_reference(self, value) -> bool:
+        if not isinstance(value, str):
+            return False
+        path = Path(value)
+        return (
+            path.is_absolute()
+            and path.parent in (self.backups, self.legacy_backups)
+            and BACKUP_DIRECTORY.fullmatch(path.name) is not None
+        )
 
     def validate_state_metadata(self, state, *, depth: int = 0) -> tuple[bool, str]:
-        """Semantically validate installed state before destructive cleanup."""
-        if depth > 4:
-            return False, "nested prior-state metadata is too deep"
-        if not isinstance(state, dict):
-            return False, "installed state is not a JSON object"
-        legacy = not any(key in state for key in ("target", "previous", "backup", "phase"))
-        if "version" in state and (
-            not isinstance(state["version"], str) or VERSION.fullmatch(state["version"]) is None
+        if depth > 4 or not isinstance(state, dict):
+            return False, "installed state is not a supported JSON object"
+        version = state.get("version")
+        if not isinstance(version, str) or VERSION.fullmatch(version) is None:
+            return False, "installed state has no valid version"
+        if "sha256" in state and (
+            not isinstance(state["sha256"], str)
+            or not re.fullmatch(r"sha256:[a-f0-9]{64}", state["sha256"])
         ):
-            return False, "installed state version is invalid"
-        if "phase" in state and state.get("phase") != "committed":
+            return False, "installed state has an invalid release archive digest"
+        target = state.get("target")
+        if target is None:
+            # Older rollback installations recorded only release metadata and
+            # cleared previous/backup; version-only state also predates phases.
+            if any(
+                state.get(key) is not None
+                for key in ("previous", "backup", "phase", "backup_association")
+            ):
+                return False, "legacy installed state has unexpected deployment references"
+        elif not self._release_reference(target) or Path(target).name.partition("-")[0] != version:
+            return False, "installed state target is invalid or disagrees with the version"
+        if state.get("phase") not in (None, "committed"):
             return False, "installed state has an unsupported phase"
-        for key, root in (
-            ("target", self.releases),
-            ("previous", self.releases),
-        ):
-            value = state.get(key)
-            if value is None:
-                continue
-            if not self._path_within(value, root):
-                return False, f"installed state {key} is outside {root}"
-        backup = state.get("backup")
-        if backup is not None and not (
-            self._path_within(backup, self.backups)
-            or self._path_within(backup, self.legacy_backups)
-        ):
+        if state.get("previous") is not None and not self._release_reference(state["previous"]):
+            return (
+                False,
+                "installed state previous release is outside the managed release directory",
+            )
+        if state.get("backup") is not None and not self._backup_reference(state["backup"]):
             return False, "installed state backup is outside the managed backup root"
-        prior = state.get("prior_state")
-        if prior is not None:
-            valid, reason = self.validate_state_metadata(prior, depth=depth + 1)
+        abi = state.get("updater_abi")
+        if abi is not None and (type(abi) is not int or not 1 <= abi <= UPDATER_ABI):
+            return False, "installed state requires an unsupported updater ABI"
+        if state.get("backup_association") is not None:
+            association = state["backup_association"]
+            if not state.get("backup") or not isinstance(association, dict):
+                return False, "installed state has an invalid backup association"
+            try:
+                self._validate_snapshot_association(association)
+            except DeploymentError as error:
+                return False, str(error)
+            expected_release = state.get("previous") or state.get("target")
+            expected_purpose = "pre-deployment" if state.get("previous") else "initial-install"
+            if (
+                association["release"] != expected_release
+                or association["purpose"] != expected_purpose
+            ):
+                return False, "installed state backup does not correspond to the recorded release"
+        elif abi == UPDATER_ABI and state.get("backup"):
+            return False, "installed state is missing the current snapshot identity"
+        if state.get("prior_state") is not None:
+            valid, reason = self.validate_state_metadata(state["prior_state"], depth=depth + 1)
             if not valid:
                 return False, "nested prior state is invalid: " + reason
-        if not legacy and not isinstance(state.get("version"), str):
-            return False, "installed state has no valid version"
         return True, ""
 
     def validate_transaction_metadata(self, journal) -> tuple[bool, str]:
-        """Semantically validate a transaction journal before destructive cleanup."""
         if not isinstance(journal, dict):
             return False, "transaction journal is not a JSON object"
-        phase = journal.get("phase")
+        phase, operation, abi = (journal.get(key) for key in ("phase", "operation", "abi"))
         if not isinstance(phase, str) or phase not in JOURNAL_PHASES:
             return False, "transaction journal phase is unsupported"
-        for key, root in (("target", self.releases), ("previous", self.releases)):
-            value = journal.get(key)
-            if value is None:
-                continue
-            if not self._path_within(value, root):
-                return False, f"transaction {key} is outside {root}"
-        backup = journal.get("backup")
-        if backup is not None and not (
-            self._path_within(backup, self.backups)
-            or self._path_within(backup, self.legacy_backups)
-        ):
+        if abi is not None and (type(abi) is not int or not 1 <= abi <= UPDATER_ABI):
+            return False, "transaction journal requires an unsupported updater ABI"
+        if journal.get("backup") is not None and not self._backup_reference(journal["backup"]):
             return False, "transaction backup is outside the managed backup root"
+        if operation is not None:
+            identifier = journal.get("transaction")
+            if abi != UPDATER_ABI or operation not in (
+                "install",
+                "update",
+                "rollback",
+                "automatic-recovery",
+                "manual-backup",
+            ):
+                return False, "unknown transaction operation or updater ABI"
+            if not isinstance(identifier, str) or re.fullmatch(r"[a-f0-9]{32}", identifier) is None:
+                return False, "transaction has no valid identifier"
+            allowed_phases = {
+                "install": {
+                    "prepared",
+                    "snapshot",
+                    "migrating",
+                    "activating",
+                    "activated",
+                    "committing",
+                    "committed",
+                },
+                "update": {
+                    "prepared",
+                    "snapshot",
+                    "migrating",
+                    "activating",
+                    "activated",
+                    "committing",
+                    "committed",
+                },
+                "rollback": {"recovering", "committing", "recovered"},
+                "automatic-recovery": {"recovering", "committing", "recovered"},
+                "manual-backup": {"prepared", "snapshot", "recovering", "committed", "recovered"},
+            }
+            if phase not in allowed_phases[operation]:
+                return False, "transaction phase does not match its operation"
+            if journal.get("service_target") is not None and (
+                operation not in {"rollback", "automatic-recovery"}
+                or journal["service_target"] != journal.get("previous")
+            ):
+                return False, "recovery service target disagrees with the recorded previous release"
+            if operation == "manual-backup":
+                if (
+                    phase not in {"prepared", "snapshot", "recovering", "committed", "recovered"}
+                    or not isinstance(journal.get("service_was_running"), bool)
+                    or journal.get("restore") is not None
+                    or phase == "committed"
+                    and not journal.get("backup")
+                ):
+                    return False, "manual backup service state or phase is invalid"
+            elif not self._release_reference(journal.get("target")) or "previous" not in journal:
+                return False, "transaction is missing its target or previous release"
+            elif any(
+                type(journal.get(key)) is not bool
+                for key in ("migration_started", "service_stopped", "data_modified")
+            ):
+                return False, "transaction is missing service or migration flags"
+            if operation in ("install", "update", "manual-backup"):
+                name, identifier = (journal.get(key) for key in ("snapshot_name", "snapshot_id"))
+                if (
+                    not isinstance(name, str)
+                    or BACKUP_DIRECTORY.fullmatch(name) is None
+                    or not isinstance(identifier, str)
+                    or re.fullmatch(r"[a-f0-9]{32}", identifier) is None
+                ):
+                    return False, "transaction has no valid planned snapshot identity"
+            has_snapshot_plan = (
+                operation in ("install", "update", "manual-backup")
+                or operation == "automatic-recovery"
+                and "snapshot_id" in journal
+            )
+            if has_snapshot_plan and journal.get("backup"):
+                association = journal.get("backup_association")
+                if not isinstance(association, dict):
+                    return False, "transaction is missing its snapshot association"
+                try:
+                    self._validate_snapshot_association(association)
+                except DeploymentError as error:
+                    return False, str(error)
+                purpose = {
+                    "manual-backup": "manual",
+                    "install": "initial-install",
+                    "update": "pre-deployment",
+                    "automatic-recovery": "pre-deployment"
+                    if journal.get("previous")
+                    else "initial-install",
+                }[operation]
+                if (
+                    association["transaction"] != journal["transaction"]
+                    or association["snapshot"] != journal.get("snapshot_id")
+                    or association["purpose"] != purpose
+                ):
+                    return False, "transaction snapshot identity does not match"
+            if operation == "rollback" and (
+                not journal.get("previous") or not journal.get("backup")
+            ):
+                return False, "rollback transaction is missing its recovery target or snapshot"
+            if (
+                operation == "install"
+                and journal.get("previous")
+                or operation == "update"
+                and not journal.get("previous")
+            ):
+                return False, "transaction operation disagrees with its previous release"
+            if phase == "committing":
+                if "commit_state" not in journal:
+                    return False, "committing transaction has no installed-state intent"
+                if journal["commit_state"] is not None:
+                    valid, reason = self.validate_state_metadata(journal["commit_state"])
+                    if not valid:
+                        return False, "invalid installed-state intent: " + reason
+        elif abi == UPDATER_ABI or phase == "committing":
+            return False, "current transaction is missing its operation"
+        elif phase == "recovered" and set(journal) == {"phase"}:
+            return True, ""  # Explicit terminal format written by legacy --rollback.
+        elif not self._release_reference(journal.get("target")):
+            return False, "legacy transaction has no valid target release"
+        if journal.get("previous") is not None and not self._release_reference(journal["previous"]):
+            return False, "transaction previous release is invalid"
+        if (
+            phase in {"migrating", "activating", "activated", "committed"}
+            and operation != "manual-backup"
+            and operation is not None
+            and not journal.get("backup")
+        ):
+            return False, "transaction phase requires a verified backup"
         for flag in ("service_stopped", "migration_started", "data_modified"):
             if flag in journal and not isinstance(journal[flag], bool):
                 return False, f"transaction {flag} is not a boolean"
-        prior = journal.get("prior_state")
-        if prior is not None:
-            valid, reason = self.validate_state_metadata(prior)
-            if not valid:
-                return False, "transaction prior_state is invalid: " + reason
+        for key in ("prior_state", "rollback_state"):
+            if journal.get(key) is not None:
+                valid, reason = self.validate_state_metadata(journal[key])
+                if not valid:
+                    return False, f"transaction {key} is invalid: {reason}"
         restore = journal.get("restore")
         if restore is not None:
+            if operation is not None and (
+                operation not in {"rollback", "automatic-recovery"}
+                or not journal.get("migration_started")
+            ):
+                return (
+                    False,
+                    "restore metadata is invalid for the recorded operation or migration phase",
+                )
             valid, reason = self._validate_restore_metadata(restore)
             if not valid:
                 return False, "transaction restore metadata is invalid: " + reason
+            if restore["backup"] != journal.get("backup"):
+                return False, "restore snapshot disagrees with the transaction snapshot"
         return True, ""
 
     def _validate_restore_metadata(self, restore) -> tuple[bool, str]:
         if not isinstance(restore, dict):
             return False, "not an object"
-        phase = restore.get("phase")
+        phase, identifier = (restore.get(key) for key in ("phase", "transaction"))
         if not isinstance(phase, str) or phase not in RESTORE_PHASES:
             return False, "unsupported restore phase"
-        if restore.get("data") not in {None, str(self.data)}:
-            return False, "restore data path does not match the configured data root"
-        for key in ("staging", "retained"):
-            value = restore.get(key)
-            if value is None:
-                continue
-            candidate = Path(str(value))
-            if candidate.parent != self.data.parent:
-                return False, f"restore {key} is not beside the data root"
-            pattern = RESTORE_STAGING_DIRECTORY if key == "staging" else RETAINED_DIRECTORY
-            if pattern.fullmatch(candidate.name) is None:
-                return False, f"restore {key} has an unexpected name"
-        for key, root in (("target", self.releases), ("previous", self.releases)):
-            value = restore.get(key)
-            if value is not None and not self._path_within(value, root):
-                return False, f"restore {key} is outside {root}"
-        backup = restore.get("backup")
-        if backup is not None and not (
-            self._path_within(backup, self.backups)
-            or self._path_within(backup, self.legacy_backups)
-        ):
-            return False, "restore snapshot is outside the managed backup root"
-        transaction_id = restore.get("transaction")
-        if transaction_id is not None and (
-            not isinstance(transaction_id, str)
-            or re.fullmatch(r"[0-9a-f]{8,32}", transaction_id) is None
-        ):
+        if not isinstance(identifier, str) or re.fullmatch(r"[0-9a-f]{8,32}", identifier) is None:
             return False, "restore transaction identifier is invalid"
+        if restore.get("data") != str(self.data) or not self._backup_reference(
+            restore.get("backup")
+        ):
+            return False, "restore data or snapshot path does not match the configured layout"
+        schema = restore.get("schema")
+        if schema not in (None, 2):
+            return False, "unsupported restore metadata schema"
+        for field_name, prefix in (("staging", ".restore-"), ("retained", ".retained-")):
+            value = restore.get(field_name)
+            if schema is None and phase == "prepared" and value is None:
+                continue
+            if value != str(self.data.with_name(prefix + identifier)):
+                return False, f"restore {field_name} does not match its transaction identifier"
+        if schema == 2 and (
+            not valid_identity(restore.get("gate_identity"))
+            or not valid_identity(restore.get("original_identity"))
+            or phase != "prepared"
+            and not valid_identity(restore.get("staging_identity"))
+            or phase == "prepared"
+            and restore.get("staging_identity") is not None
+        ):
+            return False, "restore phase has missing or invalid filesystem identities"
         return True, ""
+
+    def _data_account(self) -> tuple[int, int]:
+        if self.base == Path("/opt/hnefatafl"):
+            try:
+                account = pwd.getpwnam("hnefatafl")
+            except KeyError as error:
+                raise DeploymentError(
+                    "The deployment service account hnefatafl is missing"
+                ) from error
+            return account.pw_uid, account.pw_gid
+        return self.privileged_uid, os.getegid()
+
+    def _application_queries(
+        self, statements: list[tuple[str, tuple]], *, write: bool = False
+    ) -> list[list]:
+        database = self.data / "hnefatafl.sqlite3"
+        uid, gid = self._data_account()
+        uri = database.as_uri() + ("?mode=rw" if write else "?mode=ro")
+        if uid == self.privileged_uid:
+            with closing(sqlite3.connect(uri, uri=True)) as connection:
+                result = [connection.execute(sql, args).fetchall() for sql, args in statements]
+                if write:
+                    connection.commit()
+                return result
+        # SQLite can open journal and shared-memory files next to its database.
+        # Every operation against live paths executes as the service account.
+        helper = """
+import json, sqlite3, sys
+from contextlib import closing
+with closing(sqlite3.connect(sys.argv[1], uri=True)) as connection:
+    rows = [connection.execute(sql, args).fetchall() for sql, args in json.load(sys.stdin)]
+    if sys.argv[2] == 'write':
+        connection.commit()
+json.dump(rows, sys.stdout)
+"""
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-I", "-B", "-c", helper, uri, "write" if write else "read"],
+                input=json.dumps(statements),
+                text=True,
+                capture_output=True,
+                check=True,
+                timeout=15,
+                env=self.env,
+                user=uid,
+                group=gid,
+                extra_groups=[],
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise DeploymentError(
+                "The service account could not read or update its live SQLite database"
+            ) from error
+        return json.loads(completed.stdout)
+
+    def _active_jobs(self) -> bool:
+        if not os.path.lexists(self.data / "hnefatafl.sqlite3"):
+            return False
+        tables = self._application_queries(
+            [
+                ("SELECT name FROM sqlite_master WHERE name IN ('jobs', 'tournaments')", ()),
+            ]
+        )[0]
+        return any(
+            self._application_queries(
+                [
+                    (
+                        f"SELECT 1 FROM {table} WHERE json_extract(data, '$.status') IN ('running', 'cancelling', 'queued', 'starting') LIMIT 1",
+                        (),
+                    ),
+                ]
+            )[0]
+            for (table,) in tables
+            if table in {"jobs", "tournaments"}
+        )
+
+    def _data_directory(self, path: Path, *, staging: bool = False) -> RootIdentity:
+        owner, _ = self._data_account()
+        if staging:
+            info = path.lstat()
+            if info.st_uid == self.privileged_uid:
+                owner = self.privileged_uid
+        return self.fs.validate_root(
+            path, owner=owner, description="persistent data directory", allow_nested_mounts=True
+        )
+
+    def _gate_directory(self) -> tuple[RootIdentity, bool]:
+        journal, readable, reason = self._load_metadata(self.journal, "transaction journal")
+        if not readable:
+            raise DeploymentError(
+                f"Cannot acquire the deployment gate: {reason}. Inspect {self.journal}."
+            )
+        restore = journal.get("restore") if journal else None
+        if restore is None:
+            return self._data_directory(self.data), True
+        valid, reason = self.validate_transaction_metadata(journal)
+        if not valid:
+            raise DeploymentError(
+                f"Cannot acquire the deployment gate from recovery metadata: {reason}"
+            )
+        candidates = []
+        for candidate in (self.data, restore.get("retained"), restore.get("staging")):
+            if not candidate:
+                continue
+            directory = Path(candidate)
+            if not os.path.lexists(directory):
+                continue
+            root = self._data_directory(directory, staging=directory != self.data or bool(restore))
+            if os.path.lexists(directory / GATE_NAME):
+                candidates.append(root)
+        if len(candidates) == 1:
+            return candidates[0], False
+        if (
+            not candidates
+            and restore.get("schema") != 2
+            and restore.get("phase") == "prepared"
+            and self.data.is_dir()
+        ):
+            return self._data_directory(self.data), True
+        # A committed restore can be followed by normal gate creation only once
+        # the journal's authoritative data root has been confirmed.
+        raise DeploymentError(
+            f"Cannot locate a unique deployment gate for the interrupted restore. Inspect {self.journal}."
+        )
+
+    def _recorded_gate_identity(self):
+        journal, valid, _ = self._load_metadata(self.journal, "transaction journal")
+        restore = journal.get("restore") if valid and journal else None
+        return restore.get("gate_identity") if isinstance(restore, dict) else None
+
+    def _check_gate(self, directory: int, descriptor: int, identity=None) -> tuple[int, int]:
+        info = os.fstat(descriptor)
+        current = os.stat(GATE_NAME, dir_fd=directory, follow_symlinks=False)
+        found = (info.st_dev, info.st_ino)
+        application_uid, _ = self._data_account()
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid not in {self.privileged_uid, application_uid}
+            or stat.S_IMODE(info.st_mode) not in {0o600, 0o640, 0o644}
+            or info.st_uid != application_uid
+            and not info.st_mode & stat.S_IROTH
+            or found != (current.st_dev, current.st_ino)
+            or identity is not None
+            and tuple(identity) != found
+        ):
+            raise DeploymentError("Unsafe or replaced deployment gate. Inspect the data directory.")
+        return found
 
     @contextmanager
     def write_gate(self):
-        # Drain admitted HTTP mutations before checking jobs/stopping services.
-        # New mutations fail with 503 until activation/recovery finishes. GET
-        # readiness probes remain available and cannot launch training.
-        gate = self.data / ".deployment-gate"
-        if not self.data.is_dir():
-            # An interrupted restore may have renamed the data directory before
-            # publishing its replacement. The locked gate inode then lives in the
-            # retained or staging directory; adopt it so recovery is still
-            # serialized against any surviving writer.
-            gate = self.data.parent / (self.data.name + ".deployment-gate")
-            journal, journal_valid, _reason = self._load_metadata(
-                self.journal, "transaction journal"
-            )
-            if journal_valid and isinstance(journal, dict):
-                restore = journal.get("restore")
-                if isinstance(restore, dict):
-                    for key in ("staging", "retained"):
-                        candidate = restore.get(key)
-                        if not isinstance(candidate, str):
-                            continue
-                        candidate_gate = Path(candidate) / ".deployment-gate"
-                        if candidate_gate.exists():
-                            gate = candidate_gate
-                            break
-        with gate.open("a+") as handle:
-            gate.chmod(0o644)
-            deadline = time.monotonic() + 60
-            while True:
+        # The application takes a shared flock on this same inode for writes.
+        root, can_create = self._gate_directory()
+        gate = root.path / GATE_NAME
+        if self.fs.is_mount(gate):
+            raise DeploymentError(f"The deployment gate is a mount point: {gate}")
+        try:
+            with self.fs.open_directory(root) as directory:
+                created = False
                 try:
-                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise ValueError(
-                            "HTTP mutations are still running. Retry after they finish."
-                        ) from None
-                    time.sleep(0.25)
-            yield
+                    pinned = os.open(
+                        GATE_NAME, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory
+                    )
+                except FileNotFoundError:
+                    if not can_create:
+                        raise
+                    mask = os.umask(0o022)
+                    try:
+                        pinned = os.open(
+                            GATE_NAME,
+                            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                            0o644,
+                            dir_fd=directory,
+                        )
+                    finally:
+                        os.umask(mask)
+                    created = True
+                try:
+                    identity = self._check_gate(directory, pinned, self._recorded_gate_identity())
+                    # Reopen the already verified regular inode, never the
+                    # application-writable name. O_PATH itself cannot be flocked.
+                    descriptor = os.open(f"/proc/self/fd/{pinned}", os.O_RDONLY | os.O_CLOEXEC)
+                    try:
+                        self._check_gate(directory, descriptor, identity)
+                        if created:
+                            os.fsync(descriptor)
+                            os.fsync(directory)
+                        deadline = time.monotonic() + 60
+                        while True:
+                            try:
+                                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                break
+                            except BlockingIOError:
+                                if time.monotonic() >= deadline:
+                                    raise DeploymentError(
+                                        "HTTP mutations are still running. Retry after they finish."
+                                    ) from None
+                                time.sleep(0.25)
+                        self._check_gate(directory, descriptor, identity)
+                        self._held_gate = identity
+                        try:
+                            yield
+                        finally:
+                            self._held_gate = None
+                    finally:
+                        os.close(descriptor)
+                finally:
+                    os.close(pinned)
+        except OSError as error:
+            if not getattr(self, "_held_gate", None):
+                # Operations inside the scope retain their original exception.
+                if error.filename == GATE_NAME:
+                    raise DeploymentError(
+                        f"Cannot safely open the deployment gate at {gate}"
+                    ) from error
+            raise
 
     @staticmethod
     def _existing_anchor(path: Path) -> Path:
@@ -1735,33 +2367,27 @@ class Deployment:
         return {
             "backups",
             "cache",
+            GATE_NAME,
+            RESTORE_MARKER,
             "hnefatafl.sqlite3",
             "hnefatafl.sqlite3-wal",
             "hnefatafl.sqlite3-shm",
         }
 
     def _database_size(self) -> tuple[int, int]:
-        """Actual SQLite page allocation plus sidecars and inode count."""
-        database = self.data / "hnefatafl.sqlite3"
-        if not database.is_file() or database.is_symlink():
-            return 0, 0
-        size = 0
-        inodes = 1
-        try:
-            with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as c:
-                page_count = c.execute("PRAGMA page_count").fetchone()[0]
-                page_size = c.execute("PRAGMA page_size").fetchone()[0]
-                size = int(page_count) * int(page_size)
-        except sqlite3.Error:
-            size = int(database.stat().st_size)
-        for suffix in ("-wal", "-shm"):
-            sidecar = database.with_name(database.name + suffix)
-            if sidecar.is_file() and not sidecar.is_symlink():
-                info = sidecar.stat()
-                size += max(int(info.st_size), int(getattr(info, "st_blocks", 0)) * 512)
-                inodes += 1
-        # A standalone SQLite copy omits the WAL but adds page overhead.
-        return int(size * 1.05) + TREE_OVERHEAD_PER_FILE, inodes
+        """Conservatively account for SQLite and every live sidecar without opening them."""
+        size, files = 0, 0
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            path = self.data / ("hnefatafl.sqlite3" + suffix)
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                raise DeploymentError(f"Unexpected SQLite path: {path}")
+            files += 1
+            size += max(info.st_size, info.st_blocks * 512) + TREE_OVERHEAD_PER_FILE
+        return size, files
 
     def snapshot_requirement(self) -> StorageRequirement:
         """Estimate a snapshot using exactly the snapshot inclusion rules."""
@@ -1771,7 +2397,7 @@ class Deployment:
         database_bytes, database_inodes = self._database_size()
         manifest_bytes = max(MIB, (data_usage.inodes + config_usage.inodes + 32) * 512)
         usage = data_usage + config_usage
-        total = usage.bytes + database_bytes + manifest_bytes
+        total = usage.bytes + 2 * database_bytes + manifest_bytes
         margin = int(total * self.storage_settings["snapshot_margin_percent"] / 100)
         return StorageRequirement(
             self.backups,
@@ -1863,13 +2489,13 @@ class Deployment:
         usage = scan_usage(backup / "data")
         usage = usage + self._usage(backup / "config")
         margin = int(self.storage_settings["snapshot_margin_percent"]) / 100
-        total = usage.bytes + int(usage.bytes * margin)
+        total = usage.bytes + int(usage.bytes * margin) + self._database_size()[0]
         # The restore candidate is created beside the live data directory, so the
         # requirement belongs to that filesystem, not the snapshot filesystem.
         return StorageRequirement(
-            self.data,
+            self.data.parent,
             total,
-            "restore staging, retained live data and migration headroom",
+            "restore staging, live authority copy and migration headroom",
             usage.inodes + 1024,
         )
 
@@ -2165,23 +2791,42 @@ class Deployment:
         return entries
 
     def _load_metadata(self, path: Path, label: str) -> tuple[dict | None, bool, str]:
-        if not path.exists():
-            return None, True, ""
-        if path.is_symlink() or not path.is_file():
-            return None, False, f"{label} is not a regular file"
         try:
-            value = json.loads(path.read_text())
+            info = path.lstat()
+        except FileNotFoundError:
+            return None, True, ""
+        except OSError as error:
+            return None, False, f"cannot inspect {label}: {describe_exception(error)}"
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != self.privileged_uid
+            or info.st_nlink != 1
+            or info.st_mode & 0o022
+        ):
+            return None, False, f"{label} is not a trusted owner-controlled regular file"
+        if (
+            path in {self.state, self.journal, self.updater_state, self.migration_journal}
+            and info.st_mode & 0o077
+        ):
+            return None, False, f"{label} must have permissions 0600"
+        try:
+            fd = os.open(path, os.O_NOFOLLOW | os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+            with os.fdopen(fd, encoding="utf-8") as handle:
+                opened = os.fstat(handle.fileno())
+                if (
+                    file_identity(opened) != file_identity(info)
+                    or opened.st_ctime_ns != info.st_ctime_ns
+                ):
+                    return None, False, f"{label} changed during inspection"
+                value = json.load(handle)
         except (OSError, ValueError, TypeError):
             return None, False, f"{label} is unreadable or invalid JSON"
         if not isinstance(value, dict):
             return None, False, f"{label} is not a JSON object"
         return value, True, ""
 
-    def _backup_status(self, path: Path) -> tuple[str, str]:
+    def _backup_status(self, path: Path, *, parent_fd: int | None = None) -> tuple[str, str]:
         path = Path(path)
-        cached = self.verification.get(path)
-        if cached == "complete":
-            return "complete", "verified during this operation"
         try:
             info = path.lstat()
         except OSError as error:
@@ -2198,18 +2843,16 @@ class Deployment:
         if not manifest.is_file() or manifest.is_symlink():
             return "incomplete", "missing manifest"
         try:
-            self.verify_snapshot(path)
+            self.verify_snapshot(path, parent_fd=parent_fd)
         except (OSError, ValueError, KeyError, TypeError) as error:
             return "invalid", "manifest verification failed: " + describe_exception(error)
-        database = path / "data/hnefatafl.sqlite3"
-        if database.is_file() and not database.is_symlink():
-            try:
-                with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
-                    if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
-                        return "invalid", "SQLite integrity check failed"
-            except sqlite3.Error as error:
-                return "invalid", "SQLite integrity check failed: " + describe_exception(error)
-        self.verification.put(path, "complete")
+        try:
+            schema = self._verified_snapshot_schema(path)
+            self._verify_snapshot_association(
+                path, target=None, expected=None, allow_legacy=True, schema=schema
+            )
+        except (OSError, DeploymentError) as error:
+            return "invalid", describe_exception(error)
         return "complete", ""
 
     @staticmethod
@@ -2301,10 +2944,7 @@ class Deployment:
         return roots
 
     def _data_owner(self) -> int:
-        try:
-            return os.lstat(self.data).st_uid
-        except OSError:
-            return self.privileged_uid
+        return self._data_account()[0]
 
     def cleanup(
         self,
@@ -2337,7 +2977,14 @@ class Deployment:
         )
         if journal_ok and journal is not None:
             journal_ok, journal_reason = self.validate_transaction_metadata(journal)
-        unfinished = bool(journal and journal.get("phase") not in {"committed", "recovered"})
+        unfinished = bool(
+            journal
+            and (journal.get("phase") not in {"committed", "recovered"} or journal.get("restore"))
+        )
+        if os.path.lexists(self.migration_journal):
+            report.exception_reason = "unfinished backup migration; run hnefatafl-update --recover"
+            report.refused = True
+            return report
         can_delete = state_ok and journal_ok and (not unfinished or allow_unfinished)
 
         def note(reason: str) -> None:
@@ -2965,6 +3612,16 @@ class Deployment:
                     identity=identity,
                 )
                 continue
+            if os.path.lexists(path / GATE_NAME):
+                add(
+                    "restore-staging",
+                    "keep",
+                    path,
+                    "restore staging contains a deployment gate",
+                    status="protected",
+                    identity=identity,
+                )
+                continue
             marker = self._load_metadata(path / RESTORE_MARKER, "restore staging marker")
             value, valid, reason = marker
             if not valid or value is None:
@@ -3033,6 +3690,7 @@ class Deployment:
             Path(root),
             owner=self.privileged_uid,
             description=description,
+            allow_nested_mounts=Path(root) == self.data.parent,
         )
         try:
             info = os.lstat(path)
@@ -3162,7 +3820,11 @@ class Deployment:
             for path in children:
                 if pattern.fullmatch(path.name) is None:
                     continue
-                if str(path) in protected_restore:
+                if (
+                    str(path) in protected_restore
+                    or pattern == RESTORE_STAGING_DIRECTORY
+                    and os.path.lexists(path / GATE_NAME)
+                ):
                     continue
                 if (
                     self.fs.read_staging_marker(path) is None
@@ -3191,9 +3853,13 @@ class Deployment:
                 else:
                     print(f"Removed interrupted staging artifact: {path}")
 
-    def _post_operation_cleanup(self, operation: str) -> None:
+    def _post_operation_cleanup(
+        self, operation: str, *, protected_backups: set[Path] | None = None
+    ) -> None:
         try:
-            report = self.cleanup(dry_run=False, automatic=True)
+            report = self.cleanup(
+                dry_run=False, automatic=True, protected_backups=protected_backups
+            )
         except BaseException as error:
             if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 print(
@@ -3337,6 +4003,7 @@ class Deployment:
     # ------------------------------------------------------------------
     UPDATER_MEMBERS = {
         "deployment": "hnefatafl/deployment.py",
+        "launcher": "scripts/linux/launcher.py",
         "update": "scripts/linux/update.sh",
         "backup": "scripts/linux/backup.sh",
         **{name: f"hnefatafl/{name}.py" for name in UPDATER_SUPPORT_MODULES},
@@ -3353,7 +4020,7 @@ class Deployment:
                 name = member.name.removeprefix("./")
                 if name not in wanted:
                     continue
-                if not member.isfile() or member.issym() or member.islnk():
+                if name in found or not member.isfile() or member.issym() or member.islnk():
                     raise DeploymentError(
                         f"Trusted updater member {name} is not a regular file in the "
                         "verified archive; refusing to install it"
@@ -3397,15 +4064,28 @@ class Deployment:
                             return int(value.value)
         return None
 
-    def _installed_updater_abi(self) -> int:
-        value, valid, _reason = self._load_metadata(self.updater_state, "installed updater state")
-        if valid and value is not None:
-            abi = value.get("abi")
-            if isinstance(abi, int) and not isinstance(abi, bool) and abi >= 1:
-                return abi
-        return 1
+    def _installed_updater_abi(self, *, verify_active: bool = True) -> int:
+        active = self._active_updater(verify=verify_active)
+        if active:
+            return active["abi"]
+        value, valid, reason = self._load_metadata(self.updater_state, "installed updater state")
+        if not valid:
+            raise DeploymentError(f"Invalid installed updater state: {reason}")
+        abi = 1
+        if value is not None:
+            recorded = value.get("abi")
+            if value.get("schema") != 1 or type(recorded) is not int or recorded < 1:
+                raise DeploymentError(f"Invalid installed updater ABI at {self.updater_state}")
+            abi = recorded
+        if os.path.lexists(self.updater_module):
+            source = self._utility_file(self.updater_module).read_text()
+            compile(source, str(self.updater_module), "exec")
+            abi = max(abi, self._updater_abi(source) or 1)
+        return abi
 
-    def _validate_updater_payload(self, payload: dict[str, bytes]) -> int:
+    def _validate_updater_payload(
+        self, payload: dict[str, bytes], *, verify_active: bool = True
+    ) -> int:
         try:
             module_source = payload["hnefatafl/deployment.py"].decode("utf-8", "strict")
         except (KeyError, UnicodeDecodeError) as error:
@@ -3419,7 +4099,7 @@ class Deployment:
                 f"Refusing to install an invalid deployment utility: {describe_exception(error)}"
             ) from error
         abi = self._updater_abi(module_source)
-        installed = self._installed_updater_abi()
+        installed = self._installed_updater_abi(verify_active=verify_active)
         if abi is None or abi < 1:
             raise DeploymentError(
                 "The candidate deployment utility does not declare a supported protocol "
@@ -3432,8 +4112,14 @@ class Deployment:
                 "or retention metadata. Run a newer installer or use --refresh-updater "
                 "from a newer verified release."
             )
-        for name in UPDATER_SUPPORT_MODULES:
-            member = f"hnefatafl/{name}.py"
+        if abi < 3:
+            raise DeploymentError(
+                "The candidate updater does not support coherent utility generations"
+            )
+        for member in (
+            self.UPDATER_MEMBERS["launcher"],
+            *(f"hnefatafl/{name}.py" for name in UPDATER_SUPPORT_MODULES),
+        ):
             source = payload.get(member)
             if source is None:
                 raise DeploymentError(f"The candidate updater payload is missing {member}")
@@ -3454,15 +4140,25 @@ class Deployment:
                 raise DeploymentError(
                     f"Refusing to install invalid updater wrapper {wrapper}"
                 ) from error
-            if not text.strip() or "\x00" in text:
+            if (
+                not text.startswith("#!")
+                or "\x00" in text
+                or subprocess.run(
+                    ["/bin/bash", "-n"], input=text, text=True, capture_output=True, check=False
+                ).returncode
+            ):
                 raise DeploymentError(f"Refusing to install invalid updater wrapper {wrapper}")
         return abi
 
     def _stage_updater_payload(self, archive: Path, tag: str, digest: str) -> Path:
         """Persist authenticated updater sources in root-controlled storage."""
-        self.updater_root.mkdir(parents=True, exist_ok=True, mode=0o755)
-        if os.geteuid() == 0:
-            os.chown(self.updater_root, 0, 0)
+        self._managed_root(
+            self.updater_root,
+            owner=self.privileged_uid,
+            mode=0o755,
+            description="installed utility directory",
+            write=True,
+        )
         payload = self._read_archive_members(archive, self.UPDATER_MEMBERS)
         abi = self._validate_updater_payload(payload)
         token = re.sub(r"[^a-f0-9]", "", digest.lower())[-16:] or secrets.token_hex(8)
@@ -3479,8 +4175,6 @@ class Deployment:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-            if os.geteuid() == 0:
-                os.chown(destination, 0, 0)
             files[member] = hashlib.sha256(content).hexdigest()
         atomic_json(
             staging / "manifest.json",
@@ -3493,7 +4187,6 @@ class Deployment:
                 "created_at": time.time(),
             },
         )
-        os.chmod(staging / "manifest.json", 0o600)
         print(f"Staged trusted deployment utility from verified release archive {tag}.")
         return staging
 
@@ -3532,262 +4225,350 @@ class Deployment:
             return None
         return candidate
 
-    def _updater_publication_plan(self, staging: Path) -> list[tuple[Path, Path, int]]:
-        manifest, valid, reason = self._load_metadata(
-            Path(staging) / "manifest.json", "updater staging manifest"
+    def _updater_publication_plan(self, staging: Path) -> dict[str, bytes]:
+        self.fs.validate_root(
+            staging, owner=self.privileged_uid, mode=0o700, description="pending updater directory"
         )
-        if not valid or manifest is None:
+        manifest, valid, reason = self._load_metadata(
+            staging / "manifest.json", "updater staging manifest"
+        )
+        files = manifest.get("files") if valid and manifest else None
+        if not isinstance(files, dict) or set(files) != set(self.UPDATER_MEMBERS.values()):
             raise DeploymentError(
-                f"Refusing to publish an unverified updater set: {reason or 'missing manifest'}"
+                f"Refusing to publish an unverified updater set: {reason or 'incomplete manifest'}"
             )
-        files = manifest.get("files")
-        if not isinstance(files, dict):
-            raise DeploymentError("Updater staging manifest has no file digest map")
-        payload = self._read_archive_members_from_staging(staging, files)
-        self._validate_updater_payload(payload)
-        plan = [
-            (staging / self.UPDATER_MEMBERS["deployment"], self.updater_module, 0o644),
-            (
-                staging / self.UPDATER_MEMBERS["update"],
-                self.updater_commands[0],
-                0o755,
-            ),
-            (
-                staging / self.UPDATER_MEMBERS["backup"],
-                self.updater_commands[1],
-                0o755,
-            ),
-        ]
-        for name in UPDATER_SUPPORT_MODULES:
-            plan.append(
-                (staging / f"hnefatafl/{name}.py", self.updater_support / f"{name}.py", 0o644)
-            )
-        return plan
-
-    def _read_archive_members_from_staging(self, staging: Path, expected: dict) -> dict[str, bytes]:
         payload = {}
-        for member, digest in expected.items():
-            if not isinstance(member, str) or not isinstance(digest, str):
-                raise DeploymentError("Updater staging manifest contains an invalid entry")
-            if not re.fullmatch(r"[a-f0-9]{64}", digest):
-                raise DeploymentError("Updater staging manifest contains an invalid digest")
-            if (
-                member != "hnefatafl/deployment.py"
-                and member not in {f"hnefatafl/{name}.py" for name in UPDATER_SUPPORT_MODULES}
-                and member not in self.UPDATER_MEMBERS.values()
-            ):
-                raise DeploymentError(f"Updater staging contains an unexpected member {member}")
-            path = Path(staging) / member
-            try:
-                info = os.lstat(path)
-            except OSError as error:
-                raise DeploymentError(
-                    f"Updater staging member is missing ({member}): {describe_exception(error)}"
-                ) from error
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                raise DeploymentError(f"Updater staging member {member} is not a regular file")
-            if info.st_uid != self.privileged_uid or info.st_mode & 0o022:
-                raise DeploymentError(
-                    f"Updater staging member {member} is writable by another account"
-                )
-            content = path.read_bytes()
+        for member, digest in files.items():
+            content = self._utility_file(staging / member).read_bytes()
             if hashlib.sha256(content).hexdigest() != digest:
                 raise DeploymentError(f"Updater staging member {member} changed after staging")
             payload[member] = content
-        for name in UPDATER_SUPPORT_MODULES:
-            member = f"hnefatafl/{name}.py"
-            if member not in payload:
-                raise DeploymentError(f"Updater staging is missing restore support {member}")
         return payload
 
-    def _publish_updater_plan(self, plan: list[tuple[Path, Path, int]], *, tag: str) -> None:
-        self.fs.validate_root(
+    def _utility_file(self, path: Path) -> Path:
+        self.fs._validate_ancestors(path, "deployment utility")
+        info = path.lstat()
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != self.privileged_uid
+            or info.st_nlink != 1
+            or info.st_mode & 0o022
+            or self.fs.is_mount(path)
+        ):
+            raise DeploymentError(f"The deployment utility file is unsafe: {path}")
+        return path
+
+    def _generation_files(self, payload: dict[str, bytes]) -> dict[str, bytes]:
+        return {
+            "deployment.py": payload[self.UPDATER_MEMBERS["deployment"]],
+            "launcher.py": payload[self.UPDATER_MEMBERS["launcher"]],
+            "update.sh": payload[self.UPDATER_MEMBERS["update"]],
+            "backup.sh": payload[self.UPDATER_MEMBERS["backup"]],
+            **{
+                f"updater_support/{name}.py": payload[self.UPDATER_MEMBERS[name]]
+                for name in UPDATER_SUPPORT_MODULES
+            },
+        }
+
+    def _active_updater(self, *, verify: bool = True) -> dict | None:
+        path = self.updater_root / "active.json"
+        active, valid, reason = self._load_metadata(path, "active updater generation")
+        if not valid:
+            raise DeploymentError(f"Invalid active updater generation: {reason}")
+        if active is None:
+            return None
+        identifier = active.get("generation")
+        previous = active.get("previous")
+        if (
+            active.get("schema") != 1
+            or type(active.get("abi")) is not int
+            or active["abi"] < 3
+            or not isinstance(identifier, str)
+            or not re.fullmatch(r"[a-f0-9]{64}", identifier)
+            or previous is not None
+            and (
+                not isinstance(previous, str)
+                or not re.fullmatch(r"[a-f0-9]{64}", previous)
+                or identifier == previous
+            )
+        ):
+            raise DeploymentError(f"Invalid active updater state: {path}")
+        if verify:
+            manifest = self._verify_generation(path.parent / "generations" / identifier)
+            if manifest.get("abi") != active.get("abi"):
+                raise DeploymentError(
+                    f"The installed updater ABI conflicts with its generation: {path}"
+                )
+        return active
+
+    def _verify_generation(self, path: Path) -> dict:
+        self.fs.validate_root(path, owner=self.privileged_uid, description="updater generation")
+        manifest_path = self._utility_file(path / "manifest.json")
+        content = manifest_path.read_bytes()
+        if hashlib.sha256(content).hexdigest() != path.name:
+            raise DeploymentError(f"Updater generation manifest did not verify: {path}")
+        try:
+            manifest = json.loads(content)
+        except ValueError as error:
+            raise DeploymentError(f"Updater generation manifest is invalid: {path}") from error
+        expected = {"deployment.py", "launcher.py", "update.sh", "backup.sh"} | {
+            f"updater_support/{name}.py" for name in UPDATER_SUPPORT_MODULES
+        }
+        files = manifest.get("files") if isinstance(manifest, dict) else None
+        if not isinstance(files, dict) or set(files) != expected:
+            raise DeploymentError(f"Updater generation is incomplete: {path}")
+        for name, digest in files.items():
+            file = self._utility_file(path / name)
+            if file.stat().st_mode & 0o222 or checksum(file) != digest:
+                raise DeploymentError(f"Installed updater generation file did not verify: {file}")
+        return manifest
+
+    def _publish_updater_plan(
+        self, payload: dict[str, bytes], *, tag: str, repair: bool = False
+    ) -> None:
+        """Make one verified generation visible through an atomic pointer."""
+        self._managed_root(
             self.updater_root,
             owner=self.privileged_uid,
+            mode=0o755,
             description="installed utility directory",
+            write=True,
         )
-        module_source = plan[0][0].read_text()
-        abi = self._updater_abi(module_source)
-        if abi is None:
-            raise DeploymentError("The candidate deployment utility has no protocol version")
-        token = secrets.token_hex(6)
-        journal_path = self.updater_root / ".refresh.json"
-        entries = []
-        allowed_parents = {
-            self.updater_root,
-            self.updater_support,
-            self.updater_commands[0].parent,
-            self.updater_commands[1].parent,
-        }
-        for source, destination, mode in plan:
-            if destination.parent not in allowed_parents:
-                raise DeploymentError(
-                    f"Refusing to publish a utility outside the managed root: {destination}"
-                )
-            if not destination.parent.exists():
-                os.mkdir(destination.parent, 0o755)
-                if os.geteuid() == 0:
-                    os.chown(destination.parent, 0, 0)
-            parent = self.fs.validate_root(
-                destination.parent,
-                owner=self.privileged_uid,
-                description="installed utility directory",
-            )
-            if destination.is_symlink():
-                raise DeploymentError(
-                    f"Refusing to replace the symlinked utility destination {destination}"
-                )
-            entries.append(
-                {
-                    "source": str(source),
-                    "destination": str(destination),
-                    "mode": mode,
-                    "temporary": str(destination.with_name(destination.name + ".new-" + token)),
-                    "previous": str(destination.with_name(destination.name + ".previous-" + token)),
-                    "parent_device": parent.device,
-                    "parent_inode": parent.inode,
-                    "replaced": False,
-                    "had_previous": False,
-                }
-            )
-        journal = {
-            "schema": 1,
-            "phase": "preparing",
-            "tag": tag,
-            "transaction": token,
-            "entries": entries,
-        }
-        atomic_json(journal_path, journal)
-        try:
-            for entry in entries:
-                destination = Path(str(entry["destination"]))
-                source = Path(str(entry["source"]))
-                if destination.exists():
-                    shutil.copyfile(destination, str(entry["previous"]))
-                    os.chmod(str(entry["previous"]), stat.S_IMODE(destination.stat().st_mode))
-                    if os.geteuid() == 0:
-                        os.chown(str(entry["previous"]), 0, 0)
-                    entry["had_previous"] = True
-                descriptor = os.open(
-                    str(entry["temporary"]), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-                )
-                with os.fdopen(descriptor, "wb") as handle:
-                    handle.write(source.read_bytes())
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.chmod(str(entry["temporary"]), int(str(entry["mode"])))
-                if os.geteuid() == 0:
-                    os.chown(str(entry["temporary"]), 0, 0)
-            journal["phase"] = "prepared"
-            atomic_json(journal_path, journal)
-            for index, entry in enumerate(entries):
-                parent = self.fs.validate_root(
-                    Path(str(entry["destination"])).parent,
-                    owner=self.privileged_uid,
-                    description="installed utility directory",
-                )
-                if (parent.device, parent.inode) != (
-                    entry["parent_device"],
-                    entry["parent_inode"],
-                ):
-                    raise DeploymentError(
-                        "The installed utility directory changed identity during "
-                        "publication; restoring the previous utility"
-                    )
-                os.replace(str(entry["temporary"]), str(entry["destination"]))
-                entry["replaced"] = True
-                journal["phase"] = "replacing"
-                journal["completed"] = index + 1
-                atomic_json(journal_path, journal)
-            for directory in {Path(str(entry["destination"])).parent for entry in entries}:
-                descriptor = os.open(directory, os.O_DIRECTORY)
-                try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
-            journal["phase"] = "committed"
-            atomic_json(journal_path, journal)
-        except BaseException:
-            try:
-                self._rollback_updater_journal(journal)
-            except (OSError, DeploymentError) as rollback_error:
-                raise DeploymentError(
-                    "Utility replacement failed and the previous utility could not be "
-                    f"fully restored: {describe_exception(rollback_error)}. The previous "
-                    f"files are retained in {self.updater_root}; inspect and restore "
-                    "them manually before running another update."
-                ) from rollback_error
-            raise
-        finally:
-            try:
-                if journal_path.exists():
-                    journal_path.unlink()
-            except OSError:
-                pass
-        for entry in entries:
-            previous = Path(str(entry["previous"]))
-            if previous.exists() and not previous.is_symlink():
-                previous.unlink(missing_ok=True)
-        self._record_updater_state(tag, abi)
-        print("Installed deployment utility refreshed from the verified release archive.")
-
-    def _rollback_updater_journal(self, journal: dict) -> None:
-        for entry in journal.get("entries", []):
-            destination = Path(str(entry["destination"]))
-            previous = Path(str(entry["previous"]))
-            temporary = Path(str(entry["temporary"]))
-            if entry.get("replaced") and entry.get("had_previous") and previous.exists():
-                os.replace(previous, destination)
-            elif entry.get("replaced") and not entry.get("had_previous"):
-                destination.unlink(missing_ok=True)
-            if temporary.exists() and not temporary.is_symlink():
-                temporary.unlink(missing_ok=True)
-            if previous.exists() and not previous.is_symlink():
-                previous.unlink(missing_ok=True)
-        journal_path = self.updater_root / ".refresh.json"
-        try:
-            journal_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-    def recover_updater_refresh(self) -> None:
-        """Roll back an interrupted utility publication before anything else."""
-        journal_path = self.updater_root / ".refresh.json"
-        if not journal_path.exists():
-            return
-        journal, valid, reason = self._load_metadata(journal_path, "updater refresh journal")
-        if not valid or journal is None:
+        abi = self._validate_updater_payload(payload, verify_active=not repair)
+        files = self._generation_files(payload)
+        active = self._active_updater(verify=not repair)
+        launcher = files["launcher.py"]
+        installed_launcher = None
+        if os.path.lexists(self.updater_module):
+            installed_launcher = self._utility_file(self.updater_module).read_bytes()
+        if (
+            installed_launcher is not None
+            and b"def launch(lock_path=" in installed_launcher
+            and installed_launcher != launcher
+        ):
             raise DeploymentError(
-                f"An interrupted deployment utility refresh has unreadable metadata "
-                f"({reason}). Refusing to continue until {journal_path} is inspected; "
-                "the previous utility copies are retained beside the installed files."
+                "The installed deployment launcher differs from the verified stable launcher"
             )
-        for entry in journal.get("entries", []):
-            if not isinstance(entry, dict):
+        if active is not None and installed_launcher not in (None, launcher):
+            # A previous bootstrap can have persisted the generation before
+            # switching the old command to the launcher. The old module is
+            # still complete and is copied before attempting that switch again.
+            legacy = self.updater_root / "legacy-deployment.py"
+            if (
+                not legacy.is_file()
+                or self._utility_file(legacy).read_bytes() != installed_launcher
+            ):
                 raise DeploymentError(
-                    "The interrupted utility refresh journal is malformed; inspect it "
-                    "manually before continuing"
+                    "The installed launcher is inconsistent with the active updater generation"
                 )
-        response = journal.get("phase")
-        if response == "committed":
-            journal_path.unlink(missing_ok=True)
-            return
-        self._rollback_updater_journal(journal)
-        print(
-            "Recovered an interrupted deployment utility refresh by restoring the "
-            "previous working utility."
-        )
+        wrappers: list[tuple[Path, bytes]] = []
+        for command, name in zip(self.updater_commands, ("update.sh", "backup.sh"), strict=True):
+            self._managed_root(
+                command.parent,
+                owner=self.privileged_uid,
+                mode=0o755,
+                description="updater command directory",
+                write=True,
+            )
+            if not os.path.lexists(command):
+                wrappers.append((command, files[name]))
+                continue
+            existing = self._utility_file(command).read_bytes()
+            if existing == files[name]:
+                continue
+            legacy_wrapper = files[name].replace(b"/usr/bin/python3 -I -B ", b"/usr/bin/python3 ")
+            if name != "update.sh" or existing != legacy_wrapper:
+                raise DeploymentError(f"The existing updater wrapper is incompatible: {command}")
+            wrappers.append((command, files[name]))
+        if installed_launcher is not None and installed_launcher != launcher:
+            atomic_bytes(self.updater_root / "legacy-deployment.py", installed_launcher, 0o444)
 
-    def _record_updater_state(self, tag: str, abi: int) -> None:
-        atomic_json(
-            self.updater_state,
+        generations = self.updater_root / "generations"
+        self._managed_root(
+            generations,
+            owner=self.privileged_uid,
+            mode=0o700,
+            description="updater generations directory",
+            write=True,
+        )
+        manifest = json.dumps(
             {
                 "schema": 1,
                 "abi": abi,
                 "version": tag,
-                "refreshed_at": time.time(),
+                "files": {
+                    name: hashlib.sha256(content).hexdigest() for name, content in files.items()
+                },
             },
-        )
+            sort_keys=True,
+        ).encode()
+        identifier = hashlib.sha256(manifest).hexdigest()
+        destination = generations / identifier
+        damaged = None
+        previous = active["generation"] if active else None
+        if repair and active:
+            try:
+                self._active_updater()
+            except (OSError, DeploymentError):
+                damaged = generations / active["generation"]
+                previous = active.get("previous")
+                if previous is not None:
+                    self._verify_generation(generations / previous)
+                if damaged == destination and os.path.lexists(damaged):
+                    os.rename(damaged, generations / (".damaged-" + secrets.token_hex(8)))
+                    sync_directory(generations)
+        if not os.path.lexists(destination):
+            staging = Path(tempfile.mkdtemp(prefix=".stage-", dir=generations))
+            try:
+                (staging / "updater_support").mkdir(mode=0o700)
+                for name, content in files.items():
+                    atomic_bytes(staging / name, content, 0o444)
+                atomic_bytes(staging / "manifest.json", manifest, 0o444)
+                sync_tree(staging)
+                os.rename(staging, destination)
+                sync_directory(generations)
+            finally:
+                if staging.exists():
+                    self._safe_remove(generations, staging, identity=self.fs.identity_of(staging))
+        self._verify_generation(destination)
+        smoke = """
+import inspect, runpy, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+module = runpy.run_path(str(path / 'deployment.py'))
+inspect.signature(module['main']).bind([], installed_generation=path, deployment_lock=None)
+assert callable(module['guard_service_start'])
+updater = module['Deployment']({}, updater_root=path)
+updater._load_online_support()
+"""
+        try:
+            subprocess.run(
+                [sys.executable, "-I", "-B", "-c", smoke, str(destination)],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise DeploymentError(
+                "The candidate utility generation failed its standalone import check"
+            ) from error
+        if previous != identifier or damaged is not None:
+            atomic_json(
+                self.updater_root / "active.json",
+                {
+                    "schema": 1,
+                    "abi": abi,
+                    "generation": identifier,
+                    "previous": previous if previous != identifier else None,
+                },
+            )
+        # Older wrappers already invoke this exact file. The old module and its
+        # support files remain usable up to this final atomic bootstrap step.
+        if installed_launcher != launcher:
+            atomic_bytes(self.updater_module, launcher, 0o444)
+        for command, content in wrappers:
+            atomic_bytes(command, content, 0o755)
+        protected = {identifier, previous}
+        if damaged is not None:
+            protected.add(damaged.name)
+        if active:
+            protected.add(active.get("previous"))
+        for entry in generations.iterdir():
+            if entry.name in protected or not re.fullmatch(
+                r"[a-f0-9]{64}|\.stage-[a-z0-9_]{8}", entry.name
+            ):
+                continue
+            try:
+                self._safe_remove(generations, entry, identity=self.fs.identity_of(entry))
+            except (OSError, DeploymentError) as error:
+                print(
+                    f"Updater generation cleanup warning: {describe_exception(error)}",
+                    file=sys.stderr,
+                )
+        print("Installed deployment utility generation activated.")
+
+    def _legacy_refresh_entries(self, journal: dict) -> list[tuple[Path, Path, Path, bool, bool]]:
+        allowed = {
+            self.updater_module,
+            *self.updater_commands,
+            *(self.updater_support / f"{name}.py" for name in UPDATER_SUPPORT_MODULES),
+        }
+        entries = journal.get("entries")
+        phase = journal.get("phase")
+        if (
+            journal.get("schema") != 1
+            or phase not in ("preparing", "prepared", "replacing", "committed", "rolled-back")
+            or not isinstance(entries, list)
+            or not entries
+        ):
+            raise DeploymentError("Invalid legacy updater refresh journal")
+        result = []
+        for entry in entries:
+            if not isinstance(entry, dict) or not all(
+                isinstance(entry.get(key), str) for key in ("destination", "previous", "temporary")
+            ):
+                raise DeploymentError("Invalid legacy updater refresh journal entry")
+            destination, previous, temporary = (
+                Path(entry[key]) for key in ("destination", "previous", "temporary")
+            )
+            prefix = re.escape(destination.name)
+            match = re.fullmatch(rf"{prefix}\.previous-([a-f0-9]{{6,32}})", previous.name)
+            if (
+                destination not in allowed
+                or match is None
+                or previous.parent != destination.parent
+                or temporary != destination.with_name(f"{destination.name}.new-{match[1]}")
+                or not isinstance(entry.get("had_previous"), bool)
+                or not isinstance(entry.get("replaced"), bool)
+            ):
+                raise DeploymentError("Unsafe paths in the legacy updater refresh journal")
+            allowed.remove(destination)
+            for path in (previous, temporary, destination):
+                if os.path.lexists(path):
+                    self._utility_file(path)
+            result.append(
+                (destination, previous, temporary, entry["had_previous"], entry["replaced"])
+            )
+        return result
+
+    def recover_updater_refresh(self) -> None:
+        """Reconcile publications left by the pre-generation updater."""
+        path = self.updater_root / ".refresh.json"
+        journal, valid, reason = self._load_metadata(path, "legacy updater refresh journal")
+        if not valid:
+            raise DeploymentError(f"Cannot recover the previous utility from {path}: {reason}")
+        if journal is None:
+            return
+        entries = self._legacy_refresh_entries(journal)
+        if journal["phase"] not in ("committed", "rolled-back"):
+            if journal["phase"] != "preparing":
+                # A consumed temporary identifies a replacement even when the
+                # old updater was killed before it wrote `replaced` to disk.
+                for destination, previous, temporary, had_previous, replaced in entries:
+                    if not replaced and temporary.exists():
+                        continue
+                    if had_previous:
+                        if not previous.is_file():
+                            raise DeploymentError(
+                                f"Previous utility is missing: {previous}. Recovery metadata remains at {path}."
+                            )
+                        atomic_bytes(
+                            destination,
+                            previous.read_bytes(),
+                            stat.S_IMODE(previous.stat().st_mode),
+                        )
+                    else:
+                        destination.unlink(missing_ok=True)
+                        sync_directory(destination.parent)
+            journal["phase"] = "rolled-back"
+            atomic_json(path, journal)
+        for destination, previous, temporary, _, _ in entries:
+            previous.unlink(missing_ok=True)
+            temporary.unlink(missing_ok=True)
+            sync_directory(destination.parent)
+        path.unlink()
+        sync_directory(path.parent)
+        print("Recovered an interrupted legacy updater refresh.")
 
     def _refresh_installed_updater(self, target: Path) -> None:
         """Publish the updater set staged from the digest-verified archive."""
@@ -3804,6 +4585,13 @@ class Deployment:
             )
         staging = self._pending_updater_for(digest)
         if staging is None:
+            if (
+                metadata
+                and metadata.get("refresh_utility") is False
+                and self._use_installed_updater(str(metadata["version"]))
+            ):
+                print("Keeping the installed updater for this historical application release.")
+                return
             raise DeploymentError(
                 "No trusted updater staging set was prepared from the verified release "
                 "archive; refusing to copy a utility from the application-writable "
@@ -3830,9 +4618,13 @@ class Deployment:
         tag = release["tag_name"]
         version_key(tag)
         archive_size = self._archive_size(release)
-        self.updater_root.mkdir(parents=True, exist_ok=True, mode=0o755)
-        if os.geteuid() == 0:
-            os.chown(self.updater_root, 0, 0)
+        self._managed_root(
+            self.updater_root,
+            owner=self.privileged_uid,
+            mode=0o755,
+            description="installed utility directory",
+            write=True,
+        )
         self._preflight_or_reclaim(
             lambda: self.updater_requirement(archive_size),
             phase="updater refresh",
@@ -3967,155 +4759,227 @@ class Deployment:
     # Snapshots and verification
     # ------------------------------------------------------------------
     def _assert_snapshot_sources_safe(self) -> None:
-        for path, description in (
-            (self.data, "persistent data directory"),
-            (self.etc, "configuration directory"),
-        ):
-            try:
-                info = os.lstat(path)
-            except OSError as error:
-                raise DeploymentError(
-                    f"Cannot inspect the {description} ({path}): {describe_exception(error)}"
-                ) from error
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-                raise DeploymentError(
-                    f"The {description} ({path}) is not a real directory; refusing to "
-                    "create a snapshot"
-                )
-        nested = self.fs.nested_mounts(self.data)
-        if nested:
-            print(
-                "Snapshot notice: the data directory contains nested mount points ("
-                + ", ".join(str(item) for item in nested[:3])
-                + "); their content is included in the snapshot and counted in the "
-                "storage estimate.",
-                file=sys.stderr,
+        self._data_directory(self.data)
+        self.fs.validate_root(
+            self.etc, owner=self.privileged_uid, description="configuration directory"
+        )
+        if self.fs.nested_mounts(self.data):
+            raise DeploymentError(
+                f"Nested mounts beneath {self.data} are unsupported for automated snapshots."
             )
 
-    def _snapshot_association(self) -> dict:
+    @staticmethod
+    def _snapshot_name() -> str:
+        return time.strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(8)
+
+    def _snapshot_association(self, transaction: dict | None, database_schema: int | None) -> dict:
+        purpose = "manual"
+        release = None
+        if transaction and transaction["operation"] != "manual-backup":
+            release = Path(transaction["previous"] or transaction["target"])
+            purpose = "pre-deployment" if transaction["previous"] else "initial-install"
+        elif self.current.is_symlink():
+            release = self.current.resolve(strict=True)
+        identity, version, digest = None, None, None
+        if release is not None:
+            metadata = self._require_complete_release(release)
+            identity = list(self.fs.identity_of(release))
+            version, digest = metadata["version"], metadata.get("sha256")
         association = {
-            "schema": 1,
+            "schema": 2,
+            "snapshot": transaction["snapshot_id"] if transaction else secrets.token_hex(16),
+            "purpose": purpose,
+            "transaction": transaction["transaction"] if transaction else secrets.token_hex(16),
             "created_at": time.time(),
-            "version": None,
-            "release": None,
-            "release_sha256": None,
-            "transaction": None,
-            "database_schema": None,
+            "version": version,
+            "release": str(release) if release is not None else None,
+            "release_identity": identity,
+            "release_sha256": digest,
+            "database_schema": database_schema,
             "updater_abi": UPDATER_ABI,
             "hnefatafl_data_dir": str(self.data),
         }
-        try:
-            current = self.current.resolve() if self.current.is_symlink() else None
-        except (OSError, RuntimeError):
-            current = None
-        if current is not None:
-            association["release"] = str(current)
-            metadata, valid, _reason = self._load_metadata(
-                Path(current) / RELEASE_MARKER, "release metadata"
-            )
-            if valid and metadata:
-                version = metadata.get("version")
-                if isinstance(version, str) and VERSION.fullmatch(version):
-                    association["version"] = version
-                digest = metadata.get("sha256")
-                if isinstance(digest, str) and re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
-                    association["release_sha256"] = digest
-        transaction, valid, _reason = self._load_metadata(self.journal, "transaction journal")
-        if valid and transaction:
-            target = transaction.get("target")
-            if isinstance(target, str):
-                association["transaction_target"] = target
-        database = self.data / "hnefatafl.sqlite3"
-        if database.is_file() and not database.is_symlink():
-            try:
-                with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
-                    association["database_schema"] = int(
-                        connection.execute("PRAGMA user_version").fetchone()[0]
-                    )
-            except sqlite3.Error:
-                association["database_schema"] = None
+        self._validate_snapshot_association(association)
         return association
 
-    def snapshot(self) -> Path:
+    def _validate_snapshot_association(self, association: dict) -> None:
+        fields = {
+            "schema",
+            "snapshot",
+            "purpose",
+            "transaction",
+            "created_at",
+            "version",
+            "release",
+            "release_identity",
+            "release_sha256",
+            "database_schema",
+            "updater_abi",
+            "hnefatafl_data_dir",
+        }
+        purpose = association.get("purpose")
+        created = association.get("created_at")
+        schema = association.get("database_schema")
+        abi = association.get("updater_abi")
+        if (
+            set(association) != fields
+            or association.get("schema") != 2
+            or purpose not in ("manual", "pre-deployment", "initial-install")
+            or not all(
+                isinstance(association.get(key), str)
+                and re.fullmatch(r"[a-f0-9]{32}", association[key])
+                for key in ("snapshot", "transaction")
+            )
+            or not isinstance(created, (int, float))
+            or isinstance(created, bool)
+            or not 0 < created < 1e12
+            or schema is not None
+            and (type(schema) is not int or schema < 0)
+            or type(abi) is not int
+            or not 3 <= abi <= UPDATER_ABI
+            or association.get("hnefatafl_data_dir") != str(self.data)
+        ):
+            raise DeploymentError("Invalid versioned snapshot association metadata")
+        release, version, digest = (
+            association[key] for key in ("release", "version", "release_sha256")
+        )
+        identity = association["release_identity"]
+        if (
+            purpose == "manual"
+            and release is None
+            and all(value is None for value in (identity, version, digest))
+        ):
+            return
+        if (
+            not self._release_reference(release)
+            or not valid_identity(identity)
+            or not isinstance(version, str)
+            or version != Path(release).name.partition("-")[0]
+            or not (
+                purpose == "manual"
+                and digest is None
+                or isinstance(digest, str)
+                and re.fullmatch(r"sha256:[a-f0-9]{64}", digest)
+            )
+        ):
+            raise DeploymentError(
+                "Invalid release identity or archive digest in snapshot association metadata"
+            )
+
+    def snapshot(self, *, transaction: dict | None = None) -> Path:
         self.ensure_layout()
         self._backup_root(write=True)
         self._assert_snapshot_sources_safe()
         backup = self.backups / (".staging-backup-" + secrets.token_hex(8))
+        final = self.backups / (
+            transaction["snapshot_name"] if transaction else self._snapshot_name()
+        )
+        if os.path.lexists(final):
+            raise DeploymentError(f"The snapshot destination already exists: {final}")
         os.mkdir(backup, 0o700)
         self.fs.write_staging_marker(backup, "backup")
         try:
-            shutil.copytree(
-                self.data,
-                backup / "data",
-                ignore=self._snapshot_ignore,
-                symlinks=True,
+            excluded = self._snapshot_excluded() - {"hnefatafl.sqlite3", "hnefatafl.sqlite3-wal"}
+            self._copy_snapshot_tree(self._data_directory(self.data), backup / "data", excluded)
+            config = self.fs.validate_root(
+                self.etc, owner=self.privileged_uid, description="configuration directory"
             )
-            shutil.copytree(self.etc, backup / "config", symlinks=True)
-            self._snapshot_database(backup)
-            atomic_json(backup / SNAPSHOT_METADATA, self._snapshot_association())
+            self._copy_snapshot_tree(config, backup / "config", frozenset())
+            database_schema = self._snapshot_database(backup)
+            association = self._snapshot_association(transaction, database_schema)
+            atomic_json(backup / SNAPSHOT_METADATA, association)
             self._remove_staging_marker(backup)
             self._write_snapshot_manifest(backup)
             self.verify_snapshot(backup)
-            final = self.backups / (time.strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(4))
-            os.replace(backup, final)
-            os.chmod(final, 0o700)
+            sync_tree(backup)
+            os.rename(backup, final)
+            sync_directory(self.backups)
         except BaseException:
             try:
-                if backup.exists() and not backup.is_symlink():
-                    self._safe_remove(
-                        self.backups,
-                        backup,
-                        owners={self.privileged_uid, self._data_owner()},
-                    )
+                if os.path.lexists(backup):
+                    self._safe_remove(self.backups, backup, owners={self.privileged_uid})
             except (OSError, DeploymentError) as cleanup_error:
                 print(
-                    "Snapshot cleanup warning: "
-                    f"{describe_exception(cleanup_error)}. The original snapshot failure follows.",
+                    f"Snapshot staging cleanup warning: {describe_exception(cleanup_error)}",
                     file=sys.stderr,
                 )
             raise
-        try:
-            descriptor = os.open(self.backups, os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-        except OSError:
-            pass
         self.verification.put(final, "complete")
+        if transaction is not None:
+            transaction["backup_association"] = association
         return final
 
-    def _snapshot_ignore(self, directory, names):
-        excluded = self._snapshot_excluded()
-        return excluded & set(names) if Path(directory) == self.data else set()
+    def _copy_snapshot_tree(self, root: RootIdentity, destination: Path, excluded) -> None:
+        def failed(error):
+            raise error
+
+        with self.fs.open_directory(root) as start:
+            owners = {os.fstat(start).st_uid, self.privileged_uid}
+            destination.mkdir(mode=0o700)
+            for relative, directories, files, directory in os.fwalk(
+                ".", dir_fd=start, follow_symlinks=False, onerror=failed
+            ):
+                target = destination / relative
+                if relative == ".":
+                    directories[:] = [name for name in directories if name not in excluded]
+                    files = [name for name in files if name not in excluded]
+                for name in (*directories, *files):
+                    pinned = os.open(
+                        name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory
+                    )
+                    try:
+                        info = os.fstat(pinned)
+                        if info.st_uid not in owners or info.st_dev != root.device:
+                            raise DeploymentError(
+                                f"Unsafe owner or filesystem in snapshot source: {root.path / relative / name}"
+                            )
+                        mode = stat.S_IMODE(info.st_mode) & 0o777
+                        if name in directories and stat.S_ISDIR(info.st_mode):
+                            (target / name).mkdir(mode=0o700)
+                        elif name in files and stat.S_ISREG(info.st_mode):
+                            fd = os.open(f"/proc/self/fd/{pinned}", os.O_RDONLY | os.O_CLOEXEC)
+                            with os.fdopen(fd, "rb") as source, (target / name).open("xb") as copy:
+                                shutil.copyfileobj(source, copy, length=MIB)
+                                os.fchmod(copy.fileno(), mode & 0o755)
+                        else:
+                            raise DeploymentError(
+                                f"Non-regular entry in snapshot source: {root.path / relative / name}"
+                            )
+                    finally:
+                        os.close(pinned)
 
     def _remove_staging_marker(self, directory: Path) -> None:
-        marker = Path(directory) / STAGING_MARKER
-        if marker.exists() and not marker.is_symlink():
-            marker.unlink()
+        (Path(directory) / STAGING_MARKER).unlink(missing_ok=True)
 
-    def _snapshot_database(self, backup: Path) -> None:
-        database = self.data / "hnefatafl.sqlite3"
+    def _snapshot_database(self, backup: Path) -> int | None:
+        # The live DB and WAL were copied after writers stopped. SQLite opens
+        # the private copies, where journal recovery cannot affect live paths.
+        database = backup / "data/hnefatafl.sqlite3"
         if not database.exists():
-            return
-        target = backup / "data/hnefatafl.sqlite3"
-        for suffix in ("-wal", "-shm"):
-            target.with_name(target.name + suffix).unlink(missing_ok=True)
+            return None
+        target = backup / ".sqlite-backup"
+        database.with_name(database.name + "-shm").unlink(missing_ok=True)
         with (
             closing(sqlite3.connect(database)) as source,
             closing(sqlite3.connect(target)) as copy,
         ):
             source.backup(copy)
             copy.commit()
-            # Backups are standalone files; no live WAL/SHM handles may enter
-            # the manifest and disappear later during connection GC.
             copy.execute("PRAGMA journal_mode=DELETE")
             if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise DeploymentError("Backup SQLite integrity check failed")
+            schema = int(copy.execute("PRAGMA user_version").fetchone()[0])
+        os.replace(target, database)
+        for suffix in ("-wal", "-shm", "-journal"):
+            database.with_name(database.name + suffix).unlink(missing_ok=True)
+        self._snapshot_schema_cache[self._database_cache_key(database)] = schema
+        return schema
 
     def _write_snapshot_manifest(self, backup: Path) -> None:
         manifest = {}
-        for current, directories, names in os.walk(backup, topdown=True, followlinks=False):
+        for current, directories, names in os.walk(
+            backup, topdown=True, followlinks=False, onerror=raise_walk_error
+        ):
             for name in (*directories, *names):
                 entry = Path(current) / name
                 try:
@@ -4128,8 +4992,10 @@ class Deployment:
                     raise DeploymentError(
                         "Backup encountered a symlink; inspect storage before continuing"
                     )
-                if not stat.S_ISREG(info.st_mode):
+                if stat.S_ISDIR(info.st_mode):
                     continue
+                if not stat.S_ISREG(info.st_mode):
+                    raise DeploymentError("Backup verification failed: unexpected special file")
                 relative = entry.relative_to(backup).as_posix()
                 if relative == "manifest.json":
                     continue
@@ -4137,7 +5003,7 @@ class Deployment:
                 self.verification.hashed(info.st_size)
         atomic_json(backup / "manifest.json", manifest)
 
-    def _backup_location_error(self, backup: Path) -> str:
+    def _backup_location_error(self, backup: Path, *, parent_fd: int | None = None) -> str:
         backup = Path(backup)
         try:
             info = os.lstat(backup)
@@ -4145,6 +5011,11 @@ class Deployment:
             return f"Cannot inspect the snapshot ({describe_exception(error)})"
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
             return "The snapshot path is not a real directory"
+        if parent_fd is None:
+            try:
+                self.fs._validate_ancestors(backup, "snapshot")
+            except DeploymentError as error:
+                return str(error)
         if info.st_uid != self.privileged_uid:
             return f"The snapshot is not root-owned (uid {info.st_uid})"
         if stat.S_IMODE(info.st_mode) & 0o077:
@@ -4152,7 +5023,7 @@ class Deployment:
                 f"The snapshot permissions are {stat.S_IMODE(info.st_mode):04o}, not root-only 0700"
             )
         try:
-            parent = os.lstat(backup.parent)
+            parent = os.lstat(backup.parent) if parent_fd is None else os.fstat(parent_fd)
         except OSError as error:
             return f"Cannot inspect the snapshot directory ({describe_exception(error)})"
         if stat.S_ISLNK(parent.st_mode) or not stat.S_ISDIR(parent.st_mode):
@@ -4161,14 +5032,23 @@ class Deployment:
             return "The snapshot directory is writable by another account or not root-owned"
         return ""
 
-    def verify_snapshot(self, backup):
+    def verify_snapshot(self, backup, *, parent_fd: int | None = None):
         backup = Path(backup)
-        location = self._backup_location_error(backup)
+        location = self._backup_location_error(backup, parent_fd=parent_fd)
         if location:
             raise DeploymentError("Backup verification failed: " + location)
         if self.verification.get(backup) == "complete":
             return
         self.verification.verifications += 1
+        if parent_fd is None and (self.fs.is_mount(backup) or self.fs.nested_mounts(backup)):
+            raise DeploymentError("Backup verification failed: snapshot contains a mount")
+        if any(
+            not (backup / component).is_dir() or (backup / component).is_symlink()
+            for component in ("data", "config")
+        ):
+            raise DeploymentError(
+                "Backup verification failed: missing or unsafe data/configuration directory"
+            )
         manifest_path = backup / "manifest.json"
         if manifest_path.is_symlink() or not manifest_path.is_file():
             raise DeploymentError("Backup verification failed: missing manifest")
@@ -4193,7 +5073,9 @@ class Deployment:
                 raise DeploymentError("Backup verification failed: unsafe manifest path")
             expected[name] = digest
         found = {}
-        for current, directories, names in os.walk(backup, topdown=True, followlinks=False):
+        for current, directories, names in os.walk(
+            backup, topdown=True, followlinks=False, onerror=raise_walk_error
+        ):
             if _has_escape(backup, Path(current)):
                 raise DeploymentError("Backup verification failed: unsafe directory path")
             for name in (*directories, *names):
@@ -4206,8 +5088,10 @@ class Deployment:
                     ) from error
                 if stat.S_ISLNK(info.st_mode):
                     raise DeploymentError("Backup verification failed: unexpected symlink")
-                if not stat.S_ISREG(info.st_mode):
+                if stat.S_ISDIR(info.st_mode):
                     continue
+                if not stat.S_ISREG(info.st_mode):
+                    raise DeploymentError("Backup verification failed: unexpected special file")
                 relative = entry.relative_to(backup).as_posix()
                 if relative == "manifest.json":
                     continue
@@ -4236,166 +5120,167 @@ class Deployment:
                 )
         self.verification.put(backup, "complete")
 
+    @staticmethod
+    def _database_cache_key(database: Path) -> tuple[int, ...]:
+        info = database.lstat()
+        return (*file_identity(info), info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    def _verified_snapshot_schema(self, backup: Path) -> int | None:
+        database = backup / "data/hnefatafl.sqlite3"
+        if not os.path.lexists(database):
+            return None
+        key = self._database_cache_key(database)
+        if key in self._snapshot_schema_cache:
+            return self._snapshot_schema_cache[key]
+        try:
+            with closing(
+                sqlite3.connect(database.as_uri() + "?mode=ro&immutable=1", uri=True)
+            ) as saved:
+                if saved.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise DeploymentError("Snapshot SQLite integrity check failed")
+                schema = int(saved.execute("PRAGMA user_version").fetchone()[0])
+        except sqlite3.Error as error:
+            raise DeploymentError("Snapshot SQLite could not be read safely") from error
+        self._snapshot_schema_cache[key] = schema
+        return schema
+
+    def _verify_snapshot_association(
+        self,
+        backup: Path,
+        *,
+        target: Path | None,
+        expected: dict | None,
+        allow_legacy: bool,
+        schema: int | None,
+    ) -> list[str]:
+        association, valid, reason = self._load_metadata(
+            backup / SNAPSHOT_METADATA, "snapshot metadata"
+        )
+        if not valid:
+            raise DeploymentError(f"Invalid snapshot association metadata: {reason}")
+        if association is not None and association.get("schema") == 2:
+            self._validate_snapshot_association(association)
+            if association["database_schema"] != schema:
+                raise DeploymentError("Snapshot association records a different database schema")
+            if target is not None:
+                if association["release"] != str(target):
+                    raise DeploymentError(
+                        f"The snapshot was created for release {association['release']} and does not match the rollback directory"
+                    )
+                if association["purpose"] != "pre-deployment":
+                    raise DeploymentError(
+                        "The snapshot purpose is not suitable for deployment rollback"
+                    )
+                metadata = self._require_complete_release(target)
+                if (
+                    association["release_identity"] != list(self.fs.identity_of(target))
+                    or association["version"] != metadata["version"]
+                    or association["release_sha256"] != metadata.get("sha256")
+                ):
+                    raise DeploymentError(
+                        "Snapshot release identity or verified archive digest disagrees with the rollback target"
+                    )
+                if expected is None:
+                    raise DeploymentError(
+                        "The recorded deployment is missing the expected snapshot identity"
+                    )
+            if expected is not None and association != expected:
+                raise DeploymentError(
+                    "Snapshot identity or deployment transaction does not match the recorded association"
+                )
+            return []
+        if association is not None:
+            # The interim ABI-2 updater wrote this exact shape, with a nullable
+            # release/digest for pre-install snapshots and no transaction ID.
+            fields = {
+                "schema",
+                "created_at",
+                "version",
+                "release",
+                "release_sha256",
+                "transaction",
+                "database_schema",
+                "updater_abi",
+                "hnefatafl_data_dir",
+            }
+            if (
+                set(association) - (fields | {"transaction_target"})
+                or not fields <= set(association)
+                or association.get("schema") != 1
+                or association.get("updater_abi") != 2
+                or association.get("hnefatafl_data_dir") != str(self.data)
+                or type(association.get("created_at")) not in (float, int)
+                or not 0 < association["created_at"] < 1e12
+                or association.get("transaction") is not None
+                or association.get("database_schema") != schema
+                or association.get("release") is not None
+                and not self._release_reference(association["release"])
+                or association.get("version") is not None
+                and (
+                    not isinstance(association["version"], str)
+                    or VERSION.fullmatch(association["version"]) is None
+                )
+                or association.get("release_sha256") is not None
+                and (
+                    not isinstance(association["release_sha256"], str)
+                    or not re.fullmatch(r"sha256:[a-f0-9]{64}", association["release_sha256"])
+                )
+            ):
+                raise DeploymentError("Malformed legacy snapshot association metadata")
+            if target is not None:
+                if association.get("release") not in (None, str(target)) or association.get(
+                    "version"
+                ) not in (None, self.release_version(target)):
+                    raise DeploymentError("The legacy snapshot was created for a different release")
+                if association.get("release_sha256") is not None and association[
+                    "release_sha256"
+                ] != self._require_complete_release(target).get("sha256"):
+                    raise DeploymentError(
+                        "The legacy snapshot archive digest disagrees with the rollback release"
+                    )
+        if expected is not None or not allow_legacy:
+            raise DeploymentError(
+                "Snapshot association metadata is missing for the recorded deployment"
+            )
+        return [
+            "Snapshot uses legacy metadata. Using the verified artifact recorded by the root-owned deployment state."
+        ]
+
     def verify_snapshot_usable(
         self,
         backup: Path,
         *,
         target: Path | None = None,
-        previous: Path | None = None,
-        transaction: str | None = None,
+        expected: dict | None = None,
         allow_legacy: bool = True,
+        check_compatibility: bool = True,
         service_state: str | None = "running",
     ) -> list[str]:
-        """Full rollback/recovery preflight before any service interruption."""
+        """Verify integrity and the recorded snapshot association before downtime."""
         backup = Path(backup)
-        warnings: list[str] = []
+        if not self._backup_reference(str(backup)):
+            raise DeploymentError(
+                f"The recorded snapshot is outside the managed backup locations: {backup}"
+            )
         location = self._backup_location_error(backup)
         if location:
-            raise DeploymentError(
-                f"Refusing to interrupt the service: the recorded snapshot cannot be "
-                f"trusted. {location}. The service was not stopped and no release or "
-                "data was changed."
-            )
-        if not backup.exists():
-            raise DeploymentError(
-                "Refusing to interrupt the service: the recorded rollback snapshot "
-                f"does not exist ({backup}). The service was not stopped and no "
-                "release or data was changed."
-            )
-        if self.fs.is_mount(backup):
-            raise DeploymentError(
-                "Refusing to interrupt the service: the recorded snapshot is a mount "
-                "point, not a managed artifact"
-            )
+            raise DeploymentError(f"The recorded snapshot cannot be trusted: {location}")
         try:
             self.verify_snapshot(backup)
+            schema = self._verified_snapshot_schema(backup)
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise DeploymentError(
-                "Refusing to interrupt the service: snapshot verification failed "
-                f"({describe_exception(error)}). The service was not stopped and no "
-                "release or data was changed."
+                f"Refusing to interrupt the service: snapshot verification failed ({describe_exception(error)})"
             ) from error
-        schema = None
-        association, valid, reason = self._load_metadata(
-            backup / SNAPSHOT_METADATA, "snapshot metadata"
+        warnings = self._verify_snapshot_association(
+            backup, target=target, expected=expected, allow_legacy=allow_legacy, schema=schema
         )
-        if valid and association is not None:
-            created_schema = association.get("database_schema")
-            if (
-                schema is not None
-                and isinstance(created_schema, int)
-                and not isinstance(created_schema, bool)
-                and created_schema != schema
-            ):
-                raise DeploymentError(
-                    "Refusing to interrupt the service: snapshot metadata records "
-                    f"database schema {created_schema}, but the snapshot contains "
-                    f"schema {schema}. The snapshot is inconsistent."
-                )
-            recorded_transaction = association.get("transaction")
-            if transaction and recorded_transaction and recorded_transaction != transaction:
-                raise DeploymentError(
-                    "Refusing to interrupt the service: the snapshot belongs to a "
-                    "different deployment transaction"
-                )
-            if target is not None:
-                recorded_release = association.get("release")
-                if isinstance(recorded_release, str) and recorded_release:
-                    try:
-                        recorded = Path(recorded_release).resolve()
-                    except (OSError, RuntimeError):
-                        recorded = Path(recorded_release)
-                    if recorded != Path(target).resolve():
-                        raise DeploymentError(
-                            "Refusing to interrupt the service: the snapshot was "
-                            f"created for release {recorded_release}, not {target}"
-                        )
-            recorded_version = association.get("version")
-            expected_version = self.release_version(target) if target is not None else None
-            if (
-                expected_version
-                and isinstance(recorded_version, str)
-                and recorded_version != expected_version
-            ):
-                raise DeploymentError(
-                    "Refusing to interrupt the service: the snapshot records release "
-                    f"version {recorded_version}, but the rollback release is "
-                    f"{expected_version}"
-                )
-        else:
-            if not allow_legacy:
-                raise DeploymentError(
-                    "Refusing to interrupt the service: snapshot association metadata "
-                    f"is unavailable ({reason or 'missing'}), so the snapshot cannot be "
-                    "proven to belong to the recorded release. Perform a reviewed "
-                    "manual recovery."
-                )
-            warnings.append(
-                "Snapshot has legacy metadata without an explicit release/transaction "
-                "association; it is accepted only because it is the exact snapshot "
-                "recorded by the root-owned installed state."
-            )
-        database = backup / "data/hnefatafl.sqlite3"
-        live = self.data / "hnefatafl.sqlite3"
-        live_database_exists = live.is_file() and not live.is_symlink()
-        if live_database_exists and (database.is_symlink() or not database.is_file()):
+        if schema is None and os.path.lexists(self.data / "hnefatafl.sqlite3"):
             raise DeploymentError(
-                "Refusing to interrupt the service: the live installation has a "
-                "database but the snapshot has no regular SQLite database"
+                "The live installation has a database but the snapshot has no regular SQLite database"
             )
-        if not live_database_exists and (database.is_symlink() or not database.is_file()):
-            # A pre-database installation can still be recovered from its data and
-            # configuration; there is no authoritative database to replace.
-            self.check_storage(
-                [self.restore_requirement(backup)],
-                phase="rollback/restore preflight",
-                service_state=service_state,
-                persistent_data="unchanged until verification succeeds",
-            )
-            return warnings
-        try:
-            with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as saved:
-                integrity = saved.execute("PRAGMA integrity_check").fetchone()[0]
-                if integrity != "ok":
-                    raise DeploymentError(
-                        "Refusing to interrupt the service: snapshot SQLite integrity "
-                        f"check failed ({integrity})"
-                    )
-                schema = int(saved.execute("PRAGMA user_version").fetchone()[0])
-            created_schema = (
-                association.get("database_schema") if isinstance(association, dict) else None
-            )
-            if (
-                isinstance(created_schema, int)
-                and not isinstance(created_schema, bool)
-                and created_schema != schema
-            ):
-                raise DeploymentError(
-                    "Refusing to interrupt the service: snapshot metadata records "
-                    f"database schema {created_schema}, but the snapshot contains "
-                    f"schema {schema}. The snapshot is inconsistent."
-                )
-        except sqlite3.Error as error:
-            raise DeploymentError(
-                "Refusing to interrupt the service: snapshot SQLite could not be read "
-                f"({describe_exception(error)})"
-            ) from error
-        live = self.data / "hnefatafl.sqlite3"
-        if live.is_file() and not live.is_symlink():
-            try:
-                with closing(sqlite3.connect(f"file:{live}?mode=ro", uri=True)) as current:
-                    live_schema = int(current.execute("PRAGMA user_version").fetchone()[0])
-            except sqlite3.Error as error:
-                raise DeploymentError(
-                    "Refusing to interrupt the service: the live database cannot be "
-                    f"read safely ({describe_exception(error)})"
-                ) from error
+        if check_compatibility and schema is not None:
             self._verify_restore_preflight(backup)
-            if live_schema != schema:
-                warnings.append(
-                    f"Snapshot schema {schema} differs from live schema {live_schema}; "
-                    "automatic restoration will be refused before replacing data."
-                )
         self.check_storage(
             [self.restore_requirement(backup)],
             phase="rollback/restore preflight",
@@ -4409,7 +5294,10 @@ class Deployment:
     # ------------------------------------------------------------------
     def backup(self) -> Path:
         """Create a verified manual snapshot with storage and recovery safeguards."""
-        if active_jobs(self.data):
+        self.ensure_layout()
+        self._assert_snapshot_sources_safe()
+        self._require_idle_transaction("create a manual backup")
+        if self._active_jobs():
             raise DeploymentError(
                 "Active/queued training or tournament jobs exist. Cancel/finish jobs "
                 "before creating a manual backup; the service was not stopped."
@@ -4436,72 +5324,124 @@ class Deployment:
             protected_releases=None,
         )
         created = None
-        recovery_error = None
         original: BaseException | None = None
         with self.write_gate():
-            if active_jobs(self.data):
+            if self._active_jobs():
                 raise DeploymentError(
                     "New training or tournament activity appeared while draining HTTP "
                     "mutations; the backup was refused and the service is still running."
                 )
-            # Repeat the critical checks under the deployment gate before stopping.
-            self._preflight_or_reclaim(
-                self.backup_requirements,
+            # Size the snapshot with writers drained. After shutdown, recheck
+            # free space on the same destinations without rescanning the tree.
+            requirements = self.backup_requirements()
+            self.check_storage(
+                requirements,
                 phase="manual backup",
                 service_state="running",
-                protected_releases=None,
             )
-            if self._service_is_active():
-                self.service("stop")
+            transaction = {
+                "operation": "manual-backup",
+                "transaction": secrets.token_hex(16),
+                "abi": UPDATER_ABI,
+                "phase": "prepared",
+                "service_was_running": self._service_is_active(),
+                "snapshot_name": self._snapshot_name(),
+                "snapshot_id": secrets.token_hex(16),
+                "backup": None,
+            }
+            self.record(transaction)
             try:
-                self._preflight_or_reclaim(
-                    self.backup_requirements,
+                if transaction["service_was_running"]:
+                    self.service("stop")
+                self.check_storage(
+                    requirements,
                     phase="manual backup after service shutdown",
                     service_state="stopped",
-                    protected_releases=None,
                 )
-                created = self.snapshot()
+                transaction["phase"] = "snapshot"
+                self.record(transaction)
+                created = self.snapshot(transaction=transaction)
+                transaction["backup"] = str(created)
             except BaseException as error:
                 original = error
-                try:
-                    self.service("start")
-                    self._recovery_probe()
-                except BaseException as restart_error:
-                    recovery_error = restart_error
+                transaction["backup_error"] = describe_exception(error)
+            transaction["phase"] = "recovering"
+            # The original service state is already durable. Even if the disk is
+            # full and this progress record fails, try to recover the service now.
+            try:
+                self.record(transaction)
+            except BaseException as error:
+                if original is None:
+                    original = error
+            recovery_error = self._restore_backup_service(transaction)
             if recovery_error is not None:
-                assert original is not None
-                raise DeploymentError(
+                outcome = (
                     "Manual backup failed: "
                     + describe_exception(original)
                     + "; automatic service recovery also failed: "
+                    if original is not None
+                    else f"Verified backup retained at {created}; automatic service recovery failed: "
+                )
+                raise DeploymentError(
+                    outcome
                     + describe_exception(recovery_error)
-                    + ". The previously verified backups were preserved. Inspect "
-                    "journalctl -u hnefatafl -n 200 --no-pager; the application may be "
-                    "stopped."
+                    + ". The previously verified backups were preserved. Run "
+                    "hnefatafl-update --recover and inspect journalctl -u hnefatafl -n 200 --no-pager."
                 ) from recovery_error
             if original is not None:
+                outcome = (
+                    "the service was restarted and verified"
+                    if transaction["service_was_running"]
+                    else "the service remained stopped"
+                )
                 raise DeploymentError(
                     "Manual backup failed: "
                     + describe_exception(original)
-                    + ". Only the incomplete staging artifact was removed; previously "
-                    "verified backups were preserved and the service was restarted and "
-                    "verified."
+                    + f". The previously verified backups were preserved and {outcome}."
                 ) from original
         assert created is not None
-        report = self.cleanup(
-            dry_run=False,
-            automatic=True,
-            protected_backups={created},
-        )
-        if report.removed:
-            print(
-                f"Retention removed {len(report.removed)} old artifact(s); actually "
-                f"reclaimed {format_bytes(report.reclaimed_bytes)}."
-            )
-        if report.exception_reason:
-            print(f"Retention note: {report.exception_reason}")
+        self._post_operation_cleanup("manual backup", protected_backups={created})
         print(f"Verified backup: {created}")
         return created
+
+    def _restore_backup_service(self, transaction: dict) -> BaseException | None:
+        try:
+            if transaction["service_was_running"]:
+                self.service("start")
+                self._recovery_probe()
+            transaction.pop("service_recovery_error", None)
+            transaction["phase"] = (
+                "committed"
+                if transaction.get("backup") and not transaction.get("backup_error")
+                else "recovered"
+            )
+            self.record(transaction)
+        except BaseException as error:
+            transaction["phase"] = "recovering"
+            transaction["service_recovery_error"] = describe_exception(error)
+            try:
+                self.record(transaction)
+            except (OSError, InterruptedError, KeyboardInterrupt):
+                pass
+            return error
+        return None
+
+    def _require_idle_transaction(self, action: str) -> None:
+        transaction, readable, reason = self._load_metadata(self.journal, "transaction journal")
+        valid = readable
+        if transaction is not None:
+            valid, reason = self.validate_transaction_metadata(transaction)
+        if (
+            not valid
+            or transaction is not None
+            and (
+                transaction["phase"] not in {"committed", "recovered"} or transaction.get("restore")
+            )
+        ):
+            raise DeploymentError(
+                f"Cannot {action} before resolving the deployment journal. "
+                f"Run hnefatafl-update --recover. {reason}"
+            )
 
     # ------------------------------------------------------------------
     # Restore transaction
@@ -4533,6 +5473,41 @@ class Deployment:
                     (json.dumps(worker), identifier),
                 )
 
+    @contextmanager
+    def _private_live_database(self, live: Path, parent: Path):
+        with tempfile.TemporaryDirectory(dir=parent, prefix=".live-authority-") as work:
+            private = Path(work) / live.name
+            root = self._data_directory(live.parent)
+            with self.fs.open_directory(root) as directory:
+                for suffix in ("", "-wal", "-journal"):
+                    name = live.name + suffix
+                    try:
+                        pinned = os.open(
+                            name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory
+                        )
+                    except FileNotFoundError:
+                        if not suffix:
+                            raise DeploymentError(
+                                "The live database disappeared during restore"
+                            ) from None
+                        continue
+                    try:
+                        info = os.fstat(pinned)
+                        if (
+                            not stat.S_ISREG(info.st_mode)
+                            or info.st_dev != root.device
+                            or info.st_uid not in {self._data_owner(), self.privileged_uid}
+                        ):
+                            raise DeploymentError(
+                                f"Unsafe live database entry: {live.parent / name}"
+                            )
+                        fd = os.open(f"/proc/self/fd/{pinned}", os.O_RDONLY | os.O_CLOEXEC)
+                        with os.fdopen(fd, "rb") as source, (Path(work) / name).open("xb") as copy:
+                            shutil.copyfileobj(source, copy, length=MIB)
+                    finally:
+                        os.close(pinned)
+            yield private
+
     def _prepare_restore_database(self, live_db: Path, copy_db: Path) -> None:
         support = self._load_online_support()
         # Restoring game/training data must not resurrect logged-out sessions or
@@ -4543,7 +5518,8 @@ class Deployment:
             )
         if live_db.exists() and copy_db.exists():
             with (
-                closing(sqlite3.connect(live_db)) as live,
+                self._private_live_database(live_db, copy_db.parent) as private,
+                closing(sqlite3.connect(private)) as live,
                 closing(sqlite3.connect(copy_db)) as copy,
             ):
                 # One live read snapshot for security and authoritative online
@@ -4583,194 +5559,333 @@ class Deployment:
                     raise DeploymentError(str(error)) from error
                 copy.commit()
 
+    def _validate_restore_topology(self) -> None:
+        if self.fs.is_mount(self.data) or self.fs.nested_mounts(self.data):
+            raise DeploymentError(
+                f"Automatic restore requires an unmounted persistent data directory with no nested mounts: {self.data}. "
+                "Preserve the snapshot and use a reviewed manual restore for mounted data."
+            )
+        self.fs._validate_ancestors(self.data, "persistent data directory")
+        if os.path.lexists(self.data):
+            self._data_directory(self.data, staging=True)
+
     def restore(
-        self,
-        backup: Path,
-        *,
-        journal: dict | None = None,
-        transaction_id: str | None = None,
+        self, backup: Path, *, journal: dict | None = None, transaction_id: str | None = None
     ) -> Path:
-        """Publish a verified snapshot with durable, resumable transaction phases."""
+        """Stage data privately and transfer the held gate before publication."""
+        if self._held_gate is None:
+            with self.write_gate():
+                return self.restore(backup, journal=journal, transaction_id=transaction_id)
+        self._validate_restore_topology()
         backup = Path(backup)
         self.ensure_layout()
-        self.verify_snapshot_usable(backup, service_state="stopped")
+        self.verify_snapshot_usable(backup, service_state="stopped", check_compatibility=False)
         token = transaction_id or secrets.token_hex(8)
         staging = self.data.with_name(".restore-" + token)
         retained = self.data.with_name(".retained-" + token)
-        if staging.exists() or retained.exists():
+        if os.path.lexists(staging) or os.path.lexists(retained):
             raise DeploymentError(
-                f"Restore staging or retained directory already exists for transaction "
-                f"{token}; run hnefatafl-update --recover to inspect the interrupted "
-                "restore instead of starting a second one."
+                f"Restore paths already exist for {token}. Run hnefatafl-update --recover."
             )
-        restore_meta = {
+        original = self._data_directory(self.data)
+        restore = {
+            "schema": 2,
             "phase": "prepared",
             "transaction": token,
             "backup": str(backup),
             "data": str(self.data),
             "staging": str(staging),
             "retained": str(retained),
-            "target": str(Path(self.current).resolve()) if self.current.is_symlink() else None,
-            "previous": None,
+            "original_identity": [original.device, original.inode],
+            "staging_identity": None,
+            "gate_identity": list(self._held_gate),
         }
-
-        def step(phase: str) -> None:
-            restore_meta["phase"] = phase
-            if journal is not None:
-                journal["restore"] = dict(restore_meta)
-                self.record(journal)
-
-        if journal is not None:
-            restore_meta["previous"] = journal.get("previous")
-            journal["restore"] = dict(restore_meta)
-            self.record(journal)
-        try:
-            os.mkdir(staging, 0o700)
-            atomic_json(
-                staging / RESTORE_MARKER,
-                {
-                    "schema": 1,
-                    "transaction": token,
-                    "backup": str(backup),
-                    "created_at": time.time(),
-                },
-            )
-            shutil.copytree(backup / "data", staging, dirs_exist_ok=True)
-            self._prepare_restore_database(
-                self.data / "hnefatafl.sqlite3", staging / "hnefatafl.sqlite3"
-            )
-            step("staged")
-            gate = self.data / ".deployment-gate"
-            if gate.exists():
-                # Preserve the locked inode while replacing the surrounding data root.
-                (staging / ".deployment-gate").unlink(missing_ok=True)
-                gate.rename(staging / ".deployment-gate")
-            step("stopping")
-            self.data.rename(retained)
-            step("data-renamed")
-            staging.rename(self.data)
-            step("published")
-            self._chown_restored_data()
-            step("ownership-set")
-            print(f"Restored pre-deployment state. Newer data retained at {retained}.")
-        except BaseException:
-            if journal is None:
-                raise
-            # Leave the durable journal untouched: recovery decides using the
-            # recorded phases and the on-disk marker identities, never by guessing.
-            raise
+        self._record_restore(journal, restore, "prepared")
+        os.mkdir(staging, 0o700)
+        atomic_json(
+            staging / RESTORE_MARKER,
+            {
+                "schema": 2,
+                "transaction": token,
+                "backup": str(backup),
+                "created_at": time.time(),
+            },
+        )
+        shutil.copytree(
+            backup / "data",
+            staging,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(GATE_NAME, RESTORE_MARKER),
+        )
+        self._prepare_restore_database(
+            self.data / "hnefatafl.sqlite3", staging / "hnefatafl.sqlite3"
+        )
+        self._prepare_staged_ownership(staging)
+        sync_tree(staging)
+        sync_directory(staging.parent)
+        restore["staging_identity"] = list(self.fs.identity_of(staging))
+        self._record_restore(journal, restore, "staged")
+        self._publish_restored_data(journal, restore)
+        if journal is None:
+            (self.data / RESTORE_MARKER).unlink(missing_ok=True)
+            sync_directory(self.data)
+        print(f"Restored pre-deployment state. Newer data retained at {retained}.")
         return retained
 
-    def _chown_restored_data(self) -> None:
-        if self.manage_updater:
-            self.run(["chown", "-R", "hnefatafl:hnefatafl", self.data])
-        elif os.geteuid() == 0 and self.data.exists():
-            try:
-                uid = self._data_owner()
-                self.run(["chown", "-R", f"{uid}:{uid}", self.data])
-            except (OSError, subprocess.CalledProcessError) as error:
-                print(
-                    "Restore ownership warning: "
-                    f"{describe_exception(error)}. Verify ownership before starting the "
-                    "service.",
-                    file=sys.stderr,
+    def _record_restore(self, journal: dict | None, restore: dict, phase: str) -> None:
+        restore["phase"] = phase
+        if journal is not None:
+            journal["restore"] = dict(restore)
+            self.record(journal)
+
+    def _prepare_staged_ownership(self, staging: Path) -> None:
+        uid, gid = self._data_account()
+        if self.privileged_uid == uid and os.getegid() == gid:
+            return
+        # The containing directory stays private until the root inode has been
+        # published. Every child is copied from a verified snapshot.
+        for directory, subdirs, files, fd in os.fwalk(
+            staging, topdown=False, follow_symlinks=False
+        ):
+            for name in (*subdirs, *files):
+                if Path(directory) == staging and name == RESTORE_MARKER:
+                    continue
+                os.chown(name, uid, gid, dir_fd=fd, follow_symlinks=False)
+
+    def _move_gate(self, source: RootIdentity, destination: RootIdentity) -> None:
+        if self._held_gate is None:
+            raise DeploymentError(
+                "Restore cannot move the deployment gate without holding its lock"
+            )
+        with self.fs.open_directory(source) as src, self.fs.open_directory(destination) as dst:
+            if self._entry_identity(dst, GATE_NAME) is not None:
+                raise DeploymentError("The restore candidate already has a deployment gate")
+            if self._entry_identity(src, GATE_NAME) != list(self._held_gate):
+                raise DeploymentError("The locked deployment gate changed during restore")
+            os.rename(GATE_NAME, GATE_NAME, src_dir_fd=src, dst_dir_fd=dst)
+            if self._entry_identity(dst, GATE_NAME) != list(self._held_gate):
+                raise DeploymentError(
+                    "The restore candidate did not receive the locked deployment gate"
                 )
+            os.fsync(src)
+            os.fsync(dst)
+
+    def _publish_restored_data(self, journal: dict | None, restore: dict) -> None:
+        data, staging, retained = self.data, Path(restore["staging"]), Path(restore["retained"])
+        physical = {
+            path: self._data_directory(path, staging=True)
+            for path in (data, staging, retained)
+            if os.path.lexists(path)
+        }
+
+        def identity(path):
+            root = physical.get(path)
+            return [root.device, root.inode] if root else None
+
+        original, candidate = restore["original_identity"], restore["staging_identity"]
+        if (
+            identity(data) == original
+            and identity(staging) == candidate
+            and retained not in physical
+        ):
+            self._record_restore(journal, restore, "stopping")
+            os.rename(data, retained)
+            sync_directory(data.parent)
+            physical[retained] = self._data_directory(retained, staging=True)
+            del physical[data]
+            self._record_restore(journal, restore, "data-renamed")
+        if (
+            data not in physical
+            and identity(staging) == candidate
+            and identity(retained) == original
+        ):
+            with self.fs.open_directory(physical[staging]) as fd:
+                staged_gate = self._entry_identity(fd, GATE_NAME)
+            if staged_gate is None:
+                self._move_gate(physical[retained], physical[staging])
+            elif staged_gate != restore["gate_identity"]:
+                raise DeploymentError(
+                    "The restore candidate has an unexpected deployment gate inode"
+                )
+            self._record_restore(journal, restore, "gate-moved")
+            os.rename(staging, data)
+            sync_directory(data.parent)
+            physical[data] = self._data_directory(data, staging=True)
+            del physical[staging]
+            self._record_restore(journal, restore, "published")
+        if identity(data) != candidate or identity(retained) != original or staging in physical:
+            raise DeploymentError(
+                "Cannot identify the authoritative restored data directory. Preserve the journal and retained data."
+            )
+        uid, gid = self._data_account()
+        with self.fs.open_directory(physical[data]) as fd:
+            info = os.fstat(fd)
+            if self._entry_identity(fd, GATE_NAME) != restore["gate_identity"]:
+                raise DeploymentError(
+                    "The authoritative data directory is missing the locked deployment gate"
+                )
+            if (info.st_uid, info.st_gid) != (uid, gid):
+                os.fchown(fd, uid, gid)
+            os.fsync(fd)
+        if restore["phase"] not in {"ownership-set", "activated", "started", "verified"}:
+            self._record_restore(journal, restore, "ownership-set")
 
     def recover_restore(self, journal: dict) -> bool:
-        """Resume or safely revert an interrupted restore transaction.
-
-        Returns True when the recorded restore result is now the authoritative
-        data directory, and False when only a disposable candidate was discarded.
-        """
-        restore_meta = journal.get("restore")
-        if not isinstance(restore_meta, dict):
-            return False
-        transaction = restore_meta.get("transaction")
-        data = Path(str(restore_meta.get("data") or self.data))
-        staging = Path(str(restore_meta.get("staging") or ""))
-        retained = Path(str(restore_meta.get("retained") or ""))
-        if data != self.data:
-            raise DeploymentError(
-                "The transaction journal records a different data directory than the "
-                "current configuration; refusing an ambiguous automatic restore. "
-                "Perform reviewed manual recovery."
-            )
-        staged_marker = self._restore_marker(staging) if staging.exists() else None
-        published_marker = self._restore_marker(self.data)
-        if (
-            restore_meta.get("phase") == "prepared"
-            and not staging.exists()
-            and not retained.exists()
-            and published_marker is None
-        ):
-            # The transaction was recorded before any filesystem transition.
+        """Reconcile the journal with directory and gate identities on disk."""
+        restore = journal["restore"]
+        if restore.get("schema") != 2:
+            restore = self._upgrade_legacy_restore(restore)
+            if restore is None:
+                journal["restore"] = None
+                self.record(journal)
+                return False
+            self._record_restore(journal, restore, restore["phase"])
+        staging = Path(restore["staging"])
+        retained = Path(restore["retained"])
+        if restore["phase"] == "prepared":
+            root = self._data_directory(self.data)
+            if [root.device, root.inode] != restore["original_identity"] or os.path.lexists(
+                retained
+            ):
+                raise DeploymentError(
+                    "The original data directory changed before restore staging completed"
+                )
+            if os.path.lexists(staging):
+                if os.path.lexists(staging / GATE_NAME):
+                    raise DeploymentError(
+                        "Unfinished restore staging holds a deployment gate and has been preserved"
+                    )
+                self._safe_remove(staging.parent, staging, identity=self.fs.identity_of(staging))
             journal["restore"] = None
             self.record(journal)
             return False
-        if staged_marker and staged_marker.get("transaction") != transaction:
-            raise DeploymentError(
-                "The restore staging directory belongs to a different transaction; "
-                "refusing ambiguous automatic restore"
-            )
-        if published_marker and published_marker.get("transaction") != transaction:
-            raise DeploymentError(
-                "The data directory contains a restore marker for a different "
-                "transaction; refusing ambiguous automatic restore"
-            )
-        if self.data.exists() and retained.exists() and not published_marker:
-            raise DeploymentError(
-                "Both the data directory and a retained data directory exist, but the "
-                "data directory is not the recorded restore result. Refusing to guess "
-                "which data directory is authoritative; perform reviewed manual "
-                "recovery."
-            )
-        if not self.data.exists() and staged_marker is not None:
-            staging.rename(self.data)
-            published_marker = staged_marker
-            restore_meta["phase"] = "published"
-            journal["restore"] = dict(restore_meta)
-            self.record(journal)
-        elif self.data.exists() and staged_marker is not None and not retained.exists():
-            # Nothing was published; only the disposable candidate remains.
-            self._safe_remove(
-                self.data.parent,
-                staging,
-                identity=self.fs.identity_of(staging),
-                owners={self.privileged_uid, self._data_owner()},
-            )
-            journal["restore"] = None
-            self.record(journal)
-            return False
-        if published_marker is None:
-            raise DeploymentError(
-                "The interrupted restore has no verifiable published data directory; "
-                "perform reviewed manual recovery. No automatic data replacement was "
-                "attempted."
-            )
-        if not self.data.exists():
-            raise DeploymentError(
-                "The interrupted restore lost its data directory; perform reviewed manual recovery"
-            )
-        self._chown_restored_data()
+        self._publish_restored_data(journal, restore)
         return True
 
-    def finalize_restore(self, journal: dict) -> None:
-        marker = self.data / RESTORE_MARKER
-        try:
-            if marker.is_file() and not marker.is_symlink():
-                marker.unlink()
-        except OSError as error:
-            print(
-                f"Restore marker cleanup warning: {describe_exception(error)}",
-                file=sys.stderr,
+    def _upgrade_legacy_restore(self, restore: dict) -> dict | None:
+        """Read legacy restore markers once to establish durable identities."""
+        if not restore.get("staging") or not restore.get("retained"):
+            return None  # The old updater recorded preflight before allocating paths.
+        staging, retained = Path(restore["staging"]), Path(restore["retained"])
+        original = retained if os.path.lexists(retained) else self.data
+        candidate = self.data if original == retained and os.path.lexists(self.data) else staging
+        if restore["phase"] == "prepared" and not os.path.lexists(candidate):
+            return None
+        marker = self._restore_marker(candidate)
+        if marker is None or marker.get("transaction") != restore["transaction"]:
+            raise DeploymentError(
+                "The legacy restore has no matching candidate marker. Preserve all data directories for reviewed recovery."
             )
+        for path in (original, candidate):
+            self._data_directory(path, staging=True)
+        return {
+            **restore,
+            "schema": 2,
+            "original_identity": list(self.fs.identity_of(original)),
+            "staging_identity": list(self.fs.identity_of(candidate))
+            if restore["phase"] != "prepared"
+            else None,
+            "gate_identity": list(self._held_gate or ()),
+        }
+
+    def finalize_restore(self, journal: dict) -> None:
+        restore = journal.get("restore")
+        if restore is None:
+            return
+        if journal.get("phase") not in {"committed", "recovered"}:
+            raise DeploymentError("Cannot finalize a restore before the transaction is durable")
+        root = self._data_directory(self.data)
+        if restore.get("staging_identity") != [root.device, root.inode]:
+            raise DeploymentError(
+                "The committed restore data directory changed before finalization"
+            )
+        with self.fs.open_directory(root) as fd:
+            if self._entry_identity(fd, GATE_NAME) != restore["gate_identity"]:
+                raise DeploymentError("The committed restore is missing its deployment gate")
+            # Unlink only the reserved entry in the validated directory. The
+            # journal remains authoritative even if the marker is already gone.
+            try:
+                os.unlink(RESTORE_MARKER, dir_fd=fd)
+            except FileNotFoundError:
+                pass
+            os.fsync(fd)
         journal["restore"] = None
+        self.record(journal)
 
     def activate(self, release: Path):
         pending = self.base / "current.new"
         pending.unlink(missing_ok=True)
         pending.symlink_to(release)
         os.replace(pending, self.current)
+        sync_directory(self.base)
+
+    def _unit_content(self, release: Path) -> bytes:
+        authenticated = release / ".trusted-unit"
+        unit = (
+            authenticated
+            if os.path.lexists(authenticated)
+            else release / "deployment/hnefatafl.service"
+        )
+        self.fs._validate_ancestors(self.unit_file, "systemd service unit")
+        if os.path.lexists(self.unit_file):
+            self._utility_file(self.unit_file)
+        return self._utility_file(unit).read_bytes()
+
+    def _install_release_unit(self, release: Path) -> None:
+        atomic_bytes(self.unit_file, self._unit_content(release), 0o644)
+
+    def _enable_service_start_guard(self) -> None:
+        if not self.manage_updater:
+            return
+        drop_in = self.unit_file.with_name(self.unit_file.name + ".d")
+        self._managed_root(
+            drop_in,
+            owner=self.privileged_uid,
+            mode=0o755,
+            description="systemd service drop-in",
+            write=True,
+        )
+        content = (
+            "[Service]\n"
+            "StateDirectory=\n"
+            "ExecStartPre=+/usr/bin/python3 -I -B /usr/local/lib/hnefatafl/deployment.py --guard-data-root\n"
+        ).encode()
+        path = drop_in / "50-data-authority.conf"
+        if not os.path.lexists(path) or self._utility_file(path).read_bytes() != content:
+            atomic_bytes(path, content, 0o644)
+        self.run(["systemctl", "daemon-reload"])
+
+    def _authorize_service_start(self) -> None:
+        root = self._data_directory(self.data)
+        journal, valid, reason = self._load_metadata(self.journal, "transaction journal")
+        if valid and journal is not None:
+            valid, reason = self.validate_transaction_metadata(journal)
+        if not valid:
+            raise DeploymentError(f"Cannot verify data authority for startup: {reason}")
+        if journal is None or journal["phase"] in {"committed", "recovered"}:
+            self._require_active_state(self._installed_metadata())
+        elif journal.get("operation") == "manual-backup" and journal["service_was_running"]:
+            self._require_active_state(self._installed_metadata())
+        else:
+            current = self._require_active_state(None)
+            allowed = (
+                journal.get("target")
+                if journal.get("operation") in {"install", "update"}
+                and journal["phase"] in {"activated", "committing"}
+                else journal.get("service_target")
+            )
+            if current is None or str(current) != allowed:
+                raise DeploymentError(
+                    "Service startup is deferred until the interrupted deployment is recovered"
+                )
+        if (
+            journal
+            and journal.get("restore")
+            and journal["restore"].get("staging_identity") != [root.device, root.inode]
+        ):
+            raise DeploymentError(
+                "Service startup is deferred because the authoritative restored data is unavailable"
+            )
 
     def validate_configuration(self, target: Path):
         values = {}
@@ -4875,9 +5990,80 @@ class Deployment:
                     file=sys.stderr,
                 )
 
+    def _grant_build_access(self, target: Path) -> None:
+        if self.base != Path("/opt/hnefatafl"):
+            return
+        uid, gid = self._data_account()
+        for _, _, files, fd in os.fwalk(target, topdown=False, follow_symlinks=False):
+            for name in files:
+                os.chown(name, uid, gid, dir_fd=fd, follow_symlinks=False)
+            os.fchown(fd, uid, gid)
+
+    def _seal_release(self, target: Path, identity: tuple[int, int]) -> None:
+        if self.base != Path("/opt/hnefatafl"):
+            return
+        uid, _ = self._data_account()
+        if (
+            self.fs.is_mount(target)
+            or self.fs.nested_mounts(target)
+            or self.fs.identity_of(target) != identity
+        ):
+            raise DeploymentError(
+                "The prepared release changed identity or mount topology during build"
+            )
+
+        def failed(error):
+            raise error
+
+        # Remove application write access top-down. Symlinks are allowed in
+        # virtual environments, but their targets are never changed by root.
+        for _, directories, files, fd in os.fwalk(
+            target, topdown=True, follow_symlinks=False, onerror=failed
+        ):
+            info = os.fstat(fd)
+            if info.st_dev != identity[0] or info.st_uid not in {uid, self.privileged_uid}:
+                raise DeploymentError("Unsafe directory in the prepared release")
+            os.fchown(fd, self.privileged_uid, os.getegid())
+            os.fchmod(fd, 0o755)
+            for name in (*directories, *files):
+                pinned = os.open(name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                try:
+                    entry = os.fstat(pinned)
+                    if stat.S_ISDIR(entry.st_mode) or stat.S_ISLNK(entry.st_mode):
+                        continue
+                    if (
+                        not stat.S_ISREG(entry.st_mode)
+                        or entry.st_dev != identity[0]
+                        or entry.st_uid not in {uid, self.privileged_uid}
+                        or entry.st_nlink != 1
+                    ):
+                        raise DeploymentError(f"Unsafe file in the prepared release: {name}")
+                    file_fd = os.open(f"/proc/self/fd/{pinned}", os.O_RDONLY | os.O_CLOEXEC)
+                    try:
+                        os.fchown(file_fd, self.privileged_uid, os.getegid())
+                        if os.fstat(file_fd).st_nlink != 1:
+                            raise DeploymentError(
+                                f"A file in the prepared release gained additional links: {name}"
+                            )
+                        os.fchmod(file_fd, 0o555 if entry.st_mode & 0o111 else 0o444)
+                    finally:
+                        os.close(file_fd)
+                finally:
+                    os.close(pinned)
+
+    @staticmethod
+    def _archive_has_launcher(archive: Path) -> bool:
+        with tarfile.open(archive, "r:gz") as bundle:
+            return any(
+                member.name.removeprefix("./") == "scripts/linux/launcher.py" for member in bundle
+            )
+
+    def _use_installed_updater(self, tag: str) -> bool:
+        return version_key(tag) <= (0, 42, 0) and self._active_updater() is not None
+
     def prepare(self, github: GitHub, release: dict) -> Path:
-        self.releases.mkdir(parents=True, exist_ok=True)
-        self.base.mkdir(parents=True, exist_ok=True)
+        self._base_root()
+        self._release_root(write=True)
         self.ensure_layout()
         self._remove_orphan_staging()
         tag = release["tag_name"]
@@ -4893,13 +6079,21 @@ class Deployment:
         own_identity = self.fs.identity_of(final)
         self.fs.write_staging_marker(final, "release")
         published = False
+        refresh_utility = self.manage_updater
         try:
             with tempfile.TemporaryDirectory(dir=self.base, prefix="download-") as temporary:
                 archive = Path(temporary) / "release.tar.gz"
                 sha256 = github.download(release, archive)
                 if self.manage_updater:
-                    self.updater_root.mkdir(parents=True, exist_ok=True, mode=0o755)
-                    self._stage_updater_payload(archive, tag, sha256)
+                    if self._archive_has_launcher(archive):
+                        self._stage_updater_payload(archive, tag, sha256)
+                    elif self._use_installed_updater(tag):
+                        refresh_utility = False
+                    else:
+                        raise DeploymentError(
+                            "The verified archive is missing its deployment launcher"
+                        )
+                unit = self._read_archive_members(archive, {"unit": "deployment/hnefatafl.service"})
                 extract(archive, final)
             for required in (
                 "pyproject.toml",
@@ -4914,7 +6108,7 @@ class Deployment:
             metadata = tomllib.loads((final / "pyproject.toml").read_text())
             if metadata["project"]["version"] != tag:
                 raise ValueError("Release tag and package version disagree")
-            self.run(["chown", "-R", "hnefatafl:hnefatafl", final])
+            self._grant_build_access(final)
             self.run(
                 [
                     self.base / "tools/bin/uv",
@@ -4929,6 +6123,7 @@ class Deployment:
                 ],
                 cwd=final,
                 user=True,
+                extra_env={"UV_LINK_MODE": "copy"},
             )
             self.run(["npm", "--prefix", "frontend", "ci"], cwd=final, user=True)
             self.run(["npm", "--prefix", "frontend", "run", "build"], cwd=final, user=True)
@@ -4943,13 +6138,13 @@ class Deployment:
                 cwd=final,
                 user=True,
             )
+            self._seal_release(final, own_identity)
             peak = scan_usage(final)
             self._prune_build_outputs(final)
             size = scan_usage(final)
             self._remove_staging_marker(final)
             self._release_size_cache = {}
-            self.run(["chown", "-R", "root:root", final])
-            self.run(["chmod", "-R", "a+rX,a-w", final])
+            atomic_bytes(final / ".trusted-unit", unit["deployment/hnefatafl.service"], 0o444)
             self._verify_release_environment(final)
             release_metadata = {
                 "version": tag,
@@ -4961,11 +6156,15 @@ class Deployment:
                 "size_inodes": size.inodes,
                 "file_count": size.files,
                 "updater_abi": UPDATER_ABI,
+                "refresh_utility": refresh_utility,
             }
             # Publication: the completion marker is the single atomic transition
             # from "incomplete preparation" to "usable release".
-            atomic_json(final / RELEASE_MARKER, release_metadata)
-            os.chmod(final / RELEASE_MARKER, 0o644)
+            atomic_bytes(
+                final / RELEASE_MARKER,
+                (json.dumps(release_metadata, indent=2) + "\n").encode(),
+                0o644,
+            )
             published = True
         except BaseException:
             try:
@@ -5365,32 +6564,28 @@ class Deployment:
         host = urllib.parse.urlparse(self.config["public_url"]).netloc
         attempts = getattr(self, "_readiness_override", None) or self.readiness_attempts
         self._probe_health(url, host, attempts_limit=attempts)
-        with closing(sqlite3.connect(self.data / "hnefatafl.sqlite3")) as c:
-            row = c.execute(
-                "SELECT id FROM accounts WHERE active=1 AND role='ADMIN' LIMIT 1"
-            ).fetchone()
-            if not row:
-                raise self._readiness_error(
-                    "administrator",
-                    "no_active_administrator",
-                    attempts=1,
-                    elapsed=0.0,
-                    status=200,
-                )
-            token = secrets.token_urlsafe(32)
-            hashed = hashlib.sha256(token.encode()).hexdigest()
-            c.execute(
-                "INSERT INTO sessions VALUES(?,?,?,?)",
-                (hashed, row[0], time.time() + 60, hashlib.sha256(b"local-probe").hexdigest()),
+        token = secrets.token_urlsafe(32)
+        hashed = hashlib.sha256(token.encode()).hexdigest()
+        rows = self._application_queries(
+            [
+                (
+                    "INSERT INTO sessions SELECT ?,id,?,? FROM accounts WHERE active=1 AND role='ADMIN' LIMIT 1 RETURNING token_hash",
+                    (hashed, time.time() + 60, hashlib.sha256(b"local-probe").hexdigest()),
+                ),
+            ],
+            write=True,
+        )
+        if not rows[0]:
+            raise self._readiness_error(
+                "administrator", "no_active_administrator", attempts=1, elapsed=0.0, status=200
             )
-            c.commit()
         try:
             self._probe_authentication(url, host, token)
             self._probe_anonymous_rejection(url, host)
         finally:
-            with closing(sqlite3.connect(self.data / "hnefatafl.sqlite3")) as c:
-                c.execute("DELETE FROM sessions WHERE token_hash=?", (hashed,))
-                c.commit()
+            self._application_queries(
+                [("DELETE FROM sessions WHERE token_hash=?", (hashed,))], write=True
+            )
 
     def _ensure_rollback_target_supported(self, path: Path, *, action: str) -> None:
         version = self.release_version(path)
@@ -5417,36 +6612,31 @@ class Deployment:
         live = self.data / "hnefatafl.sqlite3"
         if not snapshot.is_file() or not live.is_file():
             return
+        tables = ("accounts", "auth_meta", "account_limits")
+        checks = ["PRAGMA user_version", *(f"PRAGMA table_info({table})" for table in tables)]
         try:
-            with (
-                closing(sqlite3.connect(f"file:{live}?mode=ro", uri=True)) as current,
-                closing(sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)) as saved,
-            ):
-                live_version = current.execute("PRAGMA user_version").fetchone()[0]
-                snapshot_version = saved.execute("PRAGMA user_version").fetchone()[0]
-                if max(live_version, snapshot_version) >= 10 and (live_version != snapshot_version):
-                    raise DeploymentError(
-                        f"Snapshot schema {snapshot_version} differs from live schema "
-                        f"{live_version}; automatic rollback would be refused by the "
-                        "online schema-authority checks. The service was not stopped "
-                        "and persistent data was not replaced. Preserve the snapshot, "
-                        "inspect both databases, and perform reviewed manual recovery."
-                    )
-                for table in ("accounts", "auth_meta", "account_limits"):
-                    current_columns = [
-                        row[1] for row in current.execute(f"PRAGMA table_info({table})")
-                    ]
-                    saved_columns = [row[1] for row in saved.execute(f"PRAGMA table_info({table})")]
-                    if saved_columns and current_columns != saved_columns:
-                        raise DeploymentError(
-                            "Account schema changed; manual recovery is required before "
-                            "restoring security state. The service was not stopped and "
-                            "persistent data was not replaced."
-                        )
-        except sqlite3.Error as error:
+            live_results = self._application_queries([(sql, ()) for sql in checks])
+            with closing(
+                sqlite3.connect(snapshot.as_uri() + "?mode=ro&immutable=1", uri=True)
+            ) as saved:
+                snapshot_results = [saved.execute(sql).fetchall() for sql in checks]
+        except (sqlite3.Error, DeploymentError) as error:
             raise DeploymentError(
                 "Snapshot compatibility could not be read safely; manual recovery is required."
             ) from error
+        live_version = live_results[0][0][0]
+        snapshot_version = snapshot_results[0][0][0]
+        if max(live_version, snapshot_version) >= 10 and live_version != snapshot_version:
+            raise DeploymentError(
+                f"Snapshot schema {snapshot_version} differs from live schema {live_version}; "
+                "automatic rollback would be refused by the online schema-authority checks. "
+                "Preserve the snapshot and inspect both databases before manual recovery."
+            )
+        for current, saved_columns in zip(live_results[1:], snapshot_results[1:], strict=True):
+            if saved_columns and [row[1] for row in current] != [row[1] for row in saved_columns]:
+                raise DeploymentError(
+                    "Account schema changed; manual recovery is required before restoring security state."
+                )
 
     @staticmethod
     def _safe_failure_detail(error: BaseException) -> str:
@@ -5455,12 +6645,25 @@ class Deployment:
     def deploy(self, target: Path, *, initialize=False):
         self._deployment_transaction_started = False
         try:
+            self._require_idle_transaction("start deployment")
+            self.ensure_layout()
+            self.recover_updater_refresh()
+            self._remove_orphan_staging()
+            self.preflight_deployment(Path(target), service_state="running")
+            if self.manage_updater:
+                self._refresh_installed_updater(target)
+                self._enable_service_start_guard()
             with self.write_gate():
-                return self._deploy_locked(target, initialize=initialize)
+                self._deploy_locked(target, initialize=initialize)
         except BaseException:
             if not getattr(self, "_deployment_transaction_started", False):
                 self._cleanup_refused_deployment(target)
+            else:
+                transaction, valid, _ = self._load_metadata(self.journal, "transaction journal")
+                if valid and transaction and transaction.get("phase") == "recovered":
+                    self._post_operation_cleanup("deployment recovery")
             raise
+        self._post_operation_cleanup("deployment")
 
     def _cleanup_refused_deployment(self, target: Path) -> None:
         """Trim a successfully prepared release that was never deployed.
@@ -5509,6 +6712,7 @@ class Deployment:
                 f"Refusing to deploy {target}: only a direct child of the release "
                 "directory can be activated"
             )
+        self.fs.validate_root(target, owner=self.privileged_uid, description="completed release")
         metadata, valid, reason = self._load_metadata(target / RELEASE_MARKER, "release metadata")
         if not valid or metadata is None:
             raise DeploymentError(
@@ -5524,15 +6728,11 @@ class Deployment:
     def _deploy_locked(self, target: Path, *, initialize=False):
         self._diagnostic_failure_phase = None
         self._diagnostic_recovery_target = None
-        self.ensure_layout()
-        self.recover_updater_refresh()
-        self._remove_orphan_staging()
-        if active_jobs(self.data):
+        if self._active_jobs():
             raise ValueError(
                 "Active/queued training or tournament jobs exist. Cancel/finish jobs and pause remote workers first."
             )
         self.validate_configuration(target)
-        old = self.current.resolve() if self.current.is_symlink() else None
         old_state, state_valid, state_reason = self._load_metadata(self.state, "installed state")
         if self.state.exists() and not state_valid:
             raise DeploymentError(
@@ -5548,20 +6748,27 @@ class Deployment:
                     "The service was not stopped and persistent data is unchanged. "
                     "Inspect /etc/hnefatafl before continuing."
                 )
+        old = self._require_active_state(old_state)
         self._require_complete_release(target)
+        self._unit_content(target)
+        self._assert_snapshot_sources_safe()
+        self._validate_restore_topology()
         # Refuse predictable storage failures while the application is still
         # running. The target is explicitly protected from storage cleanup.
-        self.preflight_deployment(Path(target), service_state="running")
-        # Utility refresh is a hard step now: the new journal phases and restore
-        # metadata require a utility that understands them. It runs from the
-        # root-controlled staging set extracted from the digest-verified archive,
-        # never from the application-writable release tree. A failure aborts while
-        # the service is still healthy.
-        if self.manage_updater:
-            self._refresh_installed_updater(target)
-        transaction = {
+        requirements = self._deployment_requirements()
+        self.check_storage(
+            requirements,
+            phase="pre-deployment snapshot",
+            service_state="running",
+            protected_releases={Path(target)},
+        )
+        transaction: dict = {
             "phase": "prepared",
             "abi": UPDATER_ABI,
+            "operation": "update" if old else "install",
+            "transaction": secrets.token_hex(16),
+            "snapshot_name": self._snapshot_name(),
+            "snapshot_id": secrets.token_hex(16),
             "previous": str(old) if old else None,
             "target": str(target),
             "backup": None,
@@ -5571,6 +6778,7 @@ class Deployment:
             "data_modified": False,
             "restore": None,
         }
+        self._snapshot_association(transaction, None)
         self.record(transaction)
         self._deployment_transaction_started = True
         deployment_step = "stopping current service"
@@ -5589,22 +6797,32 @@ class Deployment:
             ) from error
         try:
             deployment_step = "post-stop activity check"
-            if active_jobs(self.data):
+            if self._active_jobs():
                 raise DeploymentError(
                     "New job activity detected during shutdown; update refused, retained state preserved"
                 )
             deployment_step = "post-stop storage preflight"
-            self.preflight_deployment(Path(target), service_state="stopped")
+            self.check_storage(
+                requirements,
+                phase="pre-deployment snapshot",
+                service_state="stopped",
+                protected_releases={Path(target)},
+            )
             deployment_step = "pre-deployment snapshot"
             transaction["phase"] = "snapshot"
             self.record(transaction)
-            backup = self.snapshot()
+            backup = self.snapshot(transaction=transaction)
             transaction["backup"] = str(backup)
             transaction["phase"] = "prepared"
             self.record(transaction)
             if old:
                 deployment_step = "snapshot rollback association verification"
-                self.verify_snapshot_usable(backup, target=old, service_state="stopped")
+                self.verify_snapshot_usable(
+                    backup,
+                    target=old,
+                    expected=transaction["backup_association"],
+                    service_state="stopped",
+                )
             deployment_step = "database migration"
             transaction["phase"] = "migrating"
             transaction["migration_started"] = True
@@ -5634,16 +6852,13 @@ class Deployment:
                         self.data,
                     ],
                     cwd=target,
-                    user=False,
+                    user=True,
                 )
             deployment_step = "release activation"
             transaction["phase"] = "activating"
             self.record(transaction)
             self.activate(target)
-            shutil.copyfile(
-                target / "deployment/hnefatafl.service",
-                self.unit_file,
-            )
+            self._install_release_unit(target)
             deployment_step = "service unit update"
             self.run(["systemctl", "daemon-reload"])
             transaction["phase"] = "activated"
@@ -5661,29 +6876,20 @@ class Deployment:
                 "version": release_metadata.get("version"),
                 "previous": transaction["previous"],
                 "backup": transaction["backup"],
+                "backup_association": transaction["backup_association"],
                 "target": transaction["target"],
                 "phase": "committed",
             }
-            atomic_json(self.state, committed_state)
-            transaction["phase"] = "committed"
-            transaction["prior_state"] = None
-            self.finalize_restore(transaction)
-            self.record(transaction)
+            self._finish_transaction(transaction, committed_state)
             print("Release ready: " + str(target))
         except BaseException as error:
-            recovery_step = "cleaning interrupted staging artifacts"
+            if deployment_step == "commit":
+                raise DeploymentStepError(
+                    f"Could not finish publishing the installed state: {describe_exception(error)}. Run hnefatafl-update --recover."
+                ) from error
+            recovery_step = "recording automatic recovery intent"
             self._diagnostic_recovery_target = self.release_version(old) if old else "none"
             self._diagnostic_failure_phase = f"{deployment_step}; automatic recovery"
-            try:
-                self._remove_orphan_staging()
-            except BaseException as cleanup_error:
-                if isinstance(cleanup_error, (KeyboardInterrupt, SystemExit)):
-                    raise
-                print(
-                    "Staging cleanup warning before automatic recovery: "
-                    f"{describe_exception(cleanup_error)}",
-                    file=sys.stderr,
-                )
             recovery_step = "stopping failed target service"
             legacy_phase = transaction.get("phase")
             needs_restore = bool(
@@ -5694,6 +6900,9 @@ class Deployment:
                 )
             ) and bool(transaction.get("backup"))
             try:
+                transaction["operation"] = "automatic-recovery"
+                transaction["phase"] = "recovering"
+                self.record(transaction)
                 if old or self.unit_file.exists():
                     self.service("stop")
                 recovery_step = "unsupported rollback policy check"
@@ -5704,6 +6913,7 @@ class Deployment:
                     self.verify_snapshot_usable(
                         Path(str(transaction["backup"])),
                         target=old,
+                        expected=transaction.get("backup_association"),
                         service_state="stopped",
                     )
                 recovery_step = "snapshot restoration"
@@ -5712,12 +6922,11 @@ class Deployment:
                 if old:
                     recovery_step = "previous release activation"
                     self.activate(old)
-                    shutil.copyfile(
-                        old / "deployment/hnefatafl.service",
-                        self.unit_file,
-                    )
+                    self._install_release_unit(old)
                     self.run(["systemctl", "daemon-reload"])
                     recovery_step = "previous release service startup"
+                    transaction["service_target"] = str(old)
+                    self.record(transaction)
                     self.service("start")
                     recovery_step = "previous release readiness verification"
                     self._diagnostic_failure_phase = (
@@ -5727,14 +6936,14 @@ class Deployment:
                 elif self.current.is_symlink():
                     recovery_step = "release symlink cleanup"
                     self.current.unlink()
+                    sync_directory(self.base)
                 recovery_step = "installed state restoration"
-                if old_state is not None:
-                    atomic_json(self.state, old_state)
-                else:
-                    self.state.unlink(missing_ok=True)
-                transaction["phase"] = "recovered"
-                self.finalize_restore(transaction)
-                self.record(transaction)
+                self._finish_transaction(
+                    transaction,
+                    old_state
+                    if old_state is not None or old is None
+                    else self._recovered_release_state(old),
+                )
             except BaseException as recovery_error:
                 if isinstance(error, ReadinessError):
                     detail = self._safe_failure_detail(recovery_error)
@@ -5752,7 +6961,6 @@ class Deployment:
                 ) from recovery_error
             if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise
-            self._post_operation_cleanup("deployment recovery")
             context = (
                 "Database migration started: "
                 + ("yes" if transaction.get("migration_started") else "no")
@@ -5781,330 +6989,447 @@ class Deployment:
                 f"{self._safe_failure_detail(error)}; {outcome}. {context} "
                 f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
             ) from error
-        self._post_operation_cleanup("deployment")
 
     def recover(self, *, rollback=False):
+        self.ensure_layout()
+        self.recover_updater_refresh()
+        self._remove_orphan_staging()
+        rollback_plan = self._prepare_explicit_rollback() if rollback else None
+        journal, valid, _ = self._load_metadata(self.journal, "transaction journal")
+        if (
+            rollback
+            or valid
+            and journal
+            and journal.get("operation") != "manual-backup"
+            and journal.get("phase") not in {"committed", "recovered"}
+        ):
+            self._enable_service_start_guard()
         with self.write_gate():
-            return self._recover_locked(rollback=rollback)
+            completed = self._recover_locked(rollback_plan=rollback_plan)
+        if completed:
+            self._post_operation_cleanup("recovery")
 
     def _service_is_active(self) -> bool:
         try:
             result = subprocess.run(
-                ["systemctl", "is-active", "--quiet", "hnefatafl.service"],
+                ["systemctl", "is-active", "hnefatafl.service"],
                 env=self.env,
+                capture_output=True,
+                text=True,
                 check=False,
                 timeout=5,
             )
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError) as error:
+            if self.manage_updater:
+                raise DeploymentError(
+                    "Cannot determine the current application service state"
+                ) from error
             return False
-        return result.returncode == 0
+        if result.returncode == 0:
+            return True
+        if self.manage_updater and (
+            result.returncode != 3 or result.stdout.strip() not in {"inactive", "failed"}
+        ):
+            raise DeploymentError(
+                "The application service is in an unknown or transitional state. Inspect systemctl status hnefatafl.service."
+            )
+        return False
 
-    def _recover_locked(self, *, rollback=False):
+    def _installed_metadata(self) -> dict | None:
+        state, valid, reason = self._load_metadata(self.state, "installed state")
+        if valid and state is not None:
+            valid, reason = self.validate_state_metadata(state)
+        if not valid:
+            raise DeploymentError(f"Invalid installed state at {self.state}: {reason}")
+        return state
+
+    def _require_active_state(self, state: dict | None) -> Path | None:
+        try:
+            current = self.current.resolve(strict=True) if self.current.is_symlink() else None
+        except (OSError, RuntimeError) as error:
+            raise DeploymentError(f"The active release link is invalid: {self.current}") from error
+        if os.path.lexists(self.current) and current is None:
+            raise DeploymentError(f"Expected an active release symlink at {self.current}")
+        if current is not None and not self._release_reference(str(current)):
+            raise DeploymentError(
+                f"The active release is outside the managed release directory: {current}"
+            )
+        if state is not None and (
+            current is None
+            or state.get("target") not in (None, str(current))
+            or state["version"] != self.release_version(current)
+        ):
+            raise DeploymentError(
+                "Installed state disagrees with the active release. Inspect the deployment journal before continuing."
+            )
+        return current
+
+    def _rollback_installed_state(self, previous: Path, snapshot: Path) -> dict:
+        saved, valid, _ = self._load_metadata(
+            snapshot / "config/installed.json", "snapshot installed state"
+        )
+        if (
+            valid
+            and saved is not None
+            and self.validate_state_metadata(saved)[0]
+            and self._state_describes(saved, previous)
+        ):
+            prior_backup, prior_release = saved.get("backup"), saved.get("previous")
+            if prior_backup and Path(prior_backup).parent == self.legacy_backups:
+                migrated = self.backups / Path(prior_backup).name
+                if migrated.is_dir():
+                    saved["backup"] = prior_backup = str(migrated)
+            if prior_backup and prior_release and Path(prior_release).is_dir():
+                try:
+                    self._require_complete_release(Path(prior_release))
+                    self.verify_snapshot(Path(prior_backup))
+                    schema = self._verified_snapshot_schema(Path(prior_backup))
+                    self._verify_snapshot_association(
+                        Path(prior_backup),
+                        target=Path(prior_release),
+                        expected=saved.get("backup_association"),
+                        allow_legacy=True,
+                        schema=schema,
+                    )
+                except (OSError, DeploymentError):
+                    pass
+                else:
+                    return saved
+        return self._recovered_release_state(previous)
+
+    def _state_describes(self, state: dict, release: Path) -> bool:
+        return state.get("target") in (None, str(release)) and state.get(
+            "version"
+        ) == self.release_version(release)
+
+    def _recovered_release_state(self, release: Path) -> dict:
+        return {
+            **self._require_complete_release(release),
+            "target": str(release),
+            "previous": None,
+            "backup": None,
+            "phase": "committed",
+        }
+
+    def _finish_transaction(self, transaction: dict, state: dict | None) -> None:
+        transaction["phase"] = "committing"
+        transaction["commit_state"] = state
+        self.record(transaction)
+        self._publish_transaction_state(transaction)
+
+    def _publish_transaction_state(self, transaction: dict) -> None:
+        state = transaction["commit_state"]
+        if state is None:
+            self.state.unlink(missing_ok=True)
+            sync_directory(self.etc)
+        else:
+            atomic_json(self.state, state)
+        transaction["phase"] = (
+            "committed" if transaction["operation"] in {"install", "update"} else "recovered"
+        )
+        transaction["prior_state"] = None
+        transaction.pop("rollback_state", None)
+        transaction.pop("commit_state")
+        self.record(transaction)
+        self.finalize_restore(transaction)
+
+    def _resume_transaction_commit(self, transaction: dict) -> None:
+        state = transaction["commit_state"]
+        intended = (
+            transaction["target"]
+            if transaction["operation"] in {"install", "update"}
+            else transaction.get("previous")
+        )
+        current = self._require_active_state(state)
+        if intended != (str(current) if current is not None else None):
+            raise DeploymentError("The active release disagrees with the durable commit intent")
+        if transaction.get("restore"):
+            restore = transaction["restore"]
+            root = self._data_directory(self.data)
+            if restore.get("staging_identity") != [root.device, root.inode]:
+                raise DeploymentError(
+                    "The active data directory disagrees with the durable commit intent"
+                )
+        if current is not None:
+            if not self._service_is_active():
+                self.service("start")
+            self._recovery_probe()
+        self._publish_transaction_state(transaction)
+
+    def _prepare_explicit_rollback(self) -> dict:
+        self._require_idle_transaction("start a new rollback")
+        installed = self._installed_metadata()
+        if installed is None or not installed.get("previous"):
+            raise DeploymentError("No previous release to roll back to")
+        previous = Path(installed["previous"])
+        self._ensure_rollback_target_supported(previous, action="rollback")
+        active = self._require_active_state(installed)
+        if not installed.get("backup"):
+            raise DeploymentError(
+                "No verified pre-deployment snapshot is recorded for this rollback."
+            )
+        backup = Path(installed["backup"])
+        self._require_complete_release(previous)
+        self._unit_content(previous)
+        self._validate_restore_topology()
+        for warning in self.verify_snapshot_usable(
+            backup, target=previous, expected=installed.get("backup_association")
+        ):
+            print(f"Recovery note: {warning}")
+        return {
+            "operation": "rollback",
+            "transaction": secrets.token_hex(16),
+            "abi": UPDATER_ABI,
+            "phase": "recovering",
+            "previous": str(previous),
+            "target": str(active),
+            "backup": str(backup),
+            "backup_association": installed.get("backup_association"),
+            "prior_state": installed,
+            "rollback_state": self._rollback_installed_state(previous, backup),
+            "service_stopped": False,
+            "migration_started": True,
+            "data_modified": False,
+            "restore": None,
+        }
+
+    def _recover_locked(self, *, rollback_plan: dict | None = None) -> bool:
+        rollback = rollback_plan is not None
         self._diagnostic_failure_phase = None
         self._diagnostic_recovery_target = None
-        self.ensure_layout()
-        self.recover_updater_refresh()
-        source = self.state if rollback else self.journal
-        transaction, valid, reason = self._load_metadata(source, "recovery metadata")
-        if not valid or transaction is None:
-            raise DeploymentError(
-                f"Cannot recover from invalid {source.name}: {reason}. "
-                "No service stop, data restore or release switch was attempted."
-            )
+        journal, valid, reason = self._load_metadata(self.journal, "transaction journal")
+        if valid and journal is not None:
+            valid, reason = self.validate_transaction_metadata(journal)
+        if not valid:
+            raise DeploymentError(f"Cannot recover from invalid {self.journal}: {reason}")
+        previous: Path | None
+        backup: Path | None
+        transaction: dict
         if rollback:
-            valid_metadata, reason = self.validate_state_metadata(transaction)
+            assert rollback_plan is not None
+            self._require_idle_transaction("start a new rollback")
+            transaction = rollback_plan
+            previous = Path(transaction["previous"])
+            backup = Path(transaction["backup"])
         else:
-            valid_metadata, reason = self.validate_transaction_metadata(transaction)
-        if not valid_metadata:
-            raise DeploymentError(
-                f"Refusing recovery from ambiguous {source.name}: {reason}. "
-                "No service stop, data restore or release switch was attempted. "
-                "Inspect the root-owned metadata and perform reviewed manual recovery."
-            )
-        self._remove_orphan_staging()
-        phase = transaction.get("phase")
-        if not rollback and phase in {"committed", "recovered"} and not transaction.get("restore"):
-            print("No interrupted deployment to recover.")
-            return
-        previous, backup = transaction.get("previous"), transaction.get("backup")
-        if rollback and not previous:
-            raise ValueError("No previous release to roll back to")
-        if previous:
-            self._diagnostic_recovery_target = self.release_version(Path(str(previous)))
-            self._ensure_rollback_target_supported(
-                Path(str(previous)), action="rollback" if rollback else "interrupted recovery"
-            )
-        if rollback and previous and not backup:
-            raise DeploymentError(
-                "No verified pre-deployment snapshot is recorded for this rollback. "
-                "Running the previous release against the current database would be "
-                "unsafe. The service was not stopped and no release or data was changed. "
-                "Inspect installed.json and perform reviewed manual recovery if needed."
-            )
-        if active_jobs(self.data):
-            raise DeploymentError("Finish/cancel training and tournaments before recovery")
-        if rollback:
-            needs_restore = bool(backup)
-        else:
-            migrated = bool(transaction.get("migration_started"))
-            if transaction.get("migration_started") is None:
-                migrated = phase in {"migrating", "activated", "activating"}
-            needs_restore = bool(migrated and backup)
-            if migrated and not backup:
-                raise DeploymentError(
-                    "Interrupted deployment may have started database migration but no "
-                    "snapshot is recorded. Automatic recovery would be unsafe. The service "
-                    "remains stopped; inspect the transaction journal and journalctl, then "
-                    "perform reviewed manual recovery."
-                )
-        prior_state = transaction.get("prior_state")
-        if not isinstance(prior_state, dict):
-            prior_state = None
-        rollback_journal = None
-        if rollback:
-            # Record a durable journal for rollback too, so an interruption between
-            # renames can be resumed deterministically instead of guessing which
-            # data directory is authoritative.
-            existing_journal, journal_valid, _reason = self._load_metadata(
-                self.journal, "transaction journal"
-            )
+            if journal is None:
+                print("No interrupted deployment to recover.")
+                return False
+            transaction = journal
+            phase = transaction["phase"]
+            if phase in {"committed", "recovered"}:
+                if transaction.get("restore"):
+                    self._require_active_state(self._installed_metadata())
+                    self.finalize_restore(transaction)
+                    return True
+                print("No interrupted deployment to recover.")
+                return False
+            if phase == "committing":
+                self._resume_transaction_commit(transaction)
+                return True
+            if transaction.get("operation") == "manual-backup":
+                recovery_error = self._restore_backup_service(transaction)
+                if recovery_error is not None:
+                    raise DeploymentError(
+                        f"Manual backup service recovery failed: {describe_exception(recovery_error)}. Inspect {self.journal} and rerun hnefatafl-update --recover."
+                    ) from recovery_error
+                print("Recovered the service state recorded before the manual backup.")
+                return False
+            previous = Path(transaction["previous"]) if transaction.get("previous") else None
+            backup = Path(transaction["backup"]) if transaction.get("backup") else None
             if (
-                journal_valid
-                and isinstance(existing_journal, dict)
-                and existing_journal.get("phase") not in {"committed", "recovered"}
-                and existing_journal.get("restore")
+                not transaction.get("operation")
+                and phase == "recovering"
+                and transaction.get("abi") == 2
+                and (transaction.get("prior_state") or {}).get("target")
+                == transaction.get("target")
             ):
-                rollback_journal = existing_journal
-            else:
-                rollback_journal = {
-                    "phase": "recovering",
-                    "abi": UPDATER_ABI,
-                    "previous": previous,
-                    "target": transaction.get("target") or str(previous),
-                    "backup": backup,
-                    "prior_state": transaction,
-                    "service_stopped": False,
-                    "migration_started": True,
-                    "data_modified": False,
-                    "restore": None,
-                }
-                self.record(rollback_journal)
-        warnings: list[str] = []
-        already_restored = False
-        if rollback and rollback_journal and rollback_journal.get("restore"):
-            try:
-                already_restored = self.recover_restore(rollback_journal)
-            except (OSError, DeploymentError) as restore_error:
-                raise DeploymentStepError(
-                    "Interrupted rollback restore recovery failed: "
-                    f"{describe_exception(restore_error)}. No further data was changed. "
-                    f"Inspect {self.journal} and the {self.data.parent} retained "
-                    "directories before manual recovery."
-                ) from restore_error
-        if not rollback and transaction.get("restore"):
-            # Resume or complete an interrupted restore before anything else; the
-            # journal records every expected filesystem transition.
-            try:
-                already_restored = self.recover_restore(transaction)
-            except (OSError, DeploymentError) as restore_error:
-                raise DeploymentStepError(
-                    "Interrupted restore recovery failed: "
-                    f"{describe_exception(restore_error)}. No release was activated and "
-                    f"no further data was changed. Inspect {self.journal} and the "
-                    f"{self.data.parent} retained directories before manual recovery."
-                ) from restore_error
-        service_running = self._service_is_active()
-        if needs_restore and not already_restored:
-            self._diagnostic_failure_phase = "rollback compatibility preflight"
-            warnings = self.verify_snapshot_usable(
-                Path(str(backup)),
-                target=Path(str(previous)) if previous else None,
-                allow_legacy=True,
-                service_state="running" if service_running else "stopped",
+                transaction["operation"] = "rollback"
+        if previous is not None:
+            self._diagnostic_recovery_target = self.release_version(previous)
+            self._ensure_rollback_target_supported(
+                previous, action="rollback" if rollback else "interrupted recovery"
             )
-            restore_meta = transaction.get("restore")
-            if not isinstance(restore_meta, dict):
-                transaction["restore"] = {
-                    "phase": "prepared",
-                    "transaction": secrets.token_hex(8),
-                    "backup": str(backup),
-                    "data": str(self.data),
-                    "staging": None,
-                    "retained": None,
-                    "target": str(previous) if previous else None,
-                    "previous": str(previous) if previous else None,
-                }
-                if not rollback:
-                    self.record(transaction)
-        for warning in warnings:
-            print(f"Recovery note: {warning}")
-        recovery_step = "checking current service"
+            self._require_complete_release(previous)
+            self._unit_content(previous)
+        if self._active_jobs():
+            raise DeploymentError("Finish/cancel training and tournaments before recovery")
+        restore = transaction.get("restore")
+        needs_restore = bool(
+            rollback
+            or restore
+            or transaction.get(
+                "migration_started",
+                transaction["phase"] in {"migrating", "activating", "activated"},
+            )
+        )
+        if needs_restore:
+            if backup is None:
+                raise DeploymentError(
+                    "Interrupted deployment may have modified the database, but no snapshot is recorded. Perform reviewed manual recovery."
+                )
+            self._validate_restore_topology()
+            if rollback_plan is not None:
+                self._verify_restore_preflight(backup)
+            elif restore is None or restore.get("phase") == "prepared":
+                warnings = self.verify_snapshot_usable(
+                    backup, target=previous, expected=transaction.get("backup_association")
+                )
+                for warning in warnings:
+                    print(f"Recovery note: {warning}")
+        if transaction.get("operation") == "rollback":
+            assert previous is not None and backup is not None
+            if "rollback_state" not in transaction:
+                transaction["rollback_state"] = self._rollback_installed_state(previous, backup)
+            recovered_state = transaction["rollback_state"]
+        elif previous is not None:
+            prior = transaction.get("prior_state") or self._installed_metadata()
+            recovered_state = (
+                prior
+                if prior is not None and self._state_describes(prior, previous)
+                else self._recovered_release_state(previous)
+            )
+        else:
+            recovered_state = None
+        migrated = needs_restore
+        transaction.update(
+            {
+                "phase": "recovering",
+                "abi": UPDATER_ABI,
+                "operation": "rollback"
+                if transaction.get("operation") == "rollback"
+                else "automatic-recovery",
+                "transaction": transaction.get("transaction") or secrets.token_hex(16),
+                "previous": str(previous) if previous is not None else None,
+                "service_stopped": bool(transaction.get("service_stopped")),
+                "migration_started": migrated,
+                "data_modified": bool(transaction.get("data_modified")),
+                "service_target": None,
+            }
+        )
+        self.record(transaction)
+        step = "checking current service"
         try:
             current = self.current.resolve() if self.current.is_symlink() else None
-            already_healthy = False
-            if (
-                not needs_restore
-                and previous
-                and current == Path(str(previous))
-                and transaction.get("phase") in {"committed", "recovered"}
-            ):
-                if self._service_is_active():
-                    recovery_step = "existing service readiness verification"
-                    self._diagnostic_failure_phase = "readiness verification during " + (
-                        "rollback" if rollback else "interrupted recovery"
-                    )
-                    try:
-                        self._recovery_probe()
-                    except ReadinessError:
-                        already_healthy = False
-                    else:
-                        already_healthy = True
+            already_healthy = (
+                current is not None
+                and current == previous
+                and not needs_restore
+                and self._service_is_active()
+            )
+            if already_healthy:
+                try:
+                    self._recovery_probe()
+                except ReadinessError:
+                    already_healthy = False
             if not already_healthy:
-                recovery_step = "stopping current service"
+                step = "stopping current service"
                 self.service("stop")
-                if needs_restore and not already_restored:
-                    recovery_step = "snapshot restoration"
-                    self.restore(
-                        Path(str(backup)),
-                        journal=rollback_journal if rollback else transaction,
-                    )
-                    already_restored = True
-                if previous:
-                    recovery_step = "previous release activation"
-                    self.activate(Path(str(previous)))
-                    shutil.copyfile(
-                        Path(str(previous)) / "deployment/hnefatafl.service",
-                        self.unit_file,
-                    )
+                transaction["service_stopped"] = True
+                self.record(transaction)
+                if needs_restore:
+                    assert backup is not None
+                    step = "snapshot restoration"
+                    if restore is None or not self.recover_restore(transaction):
+                        self.restore(backup, journal=transaction)
+                    else:
+                        print(
+                            "Restored pre-deployment state from the interrupted restore candidate."
+                        )
+                if previous is not None:
+                    step = "previous release activation"
+                    self.activate(previous)
+                    self._install_release_unit(previous)
                     self.run(["systemctl", "daemon-reload"])
-                    recovery_step = "previous release service startup"
+                    step = "previous release service startup"
+                    transaction["service_target"] = str(previous)
+                    self.record(transaction)
                     self.service("start")
-                    recovery_step = "previous release readiness verification"
+                    step = "previous release readiness verification"
                     self._diagnostic_failure_phase = "readiness verification during " + (
-                        "rollback" if rollback else "interrupted recovery"
+                        "rollback"
+                        if transaction["operation"] == "rollback"
+                        else "interrupted recovery"
                     )
                     self._recovery_probe()
                 elif self.current.is_symlink():
-                    recovery_step = "release symlink cleanup"
                     self.current.unlink()
-            recovery_step = "installed state restoration"
-            if rollback:
-                if previous:
-                    atomic_json(
-                        self.state,
-                        {
-                            **json.loads((Path(previous) / RELEASE_MARKER).read_text()),
-                            "version": self.release_version(Path(previous)),
-                            "target": str(previous),
-                            "previous": None,
-                            "backup": None,
-                            "phase": "committed",
-                        },
-                    )
-                else:
-                    self.state.unlink(missing_ok=True)
-            elif prior_state is not None:
-                # Restoring the pre-deployment snapshot restores the committed
-                # application state that described it. Keep its rollback target
-                # and snapshot instead of writing previous/backup as null.
-                atomic_json(self.state, prior_state)
-            else:
-                installed, installed_valid, _ = self._load_metadata(self.state, "installed state")
-                previous_version = self.release_version(Path(str(previous))) if previous else None
-                recorded_version = (
-                    installed.get("version") if installed_valid and installed else None
-                )
-                if previous and recorded_version != previous_version:
-                    # The state file records a target that was never committed (or
-                    # was externally corrupted). Reconstruct only the release metadata
-                    # and do not invent rollback references that are no longer valid.
-                    atomic_json(
-                        self.state,
-                        {
-                            **json.loads((Path(previous) / RELEASE_MARKER).read_text()),
-                            "version": previous_version,
-                            "target": str(previous),
-                            "previous": None,
-                            "backup": None,
-                            "phase": "committed",
-                        },
-                    )
-                elif not previous:
-                    self.state.unlink(missing_ok=True)
-            if rollback:
-                if rollback_journal is not None:
-                    self.finalize_restore(rollback_journal)
-                    rollback_journal["phase"] = "recovered"
-                    self.record(rollback_journal)
-                else:
-                    self.record({"phase": "recovered"})
-            else:
-                self.finalize_restore(transaction)
-                transaction["phase"] = "recovered"
-                self.record(transaction)
+                    sync_directory(self.base)
+            step = "installed state publication"
+            self._finish_transaction(transaction, recovered_state)
+        except (KeyboardInterrupt, SystemExit, ReadinessError):
+            raise
         except BaseException as error:
-            if isinstance(error, (KeyboardInterrupt, SystemExit)):
-                raise
-            if isinstance(error, ReadinessError):
-                raise
-            detail = self._safe_failure_detail(error)
-            recovery_hint = (
-                " The restore transaction journal is preserved; rerun --recover after "
-                "inspecting it."
-                if transaction.get("restore")
-                else ""
-            )
             raise DeploymentStepError(
-                f"Recovery failed during {recovery_step}: {detail}."
-                f"{recovery_hint} Inspect {self.journal} and "
-                "journalctl -u hnefatafl -n 200 --no-pager."
+                f"Recovery failed during {step}: {describe_exception(error)}. Inspect {self.journal} and rerun hnefatafl-update --recover."
             ) from error
-        self._post_operation_cleanup("recovery")
+        return True
 
 
-def protected_json(path: Path, *, owner: int | None = None):
-    info = path.stat()
-    expected = os.geteuid() if owner is None else owner
-    if info.st_uid != expected or info.st_mode & 0o077 or path.is_symlink():
-        raise ValueError(f"Configuration must be an owner-controlled 0600 regular file: {path}")
-    return json.loads(path.read_text())
+def protected_json(path: Path) -> dict:
+    fs = PrivilegedFilesystem()
+    fs._validate_ancestors(path, "deployment configuration")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, encoding="utf-8") as handle:
+        info = os.fstat(handle.fileno())
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or info.st_nlink != 1
+            or info.st_mode & 0o077
+        ):
+            raise DeploymentError(
+                f"Configuration must be an owner-controlled 0600 regular file: {path}"
+            )
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise DeploymentError(f"Configuration must be a JSON object: {path}")
+    return value
 
 
-def _open_deployment_lock(path: Path | None = None) -> int:
-    """Open the shared deployment lock without truncating dry-run evidence."""
+def _open_deployment_lock(path: Path | None = None, *, read_only: bool = False) -> int:
     path = Path(path or "/run/lock/hnefatafl-update.lock")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    fs = PrivilegedFilesystem()
+    fs._validate_ancestors(path, "deployment lock")
+    if fs.is_mount(path):
+        raise DeploymentError(f"The deployment lock is a mount point: {path}")
+    flags = os.O_RDONLY if read_only else os.O_RDWR | os.O_CREAT
+    descriptor = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+    info = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or info.st_nlink != 1
+        or info.st_mode & 0o077
+    ):
+        os.close(descriptor)
+        raise DeploymentError(f"The deployment lock must be an owner-controlled 0600 file: {path}")
+    return descriptor
 
 
-LAYOUT_MARKER = ".deployment-test-layout"
+def _lock_deployment(descriptor: int, *, read_only: bool = False) -> None:
+    try:
+        fcntl.flock(descriptor, (fcntl.LOCK_SH if read_only else fcntl.LOCK_EX) | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise DeploymentError("Another installation/update/backup is running") from None
 
 
-def _disposable_layout(root: Path) -> dict:
-    """Resolve an explicit disposable integration-test layout.
-
-    The marker file is mandatory so a mistyped or hostile path cannot silently
-    redirect the CLI away from the fixed production installation.
-    """
-    root = Path(root)
-    if not root.is_dir():
-        raise ValueError(f"Layout root is not a directory: {root}")
-    marker = root / LAYOUT_MARKER
-    if marker.is_symlink() or not marker.is_file():
-        raise ValueError(
-            f"Refusing --layout-root {root}: the {LAYOUT_MARKER} marker is missing. "
-            "This option exists only for disposable integration tests."
-        )
-    return {
-        "config_dir": root / "etc",
-        "base": root / "opt",
-        "data": root / "data",
-        "etc": root / "etc",
-        "unit_file": root / "unit.service",
-        "backups": root / "backups",
-        "lock": root / "update.lock",
-        "updater_root": root / "usr/lib/hnefatafl",
-    }
+def install_reviewed_updater(
+    source: Path, etc: Path, utilities: Path, commands: Path, lock: Path
+) -> None:
+    """Bootstrap from the same administrator-reviewed distribution as install.sh."""
+    with closing(os.fdopen(_open_deployment_lock(lock), "r+")) as handle:
+        _lock_deployment(handle.fileno())
+        deployment = Deployment({}, etc=etc, updater_root=utilities)
+        deployment.updater_commands = (commands / "hnefatafl-update", commands / "hnefatafl-backup")
+        deployment.recover_updater_refresh()
+        payload = {}
+        for member in deployment.UPDATER_MEMBERS.values():
+            path = source / member
+            if not stat.S_ISREG(path.lstat().st_mode):
+                raise DeploymentError(f"Missing or unsafe reviewed installer member: {path}")
+            payload[member] = path.read_bytes()
+        deployment._publish_updater_plan(payload, tag="installer", repair=True)
 
 
 def _production_layout() -> dict:
@@ -6120,7 +7445,14 @@ def _production_layout() -> dict:
     }
 
 
-def main(argv=None, *, layout=None):
+def guard_service_start() -> int:
+    paths = _production_layout()
+    config = protected_json(Path(paths["config_dir"]) / "deployment.json")
+    Deployment(config)._authorize_service_start()
+    return 0
+
+
+def main(argv=None, *, layout=None, installed_generation=None, deployment_lock=None):
     parser = argparse.ArgumentParser(description=__doc__)
     options = parser.add_mutually_exclusive_group()
     for flag in (
@@ -6131,6 +7463,7 @@ def main(argv=None, *, layout=None):
         "backup",
         "cleanup",
         "refresh-updater",
+        "verify-service",
         "initialize",
     ):
         options.add_argument("--" + flag, action="store_true")
@@ -6140,18 +7473,10 @@ def main(argv=None, *, layout=None):
         action="store_true",
         help="Preview --cleanup without modifying files or restarting the service",
     )
-    parser.add_argument(
-        "--layout-root",
-        type=Path,
-        help=argparse.SUPPRESS,
-    )
     args = parser.parse_args(argv)
     if args.dry_run and not args.cleanup:
         parser.error("--dry-run is only supported with --cleanup")
-    if layout is not None and args.layout_root is not None:
-        parser.error("Provide either a layout mapping or --layout-root, not both")
-    if layout is None and args.layout_root is not None:
-        layout = _disposable_layout(args.layout_root)
+    read_only = args.check or args.list or args.cleanup and args.dry_run
     if os.geteuid() != 0 and layout is None:
         parser.error("Run this deployment command as root")
     os.umask(0o077)
@@ -6162,13 +7487,18 @@ def main(argv=None, *, layout=None):
     signal.signal(signal.SIGTERM, interrupted)
     paths = layout or _production_layout()
     config_dir = Path(paths["config_dir"])
-    lock_descriptor = _open_deployment_lock(Path(paths["lock"]))
-    lock = os.fdopen(lock_descriptor, "r+")
+    lock_descriptor = None
     try:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise ValueError("Another installation/update/backup is running") from None
+        if installed_generation is None:
+            try:
+                lock_descriptor = _open_deployment_lock(Path(paths["lock"]), read_only=read_only)
+            except FileNotFoundError:
+                if not read_only:
+                    raise
+            if lock_descriptor is not None:
+                _lock_deployment(lock_descriptor, read_only=read_only)
+        elif deployment_lock is None and not read_only:
+            raise DeploymentError("The installed launcher did not acquire the deployment lock")
         config = protected_json(config_dir / "deployment.json")
         deployment = Deployment(
             config,
@@ -6180,42 +7510,46 @@ def main(argv=None, *, layout=None):
             updater_root=Path(paths["updater_root"]),
             custom_layout=layout is not None,
         )
-        # An interrupted utility refresh is rolled back before any other privileged
-        # work, so the installed utility set is never a mixed generation.
-        deployment.recover_updater_refresh()
+        if installed_generation is not None:
+            deployment.updater_support = Path(installed_generation) / "updater_support"
+        legacy_publication = os.path.lexists(deployment.updater_root / ".refresh.json")
+        if legacy_publication and read_only:
+            raise DeploymentError(
+                "Interrupted updater publication. Run hnefatafl-update --recover."
+            )
+        if not read_only:
+            deployment.recover_updater_refresh()
+        if read_only and os.path.lexists(deployment.migration_journal):
+            raise DeploymentError("Interrupted backup migration. Run hnefatafl-update --recover.")
+        if args.recover:
+            deployment.recover()
+            return 0
+        deployment._require_idle_transaction("continue")
         if args.cleanup:
-            report = deployment.cleanup(
-                dry_run=args.dry_run,
-                include_caches=True,
-            )
+            if not read_only:
+                deployment.ensure_layout()
+            report = deployment.cleanup(dry_run=args.dry_run, include_caches=True)
             deployment.print_cleanup_report(report)
-            if report.failed or report.errors:
-                return 1
-            if report.refused and not args.dry_run:
+            if report.failed or report.errors or report.refused and not read_only:
                 return 1
             return 0
-        if args.rollback or args.recover:
-            deployment.recover(rollback=args.rollback)
+        if args.rollback:
+            deployment.recover(rollback=True)
             return 0
-        transaction, transaction_valid, transaction_reason = deployment._load_metadata(
-            deployment.journal, "transaction journal"
-        )
-        if deployment.journal.exists() and (
-            not transaction_valid
-            or (
-                isinstance(transaction, dict)
-                and transaction.get("phase") not in {"committed", "recovered"}
-            )
-        ):
-            raise ValueError(
-                "Interrupted transaction found. Run hnefatafl-update --recover before continuing"
-                + (f" ({transaction_reason})" if not transaction_valid else "")
-            )
+        if args.verify_service:
+            deployment._require_active_state(deployment._installed_metadata())
+            with deployment.write_gate():
+                deployment.probe()
+            return 0
         if args.backup:
             deployment.backup()
             return 0
         token_file = config_dir / "github.json"
         token = protected_json(token_file).get("token", "") if token_file.exists() else ""
+        if not isinstance(token, str) or not isinstance(config.get("repository"), str):
+            raise DeploymentError(
+                "Invalid deployment repository or GitHub authentication configuration"
+            )
         github = GitHub(config["repository"], token)
         releases = github.releases()
         if not releases:
@@ -6223,11 +7557,9 @@ def main(argv=None, *, layout=None):
         if args.list:
             print("\n".join(item["tag_name"] for item in releases))
             return 0
-        current = (
-            json.loads(deployment.state.read_text())["version"]
-            if deployment.state.exists()
-            else None
-        )
+        state = deployment._installed_metadata()
+        deployment._require_active_state(state)
+        current = state["version"] if state is not None else None
         selected, newer = select_release(releases, current, args.version)
         if args.refresh_updater:
             print(
@@ -6272,14 +7604,9 @@ def main(argv=None, *, layout=None):
         )
         return 1
     finally:
-        try:
-            lock.close()
-        except OSError:
-            pass
+        if lock_descriptor is not None:
+            os.close(lock_descriptor)
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
 
 if __name__ == "__main__":
     raise SystemExit(main())

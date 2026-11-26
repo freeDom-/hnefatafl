@@ -17,6 +17,8 @@ from pathlib import Path
 import pytest
 
 import historical_release_support as support
+from deployment_fixtures import TEST_RELEASE_DIGEST, legacy_snapshot
+
 from hnefatafl.deployment import Deployment, DeploymentError
 from hnefatafl.storage import SCHEMA_VERSION, Store
 
@@ -267,11 +269,21 @@ def test_corrected_updater_rejects_explicit_rollback_with_incompatible_schema(tm
     deployment = NoSystemdDeployment(tmp_path, data)
     from hnefatafl.deployment import atomic_json
 
+    # The historical application ran from the managed release directory on disk.
+    previous = deployment.releases / "0.40.0"
+    old.rename(previous)
+    atomic_json(previous / ".release.json", {"version": "0.40.0", "sha256": TEST_RELEASE_DIGEST})
+    deployment.activate(previous)
+    backup = legacy_snapshot(deployment)
     deployment.activate(target)
-    backup = deployment.snapshot()
     atomic_json(
         deployment.state,
-        {"version": "0.41.1", "previous": str(old), "backup": str(backup)},
+        {
+            "version": "0.41.1",
+            "target": str(target),
+            "previous": str(previous),
+            "backup": str(backup),
+        },
     )
     Store(data / "hnefatafl.sqlite3")  # live database advances to the current schema
     with sqlite3.connect(data / "hnefatafl.sqlite3") as c:
@@ -355,3 +367,85 @@ def test_historical_041_fails_under_exclusive_gate(tmp_path, monkeypatch):
     assert result["ok"] is False
     assert result["error_type"] == "OnlineError"
     assert "Deployment in progress" in result["error"]
+
+
+@pytest.mark.parametrize("tag", [support.REF_0411, support.REF_042])
+def test_released_legacy_backups_move_without_space_and_keep_rollback_reference(tmp_path, tag):
+    import subprocess
+    import sys
+
+    from hnefatafl.deployment import FilesystemInfo, atomic_json
+
+    support.require_inputs()
+    source = support.extract(tag, tmp_path / "source")
+    assert support.package_version(source) == tag
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "models").mkdir()
+    (data / "models/model.bin").write_bytes(b"historical model")
+    with sqlite3.connect(data / "hnefatafl.sqlite3") as connection:
+        connection.execute("CREATE TABLE sample(value TEXT)")
+        connection.execute("INSERT INTO sample VALUES ('historical user data')")
+    deployment = NoSystemdDeployment(tmp_path, data)
+    old = deployment.releases / ("0.40.0" if tag == "0.41.1" else "0.41.1")
+    current = deployment.releases / tag
+    for release in (old, current):
+        release.mkdir(parents=True)
+        atomic_json(
+            release / ".release.json", {"version": release.name, "sha256": TEST_RELEASE_DIGEST}
+        )
+    deployment.etc.mkdir()
+    deployment.activate(old)
+    atomic_json(deployment.state, {"version": old.name, "target": str(old)})
+    legacy = data / "backups"
+    legacy.mkdir(mode=0o700)
+    command = """
+import json, sys
+from pathlib import Path
+from hnefatafl.deployment import Deployment
+assert Path(sys.modules[Deployment.__module__].__file__).is_relative_to(Path.cwd())
+root = Path(sys.argv[1])
+updater = Deployment({}, base=root/'opt', data=root/'data', etc=root/'etc')
+print(json.dumps([str(updater.snapshot()) for _ in range(5)]))
+"""
+    generated = subprocess.run(
+        [sys.executable, "-c", command, str(tmp_path)],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    backups = [Path(path) for path in json.loads(generated.stdout.splitlines()[-1])]
+    identities = {backup.name: backup.stat().st_ino for backup in backups}
+    referenced = backups[0]
+    deployment.activate(current)
+    committed = {
+        "version": tag,
+        "target": str(current),
+        "previous": str(old),
+        "backup": str(referenced),
+        "phase": "committed",
+    }
+    atomic_json(deployment.state, committed)
+    atomic_json(
+        deployment.journal,
+        {key: committed[key] for key in ("target", "previous", "backup", "phase")},
+    )
+    deployment.filesystem_info = lambda path: FilesystemInfo(1, Path(path), 1024, 16)
+    deployment.ensure_layout()
+    assert not legacy.exists()
+    assert len(list(deployment.backups.iterdir())) == 5
+    assert all(
+        (deployment.backups / name).stat().st_ino == inode for name, inode in identities.items()
+    )
+    expected = str(deployment.backups / referenced.name)
+    assert json.loads(deployment.state.read_text())["backup"] == expected
+    assert json.loads(deployment.journal.read_text())["backup"] == expected
+    deployment.cleanup(dry_run=False)
+    assert len(list(deployment.backups.iterdir())) == 3 and Path(expected).exists()
+    assert (data / "models/model.bin").read_bytes() == b"historical model"
+    with sqlite3.connect(data / "hnefatafl.sqlite3") as connection:
+        assert (
+            connection.execute("SELECT value FROM sample").fetchone()[0] == "historical user data"
+        )

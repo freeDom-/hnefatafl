@@ -418,7 +418,7 @@ def test_snapshot_storage_failures_report_actionable_primary_error(
     harness.activate(old)
     harness.set_state("1.0.0", old)
 
-    def fail_snapshot():
+    def fail_snapshot(**_kwargs):
         raise failure
 
     monkeypatch.setattr(harness, "snapshot", fail_snapshot)
@@ -597,7 +597,7 @@ def test_recovery_protected_artifacts_exceeding_limit_are_not_deleted(harness):
             "backup": str(prior_backup),
         },
     )
-    atomic_json(harness.journal, {"phase": "committed"})
+    atomic_json(harness.journal, {"phase": "recovered"})
     report = harness.cleanup(dry_run=False)
     for path in (active, previous, prior_target, prior_previous, prior_backup):
         assert path.exists()
@@ -633,13 +633,14 @@ def test_build_output_pruning_keeps_frontend_distribution_and_frozen_venv(tmp_pa
     assert (target / ".venv/bin/python").exists()
 
 
-def updater_archive(path, *, abi=2):
+def updater_archive(path, *, abi=3):
     repo = Path(__file__).resolve().parents[1]
     entries = {
         "pyproject.toml": b'[project]\nversion="0.43"\n',
         "hnefatafl/deployment.py": (repo / "hnefatafl/deployment.py")
         .read_bytes()
-        .replace(b"UPDATER_ABI = 2", f"UPDATER_ABI = {abi}".encode()),
+        .replace(b"UPDATER_ABI = 3", f"UPDATER_ABI = {abi}".encode()),
+        "scripts/linux/launcher.py": (repo / "scripts/linux/launcher.py").read_bytes(),
         "scripts/linux/update.sh": (repo / "scripts/linux/update.sh").read_bytes(),
         "scripts/linux/backup.sh": (repo / "scripts/linux/backup.sh").read_bytes(),
     }
@@ -665,6 +666,8 @@ def configure_updater(harness, tmp_path):
         tmp_path / "usr/bin/hnefatafl-backup",
     )
     harness.updater_state = tmp_path / "etc/updater.json"
+    harness.updater_root.parent.mkdir(parents=True, exist_ok=True)
+    harness.updater_commands[0].parent.parent.mkdir(parents=True, exist_ok=True)
 
 
 def test_installed_updater_refresh_is_atomic_and_preserves_configuration(tmp_path):
@@ -676,11 +679,18 @@ def test_installed_updater_refresh_is_atomic_and_preserves_configuration(tmp_pat
     plan = harness._updater_publication_plan(staging)
     config_before = (harness.etc / "application.env").read_bytes()
     harness._publish_updater_plan(plan, tag="2.0.0")
-    assert harness.updater_module.read_bytes() == (staging / "hnefatafl/deployment.py").read_bytes()
+    active = json.loads((harness.updater_root / "active.json").read_text())
+    assert active["abi"] == 3
+    generation = harness.updater_root / "generations" / active["generation"]
+    assert (generation / "deployment.py").read_bytes() == (
+        staging / "hnefatafl/deployment.py"
+    ).read_bytes()
+    assert (
+        harness.updater_module.read_bytes() == (staging / "scripts/linux/launcher.py").read_bytes()
+    )
     assert harness.updater_commands[0].stat().st_mode & 0o111
-    assert (harness.updater_support / "online_migrations.py").is_file()
+    assert (generation / "updater_support/online_migrations.py").is_file()
     assert (harness.etc / "application.env").read_bytes() == config_before
-    assert json.loads(harness.updater_state.read_text())["abi"] == 2
     # A second publication of the same verified set is idempotent.
     harness._publish_updater_plan(plan, tag="2.0.0")
     assert harness.updater_module.exists()
@@ -695,7 +705,7 @@ def test_refresh_updater_command_installs_only_verified_utilities(tmp_path):
     github = FakeGitHub(source)
     harness.refresh_updater(github, {"tag_name": "0.43", "assets": []})
     assert harness.updater_module.is_file()
-    assert harness.updater_support.joinpath("online_migrations.py").is_file()
+    assert list(harness.updater_root.glob("generations/*/updater_support/online_migrations.py"))
     assert names(harness.releases) == []
     assert github.calls
 
@@ -820,12 +830,11 @@ def test_installer_refresh_only_path_installs_utility_without_application_update
     script = (root / "scripts/linux/install.sh").read_text()
     assert "--refresh-updater-only" in script
     assert "install_deployment_utilities" in script
-    assert "compile(content.decode" in script
     assert "/usr/local/lib/hnefatafl" in script
     # Companion restore modules are published with the utility set so the
     # standalone CLI can restore SQLite snapshots without a source checkout.
-    assert "updater_support" in script
-    assert "flock" in script
+    assert 'installer["install_reviewed_updater"]' in script
+    assert "/run/lock/hnefatafl-update.lock" in script
     # Configuration, state and transaction files are never copied over by the
     # updater refresh.
     assert (
@@ -947,6 +956,7 @@ def test_invalid_updater_source_is_not_installed(tmp_path):
         source,
         {
             "hnefatafl/deployment.py": b"def broken(:\n",
+            "scripts/linux/launcher.py": (repo / "scripts/linux/launcher.py").read_bytes(),
             "scripts/linux/update.sh": b"#!/bin/sh\nexit 0\n",
             "scripts/linux/backup.sh": b"#!/bin/sh\nexit 0\n",
             **{

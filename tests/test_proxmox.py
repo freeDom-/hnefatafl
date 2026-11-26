@@ -20,9 +20,20 @@ REQUIRED = (
     "scripts/proxmox/ct/hnefatafl.sh",
     "scripts/proxmox/install/hnefatafl-install.sh",
     "scripts/linux/install.sh",
+    "scripts/linux/launcher.py",
     "scripts/linux/update.sh",
     "scripts/linux/backup.sh",
     "hnefatafl/deployment.py",
+    *(
+        f"hnefatafl/{name}.py"
+        for name in (
+            "online_migrations",
+            "league_migrations",
+            "league_policy",
+            "league_recovery_migrations",
+            "rating",
+        )
+    ),
 )
 
 # Every Proxmox command, including all mutations, is a fixture executable. The
@@ -84,15 +95,14 @@ if name == 'pct':
             if case == 'no-module' and cmd[-1].endswith('deployment.py'): sys.exit(1)
         if cmd[:2] == ['test', '-x'] and case in {'no-updater', 'no-backup'} and (case == 'no-updater' or cmd[-1].endswith('hnefatafl-backup')): sys.exit(1)
         if cmd[:2] == ['bash', '-lc'] and case == 'no-cli-path': sys.exit(24)
+        if cmd[-1] == '--verify-service' and case == 'probe': sys.exit(23)
         if cmd[0] == '/usr/local/bin/hnefatafl-update': sys.exit(int(os.environ.get('UPDATE_STATUS', '0')))
         if cmd[0] == 'bash' and case == 'install': sys.exit(20)
         if cmd[0] == 'systemctl':
             if case == cmd[1]: sys.exit(21)
             print('enabled' if cmd[1] == 'is-enabled' else 'active')
         if cmd[0] == 'python3':
-            if '.probe()' in cmd[-1]:
-                if case == 'probe': sys.exit(23)
-            else: print('Installed release: 0.22.1\nApplication port: 8000')
+            print('Installed release: 0.22.1\nApplication port: 8000')
         if cmd[0] == 'hostname': print('192.0.2.185')
 """
 
@@ -383,7 +393,7 @@ def test_native_default_success_and_verified_summary(host):
     pct = host.calls("pct")
     assert any(c[-3:] == ["systemctl", "is-enabled", "hnefatafl"] for c in pct)
     assert any(c[-3:] == ["systemctl", "is-active", "hnefatafl"] for c in pct)
-    assert any(".probe()" in c[-1] for c in pct)
+    assert any(c[-1] == "--verify-service" for c in pct)
     for name in ("hnefatafl-update", "hnefatafl-backup"):
         assert any(c[-3:] == ["test", "-x", f"/usr/local/bin/{name}"] for c in pct)
     assert any(c[-2] == "-lc" and "command -v" in c[-1] for c in pct if len(c) >= 2)
@@ -626,6 +636,7 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
     source = source.replace("/etc/hnefatafl", str(config)).replace(
         "/usr/local/", str(container / "usr/local") + "/"
     )
+    source = source.replace("/run/lock/hnefatafl-update.lock", str(container / "operation.lock"))
     source = source.replace("/etc/profile.d", str(container / "etc/profile.d"))
     source = source.replace("/root/.bashrc", str(container / "root/.bashrc"))
     # The isolated fixture cannot run a real root login shell against its rootfs.

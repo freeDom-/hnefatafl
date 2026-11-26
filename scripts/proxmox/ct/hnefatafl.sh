@@ -130,7 +130,7 @@ pct exec "$ct_id" -- bash /root/hnefatafl-bootstrap/scripts/proxmox/install/hnef
 stage='Verifying application service'
 pct exec "$ct_id" -- systemctl is-enabled hnefatafl
 pct exec "$ct_id" -- systemctl is-active hnefatafl
-pct exec "$ct_id" -- python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, "/usr/local/lib/hnefatafl"); from deployment import Deployment, protected_json; Deployment(protected_json(Path("/etc/hnefatafl/deployment.json"))).probe()'
+pct exec "$ct_id" -- /usr/local/bin/hnefatafl-update --verify-service
 pct exec "$ct_id" -- python3 -c 'import json; from pathlib import Path; print("Installed release: " + json.loads(Path("/etc/hnefatafl/installed.json").read_text())["version"]); print("Application port: " + str(json.loads(Path("/etc/hnefatafl/deployment.json").read_text())["port"]))'
 stage='Verifying maintenance commands'
 for name in hnefatafl-update hnefatafl-backup; do

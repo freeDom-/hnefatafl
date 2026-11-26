@@ -36,133 +36,13 @@ else
 fi
 install_deployment_utilities() {
   stage='Installing the verified deployment utility'
-  python3 - "$script_root" <<'INSTALLER_PY'
-import ast, json, os, pathlib, shutil, sys, time
+  /usr/bin/python3 -I -B - "$script_root" /etc/hnefatafl /usr/local/lib/hnefatafl /usr/local/bin /run/lock/hnefatafl-update.lock <<'INSTALLER_PY'
+import runpy, sys
+from pathlib import Path
 
-root = pathlib.Path(sys.argv[1])
-destination_root = pathlib.Path("/usr/local/lib/hnefatafl")
-support_destination = destination_root / "updater_support"
-commands = (
-    pathlib.Path("/usr/local/bin/hnefatafl-update"),
-    pathlib.Path("/usr/local/bin/hnefatafl-backup"),
-)
-support_modules = (
-    "online_migrations",
-    "league_migrations",
-    "league_policy",
-    "league_recovery_migrations",
-    "rating",
-)
-files = {
-    root / "hnefatafl/deployment.py": destination_root / "deployment.py",
-    root / "scripts/linux/update.sh": commands[0],
-    root / "scripts/linux/backup.sh": commands[1],
-}
-for name in support_modules:
-    files[root / f"hnefatafl/{name}.py"] = support_destination / f"{name}.py"
-
-payload = {}
-for source, destination in files.items():
-    if not source.is_file() or source.is_symlink():
-        raise SystemExit(f"Deployment utility source is missing or unsafe: {source}")
-    content = source.read_bytes()
-    if source.suffix == ".py":
-        compile(content.decode("utf-8"), str(source), "exec")
-    payload[source] = content
-
-# Refuse an accidental protocol downgrade: an older utility cannot interpret the
-# current transaction or retention metadata.
-source_text = payload[root / "hnefatafl/deployment.py"].decode("utf-8")
-abi = None
-for node in ast.parse(source_text).body:
-    if isinstance(node, ast.Assign):
-        for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == "UPDATER_ABI":
-                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, int):
-                    abi = node.value.value
-if abi is None or abi < 1:
-    raise SystemExit("The deployment utility does not declare a supported protocol version")
-state_path = pathlib.Path("/etc/hnefatafl/updater.json")
-installed_abi = 1
-if state_path.is_file() and not state_path.is_symlink():
-    try:
-        installed_abi = int(json.loads(state_path.read_text()).get("abi", 1))
-    except (ValueError, TypeError):
-        installed_abi = 1
-if abi < installed_abi:
-    raise SystemExit(
-        f"Refusing to downgrade the deployment utility protocol from {installed_abi} to {abi}"
-    )
-
-destination_root.mkdir(parents=True, exist_ok=True)
-os.chmod(destination_root, 0o755)
-for command in commands:
-    command.parent.mkdir(parents=True, exist_ok=True)
-
-token = os.urandom(6).hex()
-journal = destination_root / ".refresh.json"
-entries = []
-for source, destination in files.items():
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    entries.append(
-        {
-            "destination": str(destination),
-            "mode": 0o755 if destination in commands else 0o644,
-            "temporary": str(destination.with_name(destination.name + ".new-" + token)),
-            "previous": str(destination.with_name(destination.name + ".previous-" + token)),
-            "replaced": False,
-            "had_previous": False,
-        }
-    )
-journal.write_text(json.dumps({"schema": 1, "phase": "preparing", "entries": entries}))
-os.chmod(journal, 0o600)
-try:
-    sources = list(files)
-    for entry, source in zip(entries, sources):
-        destination = pathlib.Path(entry["destination"])
-        if destination.exists():
-            shutil.copyfile(destination, entry["previous"])
-            os.chmod(entry["previous"], os.stat(destination).st_mode & 0o777)
-            os.chown(entry["previous"], 0, 0)
-            entry["had_previous"] = True
-        descriptor = os.open(entry["temporary"], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload[source])
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(entry["temporary"], entry["mode"])
-        os.chown(entry["temporary"], 0, 0)
-    journal.write_text(json.dumps({"schema": 1, "phase": "prepared", "entries": entries}))
-    for entry in entries:
-        os.replace(entry["temporary"], entry["destination"])
-        entry["replaced"] = True
-        journal.write_text(json.dumps({"schema": 1, "phase": "replacing", "entries": entries}))
-        descriptor = os.open(str(pathlib.Path(entry["destination"]).parent), os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-    journal.write_text(json.dumps({"schema": 1, "phase": "committed", "entries": entries}))
-except BaseException:
-    for entry in entries:
-        destination = pathlib.Path(entry["destination"])
-        previous = pathlib.Path(entry["previous"])
-        temporary = pathlib.Path(entry["temporary"])
-        if entry.get("replaced") and entry.get("had_previous") and previous.exists():
-            os.replace(previous, destination)
-        elif entry.get("replaced"):
-            destination.unlink(missing_ok=True)
-        temporary.unlink(missing_ok=True)
-        previous.unlink(missing_ok=True)
-    journal.unlink(missing_ok=True)
-    raise
-for entry in entries:
-    pathlib.Path(entry["previous"]).unlink(missing_ok=True)
-journal.unlink(missing_ok=True)
-state_path.write_text(
-    json.dumps({"schema": 1, "abi": abi, "version": "installer", "refreshed_at": time.time()})
-)
-os.chmod(state_path, 0o600)
+source, config, utilities, commands, lock = map(Path, sys.argv[1:])
+installer = runpy.run_path(str(source / "hnefatafl/deployment.py"))
+installer["install_reviewed_updater"](source, config, utilities, commands, lock)
 INSTALLER_PY
 }
 verify_service() {
@@ -215,15 +95,14 @@ verify_cli_commands() {
   done
 }
 
-install -d -m 700 /etc/hnefatafl
-configure_root_cli_path
+if [[ $refresh_only -ne 1 ]]; then
+  install -d -m 700 /etc/hnefatafl
+  configure_root_cli_path
+fi
 if [[ -f /etc/hnefatafl/deployment.json ]]; then
   echo 'Existing configuration and accounts retained. Running the stable-release updater.'
-  exec 9>/run/lock/hnefatafl-update.lock
-  flock 9
   install_deployment_utilities
   if [[ $refresh_only -eq 1 ]]; then
-    verify_cli_commands
     echo 'Deployment utility refreshed. Configuration, installed state, transactions and application data were retained.'
     exit 0
   fi
@@ -236,6 +115,10 @@ if [[ -f /etc/hnefatafl/deployment.json ]]; then
   verify_service
   verify_cli_commands
   exit 0
+fi
+if [[ $refresh_only -eq 1 ]]; then
+  echo "No existing Hnefatafl installation found in /etc/hnefatafl." >&2
+  exit 1
 fi
 read -r -p 'GitHub repository [freeDom-/hnefatafl]: ' repository
 repository=${repository:-freeDom-/hnefatafl}
@@ -253,7 +136,7 @@ id hnefatafl >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/li
 [[ $(id -u hnefatafl) -ne 0 ]] || { echo 'The hnefatafl service account must not have UID 0.' >&2; exit 1; }
 install -d -m 755 /opt/hnefatafl /opt/hnefatafl/releases /opt/hnefatafl/tools /usr/local/lib/hnefatafl
 install -d -o hnefatafl -g hnefatafl -m 700 /var/lib/hnefatafl
-install -d -m 700 /var/lib/hnefatafl/backups
+install -d -m 700 /var/lib/hnefatafl-backups
 python3 -m venv /opt/hnefatafl/tools
 /opt/hnefatafl/tools/bin/pip install 'uv==0.12.23'
 temporary=$(mktemp -d)
@@ -301,8 +184,6 @@ root=pathlib.Path('/etc/hnefatafl')
 (root/'application.env').write_text(f'HNEFATAFL_ENV=production\nHNEFATAFL_PUBLIC_URL={origin}\nHNEFATAFL_ALLOWED_HOSTS={url.hostname},127.0.0.1,localhost\nHNEFATAFL_TRUSTED_PROXIES={proxies}\nHNEFATAFL_HOST=0.0.0.0\nHNEFATAFL_PORT={port}\n')
 PY
 chmod 600 /etc/hnefatafl/*.json /etc/hnefatafl/application.env
-exec 9>/run/lock/hnefatafl-update.lock
-flock 9
 install_deployment_utilities
 stage='Installing stable release, initializing administrator and verifying application readiness'
 /usr/local/bin/hnefatafl-update --initialize "$@"
@@ -310,9 +191,12 @@ verify_service
 verify_cli_commands
 echo "Application: $public_url (port $app_port)"
 python3 - <<'PY'
-import json, sqlite3
+import json
 from pathlib import Path
 print('Installed release: ' + json.loads(Path('/etc/hnefatafl/installed.json').read_text())['version'])
+PY
+runuser -u hnefatafl -- /usr/bin/python3 -I -B - <<'PY'
+import sqlite3
 with sqlite3.connect('file:/var/lib/hnefatafl/hnefatafl.sqlite3?mode=ro', uri=True) as connection:
     row=connection.execute("SELECT a.username FROM accounts a JOIN auth_meta m ON a.id=m.value WHERE m.key='bootstrapped'").fetchone()
 print('Administrator: ' + (row[0] if row else 'see local account configuration'))

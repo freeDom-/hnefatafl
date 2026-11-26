@@ -237,7 +237,7 @@ def test_requirements_are_attributed_to_their_real_filesystems(tmp_path):
     harness, active = valid_harness(tmp_path)
     assert harness.snapshot_requirement().path == harness.backups
     backup = harness.make_backup("20260101T000000-0001")
-    assert harness.restore_requirement(backup).path == harness.data
+    assert harness.restore_requirement(backup).path == harness.data.parent
     assert harness.updater_requirement(0)[0].path == harness.updater_root.parent
     requirements = harness._prepare_requirements(1024)
     assert {requirement.path for requirement in requirements} >= {
@@ -418,6 +418,7 @@ def test_dry_run_does_not_truncate_the_deployment_lock(tmp_path):
 
     lock = tmp_path / "update.lock"
     lock.write_text("previous-owner-evidence\n")
+    lock.chmod(0o600)
     descriptor = _open_deployment_lock(lock)
     try:
         assert lock.read_text() == "previous-owner-evidence\n"
@@ -466,70 +467,103 @@ def test_updater_staging_modification_is_detected(tmp_path):
         harness._updater_publication_plan(staging)
 
 
-@pytest.mark.parametrize("fail_at", [1, 2, 3, 4, 5, 6, 7, 8])
-def test_updater_refresh_interrupted_after_each_replacement(tmp_path, fail_at):
-    import hnefatafl.deployment as deployment_module
+@pytest.mark.parametrize("point", ["before-pointer", "after-pointer"])
+def test_updater_generation_survives_process_death_at_atomic_switch(tmp_path, point):
+    from deployment_fixtures import fault_process
 
-    harness, staging, plan = updater_setup(tmp_path)
-    destinations = {destination for _source, destination, _mode in plan}
-    old_content = {}
-    for _source, destination, mode in plan:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        old_content[destination] = b"# previous utility\n"
-        destination.write_bytes(old_content[destination])
-        destination.chmod(mode)
-    staging = harness._stage_updater_payload(
-        tmp_path / "source.tar.gz", "2.0.0", "sha256:" + "b" * 64
+    harness, _staging, plan = updater_setup(tmp_path)
+    harness._publish_updater_plan(plan, tag="2.0.0")
+    previous = harness._active_updater()["generation"]
+    result = fault_process(
+        """
+import os, signal, sys
+from pathlib import Path
+from hnefatafl.deployment import Deployment
+root, staging = map(Path, sys.argv[1:3])
+point = sys.argv[3]
+updater = Deployment({}, base=root/'opt', data=root/'data', etc=root/'etc', updater_root=root/'usr/lib/hnefatafl')
+updater.updater_commands = (root/'usr/bin/hnefatafl-update', root/'usr/bin/hnefatafl-backup')
+payload = updater._updater_publication_plan(staging)
+replace = os.replace
+
+def interrupted(source, destination):
+    if Path(destination).name == 'active.json':
+        if point == 'after-pointer':
+            replace(source, destination)
+        os.kill(os.getpid(), signal.SIGKILL)
+    return replace(source, destination)
+
+os.replace = interrupted
+updater._publish_updater_plan(payload, tag='2.0.1')
+""",
+        tmp_path,
+        _staging,
+        point,
     )
-    plan = harness._updater_publication_plan(staging)
-    original_replace = os.replace
-    counter = {"value": 0}
-
-    def failing_replace(source, destination, *args, **kwargs):
-        if Path(destination) in destinations:
-            counter["value"] += 1
-            if counter["value"] == fail_at:
-                raise OSError(errno.EIO, os.strerror(errno.EIO), str(destination))
-        return original_replace(source, destination, *args, **kwargs)
-
-    deployment_module.os.replace = failing_replace
-    try:
-        with pytest.raises(OSError):
-            harness._publish_updater_plan(plan, tag="2.0.0")
-    finally:
-        deployment_module.os.replace = original_replace
-    for destination, content in old_content.items():
-        assert destination.read_bytes() == content, destination
-    assert not list(harness.updater_root.rglob("*.new-*"))
-    assert not list(harness.updater_root.rglob("*.previous-*"))
+    assert result.returncode == -9, result.stdout + result.stderr
+    active = harness._active_updater()
+    generations = harness.updater_root / "generations"
+    manifest = harness._verify_generation(generations / active["generation"])
+    assert manifest["version"] == ("2.0.0" if point == "before-pointer" else "2.0.1")
+    assert harness._verify_generation(generations / previous)["version"] == "2.0.0"
+    harness._publish_updater_plan(plan, tag="2.0.1")
+    assert harness._active_updater()["previous"] == previous
     assert not (harness.updater_root / ".refresh.json").exists()
 
 
-def test_interrupted_updater_refresh_is_rolled_back_on_next_start(tmp_path):
-    harness, staging, plan = updater_setup(tmp_path)
-    destination = plan[0][1]
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def test_legacy_replacement_killed_before_journal_update_and_failed_rollback_can_resume(
+    tmp_path, monkeypatch
+):
+    from deployment_fixtures import fault_process
+    import hnefatafl.deployment as module
+
+    harness, _, _ = updater_setup(tmp_path)
+    destination = harness.updater_module
+    previous = destination.with_name("deployment.py.previous-abc123")
+    temporary = destination.with_name("deployment.py.new-abc123")
     destination.write_bytes(b"# previous deployment\n")
-    journal = {
-        "schema": 1,
-        "phase": "replacing",
-        "transaction": "abc123",
-        "entries": [
-            {
-                "destination": str(destination),
-                "previous": str(destination.with_name(destination.name + ".previous-abc123")),
-                "temporary": str(destination.with_name(destination.name + ".new-abc123")),
-                "replaced": True,
-                "had_previous": True,
-            }
-        ],
-    }
-    destination.write_bytes(b"# half-published utility\n")
-    Path(journal["entries"][0]["previous"]).write_bytes(b"# previous deployment\n")
-    atomic_json(harness.updater_root / ".refresh.json", journal)
+    previous.write_bytes(destination.read_bytes())
+    temporary.write_bytes(b"# candidate\n")
+    journal = harness.updater_root / ".refresh.json"
+    atomic_json(
+        journal,
+        {
+            "schema": 1,
+            "phase": "prepared",
+            "transaction": "abc123",
+            "entries": [
+                {
+                    "destination": str(destination),
+                    "temporary": str(temporary),
+                    "previous": str(previous),
+                    "had_previous": True,
+                    "replaced": False,
+                }
+            ],
+        },
+    )
+    result = fault_process(
+        "import os, signal, sys; os.replace(*sys.argv[1:]); os.kill(os.getpid(), signal.SIGKILL)",
+        temporary,
+        destination,
+    )
+    assert result.returncode == -9
+    assert destination.read_bytes() == b"# candidate\n"
+    original = module.atomic_bytes
+
+    def failed(path, content, mode=0o600):
+        if path == destination:
+            raise OSError(errno.EIO, os.strerror(errno.EIO))
+        original(path, content, mode)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "atomic_bytes", failed)
+        with pytest.raises(OSError, match="Input/output error"):
+            harness.recover_updater_refresh()
+    assert journal.exists() and previous.exists()
     harness.recover_updater_refresh()
     assert destination.read_bytes() == b"# previous deployment\n"
-    assert not (harness.updater_root / ".refresh.json").exists()
+    assert not journal.exists() and not previous.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -557,3 +591,220 @@ def test_large_backup_cleanup_hashes_once_per_verified_snapshot(tmp_path):
     assert second.manifest_bytes_hashed == 0
     assert first.manifest_bytes_hashed >= 3 * len(payload)
     assert first.duration_seconds >= 0
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "fifo"])
+def test_write_gate_rejects_untrusted_entries_without_changing_files(tmp_path, kind):
+    harness, _ = valid_harness(tmp_path)
+    gate = harness.data / ".deployment-gate"
+    separate = tmp_path / "separate"
+    separate.write_bytes(b"intact")
+    separate.chmod(0o600)
+    original = separate.stat()
+    if kind == "symlink":
+        gate.symlink_to(separate)
+    elif kind == "hardlink":
+        os.link(separate, gate)
+    else:
+        os.mkfifo(gate, 0o600)
+    with pytest.raises(DeploymentError, match="Unsafe or replaced deployment gate"):
+        with harness.write_gate():
+            pytest.fail("unsafe gate entered the protected section")
+    assert separate.read_bytes() == b"intact"
+    assert separate.stat().st_mode == original.st_mode
+
+
+def test_write_gate_detects_entry_replacement_after_open(tmp_path, monkeypatch):
+    import fcntl
+
+    harness, _ = valid_harness(tmp_path)
+    gate = harness.data / ".deployment-gate"
+    gate.touch(mode=0o600)
+    replacement = tmp_path / "replacement"
+    replacement.write_bytes(b"intact")
+    replacement.chmod(0o600)
+    flock = fcntl.flock
+
+    def replace_while_locking(descriptor, operation):
+        flock(descriptor, operation)
+        os.replace(replacement, gate)
+
+    monkeypatch.setattr(fcntl, "flock", replace_while_locking)
+    with pytest.raises(DeploymentError, match="replaced deployment gate"):
+        with harness.write_gate():
+            pytest.fail("the name no longer identifies the lock inode")
+    assert gate.read_bytes() == b"intact"
+    assert gate.stat().st_mode & 0o777 == 0o600
+
+
+def test_write_gate_rejects_mounted_entry(tmp_path):
+    harness, _ = valid_harness(tmp_path)
+    gate = harness.data / ".deployment-gate"
+    gate.touch()
+    harness.fs = PrivilegedFilesystem(
+        mountinfo=write_mountinfo(tmp_path / "mountinfo", [str(gate)])
+    )
+    with pytest.raises(DeploymentError, match="deployment gate is a mount point"):
+        with harness.write_gate():
+            pytest.fail("a mounted lock must be refused")
+
+
+@pytest.mark.parametrize(
+    "point", ["before-intent", "after-intent", "after-rename", "after-state", "after-transaction"]
+)
+def test_legacy_backup_migration_resumes_after_abrupt_transition(tmp_path, point):
+    from deployment_fixtures import fault_process
+
+    harness, active = valid_harness(tmp_path)
+    previous = harness.release("1.0.0", "0002")
+    legacy = harness.legacy_backups
+    legacy.mkdir(mode=0o700)
+    backup = harness.make_backup("20260101T000000-0001", payload=b"original backup")
+    backup.rename(legacy / backup.name)
+    inode = (legacy / backup.name).stat().st_ino
+    harness.set_state("2.0.0", active, previous=previous, backup=legacy / backup.name)
+    atomic_json(
+        harness.journal,
+        {
+            "phase": "committed",
+            "target": str(active),
+            "previous": str(previous),
+            "backup": str(legacy / backup.name),
+        },
+    )
+    script = """
+import os, signal, sys
+from pathlib import Path
+import hnefatafl.deployment as module
+root = Path(sys.argv[1]); point = sys.argv[2]
+updater = module.Deployment({}, base=root/'opt', data=root/'data', etc=root/'etc')
+record = module.atomic_json
+rename = os.rename
+
+def stop():
+    os.kill(os.getpid(), signal.SIGKILL)
+
+def write(path, value):
+    if path == updater.migration_journal and point == 'before-intent':
+        stop()
+    record(path, value)
+    if ((path == updater.migration_journal and point == 'after-intent')
+        or (path == updater.state and point == 'after-state')
+        or (path == updater.journal and point == 'after-transaction')):
+        stop()
+
+def move(old, new, **descriptors):
+    rename(old, new, **descriptors)
+    if point == 'after-rename':
+        stop()
+
+module.atomic_json = write
+os.rename = move
+updater.ensure_layout()
+"""
+    interrupted = fault_process(script, tmp_path, point)
+    assert interrupted.returncode == -9, interrupted.stdout + interrupted.stderr
+    resumed = fault_process(script, tmp_path, "resume")
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+    assert not legacy.exists() and not harness.migration_journal.exists()
+    assert backup.stat().st_ino == inode
+    assert (backup / "data/sentinel").read_bytes() == b"original backup"
+    assert json.loads(harness.state.read_text())["backup"] == str(backup)
+    assert json.loads(harness.journal.read_text())["backup"] == str(backup)
+
+
+def test_legacy_migration_keeps_conflicting_and_unverified_artifacts(tmp_path):
+    harness, active = valid_harness(tmp_path)
+    backup = harness.make_backup("20260101T000000-0001", payload=b"legacy")
+    legacy = harness.legacy_backups
+    legacy.mkdir(mode=0o700)
+    backup.rename(legacy / backup.name)
+    harness.make_backup(backup.name, payload=b"distinct destination")
+    broken = harness.make_backup("20260102T000000-0002", invalid=True)
+    broken.rename(legacy / broken.name)
+    harness.set_state("2.0.0", active, backup=legacy / backup.name)
+    harness.ensure_layout()
+    recorded = Path(json.loads(harness.state.read_text())["backup"])
+    assert recorded != backup and recorded.parent == harness.backups
+    assert (recorded / "data/sentinel").read_bytes() == b"legacy"
+    assert (backup / "data/sentinel").read_bytes() == b"distinct destination"
+    assert (legacy / broken.name).is_dir()
+
+
+def test_legacy_backup_migration_crosses_real_filesystem_boundary(tmp_path):
+    import tempfile
+
+    harness, active = valid_harness(
+        tmp_path, {"storage": {"headroom_mib": 0, "minimum_free_inodes": 0}}
+    )
+    devshm = Path("/dev/shm")
+    if not devshm.is_dir() or devshm.stat().st_dev == tmp_path.stat().st_dev:
+        pytest.skip("a separate disposable filesystem is unavailable")
+    try:
+        workspace = tempfile.TemporaryDirectory(dir=devshm, prefix="hnefatafl-migration-")
+    except OSError as error:
+        pytest.skip(f"a disposable filesystem is unavailable: {error.strerror}")
+    with workspace as directory:
+        backup = harness.make_backup("20260101T000000-0001", payload=b"copy across filesystems")
+        legacy = harness.legacy_backups
+        legacy.mkdir(mode=0o700)
+        backup.rename(legacy / backup.name)
+        harness.backups = Path(directory) / "new-backups"
+        harness.set_state("2.0.0", active, backup=legacy / backup.name)
+        harness.ensure_layout()
+        destination = harness.backups / backup.name
+        assert not legacy.exists() and not harness.migration_journal.exists()
+        assert destination.stat().st_dev != tmp_path.stat().st_dev
+        assert (destination / "data/sentinel").read_bytes() == b"copy across filesystems"
+        assert json.loads(harness.state.read_text())["backup"] == str(destination)
+
+
+def test_empty_installed_state_cannot_authorize_destructive_cleanup(tmp_path):
+    harness, active = valid_harness(tmp_path)
+    for minor in range(4):
+        harness.release(f"1.{minor}.0", f"{minor:04x}")
+    atomic_json(harness.state, {})
+    report = harness.cleanup(dry_run=False)
+    assert report.refused and not report.removed
+    assert "no valid version" in report.exception_reason
+    assert active.is_dir()
+
+
+@pytest.mark.parametrize("phase", ["prepared", "migrating", "activated", "committing"])
+def test_current_transaction_requires_operation_and_phase_fields(tmp_path, phase):
+    harness, active = valid_harness(tmp_path)
+    valid, reason = harness.validate_transaction_metadata(
+        {
+            "abi": 3,
+            "operation": "update",
+            "transaction": "1" * 32,
+            "phase": phase,
+            "target": str(active),
+        }
+    )
+    assert not valid and reason
+
+
+def test_reviewed_installer_repairs_damaged_generation_without_loading_it(tmp_path):
+    from hnefatafl.deployment import install_reviewed_updater
+
+    harness, _staging, plan = updater_setup(tmp_path)
+    harness._publish_updater_plan(plan, tag="2.0.0")
+    harness._publish_updater_plan(plan, tag="2.0.1")
+    active = harness._active_updater()
+    bad = harness.updater_root / "generations" / active["generation"] / "deployment.py"
+    bad.chmod(0o600)
+    bad.write_text("broken generation\n")
+    with pytest.raises(DeploymentError, match="did not verify"):
+        harness._active_updater()
+    install_reviewed_updater(
+        REPO,
+        harness.etc,
+        harness.updater_root,
+        harness.updater_commands[0].parent,
+        tmp_path / "lock",
+    )
+    repaired = harness._active_updater()
+    assert repaired["generation"] != active["generation"]
+    assert repaired["previous"] == active["previous"]
+    assert bad.read_text() == "broken generation\n"

@@ -13,10 +13,14 @@ import sys
 
 REF_040 = "0.40.0"
 REF_041 = "0.41.0"
+REF_0411 = "0.41.1"
+REF_042 = "0.42"
 REF_SCHEMA20 = "refs/historical/schema20"
 EXPECTED = {
     REF_040: "21c512f8105a803f00d9efe54c50fb1906e71b0d",
     REF_041: "ca1a640fe6b3971cf7f7764083eee19d1598a19a",
+    REF_0411: "8a11ee60fe9aea5734ae261aa38dc733e83b9324",
+    REF_042: "0ee2cafd4e2b48d30e9ef8426ebf9a900458f513",
     REF_SCHEMA20: "4bbae495593f3b2e6487027bb5254ddfbc28f9ab",
 }
 

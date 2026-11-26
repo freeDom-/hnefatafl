@@ -180,7 +180,9 @@ first require `hnefatafl-update --recover` after inspecting its journal.
 | `/etc/hnefatafl/application.env` | Root-only production configuration, read by systemd |
 | `/etc/hnefatafl/deployment.json` | Root-only repository, port, HTTPS origin, retention and storage settings |
 | `/etc/hnefatafl/github.json` | Optional root-only read-only GitHub credential |
-| `/etc/hnefatafl/installed.json`, `transaction.json` | Installed version and durable recovery journal |
+| `/etc/hnefatafl/installed.json`, `transaction.json` | Installed release, expected rollback snapshot and durable application transaction |
+| `/etc/hnefatafl/backup-migration.json` | Temporary recovery journal for relocation of legacy backups |
+| `/usr/local/lib/hnefatafl/active.json`, `generations/` | Root-owned active updater pointer and verified utility generations |
 | `/var/lib/hnefatafl/hnefatafl.sqlite3` | Games, accounts, sessions, stats source, players, jobs and tournaments |
 | `/var/lib/hnefatafl/models` | Inference model registry |
 | `/var/lib/hnefatafl/jobs` | Existing training output/checkpoints/logs; paths remain stable |
@@ -371,8 +373,9 @@ recorded rollback for a downgrade. A release may carry a two-part identifier suc
 as `0.42`; the updater accepts `X.Y` and `X.Y.Z` and orders `X.Y` as `X.Y.0`.
 An updater installed by an older release whose code only accepted three-part tags
 cannot discover a two-part release, and an older updater also lacks storage
-preflight and retention. Refresh the installed utility **before** the first update
-after upgrading to a release containing these controls:
+preflight and retention. For an existing installation, refresh the utility from a
+reviewed distribution containing these controls before the first update. The same
+procedure applies to installations already running `0.41.1` or `0.42`:
 
 ```sh
 # From a reviewed checkout or extracted verified release archive:
@@ -381,30 +384,32 @@ bash scripts/linux/install.sh --refresh-updater-only
 /usr/local/bin/hnefatafl-update
 ```
 
-`--refresh-updater-only` installs only the root-owned utility set:
-`/usr/local/lib/hnefatafl/deployment.py`, the schema-aware
-`updater_support/` restore modules and the `hnefatafl-update`/`hnefatafl-backup`
-wrappers. The files are validated first (Python compile plus wrapper syntax) and
-published as one recoverable set under the same exclusive lock used by the CLI, so
-installer refresh, update, backup and recovery cannot overlap. A protocol
-downgrade is refused: an older utility cannot interpret newer transaction or
-retention metadata. It does not download or build the application, does not stop the
-service and does not rewrite `/etc/hnefatafl` configuration, installed state or
-transaction metadata. It is the supported low-space recovery path. New updaters
-installed this way also refresh those files from the verified prepared release
-before activation, so later updates keep the installed utility current.
-`hnefatafl-update --refresh-updater` performs the same refresh by downloading and
-digest-verifying the selected published release; it is available when the installed
-updater already contains these controls. For a nearly full Debian or Proxmox LXC
-filesystem, do not rerun the complete installer: download the verified
-`hnefatafl-X.Y.Z.tar.gz` release asset, confirm its SHA-256 digest against the
-digest reported by the GitHub release API, extract it into a temporary directory
-(with enough space for the archive and extraction, not a full build), run
-`bash <extracted>/scripts/linux/install.sh --refresh-updater-only`, then run
-`--cleanup --dry-run` and `--cleanup` before the update. Inside a Proxmox container,
-transfer only those reviewed files with `pct push`/`pct exec`; do not download and
-execute an unverified script as root. A single exclusive lock protects install,
-update, backup, cleanup, recovery and updater refresh.
+`--refresh-updater-only` installs a stable launcher at
+`/usr/local/lib/hnefatafl/deployment.py` and the maintenance command wrappers. The
+launcher selects the generation recorded in `active.json`. Each generation
+contains the updater and its schema-aware restore modules. Publication compiles
+Python, checks wrapper syntax, imports the complete standalone generation and
+synchronizes it to disk before activating it with one atomic pointer update. The
+previous working generation remains available. The installer can repair a damaged
+generation from the reviewed distribution without loading the damaged code. The
+recorded protocol prevents utility downgrades.
+
+This installer mode leaves the service, application data and `/etc/hnefatafl`
+application configuration, installed state and deployment journal alone. It uses
+the same operation lock as `hnefatafl-update --refresh-updater`, which obtains
+utility files directly from a release archive verified against its GitHub digest.
+When installing a supported historical application release, a current launcher
+can retain its working updater generation.
+
+For a nearly full Debian or Proxmox LXC filesystem, download the release asset
+`hnefatafl-X.Y.Z.tar.gz`, verify its SHA-256 against the GitHub release API, and
+extract it into a temporary directory. Run
+`bash <extracted>/scripts/linux/install.sh --refresh-updater-only`, then preview
+retention and run `hnefatafl-update --cleanup` before the update. In a Proxmox
+container, transfer the reviewed bootstrap with `pct push` or `pct exec`. Use
+`hnefatafl-update --recover` if the updater reports an interrupted deployment or
+backup migration.
+
 The target builds directly at its permanent release path, so the virtual
 environment, generated console shebangs and activation scripts keep stable
 absolute paths. Publication is the atomic creation of `.release.json`; a directory
@@ -460,9 +465,19 @@ remains untouched. Configure limits and safety margins there as root:
 Unknown keys are preserved. Invalid values are refused instead of being silently
 coerced. `backup_directory` is optional: the default is the root-owned sibling
 `/var/lib/hnefatafl-backups`, outside the application-writable data root. Set it to
-place snapshots on a separate, independently monitored filesystem; the preflight
-then evaluates that destination, not the data filesystem. The limits are per category; automatic pre-deployment snapshots and
-manual `hnefatafl-backup` backups share the same three-backup budget.
+place snapshots on a separate filesystem. Preflight evaluates the filesystem
+that will hold the snapshots. Automatic pre-deployment snapshots and manual
+`hnefatafl-backup` backups share the same three-backup budget.
+
+The first update, backup, recovery or executing cleanup on an older installation
+migrates verified backups
+from `/var/lib/hnefatafl/backups`. The migration records each source and destination
+identity before moving it. On the same filesystem it renames the existing
+snapshot. Across filesystems it checks destination space and inodes, creates a
+verified copy, and removes the source after persisting the updated references.
+Name conflicts get a distinct destination. Invalid or unrecognized legacy
+artifacts remain in place for inspection. If interrupted, `hnefatafl-update
+--recover` reconciles both locations and finishes the pending reference updates.
 
 **Protected artifacts are never removed to satisfy a limit:**
 
@@ -483,21 +498,21 @@ directories for the same version are reduced to the protected or newest known-go
 copy, and a protected copy is never removed merely because a same-version copy
 exists.
 
-A backup counts against retention only after its `manifest.json`, data/configuration
-directories, file SHA-256 hashes and SQLite integrity have verified. A manifest
-alone is insufficient. New snapshots also record `snapshot.json` with the release,
-archive digest, database schema and transaction association. Rollback and recovery
-verify that association, the snapshot ownership/location, completeness, SQLite
-integrity and restore-specific free space before stopping a healthy service.
-Legacy snapshots without association metadata are accepted only as the exact
-snapshot recorded in the root-owned installed state, with an explicit warning;
-otherwise the operation is refused with manual-recovery guidance. Verified
-results are cached for one operation and invalidated by an aggregate metadata
-signature of the whole snapshot, so a rewritten file forces re-hashing while
-repeated cleanup passes do not re-read unchanged content. Recognised incomplete snapshots older than one hour are
-removed; recent staging, invalid manifests and unrecognised directories are retained
-and reported for manual inspection. Partially completed artifacts referenced by a
-live transaction are never deleted.
+A verified backup has a complete data/configuration tree, full manifest coverage,
+matching SHA-256 hashes and a readable SQLite database where one is present.
+Current deployment snapshots use versioned `snapshot.json` metadata with a unique
+snapshot and transaction ID, purpose, archive SHA-256, release version and
+directory identity, database schema, timestamp and updater ABI. The installed
+state and transaction journal store the expected association. A rollback checks
+that association against the actual target and snapshot before service downtime.
+Genuine legacy snapshots referenced by trusted deployment metadata can still be
+verified and restored. Incomplete or malformed association metadata is refused.
+
+Within one operation, content hashes and SQLite checks are reused while the
+validated artifact identity and file metadata remain stable. Recent staging,
+invalid manifests and unrecognized directories remain available for inspection.
+Cleanup only removes recognized, expired staging with sufficient ownership and
+operation evidence. It protects artifacts referenced by unfinished transactions.
 
 ### Preflight and failure handling
 
@@ -546,28 +561,22 @@ hnefatafl-update --cleanup --dry-run
 hnefatafl-update --cleanup
 ```
 
-Dry-run lists releases and backups, configured limits, protected references and
-reasons, cleanup candidates, invalid/unrecognised artifacts, estimated apparent
-reclamation, actual reclaimed filesystem space (executing form), hardlinked content
-and the artifact-state counts (verified/invalid/incomplete/protected/unrecognised).
-It performs no deletion, does not restart the service and does not truncate the
-deployment lock file. The
-executing form applies the same retention policy and unused uv/npm cache maintenance.
-Both use the exclusive deployment lock and may run while the application is serving;
-neither stops games/training nor executes a deployment or migration. Cleanup is
-idempotent. It refuses destructive action while a transaction is unfinished or
-state metadata is invalid, and never follows symlinks, crosses unexpected mount
-boundaries or removes paths outside validated managed directories. Managed roots
-must be real, correctly owned, non-writable directories with trusted ancestors;
-nested mounts (including same-filesystem bind mounts and file mounts) are read from
-the kernel mount table and refused. Deletion walks by directory descriptor with
-`O_NOFOLLOW`, verifies artifact identity before removal and fails closed if the
-mount table or a metadata entry cannot be inspected. Staging-shaped directories are
-removed only when they carry the operation marker written at creation; unknown
-name-matched directories are retained. `.retained-*` directories containing
-persistent data are never pruned automatically, and abandoned `.restore-*`
-candidates are removed only with a valid transaction marker that no live journal
-references. `--check` and `--list` remain read-only and never trigger cleanup.
+Dry-run lists managed releases and backups, protection reasons, retention
+candidates, validation outcomes and estimated apparent reclamation. The executing
+form also reports actual reclaimed space and maintains dependency caches. `--check`,
+`--list` and `--cleanup --dry-run` leave files and configuration untouched and read
+an existing deployment lock without creating or truncating it. They report when
+`--recover` is required. The executing cleanup resumes legacy relocation as
+needed and holds the exclusive updater lock.
+
+Post-commit retention runs after the application write gate is released. Games
+can accept mutations while historical snapshots are verified. Cleanup failures
+are reported separately from a completed deployment. Destructive cleanup requires
+valid installed and transaction metadata. It validates the owner, permissions,
+ancestry and mount topology of each managed root and deletes entries relative to
+open directory descriptors. Retained persistent directories stay available for
+manual recovery. Staging that contains the deployment gate or belongs to an
+unfinished transaction remains protected.
 
 ### Releases versus persistent data and off-host copies
 
@@ -580,36 +589,37 @@ free-space checks also cannot guarantee unallocated capacity in an underlying
 Proxmox LVM-thin pool: monitor `lvs -a -o vg_name,lv_name,lv_size,data_percent,metadata_percent`
 and `pvesm status` on the host.
 
-An OS file lock drains admitted HTTP mutations before activity is checked. During
-activation, recovery and backup, new mutations receive 503; health/authenticated
-read probes remain available. The lock's inode survives data restoration; an
-interrupted restore that has already renamed the data root keeps the locked gate in
-the retained or staging directory so recovery remains serialized. This prevents a
-new training request from racing the update's graceful service stop.
+An exclusive application gate drains admitted HTTP mutations. New mutations receive
+503 until the gate is released. Health and authenticated read probes remain
+available. The updater validates the gate through a no-follow descriptor and
+rejects unsafe file types, ownership, hardlinks and mount redirects. Restore moves
+the same locked inode into the verified candidate before publishing it.
 
 ### Manual backups and recovery transactions
 
-`hnefatafl-backup` (and `hnefatafl-update --backup`) now performs the same storage
-preflight as an update **before** interrupting the service, repeated under the
-deployment gate and after shutdown, against the actual backup filesystem. If space
-or inodes are insufficient it refuses while the service keeps running. On snapshot
-failure only the marked incomplete staging directory is removed; previously
-verified backups are preserved, the service is restarted and readiness-verified,
-and the original failure is reported separately from any recovery failure. A
-backup is never reported successful if application recovery failed. Retention runs
-after a successful manual backup and protects the new backup for that pass.
+`hnefatafl-backup` and `hnefatafl-update --backup` preflight storage before service
+shutdown, then recheck actual free space before copying. The journal records the
+original service state before shutdown. If it was running, the updater starts it
+and checks readiness and authentication after a successful snapshot or a failed
+backup attempt. A service that was already stopped stays stopped. A verified
+backup is preserved if service recovery fails. The command reports backup and
+service errors separately. After an abrupt interruption or failed restart, run
+`hnefatafl-update --recover` to restore the recorded service state. Retention runs
+with the write gate released and protects a newly verified manual backup.
 
-Restore and rollback write explicit journal phases before each destructive or
-availability-affecting transition (staging, stopping, data rename, publication,
-ownership, activation, startup, verification, commit). The restore candidate
-contains a transaction identity marker, so an interrupted run can resume with the
-correct authoritative data directory instead of guessing. The previous data
-directory is retained as `.retained-<id>` for manual recovery and is never pruned
-automatically. The installed standalone CLI can perform SQLite restoration without
-a source checkout: its root-owned `updater_support` package supplies the
-schema-aware online-state retention code, and the account/security-state rules are
-unchanged. Interrupted operations preserve the journal for `hnefatafl-update
---recover`.
+Restore records the original data root, verified staging root and gate inode. It
+retains the original as `.retained-<id>` and then publishes the verified candidate.
+The systemd startup check requires the journal's authorized release and data
+root. A final journal record makes the restored directory authoritative before
+marker removal. Recovery can retry marker cleanup or a pending installed-state
+commit. The standalone updater retains live account and online authority using
+its verified schema-aware restore modules.
+
+Automatic update and restore require the persistent data root to reside on its
+parent filesystem without nested mounts. A bind mount at or below the data root,
+including a file mount, is refused before downtime. A manual backup can read a
+data root mounted as one filesystem when it contains no nested mounts. Backups
+can reside on their own configured filesystem.
 
 ### Deferred tournament recovery during activation
 
@@ -680,15 +690,17 @@ sessions are invalidated and restored worker credentials are revoked. Re-login
 and re-enroll workers. A changed/incompatible account schema requires explicit
 manual recovery; the updater refuses to overwrite security state blindly.
 
-Recovery distinguishes a failure before service shutdown, a failed pre-deployment
-snapshot, an interruption before migration, a failed migration, activation or
-readiness failure. A failure before database migration does not restore persistent
-data and does not replace a still-valid committed rollback target. When recovery
-before migration or activation is needed, the previous committed `previous` and
-`backup` references in `installed.json` are preserved rather than rewritten as
-null. A recorded rollback without a verified matching snapshot is refused. If the
-previous release is still running and passes health/authentication checks, it is
-not restarted unnecessarily.
+`--recover` follows the operation and phase recorded in `transaction.json`. It can
+resume an interrupted explicit rollback, finish an installed-state commit or
+clean up a committed restore marker. A new `--rollback` requires the prior
+transaction to be resolved first. A rollback verifies the release, matching
+snapshot, database compatibility and restore topology before stopping the service.
+
+Recovery before migration keeps the live data and prior committed rollback
+references. An explicit rollback records the older release as installed and
+preserves any still-valid rollback reference associated with that release in the
+snapshot. Recovery that finds the previous release healthy can verify it in
+place. The updater keeps all retained data directories for manual reconciliation.
 
 `0.41.0` is a known-incompatible rollback target: its application cannot start
 while the updater holds the exclusive deployment gate. The corrected updater
