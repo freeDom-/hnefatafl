@@ -109,7 +109,7 @@ def test_reviewed_league_preview_upgrades_preserving_authority_and_exact_retries
     assert service.drain()["settled"] == 1
     assert Store(rig.store.path).path == upgraded.path
 
-    # Canonical live-state restore accepts upgraded and fresh schema 23 layouts.
+    # Canonical live-state restore accepts upgraded and fresh schema 24 layouts.
     restored = Store(rig.root / "fresh-restore.sqlite3")
     with upgraded.connection() as original, restored.connection() as candidate:
         columns = ",".join(row[1] for row in original.execute("PRAGMA table_info(accounts)"))
@@ -186,6 +186,7 @@ def test_queue_and_standing_discovery_have_matching_indexes(tmp_path):
         "league_settlement_due": "SELECT game_id FROM league_settlement_queue WHERE due_at<=1 ORDER BY due_at,game_id LIMIT 20",
         "league_settlement_season_due": "SELECT game_id FROM league_settlement_queue WHERE season_id='2026-11' ORDER BY due_at,game_id LIMIT 20",
         "league_standings_qualified": "SELECT account_id FROM league_standings WHERE season_id='2026-11' AND ruleset='brandubh' AND wins+draws+losses>=3 ORDER BY -points,-wins,losses,account_id LIMIT 20",
+        "league_standings_account": "SELECT ruleset,points FROM league_standings WHERE account_id='alice' AND season_id='2026-11'",
         "league_games_first_history": "SELECT game_id FROM league_games WHERE first_account='alice' AND season_id='2026-11' AND ruleset='brandubh' ORDER BY paired_at DESC,game_id DESC LIMIT 20",
         "league_games_second_history": "SELECT game_id FROM league_games WHERE second_account='alice' AND season_id='2026-11' AND ruleset='brandubh' ORDER BY paired_at DESC,game_id DESC LIMIT 20",
         "league_games_rebuild": "SELECT game_id FROM league_games WHERE season_id='2026-11' AND game_id>'a' ORDER BY game_id LIMIT 20",

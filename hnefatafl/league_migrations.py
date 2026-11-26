@@ -1,6 +1,6 @@
 """Additive league authority tables, owned by the online schema transaction."""
 
-from .league_policy import QUALIFYING_RESULTS, RATING_WINDOW_INITIAL
+from .league_policy import QUALIFYING_RESULTS, RATING_WINDOW_INITIAL, TIERS
 from .league_recovery_migrations import LEAGUE_RECOVERY_TABLES, migrate_league_recovery
 from .rating import INITIAL_RATING
 
@@ -19,6 +19,7 @@ LEAGUE_TABLES = (
     "league_side_pairs",
     "league_contributions",
     "league_standings",
+    "league_achievement_progress",
     "league_settlement_queue",
     "league_audit",
     *LEAGUE_RECOVERY_TABLES,
@@ -220,6 +221,14 @@ def migrate_leagues(c):
         f"""CREATE INDEX IF NOT EXISTS league_standings_qualified
             ON league_standings(season_id,ruleset,-points,-wins,losses,account_id)
             WHERE wins+draws+losses>={QUALIFYING_RESULTS}""",
+        "CREATE INDEX IF NOT EXISTS league_standings_account ON league_standings(account_id,season_id,ruleset)",
+        f"""CREATE TABLE IF NOT EXISTS league_achievement_progress (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            ruleset TEXT NOT NULL CHECK(ruleset IN ('brandubh','tablut','copenhagen')),
+            highest_tier INTEGER NOT NULL CHECK(highest_tier BETWEEN 1 AND {len(TIERS)}),
+            achieved_at INTEGER NOT NULL,
+            PRIMARY KEY(account_id,ruleset)
+        )""",
         """CREATE TABLE IF NOT EXISTS league_settlement_queue (
             game_id TEXT PRIMARY KEY REFERENCES league_games(game_id), due_at INTEGER NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error TEXT,

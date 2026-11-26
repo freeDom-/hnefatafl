@@ -157,9 +157,9 @@ def test_catalog_schedule_requirements_and_order(web):
     from hnefatafl.progression import FAMILIES
 
     app, client = web
-    assert len(ACHIEVEMENTS) == 77
-    assert sum(a.points for a in ACHIEVEMENTS) == 6290
-    assert len({a.id for a in ACHIEVEMENTS}) == 77
+    assert len(ACHIEVEMENTS) == 92
+    assert sum(a.points for a in ACHIEVEMENTS) == 6770
+    assert len({a.id for a in ACHIEVEMENTS}) == 92
     for family, *_ in FAMILIES:
         tiers = [a for a in ACHIEVEMENTS if a.family == family]
         thresholds = (
@@ -366,9 +366,9 @@ def test_fresh_read_is_read_only_and_achievements_have_no_claim_endpoint(web):
     app, client = web
     before = progression_rows(app.state.store)
     data = client.get("/api/personal/achievements").json()
-    assert data["catalog_version"] == 3
-    assert data["summary"] == {"unlocked": 0, "total": 77, "earned_points": 0, "total_points": 6290}
-    assert len(data["families"]) == 10
+    assert data["catalog_version"] == 4
+    assert data["summary"] == {"unlocked": 0, "total": 92, "earned_points": 0, "total_points": 6770}
+    assert len(data["families"]) == 13
     assert data["unlocked_portrait_ids"] == []
     assert client.get("/api/profile").json()["portrait_id"] == "shieldbearer"
     assert progression_rows(app.state.store) == before
@@ -486,9 +486,12 @@ def test_duplicate_results_rebuilds_and_concurrent_reads_never_duplicate_rewards
     assert progression_rows(rig.store) == before
 
 
-def test_all_76_boundaries_and_permanent_points(rig, monkeypatch):
+def test_all_generic_boundaries_and_permanent_points(rig, monkeypatch):
     from hnefatafl.progression import award_achievements
 
+    generic = tuple(
+        achievement for achievement in ACHIEVEMENTS if achievement.criterion != "league_tier"
+    )
     current = {}
     monkeypatch.setattr(
         Progression, "_measure", staticmethod(lambda c, actor, a, cache: current.get(a.family, 0))
@@ -502,7 +505,7 @@ def test_all_76_boundaries_and_permanent_points(rig, monkeypatch):
         return service.achievements(credential)
 
     score = 0
-    for a in ACHIEVEMENTS:
+    for a in generic:
         current[a.family] = a.threshold - 1
         assert not items_of(event())[a.id]["unlocked"]
         current[a.family] += 1
@@ -512,8 +515,12 @@ def test_all_76_boundaries_and_permanent_points(rig, monkeypatch):
         assert event()["summary"]["earned_points"] == score
     current.clear()
     final = event()
-    assert final["summary"]["earned_points"] == 6290
-    assert all(f["complete"] and f["next_milestone"] is None for f in final["families"])
+    assert final["summary"]["earned_points"] == sum(a.points for a in generic)
+    assert all(
+        f["complete"] and f["next_milestone"] is None
+        for f in final["families"]
+        if f["league"] is None
+    )
 
 
 def test_historical_progress_is_reconciled_once_and_migration_is_idempotent(rig, monkeypatch):
@@ -804,8 +811,8 @@ def test_hall_counter_reads_are_batched_and_read_only(rig):
     with rig.store.connection() as c:
         c.set_trace_callback(queries.append)
         data = progression(rig)._projection(c, rig.accounts["Archer"]["id"], 1)
-    assert len(data["items"]) == 77
-    assert sum(q.lstrip().upper().startswith("SELECT") for q in queries) < 15
+    assert len(data["items"]) == len(ACHIEVEMENTS)
+    assert sum(q.lstrip().upper().startswith("SELECT") for q in queries) < 20
     assert not any(q.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for q in queries)
 
 

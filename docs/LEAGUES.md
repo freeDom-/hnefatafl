@@ -35,6 +35,33 @@ Standings sort by points, wins and fewer losses. Equal sporting records share a
 rank; account ID only stabilizes pagination. Selected portraits are published
 through the existing safe portrait projection, not client-created asset paths.
 
+## Permanent league achievements
+
+Every supported league ruleset has its own five-tier achievement family: Brandubh,
+Tablut and Copenhagen. The definitions are generated from the same authoritative
+`league_policy.TIERS` used by the standings, so ordering, display names and point
+thresholds cannot drift. The ordinary tiered achievement schedule supplies the
+incremental points (10, 20, 30, 40 and 60). No second league-tier configuration or
+separate reward system exists.
+
+The server records a permanent highest tier per account and ruleset in
+`league_achievement_progress` only after the player has three eligible league
+results. Settlement awards the reached tier and every preceding tier in the same
+transaction as the official standing update. Reaching the same tier again in a
+later season cannot duplicate an award, and demotion, inactivity, season rollover
+and later official corrections retain the permanent peak. A voided or corrected
+result that has not yet settled cannot grant a tier. Progress in one ruleset never
+affects another.
+
+Schema 24 reconstructs historical peaks once from the authoritative
+`league_contributions` ledger. It folds each persisted season and ruleset in stable
+result order, remembers the highest qualified tier including a peak later lowered
+by losses, and grants no progression from final standings alone. The migration is
+idempotent and preserves all existing awards. The Hall of Renown shows league tier
+names, artwork and a permanent progression ladder beside the current season's
+points, qualification and next-tier progress. Disabling or pausing leagues never
+hides or deletes previously earned tiers.
+
 Games qualify for seasonal scoring through the instant before the 24-hour grace
 period ends. A game finishing exactly at the grace boundary is late. Existing
 online clocks and results continue after that grace; late games retain their Elo

@@ -16,6 +16,7 @@ from .league_results import (
 from .league_views import LeagueError, LeagueViews, season_view
 from .leagues import ELIGIBILITY_SCAN, queue_eligibility_page
 from .online_core import DeploymentLocked, instant, micros, stamp
+from .progression import record_league_tier
 from .security_context import online_ineligibility
 
 LOGGER = logging.getLogger(__name__)
@@ -364,6 +365,7 @@ class LeagueAdministration:
                 instant(recorded_at),
                 previous,
             )
+            record_league_tier(c, account_id, ruleset, standing, micros(instant(recorded_at)))
         if len(rows) < limit:
             self._advance(c, identifier, "catch_up")
         else:

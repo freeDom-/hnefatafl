@@ -318,3 +318,88 @@
 .achievement-legendary::after {
   right: 12px;
 }
+
+/* League families reuse the card treatment while showing tier names, permanent
+   achievement progress and the separate current-season record. */
+.achievement-league-permanent {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.achievement-league-permanent img {
+  width: 4.5rem;
+  height: auto;
+  flex: 0 0 auto;
+}
+.achievement-league-permanent > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.achievement-league-permanent p,
+.achievement-league-season p {
+  margin: 0;
+}
+.achievement-league-tiers {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.achievement-league-tiers > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius, 8px);
+  background: var(--surface-raised);
+}
+.achievement-league-tiers > li[data-state='current'] {
+  border-color: var(--gold);
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+.achievement-league-tiers > li[data-state='upcoming'] {
+  border-style: dashed;
+  opacity: 0.82;
+}
+.achievement-league-tiers small {
+  color: var(--ui-copy, var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.achievement-league-state {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.achievement-league-tiers > li[data-state='current'] .achievement-league-state {
+  color: var(--gold);
+}
+.achievement-league-tiers > li[data-state='unlocked'] .achievement-league-state {
+  color: var(--green);
+}
+.achievement-league-season {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ui-border);
+}
+.achievement-league-season progress {
+  margin-block-start: 4px;
+}
+@media (max-width: 430px) {
+  .achievement-league-permanent {
+    align-items: flex-start;
+  }
+  .achievement-league-permanent img {
+    width: 3.25rem;
+  }
+  .achievement-league-tiers > li {
+    justify-content: flex-start;
+  }
+}

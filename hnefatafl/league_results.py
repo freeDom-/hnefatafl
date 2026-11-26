@@ -6,6 +6,7 @@ import sqlite3
 
 from . import league_policy as policy
 from .online_core import OnlineError, micros
+from .progression import record_league_tier
 
 
 @dataclass(frozen=True)
@@ -237,7 +238,8 @@ def settle_result(c: sqlite3.Connection, game_id: str, now: datetime) -> bool:
                 current,
             )
         else:
-            rebuild_player(c, result.season_id, result.ruleset, account, now, current)
+            standing = rebuild_player(c, result.season_id, result.ruleset, account, now, current)
+        record_league_tier(c, account, result.ruleset, standing, micros(now))
     write_game_result(c, result)
     c.execute("UPDATE league_seasons SET revision=revision+1 WHERE id=?", (result.season_id,))
     c.execute("DELETE FROM league_active_players WHERE game_id=?", (game_id,))

@@ -16,6 +16,13 @@ const leagues: Record<string, string> = {
   'Qualification · {played} of {required} eligible results':
     'Qualifikation · {played} von {required} gewerteten Ergebnissen',
   'Highest league tier reached.': 'Höchste Ligastufe erreicht.',
+  'All league tiers reached this season.': 'Alle Ligastufen dieser Saison erreicht.',
+  'Permanent league tier': 'Dauerhafte Ligastufe',
+  'No permanent league tier yet': 'Noch keine dauerhafte Ligastufe',
+  '{ruleset} league tiers': 'Ligastufen {ruleset}',
+  'League points this season: {points}': 'Ligapunkte in dieser Saison: {points}',
+  Current: 'Aktuell',
+  Upcoming: 'Bevorstehend',
   'Current rank #{rank}': 'Aktueller Rang {rank}',
   'Season rank #{rank}': 'Saisonrang {rank}',
   'Qualified for standings': 'Für die Tabelle qualifiziert',

@@ -225,6 +225,12 @@ audit. It extends the retained-online-state inventory. A compatible restore copi
 parents before their children. The update preserves authoritative games, ratings,
 tournament brackets and account progression. See [League Arena](LEAGUES.md).
 
+Schema 24 adds permanent per-ruleset league achievement peaks. Its one-time
+upgrade reconciliation reconstructs historical peaks from the authoritative league
+contribution ledger and grants the corresponding existing achievement tiers. It is
+idempotent, preserves unrelated awards and does not derive progression from final
+standings alone.
+
 The migration also recognizes the earlier League development schema. It
 preserves official games, live queue entries and recorded request outcomes.
 Terminal preview request IDs without trustworthy entry timestamps return null
@@ -462,8 +468,8 @@ the journal and log locations; inspect them before any manual action.
 Creating an automatic pre-deployment snapshot is **not** a guarantee that an
 automatic rollback can complete. After a successful migration the live database
 uses a newer schema than the pre-deployment snapshot. Existing account/online
-schema-authority checks refuse to replace a schema-23 live database with an older
-snapshot, including schema 15, 20, 21 or 22. This preserves authoritative online,
+schema-authority checks refuse to replace a schema-24 live database with an older
+snapshot, including schema 15, 20, 21, 22 or 23. This preserves authoritative online,
 tournament and security state. The corrected updater performs a read-only
 compatibility preflight before stopping a healthy service for an explicit
 `--rollback`; a schema mismatch is refused before service stop, data replacement or
