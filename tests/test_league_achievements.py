@@ -1,6 +1,7 @@
 """Ruleset-specific permanent league tiers in the existing achievement authority."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -10,10 +11,11 @@ import pytest
 
 from hnefatafl import league_policy as policy
 from hnefatafl.engine import RULESETS
-from hnefatafl.league_results import settle_result
+from hnefatafl.league_results import RECONCILIATION_ROWS, settle_result
 from hnefatafl.league_administration import LeagueAdministration
 from hnefatafl.league_views import LeagueCursors, LeagueViews
 from hnefatafl import leagues as leagues_module
+from hnefatafl import progression as progression_module
 from hnefatafl.leagues import Leagues
 from hnefatafl.online_core import OnlineCore, micros
 from hnefatafl.online_migrations import SCHEMA_VERSION
@@ -203,6 +205,40 @@ def test_every_tier_unlocks_at_its_exact_authoritative_boundary(rig):
         reset_league_progress(rig, account, ruleset)
 
 
+def test_already_completed_tier_avoids_evidence_checks_and_candidate_writes(rig, monkeypatch):
+    acct = rig.accounts["Archer"]["id"]
+    season_id = policy.season_for(rig.clock.value).identifier
+    with rig.core._write() as c:
+        c.execute(
+            """INSERT INTO league_achievement_progress
+               (account_id,ruleset,highest_tier,achieved_at) VALUES(?, 'brandubh',5,1)""",
+            (acct,),
+        )
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("completed tier performed an evidence check")
+
+    monkeypatch.setattr(progression_module, "league_achievement_evidence_pending", unexpected)
+    with rig.core._write() as c:
+        assert not record_league_tier(
+            c,
+            acct,
+            season_id,
+            "brandubh",
+            standing(50),
+            2,
+        )
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                """SELECT COUNT(*) FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (acct, season_id),
+            ).fetchone()[0]
+            == 0
+        )
+
+
 def test_ruleset_progress_is_independent_and_survives_demotion_and_rollover(rig):
     account = rig.accounts["Archer"]["id"]
     with rig.core._write() as c:
@@ -311,6 +347,63 @@ def test_official_league_results_qualify_midgard_and_isolate_rulesets(rig):
     # official results cannot leak into another ruleset.
     assert peak(rig, rig.accounts["Keeper"]["id"], "brandubh") == 1
     assert awarded(rig, rig.accounts["Keeper"]["id"], "tablut") == set()
+
+
+def test_multiple_pending_settlements_back_off_and_wait_for_all_evidence(rig):
+    service = Leagues(rig.core)
+    acct = rig.accounts["Archer"]["id"]
+    for _ in range(3):
+        finish_league_game(service, rig, "Keeper")
+        service.drain()
+    rig.clock.value += timedelta(days=1)
+    finish_league_game(service, rig, "Keeper")
+    service.drain()
+    assert peak(rig, acct, "brandubh") == 2
+
+    rig.clock.value += timedelta(days=1)
+    pending_loss = finish_league_game(service, rig, "Archer")
+    with rig.core._write() as c:
+        c.execute("DELETE FROM league_active_players WHERE game_id=?", (pending_loss["id"],))
+        c.execute(
+            "UPDATE league_settlement_queue SET due_at=? WHERE game_id=?",
+            (micros(rig.clock.value) + 7_200_000_000, pending_loss["id"]),
+        )
+    fifth = finish_league_game(service, rig, "Keeper")
+    with rig.core._write() as c:
+        c.execute(
+            "UPDATE league_settlement_queue SET due_at=? WHERE game_id=?",
+            (micros(rig.clock.value), fifth["id"]),
+        )
+
+    # Only the later win settles. Its stale five-win standing would cross
+    # Alfheim, but the earlier pending loss keeps it as a backed-off candidate.
+    assert service.drain(limit=1)["settled"] == 1
+    assert peak(rig, acct, "brandubh") == 2
+    assert "brandubh-league-alfheim" not in awarded(rig, acct, "brandubh")
+    with rig.store.connection() as c:
+        row = c.execute(
+            """SELECT attempts,due_at FROM league_achievement_reconciliation
+               WHERE account_id=? AND ruleset='brandubh'""",
+            (acct,),
+        ).fetchone()
+    assert row["attempts"] >= 1
+    assert row["due_at"] > micros(rig.clock.value)
+
+    # The deferred loss wakes the scope. The confirmed five wins plus two
+    # losses are 13 points, so the permanent peak remains Nidavellir.
+    rig.clock.value += timedelta(hours=3)
+    assert service.drain(limit=1)["settled"] == 1
+    assert peak(rig, acct, "brandubh") == 2
+    assert awarded(rig, acct, "brandubh") == league_ids("brandubh", 2)
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                """SELECT COUNT(*) FROM league_achievement_reconciliation
+               WHERE account_id=? AND ruleset='brandubh'""",
+                (acct,),
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_pending_void_blocks_the_invalid_midgard_qualification(rig):
@@ -437,6 +530,72 @@ def test_deferred_correction_reconciliation_survives_worker_restart(rig):
     assert restarted.drain()["settled"] == 1
     assert peak(rig, acct, "brandubh") == 0
     assert awarded(rig, acct, "brandubh") == set()
+
+
+def test_out_of_order_replay_waits_for_the_pending_intermediate_loss(rig):
+    service = Leagues(rig.core)
+    acct = rig.accounts["Archer"]["id"]
+    games = []
+
+    # Day 1: initial loss plus two victories (the daily pair limit is three).
+    games.append(finish_league_game(service, rig, "Archer"))
+    service.drain()
+    for _ in range(2):
+        games.append(finish_league_game(service, rig, "Keeper"))
+        service.drain()
+
+    # Day 2: the remaining two of four victories.
+    rig.clock.value += timedelta(days=1)
+    for _ in range(2):
+        games.append(finish_league_game(service, rig, "Keeper"))
+        service.drain()
+    assert peak(rig, acct, "brandubh") == 2
+
+    # Day 3: complete an official loss but leave its league settlement pending.
+    rig.clock.value += timedelta(days=1)
+    pending_loss = finish_league_game(service, rig, "Archer")
+    with rig.core._write() as c:
+        c.execute("DELETE FROM league_active_players WHERE game_id=?", (pending_loss["id"],))
+        now = micros(rig.clock.value)
+        c.execute(
+            "UPDATE league_settlement_queue SET due_at=? WHERE game_id=?",
+            (now + 7_200_000_000, pending_loss["id"]),
+        )
+
+    # The fifth victory settles while the earlier loss remains unresolved. Its
+    # stale standing would cross Alfheim, so it must only become a candidate.
+    fifth = finish_league_game(service, rig, "Keeper")
+    with rig.core._write() as c:
+        c.execute("UPDATE league_settlement_queue SET due_at=? WHERE game_id=?", (now, fifth["id"]))
+    assert service.drain()["settled"] == 1
+    assert peak(rig, acct, "brandubh") == 2
+    assert "brandubh-league-alfheim" not in awarded(rig, acct, "brandubh")
+
+    # Void the initial loss and process that replay while the loss is still pending.
+    rig.core.mutate(
+        rig.credentials["Odin"],
+        games[0]["id"],
+        games[0]["version"],
+        "void",
+        note="Out-of-order replay fixture",
+    )
+    with rig.core._write() as c:
+        c.execute(
+            "UPDATE league_settlement_queue SET due_at=? WHERE game_id=?", (now, games[0]["id"])
+        )
+    assert service.drain()["settled"] == 1
+    assert peak(rig, acct, "brandubh") == 2
+    assert "brandubh-league-alfheim" not in awarded(rig, acct, "brandubh")
+
+    # Processing the deferred loss yields five wins and one loss: 14 points and
+    # Nidavellir peak, never Alfheim.
+    rig.clock.value += timedelta(hours=3)
+    for _ in range(4):
+        result = service.drain()
+        if result["achievements"] == 0 and result["settled"] == 0:
+            break
+    assert peak(rig, acct, "brandubh") == 2
+    assert awarded(rig, acct, "brandubh") == league_ids("brandubh", 2)
 
 
 def test_void_before_settlement_grants_nothing_and_later_corrections_keep_rewards(rig):
@@ -603,7 +762,7 @@ def test_achievement_reconciliation_retries_durably(rig, monkeypatch):
     def fail(*args):
         raise RuntimeError("private reconciliation failure")
 
-    monkeypatch.setattr(leagues_module, "confirmed_account_progress", fail)
+    monkeypatch.setattr(leagues_module, "validated_account_contribution", fail)
     failed = service.drain()
     assert failed["achievement_retries"] == 1
     assert failed["achievements"] == 0
@@ -814,6 +973,261 @@ def test_backfill_does_not_fabricate_progress_from_standings_alone(rig):
             ).fetchone()[0]
             == 0
         )
+
+
+def seed_synthetic_league_history(
+    rig,
+    count,
+    outcomes,
+    season,
+    *,
+    ruleset="brandubh",
+    base_sequence=10_000,
+    label="synthetic",
+):
+    """Seed authoritative provenance without paying engine cost per game."""
+    acct = rig.accounts["Archer"]["id"]
+    opponent = rig.accounts["Keeper"]["id"]
+    first, second = sorted((acct, opponent))
+    start = micros(season.start)
+    end = micros(season.end)
+    grace = micros(season.grace_end)
+    base = base_sequence
+    with rig.core._write() as c:
+        c.execute(
+            """INSERT OR IGNORE INTO league_seasons
+               (id,starts_at,ends_at,grace_ends_at,policy_version)
+               VALUES(?,?,?,?,1)""",
+            (season.identifier, start, end, grace),
+        )
+        for offset, outcome in enumerate(outcomes):
+            index = base + offset
+            game_id = f"{label}-{index}"
+            match_id = f"{label}-match-{index}"
+            completed = start + offset + 1
+            c.execute(
+                """INSERT INTO online_matches(
+                   id,creator_id,opponent_id,side_selection,mode,ruleset,ruleset_version,
+                   time_per_move,created_at,activated_at,first_creator_side,rated,
+                   time_control,increment_seconds)
+                   VALUES(?,?,?,'random','single',?,'1',600,?,?,'attackers',1,'total',5)""",
+                (match_id, acct, opponent, ruleset, start, start),
+            )
+            c.execute(
+                """INSERT INTO online_games(
+                   id,creation_request,match_id,leg,creator_id,creator_side,
+                   attackers_id,defenders_id,ruleset,ruleset_version,time_per_move,
+                   status,version,created_at,updated_at,started_at,completed_at,
+                   position,result_revision,time_control,increment_seconds,
+                   attackers_remaining_us,defenders_remaining_us)
+                   VALUES(?,?,?,1,?,'attackers',?,?,?,'1',600,
+                   'completed',1,?,?,?,?,'{}',1,'total',5,0,0)""",
+                (
+                    game_id,
+                    f"{label}-request-{index}",
+                    match_id,
+                    acct,
+                    acct,
+                    opponent,
+                    ruleset,
+                    start,
+                    start,
+                    start,
+                    completed,
+                ),
+            )
+            c.execute(
+                """INSERT INTO online_results
+                   (game_id,revision,supersedes,competitive_eligible,abandoned_account_id,
+                    completed_at,processed_at,payload) VALUES(?,1,NULL,1,NULL,?,?,'{}')""",
+                (game_id, completed, completed),
+            )
+            winner = "attackers" if outcome == "win" else "defenders"
+            c.execute(
+                """INSERT INTO rating_events
+                   (game_id,pool,sequence,state,effective_revision,winner,attackers_id,
+                    defenders_id,completed_at,policy_version,created_at)
+                   VALUES(?,?,?,'applied',1,?,?,?,?,1,?)""",
+                (game_id, ruleset, index, winner, acct, opponent, completed, completed),
+            )
+            for account, other, score in (
+                (acct, opponent, 1.0 if outcome == "win" else 0.0),
+                (opponent, acct, 0.0 if outcome == "win" else 1.0),
+            ):
+                c.execute(
+                    """INSERT INTO rating_applications
+                       (game_id,account_id,pool,sequence,opponent_id,rating_before,
+                        rating_after,delta,opponent_rating,expected,score,rated_games_after,
+                        policy_version)
+                       VALUES(?,?,?,?,?,1500,1500,0,1500,0.5,?,?,1)""",
+                    (game_id, account, ruleset, index, other, score, offset + 1),
+                )
+            c.execute(
+                """INSERT INTO league_games
+                   (game_id,season_id,ruleset,first_account,second_account,paired_at,
+                    sequence,result_revision,state)
+                   VALUES(?,?,?,?,?,?,?,1,'eligible')""",
+                (game_id, season.identifier, ruleset, first, second, start + offset, index),
+            )
+
+
+def test_large_history_reconciliation_is_chunked_restartable_and_revision_aware(rig):
+    season = policy.season_for(datetime(2030, 1, 15, tzinfo=timezone.utc))
+    outcomes = ["win", "win", "win"] + ["loss"] * 597
+    seed_synthetic_league_history(rig, len(outcomes), outcomes, season)
+    acct = rig.accounts["Archer"]["id"]
+    with rig.core._write() as c:
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,candidate_tier,due_at)
+               VALUES(?,?, 'brandubh',2,0)""",
+            (acct, season.identifier),
+        )
+
+    first = Leagues(rig.core).drain()
+    assert first["achievements"] == 0
+    with rig.store.connection() as c:
+        row = c.execute(
+            """SELECT cursor_sequence,evidence_revision,progress_tier
+               FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+            (acct, season.identifier),
+        ).fetchone()
+    assert row["cursor_sequence"] == 10_000 + RECONCILIATION_ROWS - 1
+    assert row["evidence_revision"] is not None
+    assert row["progress_tier"] == 2
+    assert peak(rig, acct, "brandubh") == 0
+
+    # A corrected evidence generation resets the durable cursor and replays from
+    # the beginning rather than committing a mixed-generation peak.
+    with rig.core._write() as c:
+        c.execute(
+            "UPDATE league_seasons SET revision=revision+1 WHERE id=?",
+            (season.identifier,),
+        )
+    restarted = Leagues(rig.core)
+    restarted.drain()
+    with rig.store.connection() as c:
+        row = c.execute(
+            """SELECT cursor_sequence,evidence_revision
+               FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+            (acct, season.identifier),
+        ).fetchone()
+    assert row["cursor_sequence"] == 10_000 + RECONCILIATION_ROWS - 1
+    assert row["evidence_revision"] == 1
+
+    for _ in range(5):
+        Leagues(rig.core).drain()
+        with rig.store.connection() as c:
+            remaining = c.execute(
+                """SELECT COUNT(*) FROM league_achievement_reconciliation
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (acct, season.identifier),
+            ).fetchone()[0]
+        if remaining == 0:
+            break
+    assert remaining == 0
+    assert peak(rig, acct, "brandubh") == 2
+    assert awarded(rig, acct, "brandubh") == league_ids("brandubh", 2)
+    # Chunk completion is idempotent and cannot duplicate the awards.
+    assert Leagues(rig.core).drain()["achievements"] == 0
+    assert awarded(rig, acct, "brandubh") == league_ids("brandubh", 2)
+
+
+def test_reconciliation_query_count_is_bounded_by_pages_not_games(rig, monkeypatch):
+    season = policy.season_for(datetime(2031, 1, 15, tzinfo=timezone.utc))
+    count = 600
+    seed_synthetic_league_history(rig, count, ["win"] * count, season)
+    acct = rig.accounts["Archer"]["id"]
+    with rig.core._write() as c:
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,candidate_tier,due_at)
+               VALUES(?,?, 'brandubh',5,0)""",
+            (acct, season.identifier),
+        )
+
+    statements: list[str] = []
+    original = rig.store.connection
+
+    @contextmanager
+    def traced(*args, **kwargs):
+        with original(*args, **kwargs) as c:
+            c.set_trace_callback(statements.append)
+            yield c
+
+    monkeypatch.setattr(rig.store, "connection", traced)
+    service = Leagues(rig.core)
+    for _ in range(5):
+        service.drain()
+        with rig.store.connection() as c:
+            remaining = c.execute(
+                """SELECT COUNT(*) FROM league_achievement_reconciliation
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (acct, season.identifier),
+            ).fetchone()[0]
+        if not remaining:
+            break
+    assert remaining == 0
+    chunk_queries = sum("FROM rating_applications a" in sql for sql in statements)
+    assert chunk_queries == (count + RECONCILIATION_ROWS - 1) // RECONCILIATION_ROWS
+    assert chunk_queries == 3
+    # A per-game implementation would need at least 600 effective-result queries.
+    assert len(statements) < 100
+    assert peak(rig, acct, "brandubh") == 5
+
+
+def test_scale_migration_and_reconciliation_across_rulesets_and_seasons(rig):
+    rulesets = ("brandubh", "tablut", "copenhagen")
+    seasons = [
+        policy.season_for(datetime(2030, month, 15, tzinfo=timezone.utc)) for month in (1, 2, 3)
+    ]
+    for season_index, season in enumerate(seasons):
+        for ruleset_index, ruleset in enumerate(rulesets):
+            seed_synthetic_league_history(
+                rig,
+                300,
+                ["win"] * 300,
+                season,
+                ruleset=ruleset,
+                base_sequence=10_000 + (season_index * 10 + ruleset_index) * 1_000,
+                label=f"scale-{season_index}-{ruleset_index}",
+            )
+
+    with rig.store.connection() as c:
+        c.execute("DROP TABLE league_achievement_reconciliation")
+        c.execute("DROP TABLE league_achievement_progress")
+        c.execute("PRAGMA user_version=23")
+    started = time.perf_counter()
+    reopened = Store(rig.store.path)
+    migrated = time.perf_counter() - started
+    with reopened.connection() as c:
+        assert (
+            c.execute("SELECT COUNT(*) FROM league_achievement_reconciliation").fetchone()[0] == 18
+        )
+
+    service = Leagues(rig.core)
+    started = time.perf_counter()
+    for _ in range(10):
+        service.drain(limit=20)
+        with rig.store.connection() as c:
+            remaining = c.execute(
+                "SELECT COUNT(*) FROM league_achievement_reconciliation"
+            ).fetchone()[0]
+        if not remaining:
+            break
+    reconciled = time.perf_counter() - started
+    assert remaining == 0
+    for ruleset in rulesets:
+        assert peak(rig, rig.accounts["Archer"]["id"], ruleset) == 5
+        assert peak(rig, rig.accounts["Keeper"]["id"], ruleset) == 1
+        assert len(awarded(rig, rig.accounts["Archer"]["id"], ruleset)) == 5
+        assert len(awarded(rig, rig.accounts["Keeper"]["id"], ruleset)) == 1
+    # Deliberately generous local regression bounds for 2,700 synthetic results
+    # across three seasons and all rulesets.
+    assert migrated < 30
+    assert reconciled < 30
 
 
 def test_representative_multi_season_migration_and_reconciliation_stays_bounded(rig):

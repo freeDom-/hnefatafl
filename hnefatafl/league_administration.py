@@ -408,6 +408,13 @@ class LeagueAdministration:
             c.execute("DELETE FROM league_settlement_queue WHERE game_id=?", (queued["game_id"],))
             return
         c.execute("UPDATE league_seasons SET revision=revision+1 WHERE id=?", (identifier,))
+        at = micros(now)
+        c.execute(
+            """UPDATE league_achievement_reconciliation
+               SET due_at=MIN(due_at,?),attempts=0,last_error=NULL
+               WHERE season_id=? AND (due_at>? OR attempts>0 OR last_error IS NOT NULL)""",
+            (at, identifier, at),
+        )
         c.execute("DELETE FROM league_rebuild_jobs WHERE season_id=?", (identifier,))
         _audit(
             c,

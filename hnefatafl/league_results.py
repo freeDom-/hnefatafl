@@ -6,7 +6,7 @@ import sqlite3
 
 from . import league_policy as policy
 from .online_core import OnlineError, micros
-from .progression import record_league_tier
+from .progression import record_league_tier, wake_league_reconciliation
 
 
 @dataclass(frozen=True)
@@ -22,21 +22,8 @@ class EffectiveLeagueResult:
     projection: tuple[int | None, int | None, str]
 
 
-def effective_league_result(c: sqlite3.Connection, game_id: str) -> EffectiveLeagueResult:
-    """Resolve an official result independently of cached league projections."""
-    row = c.execute(
-        """SELECT l.*,g.result_revision AS official_revision,g.ruleset AS official_ruleset,
-            g.attackers_id,g.defenders_id,m.rated,s.starts_at,s.ends_at,s.grace_ends_at,
-            r.sequence AS rating_sequence,r.pool,r.state AS rating_state,r.effective_revision,
-            r.attackers_id AS rating_attackers,r.defenders_id AS rating_defenders,
-            r.winner,r.completed_at
-        FROM league_games l JOIN online_games g ON g.id=l.game_id
-        JOIN online_matches m ON m.id=g.match_id JOIN league_seasons s ON s.id=l.season_id
-        LEFT JOIN rating_events r ON r.game_id=l.game_id WHERE l.game_id=?""",
-        (game_id,),
-    ).fetchone()
-    if row is None:
-        raise OnlineError(404, "League game not found.")
+def _effective_result_evidence(row: sqlite3.Row):
+    """Validate one official league row and derive both eligible contributions."""
     accounts = (row["first_account"], row["second_account"])
     if (
         not row["rated"]
@@ -68,18 +55,37 @@ def effective_league_result(c: sqlite3.Connection, game_id: str) -> EffectiveLea
                 contributions.append(
                     (
                         row[side + "_id"],
-                        policy.Contribution(game_id, row["rating_sequence"], outcome),
+                        policy.Contribution(row["game_id"], row["rating_sequence"], outcome),
                     )
                 )
+    return revision, row["rating_sequence"], state, tuple(contributions)
+
+
+def effective_league_result(c: sqlite3.Connection, game_id: str) -> EffectiveLeagueResult:
+    """Resolve an official result independently of cached league projections."""
+    row = c.execute(
+        """SELECT l.*,g.result_revision AS official_revision,g.ruleset AS official_ruleset,
+            g.attackers_id,g.defenders_id,m.rated,s.starts_at,s.ends_at,s.grace_ends_at,
+            r.sequence AS rating_sequence,r.pool,r.state AS rating_state,r.effective_revision,
+            r.attackers_id AS rating_attackers,r.defenders_id AS rating_defenders,
+            r.winner,r.completed_at
+        FROM league_games l JOIN online_games g ON g.id=l.game_id
+        JOIN online_matches m ON m.id=g.match_id JOIN league_seasons s ON s.id=l.season_id
+        LEFT JOIN rating_events r ON r.game_id=l.game_id WHERE l.game_id=?""",
+        (game_id,),
+    ).fetchone()
+    if row is None:
+        raise OnlineError(404, "League game not found.")
+    revision, sequence, state, contributions = _effective_result_evidence(row)
     return EffectiveLeagueResult(
         game_id,
         row["season_id"],
         row["ruleset"],
-        accounts,
+        (row["first_account"], row["second_account"]),
         revision,
-        row["rating_sequence"],
+        sequence,
         state,
-        tuple(contributions),
+        contributions,
         (row["result_revision"], row["sequence"], row["state"]),
     )
 
@@ -263,42 +269,65 @@ def settle_result(c: sqlite3.Connection, game_id: str, now: datetime) -> bool:
             game_id=game_id,
             peak_tier=peak_tier,
             sequence=contribution.sequence if contribution is not None else None,
+            replay=account not in append,
         )
+        wake_league_reconciliation(c, account, result.season_id, result.ruleset, micros(now))
     write_game_result(c, result)
     c.execute("UPDATE league_seasons SET revision=revision+1 WHERE id=?", (result.season_id,))
     c.execute("DELETE FROM league_active_players WHERE game_id=?", (game_id,))
     return True
 
 
-def effective_account_contributions(
-    c: sqlite3.Connection, season_id: str, ruleset: str, account_id: str
-) -> list[policy.Contribution]:
-    """Resolve this account's eligible contributions from effective official results.
+RECONCILIATION_ROWS = 256
 
-    `league_games` is the durable provenance index and `effective_league_result`
-    validates each game against the applied rating ledger. The result never trusts
-    cached `league_contributions`, so interrupted rebuilds or pending corrections
-    cannot fabricate evidence. Used only by bounded reconciliation, never by an
-    ordinary append.
+
+def authoritative_contribution_chunk(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    after_sequence: int,
+    after_game_id: str,
+    limit: int = RECONCILIATION_ROWS,
+) -> list[sqlite3.Row]:
+    """Stream one bounded account/scope page in authoritative result sequence.
+
+    The indexed rating application row gives both the account scope and stable
+    sequence. The joined provenance is validated by the same helper as normal
+    settlement, so chunking cannot introduce a divergent eligibility rule.
     """
-    rows = c.execute(
-        """SELECT game_id FROM league_games
-           WHERE season_id=? AND ruleset=? AND first_account=?
-           UNION
-           SELECT game_id FROM league_games
-           WHERE season_id=? AND ruleset=? AND second_account=?""",
-        (season_id, ruleset, account_id, season_id, ruleset, account_id),
+    return c.execute(
+        """SELECT l.game_id,l.season_id,l.ruleset,l.first_account,l.second_account,l.paired_at,
+            l.result_revision,l.sequence,l.state,
+            g.result_revision AS official_revision,g.ruleset AS official_ruleset,
+            g.attackers_id,g.defenders_id,m.rated,
+            s.starts_at,s.ends_at,s.grace_ends_at,
+            r.sequence AS rating_sequence,r.pool,r.state AS rating_state,
+            r.effective_revision,r.attackers_id AS rating_attackers,
+            r.defenders_id AS rating_defenders,r.winner,r.completed_at
+        FROM rating_applications a
+        JOIN rating_events r ON r.game_id=a.game_id AND r.pool=a.pool
+            AND r.sequence=a.sequence AND r.state='applied'
+        JOIN league_games l ON l.game_id=a.game_id
+        JOIN online_games g ON g.id=l.game_id
+        JOIN online_matches m ON m.id=g.match_id
+        JOIN league_seasons s ON s.id=l.season_id
+        WHERE a.account_id=? AND a.pool=? AND l.season_id=? AND l.ruleset=?
+          AND (a.sequence>? OR (a.sequence=? AND a.game_id>?))
+        ORDER BY a.sequence,a.game_id LIMIT ?""",
+        (
+            account_id,
+            ruleset,
+            season_id,
+            ruleset,
+            after_sequence,
+            after_sequence,
+            after_game_id,
+            limit,
+        ),
     ).fetchall()
-    contributions = []
-    for row in rows:
-        effective = effective_league_result(c, row["game_id"])
-        contribution = dict(effective.contributions).get(account_id)
-        if contribution is not None:
-            contributions.append(contribution)
-    return contributions
 
 
-def confirmed_account_progress(
-    c: sqlite3.Connection, season_id: str, ruleset: str, account_id: str
-) -> policy.Progress:
-    return policy.fold_progress(effective_account_contributions(c, season_id, ruleset, account_id))
+def validated_account_contribution(row: sqlite3.Row, account_id: str) -> policy.Contribution | None:
+    contributions = dict(_effective_result_evidence(row)[3])
+    return contributions.get(account_id)

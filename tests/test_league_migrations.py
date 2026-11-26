@@ -4,6 +4,7 @@ import sqlite3
 
 import pytest
 
+from hnefatafl import league_policy as policy
 from hnefatafl.league_migrations import LEAGUE_TABLES
 from hnefatafl.leagues import Leagues
 from hnefatafl.online_migrations import SCHEMA_VERSION, retain_online_on_restore
@@ -109,7 +110,7 @@ def test_reviewed_league_preview_upgrades_preserving_authority_and_exact_retries
     assert service.drain()["settled"] == 1
     assert Store(rig.store.path).path == upgraded.path
 
-    # Canonical live-state restore accepts upgraded and fresh schema 24 layouts.
+    # Canonical live-state restore accepts upgraded and fresh schema 25 layouts.
     restored = Store(rig.root / "fresh-restore.sqlite3")
     with upgraded.connection() as original, restored.connection() as candidate:
         columns = ",".join(row[1] for row in original.execute("PRAGMA table_info(accounts)"))
@@ -119,6 +120,69 @@ def test_reviewed_league_preview_upgrades_preserving_authority_and_exact_retries
         )
         retain_online_on_restore(original, candidate)
         assert candidate.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_schema_24_reconciliation_table_upgrades_in_place(rig):
+    season = policy.season_for(rig.clock.value)
+    account = rig.accounts["Archer"]["id"]
+    with rig.store.connection() as c:
+        c.execute(
+            """INSERT OR IGNORE INTO league_seasons
+               (id,starts_at,ends_at,grace_ends_at,policy_version)
+               VALUES(?,?,?,?,1)""",
+            (
+                season.identifier,
+                int(season.start.timestamp() * 1_000_000),
+                int(season.end.timestamp() * 1_000_000),
+                int(season.grace_end.timestamp() * 1_000_000),
+            ),
+        )
+        c.execute("DROP INDEX league_achievement_reconciliation_due")
+        c.execute("ALTER TABLE league_achievement_reconciliation RENAME TO old_reconciliation")
+        c.execute(
+            """CREATE TABLE league_achievement_reconciliation (
+                account_id TEXT NOT NULL REFERENCES accounts(id),
+                season_id TEXT NOT NULL REFERENCES league_seasons(id),
+                ruleset TEXT NOT NULL,
+                candidate_tier INTEGER,
+                due_at INTEGER NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                PRIMARY KEY(account_id,season_id,ruleset)
+            )"""
+        )
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,candidate_tier,due_at,attempts,last_error)
+               VALUES(?,?,'brandubh',3,7,2,'retry')""",
+            (account, season.identifier),
+        )
+        c.execute("DROP TABLE old_reconciliation")
+        c.execute("PRAGMA user_version=24")
+
+    reopened = Store(rig.store.path)
+    with reopened.connection() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        columns = {
+            row[1] for row in c.execute("PRAGMA table_info(league_achievement_reconciliation)")
+        }
+        assert {
+            "cursor_sequence",
+            "cursor_game_id",
+            "standing_points",
+            "standing_wins",
+            "standing_draws",
+            "standing_losses",
+            "progress_tier",
+            "evidence_revision",
+        } <= columns
+        row = c.execute(
+            "SELECT candidate_tier,due_at,attempts,last_error,cursor_sequence FROM league_achievement_reconciliation"
+        ).fetchone()
+        assert tuple(row) == (3, 7, 2, "retry", 0)
+        indexes = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        assert "league_achievement_reconciliation_due" in indexes
+        assert "rating_applications_account_sequence" in indexes
 
 
 @pytest.mark.parametrize("previous_schema", [21, 22])
@@ -184,22 +248,42 @@ def test_queue_and_standing_discovery_have_matching_indexes(tmp_path):
         "league_queue_rating_age": "SELECT account_id FROM league_queue INDEXED BY league_queue_rating_age WHERE ruleset='brandubh' AND CAST(rating / 200.0 AS INTEGER)=7 AND (joined_at,account_id)>(1,'') ORDER BY joined_at,account_id LIMIT 9",
         "league_requests_actor_time": "SELECT id FROM league_requests WHERE account_id='alice' ORDER BY created_at DESC,rowid DESC LIMIT 1",
         "league_settlement_due": "SELECT game_id FROM league_settlement_queue WHERE due_at<=1 ORDER BY due_at,game_id LIMIT 20",
-        "league_settlement_season_due": """SELECT 1 FROM league_settlement_queue q
-            JOIN league_games l ON l.game_id=q.game_id
-            JOIN online_games g ON g.id=q.game_id
-            LEFT JOIN rating_events r ON r.game_id=q.game_id
-            WHERE q.season_id='2026-11' AND l.ruleset='brandubh'
-              AND (l.first_account='alice' OR l.second_account='alice')
-              AND ((l.result_revision IS NOT NULL AND g.result_revision IS NOT l.result_revision)
-                   OR (r.state='applied' AND r.sequence<9))
-              AND q.game_id<>'fixture' LIMIT 1""",
+        "league_games_first_history": """WITH pending AS (
+              SELECT q.game_id,l.result_revision,
+                g.result_revision AS official_revision,r.state AS rating_state,
+                r.sequence AS rating_sequence
+              FROM league_games l
+              JOIN league_settlement_queue q ON q.game_id=l.game_id
+              JOIN online_games g ON g.id=l.game_id
+              LEFT JOIN rating_events r ON r.game_id=l.game_id
+              WHERE l.first_account='alice' AND l.season_id='2026-11' AND l.ruleset='brandubh'
+              UNION ALL
+              SELECT q.game_id,l.result_revision,
+                g.result_revision AS official_revision,r.state AS rating_state,
+                r.sequence AS rating_sequence
+              FROM league_games l
+              JOIN league_settlement_queue q ON q.game_id=l.game_id
+              JOIN online_games g ON g.id=l.game_id
+              LEFT JOIN rating_events r ON r.game_id=l.game_id
+              WHERE l.second_account='alice' AND l.season_id='2026-11' AND l.ruleset='brandubh'
+            )
+            SELECT 1 FROM pending WHERE
+              (result_revision IS NOT NULL AND official_revision IS NOT result_revision)
+              OR (rating_state='applied' AND rating_sequence<9) LIMIT 1""",
+        "rating_applications_account_sequence": """SELECT l.game_id FROM rating_applications a
+            JOIN rating_events r ON r.game_id=a.game_id AND r.pool=a.pool
+              AND r.sequence=a.sequence AND r.state='applied'
+            JOIN league_games l ON l.game_id=a.game_id
+            WHERE a.account_id='alice' AND a.pool='brandubh'
+              AND l.season_id='2026-11' AND l.ruleset='brandubh'
+              AND (a.sequence>1 OR (a.sequence=1 AND a.game_id>'fixture'))
+            ORDER BY a.sequence,a.game_id LIMIT 256""",
         "league_achievement_reconciliation_due": """SELECT account_id FROM league_achievement_reconciliation r
             LEFT JOIN league_rebuild_jobs j ON j.season_id=r.season_id
             WHERE r.due_at<=1 AND (r.due_at,r.account_id,r.season_id,r.ruleset)>(0,'','','')
             ORDER BY r.due_at,r.account_id,r.season_id,r.ruleset LIMIT 20""",
         "league_standings_qualified": "SELECT account_id FROM league_standings WHERE season_id='2026-11' AND ruleset='brandubh' AND wins+draws+losses>=3 ORDER BY -points,-wins,losses,account_id LIMIT 20",
         "league_standings_account": "SELECT ruleset,points FROM league_standings WHERE account_id='alice' AND season_id='2026-11'",
-        "league_games_first_history": "SELECT game_id FROM league_games WHERE first_account='alice' AND season_id='2026-11' AND ruleset='brandubh' ORDER BY paired_at DESC,game_id DESC LIMIT 20",
         "league_games_second_history": "SELECT game_id FROM league_games WHERE second_account='alice' AND season_id='2026-11' AND ruleset='brandubh' ORDER BY paired_at DESC,game_id DESC LIMIT 20",
         "league_games_rebuild": "SELECT game_id FROM league_games WHERE season_id='2026-11' AND game_id>'a' ORDER BY game_id LIMIT 20",
     }

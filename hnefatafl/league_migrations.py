@@ -108,6 +108,24 @@ def _backfill_preview(c):
         ) WHERE newest=1""")
 
 
+def _add_reconciliation_columns(c):
+    columns = {row[1] for row in c.execute("PRAGMA table_info(league_achievement_reconciliation)")}
+    for name, definition in (
+        ("cursor_sequence", "INTEGER NOT NULL DEFAULT 0 CHECK(cursor_sequence>=0)"),
+        ("cursor_game_id", "TEXT NOT NULL DEFAULT ''"),
+        ("standing_points", "INTEGER NOT NULL DEFAULT 0 CHECK(standing_points>=0)"),
+        ("standing_wins", "INTEGER NOT NULL DEFAULT 0 CHECK(standing_wins>=0)"),
+        ("standing_draws", "INTEGER NOT NULL DEFAULT 0 CHECK(standing_draws>=0)"),
+        ("standing_losses", "INTEGER NOT NULL DEFAULT 0 CHECK(standing_losses>=0)"),
+        ("progress_tier", "INTEGER"),
+        ("evidence_revision", "INTEGER"),
+    ):
+        if name not in columns:
+            c.execute(
+                f"ALTER TABLE league_achievement_reconciliation ADD COLUMN {name} {definition}"
+            )
+
+
 def migrate_leagues(c):
     upgrading_preview = _add_preview_columns(c)
     statements = (
@@ -237,6 +255,14 @@ def migrate_leagues(c):
             candidate_tier INTEGER CHECK(candidate_tier BETWEEN 1 AND {len(TIERS)}),
             due_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
             last_error TEXT,
+            cursor_sequence INTEGER NOT NULL DEFAULT 0 CHECK(cursor_sequence>=0),
+            cursor_game_id TEXT NOT NULL DEFAULT '',
+            standing_points INTEGER NOT NULL DEFAULT 0 CHECK(standing_points>=0),
+            standing_wins INTEGER NOT NULL DEFAULT 0 CHECK(standing_wins>=0),
+            standing_draws INTEGER NOT NULL DEFAULT 0 CHECK(standing_draws>=0),
+            standing_losses INTEGER NOT NULL DEFAULT 0 CHECK(standing_losses>=0),
+            progress_tier INTEGER CHECK(progress_tier BETWEEN 1 AND {len(TIERS)}),
+            evidence_revision INTEGER,
             PRIMARY KEY(account_id,season_id,ruleset)
         )""",
         """CREATE INDEX IF NOT EXISTS league_achievement_reconciliation_due
@@ -258,6 +284,7 @@ def migrate_leagues(c):
     )
     for statement in statements:
         c.execute(statement)
+    _add_reconciliation_columns(c)
     if upgrading_preview:
         _backfill_preview(c)
     migrate_league_recovery(c)

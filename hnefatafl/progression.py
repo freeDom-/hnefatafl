@@ -898,6 +898,60 @@ def award_achievements(
                 )
 
 
+def _account_reconciliation_pending(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    *,
+    any_pending: bool,
+    sequence: int | None = None,
+    exclude_game: str | None = None,
+) -> bool:
+    """Check only this account's indexed league games in one season/ruleset."""
+    exclude = "AND q.game_id<>?" if exclude_game is not None else ""
+    args: list[str | int] = [account_id, season_id, ruleset]
+    if exclude_game is not None:
+        args.append(exclude_game)
+    args.extend((account_id, season_id, ruleset))
+    if exclude_game is not None:
+        args.append(exclude_game)
+    condition = (
+        "1=1"
+        if any_pending
+        else ("(result_revision IS NOT NULL AND official_revision IS NOT result_revision)")
+    )
+    if sequence is not None:
+        condition += " OR (rating_state='applied' AND rating_sequence<?)"
+        args.append(sequence)
+    return (
+        c.execute(
+            f"""WITH pending AS (
+              SELECT q.game_id,l.result_revision,
+                g.result_revision AS official_revision,r.state AS rating_state,
+                r.sequence AS rating_sequence
+              FROM league_games l
+              JOIN league_settlement_queue q ON q.game_id=l.game_id
+              JOIN online_games g ON g.id=l.game_id
+              LEFT JOIN rating_events r ON r.game_id=l.game_id
+              WHERE l.first_account=? AND l.season_id=? AND l.ruleset=? {exclude}
+              UNION ALL
+              SELECT q.game_id,l.result_revision,
+                g.result_revision AS official_revision,r.state AS rating_state,
+                r.sequence AS rating_sequence
+              FROM league_games l
+              JOIN league_settlement_queue q ON q.game_id=l.game_id
+              JOIN online_games g ON g.id=l.game_id
+              LEFT JOIN rating_events r ON r.game_id=l.game_id
+              WHERE l.second_account=? AND l.season_id=? AND l.ruleset=? {exclude}
+            )
+            SELECT 1 FROM pending WHERE ({condition}) LIMIT 1""",
+            args,
+        ).fetchone()
+        is not None
+    )
+
+
 def league_achievement_evidence_pending(
     c: sqlite3.Connection,
     account_id: str,
@@ -907,37 +961,36 @@ def league_achievement_evidence_pending(
     sequence: int | None = None,
     exclude_game: str | None = None,
 ) -> bool:
-    """Whether newer evidence could invalidate an upward league evaluation.
+    """Whether unresolved evidence could invalidate an ordinary append.
 
-    A previously settled game whose official revision differs from the league
-    projection always blocks. When settling a result with ``sequence``, an
-    unsettled earlier official result in the same account/scope also blocks:
-    appending it to today's standing would ignore a lower-sequence gap that the
-    eventual stable fold must insert first.
+    A previously settled revision mismatch always blocks. When appending a result
+    with ``sequence``, any earlier applied but unsettled official result also
+    blocks because the eventual stable fold inserts it before this result.
     """
-    conditions = "(l.result_revision IS NOT NULL AND g.result_revision IS NOT l.result_revision)"
-    args: list[str | int] = [season_id, ruleset, account_id, account_id]
-    if sequence is not None:
-        conditions += " OR (r.state='applied' AND r.sequence<?)"
-        args.append(sequence)
-    predicate = ""
-    if exclude_game is not None:
-        predicate = "AND q.game_id<>?"
-        args.append(exclude_game)
-    return (
-        c.execute(
-            f"""SELECT 1 FROM league_settlement_queue q
-            JOIN league_games l ON l.game_id=q.game_id
-            JOIN online_games g ON g.id=q.game_id
-            LEFT JOIN rating_events r ON r.game_id=q.game_id
-            WHERE q.season_id=? AND l.ruleset=?
-              AND (l.first_account=? OR l.second_account=?)
-              AND ({conditions})
-              {predicate}
-            LIMIT 1""",
-            args,
-        ).fetchone()
-        is not None
+    return _account_reconciliation_pending(
+        c,
+        account_id,
+        season_id,
+        ruleset,
+        any_pending=False,
+        sequence=sequence,
+        exclude_game=exclude_game,
+    )
+
+
+def league_achievement_reconciliation_pending(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+) -> bool:
+    """Whether any official result in this account/scope still awaits settlement."""
+    return _account_reconciliation_pending(
+        c,
+        account_id,
+        season_id,
+        ruleset,
+        any_pending=True,
     )
 
 
@@ -989,6 +1042,7 @@ def record_league_tier(
     game_id: str | None = None,
     peak_tier: str | None = None,
     sequence: int | None = None,
+    replay: bool = False,
 ) -> bool:
     """Award a qualified league peak only from consistent authoritative evidence.
 
@@ -1002,7 +1056,20 @@ def record_league_tier(
     final_tier = standing.tier if standing.qualified else None
     if _league_tier_rank(final_tier) > _league_tier_rank(candidate):
         candidate = final_tier
-    if not _league_tier_rank(candidate):
+    rank = _league_tier_rank(candidate)
+    if not rank:
+        return False
+    previous = c.execute(
+        "SELECT highest_tier FROM league_achievement_progress WHERE account_id=? AND ruleset=?",
+        (account_id, ruleset),
+    ).fetchone()
+    if previous is not None and previous[0] >= rank:
+        return False
+    if replay:
+        # Replay can include results after the currently processed sequence and
+        # can process a void with no sequence. Always resolve it through the
+        # authoritative bounded reconciliation path.
+        record_league_candidate(c, account_id, season_id, ruleset, candidate, now)
         return False
     if league_season_rebuilding(c, season_id) or league_achievement_evidence_pending(
         c, account_id, season_id, ruleset, sequence=sequence, exclude_game=game_id
@@ -1010,6 +1077,22 @@ def record_league_tier(
         record_league_candidate(c, account_id, season_id, ruleset, candidate, now)
         return False
     return record_league_peak(c, account_id, ruleset, candidate, now)
+
+
+def wake_league_reconciliation(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    now: int,
+) -> None:
+    """Bring a backed-off reconciliation scope forward after new evidence."""
+    c.execute(
+        """UPDATE league_achievement_reconciliation
+           SET due_at=MIN(due_at,?),attempts=0,last_error=NULL
+           WHERE account_id=? AND season_id=? AND ruleset=? AND due_at>?""",
+        (now, account_id, season_id, ruleset, now),
+    )
 
 
 def record_league_peak(

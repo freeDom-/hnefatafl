@@ -18,9 +18,14 @@ from . import league_policy as policy
 from . import lifecycle, rating
 from .engine import RULESETS
 from .league_migrations import RATING_BUCKET
-from .league_results import confirmed_account_progress, settle_result
+from .league_results import (
+    RECONCILIATION_ROWS,
+    authoritative_contribution_chunk,
+    settle_result,
+    validated_account_contribution,
+)
 from .online_core import DeploymentLocked, OnlineCore, OnlineError, instant, micros, stamp
-from .progression import league_achievement_evidence_pending, record_league_peak
+from .progression import league_achievement_reconciliation_pending, record_league_peak
 from .security_context import online_eligible, online_ineligibility
 
 LOGGER = logging.getLogger(__name__)
@@ -680,29 +685,33 @@ class Leagues:
         )
         return completed, retries, False
 
-    def _defer_achievement(self, row) -> None:
+    def _defer_achievement_row(self, c, row, reason: str, now: int) -> None:
+        attempts = min(row["attempts"] + 1, 20)
+        delay = min(60, 2 ** min(attempts, 6))
+        c.execute(
+            """UPDATE league_achievement_reconciliation
+               SET attempts=?,due_at=?,last_error=?
+               WHERE account_id=? AND season_id=? AND ruleset=? AND due_at=? AND attempts=?""",
+            (
+                attempts,
+                now + delay * 1_000_000,
+                reason,
+                row["account_id"],
+                row["season_id"],
+                row["ruleset"],
+                row["due_at"],
+                row["attempts"],
+            ),
+        )
+
+    def _defer_achievement(self, row, reason: str = "achievement_deferred") -> None:
         with self.online._write() as c:
-            attempts = min(row["attempts"] + 1, 20)
-            delay = min(300, 2 ** min(attempts, 8))
-            c.execute(
-                """UPDATE league_achievement_reconciliation
-                   SET attempts=?,due_at=?,last_error='achievement_deferred'
-                   WHERE account_id=? AND season_id=? AND ruleset=? AND due_at=? AND attempts=?""",
-                (
-                    attempts,
-                    micros(self.online._now() + timedelta(seconds=delay)),
-                    row["account_id"],
-                    row["season_id"],
-                    row["ruleset"],
-                    row["due_at"],
-                    row["attempts"],
-                ),
-            )
+            self._defer_achievement_row(c, row, reason, micros(self.online._now()))
 
     def _drain_achievement_reconciliation(
         self, limit: int, stop: Event | None
     ) -> tuple[int, int, bool]:
-        """Validate queued league peaks one bounded scope at a time."""
+        """Validate queued league peaks one bounded account/scope chunk at a time."""
         with self.store.connection() as c:
             due = c.execute(
                 """SELECT r.account_id,r.season_id,r.ruleset,r.due_at,r.attempts,
@@ -722,12 +731,18 @@ class Leagues:
             if stop is not None and stop.is_set():
                 return completed, retries, False
             if row["rebuilding"]:
+                try:
+                    self._defer_achievement(row, "rebuild_pending")
+                except DeploymentLocked:
+                    return completed, retries, True
+                except Exception:
+                    LOGGER.warning("League achievement rebuild deferral could not be recorded")
                 continue
             try:
                 with self.online._write() as c:
                     now = self.online._now()
                     current = c.execute(
-                        """SELECT due_at,attempts FROM league_achievement_reconciliation
+                        """SELECT * FROM league_achievement_reconciliation
                            WHERE account_id=? AND season_id=? AND ruleset=?
                              AND due_at<=? AND NOT EXISTS(
                                SELECT 1 FROM league_rebuild_jobs WHERE season_id=?
@@ -742,13 +757,92 @@ class Leagues:
                     ).fetchone()
                     if current is None:
                         continue
-                    if league_achievement_evidence_pending(
+                    if league_achievement_reconciliation_pending(
                         c, row["account_id"], row["season_id"], row["ruleset"]
                     ):
+                        self._defer_achievement_row(c, current, "evidence_pending", micros(now))
                         continue
-                    progress = confirmed_account_progress(
-                        c, row["season_id"], row["ruleset"], row["account_id"]
+                    season = c.execute(
+                        "SELECT revision FROM league_seasons WHERE id=?", (row["season_id"],)
+                    ).fetchone()
+                    if season is None:
+                        c.execute(
+                            """DELETE FROM league_achievement_reconciliation
+                               WHERE account_id=? AND season_id=? AND ruleset=?""",
+                            (row["account_id"], row["season_id"], row["ruleset"]),
+                        )
+                        completed += 1
+                        continue
+                    revision = season[0]
+                    if (
+                        current["evidence_revision"] is None
+                        or current["evidence_revision"] != revision
+                    ):
+                        c.execute(
+                            """UPDATE league_achievement_reconciliation
+                               SET cursor_sequence=0,cursor_game_id='',
+                                 standing_points=0,standing_wins=0,
+                                 standing_draws=0,standing_losses=0,
+                                 progress_tier=NULL,evidence_revision=?
+                               WHERE account_id=? AND season_id=? AND ruleset=?""",
+                            (revision, row["account_id"], row["season_id"], row["ruleset"]),
+                        )
+                        current = {
+                            "cursor_sequence": 0,
+                            "cursor_game_id": "",
+                            "standing_points": 0,
+                            "standing_wins": 0,
+                            "standing_draws": 0,
+                            "standing_losses": 0,
+                            "progress_tier": None,
+                        }
+                    progress = policy.Progress(
+                        policy.Standing(
+                            current["standing_points"],
+                            current["standing_wins"],
+                            current["standing_draws"],
+                            current["standing_losses"],
+                        ),
+                        policy.tier_for_rank(current["progress_tier"]),
                     )
+                    rows = authoritative_contribution_chunk(
+                        c,
+                        row["account_id"],
+                        row["season_id"],
+                        row["ruleset"],
+                        current["cursor_sequence"],
+                        current["cursor_game_id"],
+                        RECONCILIATION_ROWS,
+                    )
+                    for evidence in rows:
+                        contribution = validated_account_contribution(evidence, row["account_id"])
+                        if contribution is not None:
+                            progress = progress.apply(contribution.outcome)
+                    if len(rows) == RECONCILIATION_ROWS:
+                        last = rows[-1]
+                        c.execute(
+                            """UPDATE league_achievement_reconciliation
+                               SET cursor_sequence=?,cursor_game_id=?,
+                                 standing_points=?,standing_wins=?,standing_draws=?,
+                                 standing_losses=?,progress_tier=?,due_at=?,
+                                 attempts=0,last_error=NULL,evidence_revision=?
+                               WHERE account_id=? AND season_id=? AND ruleset=?""",
+                            (
+                                last["rating_sequence"],
+                                last["game_id"],
+                                progress.standing.points,
+                                progress.standing.wins,
+                                progress.standing.draws,
+                                progress.standing.losses,
+                                policy.tier_rank(progress.highest_tier) or None,
+                                micros(now),
+                                revision,
+                                row["account_id"],
+                                row["season_id"],
+                                row["ruleset"],
+                            ),
+                        )
+                        continue
                     if progress.highest_tier is not None:
                         record_league_peak(
                             c,

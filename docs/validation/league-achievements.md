@@ -3,33 +3,25 @@
 [Documentation index](../README.md) · [League policy](../LEAGUES.md) ·
 [Achievement progress](../PROGRESSION.md)
 
-Achievement catalog 4 adds fifteen permanent milestones, five for each supported
-league ruleset, generated from `league_policy.TIERS`. The catalog has 92 milestones
-worth 6,770 points. Schema 24 adds the per-account/ruleset permanent peak and a
-durable reconciliation queue. Historical verification resolves effective official
-results from `league_games` and `effective_league_result()`; it does not trust
-cached contributions or final standings.
+Achievement catalog 4 defines fifteen permanent league milestones, five for each
+supported ruleset. Schema 25 adds permanent peaks, a durable reconciliation queue
+and bounded streaming cursor/evidence state. Historical verification resolves
+effective official results from applied rating applications and durable
+`league_games`; it does not trust cached contributions or final standings.
 
-## Consistency and recovery behavior
+## Correctness and recovery semantics
 
-Ordinary settlement compares each queued settlement's official online revision
-with its league projection and checks for an earlier unsettled official result in
-the same account/season/ruleset. A relevant pending correction, earlier result gap
-or administrative rebuild records a candidate peak in
-`league_achievement_reconciliation` instead of awarding. The League worker
-recomputes the candidate from effective official results after the scope becomes
-consistent. Blocked rows remain durable across worker restarts.
-
-Administrative `fold_standings` writes candidates only. Authoritative catch-up
-settles corrections first; a bounded reconciliation pass then validates each
-account/scope from effective results. This removes premature awards from an
-incomplete rebuild while preserving the existing cursor batches and short writer
-transactions.
-
-The Hall returns typed seasonal availability. A rebuild keeps permanent tiers and
-earned achievements visible, returns null seasonal values and hides the seasonal
-progress bar. The existing localized rebuild message is shown. The next-tier label,
-accessible value and progress element all use the same tier-relative values.
+- Ordinary appends are evaluated immediately only when no settled revision
+  mismatch or earlier applied result gap exists.
+- Every replay (correction, void or out-of-order replacement) uses the durable
+  reconciliation path, including voids without an effective contribution sequence.
+- Reconciliation waits for all pending settlements in the account/season/ruleset
+  scope, then streams applied results in stable rating sequence.
+- A season revision change invalidates accumulated evidence and restarts the
+  scope. Awards cannot commit from mixed evidence generations.
+- Administrative folding writes candidates only; bounded verification runs after
+  authoritative catch-up.
+- A superseded historical peak that was never recorded cannot be reconstructed.
 
 ## Automated coverage
 
@@ -43,65 +35,64 @@ Focused backend run:
   tests/test_online_core.py tests/test_deployment.py -q
 ```
 
-Result: **273 passed**.
+Result: **280 passed**.
 
-Coverage includes pending void plus a qualifying-looking later result, pending
-tier-boundary corrections, deferred corrections and retries, restart recovery,
-schema 23 upgrades with pending corrections, every administrative rebuild phase,
-a correction between contribution restoration and folding, interruption/restart,
-out-of-order peak evaluation, migration/settlement/recovery peak equivalence,
-late-result exclusion, permanent-award preservation after corrections, retained
-authority restore, read-only Hall behavior and seasonal re-availability.
+Coverage includes the required out-of-order replay scenario (initial loss, four
+wins, deferred loss, fifth win, void, deferred correction and 14-point final peak),
+multiple pending settlements, earlier/later gaps, replay with a voided sequence,
+worker restart, bounded 600-result chunking, evidence-generation resets,
+query-count bounds, schema 23 upgrades, every rebuild phase, retained restore,
+late results, permanent awards after corrections, disabled leagues and Hall
+seasonal availability.
 
-Frontend regression coverage:
+Frontend coverage remains unchanged in design:
 
-```sh
-npm --prefix frontend test
-npm --prefix frontend run typecheck
-npm --prefix frontend run build
-```
+- Full Vitest: **109 files / 1,610 tests passed**
+- Targeted Chromium desktop/mobile Hall checks: **18 passed**
+- TypeScript, Vite build, bundle budgets and documentation checks passed
+- Ruff, formatting and mypy passed
 
-Result: **109 files / 1,610 tests passed**. The Hall tests cover English and German,
-all four Arena themes, an intermediate next-tier bar, unavailable seasonal values,
-the permanent tier ladder, hidden seasonal controls and recovery after the rebuild
-message clears. TypeScript, Vite build, bundle budgets and documentation checks
-passed. Backend Ruff, formatting and mypy checks passed.
+## Performance measurements
 
-Targeted real-browser coverage:
+Small isolated benchmark (`scripts/benchmark_league_arena.py`, 200 players, 300
+historical games, 20 samples, 4 writers), current working tree versus reviewed
+`a8bbcb7` archive:
 
-```sh
-cd frontend
-./node_modules/.bin/playwright test --project=chromium --project=mobile \
-  tests/portraits.spec.ts tests/achievement-tiers.spec.ts
-```
+| Measure | Current | Reviewed |
+| --- | ---: | ---: |
+| Ordinary append settlement p95 | 5.48 ms | 4.72 ms |
+| Full replay settlement p95 | 7.32 ms | 6.19 ms |
+| Append writer hold p95 | 0.83 ms | 0.71 ms |
+| Mixed league online move p95 | 4.21 ms | 5.14 ms |
+| League drain p95 | 53.48 ms | 82.45 ms |
+| Large-queue matchmaking | 185.4 pairs/s | 180.6 pairs/s |
+| Rebuild, 340 official games | 0.123 s | 0.115 s |
+| Idle worker CPU / 2 s | 5.52 ms | 5.99 ms |
 
-Result: **18 passed** (desktop and mobile, all four themes). The run includes the
-availability toggle, permanent-tier retention, return of seasonal progress and
-horizontal-overflow checks.
+These are single small-fixture runs with run-to-run variance, not production
+scaling claims.
 
-## Performance evidence
+Small three-season correctness fixture (9 official results, 6 account scopes):
+Schema 25 upgrade **4.32 ms**, bounded reconciliation **14.49 ms**.
 
-A representative three-season fixture with nine official games and six
-account/season/ruleset scopes measured:
+Synthetic large-history validation:
 
-- schema 24 upgrade/queue creation: **0.0043 s**
-- bounded reconciliation batches: **0.0141 s**
-
-These are local fixture measurements, not production throughput claims. Query
-plans confirm `league_settlement_season_due` for pending-correction discovery,
-`league_achievement_reconciliation_due` for queued work,
-`league_standings_account` for Hall progress and an indexed covering scan for the
-ordinary contribution tail. Hall achievement reads issue no query against
-`league_contributions`. Normal settlement remains bounded by the existing indexed
-tail and scope checks; reconciliation processes one account/scope per short writer
-transaction.
+- 2,700 applied results: 3 seasons × all three rulesets × 300 games per
+  account/scope, 18 account scopes.
+- Schema 25 upgrade/queue creation: **6.66 ms**.
+- Bounded reconciliation for all 2,700 results: **122 ms** without tracing;
+  **373 ms** with `tracemalloc`.
+- Python traced peak during reconciliation: **0.735 MB**.
+- A 600-result scope executes exactly **3** chunk queries (256/256/88), not 600
+  per-game queries; total traced statements remain below 100.
+- The large-history test verifies durable continuation after restart and resets
+  accumulated progress when the season evidence revision changes.
 
 ## Remaining limitations
 
-- A historical peak superseded by an official correction before it was ever
-  recorded cannot be reconstructed from later effective revisions.
-- The complete Playwright suite was not run locally; targeted Hall browser checks
-  and GitHub Actions run the full matrix.
-- The migration/reconciliation timings above use a small representative fixture.
-  No production-size ledger or live multi-installation upgrade timing is claimed;
-  GitHub Actions remains the full-suite gate.
+- The benchmark above measures normal settlement/move/matchmaking/rebuild
+  behavior; it does not run production-size achievement histories.
+- The 2,700-result fixture is synthetic and isolated, not a multi-installation
+  deployment benchmark.
+- The full browser suite is a CI gate; only targeted Hall browser checks were run
+  locally.

@@ -5,7 +5,7 @@ import time
 
 from .league_migrations import LEAGUE_TABLES, migrate_leagues
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -219,6 +219,7 @@ def migrate_online(c: sqlite3.Connection) -> None:
             PRIMARY KEY(game_id,account_id)
         )""",
         "CREATE INDEX IF NOT EXISTS rating_applications_account ON rating_applications(account_id,pool)",
+        "CREATE INDEX IF NOT EXISTS rating_applications_account_sequence ON rating_applications(account_id,pool,sequence,game_id)",
         """CREATE TABLE IF NOT EXISTS player_ratings (
             account_id TEXT NOT NULL REFERENCES accounts(id), pool TEXT NOT NULL,
             rating REAL NOT NULL, rated_games INTEGER NOT NULL CHECK(rated_games>=0),

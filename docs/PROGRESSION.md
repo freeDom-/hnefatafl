@@ -232,14 +232,17 @@ account records inside the migration transaction before advancing `user_version`
 Schema 24 adds `league_achievement_progress` and
 `league_achievement_reconciliation`. The migration queues one bounded verification
 row per account, season and ruleset instead of trusting the contribution table or
-final standings. The League worker resolves each row from durable `league_games`
-and effective official rating revisions, folds stable result sequence with the
-zero floor, requires qualification and grants all preceding tiers. Pending
-corrections and administrative rebuilds defer the row until catch-up completes.
-The process is idempotent, preserves unrelated awards and portraits, participates
-in retained-authority restore, and never fabricates a peak when authoritative
-evidence is absent. A historical peak superseded before it was recorded cannot be
-recovered from later effective revisions.
+final standings. Schema 25 adds a stable rating-sequence cursor, accumulated
+standing and evidence revision. The League worker resolves fixed-size pages from
+durable `league_games`, applied rating applications and effective official rating
+revisions, folds stable result order with the zero floor, requires qualification
+and grants all preceding tiers. Pending corrections and administrative rebuilds
+defer the row until catch-up completes. Any evidence-generation change restarts
+the cursor before an award can commit. The process is idempotent, preserves
+unrelated awards and portraits, participates in retained-authority restore, and
+never fabricates a peak when authoritative evidence is absent. A historical peak
+superseded before it was recorded cannot be recovered from later effective
+revisions.
 That historical step still grants the milestones and portrait entitlements an older
 installation would receive on upgrade. Manual portrait unlocking reuses the existing
 `achievement_awards`, `account_portraits` and `account_portrait_selection` tables.

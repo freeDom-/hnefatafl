@@ -40,8 +40,10 @@ def test_restored_leagues_apply_pending_result_and_void_without_reopening_pairin
         ).fetchone()[0]
         c.execute(
             """INSERT OR REPLACE INTO league_achievement_reconciliation
-               (account_id,season_id,ruleset,candidate_tier,due_at,attempts,last_error)
-               VALUES(?,?,'brandubh',2,0,0,NULL)""",
+               (account_id,season_id,ruleset,candidate_tier,due_at,attempts,last_error,
+                cursor_sequence,cursor_game_id,standing_points,standing_wins,
+                standing_draws,standing_losses,progress_tier,evidence_revision)
+               VALUES(?,?,'brandubh',2,0,0,NULL,17,'fixture-game',6,2,0,0,2,3)""",
             (rig.accounts["Archer"]["id"], season_id),
         )
 
