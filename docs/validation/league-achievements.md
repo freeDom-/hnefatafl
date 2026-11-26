@@ -36,7 +36,7 @@ Focused backend run:
   tests/test_online_core.py tests/test_deployment.py -q
 ```
 
-Result: **283 passed**.
+Result: **284 passed**.
 
 Coverage includes the required out-of-order replay scenario (initial loss, four
 wins, deferred loss, fifth win, void, deferred correction and 14-point final peak),

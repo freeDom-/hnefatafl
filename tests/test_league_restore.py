@@ -43,7 +43,12 @@ def test_restored_leagues_apply_pending_result_and_void_without_reopening_pairin
                (account_id,season_id,ruleset,candidate_tier,due_at,attempts,last_error,
                 cursor_sequence,cursor_game_id,standing_points,standing_wins,
                 standing_draws,standing_losses,progress_tier,evidence_generation)
-               VALUES(?,?,'brandubh',2,0,0,NULL,17,'fixture-game',6,2,0,0,2,3)""",
+               VALUES(?,?,'brandubh',2,0,0,NULL,17,'fixture-game',6,2,0,0,2,7)""",
+            (rig.accounts["Archer"]["id"], season_id),
+        )
+        c.execute(
+            """INSERT INTO league_achievement_evidence
+               (account_id,season_id,ruleset,generation) VALUES(?,?,'brandubh',7)""",
             (rig.accounts["Archer"]["id"], season_id),
         )
 

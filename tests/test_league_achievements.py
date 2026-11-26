@@ -1323,6 +1323,67 @@ def test_sparse_league_evidence_uses_league_sequence_keyset(rig):
         )
 
 
+def test_administrative_rebuild_invalidates_only_partial_reconciliation_scope(rig):
+    season = policy.season_for(datetime(2034, 1, 15, tzinfo=timezone.utc))
+    rig.clock.value = datetime(2034, 1, 15, 3, 4, 5, tzinfo=timezone.utc)
+    seed_synthetic_league_history(
+        rig,
+        600,
+        ["win"] * 600,
+        season,
+        base_sequence=40_000,
+        label="rebuild-evidence",
+    )
+    acct = rig.accounts["Archer"]["id"]
+    with rig.core._write() as c:
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,candidate_tier,due_at)
+               VALUES(?,?, 'brandubh',5,0)""",
+            (acct, season.identifier),
+        )
+    service = Leagues(rig.core)
+    service.drain()
+    with rig.store.connection() as c:
+        assert (
+            c.execute(
+                """SELECT cursor_sequence FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (acct, season.identifier),
+            ).fetchone()[0]
+            == 40_000 + RECONCILIATION_ROWS - 1
+        )
+        revision = c.execute(
+            "SELECT revision FROM league_seasons WHERE id=?", (season.identifier,)
+        ).fetchone()[0]
+
+    administration = _administration(rig)
+    administration.rebuild(
+        rig.credentials["Odin"], season.identifier, revision, "Partial reconciliation rebuild"
+    )
+    service.drain()
+    administration = _administration(rig)
+    for _ in range(80):
+        if administration.process_rebuild(limit=50) == "idle":
+            break
+    else:
+        pytest.fail("Administrative rebuild did not complete")
+    service = Leagues(rig.core)
+    for _ in range(6):
+        service.drain()
+        with rig.store.connection() as c:
+            remaining = c.execute(
+                """SELECT COUNT(*) FROM league_achievement_reconciliation
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (acct, season.identifier),
+            ).fetchone()[0]
+        if not remaining:
+            break
+    assert remaining == 0
+    assert peak(rig, acct, "brandubh") == 5
+    assert awarded(rig, acct, "brandubh") == league_ids("brandubh", 5)
+
+
 def test_scale_migration_and_reconciliation_across_rulesets_and_seasons(rig):
     rulesets = ("brandubh", "tablut", "copenhagen")
     seasons = [
