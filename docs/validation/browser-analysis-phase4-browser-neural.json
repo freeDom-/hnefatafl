@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "baseUrl": "http://127.0.0.1:45951",
+  "baseUrl": "http://127.0.0.1:45970",
   "browser": "156.0.8078.4",
-  "entry": "/assets/entry-D0z3EBJt.js",
+  "entry": "/assets/entry-Dc1iB6a5.js",
   "checks": [
     {
       "name": "login succeeds",
@@ -339,8 +339,8 @@
       "authoritative": false
     },
     "cycles": {
-      "coldInitMs": 4368.800000011921,
-      "jarlSearchMs": 324.5,
+      "coldInitMs": 2561.300000011921,
+      "jarlSearchMs": 274,
       "secondInitMs": 0
     },
     "storage": {

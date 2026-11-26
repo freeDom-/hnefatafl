@@ -819,3 +819,318 @@ describe('download manager — tracked cache verification (I1)', () => {
     expect(downloads.occupancy.cacheVerifications).toBe(0);
   });
 });
+
+describe('download manager — cross-generation cache-verification accounting (J1)', () => {
+  async function admittedCache(contents: string) {
+    const cache = new ArtifactCache(new MemoryArtifactStore());
+    const fixture = bytesFor(contents);
+    await cache.admit(`model:${fixture.sha256}`, fixture.bytes, { publicationId: 'p' });
+    return { cache, fixture };
+  }
+
+  function gated(
+    cache: ArtifactCache,
+    gates: Map<string, Promise<void>>,
+  ): ReturnType<typeof vi.fn> {
+    const original = cache.getVerified.bind(cache);
+    const spy = vi.fn(async (key: string, ...rest: unknown[]) => {
+      await gates.get(key);
+      return (original as (...args: unknown[]) => Promise<ArrayBuffer | null>)(key, ...rest);
+    });
+    cache.getVerified = spy as typeof cache.getVerified;
+    return spy;
+  }
+
+  it('retains generation 1 verification when generation 2 joins the same key', async () => {
+    const request = spec('shared cached payload');
+    const { cache } = await admittedCache('shared cached payload');
+    const gates = new Map<string, Promise<void>>();
+    let release!: () => void;
+    gates.set(
+      request.key,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const spy = gated(cache, gates);
+    const fetchImpl = vi.fn(async () => streamResponse(['unexpected']));
+    const downloads = manager(fetchImpl, { cache, timeoutMs: 2_000 });
+    const first = downloads.download(request);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    downloads.cancelAll();
+    const second = downloads.download(request);
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 1,
+      activeVerifications: 1,
+      activeTransfers: 0,
+      reservedBytes: request.expectedBytes,
+    });
+    await expect(downloads.drain(10)).resolves.toMatchObject({
+      drained: false,
+      cacheVerifications: 1,
+      activeVerifications: 1,
+    });
+    release();
+    await expect(first).rejects.toMatchObject({ code: 'download-aborted' });
+    await expect(second).resolves.toMatchObject({ fromCache: true, retained: true });
+    await downloads.whenIdle();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 0,
+      activeVerifications: 0,
+      activeTransfers: 0,
+      reservedBytes: 0,
+    });
+  });
+
+  it('completes a newer generation artifact while an older verification stays tracked', async () => {
+    const older = spec('older cached payload');
+    const newer = spec('newer cached payload');
+    const cache = new ArtifactCache(new MemoryArtifactStore());
+    await cache.admit(older.key, bytesFor('older cached payload').bytes, {
+      publicationId: 'p',
+    });
+    await cache.admit(newer.key, bytesFor('newer cached payload').bytes, {
+      publicationId: 'p',
+    });
+    const gates = new Map<string, Promise<void>>();
+    let releaseOlder!: () => void;
+    gates.set(
+      older.key,
+      new Promise<void>((resolve) => {
+        releaseOlder = resolve;
+      }),
+    );
+    gates.set(newer.key, Promise.resolve());
+    gated(cache, gates);
+    const downloads = manager(async () => streamResponse(['unexpected']), {
+      cache,
+      timeoutMs: 2_000,
+    });
+    const pendingOlder = downloads.download(older);
+    await vi.waitFor(() => expect(downloads.occupancy.activeVerifications).toBe(1));
+    downloads.cancelAll();
+    await expect(downloads.download(newer)).resolves.toMatchObject({ fromCache: true });
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 1,
+      activeVerifications: 1,
+      reservedBytes: older.expectedBytes,
+    });
+    await expect(downloads.drain(10)).resolves.toMatchObject({
+      drained: false,
+      cacheVerifications: 1,
+    });
+    releaseOlder();
+    await expect(pendingOlder).rejects.toMatchObject({ code: 'download-aborted' });
+    await downloads.whenIdle();
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 0,
+      activeVerifications: 0,
+      reservedBytes: 0,
+    });
+  });
+
+  it('keeps one verification across repeated cancellation generations', async () => {
+    const request = spec('repeated cancellation payload');
+    const { cache } = await admittedCache('repeated cancellation payload');
+    const gates = new Map<string, Promise<void>>();
+    let release!: () => void;
+    gates.set(
+      request.key,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const spy = gated(cache, gates);
+    const downloads = manager(async () => streamResponse(['unexpected']), {
+      cache,
+      timeoutMs: 2_000,
+    });
+    const first = downloads.download(request);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    downloads.cancelAll();
+    downloads.cancelAll();
+    const third = downloads.download(request);
+    expect(downloads.occupancy.cacheVerifications).toBe(1);
+    expect(downloads.occupancy.activeVerifications).toBe(1);
+    release();
+    await expect(first).rejects.toMatchObject({ code: 'download-aborted' });
+    await expect(third).resolves.toMatchObject({ fromCache: true });
+    await downloads.whenIdle();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(downloads.outstandingBytes).toBe(0);
+  });
+
+  it('bounds concurrent verification of distinct artifact keys', async () => {
+    const first = spec('first cached payload');
+    const second = spec('second cached payload');
+    const cache = new ArtifactCache(new MemoryArtifactStore());
+    for (const [request, contents] of [
+      [first, 'first cached payload'],
+      [second, 'second cached payload'],
+    ] as const) {
+      await cache.admit(request.key, bytesFor(contents).bytes, { publicationId: 'p' });
+    }
+    const gates = new Map<string, Promise<void>>();
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    gates.set(
+      first.key,
+      new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      }),
+    );
+    gates.set(
+      second.key,
+      new Promise<void>((resolve) => {
+        releaseSecond = resolve;
+      }),
+    );
+    const spy = gated(cache, gates);
+    const downloads = manager(async () => streamResponse(['unexpected']), {
+      cache,
+      maxConcurrent: 1,
+      timeoutMs: 2_000,
+    });
+    const pendingFirst = downloads.download(first);
+    const pendingSecond = downloads.download(second);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 2,
+      activeVerifications: 1,
+      queued: 1,
+      reservedBytes: first.expectedBytes,
+    });
+    releaseFirst();
+    await expect(pendingFirst).resolves.toMatchObject({ fromCache: true });
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    expect(downloads.occupancy).toMatchObject({
+      activeVerifications: 1,
+      reservedBytes: second.expectedBytes,
+    });
+    releaseSecond();
+    await expect(pendingSecond).resolves.toMatchObject({ fromCache: true });
+    await downloads.whenIdle();
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 0,
+      activeVerifications: 0,
+      queued: 0,
+      reservedBytes: 0,
+    });
+  });
+
+  it('applies the aggregate byte budget to cache verification', async () => {
+    const first = spec('budget payload one');
+    const second = spec('budget payload two');
+    const cache = new ArtifactCache(new MemoryArtifactStore());
+    await cache.admit(first.key, bytesFor('budget payload one').bytes, {
+      publicationId: 'p',
+    });
+    await cache.admit(second.key, bytesFor('budget payload two').bytes, {
+      publicationId: 'p',
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = cache.getVerified.bind(cache);
+    cache.getVerified = async (key, ...rest) => {
+      if (key === first.key) await gate;
+      return (original as (...args: unknown[]) => Promise<ArrayBuffer | null>)(key, ...rest);
+    };
+    const downloads = manager(async () => streamResponse(['unexpected']), {
+      cache,
+      maxConcurrent: 2,
+      maxAggregateBytes: first.expectedBytes,
+      timeoutMs: 2_000,
+    });
+    const pendingFirst = downloads.download(first);
+    await vi.waitFor(() => expect(downloads.occupancy).toMatchObject({ activeVerifications: 1 }));
+    await expect(downloads.download(second)).rejects.toMatchObject({
+      code: 'quota-exceeded',
+    });
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 1,
+      activeVerifications: 1,
+      reservedBytes: first.expectedBytes,
+    });
+    expect(downloads.outstandingBytes).toBeLessThanOrEqual(first.expectedBytes);
+    release();
+    await pendingFirst;
+    await downloads.whenIdle();
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 0,
+      activeVerifications: 0,
+      reservedBytes: 0,
+    });
+  });
+
+  it('deduplicates compatible lookups and rejects conflicting specifications', async () => {
+    const request = spec('compatible cached payload');
+    const { cache } = await admittedCache('compatible cached payload');
+    const gates = new Map<string, Promise<void>>();
+    let release!: () => void;
+    gates.set(
+      request.key,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const spy = gated(cache, gates);
+    const downloads = manager(async () => streamResponse(['unexpected']), {
+      cache,
+      timeoutMs: 2_000,
+    });
+    const first = downloads.download(request);
+    const second = downloads.download(request);
+    const conflicting = downloads.download({
+      ...request,
+      sha256: bytesFor('another payload').sha256,
+      expectedBytes: bytesFor('another payload').size,
+    });
+    await expect(conflicting).rejects.toMatchObject({ code: 'download-failed' });
+    expect(downloads.occupancy.cacheVerifications).toBe(1);
+    release();
+    await expect(first).resolves.toMatchObject({ fromCache: true });
+    await expect(second).resolves.toMatchObject({ fromCache: true });
+    await downloads.whenIdle();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(downloads.outstandingBytes).toBe(0);
+  });
+
+  it('does not double-release or activate stale results after caller timeout', async () => {
+    const request = spec('stale payload');
+    const { cache } = await admittedCache('stale payload');
+    const gates = new Map<string, Promise<void>>();
+    let release!: () => void;
+    gates.set(
+      request.key,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    gated(cache, gates);
+    const fetchImpl = vi.fn(async () => streamResponse(['unexpected']));
+    const downloads = manager(fetchImpl, { cache, timeoutMs: 30 });
+    await expect(downloads.download(request)).rejects.toMatchObject({
+      code: 'download-timeout',
+    });
+    downloads.cancelAll();
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 1,
+      activeVerifications: 1,
+    });
+    release();
+    await downloads.whenIdle();
+    expect(downloads.occupancy).toMatchObject({
+      cacheVerifications: 0,
+      activeVerifications: 0,
+      reservedBytes: 0,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    await expect(downloads.download(request)).resolves.toMatchObject({ fromCache: true });
+    expect(downloads.outstandingBytes).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

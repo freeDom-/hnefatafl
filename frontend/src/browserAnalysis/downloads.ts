@@ -57,6 +57,8 @@ interface SharedDownload {
   terminal: boolean;
 }
 
+type WorkKind = 'transfer' | 'verification';
+
 interface Waiter {
   resolve: (reservation: Reservation) => void;
   reject: (error: Error) => void;
@@ -64,11 +66,22 @@ interface Waiter {
   signal: AbortSignal;
   onAbort: () => void;
   generation: number;
+  kind: WorkKind;
 }
 
 interface Reservation {
   generation: number;
+  kind: WorkKind;
   released: boolean;
+}
+
+interface CacheLookup {
+  key: string;
+  spec: DownloadSpec;
+  generation: number;
+  deadline: number;
+  controller: AbortController;
+  promise: Promise<ArrayBuffer | null>;
 }
 
 type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
@@ -94,12 +107,20 @@ export class DownloadManager {
   private activeByKey = new Map<string, SharedDownload>();
   /** Actual transfers still running, including retiring generations. */
   private activeTransfers = 0;
+  /** Cache reads/hashes occupying one shared admission slot. */
+  private activeVerifications = 0;
   /** Byte reservations held until the corresponding transfer genuinely settles. */
   private reservedBytes = 0;
   private queue: Waiter[] = [];
   private transfers = new Set<SharedDownload>();
   private idleWaiters: Array<() => void> = [];
-  private lookups = new Map<string, { generation: number; promise: Promise<ArrayBuffer | null> }>();
+  /**
+   * One underlying cache verification per artifact key, independent of the
+   * cancellation generation. The set retains every outstanding verification even
+   * when newer generations join or time out; the map only deduplicates lookups.
+   */
+  private lookups = new Map<string, CacheLookup>();
+  private lookupRecords = new Set<CacheLookup>();
 
   constructor(
     private readonly options: {
@@ -151,26 +172,30 @@ export class DownloadManager {
     transfers: number;
     queued: number;
     cacheVerifications: number;
+    activeVerifications: number;
   } {
     return {
       activeTransfers: this.activeTransfers,
       reservedBytes: this.reservedBytes,
       transfers: this.transfers.size,
       queued: this.queue.length,
-      cacheVerifications: this.lookups.size,
+      cacheVerifications: this.lookupRecords.size,
+      activeVerifications: this.activeVerifications,
     };
   }
 
   /** Resolve once every transfer (including non-interruptible retirement) settles. */
   whenIdle(): Promise<void> {
-    if (this.transfers.size === 0 && this.queue.length === 0 && this.lookups.size === 0) {
+    if (this.transfers.size === 0 && this.queue.length === 0 && this.lookupRecords.size === 0) {
       return Promise.resolve();
     }
     return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
   }
 
   private notifyIdle(): void {
-    if (this.transfers.size !== 0 || this.queue.length !== 0 || this.lookups.size !== 0) return;
+    if (this.transfers.size !== 0 || this.queue.length !== 0 || this.lookupRecords.size !== 0) {
+      return;
+    }
     const waiters = this.idleWaiters;
     this.idleWaiters = [];
     for (const resolve of waiters) resolve();
@@ -183,8 +208,9 @@ export class DownloadManager {
     transfers: number;
     queued: number;
     cacheVerifications: number;
+    activeVerifications: number;
   }> {
-    if (this.transfers.size === 0 && this.queue.length === 0 && this.lookups.size === 0) {
+    if (this.transfers.size === 0 && this.queue.length === 0 && this.lookupRecords.size === 0) {
       return { drained: true, ...this.occupancy };
     }
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -197,22 +223,25 @@ export class DownloadManager {
       if (timer !== null) clearTimeout(timer);
     }
     return {
-      drained: this.transfers.size === 0 && this.queue.length === 0 && this.lookups.size === 0,
+      drained:
+        this.transfers.size === 0 && this.queue.length === 0 && this.lookupRecords.size === 0,
       ...this.occupancy,
     };
   }
 
   private acquire(
     generation: number,
-    shared: SharedDownload,
+    controller: AbortController,
     deadline: number,
+    kind: WorkKind = 'transfer',
   ): Promise<Reservation> {
-    if (generation !== this.generation || shared.controller.signal.aborted) {
+    if ((kind === 'transfer' && generation !== this.generation) || controller.signal.aborted) {
       return Promise.reject(abortError('Download was cancelled'));
     }
-    if (this.activeTransfers < this.maxConcurrent) {
-      this.activeTransfers += 1;
-      return Promise.resolve({ generation, released: false });
+    if (this.activeTransfers + this.activeVerifications < this.maxConcurrent) {
+      if (kind === 'verification') this.activeVerifications += 1;
+      else this.activeTransfers += 1;
+      return Promise.resolve({ generation, kind, released: false });
     }
     if (this.queue.length >= this.maxConcurrent * 4) {
       return Promise.reject(
@@ -231,8 +260,9 @@ export class DownloadManager {
         resolve,
         reject,
         timer: null,
-        signal: shared.controller.signal,
+        signal: controller.signal,
         generation,
+        kind,
         onAbort: () => {
           this.queue = this.queue.filter((entry) => entry !== waiter);
           if (waiter.timer !== null) clearTimeout(waiter.timer);
@@ -258,20 +288,32 @@ export class DownloadManager {
   private release(reservation: Reservation): void {
     if (reservation.released) return;
     reservation.released = true;
-    // The slot becomes genuinely free only when the transfer has settled,
-    // regardless of whether its generation was cancelled.
-    this.activeTransfers = Math.max(0, this.activeTransfers - 1);
+    const freedKind = reservation.kind;
+    // The slot becomes genuinely free only when the work has settled, regardless
+    // of whether its caller generation was cancelled.
+    if (reservation.kind === 'verification') {
+      this.activeVerifications = Math.max(0, this.activeVerifications - 1);
+    } else {
+      this.activeTransfers = Math.max(0, this.activeTransfers - 1);
+    }
     const waiter = this.queue.shift();
     if (!waiter) return;
     if (waiter.timer !== null) clearTimeout(waiter.timer);
     waiter.signal.removeEventListener('abort', waiter.onAbort);
-    if (waiter.signal.aborted || waiter.generation !== this.generation) {
+    // A verification is immutable and may be joined by a newer generation; it is
+    // admitted regardless of cancellation. A queued transfer from an obsolete
+    // generation is never started.
+    if (
+      waiter.signal.aborted ||
+      (waiter.kind === 'transfer' && waiter.generation !== this.generation)
+    ) {
       waiter.reject(abortError('Download was cancelled'));
-      this.release({ generation: this.generation, released: false });
+      this.release({ generation: this.generation, kind: freedKind, released: false });
       return;
     }
-    this.activeTransfers += 1;
-    waiter.resolve({ generation: this.generation, released: false });
+    if (waiter.kind === 'verification') this.activeVerifications += 1;
+    else this.activeTransfers += 1;
+    waiter.resolve({ generation: waiter.generation, kind: waiter.kind, released: false });
   }
 
   /**
@@ -349,26 +391,70 @@ export class DownloadManager {
     signal?: AbortSignal,
   ): Promise<ArrayBuffer | null> {
     if (!this.options.cache) return Promise.resolve(null);
-    const generation = this.generation;
-    let lookup = this.lookups.get(spec.key);
-    if (!lookup || lookup.generation !== generation) {
-      const promise = this.options.cache.getVerified(
-        spec.key,
-        spec.sha256,
-        this.digestFn,
-        spec.expectedBytes,
+    const existing = this.lookups.get(spec.key);
+    if (existing && !sameSpec(existing.spec, spec)) {
+      return Promise.reject(
+        new BrowserAnalysisError(
+          'download-failed',
+          'Conflicting cache-verification specifications share one artifact key',
+        ),
       );
-      lookup = { generation, promise };
-      this.lookups.set(spec.key, lookup);
-      const clear = () => {
-        if (this.lookups.get(spec.key) === lookup) {
-          this.lookups.delete(spec.key);
-          this.notifyIdle();
-        }
+    }
+    let lookup = existing;
+    if (!lookup) {
+      const record: CacheLookup = {
+        key: spec.key,
+        spec,
+        generation: this.generation,
+        deadline: now() + this.timeoutMs,
+        controller: new AbortController(),
+        promise: Promise.resolve(null),
       };
-      promise.then(clear, clear);
+      lookup = record;
+      this.lookups.set(spec.key, record);
+      this.lookupRecords.add(record);
+      record.promise = this.verifyCached(record);
     }
     return this.awaitCacheLookup(lookup.promise, deadline, signal);
+  }
+
+  /**
+   * Run one bounded cache read/hash with the same admission and aggregate-byte
+   * accounting as transfers. The reservation is released exactly once, only after
+   * the intrinsically non-interruptible operation settles.
+   */
+  private async verifyCached(record: CacheLookup): Promise<ArrayBuffer | null> {
+    const cache = this.options.cache;
+    if (!cache) return null;
+    const { spec } = record;
+    let reservation: Reservation | null = null;
+    let reserved = false;
+    try {
+      reservation = await this.acquire(
+        record.generation,
+        record.controller,
+        record.deadline,
+        'verification',
+      );
+      if (this.reservedBytes + spec.expectedBytes > this.maxAggregateBytes) {
+        throw new BrowserAnalysisError(
+          'quota-exceeded',
+          'Aggregate download budget exceeded',
+          true,
+        );
+      }
+      this.reservedBytes += spec.expectedBytes;
+      reserved = true;
+      return await cache.getVerified(spec.key, spec.sha256, this.digestFn, spec.expectedBytes);
+    } finally {
+      if (reserved) this.reservedBytes = Math.max(0, this.reservedBytes - spec.expectedBytes);
+      if (reservation) this.release(reservation);
+      this.lookupRecords.delete(record);
+      if (this.lookups.get(record.key) === record) {
+        this.lookups.delete(record.key);
+      }
+      this.notifyIdle();
+    }
   }
 
   private awaitCacheLookup(
@@ -523,7 +609,7 @@ export class DownloadManager {
     const { spec } = shared;
     const generation = shared.generation;
     const deadline = shared.deadline;
-    const reservation = await this.acquire(generation, shared, deadline);
+    const reservation = await this.acquire(generation, shared.controller, deadline);
     let reserved = false;
     try {
       if (
@@ -620,14 +706,22 @@ export class DownloadManager {
   /** Abort every outstanding transfer (logout, navigation, disposal). */
   cancelAll(reason = 'Download cancelled'): void {
     this.generation += 1;
-    const queued = this.queue;
-    this.queue = [];
-    for (const waiter of queued) {
+    const cancelled: Waiter[] = [];
+    const retained: Waiter[] = [];
+    for (const waiter of this.queue) {
+      // Cache verification is generation-independent and may still be joined by
+      // a newer generation; only queued network transfers are obsolete.
+      (waiter.kind === 'verification' ? retained : cancelled).push(waiter);
+    }
+    this.queue = retained;
+    for (const waiter of cancelled) {
       if (waiter.timer !== null) clearTimeout(waiter.timer);
       waiter.signal.removeEventListener('abort', waiter.onAbort);
       waiter.reject(abortError(reason));
     }
     this.activeByKey.clear();
+    // Outstanding cache verifications stay tracked and keep their admission until
+    // they settle; they are not interruptible and are never silently dropped.
     // Active transfers keep their slots and byte reservations until their
     // underlying work genuinely settles; cancellation is not proof of completion.
     for (const shared of [...this.transfers]) {

@@ -926,3 +926,48 @@ neural runs plus live cancellation/recovery pass, one model artifact transfer,
 metadata revalidations 3; cold init 2.79 s (Jarl) / 4.37 s (neural), Jarl search
 272–325 ms, idempotent repeated init 0 ms. Initial bundle remains 585,756 raw /
 186,716 gzip with the lazy chunk absent. No sustained-memory rerun was required.
+
+## 21. J1 — cache-verification accounting across generations
+
+The reviewed implementation tracked cache verification in a map keyed only by
+artifact key. A newer cancellation generation requesting the same key replaced the
+entry while the original read/digest was still outstanding, so `occupancy`,
+`whenIdle()` and `drain()` could report complete retirement prematurely.
+
+Resolution:
+
+- Underlying cache verifications are held in a dedicated outstanding-record set
+  until they genuinely settle, independently of the lookup-deduplication map.
+  The map now joins compatible immutable-artifact verification across cancellation
+  generations instead of replacing it; conflicting key/specification requests are
+  rejected. Each record releases its accounting exactly once.
+- Cache reads/hashes now acquire the existing bounded work admission: they share
+  the configured concurrency limit and aggregate byte reservation with network
+  transfers, and hold both until the non-interruptible browser operation settles.
+  Queued verifications survive transfer cancellation and cannot be silently
+  dropped; queue/deadline failure releases admission through the same path.
+- `occupancy.cacheVerifications` counts all active and queued verification records;
+  `activeVerifications` and `reservedBytes` expose admitted cache work. Managed
+  runtime disposal still waits for these records and retains admission until they
+  settle. Caller cancellation/timeout, generation ownership, authorization, cache
+  invalidation and stale-result rejection are unchanged; late cache results cannot
+  start transfers or activate models.
+- Healthy-session reuse, one-lookup misses, zero-transfer verified-cache
+  initialization and one-transfer cold initialization are preserved. A cache miss
+  performs one lookup; compatible concurrent/cross-generation calls share one
+  verification.
+
+Regression tests (all deterministic, using gated cache operations) cover the
+cross-generation overwrite scenario, newer-generation completion while an older
+verification remains, repeated cancellation generations, distinct-key concurrency,
+aggregate-byte admission, compatible deduplication/conflicting specifications,
+no duplicate release and no stale activation, plus managed disposal/replacement
+admission/creation from the existing I1 suite. Browser-analysis Vitest totals
+**141 passed** (72 runtime, 45 download, 12 storage, 12 manifest); full frontend
+**1,741 passed (113 files)**. The production build preserves the initial bundle at
+585,756 raw / 186,716 gzip with the browser-analysis chunk absent.
+
+Actual production browser on the final build passes the neural/recovery probe:
+one model artifact transfer, 3 metadata revalidations, zero transfers for verified
+cached bytes, healthy-session reuse, cold init 2.56 s, Jarl 274 ms, repeated
+idempotent init 0 ms and successful live cancellation recovery.
