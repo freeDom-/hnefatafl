@@ -145,6 +145,7 @@ if point:
         rename(old, new, **kwargs)
         if point == 'gate-moved' and old == '.deployment-gate': stop()
         if point == 'old-data-renamed' and old == root/'data': stop()
+        if point == 'manual-backup-published' and Path(new).parent == root/'backups': stop()
     def replacing(old, new, **kwargs):
         replace(old, new, **kwargs)
         if point == 'installed-state' and new == root/'etc/installed.json': stop()
@@ -241,6 +242,19 @@ def test_installed_cli_rollback_verifies_snapshot_before_service_stop(tmp_path):
     assert (root / "opt/current").resolve() == release
 
 
+def install_service_shim(root, bin_directory):
+    systemctl = bin_directory / "systemctl"
+    systemctl.write_text(
+        f'#!/bin/sh\nroot="{root}"\n'
+        'case "$1" in\n'
+        '  is-active) test -f "$root/running" ;;\n'
+        '  start) touch "$root/running"; echo start >> "$root/actions" ;;\n'
+        '  stop) rm -f "$root/running"; echo stop >> "$root/actions" ;;\n'
+        "  *) exit 0 ;;\nesac\n"
+    )
+    (root / "running").touch()
+
+
 @pytest.mark.parametrize(
     "point",
     ["old-data-renamed", "gate-moved", "installed-state", "journal-committed", "marker-unlinked"],
@@ -267,16 +281,7 @@ def test_killed_explicit_rollback_resumes_with_documented_recover_command(tmp_pa
     gate = root / "data/.deployment-gate"
     gate.touch(mode=0o600)
     inode = gate.stat().st_ino
-    systemctl = bin_directory / "systemctl"
-    systemctl.write_text(
-        f'#!/bin/sh\nroot="{root}"\n'
-        'case "$1" in\n'
-        '  is-active) test -f "$root/running" ;;\n'
-        '  start) touch "$root/running"; echo start >> "$root/actions" ;;\n'
-        '  stop) rm -f "$root/running"; echo stop >> "$root/actions" ;;\n'
-        "  *) exit 0 ;;\nesac\n"
-    )
-    (root / "running").touch()
+    install_service_shim(root, bin_directory)
     interrupted = run_cli(installed, root, bin_directory, "--rollback", interrupt=point)
     assert interrupted.returncode == -9, interrupted.stdout + interrupted.stderr
     before = (root / "etc/transaction.json").read_bytes()
@@ -347,3 +352,28 @@ def test_clean_dry_run_preserves_legacy_layout_and_missing_lock(tmp_path):
     assert (legacy / snapshot.name).is_dir()
     assert not (root / "etc/backup-migration.json").exists()
     assert not (root / "update.lock").exists()
+
+
+def test_killed_manual_backup_recovers_service_and_keeps_published_snapshot(tmp_path):
+    root, _release, _snapshot, database, installed, bin_directory = build_layout(tmp_path)
+    (root / "etc/transaction.json").unlink()
+    install_service_shim(root, bin_directory)
+    interrupted = run_cli(
+        installed, root, bin_directory, "--backup", interrupt="manual-backup-published"
+    )
+    assert interrupted.returncode == -9, interrupted.stdout + interrupted.stderr
+    transaction = json.loads((root / "etc/transaction.json").read_text())
+    assert transaction["phase"] == "snapshot" and transaction["service_was_running"]
+    assert not (root / "running").exists()
+    backup = root / "backups" / transaction["snapshot_name"]
+    assert backup.is_dir()
+    with sqlite3.connect(backup / "data" / database.name) as connection:
+        assert (
+            connection.execute("SELECT value FROM persistent").fetchone()[0] == "newer-live-state"
+        )
+    result = run_cli(installed, root, bin_directory, "--recover", interrupt="resume")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (root / "running").is_file()
+    assert (root / "actions").read_text() == "stop\nstart\nprobe\n"
+    assert backup.is_dir()
+    assert json.loads((root / "etc/transaction.json").read_text())["phase"] == "recovered"

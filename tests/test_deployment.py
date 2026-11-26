@@ -916,7 +916,7 @@ def test_interrupted_recovery_rejects_known_incompatible_previous_release(deploy
             "phase": "activated",
             "previous": str(incompatible),
             "target": str(target),
-            "backup": None,
+            "backup": str(legacy_snapshot(deployment)),
         },
     )
     deployment.actions.clear()

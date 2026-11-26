@@ -532,3 +532,33 @@ def test_startup_guard_requires_durable_activation_and_authoritative_data(tmp_pa
     harness.activate(old)
     with pytest.raises(DeploymentError, match="startup is deferred"):
         harness._authorize_service_start()
+
+
+def test_rollback_does_not_reuse_a_conflicting_destination_from_archived_legacy_metadata(tmp_path):
+    from hnefatafl.deployment import checksum
+
+    harness, first, second = recovery_harness(tmp_path)
+    third = harness.release("3.0.0", "0003")
+    conflict = harness.make_backup("20260101T000000-0001", payload=b"distinct backup")
+    snapshot = harness.make_backup("20260102T000000-0002")
+    archived = snapshot / "config/installed.json"
+    atomic_json(
+        archived,
+        {
+            "version": "2.0.0",
+            "phase": "committed",
+            "target": str(second),
+            "previous": str(first),
+            "backup": str(harness.legacy_backups / conflict.name),
+        },
+    )
+    manifest = snapshot / "manifest.json"
+    entries = json.loads(manifest.read_text())
+    entries["config/installed.json"] = checksum(archived)
+    atomic_json(manifest, entries)
+    harness.activate(third)
+    harness.set_state("3.0.0", third, previous=second, backup=snapshot)
+    harness.recover(rollback=True)
+    assert harness.current.resolve() == second
+    assert json.loads(harness.state.read_text())["backup"] is None
+    assert (conflict / "data/sentinel").read_bytes() == b"distinct backup"

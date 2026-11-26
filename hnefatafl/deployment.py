@@ -593,6 +593,13 @@ def atomic_json(path: Path, value) -> None:
     atomic_bytes(path, (json.dumps(value, indent=2, allow_nan=False) + "\n").encode())
 
 
+def unique_metadata_fields(pairs):
+    value = dict(pairs)
+    if len(value) != len(pairs):
+        raise ValueError("Duplicate JSON metadata fields")
+    return value
+
+
 def raise_walk_error(error: OSError) -> None:
     raise error
 
@@ -1491,7 +1498,10 @@ class Deployment:
             # old reference has no remaining source or verified destination, the
             # journal must survive for reviewed recovery.
             retained = {
-                entry["source"] for entry in journal["entries"] if entry["phase"] == "retained"
+                entry["source"]
+                for entry in journal["entries"]
+                if entry["phase"] == "retained"
+                and self._entry_identity(source_fd, entry["source"]) == entry["source_identity"]
             }
             if set(pending) - retained:
                 raise DeploymentError(
@@ -2006,13 +2016,15 @@ class Deployment:
             return False, "legacy transaction has no valid target release"
         if journal.get("previous") is not None and not self._release_reference(journal["previous"]):
             return False, "transaction previous release is invalid"
-        if (
-            phase in {"migrating", "activating", "activated", "committed"}
-            and operation != "manual-backup"
-            and operation is not None
-            and not journal.get("backup")
+        if phase in {"migrating", "activating", "activated"} or (
+            phase in {"committing", "committed"} and operation in {"update", "install"}
         ):
-            return False, "transaction phase requires a verified backup"
+            if not journal.get("backup"):
+                return False, "transaction phase requires a recorded backup"
+            if operation is not None and not journal.get("migration_started"):
+                return False, "transaction phase requires durable migration intent"
+            if operation is not None and phase != "migrating" and not journal.get("data_modified"):
+                return False, "activation phase requires durable completion of migration"
         for flag in ("service_stopped", "migration_started", "data_modified"):
             if flag in journal and not isinstance(journal[flag], bool):
                 return False, f"transaction {flag} is not a boolean"
@@ -2818,8 +2830,8 @@ json.dump(rows, sys.stdout)
                     or opened.st_ctime_ns != info.st_ctime_ns
                 ):
                     return None, False, f"{label} changed during inspection"
-                value = json.load(handle)
-        except (OSError, ValueError, TypeError):
+                value = json.load(handle, object_pairs_hook=unique_metadata_fields)
+        except (OSError, ValueError, TypeError, RecursionError):
             return None, False, f"{label} is unreadable or invalid JSON"
         if not isinstance(value, dict):
             return None, False, f"{label} is not a JSON object"
@@ -7006,7 +7018,9 @@ updater._load_online_support()
             self._enable_service_start_guard()
         with self.write_gate():
             completed = self._recover_locked(rollback_plan=rollback_plan)
-        if completed:
+        if isinstance(completed, Path):
+            self._post_operation_cleanup("manual backup recovery", protected_backups={completed})
+        elif completed:
             self._post_operation_cleanup("recovery")
 
     def _service_is_active(self) -> bool:
@@ -7076,9 +7090,13 @@ updater._load_online_support()
         ):
             prior_backup, prior_release = saved.get("backup"), saved.get("previous")
             if prior_backup and Path(prior_backup).parent == self.legacy_backups:
-                migrated = self.backups / Path(prior_backup).name
-                if migrated.is_dir():
-                    saved["backup"] = prior_backup = str(migrated)
+                # An archived state can predate migration. Only a verifiable
+                # association can distinguish a migrated artifact from a name
+                # conflict at the new location.
+                if saved.get("backup_association") is None:
+                    prior_backup = None
+                else:
+                    saved["backup"] = prior_backup = str(self.backups / Path(prior_backup).name)
             if prior_backup and prior_release and Path(prior_release).is_dir():
                 try:
                     self._require_complete_release(Path(prior_release))
@@ -7193,7 +7211,7 @@ updater._load_online_support()
             "restore": None,
         }
 
-    def _recover_locked(self, *, rollback_plan: dict | None = None) -> bool:
+    def _recover_locked(self, *, rollback_plan: dict | None = None) -> bool | Path:
         rollback = rollback_plan is not None
         self._diagnostic_failure_phase = None
         self._diagnostic_recovery_target = None
@@ -7234,7 +7252,8 @@ updater._load_online_support()
                         f"Manual backup service recovery failed: {describe_exception(recovery_error)}. Inspect {self.journal} and rerun hnefatafl-update --recover."
                     ) from recovery_error
                 print("Recovered the service state recorded before the manual backup.")
-                return False
+                snapshot = self.backups / transaction["snapshot_name"]
+                return snapshot if os.path.lexists(snapshot) else False
             previous = Path(transaction["previous"]) if transaction.get("previous") else None
             backup = Path(transaction["backup"]) if transaction.get("backup") else None
             if (
@@ -7381,7 +7400,10 @@ def protected_json(path: Path) -> dict:
             raise DeploymentError(
                 f"Configuration must be an owner-controlled 0600 regular file: {path}"
             )
-        value = json.load(handle)
+        try:
+            value = json.load(handle, object_pairs_hook=unique_metadata_fields)
+        except (ValueError, RecursionError) as error:
+            raise DeploymentError(f"Invalid JSON in deployment configuration: {path}") from error
     if not isinstance(value, dict):
         raise DeploymentError(f"Configuration must be a JSON object: {path}")
     return value

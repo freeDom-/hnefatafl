@@ -294,6 +294,7 @@ def test_historical_harness_timeout_cleans_child_and_pid_file(tmp_path):
         "shutdown-interrupted",
         "snapshot-interrupted",
         "restart-failure",
+        "restart-interrupted",
         "initially-stopped",
     ],
 )
@@ -313,6 +314,8 @@ def test_manual_backup_restores_real_application_lifespan(lifecycle, monkeypatch
     def lifecycle_action(action):
         if action == "start" and outcome == "restart-failure":
             raise OSError(5, "synthetic startup failure")
+        if action == "start" and outcome == "restart-interrupted":
+            raise KeyboardInterrupt()
         service(action)
         if action == "stop" and outcome == "shutdown-interrupted":
             raise InterruptedError("shutdown interrupted")
@@ -336,7 +339,7 @@ def test_manual_backup_restores_real_application_lifespan(lifecycle, monkeypatch
     if outcome == "initially-stopped":
         assert lifecycle.actions == []
         assert lifecycle.client is None
-    elif outcome == "restart-failure":
+    elif outcome in {"restart-failure", "restart-interrupted"}:
         assert lifecycle.actions == ["service:stop"]
         assert lifecycle.client is None
         backup = Path(json.loads(lifecycle.journal.read_text())["backup"])

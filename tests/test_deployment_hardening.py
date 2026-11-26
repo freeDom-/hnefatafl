@@ -731,8 +731,13 @@ def test_legacy_migration_keeps_conflicting_and_unverified_artifacts(tmp_path):
     assert (legacy / broken.name).is_dir()
 
 
-def test_legacy_backup_migration_crosses_real_filesystem_boundary(tmp_path):
+@pytest.mark.parametrize(
+    "point", ["complete", "copy-verified", "destination-renamed", "source-removed"]
+)
+def test_legacy_backup_migration_crosses_real_filesystem_boundary(tmp_path, point):
     import tempfile
+
+    from deployment_fixtures import fault_process
 
     harness, active = valid_harness(
         tmp_path, {"storage": {"headroom_mib": 0, "minimum_free_inodes": 0}}
@@ -751,7 +756,39 @@ def test_legacy_backup_migration_crosses_real_filesystem_boundary(tmp_path):
         backup.rename(legacy / backup.name)
         harness.backups = Path(directory) / "new-backups"
         harness.set_state("2.0.0", active, backup=legacy / backup.name)
-        harness.ensure_layout()
+        script = """
+import os, signal, sys
+from pathlib import Path
+from hnefatafl.deployment import Deployment
+root, backups = map(Path, sys.argv[1:3])
+point = sys.argv[3]
+config = {'storage': {'headroom_mib': 0, 'minimum_free_inodes': 0}}
+updater = Deployment(config, base=root/'opt', data=root/'data', etc=root/'etc', backups=backups)
+copy, rename, rmdir = updater._copy_verified_snapshot, os.rename, os.rmdir
+
+def stop(): os.kill(os.getpid(), signal.SIGKILL)
+
+def copying(*args, **kwargs):
+    copy(*args, **kwargs)
+    if point == 'copy-verified': stop()
+
+def publishing(old, new, **kwargs):
+    rename(old, new, **kwargs)
+    if point == 'destination-renamed' and str(old).startswith('.staging-backup-'): stop()
+
+def removing(path, **kwargs):
+    rmdir(path, **kwargs)
+    if point == 'source-removed' and path == 'backups': stop()
+
+updater._copy_verified_snapshot = copying
+os.rename, os.rmdir = publishing, removing
+updater.ensure_layout()
+"""
+        if point != "complete":
+            interrupted = fault_process(script, tmp_path, harness.backups, point)
+            assert interrupted.returncode == -9, interrupted.stdout + interrupted.stderr
+        resumed = fault_process(script, tmp_path, harness.backups, "complete")
+        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
         destination = harness.backups / backup.name
         assert not legacy.exists() and not harness.migration_journal.exists()
         assert destination.stat().st_dev != tmp_path.stat().st_dev
