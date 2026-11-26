@@ -227,6 +227,18 @@ audit. It extends the retained-online-state inventory. A compatible restore copi
 parents before their children. The update preserves authoritative games, ratings,
 tournament brackets and account progression. See [League Arena](LEAGUES.md).
 
+Schema 24 adds permanent per-ruleset league achievement peaks and a durable
+reconciliation queue. The upgrade queues bounded account/season/ruleset checks
+rather than trusting cached contributions, final standings or an interrupted
+rebuild. The League worker validates effective official results after pending
+corrections and rebuild catch-up, then grants the corresponding existing tiers.
+The queue participates in the retained-online-state inventory. Schema 25 extends
+that queue with cursor and accumulated-standing state. Schema 26 adds
+account/season/ruleset evidence generations, league-sequence keyset indexes and
+equivalent progress-tier guards for fresh and upgraded tables. A correction that
+superseded a peak before it was recorded cannot reconstruct that lost historical
+peak.
+
 The migration also recognizes the earlier League development schema. It
 preserves official games, live queue entries and recorded request outcomes.
 Terminal preview request IDs without trustworthy entry timestamps return null
@@ -464,8 +476,8 @@ the journal and log locations; inspect them before any manual action.
 Creating an automatic pre-deployment snapshot is **not** a guarantee that an
 automatic rollback can complete. After a successful migration the live database
 uses a newer schema than the pre-deployment snapshot. Existing account/online
-schema-authority checks refuse to replace a schema-23 live database with an older
-snapshot, including schema 15, 20, 21 or 22. This preserves authoritative online,
+schema-authority checks refuse to replace a schema-26 live database with an older
+snapshot, including schema 15, 20, 21, 22, 23, 24 or 25. This preserves authoritative online,
 tournament and security state. The corrected updater performs a read-only
 compatibility preflight before stopping a healthy service for an explicit
 `--rollback`; a schema mismatch is refused before service stop, data replacement or

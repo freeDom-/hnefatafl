@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { api, errorMessage } from './api';
+import { LEAGUE_TIER_DECOR } from './arenaAssets';
 import { useAuth } from './Auth';
 import { useI18n } from './i18n';
 import { notify } from './notifications';
@@ -22,6 +23,9 @@ const familyRunes: Readonly<Record<string, string>> = {
   'analyzed-replays': 'ᚱ',
   'rated-win-streak': 'ᛋ',
   'local-first-game': 'ᛗ',
+  'brandubh-league': 'ᛒ',
+  'tablut-league': 'ᛉ',
+  'copenhagen-league': 'ᚲ',
 };
 
 /** Presentation only: all eligibility, awards and selection come from the server. */
@@ -296,44 +300,180 @@ export default function PortraitHall() {
                             : 'Locked',
                       )}
                     </span>
-                    <p>
-                      {t('Earned tier: {tier} / {total}', {
-                        tier: number.format(family.awarded_tier),
-                        total: number.format(family.total_tiers),
-                      })}
-                    </p>
-                    <p>
-                      {t('Recorded progress: {progress}', {
-                        progress: number.format(family.progress),
-                      })}
-                    </p>
-                    {next && (
+                    {family.league ? (
                       <>
-                        <label htmlFor={`achievement-progress-${family.id}`}>
-                          {t('Next milestone: {target} · {points} points', {
-                            target: number.format(next.threshold),
-                            points: number.format(next.points),
+                        <div className="achievement-league-permanent">
+                          {family.league.highest_tier && (
+                            <img
+                              src={LEAGUE_TIER_DECOR[family.league.highest_tier]}
+                              alt=""
+                              width={96}
+                              height={96}
+                            />
+                          )}
+                          <div>
+                            <p>
+                              <strong>{t('Permanent league tier')}</strong>
+                            </p>
+                            <p>
+                              {family.league.highest_tier_name
+                                ? t(family.league.highest_tier_name)
+                                : t('No permanent league tier yet')}
+                            </p>
+                          </div>
+                        </div>
+                        <ul
+                          className="achievement-league-tiers"
+                          aria-label={t('{ruleset} league tiers', {
+                            ruleset: family.league.ruleset_name,
                           })}
-                        </label>
-                        <progress
-                          id={`achievement-progress-${family.id}`}
-                          value={Math.min(family.progress, next.threshold)}
-                          max={next.threshold}
-                        />
+                        >
+                          {family.league.tiers.map((tier) => {
+                            const tierState = tier.current
+                              ? 'current'
+                              : tier.unlocked
+                                ? 'unlocked'
+                                : 'upcoming';
+                            return (
+                              <li key={tier.id} data-state={tierState}>
+                                <span>{t(tier.name)}</span>
+                                <small>
+                                  {t('{points} points', {
+                                    points: number.format(tier.minimum_points),
+                                  })}
+                                </small>
+                                <span className="achievement-league-state">
+                                  {t(
+                                    tierState === 'current'
+                                      ? 'Current'
+                                      : tierState === 'unlocked'
+                                        ? 'Unlocked'
+                                        : 'Upcoming',
+                                  )}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        <div className="achievement-league-season">
+                          <p>
+                            <strong>{t('Current season')}</strong>
+                            {family.league.season.available &&
+                            family.league.season.qualified &&
+                            family.league.season.tier_name
+                              ? ` · ${t(family.league.season.tier_name)}`
+                              : ''}
+                          </p>
+                          {!family.league.season.available ? (
+                            <p>
+                              {t(
+                                'Personal progression will return after the season rebuild completes.',
+                              )}
+                            </p>
+                          ) : (
+                            <>
+                              <p>
+                                {t('League points this season: {points}', {
+                                  points: number.format(family.league.season.points ?? 0),
+                                })}
+                              </p>
+                              {(family.league.season.played ?? 0) <
+                              family.league.season.qualifying_results ? (
+                                <label htmlFor={`achievement-progress-${family.id}`}>
+                                  {t('Qualification · {played} of {required} eligible results', {
+                                    played: number.format(family.league.season.played ?? 0),
+                                    required: number.format(
+                                      family.league.season.qualifying_results,
+                                    ),
+                                  })}
+                                  <progress
+                                    id={`achievement-progress-${family.id}`}
+                                    value={family.league.season.played ?? 0}
+                                    max={family.league.season.qualifying_results}
+                                  />
+                                </label>
+                              ) : family.league.season.next_tier ? (
+                                <label htmlFor={`achievement-progress-${family.id}`}>
+                                  {t('{tier} · {points} of {minimum} points', {
+                                    tier: t(family.league.season.next_tier.name),
+                                    points: number.format(
+                                      family.league.season.next_tier.progress_points,
+                                    ),
+                                    minimum: number.format(
+                                      family.league.season.next_tier.progress_total,
+                                    ),
+                                  })}
+                                  <progress
+                                    id={`achievement-progress-${family.id}`}
+                                    value={family.league.season.next_tier.progress_points}
+                                    max={family.league.season.next_tier.progress_total}
+                                  />
+                                </label>
+                              ) : (
+                                <p>{t('All league tiers reached this season.')}</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        <details>
+                          <summary>{t('Milestone rewards')}</summary>
+                          <ul>
+                            {family.milestones.map((milestone) => (
+                              <li key={milestone.id}>
+                                {t(milestone.league_tier_name ?? '')} ·{' '}
+                                {t('{points} points', {
+                                  points: number.format(milestone.points),
+                                })}{' '}
+                                · {t(milestone.unlocked ? 'Unlocked' : 'Locked')}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      </>
+                    ) : (
+                      <>
+                        <p>
+                          {t('Earned tier: {tier} / {total}', {
+                            tier: number.format(family.awarded_tier),
+                            total: number.format(family.total_tiers),
+                          })}
+                        </p>
+                        <p>
+                          {t('Recorded progress: {progress}', {
+                            progress: number.format(family.progress),
+                          })}
+                        </p>
+                        {next && (
+                          <>
+                            <label htmlFor={`achievement-progress-${family.id}`}>
+                              {t('Next milestone: {target} · {points} points', {
+                                target: number.format(next.threshold),
+                                points: number.format(next.points),
+                              })}
+                            </label>
+                            <progress
+                              id={`achievement-progress-${family.id}`}
+                              value={Math.min(family.progress, next.threshold)}
+                              max={next.threshold}
+                            />
+                          </>
+                        )}
+                        <details>
+                          <summary>{t('Milestone rewards')}</summary>
+                          <ul>
+                            {family.milestones.map((milestone) => (
+                              <li key={milestone.id}>
+                                {number.format(milestone.threshold)} ·{' '}
+                                {t('{points} points', {
+                                  points: number.format(milestone.points),
+                                })}{' '}
+                                · {t(milestone.unlocked ? 'Unlocked' : 'Locked')}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
                       </>
                     )}
-                    <details>
-                      <summary>{t('Milestone rewards')}</summary>
-                      <ul>
-                        {family.milestones.map((milestone) => (
-                          <li key={milestone.id}>
-                            {number.format(milestone.threshold)} ·{' '}
-                            {t('{points} points', { points: number.format(milestone.points) })} ·{' '}
-                            {t(milestone.unlocked ? 'Unlocked' : 'Locked')}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
                   </li>
                 );
               })}

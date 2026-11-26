@@ -61,6 +61,111 @@ function fixture(): AchievementProgress {
     unlocked_portrait_ids: ['shieldmaiden', 'skald'],
   });
 }
+function leagueProgressFixture(available = true): AchievementProgress {
+  const tiers = [
+    ['midgard', 'Midgard', 0, 10, true, false],
+    ['nidavellir', 'Nidavellir', 6, 20, true, true],
+    ['alfheim', 'Alfheim', 15, 30, false, false],
+    ['asgard', 'Asgard', 30, 40, false, false],
+    ['valhalla', 'Valhalla', 50, 60, false, false],
+  ] as const;
+  const leagueItems = tiers.map(([id, name, minimum, points, unlocked, current], index) => ({
+    id: `brandubh-league-${id}`,
+    family_id: 'brandubh-league',
+    tier: index + 1,
+    points,
+    name: `Brandubh League: ${name}`,
+    description: '',
+    category: 'league',
+    scope: 'brandubh',
+    threshold: index + 1,
+    progress: 2,
+    unlocked,
+    awarded_at: unlocked ? '2035-01-01T00:00:00Z' : null,
+    portrait_id: null,
+    ruleset: 'brandubh' as const,
+    league_tier: id,
+    league_tier_name: name,
+    minimum_points: minimum,
+    family_name: 'Brandubh League',
+    current,
+  }));
+  return {
+    ...fixture(),
+    items: leagueItems,
+    families: [
+      {
+        id: 'brandubh-league',
+        name: 'Brandubh League',
+        progress: 2,
+        awarded_tier: 2,
+        awarded_threshold: 2,
+        achieved_threshold: 2,
+        total_tiers: 5,
+        awarded_count: 2,
+        next_milestone: leagueItems[2],
+        complete: false,
+        milestones: leagueItems,
+        league: {
+          ruleset: 'brandubh',
+          ruleset_name: 'Brandubh',
+          tiers: tiers.map(([id, name, minimum, points, unlocked, current]) => ({
+            id,
+            name,
+            minimum_points: minimum,
+            achievement_id: `brandubh-league-${id}`,
+            points,
+            unlocked,
+            current,
+          })),
+          highest_tier: 'nidavellir',
+          highest_tier_name: 'Nidavellir',
+          permanent_progress: 2,
+          permanent_total: 5,
+          season: available
+            ? {
+                id: '2035-01',
+                available: true,
+                status: 'current',
+                points: 7,
+                tier: 'nidavellir',
+                tier_name: 'Nidavellir',
+                qualified: true,
+                played: 4,
+                qualifying_results: 3,
+                next_tier: {
+                  id: 'alfheim',
+                  name: 'Alfheim',
+                  minimum_points: 15,
+                  points_needed: 8,
+                  progress_points: 1,
+                  progress_total: 9,
+                },
+              }
+            : {
+                id: '2035-01',
+                available: false,
+                status: 'rebuilding',
+                points: null,
+                tier: null,
+                tier_name: null,
+                qualified: null,
+                played: null,
+                qualifying_results: 3,
+                next_tier: null,
+              },
+        },
+      },
+    ],
+    summary: {
+      unlocked: 2,
+      total: 5,
+      earned_points: 30,
+      total_points: 160,
+    },
+  };
+}
+
 let progress: AchievementProgress;
 let selected = 'shieldbearer';
 beforeEach(() => {
@@ -442,4 +547,158 @@ it('uses high-resolution gallery art while preserving original small avatars and
   );
   fireEvent.error(screen.getByRole('img'));
   expect(screen.getByRole('img').tagName).toBe('SPAN');
+});
+
+it('renders ruleset league tiers by name with permanent and seasonal progress', async () => {
+  const tiers = [
+    ['midgard', 'Midgard', 0, 10, true, false],
+    ['nidavellir', 'Nidavellir', 6, 20, true, true],
+    ['alfheim', 'Alfheim', 15, 30, false, false],
+    ['asgard', 'Asgard', 30, 40, false, false],
+    ['valhalla', 'Valhalla', 50, 60, false, false],
+  ] as const;
+  const leagueItems = tiers.map(([id, name, minimum, points, unlocked, current], index) => ({
+    id: `brandubh-league-${id}`,
+    family_id: 'brandubh-league',
+    tier: index + 1,
+    points,
+    name: `Brandubh League: ${name}`,
+    description: '',
+    category: 'league',
+    scope: 'brandubh',
+    threshold: index + 1,
+    progress: 2,
+    unlocked,
+    awarded_at: unlocked ? '2035-01-01T00:00:00Z' : null,
+    portrait_id: null,
+    ruleset: 'brandubh' as const,
+    league_tier: id,
+    league_tier_name: name,
+    minimum_points: minimum,
+    family_name: 'Brandubh League',
+    current,
+  }));
+  progress = {
+    ...fixture(),
+    items: leagueItems,
+    families: [
+      {
+        id: 'brandubh-league',
+        name: 'Brandubh League',
+        progress: 2,
+        awarded_tier: 2,
+        awarded_threshold: 2,
+        achieved_threshold: 2,
+        total_tiers: 5,
+        awarded_count: 2,
+        next_milestone: leagueItems[2],
+        complete: false,
+        milestones: leagueItems,
+        league: {
+          ruleset: 'brandubh',
+          ruleset_name: 'Brandubh',
+          tiers: tiers.map(([id, name, minimum, points, unlocked, current]) => ({
+            id,
+            name,
+            minimum_points: minimum,
+            achievement_id: `brandubh-league-${id}`,
+            points,
+            unlocked,
+            current,
+          })),
+          highest_tier: 'nidavellir',
+          highest_tier_name: 'Nidavellir',
+          permanent_progress: 2,
+          permanent_total: 5,
+          season: {
+            id: '2035-01',
+            available: true,
+            status: 'current',
+            points: 7,
+            tier: 'nidavellir',
+            tier_name: 'Nidavellir',
+            qualified: true,
+            played: 4,
+            qualifying_results: 3,
+            next_tier: {
+              id: 'alfheim',
+              name: 'Alfheim',
+              minimum_points: 15,
+              points_needed: 8,
+              progress_points: 1,
+              progress_total: 9,
+            },
+          },
+        },
+      },
+    ],
+    summary: {
+      unlocked: 2,
+      total: 5,
+      earned_points: 30,
+      total_points: 160,
+    },
+  };
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/portraits/catalog') return catalog as never;
+    if (path === '/personal/achievements') return structuredClone(progress) as never;
+    if (path === '/profile') return { portrait_id: selected } as never;
+    throw new Error(`Unexpected API ${path}`);
+  });
+  for (const theme of ['kings-table', 'iron-ash', 'saga-hall', 'classic-table']) {
+    document.documentElement.dataset.uiTheme = theme;
+    const view = render(<Hall />);
+    const family = (await screen.findByRole('heading', { name: 'Brandubh League' })).closest('li')!;
+    expect(within(family).getByText('Permanent league tier')).toBeVisible();
+    expect(within(family).getAllByText('Nidavellir').length).toBeGreaterThan(0);
+    expect(within(family).getByText('Midgard')).toBeVisible();
+    expect(within(family).getAllByText('Upcoming')).toHaveLength(3);
+    expect(within(family).getByText('Current')).toBeVisible();
+    expect(within(family).getByText('Alfheim · 1 of 9 points')).toBeVisible();
+    expect(
+      within(family).getByRole('progressbar', { name: 'Alfheim · 1 of 9 points' }),
+    ).toHaveAttribute('value', '1');
+    expect(
+      within(family).getByRole('progressbar', { name: 'Alfheim · 1 of 9 points' }),
+    ).toHaveAttribute('max', '9');
+    expect(within(family).getByText('Midgard · 10 points · Unlocked')).toBeInTheDocument();
+    expect(within(family).queryByText(/threshold/i)).not.toBeInTheDocument();
+    expect(within(family).queryByText(/highest achieved/i)).not.toBeInTheDocument();
+    view.unmount();
+  }
+  delete document.documentElement.dataset.uiTheme;
+});
+
+it('hides incomplete seasonal progress during a rebuild without hiding permanent tiers', async () => {
+  setLanguage('de');
+  progress = leagueProgressFixture(false);
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/portraits/catalog') return catalog as never;
+    if (path === '/personal/achievements') return structuredClone(progress) as never;
+    if (path === '/profile') return { portrait_id: selected } as never;
+    throw new Error(`Unexpected API ${path}`);
+  });
+  render(<Hall />);
+  const family = (await screen.findByRole('heading', { name: 'Brandubh League' })).closest('li')!;
+  expect(within(family).getByText('Dauerhafte Ligastufe')).toBeVisible();
+  expect(within(family).getAllByText('Nidavellir').length).toBeGreaterThan(0);
+  expect(
+    within(family).getByText(
+      'Der persönliche Fortschritt ist nach der Neuberechnung der Saison wieder verfügbar.',
+    ),
+  ).toBeVisible();
+  expect(within(family).queryByText(/Ligapunkte in dieser Saison/)).not.toBeInTheDocument();
+  expect(within(family).queryByText(/Qualifikation/)).not.toBeInTheDocument();
+  expect(within(family).queryByRole('progressbar')).not.toBeInTheDocument();
+
+  progress = leagueProgressFixture(true);
+  fireEvent(window, new Event('progression-changed'));
+  await waitFor(() => expect(within(family).getByText('Alfheim · 1 von 9 Punkten')).toBeVisible());
+  expect(
+    within(family).getByRole('progressbar', { name: 'Alfheim · 1 von 9 Punkten' }),
+  ).toHaveAttribute('value', '1');
+  expect(
+    within(family).getByRole('progressbar', { name: 'Alfheim · 1 von 9 Punkten' }),
+  ).toHaveAttribute('max', '9');
+  expect(within(family).queryByText(/Neuberechnung der Saison/)).not.toBeInTheDocument();
 });

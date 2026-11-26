@@ -22,7 +22,7 @@ benchmark hardening in PR #105. PR #99 adds [League Arena](docs/LEAGUES.md)
 through the authenticated `/leagues` route.
 Browser analysis is a merged isolated prototype (#89) plus merged Phase 1 research
 (#104); it is not a production analysis executor. The canonical migration
-head on the League branch is schema 23. See the
+head is schema 26. See the
 [current completeness matrix](docs/designs/arena-current-completeness.md),
 [current Arena contracts](docs/designs/arena-v2-contracts.md) and
 [release-readiness gates](docs/RELEASE_READINESS.md). Compatibility cleanup may
@@ -230,7 +230,10 @@ participants no longer match. The canonical migration chain carries schema 17
 portrait), schema 18 (player tournaments), schema 19 (tournament queue and planned
 dates), schema 20 (account-scoped replay-analysis receipts), schema 21
 (automatic award reconciliation), schema 22 (synchronized modern tournament
-rounds and schedule generations) and schema 23 (League Arena).
+rounds and schedule generations), schema 23 (League Arena), schema 24
+(permanent per-ruleset league achievement peaks and reconciliation queue) and
+schema 25 (bounded reconciliation cursors) and schema 26
+(scope-specific evidence generations and enforced progress-tier constraints).
 See [Player tournaments](docs/PLAYER_TOURNAMENTS.md).
 
 ## League Arena
@@ -248,7 +251,21 @@ contributions. The latest appended eligible result can update the projection
 directly. Earlier results, corrections and withdrawals replay the affected
 ledger in order to preserve the per-result zero floor. Administrator recovery
 reconstructs the projection from official league provenance and the effective
-online and rating records. Play and replay use existing authorized online
+online and rating records. Settlement records the highest qualified tier in
+`league_achievement_progress` and grants the existing tiered achievement family
+for that ruleset. The permanent peak survives demotion, season rollover and later
+corrections; the Hall of Renown reads it beside the current seasonal standing
+without scanning history. If a settled result awaits correction or a season is
+rebuilding, the peak is queued in `league_achievement_reconciliation` and
+validated later from effective official results. Schema 24 queues bounded historical verification rather than trusting
+contribution ledgers or standings; schema 25 adds streaming cursor and progress state; schema 26 adds
+scope-specific evidence generations and league-sequence keyset indexes so each
+transaction has a fixed row budget and unrelated settlements do not restart it.
+Administrative recovery validates and rewrites authoritative sequences before
+candidate folding, while reconciliation page ordering still rejects inconsistent
+cached sequences. Rebuild finalization invalidates the season's queued scopes in
+one set-based statement. The Hall exposes seasonal availability and hides
+incomplete standings while permanent tiers remain visible. Play and replay use existing authorized online
 routes. See [league policy, API and recovery](docs/LEAGUES.md).
 
 ## Training execution and inference

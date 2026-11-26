@@ -1,9 +1,11 @@
 """Additive fresh/upgrade/restore coverage without touching development data."""
 
 import sqlite3
+from datetime import datetime, timezone
 
 import pytest
 
+from hnefatafl import league_policy as policy
 from hnefatafl.league_migrations import LEAGUE_TABLES
 from hnefatafl.leagues import Leagues
 from hnefatafl.online_migrations import SCHEMA_VERSION, retain_online_on_restore
@@ -109,7 +111,7 @@ def test_reviewed_league_preview_upgrades_preserving_authority_and_exact_retries
     assert service.drain()["settled"] == 1
     assert Store(rig.store.path).path == upgraded.path
 
-    # Canonical live-state restore accepts upgraded and fresh schema 23 layouts.
+    # Canonical live-state restore accepts upgraded and fresh schema 25 layouts.
     restored = Store(rig.root / "fresh-restore.sqlite3")
     with upgraded.connection() as original, restored.connection() as candidate:
         columns = ",".join(row[1] for row in original.execute("PRAGMA table_info(accounts)"))
@@ -119,6 +121,120 @@ def test_reviewed_league_preview_upgrades_preserving_authority_and_exact_retries
         )
         retain_online_on_restore(original, candidate)
         assert candidate.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_fresh_reconciliation_progress_tier_constraint(rig):
+    season = policy.season_for(datetime(2033, 1, 15, tzinfo=timezone.utc))
+    account = rig.accounts["Archer"]["id"]
+    with rig.store.connection() as c:
+        c.execute(
+            """INSERT OR IGNORE INTO league_seasons
+               (id,starts_at,ends_at,grace_ends_at,policy_version)
+               VALUES(?,?,?,?,1)""",
+            (
+                season.identifier,
+                int(season.start.timestamp() * 1_000_000),
+                int(season.end.timestamp() * 1_000_000),
+                int(season.grace_end.timestamp() * 1_000_000),
+            ),
+        )
+        for invalid in (0, 6):
+            with pytest.raises(sqlite3.IntegrityError):
+                c.execute(
+                    """INSERT INTO league_achievement_reconciliation
+                       (account_id,season_id,ruleset,progress_tier,due_at)
+                       VALUES(?,?,'brandubh',?,0)""",
+                    (account, season.identifier, invalid),
+                )
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,progress_tier,due_at)
+               VALUES(?,?,'brandubh',5,0)""",
+            (account, season.identifier),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                """UPDATE league_achievement_reconciliation SET progress_tier=0
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (account, season.identifier),
+            )
+
+
+def test_schema_24_reconciliation_table_upgrades_in_place(rig):
+    season = policy.season_for(rig.clock.value)
+    account = rig.accounts["Archer"]["id"]
+    with rig.store.connection() as c:
+        c.execute(
+            """INSERT OR IGNORE INTO league_seasons
+               (id,starts_at,ends_at,grace_ends_at,policy_version)
+               VALUES(?,?,?,?,1)""",
+            (
+                season.identifier,
+                int(season.start.timestamp() * 1_000_000),
+                int(season.end.timestamp() * 1_000_000),
+                int(season.grace_end.timestamp() * 1_000_000),
+            ),
+        )
+        c.execute("DROP INDEX league_achievement_reconciliation_due")
+        c.execute("ALTER TABLE league_achievement_reconciliation RENAME TO old_reconciliation")
+        c.execute(
+            """CREATE TABLE league_achievement_reconciliation (
+                account_id TEXT NOT NULL REFERENCES accounts(id),
+                season_id TEXT NOT NULL REFERENCES league_seasons(id),
+                ruleset TEXT NOT NULL,
+                candidate_tier INTEGER,
+                due_at INTEGER NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                PRIMARY KEY(account_id,season_id,ruleset)
+            )"""
+        )
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,candidate_tier,due_at,attempts,last_error)
+               VALUES(?,?,'brandubh',3,7,2,'retry')""",
+            (account, season.identifier),
+        )
+        c.execute("DROP TABLE old_reconciliation")
+        c.execute("PRAGMA user_version=24")
+
+    reopened = Store(rig.store.path)
+    with reopened.connection() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        columns = {
+            row[1] for row in c.execute("PRAGMA table_info(league_achievement_reconciliation)")
+        }
+        assert {
+            "cursor_sequence",
+            "cursor_game_id",
+            "standing_points",
+            "standing_wins",
+            "standing_draws",
+            "standing_losses",
+            "progress_tier",
+            "evidence_revision",
+            "evidence_generation",
+        } <= columns
+        row = c.execute(
+            "SELECT candidate_tier,due_at,attempts,last_error,cursor_sequence FROM league_achievement_reconciliation"
+        ).fetchone()
+        assert tuple(row) == (3, 7, 2, "retry", 0)
+        indexes = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        assert "league_achievement_reconciliation_due" in indexes
+        assert "league_games_first_sequence" in indexes
+        assert "league_games_second_sequence" in indexes
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='league_achievement_evidence'"
+            ).fetchone()[0]
+            == 1
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="progress tier"):
+            c.execute(
+                """UPDATE league_achievement_reconciliation SET progress_tier=99
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (account, season.identifier),
+            )
 
 
 @pytest.mark.parametrize("previous_schema", [21, 22])
@@ -184,9 +300,34 @@ def test_queue_and_standing_discovery_have_matching_indexes(tmp_path):
         "league_queue_rating_age": "SELECT account_id FROM league_queue INDEXED BY league_queue_rating_age WHERE ruleset='brandubh' AND CAST(rating / 200.0 AS INTEGER)=7 AND (joined_at,account_id)>(1,'') ORDER BY joined_at,account_id LIMIT 9",
         "league_requests_actor_time": "SELECT id FROM league_requests WHERE account_id='alice' ORDER BY created_at DESC,rowid DESC LIMIT 1",
         "league_settlement_due": "SELECT game_id FROM league_settlement_queue WHERE due_at<=1 ORDER BY due_at,game_id LIMIT 20",
-        "league_settlement_season_due": "SELECT game_id FROM league_settlement_queue WHERE season_id='2026-11' ORDER BY due_at,game_id LIMIT 20",
+        "league_games_first_history": """WITH pending AS (
+              SELECT q.game_id,l.result_revision,
+                g.result_revision AS official_revision,r.state AS rating_state,
+                r.sequence AS rating_sequence
+              FROM league_games l
+              JOIN league_settlement_queue q ON q.game_id=l.game_id
+              JOIN online_games g ON g.id=l.game_id
+              LEFT JOIN rating_events r ON r.game_id=l.game_id
+              WHERE l.first_account='alice' AND l.season_id='2026-11' AND l.ruleset='brandubh'
+              UNION ALL
+              SELECT q.game_id,l.result_revision,
+                g.result_revision AS official_revision,r.state AS rating_state,
+                r.sequence AS rating_sequence
+              FROM league_games l
+              JOIN league_settlement_queue q ON q.game_id=l.game_id
+              JOIN online_games g ON g.id=l.game_id
+              LEFT JOIN rating_events r ON r.game_id=l.game_id
+              WHERE l.second_account='alice' AND l.season_id='2026-11' AND l.ruleset='brandubh'
+            )
+            SELECT 1 FROM pending WHERE
+              (result_revision IS NOT NULL AND official_revision IS NOT result_revision)
+              OR (rating_state='applied' AND rating_sequence<9) LIMIT 1""",
+        "league_achievement_reconciliation_due": """SELECT account_id FROM league_achievement_reconciliation r
+            LEFT JOIN league_rebuild_jobs j ON j.season_id=r.season_id
+            WHERE r.due_at<=1 AND (r.due_at,r.account_id,r.season_id,r.ruleset)>(0,'','','')
+            ORDER BY r.due_at,r.account_id,r.season_id,r.ruleset LIMIT 20""",
         "league_standings_qualified": "SELECT account_id FROM league_standings WHERE season_id='2026-11' AND ruleset='brandubh' AND wins+draws+losses>=3 ORDER BY -points,-wins,losses,account_id LIMIT 20",
-        "league_games_first_history": "SELECT game_id FROM league_games WHERE first_account='alice' AND season_id='2026-11' AND ruleset='brandubh' ORDER BY paired_at DESC,game_id DESC LIMIT 20",
+        "league_standings_account": "SELECT ruleset,points FROM league_standings WHERE account_id='alice' AND season_id='2026-11'",
         "league_games_second_history": "SELECT game_id FROM league_games WHERE second_account='alice' AND season_id='2026-11' AND ruleset='brandubh' ORDER BY paired_at DESC,game_id DESC LIMIT 20",
         "league_games_rebuild": "SELECT game_id FROM league_games WHERE season_id='2026-11' AND game_id>'a' ORDER BY game_id LIMIT 20",
     }
@@ -195,3 +336,35 @@ def test_queue_and_standing_discovery_have_matching_indexes(tmp_path):
             plan = " ".join(row[3] for row in c.execute("EXPLAIN QUERY PLAN " + query))
             assert index in plan
             assert "TEMP B-TREE" not in plan
+        tail = " ".join(
+            row[3]
+            for row in c.execute(
+                """EXPLAIN QUERY PLAN SELECT sequence FROM league_contributions
+                   WHERE season_id='2026-11' AND ruleset='brandubh' AND account_id='alice'
+                   ORDER BY sequence DESC LIMIT 1"""
+            )
+        )
+        assert "SCAN league_contributions" not in tail
+        assert "TEMP B-TREE" not in tail
+        chunk_plan = " ".join(
+            row[3]
+            for row in c.execute(
+                """EXPLAIN QUERY PLAN WITH first_seat AS (
+                    SELECT l.game_id,l.sequence FROM league_games l
+                    WHERE l.first_account='alice' AND l.season_id='2026-11'
+                      AND l.ruleset='brandubh' AND l.sequence IS NOT NULL
+                      AND (l.sequence,l.game_id)>(1,'')
+                    ORDER BY l.sequence,l.game_id LIMIT 256
+                  ), second_seat AS (
+                    SELECT l.game_id,l.sequence FROM league_games l
+                    WHERE l.second_account='alice' AND l.season_id='2026-11'
+                      AND l.ruleset='brandubh' AND l.sequence IS NOT NULL
+                      AND (l.sequence,l.game_id)>(1,'')
+                    ORDER BY l.sequence,l.game_id LIMIT 256
+                  )
+                  SELECT * FROM first_seat UNION ALL SELECT * FROM second_seat
+                  ORDER BY sequence,game_id LIMIT 256"""
+            )
+        )
+        assert "league_games_first_sequence" in chunk_plan
+        assert "league_games_second_sequence" in chunk_plan

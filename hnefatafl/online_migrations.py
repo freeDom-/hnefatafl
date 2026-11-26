@@ -5,7 +5,7 @@ import time
 
 from .league_migrations import LEAGUE_TABLES, migrate_leagues
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 26
 ONLINE_TABLES = (
     "online_matches",
     "online_games",
@@ -525,10 +525,18 @@ def migrate_online(c: sqlite3.Connection) -> None:
     from .progression import seed_catalog
 
     seed_catalog(c)
-    if c.execute("PRAGMA user_version").fetchone()[0] < 21:
+    user_version = c.execute("PRAGMA user_version").fetchone()[0]
+    if user_version < 21:
         from .progression import reconcile_legacy_achievements
 
         reconcile_legacy_achievements(c, int(time.time() * 1_000_000))
+    if user_version < 24:
+        # A one-time, ledger-derived backfill for installations that already
+        # recorded league results before league achievements existed. It never
+        # derives progression from final standings alone.
+        from .progression import reconstruct_league_achievements
+
+        reconstruct_league_achievements(c, int(time.time() * 1_000_000))
 
 
 def retain_online_on_restore(live: sqlite3.Connection, restored: sqlite3.Connection) -> None:

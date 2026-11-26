@@ -1,6 +1,6 @@
 """Additive league authority tables, owned by the online schema transaction."""
 
-from .league_policy import QUALIFYING_RESULTS, RATING_WINDOW_INITIAL
+from .league_policy import QUALIFYING_RESULTS, RATING_WINDOW_INITIAL, TIERS
 from .league_recovery_migrations import LEAGUE_RECOVERY_TABLES, migrate_league_recovery
 from .rating import INITIAL_RATING
 
@@ -19,6 +19,9 @@ LEAGUE_TABLES = (
     "league_side_pairs",
     "league_contributions",
     "league_standings",
+    "league_achievement_progress",
+    "league_achievement_evidence",
+    "league_achievement_reconciliation",
     "league_settlement_queue",
     "league_audit",
     *LEAGUE_RECOVERY_TABLES,
@@ -106,6 +109,42 @@ def _backfill_preview(c):
         ) WHERE newest=1""")
 
 
+def _add_reconciliation_columns(c):
+    columns = {row[1] for row in c.execute("PRAGMA table_info(league_achievement_reconciliation)")}
+    for name, definition in (
+        ("cursor_sequence", "INTEGER NOT NULL DEFAULT 0 CHECK(cursor_sequence>=0)"),
+        ("cursor_game_id", "TEXT NOT NULL DEFAULT ''"),
+        ("standing_points", "INTEGER NOT NULL DEFAULT 0 CHECK(standing_points>=0)"),
+        ("standing_wins", "INTEGER NOT NULL DEFAULT 0 CHECK(standing_wins>=0)"),
+        ("standing_draws", "INTEGER NOT NULL DEFAULT 0 CHECK(standing_draws>=0)"),
+        ("standing_losses", "INTEGER NOT NULL DEFAULT 0 CHECK(standing_losses>=0)"),
+        ("progress_tier", "INTEGER"),
+        ("evidence_revision", "INTEGER"),
+        ("evidence_generation", "INTEGER"),
+    ):
+        if name not in columns:
+            c.execute(
+                f"ALTER TABLE league_achievement_reconciliation ADD COLUMN {name} {definition}"
+            )
+
+
+def _ensure_reconciliation_guard(c):
+    c.execute(
+        f"""CREATE TRIGGER IF NOT EXISTS league_achievement_progress_tier_insert_guard
+            BEFORE INSERT ON league_achievement_reconciliation
+            WHEN NEW.progress_tier IS NOT NULL
+              AND (NEW.progress_tier<1 OR NEW.progress_tier>{len(TIERS)})
+            BEGIN SELECT RAISE(ABORT,'Invalid league achievement progress tier'); END"""
+    )
+    c.execute(
+        f"""CREATE TRIGGER IF NOT EXISTS league_achievement_progress_tier_update_guard
+            BEFORE UPDATE OF progress_tier ON league_achievement_reconciliation
+            WHEN NEW.progress_tier IS NOT NULL
+              AND (NEW.progress_tier<1 OR NEW.progress_tier>{len(TIERS)})
+            BEGIN SELECT RAISE(ABORT,'Invalid league achievement progress tier'); END"""
+    )
+
+
 def migrate_leagues(c):
     upgrading_preview = _add_preview_columns(c)
     statements = (
@@ -136,6 +175,8 @@ def migrate_leagues(c):
         "CREATE INDEX IF NOT EXISTS league_games_rebuild ON league_games(season_id,game_id)",
         "CREATE INDEX IF NOT EXISTS league_games_first_history ON league_games(first_account,season_id,ruleset,paired_at DESC,game_id DESC)",
         "CREATE INDEX IF NOT EXISTS league_games_second_history ON league_games(second_account,season_id,ruleset,paired_at DESC,game_id DESC)",
+        "CREATE INDEX IF NOT EXISTS league_games_first_sequence ON league_games(first_account,season_id,ruleset,sequence,game_id) WHERE sequence IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS league_games_second_sequence ON league_games(second_account,season_id,ruleset,sequence,game_id) WHERE sequence IS NOT NULL",
         """CREATE TABLE IF NOT EXISTS league_requests (
             id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id),
             ruleset TEXT NOT NULL CHECK(ruleset IN ('brandubh','tablut','copenhagen')),
@@ -220,6 +261,43 @@ def migrate_leagues(c):
         f"""CREATE INDEX IF NOT EXISTS league_standings_qualified
             ON league_standings(season_id,ruleset,-points,-wins,losses,account_id)
             WHERE wins+draws+losses>={QUALIFYING_RESULTS}""",
+        "CREATE INDEX IF NOT EXISTS league_standings_account ON league_standings(account_id,season_id,ruleset)",
+        f"""CREATE TABLE IF NOT EXISTS league_achievement_progress (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            ruleset TEXT NOT NULL CHECK(ruleset IN ('brandubh','tablut','copenhagen')),
+            highest_tier INTEGER NOT NULL CHECK(highest_tier BETWEEN 1 AND {len(TIERS)}),
+            achieved_at INTEGER NOT NULL,
+            PRIMARY KEY(account_id,ruleset)
+        )""",
+        """CREATE TABLE IF NOT EXISTS league_achievement_evidence (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            season_id TEXT NOT NULL REFERENCES league_seasons(id),
+            ruleset TEXT NOT NULL CHECK(ruleset IN ('brandubh','tablut','copenhagen')),
+            generation INTEGER NOT NULL DEFAULT 0 CHECK(generation>=0),
+            PRIMARY KEY(account_id,season_id,ruleset)
+        )""",
+        f"""CREATE TABLE IF NOT EXISTS league_achievement_reconciliation (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            season_id TEXT NOT NULL REFERENCES league_seasons(id),
+            ruleset TEXT NOT NULL CHECK(ruleset IN ('brandubh','tablut','copenhagen')),
+            candidate_tier INTEGER CHECK(candidate_tier BETWEEN 1 AND {len(TIERS)}),
+            due_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+            last_error TEXT,
+            cursor_sequence INTEGER NOT NULL DEFAULT 0 CHECK(cursor_sequence>=0),
+            cursor_game_id TEXT NOT NULL DEFAULT '',
+            standing_points INTEGER NOT NULL DEFAULT 0 CHECK(standing_points>=0),
+            standing_wins INTEGER NOT NULL DEFAULT 0 CHECK(standing_wins>=0),
+            standing_draws INTEGER NOT NULL DEFAULT 0 CHECK(standing_draws>=0),
+            standing_losses INTEGER NOT NULL DEFAULT 0 CHECK(standing_losses>=0),
+            progress_tier INTEGER CHECK(progress_tier BETWEEN 1 AND {len(TIERS)}),
+            evidence_revision INTEGER,
+            evidence_generation INTEGER,
+            PRIMARY KEY(account_id,season_id,ruleset)
+        )""",
+        """CREATE INDEX IF NOT EXISTS league_achievement_reconciliation_due
+            ON league_achievement_reconciliation(due_at,account_id,season_id,ruleset)""",
+        """CREATE INDEX IF NOT EXISTS league_achievement_reconciliation_season
+            ON league_achievement_reconciliation(season_id,account_id,ruleset)""",
         """CREATE TABLE IF NOT EXISTS league_settlement_queue (
             game_id TEXT PRIMARY KEY REFERENCES league_games(game_id), due_at INTEGER NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error TEXT,
@@ -237,6 +315,8 @@ def migrate_leagues(c):
     )
     for statement in statements:
         c.execute(statement)
+    _add_reconciliation_columns(c)
+    _ensure_reconciliation_guard(c)
     if upgrading_preview:
         _backfill_preview(c)
     migrate_league_recovery(c)

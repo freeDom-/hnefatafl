@@ -289,6 +289,7 @@ it('uses authoritative tier changes, route links and sporting ranks after a page
     'src',
     expect.stringContaining('league-nidavellir.svg'),
   );
+  expect(region('Personal progression').getByText('Alfheim · 3 of 9 points')).toBeVisible();
   expect(region('Personal progression').getByRole('progressbar')).toHaveAttribute('max', '9');
   await screen.findByRole('option', { name: 'January 2035' });
   await user.selectOptions(screen.getByLabelText('Standings season'), archive.id);

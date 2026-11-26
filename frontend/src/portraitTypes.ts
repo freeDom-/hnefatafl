@@ -1,4 +1,6 @@
 /** Server-owned progression contracts. Artwork paths always remain local. */
+import type { LeagueRuleset, LeagueTier } from './leagueTypes';
+
 export type PortraitCatalog = {
   catalog_version: number;
   default_portrait_id: string;
@@ -18,6 +20,49 @@ export type Achievement = {
   unlocked: boolean;
   awarded_at: string | null;
   portrait_id: string | null;
+  ruleset?: LeagueRuleset | null;
+  league_tier?: LeagueTier | null;
+  league_tier_name?: string | null;
+  minimum_points?: number | null;
+  family_name?: string | null;
+};
+export type AchievementLeagueTier = {
+  id: LeagueTier;
+  name: string;
+  minimum_points: number;
+  achievement_id: string;
+  points: number;
+  unlocked: boolean;
+  current: boolean;
+};
+export type AchievementLeagueSeason = {
+  id: string;
+  available: boolean;
+  status: 'current' | 'provisional' | 'finalized' | 'rebuilding';
+  points: number | null;
+  tier: LeagueTier | null;
+  tier_name: string | null;
+  qualified: boolean | null;
+  played: number | null;
+  qualifying_results: number;
+  next_tier: {
+    id: LeagueTier;
+    name: string;
+    minimum_points: number;
+    points_needed: number;
+    progress_points: number;
+    progress_total: number;
+  } | null;
+};
+export type AchievementLeague = {
+  ruleset: LeagueRuleset;
+  ruleset_name: string;
+  tiers: AchievementLeagueTier[];
+  highest_tier: LeagueTier | null;
+  highest_tier_name: string | null;
+  permanent_progress: number;
+  permanent_total: number;
+  season: AchievementLeagueSeason;
 };
 export type AchievementFamily = {
   id: string;
@@ -31,6 +76,7 @@ export type AchievementFamily = {
   next_milestone: Achievement | null;
   complete: boolean;
   milestones: Achievement[];
+  league?: AchievementLeague | null;
 };
 export type AchievementProgress = {
   catalog_version: number;

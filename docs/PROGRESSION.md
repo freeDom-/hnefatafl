@@ -3,8 +3,8 @@
 [Documentation index](README.md) · [Rated games](RATINGS.md) · [Profile](PROFILE.md) ·
 [Accounts and API security](SECURITY.md)
 
-Achievement catalog **3** and portrait catalog **2** define **77 milestones worth
-6,290 points**. The server awards milestones automatically from authoritative
+Achievement catalog **4** and portrait catalog **2** define **92 milestones worth
+6,770 points**. The server awards milestones automatically from authoritative
 events. Players unlock their eligible portraits in the Hall of Renown. Earned
 achievements and portrait entitlements are permanent, including after corrections.
 
@@ -50,6 +50,13 @@ values for eligibility, awards, scores and progress. The next target is the firs
 threshold above current progress that has not already been awarded. A correction
 can reduce current progress without reducing an earned tier. A completed family has
 no further target or progress bar.
+
+The three league families render the authoritative tier names instead of numeric
+levels. Each card shows the permanent league tier separately from the current
+season's provisional points, qualification and next-tier progress. Unlocked, current
+and upcoming tiers each have a distinct state, and the card reuses the existing
+league tier artwork. The card never introduces a second seasonal record or a
+separate achievement reward.
 
 Engraved, bronze, silver, gold and legendary treatments use shared Arena theme
 tokens and stable family runes. Server responses determine all awards. English and
@@ -142,10 +149,15 @@ Each ordinary family offers 760 points. Best rated win streak has four milestone
 | 10 | 100 |
 
 These nine families contain 76 milestones worth 6,280 points. `local-first-game`
-(Fireside Game) adds one milestone worth 10 points, for **77 / 6,290** overall.
-The schedule and legacy achievement IDs are unchanged. Scores sum unique permanent
-award IDs against the code-owned point catalog; no independently mutable balance
-exists. Changing point values would change historical score projections.
+(Fireside Game) adds one milestone worth 10 points. Three league families are
+generated from the supported league rulesets and the authoritative league tier
+policy: Brandubh, Tablut and Copenhagen. Each has the five league tiers Midgard,
+Nidavellir, Alfheim, Asgard and Valhalla, using the first five incremental point
+values (10, 20, 30, 40 and 60). They add 15 milestones worth 480 points, for
+**92 / 6,770** overall. The schedule and legacy achievement IDs are unchanged.
+Scores sum unique permanent award IDs against the code-owned point catalog; no
+independently mutable balance exists. Changing point values would change historical
+score projections.
 
 The response includes milestone `family_id`, `tier`, `points`, `progress`,
 `unlocked` and `awarded_at`. Families include `milestones`, `progress`,
@@ -179,6 +191,17 @@ milestone award even when a later result correction lowers the recorded progress
   Two-leg matches use the existing rating policy. Later corrections retain past
   awards and evaluate future milestones against currently valid results. See the
   [measured fast path](benchmarks/progression-streaks.md).
+- Official league settlement records the qualified peak in
+  `league_achievement_progress` and awards every league tier up to that permanent
+  peak in the same transaction. Midgard requires three eligible results, and a
+  peak only rises. Season rollover, ordinary demotion and later corrections never
+  revoke an award. History-only results, casual games, non-qualifying games and
+  client values contribute nothing. If a previously settled result in the same
+  account/season/ruleset awaits an official correction, or a season rebuild is
+  incomplete, the candidate peak is durably queued instead of awarded. A bounded
+  worker validates it from effective official results after the scope is
+  consistent. Normal appends therefore remain an indexed tail update, not a
+  full-ledger scan.
 - Local/vs-AI completion writes the persisted `recorded_result` and awards the
   owner in the same transaction. Only completed local games or human-versus-AI
   human victories qualify. Replaying, reload, undo/redo and duplicate updates
@@ -206,6 +229,26 @@ includes category, preventing local/online game-ID collisions.
 Schema 20 introduced durable replay-analysis receipts. Schema 21 seeds the updated
 catalogs, then performs a controlled, idempotent reconciliation of historical
 account records inside the migration transaction before advancing `user_version`.
+Schema 24 adds `league_achievement_progress` and
+`league_achievement_reconciliation`. The migration queues one bounded verification
+row per account, season and ruleset instead of trusting the contribution table or
+final standings. Schema 25 adds a stable rating-sequence cursor and accumulated
+standing; schema 26 adds account/season/ruleset evidence generations. The League
+worker resolves fixed-size pages through indexed `league_games` provenance,
+authoritative applied rating events and effective official revisions, folds stable
+result order with the zero floor, requires qualification and grants all preceding
+tiers. Pending corrections and administrative rebuilds defer the row until
+catch-up completes. A relevant settlement or rebuild increments only the affected
+scope's generation, while unrelated accounts, rulesets and games in the same
+season leave the cursor intact. Any scope-generation change restarts the cursor
+before an award can commit. Administrative recovery derives the authoritative
+sequence independently of the cached projection, so it can repair a corrupt
+cached sequence before reconciliation ordering is evaluated again. Rebuild
+finalization invalidates every queued scope of its season in one set-based
+statement. The process is idempotent, preserves unrelated awards
+and portraits, participates in retained-authority restore, and never fabricates a
+peak when authoritative evidence is absent. A historical peak superseded before
+it was recorded cannot be recovered from later effective revisions.
 That historical step still grants the milestones and portrait entitlements an older
 installation would receive on upgrade. Manual portrait unlocking reuses the existing
 `achievement_awards`, `account_portraits` and `account_portrait_selection` tables.

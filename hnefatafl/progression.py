@@ -18,13 +18,14 @@ import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from . import league_policy as policy
 from .engine import RULESETS
 from .online_core import OnlineError, instant, micros, stamp
 from .personal import rated_streaks
 
 # A catalog change (adding, renaming, retiring) bumps its version; awards record
 # the achievement catalog version that granted them.
-ACHIEVEMENT_CATALOG_VERSION = 3
+ACHIEVEMENT_CATALOG_VERSION = 4
 PORTRAIT_CATALOG_VERSION = 2
 
 
@@ -40,6 +41,11 @@ class Achievement:
     points: int = 10
     family: str = "local-first-game"
     tier: int = 1
+    ruleset: str | None = None
+    league_tier: str | None = None
+    league_tier_name: str | None = None
+    minimum_points: int | None = None
+    family_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,14 +86,19 @@ _CRITERIA: dict[str, tuple[str | None, str | None]] = {
     "rated_win_streak_best": (None, None),
     "completed_local_games": (_LOCAL_COMPLETED, None),
     "defeated_ai_games": (_AI_DEFEATED, None),
+    "league_tier": (None, None),
 }
-_CATEGORIES = ("rated", "ruleset", "streak", "local", "ai", "analysis")
+_CATEGORIES = ("rated", "ruleset", "streak", "local", "ai", "analysis", "league")
 
 # Incremental points: 760 per ordinary family, 200 for streaks.
 MILESTONES = (1, 3, 10, 25, 50, 100, 250, 500, 1000)
 TIER_POINTS = (10, 20, 30, 40, 60, 80, 120, 160, 240)
 STREAK_MILESTONES = (1, 3, 5, 10)
 STREAK_POINTS = (10, 30, 60, 100)
+# League achievements reuse the ordinary tiered scoring model for their five
+# authoritative league tiers. The tier thresholds and display names come from
+# the league policy, never from a second configuration.
+LEAGUE_TIER_POINTS = TIER_POINTS[: len(policy.TIERS)]
 # family, name, category, criterion, scope, legacy threshold IDs
 FAMILIES: tuple[tuple[str, str, str, str, str | None, dict[int, str]], ...] = (
     ("rated-wins", "Rated online victories", "rated", "rated_wins", None, {1: "first-rated-win"}),
@@ -135,39 +146,70 @@ FAMILIES: tuple[tuple[str, str, str, str, str | None, dict[int, str]], ...] = (
     ("analyzed-replays", "Replays analyzed", "analysis", "analyzed_replays", None, {}),
     ("rated-win-streak", "Best rated win streak", "streak", "rated_win_streak_best", None, {}),
 )
-ACHIEVEMENTS = tuple(
-    Achievement(
-        legacy.get(threshold, f"{family}-{threshold}"),
-        name,
-        f"{name}: {threshold}.",
-        category,
-        criterion,
-        scope,
-        threshold,
-        points,
-        family,
-        tier,
+ACHIEVEMENTS = (
+    tuple(
+        Achievement(
+            legacy.get(threshold, f"{family}-{threshold}"),
+            name,
+            f"{name}: {threshold}.",
+            category,
+            criterion,
+            scope,
+            threshold,
+            points,
+            family,
+            tier,
+        )
+        for family, name, category, criterion, scope, legacy in FAMILIES
+        for tier, (threshold, points) in enumerate(
+            zip(
+                STREAK_MILESTONES if category == "streak" else MILESTONES,
+                STREAK_POINTS if category == "streak" else TIER_POINTS,
+                strict=True,
+            ),
+            1,
+        )
     )
-    for family, name, category, criterion, scope, legacy in FAMILIES
-    for tier, (threshold, points) in enumerate(
-        zip(
-            STREAK_MILESTONES if category == "streak" else MILESTONES,
-            STREAK_POINTS if category == "streak" else TIER_POINTS,
-            strict=True,
+    + (
+        Achievement(
+            "local-first-game",
+            "Fireside Game",
+            "Finish a same-device local game.",
+            "local",
+            "completed_local_games",
+            None,
+            1,
         ),
-        1,
     )
-) + (
-    Achievement(
-        "local-first-game",
-        "Fireside Game",
-        "Finish a same-device local game.",
-        "local",
-        "completed_local_games",
-        None,
-        1,
-    ),
+    + tuple(
+        Achievement(
+            f"{ruleset}-league-{tier_id}",
+            f"{ruleset.title()} League: {tier_name}",
+            f"Reach {tier_name} in the {ruleset.title()} League.",
+            "league",
+            "league_tier",
+            ruleset,
+            rank,
+            LEAGUE_TIER_POINTS[rank - 1],
+            f"{ruleset}-league",
+            rank,
+            ruleset,
+            tier_id,
+            tier_name,
+            minimum,
+            f"{ruleset.title()} League",
+        )
+        for ruleset in sorted(RULESETS, key=lambda key: RULESETS[key].size)
+        for rank, (tier_id, tier_name, minimum) in enumerate(policy.TIERS, 1)
+    )
 )
+LEAGUE_ACHIEVEMENTS = tuple(
+    achievement for achievement in ACHIEVEMENTS if achievement.criterion == "league_tier"
+)
+LEAGUE_ACHIEVEMENT_BY_KEY = {
+    (achievement.ruleset, achievement.league_tier): achievement
+    for achievement in LEAGUE_ACHIEVEMENTS
+}
 
 # ``shieldbearer`` is the always-available default: every other portrait is
 # unlocked by exactly one achievement. ``local-first-game`` deliberately grants no
@@ -234,9 +276,17 @@ def _validate_catalogs() -> None:
             raise ValueError(f"Unknown achievement category {achievement.category!r}")
         if achievement.threshold < 1 or achievement.points < 1:
             raise ValueError(f"Achievement {achievement.id!r} needs a positive threshold")
+        if achievement.criterion == "league_tier" and (
+            achievement.ruleset not in RULESETS
+            or achievement.scope != achievement.ruleset
+            or (achievement.ruleset, achievement.league_tier) not in LEAGUE_ACHIEVEMENT_BY_KEY
+        ):
+            raise ValueError(f"Achievement {achievement.id!r} has invalid league metadata")
         scope_column = _CRITERIA[achievement.criterion][1]
-        if achievement.scope is not None and (
-            scope_column is None or achievement.scope not in RULESETS
+        if (
+            achievement.criterion != "league_tier"
+            and achievement.scope is not None
+            and (scope_column is None or achievement.scope not in RULESETS)
         ):
             raise ValueError(f"Achievement {achievement.id!r} has an unsupported scope")
     portrait_ids = [portrait.id for portrait in PORTRAITS]
@@ -396,6 +446,113 @@ def _tail_win_streak(c: sqlite3.Connection, account_id: str, cap: int) -> int:
     return streak
 
 
+def _league_tier_rank(identifier: str | None) -> int:
+    return policy.tier_rank(identifier)
+
+
+def _league_season_state(c: sqlite3.Connection, season, now: int) -> tuple[bool, str]:
+    """The same availability semantics as the League progression read."""
+    row = c.execute(
+        """SELECT s.ends_at,s.grace_ends_at,
+            EXISTS(SELECT 1 FROM league_rebuild_jobs j WHERE j.season_id=s.id) AS rebuilding,
+            EXISTS(SELECT 1 FROM league_settlement_queue q WHERE q.season_id=s.id) AS pending
+           FROM league_seasons s WHERE s.id=?""",
+        (season.identifier,),
+    ).fetchone()
+    if row is None:
+        return True, "current"
+    if row["rebuilding"]:
+        return False, "rebuilding"
+    if now < row["ends_at"]:
+        return True, "current"
+    if row["pending"] or now < row["grace_ends_at"]:
+        return True, "provisional"
+    return True, "finalized"
+
+
+def _league_family_view(
+    ruleset,
+    highest_rank,
+    awards,
+    standing_row,
+    season,
+    *,
+    available: bool,
+    status: str,
+) -> dict:
+    """Permanent league tiers beside the current season's provisional progress."""
+    tiers = []
+    for rank, (tier_id, tier_name, minimum) in enumerate(policy.TIERS, 1):
+        achievement = LEAGUE_ACHIEVEMENT_BY_KEY[(ruleset, tier_id)]
+        tiers.append(
+            {
+                "id": tier_id,
+                "name": tier_name,
+                "minimum_points": minimum,
+                "achievement_id": achievement.id,
+                "points": achievement.points,
+                "unlocked": achievement.id in awards,
+                "current": rank == highest_rank,
+            }
+        )
+    standing = (
+        policy.Standing(
+            standing_row["points"],
+            standing_row["wins"],
+            standing_row["draws"],
+            standing_row["losses"],
+        )
+        if available and standing_row is not None
+        else None
+    )
+    tier = standing.tier if standing is not None and standing.played else None
+    next_tier = None
+    if standing is not None:
+        current_minimum = next(
+            value for identifier, _, value in policy.TIERS if identifier == standing.tier
+        )
+        next_tier = next(
+            (
+                {
+                    "id": tier_id,
+                    "name": tier_name,
+                    "minimum_points": minimum,
+                    "points_needed": minimum - standing.points,
+                    "progress_points": standing.points - current_minimum,
+                    "progress_total": minimum - current_minimum,
+                }
+                for tier_id, tier_name, minimum in policy.TIERS
+                if minimum > standing.points
+            ),
+            None,
+        )
+    return {
+        "ruleset": ruleset,
+        "ruleset_name": ruleset.title(),
+        "tiers": tiers,
+        "highest_tier": policy.tier_for_rank(highest_rank),
+        "highest_tier_name": (policy.TIERS[highest_rank - 1][1] if highest_rank else None),
+        "permanent_progress": highest_rank,
+        "permanent_total": len(policy.TIERS),
+        "season": {
+            "id": season.identifier,
+            "available": available,
+            "status": status,
+            "points": standing.points if standing is not None else None,
+            "tier": tier,
+            "tier_name": (
+                next(name for identifier, name, _ in policy.TIERS if identifier == tier)
+                if tier is not None
+                else None
+            ),
+            "qualified": standing.qualified if standing is not None else None,
+            "played": standing.played if standing is not None else None,
+            "qualifying_results": policy.QUALIFYING_RESULTS,
+            "next_tier": next_tier,
+        },
+    }
+
+
 class Progression:
     """Own achievement progress, portrait catalog, unlocks and selection."""
 
@@ -449,18 +606,26 @@ class Progression:
                 row["wins"] for row in rows if row["side"] == "attackers"
             )
         if key not in cache:
-            statement, scope_column = _CRITERIA[achievement.criterion]
-            if statement is None:
-                # A best run is folded from the ordered ledger, not counted.
-                cache[key] = rated_streaks(c, account_id)[2]
+            if achievement.criterion == "league_tier":
+                row = c.execute(
+                    """SELECT highest_tier FROM league_achievement_progress
+                       WHERE account_id=? AND ruleset=?""",
+                    (account_id, achievement.scope),
+                ).fetchone()
+                cache[key] = row[0] if row is not None else 0
             else:
-                values = [account_id]
-                if achievement.scope is not None:
-                    if scope_column is None:
-                        raise ValueError(f"{achievement.id!r} cannot be scoped")
-                    statement += f" AND {scope_column}=?"
-                    values.append(achievement.scope)
-                cache[key] = c.execute(statement, values).fetchone()[0]
+                statement, scope_column = _CRITERIA[achievement.criterion]
+                if statement is None:
+                    # A best run is folded from the ordered ledger, not counted.
+                    cache[key] = rated_streaks(c, account_id)[2]
+                else:
+                    values = [account_id]
+                    if achievement.scope is not None:
+                        if scope_column is None:
+                            raise ValueError(f"{achievement.id!r} cannot be scoped")
+                        statement += f" AND {scope_column}=?"
+                        values.append(achievement.scope)
+                    cache[key] = c.execute(statement, values).fetchone()[0]
         return cache[key]
 
     def _projection(self, c: sqlite3.Connection, account_id: str, now: int) -> dict:
@@ -476,7 +641,31 @@ class Progression:
                 (account_id,),
             )
         }
-        cache: dict = {}
+        current_season = policy.season_for(instant(now))
+        season_available, season_status = _league_season_state(c, current_season, now)
+        league_peaks = {
+            row["ruleset"]: row["highest_tier"]
+            for row in c.execute(
+                """SELECT ruleset,highest_tier FROM league_achievement_progress
+                   WHERE account_id=?""",
+                (account_id,),
+            )
+        }
+        league_standings = (
+            {
+                row["ruleset"]: row
+                for row in c.execute(
+                    """SELECT ruleset,points,wins,draws,losses FROM league_standings
+                       WHERE season_id=? AND account_id=?""",
+                    (current_season.identifier, account_id),
+                )
+            }
+            if season_available
+            else {}
+        )
+        cache: dict = {
+            ("league_tier", ruleset): league_peaks.get(ruleset, 0) for ruleset in RULESETS
+        }
         items: list[dict] = []
         for achievement in ACHIEVEMENTS:
             awarded_at = awards.get(achievement.id)
@@ -495,6 +684,11 @@ class Progression:
                     "unlocked": awarded_at is not None,
                     "awarded_at": stamp(instant(awarded_at)) if awarded_at is not None else None,
                     "portrait_id": PORTRAIT_BY_ACHIEVEMENT.get(achievement.id),
+                    "ruleset": achievement.ruleset,
+                    "league_tier": achievement.league_tier,
+                    "league_tier_name": achievement.league_tier_name,
+                    "minimum_points": achievement.minimum_points,
+                    "family_name": achievement.family_name,
                 }
             )
         families = []
@@ -509,10 +703,23 @@ class Progression:
                 ),
                 None,
             )
+            league = (
+                _league_family_view(
+                    tiers[0]["ruleset"],
+                    league_peaks.get(tiers[0]["ruleset"], 0),
+                    awards,
+                    league_standings.get(tiers[0]["ruleset"]),
+                    current_season,
+                    available=season_available,
+                    status=season_status,
+                )
+                if tiers[0]["category"] == "league"
+                else None
+            )
             families.append(
                 {
                     "id": family_id,
-                    "name": tiers[0]["name"],
+                    "name": tiers[0]["family_name"] or tiers[0]["name"],
                     "progress": tiers[0]["progress"],
                     "awarded_tier": max((item["tier"] for item in awarded), default=0),
                     "awarded_threshold": max((item["threshold"] for item in awarded), default=0),
@@ -529,6 +736,7 @@ class Progression:
                     "next_milestone": next_tier,
                     "complete": len(awarded) == len(tiers),
                     "milestones": tiers,
+                    "league": league,
                 }
             )
         return {
@@ -672,6 +880,10 @@ def award_achievements(
                 ):
                     skip_streak = True
         for achievement in ACHIEVEMENTS:
+            if achievement.criterion == "league_tier":
+                # League tiers are recorded with their authoritative standings
+                # in the settlement transaction, never inferred from a counter.
+                continue
             if achievement.id in awarded:
                 continue
             if criteria is not None and achievement.criterion not in criteria:
@@ -684,6 +896,323 @@ def award_achievements(
                        account_id,achievement_id,awarded_at,catalog_version) VALUES(?,?,?,?)""",
                     (account_id, achievement.id, now, ACHIEVEMENT_CATALOG_VERSION),
                 )
+
+
+def _account_reconciliation_pending(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    *,
+    any_pending: bool,
+    sequence: int | None = None,
+    exclude_game: str | None = None,
+) -> bool:
+    """Check only this account's indexed league games in one season/ruleset."""
+    exclude = "AND q.game_id<>?" if exclude_game is not None else ""
+    args: list[str | int] = [account_id, season_id, ruleset]
+    if exclude_game is not None:
+        args.append(exclude_game)
+    args.extend((account_id, season_id, ruleset))
+    if exclude_game is not None:
+        args.append(exclude_game)
+    condition = (
+        "1=1"
+        if any_pending
+        else ("(result_revision IS NOT NULL AND official_revision IS NOT result_revision)")
+    )
+    if sequence is not None:
+        condition += " OR (rating_state='applied' AND rating_sequence<?)"
+        args.append(sequence)
+    return (
+        c.execute(
+            f"""WITH pending AS (
+              SELECT q.game_id,l.result_revision,
+                g.result_revision AS official_revision,r.state AS rating_state,
+                r.sequence AS rating_sequence
+              FROM league_games l
+              JOIN league_settlement_queue q ON q.game_id=l.game_id
+              JOIN online_games g ON g.id=l.game_id
+              LEFT JOIN rating_events r ON r.game_id=l.game_id
+              WHERE l.first_account=? AND l.season_id=? AND l.ruleset=? {exclude}
+              UNION ALL
+              SELECT q.game_id,l.result_revision,
+                g.result_revision AS official_revision,r.state AS rating_state,
+                r.sequence AS rating_sequence
+              FROM league_games l
+              JOIN league_settlement_queue q ON q.game_id=l.game_id
+              JOIN online_games g ON g.id=l.game_id
+              LEFT JOIN rating_events r ON r.game_id=l.game_id
+              WHERE l.second_account=? AND l.season_id=? AND l.ruleset=? {exclude}
+            )
+            SELECT 1 FROM pending WHERE ({condition}) LIMIT 1""",
+            args,
+        ).fetchone()
+        is not None
+    )
+
+
+def league_achievement_evidence_pending(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    *,
+    sequence: int | None = None,
+    exclude_game: str | None = None,
+) -> bool:
+    """Whether unresolved evidence could invalidate an ordinary append.
+
+    A previously settled revision mismatch always blocks. When appending a result
+    with ``sequence``, any earlier applied but unsettled official result also
+    blocks because the eventual stable fold inserts it before this result.
+    """
+    return _account_reconciliation_pending(
+        c,
+        account_id,
+        season_id,
+        ruleset,
+        any_pending=False,
+        sequence=sequence,
+        exclude_game=exclude_game,
+    )
+
+
+def league_achievement_reconciliation_pending(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+) -> bool:
+    """Whether any official result in this account/scope still awaits settlement."""
+    return _account_reconciliation_pending(
+        c,
+        account_id,
+        season_id,
+        ruleset,
+        any_pending=True,
+    )
+
+
+def league_season_rebuilding(c: sqlite3.Connection, season_id: str) -> bool:
+    return (
+        c.execute("SELECT 1 FROM league_rebuild_jobs WHERE season_id=?", (season_id,)).fetchone()
+        is not None
+    )
+
+
+def league_evidence_generation(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+) -> int:
+    row = c.execute(
+        """SELECT generation FROM league_achievement_evidence
+           WHERE account_id=? AND season_id=? AND ruleset=?""",
+        (account_id, season_id, ruleset),
+    ).fetchone()
+    return row[0] if row is not None else 0
+
+
+def invalidate_league_evidence(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    now: int,
+) -> None:
+    """Bump and wake only a reconciliation scope that has accumulated work."""
+    if (
+        c.execute(
+            """SELECT 1 FROM league_achievement_reconciliation
+               WHERE account_id=? AND season_id=? AND ruleset=?""",
+            (account_id, season_id, ruleset),
+        ).fetchone()
+        is None
+    ):
+        return
+    c.execute(
+        """INSERT INTO league_achievement_evidence(account_id,season_id,ruleset,generation)
+           VALUES(?,?,?,1)
+           ON CONFLICT(account_id,season_id,ruleset) DO UPDATE SET
+             generation=generation+1""",
+        (account_id, season_id, ruleset),
+    )
+    c.execute(
+        """UPDATE league_achievement_reconciliation
+           SET due_at=MIN(due_at,?),attempts=0,last_error=NULL
+           WHERE account_id=? AND season_id=? AND ruleset=? AND due_at>?""",
+        (now, account_id, season_id, ruleset, now),
+    )
+
+
+def bump_league_evidence_for_season(c: sqlite3.Connection, season_id: str) -> None:
+    """Invalidate all partially verified scopes of one season in one statement."""
+    c.execute(
+        """INSERT INTO league_achievement_evidence(
+             account_id,season_id,ruleset,generation)
+           SELECT account_id,season_id,ruleset,1
+           FROM league_achievement_reconciliation
+           WHERE season_id=?
+           ON CONFLICT(account_id,season_id,ruleset) DO UPDATE SET
+             generation=generation+1""",
+        (season_id,),
+    )
+
+
+def record_league_candidate(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    peak_tier: str | None,
+    now: int,
+) -> None:
+    """Persist a candidate peak without granting a permanent achievement.
+
+    Candidates keep peaks discovered by incomplete recovery and queued
+    corrections. A bounded reconciliation pass validates them against effective
+    official results before any award is written.
+    """
+    rank = _league_tier_rank(peak_tier)
+    if not rank:
+        return
+    c.execute(
+        """INSERT INTO league_achievement_reconciliation(
+             account_id,season_id,ruleset,candidate_tier,due_at)
+           VALUES(?,?,?,?,?)
+           ON CONFLICT(account_id,season_id,ruleset) DO UPDATE SET
+             candidate_tier=CASE
+               WHEN excluded.candidate_tier>COALESCE(candidate_tier,0)
+               THEN excluded.candidate_tier ELSE candidate_tier END,
+             due_at=MIN(due_at,excluded.due_at),attempts=0,last_error=NULL""",
+        (account_id, season_id, ruleset, rank, now),
+    )
+
+
+def record_league_tier(
+    c: sqlite3.Connection,
+    account_id: str,
+    season_id: str,
+    ruleset: str,
+    standing,
+    now: int,
+    *,
+    game_id: str | None = None,
+    peak_tier: str | None = None,
+    sequence: int | None = None,
+    replay: bool = False,
+) -> bool:
+    """Award a qualified league peak only from consistent authoritative evidence.
+
+    If a previously settled result in the same account/scope awaits correction,
+    or an administrative rebuild is incomplete, the candidate is durable and a
+    later bounded reconciliation validates it against effective results.
+    """
+    if ruleset not in RULESETS:
+        return False
+    candidate = peak_tier
+    final_tier = standing.tier if standing.qualified else None
+    if _league_tier_rank(final_tier) > _league_tier_rank(candidate):
+        candidate = final_tier
+    rank = _league_tier_rank(candidate)
+    if not rank:
+        return False
+    previous = c.execute(
+        "SELECT highest_tier FROM league_achievement_progress WHERE account_id=? AND ruleset=?",
+        (account_id, ruleset),
+    ).fetchone()
+    if previous is not None and previous[0] >= rank:
+        return False
+    if replay:
+        # Replay can include results after the currently processed sequence and
+        # can process a void with no sequence. Always resolve it through the
+        # authoritative bounded reconciliation path.
+        record_league_candidate(c, account_id, season_id, ruleset, candidate, now)
+        return False
+    if league_season_rebuilding(c, season_id) or league_achievement_evidence_pending(
+        c, account_id, season_id, ruleset, sequence=sequence, exclude_game=game_id
+    ):
+        record_league_candidate(c, account_id, season_id, ruleset, candidate, now)
+        return False
+    return record_league_peak(c, account_id, ruleset, candidate, now)
+
+
+def record_league_peak(
+    c: sqlite3.Connection,
+    account_id: str,
+    ruleset: str,
+    peak_tier: str | None,
+    now: int,
+) -> bool:
+    """Record a validated peak and materialize every preceding achievement tier."""
+    rank = _league_tier_rank(peak_tier)
+    if ruleset not in RULESETS or not rank:
+        return False
+    previous = c.execute(
+        "SELECT highest_tier FROM league_achievement_progress WHERE account_id=? AND ruleset=?",
+        (account_id, ruleset),
+    ).fetchone()
+    if previous is not None and previous[0] >= rank:
+        return False
+    c.execute(
+        """INSERT INTO league_achievement_progress(account_id,ruleset,highest_tier,achieved_at)
+           VALUES(?,?,?,?)
+           ON CONFLICT(account_id,ruleset) DO UPDATE SET
+             highest_tier=excluded.highest_tier,achieved_at=excluded.achieved_at
+           WHERE excluded.highest_tier>league_achievement_progress.highest_tier""",
+        (account_id, ruleset, rank, now),
+    )
+    award_league_achievements(c, account_id, ruleset, now, rank)
+    return True
+
+
+def award_league_achievements(
+    c: sqlite3.Connection,
+    account_id: str,
+    ruleset: str,
+    now: int,
+    highest_tier: int | None = None,
+) -> None:
+    """Materialize all qualified league tiers up to the stored permanent peak."""
+    if ruleset not in RULESETS:
+        return
+    if highest_tier is None:
+        row = c.execute(
+            "SELECT highest_tier FROM league_achievement_progress WHERE account_id=? AND ruleset=?",
+            (account_id, ruleset),
+        ).fetchone()
+        if row is None:
+            return
+        highest_tier = row[0]
+    for rank, (tier_id, _, _) in enumerate(policy.TIERS, 1):
+        if rank > highest_tier:
+            break
+        achievement = LEAGUE_ACHIEVEMENT_BY_KEY[(ruleset, tier_id)]
+        c.execute(
+            """INSERT OR IGNORE INTO achievement_awards(
+               account_id,achievement_id,awarded_at,catalog_version) VALUES(?,?,?,?)""",
+            (account_id, achievement.id, now, ACHIEVEMENT_CATALOG_VERSION),
+        )
+
+
+def reconstruct_league_achievements(c: sqlite3.Connection, now: int) -> None:
+    """Queue bounded verification of historical league scopes after migration.
+
+    The migration does not trust `league_contributions`: it may be stale during a
+    pending correction or partially cleared by an interrupted rebuild. One
+    reconciliation row per account/season/ruleset lets the worker recompute peaks
+    from effective official results after the scope becomes consistent.
+    """
+    c.execute(
+        """INSERT OR IGNORE INTO league_achievement_reconciliation(
+             account_id,season_id,ruleset,candidate_tier,due_at)
+           SELECT first_account,season_id,ruleset,NULL,? FROM league_games
+           UNION
+           SELECT second_account,season_id,ruleset,NULL,? FROM league_games""",
+        (now, now),
+    )
 
 
 def reconcile_legacy_achievements(c: sqlite3.Connection, now: int) -> None:

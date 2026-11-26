@@ -70,7 +70,7 @@ class LeagueWorker:
             else:
                 if rebuild == "retry":
                     state = "rebuild_retry"
-                elif result["settlement_retries"]:
+                elif result["settlement_retries"] or result["achievement_retries"]:
                     state = "settlement_retry"
                 elif (
                     rebuild == "processed"
@@ -78,6 +78,7 @@ class LeagueWorker:
                     or result["expired"]
                     or result["reconciled"]
                     or result["matched"]
+                    or result["achievements"]
                 ):
                     state = "processed"
                 else:
