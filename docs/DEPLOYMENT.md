@@ -187,7 +187,7 @@ first require `hnefatafl-update --recover` after inspecting its journal.
 | `/var/lib/hnefatafl/tournaments` | Retained tournament worker output |
 | `/var/lib/hnefatafl/browser_runtime` | Optional staged browser-analysis runtime; content-addressed versions plus an atomic `current` symlink |
 | `/var/lib/hnefatafl/browser_models` | Explicitly published browser inference artifacts, publication index and audit trail |
-| `/var/lib/hnefatafl/backups` | Root-only verified full pre-migration snapshots and manual backups |
+| `/var/lib/hnefatafl-backups` | Root-only verified full pre-migration snapshots and manual backups (sibling of the writable data root; a legacy `backups/` inside it is migrated once) |
 | journald | API and service logs |
 
 Set `HNEFATAFL_DATA_DIR` for development/test isolation. Production uses its fixed
@@ -381,9 +381,14 @@ bash scripts/linux/install.sh --refresh-updater-only
 /usr/local/bin/hnefatafl-update
 ```
 
-`--refresh-updater-only` installs only `/usr/local/lib/hnefatafl/deployment.py`
-and the `hnefatafl-update`/`hnefatafl-backup` wrappers, atomically and after a
-syntax check. It does not download or build the application, does not stop the
+`--refresh-updater-only` installs only the root-owned utility set:
+`/usr/local/lib/hnefatafl/deployment.py`, the schema-aware
+`updater_support/` restore modules and the `hnefatafl-update`/`hnefatafl-backup`
+wrappers. The files are validated first (Python compile plus wrapper syntax) and
+published as one recoverable set under the same exclusive lock used by the CLI, so
+installer refresh, update, backup and recovery cannot overlap. A protocol
+downgrade is refused: an older utility cannot interpret newer transaction or
+retention metadata. It does not download or build the application, does not stop the
 service and does not rewrite `/etc/hnefatafl` configuration, installed state or
 transaction metadata. It is the supported low-space recovery path. New updaters
 installed this way also refresh those files from the verified prepared release
@@ -400,9 +405,14 @@ digest reported by the GitHub release API, extract it into a temporary directory
 transfer only those reviewed files with `pct push`/`pct exec`; do not download and
 execute an unverified script as root. A single exclusive lock protects install,
 update, backup, cleanup, recovery and updater refresh.
-The target builds in its own staging release directory and is published by an atomic rename, so absolute venv
-paths remain valid and the active release is untouched on build failure. Dependency
-lockfiles, security tests and frontend builds must pass first.
+The target builds directly at its permanent release path, so the virtual
+environment, generated console shebangs and activation scripts keep stable
+absolute paths. Publication is the atomic creation of `.release.json`; a directory
+without that completion marker is incomplete and is never activated. Before the
+marker is written, `python`, `uvicorn`, the Hnefatafl console command, database
+migration imports and the service imports are executed and checked. The active
+release is untouched on build failure. Dependency lockfiles, security tests and
+frontend builds must pass first.
 
 Before activation, active/queued training and tournaments are refused. After
 stopping the service, activity is checked again, then a full data/config snapshot
@@ -431,6 +441,7 @@ remains untouched. Configure limits and safety margins there as root:
   "public_url": "https://tafl.example.org",
   "retention": {"releases": 3, "backups": 3},
   "storage": {
+    "backup_directory": "/srv/hnefatafl-backups",
     "headroom_mib": 256,
     "snapshot_margin_percent": 15,
     "cache_headroom_mib": 512,
@@ -447,7 +458,10 @@ remains untouched. Configure limits and safety margins there as root:
 ```
 
 Unknown keys are preserved. Invalid values are refused instead of being silently
-coerced. The limits are per category; automatic pre-deployment snapshots and
+coerced. `backup_directory` is optional: the default is the root-owned sibling
+`/var/lib/hnefatafl-backups`, outside the application-writable data root. Set it to
+place snapshots on a separate, independently monitored filesystem; the preflight
+then evaluates that destination, not the data filesystem. The limits are per category; automatic pre-deployment snapshots and
 manual `hnefatafl-backup` backups share the same three-backup budget.
 
 **Protected artifacts are never removed to satisfy a limit:**
@@ -471,7 +485,16 @@ exists.
 
 A backup counts against retention only after its `manifest.json`, data/configuration
 directories, file SHA-256 hashes and SQLite integrity have verified. A manifest
-alone is insufficient. Recognised incomplete snapshots older than one hour are
+alone is insufficient. New snapshots also record `snapshot.json` with the release,
+archive digest, database schema and transaction association. Rollback and recovery
+verify that association, the snapshot ownership/location, completeness, SQLite
+integrity and restore-specific free space before stopping a healthy service.
+Legacy snapshots without association metadata are accepted only as the exact
+snapshot recorded in the root-owned installed state, with an explicit warning;
+otherwise the operation is refused with manual-recovery guidance. Verified
+results are cached for one operation and invalidated by an aggregate metadata
+signature of the whole snapshot, so a rewritten file forces re-hashing while
+repeated cleanup passes do not re-read unchanged content. Recognised incomplete snapshots older than one hour are
 removed; recent staging, invalid manifests and unrecognised directories are retained
 and reported for manual inspection. Partially completed artifacts referenced by a
 live transaction are never deleted.
@@ -480,9 +503,17 @@ live transaction are never deleted.
 
 Before downloading a release, the updater estimates the compressed archive,
 extraction, frozen virtual environment, npm dependencies, frontend build, dependency
-cache growth, temporary build files and the subsequent snapshot. It measures
-historical prepared peaks where available and applies a configured floor and
-headroom; it does not assume gzip size equals installed size. After preparation,
+cache growth, temporary build files and the subsequent snapshot. It counts
+directories as inode consumers as well as files and symlinks, uses allocated blocks
+(not only apparent size) plus per-file/directory overhead, measures historical
+prepared peak bytes **and inodes** where recorded, and applies the configured floor
+and headroom. It does not assume gzip size equals installed size. Filesystems that
+do not report an inode budget are labelled as such instead of silently passing an
+inode check; quota-limited filesystems still enforce the byte check. Requirements
+are attributed to the actual destination filesystems, including separately mounted
+release, cache, backup, configuration and temporary paths, and are recalculated
+after cleanup changes the assumptions. Restore requirements are computed from the
+actual snapshot and its destination. After preparation,
 and again after stopping the service, it rechecks the snapshot while the deployment
 gate is held. Byte and inode availability are evaluated per filesystem, so `/opt`,
 `/var/lib`, `/etc` and `/tmp` on separate mounts cannot borrow each other's space.
@@ -516,15 +547,27 @@ hnefatafl-update --cleanup
 ```
 
 Dry-run lists releases and backups, configured limits, protected references and
-reasons, cleanup candidates, invalid/unrecognised artifacts and estimated
-reclaimable space. It performs no deletion and does not restart the service. The
+reasons, cleanup candidates, invalid/unrecognised artifacts, estimated apparent
+reclamation, actual reclaimed filesystem space (executing form), hardlinked content
+and the artifact-state counts (verified/invalid/incomplete/protected/unrecognised).
+It performs no deletion, does not restart the service and does not truncate the
+deployment lock file. The
 executing form applies the same retention policy and unused uv/npm cache maintenance.
 Both use the exclusive deployment lock and may run while the application is serving;
 neither stops games/training nor executes a deployment or migration. Cleanup is
 idempotent. It refuses destructive action while a transaction is unfinished or
 state metadata is invalid, and never follows symlinks, crosses unexpected mount
-boundaries or removes paths outside managed release/backup/cache directories.
-`--check` and `--list` remain read-only and never trigger cleanup.
+boundaries or removes paths outside validated managed directories. Managed roots
+must be real, correctly owned, non-writable directories with trusted ancestors;
+nested mounts (including same-filesystem bind mounts and file mounts) are read from
+the kernel mount table and refused. Deletion walks by directory descriptor with
+`O_NOFOLLOW`, verifies artifact identity before removal and fails closed if the
+mount table or a metadata entry cannot be inspected. Staging-shaped directories are
+removed only when they carry the operation marker written at creation; unknown
+name-matched directories are retained. `.retained-*` directories containing
+persistent data are never pruned automatically, and abandoned `.restore-*`
+candidates are removed only with a valid transaction marker that no live journal
+references. `--check` and `--list` remain read-only and never trigger cleanup.
 
 ### Releases versus persistent data and off-host copies
 
@@ -539,8 +582,34 @@ and `pvesm status` on the host.
 
 An OS file lock drains admitted HTTP mutations before activity is checked. During
 activation, recovery and backup, new mutations receive 503; health/authenticated
-read probes remain available. The lock's inode survives data restoration. This
-prevents a new training request from racing the update's graceful service stop.
+read probes remain available. The lock's inode survives data restoration; an
+interrupted restore that has already renamed the data root keeps the locked gate in
+the retained or staging directory so recovery remains serialized. This prevents a
+new training request from racing the update's graceful service stop.
+
+### Manual backups and recovery transactions
+
+`hnefatafl-backup` (and `hnefatafl-update --backup`) now performs the same storage
+preflight as an update **before** interrupting the service, repeated under the
+deployment gate and after shutdown, against the actual backup filesystem. If space
+or inodes are insufficient it refuses while the service keeps running. On snapshot
+failure only the marked incomplete staging directory is removed; previously
+verified backups are preserved, the service is restarted and readiness-verified,
+and the original failure is reported separately from any recovery failure. A
+backup is never reported successful if application recovery failed. Retention runs
+after a successful manual backup and protects the new backup for that pass.
+
+Restore and rollback write explicit journal phases before each destructive or
+availability-affecting transition (staging, stopping, data rename, publication,
+ownership, activation, startup, verification, commit). The restore candidate
+contains a transaction identity marker, so an interrupted run can resume with the
+correct authoritative data directory instead of guessing. The previous data
+directory is retained as `.retained-<id>` for manual recovery and is never pruned
+automatically. The installed standalone CLI can perform SQLite restoration without
+a source checkout: its root-owned `updater_support` package supplies the
+schema-aware online-state retention code, and the account/security-state rules are
+unchanged. Interrupted operations preserve the journal for `hnefatafl-update
+--recover`.
 
 ### Deferred tournament recovery during activation
 

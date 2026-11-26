@@ -69,7 +69,8 @@ class Harness(Deployment):
         self.releases.mkdir(parents=True)
         self.data.mkdir()
         self.etc.mkdir()
-        self.backups.mkdir()
+        self.backups.mkdir(mode=0o700)
+        self.backups.chmod(0o700)
         (self.data / "models").mkdir()
         (self.data / "models/weights").write_bytes(b"retained-model")
         (self.data / "jobs").mkdir()
@@ -118,6 +119,7 @@ class Harness(Deployment):
     def make_backup(self, name, *, complete=True, invalid=False, old=0, payload=b"backup-data"):
         path = self.backups / name
         (path / "data").mkdir(parents=True)
+        path.chmod(0o700)
         (path / "config").mkdir()
         (path / "data/sentinel").write_bytes(payload)
         manifest = {
@@ -508,7 +510,7 @@ def test_recovery_before_migration_does_not_restore_data_and_preserves_state(har
         },
     )
 
-    def forbidden_restore(_backup):
+    def forbidden_restore(_backup, **_kwargs):
         raise AssertionError("pre-migration recovery must not restore persistent data")
 
     monkeypatch.setattr(harness, "restore", forbidden_restore)
@@ -559,10 +561,13 @@ def test_recovery_removes_orphan_staging_artifacts(harness):
     harness.set_state("1.0.0", old)
     staging_release = harness.releases / ".staging-release-0123456789abcdef"
     staging_release.mkdir()
+    harness.fs.write_staging_marker(staging_release, "release")
     staging_backup = harness.backups / ".staging-backup-0123456789abcdef"
     staging_backup.mkdir()
+    harness.fs.write_staging_marker(staging_backup, "backup")
     download = harness.base / "download-abcdefgh"
     download.mkdir()
+    harness.fs.write_staging_marker(download, "download")
     atomic_json(
         harness.journal,
         {"phase": "prepared", "previous": str(old), "target": str(old), "backup": None},
@@ -628,52 +633,81 @@ def test_build_output_pruning_keeps_frontend_distribution_and_frozen_venv(tmp_pa
     assert (target / ".venv/bin/python").exists()
 
 
-def test_installed_updater_refresh_is_atomic_and_preserves_configuration(tmp_path):
-    harness = Harness(tmp_path)
-    target = harness.release("2.0.0")
-    (target / "hnefatafl").mkdir(parents=True, exist_ok=True)
-    (target / "hnefatafl/deployment.py").write_text("# refreshed module\n")
-    (target / "scripts/linux").mkdir(parents=True)
-    (target / "scripts/linux/update.sh").write_text("#!/bin/sh\nexec update\n")
-    (target / "scripts/linux/backup.sh").write_text("#!/bin/sh\nexec backup\n")
+def updater_archive(path, *, abi=2):
+    repo = Path(__file__).resolve().parents[1]
+    entries = {
+        "pyproject.toml": b'[project]\nversion="0.43"\n',
+        "hnefatafl/deployment.py": (repo / "hnefatafl/deployment.py")
+        .read_bytes()
+        .replace(b"UPDATER_ABI = 2", f"UPDATER_ABI = {abi}".encode()),
+        "scripts/linux/update.sh": (repo / "scripts/linux/update.sh").read_bytes(),
+        "scripts/linux/backup.sh": (repo / "scripts/linux/backup.sh").read_bytes(),
+    }
+    for name in (
+        "online_migrations",
+        "league_migrations",
+        "league_policy",
+        "league_recovery_migrations",
+        "rating",
+    ):
+        entries[f"hnefatafl/{name}.py"] = (repo / f"hnefatafl/{name}.py").read_bytes()
+    archive(path, entries)
+    return path
+
+
+def configure_updater(harness, tmp_path):
     harness.manage_updater = True
-    harness.updater_module = tmp_path / "usr/lib/hnefatafl/deployment.py"
+    harness.updater_root = tmp_path / "usr/lib/hnefatafl"
+    harness.updater_module = harness.updater_root / "deployment.py"
+    harness.updater_support = harness.updater_root / "updater_support"
     harness.updater_commands = (
         tmp_path / "usr/bin/hnefatafl-update",
         tmp_path / "usr/bin/hnefatafl-backup",
     )
+    harness.updater_state = tmp_path / "etc/updater.json"
+
+
+def test_installed_updater_refresh_is_atomic_and_preserves_configuration(tmp_path):
+    harness = Harness(tmp_path)
+    configure_updater(harness, tmp_path)
+    harness.release("2.0.0")
+    source = updater_archive(tmp_path / "source.tar.gz")
+    staging = harness._stage_updater_payload(source, "2.0.0", "sha256:" + "a" * 64)
+    plan = harness._updater_publication_plan(staging)
     config_before = (harness.etc / "application.env").read_bytes()
-    harness._refresh_installed_updater(target)
-    assert harness.updater_module.read_bytes() == (target / "hnefatafl/deployment.py").read_bytes()
+    harness._publish_updater_plan(plan, tag="2.0.0")
+    assert harness.updater_module.read_bytes() == (staging / "hnefatafl/deployment.py").read_bytes()
     assert harness.updater_commands[0].stat().st_mode & 0o111
+    assert (harness.updater_support / "online_migrations.py").is_file()
     assert (harness.etc / "application.env").read_bytes() == config_before
-    harness._refresh_installed_updater(target)
+    assert json.loads(harness.updater_state.read_text())["abi"] == 2
+    # A second publication of the same verified set is idempotent.
+    harness._publish_updater_plan(plan, tag="2.0.0")
     assert harness.updater_module.exists()
+    assert not list(harness.updater_root.glob("*.new-*"))
+    assert not list(harness.updater_root.glob("*.previous-*"))
 
 
 def test_refresh_updater_command_installs_only_verified_utilities(tmp_path):
     harness = Harness(tmp_path)
-    harness.manage_updater = True
-    harness.updater_module = tmp_path / "usr/lib/hnefatafl/deployment.py"
-    harness.updater_commands = (
-        tmp_path / "usr/bin/hnefatafl-update",
-        tmp_path / "usr/bin/hnefatafl-backup",
-    )
-    source = tmp_path / "source.tar.gz"
-    archive(
-        source,
-        {
-            "pyproject.toml": b'[project]\nversion="0.43"\n',
-            "hnefatafl/deployment.py": b"# verified updater\n",
-            "scripts/linux/update.sh": b"#!/usr/bin/env bash\nexit 0\n",
-            "scripts/linux/backup.sh": b"#!/usr/bin/env bash\nexit 0\n",
-        },
-    )
+    configure_updater(harness, tmp_path)
+    source = updater_archive(tmp_path / "source.tar.gz")
     github = FakeGitHub(source)
     harness.refresh_updater(github, {"tag_name": "0.43", "assets": []})
-    assert harness.updater_module.read_text() == "# verified updater\n"
+    assert harness.updater_module.is_file()
+    assert harness.updater_support.joinpath("online_migrations.py").is_file()
     assert names(harness.releases) == []
     assert github.calls
+
+
+def test_updater_downgrade_is_refused(tmp_path):
+    harness = Harness(tmp_path)
+    configure_updater(harness, tmp_path)
+    harness.updater_root.mkdir(parents=True)
+    atomic_json(harness.updater_state, {"schema": 1, "abi": 2, "version": "0.43"})
+    old = updater_archive(tmp_path / "old.tar.gz", abi=1)
+    with pytest.raises(ValueError, match="downgrade"):
+        harness._stage_updater_payload(old, "0.42", "sha256:" + "b" * 64)
 
 
 def test_prepare_failure_removes_staging_and_preserves_active_release(harness, monkeypatch):
@@ -741,6 +775,16 @@ def test_prepare_publishes_atomically_and_removes_build_only_files(harness):
                 distribution = Path(cwd) / "frontend/dist"
                 distribution.mkdir(parents=True)
                 (distribution / "index.html").write_text("<html></html>")
+            if str(args[0]).endswith(".venv/bin/python") or "uv" in str(args[0]):
+                venv = Path(cwd) / ".venv/bin"
+                venv.mkdir(parents=True, exist_ok=True)
+                python = venv / "python"
+                python.write_text("#!/bin/sh\nexit 0\n")
+                python.chmod(0o755)
+                (venv / "activate").write_text(f"VIRTUAL_ENV={cwd}/.venv\n")
+                uvicorn = venv / "uvicorn"
+                uvicorn.write_text(f"#!{python}\n")
+                uvicorn.chmod(0o755)
 
     harness.run = run
     source = harness.base / "release.tar.gz"
@@ -764,7 +808,11 @@ def test_prepare_publishes_atomically_and_removes_build_only_files(harness):
     assert metadata["version"] == "2.1.0"
     assert metadata["peak_bytes"] > metadata["size_bytes"] > 0
     assert metadata["prepared_at"] > 0
-    assert any(path.name.startswith(".staging-release-") for path in staging_paths)
+    # The environment is built at its permanent path (not renamed into place),
+    # so generated entry points keep stable absolute paths.
+    assert staging_paths and all(path == target for path in staging_paths)
+    assert metadata["peak_inodes"] > 0
+    assert metadata["size_inodes"] > metadata["file_count"]
 
 
 def test_installer_refresh_only_path_installs_utility_without_application_update():
@@ -772,8 +820,12 @@ def test_installer_refresh_only_path_installs_utility_without_application_update
     script = (root / "scripts/linux/install.sh").read_text()
     assert "--refresh-updater-only" in script
     assert "install_deployment_utilities" in script
-    assert "compile(path.read_text()" in script
-    assert "/usr/local/lib/hnefatafl/deployment.py" in script
+    assert "compile(content.decode" in script
+    assert "/usr/local/lib/hnefatafl" in script
+    # Companion restore modules are published with the utility set so the
+    # standalone CLI can restore SQLite snapshots without a source checkout.
+    assert "updater_support" in script
+    assert "flock" in script
     # Configuration, state and transaction files are never copied over by the
     # updater refresh.
     assert (
@@ -886,21 +938,30 @@ def test_unmanifested_backup_content_is_invalid_and_retained(harness):
 
 def test_invalid_updater_source_is_not_installed(tmp_path):
     harness = Harness(tmp_path)
-    target = harness.release("2.0.0")
-    (target / "hnefatafl").mkdir(parents=True, exist_ok=True)
-    (target / "hnefatafl/deployment.py").write_text("def broken(:\n")
-    (target / "scripts/linux").mkdir(parents=True)
-    (target / "scripts/linux/update.sh").write_text("#!/bin/sh\nexit 0\n")
-    (target / "scripts/linux/backup.sh").write_text("#!/bin/sh\nexit 0\n")
-    harness.manage_updater = True
-    harness.updater_module = tmp_path / "usr/lib/hnefatafl/deployment.py"
+    configure_updater(harness, tmp_path)
     harness.updater_module.parent.mkdir(parents=True)
     harness.updater_module.write_text("# original\n")
-    harness.updater_commands = (
-        tmp_path / "usr/bin/hnefatafl-update",
-        tmp_path / "usr/bin/hnefatafl-backup",
+    repo = Path(__file__).resolve().parents[1]
+    source = tmp_path / "broken.tar.gz"
+    archive(
+        source,
+        {
+            "hnefatafl/deployment.py": b"def broken(:\n",
+            "scripts/linux/update.sh": b"#!/bin/sh\nexit 0\n",
+            "scripts/linux/backup.sh": b"#!/bin/sh\nexit 0\n",
+            **{
+                f"hnefatafl/{name}.py": (repo / f"hnefatafl/{name}.py").read_bytes()
+                for name in (
+                    "online_migrations",
+                    "league_migrations",
+                    "league_policy",
+                    "league_recovery_migrations",
+                    "rating",
+                )
+            },
+        },
     )
     with pytest.raises(ValueError, match="invalid deployment utility"):
-        harness._refresh_installed_updater(target)
+        harness._stage_updater_payload(source, "2.0.0", "sha256:" + "c" * 64)
     assert harness.updater_module.read_text() == "# original\n"
     assert not harness.updater_commands[0].exists()

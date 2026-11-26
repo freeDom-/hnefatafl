@@ -119,7 +119,7 @@ stage='Starting LXC'
 (umask 022; exec pct start "$ct_id")
 stage='Transferring bootstrap'
 # Credentials are entered directly on the container console, never stored on PVE.
-tar -czf "$temporary/bootstrap.tar.gz" -C "$script_root" scripts/linux scripts/proxmox/install hnefatafl/deployment.py
+tar -czf "$temporary/bootstrap.tar.gz" -C "$script_root" scripts/linux scripts/proxmox/install hnefatafl/deployment.py hnefatafl/online_migrations.py hnefatafl/league_migrations.py hnefatafl/league_policy.py hnefatafl/league_recovery_migrations.py hnefatafl/rating.py
 pct push "$ct_id" "$temporary/bootstrap.tar.gz" /root/hnefatafl-bootstrap.tar.gz --perms 0600
 pct exec "$ct_id" -- mkdir -p /root/hnefatafl-bootstrap
 pct exec "$ct_id" -- tar -xzf /root/hnefatafl-bootstrap.tar.gz -C /root/hnefatafl-bootstrap

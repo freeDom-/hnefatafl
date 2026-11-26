@@ -90,7 +90,9 @@ Neither installer nor updater publishes a release.
 
 A release does not automatically replace the already installed
 `/usr/local/lib/hnefatafl/deployment.py`: an old updater executes its own installed
-copy. Existing installations adopting deployment/storage changes must first run
+copy. The installed utility is a set: `deployment.py`, the root-owned
+`updater_support/` restore modules and both wrappers. Refresh the whole set
+together; it declares a protocol version (`UPDATER_ABI`) and refuses a downgrade. Existing installations adopting deployment/storage changes must first run
 `bash scripts/linux/install.sh --refresh-updater-only` from the reviewed checkout
 or extracted verified release archive (or use the new updater's
 `--refresh-updater`) without reinstalling the application. State that requirement

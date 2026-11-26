@@ -288,7 +288,7 @@ def test_schema14_profile_backup_requires_manual_upgrade_after_schema15_transiti
         c.execute("PRAGMA user_version=14")
     backup = deployment.snapshot()
     Store(deployment.store.path)
-    with pytest.raises(ValueError, match="Account schema changed"):
+    with pytest.raises(ValueError, match="(Account schema changed|Snapshot schema 14 differs)"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -304,7 +304,7 @@ def test_cross_account_schema_restore_refuses_to_replace_live_security(deploymen
     live = deployment.data / "hnefatafl.sqlite3"
     with sqlite3.connect(live) as c:
         c.execute("ALTER TABLE accounts ADD COLUMN future_security_state TEXT")
-    with pytest.raises(ValueError, match="Account schema changed"):
+    with pytest.raises(ValueError, match="(Account schema changed|Snapshot schema 14 differs)"):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["role"] == "ADMIN"
 
@@ -482,7 +482,7 @@ def test_online_schema_downgrade_restore_refuses_live_root_replacement(deploymen
         c.execute("PRAGMA user_version=9")
     backup = deployment.snapshot()
     Store(deployment.store.path)
-    with pytest.raises(ValueError, match="Online schema changed"):
+    with pytest.raises(ValueError, match="(Online schema changed|Snapshot schema 9 differs)"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -515,7 +515,7 @@ def test_snapshot_without_database_cannot_replace_live_authority(deployment):
     deployment.store.path.rename(held)
     backup = deployment.snapshot()
     held.rename(deployment.store.path)
-    with pytest.raises(ValueError, match="Snapshot has no database"):
+    with pytest.raises(ValueError, match="(Snapshot has no database|snapshot has no regular SQLite database)"):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["active"] == 1
     with deployment.store.connection() as c:
@@ -955,7 +955,7 @@ def test_deployment_step_diagnostics_identify_snapshot_failure(deployment, monke
 def test_recovery_step_diagnostics_identify_snapshot_restore_failure(deployment, monkeypatch):
     from hnefatafl.deployment import DeploymentError
 
-    def fail_restore(_backup):
+    def fail_restore(_backup, **_kwargs):
         raise DeploymentError("snapshot restore failed")
 
     deployment.probe_failures = ["readiness"]
@@ -970,7 +970,7 @@ def test_recovery_step_diagnostics_identify_snapshot_restore_failure(deployment,
 def test_recovery_preserves_actionable_schema_refusal_detail(deployment, monkeypatch):
     from hnefatafl.deployment import DeploymentError
 
-    def fail_restore(_backup):
+    def fail_restore(_backup, **_kwargs):
         raise DeploymentError("Online schema changed; manual recovery is required")
 
     deployment.probe_failures = ["readiness"]
@@ -991,7 +991,7 @@ def test_recovery_preserves_actionable_schema_refusal_detail(deployment, monkeyp
 def test_recovery_diagnostics_do_not_expose_unexpected_payloads(
     deployment, monkeypatch, failure, category
 ):
-    def fail_restore(_backup):
+    def fail_restore(_backup, **_kwargs):
         raise failure
 
     deployment.probe_failures = ["readiness"]
