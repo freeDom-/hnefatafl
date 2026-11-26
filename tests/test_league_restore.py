@@ -34,6 +34,16 @@ def test_restored_leagues_apply_pending_result_and_void_without_reopening_pairin
         "void",
         note="Disposable retained-authority recovery fixture",
     )
+    with rig.core._write() as c:
+        season_id = c.execute(
+            "SELECT season_id FROM league_games WHERE game_id=?", (second["id"],)
+        ).fetchone()[0]
+        c.execute(
+            """INSERT OR REPLACE INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,candidate_tier,due_at,attempts,last_error)
+               VALUES(?,?,'brandubh',2,0,0,NULL)""",
+            (rig.accounts["Archer"]["id"], season_id),
+        )
 
     candidate_store = Store(candidate_path)
     with rig.store.connection() as live, candidate_store.connection() as candidate:
@@ -50,6 +60,13 @@ def test_restored_leagues_apply_pending_result_and_void_without_reopening_pairin
     assert outcome["status"] == "cancelled" and outcome["join_generation"] == withdrawn
     with candidate_store.connection() as c:
         assert c.execute("SELECT enabled FROM online_timeout_gate").fetchone()[0] == 0
+        assert (
+            c.execute(
+                "SELECT candidate_tier FROM league_achievement_reconciliation WHERE account_id=?",
+                (rig.accounts["Archer"]["id"],),
+            ).fetchone()[0]
+            == 2
+        )
         assert (
             c.execute("SELECT request_id FROM league_queue").fetchone()[0] == visitor["request_id"]
         )

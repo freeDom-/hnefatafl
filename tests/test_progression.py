@@ -814,6 +814,7 @@ def test_hall_counter_reads_are_batched_and_read_only(rig):
     assert len(data["items"]) == len(ACHIEVEMENTS)
     assert sum(q.lstrip().upper().startswith("SELECT") for q in queries) < 20
     assert not any(q.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for q in queries)
+    assert not any("FROM league_contributions" in q for q in queries)
 
 
 def test_selected_portraits_propagate_to_online_and_leaderboard_without_private_progress(rig):

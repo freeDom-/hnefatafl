@@ -184,7 +184,19 @@ def test_queue_and_standing_discovery_have_matching_indexes(tmp_path):
         "league_queue_rating_age": "SELECT account_id FROM league_queue INDEXED BY league_queue_rating_age WHERE ruleset='brandubh' AND CAST(rating / 200.0 AS INTEGER)=7 AND (joined_at,account_id)>(1,'') ORDER BY joined_at,account_id LIMIT 9",
         "league_requests_actor_time": "SELECT id FROM league_requests WHERE account_id='alice' ORDER BY created_at DESC,rowid DESC LIMIT 1",
         "league_settlement_due": "SELECT game_id FROM league_settlement_queue WHERE due_at<=1 ORDER BY due_at,game_id LIMIT 20",
-        "league_settlement_season_due": "SELECT game_id FROM league_settlement_queue WHERE season_id='2026-11' ORDER BY due_at,game_id LIMIT 20",
+        "league_settlement_season_due": """SELECT 1 FROM league_settlement_queue q
+            JOIN league_games l ON l.game_id=q.game_id
+            JOIN online_games g ON g.id=q.game_id
+            LEFT JOIN rating_events r ON r.game_id=q.game_id
+            WHERE q.season_id='2026-11' AND l.ruleset='brandubh'
+              AND (l.first_account='alice' OR l.second_account='alice')
+              AND ((l.result_revision IS NOT NULL AND g.result_revision IS NOT l.result_revision)
+                   OR (r.state='applied' AND r.sequence<9))
+              AND q.game_id<>'fixture' LIMIT 1""",
+        "league_achievement_reconciliation_due": """SELECT account_id FROM league_achievement_reconciliation r
+            LEFT JOIN league_rebuild_jobs j ON j.season_id=r.season_id
+            WHERE r.due_at<=1 AND (r.due_at,r.account_id,r.season_id,r.ruleset)>(0,'','','')
+            ORDER BY r.due_at,r.account_id,r.season_id,r.ruleset LIMIT 20""",
         "league_standings_qualified": "SELECT account_id FROM league_standings WHERE season_id='2026-11' AND ruleset='brandubh' AND wins+draws+losses>=3 ORDER BY -points,-wins,losses,account_id LIMIT 20",
         "league_standings_account": "SELECT ruleset,points FROM league_standings WHERE account_id='alice' AND season_id='2026-11'",
         "league_games_first_history": "SELECT game_id FROM league_games WHERE first_account='alice' AND season_id='2026-11' AND ruleset='brandubh' ORDER BY paired_at DESC,game_id DESC LIMIT 20",
@@ -196,3 +208,13 @@ def test_queue_and_standing_discovery_have_matching_indexes(tmp_path):
             plan = " ".join(row[3] for row in c.execute("EXPLAIN QUERY PLAN " + query))
             assert index in plan
             assert "TEMP B-TREE" not in plan
+        tail = " ".join(
+            row[3]
+            for row in c.execute(
+                """EXPLAIN QUERY PLAN SELECT sequence FROM league_contributions
+                   WHERE season_id='2026-11' AND ruleset='brandubh' AND account_id='alice'
+                   ORDER BY sequence DESC LIMIT 1"""
+            )
+        )
+        assert "SCAN league_contributions" not in tail
+        assert "TEMP B-TREE" not in tail

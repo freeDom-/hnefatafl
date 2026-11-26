@@ -8,6 +8,8 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
     const response = await page.request.get('/api/personal/achievements');
     expect(response.ok()).toBe(true);
     const progress: AchievementProgress = await response.json();
+    const leagueFamily = progress.families.find((family) => family.league);
+    const availableSeason = leagueFamily?.league?.season;
     const collected: Record<string, number> = {
       'rated-wins': 4,
       'brandubh-wins': 9,
@@ -77,6 +79,46 @@ for (const theme of ['classic-table', 'iron-ash', 'kings-table', 'saga-hall']) {
       await expect(
         league.locator('.achievement-league-tiers > li[data-state="current"]'),
       ).toHaveCount(1);
+      if (availableSeason) {
+        const setSeason = (available: boolean) => {
+          progress.families = progress.families.map((family) =>
+            family.id === 'brandubh-league' && family.league
+              ? {
+                  ...family,
+                  league: {
+                    ...family.league,
+                    season: available
+                      ? availableSeason
+                      : {
+                          ...availableSeason,
+                          available: false,
+                          status: 'rebuilding',
+                          points: null,
+                          tier: null,
+                          tier_name: null,
+                          qualified: null,
+                          played: null,
+                          next_tier: null,
+                        },
+                  },
+                }
+              : family,
+          );
+        };
+        setSeason(false);
+        await page.evaluate(() => window.dispatchEvent(new Event('progression-changed')));
+        await expect(
+          league.getByText('Personal progression will return after the season rebuild completes.'),
+        ).toBeVisible();
+        await expect(league.locator('progress')).toHaveCount(0);
+        await expect(league.getByText('Permanent league tier')).toBeVisible();
+        setSeason(true);
+        await page.evaluate(() => window.dispatchEvent(new Event('progression-changed')));
+        await expect(league.locator('.achievement-league-season progress')).toHaveCount(1);
+        await expect(
+          league.getByText('Personal progression will return after the season rebuild completes.'),
+        ).toHaveCount(0);
+      }
       const completed = list.locator('[data-family="brandubh-wins"]');
       await expect(completed).toHaveAttribute('data-state', 'complete');
       await expect(completed.locator('progress')).toHaveCount(0);

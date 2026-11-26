@@ -191,12 +191,17 @@ milestone award even when a later result correction lowers the recorded progress
   Two-leg matches use the existing rating policy. Later corrections retain past
   awards and evaluate future milestones against currently valid results. See the
   [measured fast path](benchmarks/progression-streaks.md).
-- Official league settlement records the qualified standing's tier in
+- Official league settlement records the qualified peak in
   `league_achievement_progress` and awards every league tier up to that permanent
   peak in the same transaction. Midgard requires three eligible results, and a
   peak only rises. Season rollover, ordinary demotion and later corrections never
   revoke an award. History-only results, casual games, non-qualifying games and
-  client values contribute nothing.
+  client values contribute nothing. If a previously settled result in the same
+  account/season/ruleset awaits an official correction, or a season rebuild is
+  incomplete, the candidate peak is durably queued instead of awarded. A bounded
+  worker validates it from effective official results after the scope is
+  consistent. Normal appends therefore remain an indexed tail update, not a
+  full-ledger scan.
 - Local/vs-AI completion writes the persisted `recorded_result` and awards the
   owner in the same transaction. Only completed local games or human-versus-AI
   human victories qualify. Replaying, reload, undo/redo and duplicate updates
@@ -224,12 +229,17 @@ includes category, preventing local/online game-ID collisions.
 Schema 20 introduced durable replay-analysis receipts. Schema 21 seeds the updated
 catalogs, then performs a controlled, idempotent reconciliation of historical
 account records inside the migration transaction before advancing `user_version`.
-Schema 24 adds `league_achievement_progress` and reconstructs each account's
-historical league peak from the authoritative contribution ledger in stable result
-sequence. It considers every persisted season, requires qualification, honors the
-grace-qualified ledger and never infers progression from final standings alone.
-The backfill grants all preceding tiers, preserves existing awards and is idempotent;
-reopening an installation without additional ledger data changes nothing.
+Schema 24 adds `league_achievement_progress` and
+`league_achievement_reconciliation`. The migration queues one bounded verification
+row per account, season and ruleset instead of trusting the contribution table or
+final standings. The League worker resolves each row from durable `league_games`
+and effective official rating revisions, folds stable result sequence with the
+zero floor, requires qualification and grants all preceding tiers. Pending
+corrections and administrative rebuilds defer the row until catch-up completes.
+The process is idempotent, preserves unrelated awards and portraits, participates
+in retained-authority restore, and never fabricates a peak when authoritative
+evidence is absent. A historical peak superseded before it was recorded cannot be
+recovered from later effective revisions.
 That historical step still grants the milestones and portrait entitlements an older
 installation would receive on upgrade. Manual portrait unlocking reuses the existing
 `achievement_awards`, `account_portraits` and `account_portrait_selection` tables.

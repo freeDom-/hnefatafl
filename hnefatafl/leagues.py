@@ -18,8 +18,9 @@ from . import league_policy as policy
 from . import lifecycle, rating
 from .engine import RULESETS
 from .league_migrations import RATING_BUCKET
-from .league_results import settle_result
+from .league_results import confirmed_account_progress, settle_result
 from .online_core import DeploymentLocked, OnlineCore, OnlineError, instant, micros, stamp
+from .progression import league_achievement_evidence_pending, record_league_peak
 from .security_context import online_eligible, online_ineligibility
 
 LOGGER = logging.getLogger(__name__)
@@ -79,6 +80,8 @@ class LeagueWork(TypedDict):
     matched: int
     deferred: bool
     settlement_retries: int
+    achievements: int
+    achievement_retries: int
 
 
 class Leagues:
@@ -86,6 +89,7 @@ class Leagues:
         self.online = online
         self.store = online.store
         self._settlement_after: tuple[int, str] | None = None
+        self._achievement_after: tuple[int, str, str, str] | None = None
         self._eligibility_after = 0
         self._match_sweeps: dict[str, MatchSweep] = {}
         self._matching_version: int | None = None
@@ -676,6 +680,107 @@ class Leagues:
         )
         return completed, retries, False
 
+    def _defer_achievement(self, row) -> None:
+        with self.online._write() as c:
+            attempts = min(row["attempts"] + 1, 20)
+            delay = min(300, 2 ** min(attempts, 8))
+            c.execute(
+                """UPDATE league_achievement_reconciliation
+                   SET attempts=?,due_at=?,last_error='achievement_deferred'
+                   WHERE account_id=? AND season_id=? AND ruleset=? AND due_at=? AND attempts=?""",
+                (
+                    attempts,
+                    micros(self.online._now() + timedelta(seconds=delay)),
+                    row["account_id"],
+                    row["season_id"],
+                    row["ruleset"],
+                    row["due_at"],
+                    row["attempts"],
+                ),
+            )
+
+    def _drain_achievement_reconciliation(
+        self, limit: int, stop: Event | None
+    ) -> tuple[int, int, bool]:
+        """Validate queued league peaks one bounded scope at a time."""
+        with self.store.connection() as c:
+            due = c.execute(
+                """SELECT r.account_id,r.season_id,r.ruleset,r.due_at,r.attempts,
+                    j.season_id IS NOT NULL AS rebuilding
+                FROM league_achievement_reconciliation r
+                LEFT JOIN league_rebuild_jobs j ON j.season_id=r.season_id
+                WHERE r.due_at<=? AND (r.due_at,r.account_id,r.season_id,r.ruleset)>(?,?,?,?)
+                ORDER BY r.due_at,r.account_id,r.season_id,r.ruleset LIMIT ?""",
+                (
+                    micros(self.online._now()),
+                    *(self._achievement_after or (0, "", "", "")),
+                    limit,
+                ),
+            ).fetchall()
+        completed = retries = 0
+        for row in due:
+            if stop is not None and stop.is_set():
+                return completed, retries, False
+            if row["rebuilding"]:
+                continue
+            try:
+                with self.online._write() as c:
+                    now = self.online._now()
+                    current = c.execute(
+                        """SELECT due_at,attempts FROM league_achievement_reconciliation
+                           WHERE account_id=? AND season_id=? AND ruleset=?
+                             AND due_at<=? AND NOT EXISTS(
+                               SELECT 1 FROM league_rebuild_jobs WHERE season_id=?
+                             )""",
+                        (
+                            row["account_id"],
+                            row["season_id"],
+                            row["ruleset"],
+                            micros(now),
+                            row["season_id"],
+                        ),
+                    ).fetchone()
+                    if current is None:
+                        continue
+                    if league_achievement_evidence_pending(
+                        c, row["account_id"], row["season_id"], row["ruleset"]
+                    ):
+                        continue
+                    progress = confirmed_account_progress(
+                        c, row["season_id"], row["ruleset"], row["account_id"]
+                    )
+                    if progress.highest_tier is not None:
+                        record_league_peak(
+                            c,
+                            row["account_id"],
+                            row["ruleset"],
+                            progress.highest_tier,
+                            micros(now),
+                        )
+                    c.execute(
+                        """DELETE FROM league_achievement_reconciliation
+                           WHERE account_id=? AND season_id=? AND ruleset=?""",
+                        (row["account_id"], row["season_id"], row["ruleset"]),
+                    )
+                completed += 1
+            except DeploymentLocked:
+                return completed, retries, True
+            except Exception:
+                retries += 1
+                LOGGER.warning("League achievement reconciliation deferred")
+                try:
+                    self._defer_achievement(row)
+                except DeploymentLocked:
+                    return completed, retries, True
+                except Exception:
+                    LOGGER.warning("League achievement retry could not be recorded")
+        self._achievement_after = (
+            (due[-1]["due_at"], due[-1]["account_id"], due[-1]["season_id"], due[-1]["ruleset"])
+            if len(due) == limit
+            else None
+        )
+        return completed, retries, False
+
     def _worker_rulesets(self, c, now: datetime) -> list[str]:
         rulesets = []
         for ruleset in sorted(RULESETS):
@@ -811,8 +916,18 @@ class Leagues:
             "matched": 0,
             "deferred": deferred,
             "settlement_retries": retries,
+            "achievements": 0,
+            "achievement_retries": 0,
         }
         if deferred or (stop is not None and stop.is_set()):
+            return result
+        achievements, achievement_retries, achievement_deferred = (
+            self._drain_achievement_reconciliation(limit, stop)
+        )
+        result["achievements"] = achievements
+        result["achievement_retries"] = achievement_retries
+        result["deferred"] = achievement_deferred
+        if achievement_deferred or (stop is not None and stop.is_set()):
             return result
 
         now = self.online._now()

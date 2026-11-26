@@ -730,6 +730,8 @@ def test_deployment_lock_defers_work_without_attempts(rig):
             "matched": 0,
             "deferred": True,
             "settlement_retries": 0,
+            "achievements": 0,
+            "achievement_retries": 0,
         }
     with rig.store.connection() as c:
         assert tuple(
@@ -824,6 +826,14 @@ def test_authoritative_completion_time_controls_grace_boundary(rig, delta, state
         assert c.execute("SELECT count(*) FROM league_standings").fetchone()[0] == (
             2 if state == "eligible" else 0
         )
+        assert c.execute("SELECT count(*) FROM league_achievement_progress").fetchone()[0] == 0
+        assert (
+            c.execute(
+                """SELECT COUNT(*) FROM achievement_awards a JOIN achievement_catalog c
+               ON c.id=a.achievement_id WHERE c.criterion='league_tier'"""
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_projection_matches_full_replay_after_random_appends_reordering_void_and_repair(
@@ -850,7 +860,7 @@ def test_projection_matches_full_replay_after_random_appends_reordering_void_and
             assert service.drain()["settled"] == 1
     assert fallbacks == []
 
-    def assert_equivalence():
+    def assert_equivalence(check_permanent=False, exact=False):
         with rig.store.connection() as c:
             for row in c.execute("SELECT * FROM league_standings"):
                 contributions = [
@@ -861,19 +871,31 @@ def test_projection_matches_full_replay_after_random_appends_reordering_void_and
                         (row["season_id"], row["ruleset"], row["account_id"]),
                     )
                 ]
-                assert league_results.standing_value(row) == policy.fold_contributions(
-                    contributions
-                )
+                progress = policy.fold_progress(contributions)
+                assert league_results.standing_value(row) == progress.standing
                 assert row["last_sequence"] == max(item.sequence for item in contributions)
+                if check_permanent:
+                    peak = c.execute(
+                        """SELECT highest_tier FROM league_achievement_progress
+                           WHERE account_id=? AND ruleset=?""",
+                        (row["account_id"], row["ruleset"]),
+                    ).fetchone()
+                    actual = peak[0] if peak is not None else 0
+                    expected = policy.tier_rank(progress.highest_tier)
+                    assert actual == expected if exact else actual <= expected
 
-    assert_equivalence()
+    assert_equivalence(check_permanent=True, exact=True)
     shuffled = terminals[12:]
     random_source.shuffle(shuffled)
     for terminal in shuffled:
         with rig.core._write() as c:
             assert service.settle(c, terminal["id"], rig.clock.value)
-        assert_equivalence()
+        # Out-of-order appends with earlier official results still queued may
+        # defer a peak. They must never award more than the current fold.
+        assert_equivalence(check_permanent=True)
     assert len(fallbacks) >= 2
+    service.drain()
+    assert_equivalence(check_permanent=True, exact=True)
     old = terminals[3]
     rig.core.mutate(
         rig.credentials["Odin"], old["id"], old["version"], "void", note="Fixture reason"

@@ -6,6 +6,7 @@ import sqlite3
 from datetime import timedelta
 from typing import Literal
 
+from . import league_policy as policy
 from .league_results import (
     effective_league_result,
     record_contributions,
@@ -16,7 +17,7 @@ from .league_results import (
 from .league_views import LeagueError, LeagueViews, season_view
 from .leagues import ELIGIBILITY_SCAN, queue_eligibility_page
 from .online_core import DeploymentLocked, instant, micros, stamp
-from .progression import record_league_tier
+from .progression import record_league_candidate
 from .security_context import online_ineligibility
 
 LOGGER = logging.getLogger(__name__)
@@ -354,18 +355,35 @@ class LeagueAdministration:
                 "SELECT * FROM league_standings WHERE season_id=? AND ruleset=? AND account_id=?",
                 (identifier, ruleset, account_id),
             ).fetchone()
-            standing = standing_value(previous).apply(outcome)
+            candidate = c.execute(
+                """SELECT candidate_tier FROM league_achievement_reconciliation
+                   WHERE account_id=? AND season_id=? AND ruleset=?""",
+                (account_id, identifier, ruleset),
+            ).fetchone()
+            progress = policy.Progress(
+                standing_value(previous),
+                policy.tier_for_rank(candidate[0] if candidate is not None else None),
+            ).apply(outcome)
             save_standing(
                 c,
                 identifier,
                 ruleset,
                 account_id,
-                standing,
+                progress.standing,
                 sequence,
                 instant(recorded_at),
                 previous,
             )
-            record_league_tier(c, account_id, ruleset, standing, micros(instant(recorded_at)))
+            previous_rank = candidate[0] if candidate is not None and candidate[0] else 0
+            if policy.tier_rank(progress.highest_tier) > previous_rank:
+                record_league_candidate(
+                    c,
+                    account_id,
+                    identifier,
+                    ruleset,
+                    progress.highest_tier,
+                    micros(instant(recorded_at)),
+                )
         if len(rows) < limit:
             self._advance(c, identifier, "catch_up")
         else:
@@ -437,11 +455,11 @@ class LeagueAdministration:
                 )
         except DeploymentLocked:
             raise
-        except Exception:
+        except Exception as error:
             if job is None:
                 raise
             self._defer_rebuild(job)
-            LOGGER.warning("League season recovery deferred")
+            LOGGER.warning("League season recovery deferred (%s)", type(error).__name__)
             return "retry"
         return "processed"
 

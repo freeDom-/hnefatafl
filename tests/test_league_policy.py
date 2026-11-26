@@ -9,8 +9,11 @@ from hnefatafl.league_policy import (
     Standing,
     compatible_ratings,
     fold_contributions,
+    fold_progress,
     rating_window,
     season_for,
+    tier_for_rank,
+    tier_rank,
 )
 
 
@@ -106,3 +109,28 @@ def test_duplicate_or_untrusted_contributions_cannot_award_twice():
         fold_contributions([Contribution("game", 0, "win")])
     with pytest.raises(ValueError, match="Unknown"):
         fold_contributions([Contribution("game", 1, "client-winner")])  # type: ignore[arg-type]
+
+
+def test_progress_peak_uses_authoritative_order_and_qualification():
+    contributions = [Contribution(f"win-{index}", index, "win") for index in range(1, 6)] + [
+        Contribution(f"loss-{index}", index, "loss") for index in range(6, 10)
+    ]
+    progress = fold_progress(list(reversed(contributions)))
+    assert progress.standing.points == 11
+    assert progress.standing.qualified
+    assert progress.highest_tier == "alfheim"
+    assert progress.standing.tier == "nidavellir"
+    # The first two wins do not qualify, even though they already have points.
+    early = fold_progress([Contribution("one", 1, "win"), Contribution("two", 2, "win")])
+    assert early.standing.points == 6 and early.highest_tier is None
+    third = fold_progress(
+        [
+            Contribution("one", 1, "win"),
+            Contribution("two", 2, "win"),
+            Contribution("three", 3, "win"),
+        ]
+    )
+    assert third.highest_tier == "nidavellir"
+    assert [tier_rank(item) for item in ("midgard", "nidavellir", "valhalla")] == [1, 2, 5]
+    assert tier_for_rank(0) is None and tier_for_rank(2) == "nidavellir"
+    assert tier_for_rank(9) is None

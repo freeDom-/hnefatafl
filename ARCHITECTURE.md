@@ -249,13 +249,17 @@ contributions. The latest appended eligible result can update the projection
 directly. Earlier results, corrections and withdrawals replay the affected
 ledger in order to preserve the per-result zero floor. Administrator recovery
 reconstructs the projection from official league provenance and the effective
-online and rating records. Settlement also records the highest qualified tier in
+online and rating records. Settlement records the highest qualified tier in
 `league_achievement_progress` and grants the existing tiered achievement family
 for that ruleset. The permanent peak survives demotion, season rollover and later
 corrections; the Hall of Renown reads it beside the current seasonal standing
-without scanning history. Schema 24 reconstructs historical peaks once from the
-contribution ledger. Play and replay use existing authorized online routes. See
-[league policy, API and recovery](docs/LEAGUES.md).
+without scanning history. If a settled result awaits correction or a season is
+rebuilding, the peak is queued in `league_achievement_reconciliation` and
+validated later from effective official results. Schema 24 queues bounded
+historical verification rather than trusting contribution ledgers or standings.
+The Hall exposes seasonal availability and hides incomplete standings while
+permanent tiers remain visible. Play and replay use existing authorized online
+routes. See [league policy, API and recovery](docs/LEAGUES.md).
 
 ## Training execution and inference
 

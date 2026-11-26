@@ -163,18 +163,27 @@ def rebuild_player(
     account_id: str,
     now: datetime,
     previous: sqlite3.Row | None = None,
-) -> policy.Standing:
-    standing = policy.Standing()
+) -> policy.Progress:
+    progress = policy.Progress()
     last_sequence = None
     for sequence, outcome in c.execute(
         """SELECT sequence,outcome FROM league_contributions
         WHERE season_id=? AND ruleset=? AND account_id=? ORDER BY sequence""",
         (season_id, ruleset, account_id),
     ):
-        standing = standing.apply(outcome)
+        progress = progress.apply(outcome)
         last_sequence = sequence
-    save_standing(c, season_id, ruleset, account_id, standing, last_sequence, now, previous)
-    return standing
+    save_standing(
+        c,
+        season_id,
+        ruleset,
+        account_id,
+        progress.standing,
+        last_sequence,
+        now,
+        previous,
+    )
+    return progress
 
 
 def settle_result(c: sqlite3.Connection, game_id: str, now: datetime) -> bool:
@@ -224,6 +233,7 @@ def settle_result(c: sqlite3.Connection, game_id: str, now: datetime) -> bool:
     record_contributions(c, result)
     for account in result.accounts:
         current = previous[account]
+        peak_tier = None
         if account in append:
             contribution = new_contributions[account]
             standing = standing_value(current).apply(contribution.outcome)
@@ -237,10 +247,58 @@ def settle_result(c: sqlite3.Connection, game_id: str, now: datetime) -> bool:
                 now,
                 current,
             )
+            peak_tier = standing.tier if standing.qualified else None
         else:
-            standing = rebuild_player(c, result.season_id, result.ruleset, account, now, current)
-        record_league_tier(c, account, result.ruleset, standing, micros(now))
+            progress = rebuild_player(c, result.season_id, result.ruleset, account, now, current)
+            standing = progress.standing
+            peak_tier = progress.highest_tier
+        contribution = new_contributions.get(account)
+        record_league_tier(
+            c,
+            account,
+            result.season_id,
+            result.ruleset,
+            standing,
+            micros(now),
+            game_id=game_id,
+            peak_tier=peak_tier,
+            sequence=contribution.sequence if contribution is not None else None,
+        )
     write_game_result(c, result)
     c.execute("UPDATE league_seasons SET revision=revision+1 WHERE id=?", (result.season_id,))
     c.execute("DELETE FROM league_active_players WHERE game_id=?", (game_id,))
     return True
+
+
+def effective_account_contributions(
+    c: sqlite3.Connection, season_id: str, ruleset: str, account_id: str
+) -> list[policy.Contribution]:
+    """Resolve this account's eligible contributions from effective official results.
+
+    `league_games` is the durable provenance index and `effective_league_result`
+    validates each game against the applied rating ledger. The result never trusts
+    cached `league_contributions`, so interrupted rebuilds or pending corrections
+    cannot fabricate evidence. Used only by bounded reconciliation, never by an
+    ordinary append.
+    """
+    rows = c.execute(
+        """SELECT game_id FROM league_games
+           WHERE season_id=? AND ruleset=? AND first_account=?
+           UNION
+           SELECT game_id FROM league_games
+           WHERE season_id=? AND ruleset=? AND second_account=?""",
+        (season_id, ruleset, account_id, season_id, ruleset, account_id),
+    ).fetchall()
+    contributions = []
+    for row in rows:
+        effective = effective_league_result(c, row["game_id"])
+        contribution = dict(effective.contributions).get(account_id)
+        if contribution is not None:
+            contributions.append(contribution)
+    return contributions
+
+
+def confirmed_account_progress(
+    c: sqlite3.Connection, season_id: str, ruleset: str, account_id: str
+) -> policy.Progress:
+    return policy.fold_progress(effective_account_contributions(c, season_id, ruleset, account_id))

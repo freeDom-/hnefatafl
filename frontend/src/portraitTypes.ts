@@ -37,11 +37,13 @@ export type AchievementLeagueTier = {
 };
 export type AchievementLeagueSeason = {
   id: string;
-  points: number;
+  available: boolean;
+  status: 'current' | 'provisional' | 'finalized' | 'rebuilding';
+  points: number | null;
   tier: LeagueTier | null;
   tier_name: string | null;
-  qualified: boolean;
-  played: number;
+  qualified: boolean | null;
+  played: number | null;
   qualifying_results: number;
   next_tier: {
     id: LeagueTier;

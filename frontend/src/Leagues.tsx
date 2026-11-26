@@ -116,8 +116,8 @@ function PersonalProgress({
           <label>
             {t('{tier} · {points} of {minimum} points', {
               tier: t(TIER_LABELS[next.id]),
-              points: number.format(progress.points),
-              minimum: number.format(next.minimum_points),
+              points: number.format(next.progress_points),
+              minimum: number.format(next.progress_total),
             })}
             <progress max={next.progress_total} value={next.progress_points} />
           </label>

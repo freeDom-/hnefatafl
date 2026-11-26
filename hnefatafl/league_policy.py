@@ -118,7 +118,39 @@ class Standing:
         raise ValueError("Unknown league outcome")
 
 
-def fold_contributions(contributions: list[Contribution]) -> Standing:
+def tier_rank(identifier: str | None) -> int:
+    """One-based position in the authoritative tier order, or zero when absent."""
+    return next(
+        (rank for rank, (tier_id, _, _) in enumerate(TIERS, 1) if tier_id == identifier),
+        0,
+    )
+
+
+def tier_for_rank(rank: int | None) -> str | None:
+    return TIERS[rank - 1][0] if rank and 1 <= rank <= len(TIERS) else None
+
+
+@dataclass(frozen=True)
+class Progress:
+    """Final standing plus the highest qualified tier seen in result order.
+
+    Ordinary appends can evaluate only the new final standing because earlier
+    peaks are already durable. Replacements, out-of-order results, migration and
+    administrative recovery fold this helper over the complete ordered evidence.
+    """
+
+    standing: Standing = Standing()
+    highest_tier: str | None = None
+
+    def apply(self, outcome: Outcome) -> "Progress":
+        standing = self.standing.apply(outcome)
+        highest = self.highest_tier
+        if standing.qualified and tier_rank(standing.tier) > tier_rank(highest):
+            highest = standing.tier
+        return Progress(standing, highest)
+
+
+def fold_progress(contributions: list[Contribution]) -> Progress:
     """Rebuild after revisions/voids; subtraction cannot undo a zero floor.
 
     Callers supply the effective, eligible contribution at most once per game.
@@ -126,7 +158,7 @@ def fold_contributions(contributions: list[Contribution]) -> Standing:
     """
     game_ids = set()
     sequences = set()
-    standing = Standing()
+    progress = Progress()
     for item in sorted(contributions, key=lambda row: row.sequence):
         if item.game_id in game_ids or item.sequence in sequences:
             raise ValueError("Duplicate game or authoritative result sequence")
@@ -134,5 +166,9 @@ def fold_contributions(contributions: list[Contribution]) -> Standing:
             raise ValueError("A contribution requires a game and positive ledger sequence")
         game_ids.add(item.game_id)
         sequences.add(item.sequence)
-        standing = standing.apply(item.outcome)
-    return standing
+        progress = progress.apply(item.outcome)
+    return progress
+
+
+def fold_contributions(contributions: list[Contribution]) -> Standing:
+    return fold_progress(contributions).standing

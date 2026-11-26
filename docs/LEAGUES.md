@@ -53,14 +53,39 @@ and later official corrections retain the permanent peak. A voided or corrected
 result that has not yet settled cannot grant a tier. Progress in one ruleset never
 affects another.
 
-Schema 24 reconstructs historical peaks once from the authoritative
-`league_contributions` ledger. It folds each persisted season and ruleset in stable
-result order, remembers the highest qualified tier including a peak later lowered
-by losses, and grants no progression from final standings alone. The migration is
-idempotent and preserves all existing awards. The Hall of Renown shows league tier
-names, artwork and a permanent progression ladder beside the current season's
-points, qualification and next-tier progress. Disabling or pausing leagues never
-hides or deletes previously earned tiers.
+Schema 24 does not treat `league_contributions` as proof by itself. On upgrade it
+queues one bounded reconciliation row per account, season and ruleset. The League
+worker validates each row from `league_games` and
+`effective_league_result()`: the durable game provenance and applied rating
+revision, never cached standings or a partially cleared contribution table. It
+folds eligible contributions in stable result sequence, applies the zero floor
+after every result, requires three eligible results and records the highest
+qualified tier. The process is idempotent and preserves existing awards. A
+corrected historical peak that was never recorded before its superseding revision
+cannot be reconstructed when the old evidence no longer exists.
+
+Ordinary settlement evaluates a new result only when no previously settled result
+for that account, season and ruleset awaits a correction, and no administrative
+rebuild is in progress. Otherwise it stores the candidate peak in
+`league_achievement_reconciliation` and leaves permanent awards unchanged. The
+worker retries after the correction or rebuild settles, blocks rows with pending
+corrections or a rebuilding season, and processes one account/scope per short
+writer transaction. A correction that arrives before the reconciliation
+transaction commits is seen by the same consistency check. A correction that
+arrives after a valid award commits follows the permanent-achievement policy.
+
+Administrative `fold_standings` writes candidate peaks only. They are validated
+after authoritative catch-up, not from the incomplete recovery projection, so a
+correction arriving between contribution restoration and folding cannot create a
+permanent award. The existing durable rebuild cursor and bounded batches remain
+unchanged. Unrelated accounts, rulesets and seasons retain their own rows and are
+not blocked by one rebuilding season.
+
+The Hall of Renown exposes an additive seasonal availability state. During an
+administrative rebuild it keeps permanent tiers and earned achievements visible,
+returns null seasonal points and qualification, hides seasonal progress bars, and
+shows the existing localized rebuild message. After the rebuild completes, the
+existing shared progression refresh shows the new standing without new polling.
 
 Games qualify for seasonal scoring through the instant before the 24-hour grace
 period ends. A game finishing exactly at the grace boundary is late. Existing

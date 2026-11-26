@@ -20,6 +20,7 @@ LEAGUE_TABLES = (
     "league_contributions",
     "league_standings",
     "league_achievement_progress",
+    "league_achievement_reconciliation",
     "league_settlement_queue",
     "league_audit",
     *LEAGUE_RECOVERY_TABLES,
@@ -229,6 +230,17 @@ def migrate_leagues(c):
             achieved_at INTEGER NOT NULL,
             PRIMARY KEY(account_id,ruleset)
         )""",
+        f"""CREATE TABLE IF NOT EXISTS league_achievement_reconciliation (
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            season_id TEXT NOT NULL REFERENCES league_seasons(id),
+            ruleset TEXT NOT NULL CHECK(ruleset IN ('brandubh','tablut','copenhagen')),
+            candidate_tier INTEGER CHECK(candidate_tier BETWEEN 1 AND {len(TIERS)}),
+            due_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+            last_error TEXT,
+            PRIMARY KEY(account_id,season_id,ruleset)
+        )""",
+        """CREATE INDEX IF NOT EXISTS league_achievement_reconciliation_due
+            ON league_achievement_reconciliation(due_at,account_id,season_id,ruleset)""",
         """CREATE TABLE IF NOT EXISTS league_settlement_queue (
             game_id TEXT PRIMARY KEY REFERENCES league_games(game_id), due_at INTEGER NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error TEXT,

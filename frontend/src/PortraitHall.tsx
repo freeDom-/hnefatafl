@@ -358,44 +358,61 @@ export default function PortraitHall() {
                         <div className="achievement-league-season">
                           <p>
                             <strong>{t('Current season')}</strong>
-                            {family.league.season.qualified
-                              ? ` · ${t(family.league.season.tier_name ?? '')}`
+                            {family.league.season.available &&
+                            family.league.season.qualified &&
+                            family.league.season.tier_name
+                              ? ` · ${t(family.league.season.tier_name)}`
                               : ''}
                           </p>
-                          <p>
-                            {t('League points this season: {points}', {
-                              points: number.format(family.league.season.points),
-                            })}
-                          </p>
-                          {family.league.season.played < family.league.season.qualifying_results ? (
-                            <label htmlFor={`achievement-progress-${family.id}`}>
-                              {t('Qualification · {played} of {required} eligible results', {
-                                played: number.format(family.league.season.played),
-                                required: number.format(family.league.season.qualifying_results),
-                              })}
-                              <progress
-                                id={`achievement-progress-${family.id}`}
-                                value={family.league.season.played}
-                                max={family.league.season.qualifying_results}
-                              />
-                            </label>
-                          ) : family.league.season.next_tier ? (
-                            <label htmlFor={`achievement-progress-${family.id}`}>
-                              {t('{tier} · {points} of {minimum} points', {
-                                tier: t(family.league.season.next_tier.name),
-                                points: number.format(family.league.season.points),
-                                minimum: number.format(
-                                  family.league.season.next_tier.minimum_points,
-                                ),
-                              })}
-                              <progress
-                                id={`achievement-progress-${family.id}`}
-                                value={family.league.season.next_tier.progress_points}
-                                max={family.league.season.next_tier.progress_total}
-                              />
-                            </label>
+                          {!family.league.season.available ? (
+                            <p>
+                              {t(
+                                'Personal progression will return after the season rebuild completes.',
+                              )}
+                            </p>
                           ) : (
-                            <p>{t('All league tiers reached this season.')}</p>
+                            <>
+                              <p>
+                                {t('League points this season: {points}', {
+                                  points: number.format(family.league.season.points ?? 0),
+                                })}
+                              </p>
+                              {(family.league.season.played ?? 0) <
+                              family.league.season.qualifying_results ? (
+                                <label htmlFor={`achievement-progress-${family.id}`}>
+                                  {t('Qualification · {played} of {required} eligible results', {
+                                    played: number.format(family.league.season.played ?? 0),
+                                    required: number.format(
+                                      family.league.season.qualifying_results,
+                                    ),
+                                  })}
+                                  <progress
+                                    id={`achievement-progress-${family.id}`}
+                                    value={family.league.season.played ?? 0}
+                                    max={family.league.season.qualifying_results}
+                                  />
+                                </label>
+                              ) : family.league.season.next_tier ? (
+                                <label htmlFor={`achievement-progress-${family.id}`}>
+                                  {t('{tier} · {points} of {minimum} points', {
+                                    tier: t(family.league.season.next_tier.name),
+                                    points: number.format(
+                                      family.league.season.next_tier.progress_points,
+                                    ),
+                                    minimum: number.format(
+                                      family.league.season.next_tier.progress_total,
+                                    ),
+                                  })}
+                                  <progress
+                                    id={`achievement-progress-${family.id}`}
+                                    value={family.league.season.next_tier.progress_points}
+                                    max={family.league.season.next_tier.progress_total}
+                                  />
+                                </label>
+                              ) : (
+                                <p>{t('All league tiers reached this season.')}</p>
+                              )}
+                            </>
                           )}
                         </div>
                         <details>
