@@ -32,6 +32,7 @@ from hnefatafl.progression import (
     LEAGUE_TIER_POINTS,
     PORTRAIT_BY_ACHIEVEMENT,
     Progression,
+    bump_league_evidence_for_season,
     record_league_tier,
 )
 from hnefatafl.storage import Store
@@ -1321,6 +1322,175 @@ def test_sparse_league_evidence_uses_league_sequence_keyset(rig):
             validated_account_contribution(row, acct) is not None
             for row in (*early, *middle, *late)
         )
+
+
+def test_rebuild_invalidation_is_set_based_and_season_scoped(rig):
+    affected = policy.season_for(datetime(2040, 1, 15, tzinfo=timezone.utc))
+    unrelated = policy.season_for(datetime(2040, 2, 15, tzinfo=timezone.utc))
+    rulesets = ("brandubh", "tablut", "copenhagen")
+    account_count = 1_000
+    with rig.store.connection() as c:
+        for season in (affected, unrelated):
+            c.execute(
+                """INSERT OR IGNORE INTO league_seasons
+                   (id,starts_at,ends_at,grace_ends_at,policy_version)
+                   VALUES(?,?,?,?,1)""",
+                (
+                    season.identifier,
+                    micros(season.start),
+                    micros(season.end),
+                    micros(season.grace_end),
+                ),
+            )
+        accounts = [
+            (f"bulk-{index}", f"bulk-{index}", f"bulk-{index}@example.test")
+            for index in range(account_count)
+        ]
+        c.executemany(
+            """INSERT INTO accounts
+               (id,username,email,password_hash,role,created_at,profile_private_fields)
+               VALUES(?,?,?,'fixture','USER',0,'[]')""",
+            accounts,
+        )
+        scopes = [
+            (account, season.identifier, ruleset)
+            for season in (affected, unrelated)
+            for account, _, _ in accounts
+            for ruleset in rulesets
+        ]
+        c.executemany(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,due_at,evidence_generation)
+               VALUES(?,?,?,0,0)""",
+            scopes,
+        )
+        c.executemany(
+            """INSERT INTO league_achievement_evidence
+               (account_id,season_id,ruleset,generation) VALUES(?,?,?,5)""",
+            [scope for scope in scopes if scope[1] == unrelated.identifier],
+        )
+        plan = " ".join(
+            row[3]
+            for row in c.execute(
+                """EXPLAIN QUERY PLAN SELECT account_id
+                   FROM league_achievement_reconciliation WHERE season_id=?""",
+                (affected.identifier,),
+            )
+        )
+        assert "league_achievement_reconciliation_season" in plan
+
+        statements: list[str] = []
+        c.set_trace_callback(statements.append)
+        started = time.perf_counter()
+        bump_league_evidence_for_season(c, affected.identifier)
+        elapsed = time.perf_counter() - started
+        c.set_trace_callback(None)
+        assert (
+            sum("INSERT INTO league_achievement_evidence" in statement for statement in statements)
+            == 1
+        )
+        assert len(statements) <= 3
+        assert elapsed < 5
+
+        affected_count, minimum, maximum = c.execute(
+            """SELECT COUNT(*),MIN(generation),MAX(generation)
+               FROM league_achievement_evidence WHERE season_id=?""",
+            (affected.identifier,),
+        ).fetchone()
+        assert (affected_count, minimum, maximum) == (account_count * len(rulesets), 1, 1)
+        unrelated_count, minimum, maximum = c.execute(
+            """SELECT COUNT(*),MIN(generation),MAX(generation)
+               FROM league_achievement_evidence WHERE season_id=?""",
+            (unrelated.identifier,),
+        ).fetchone()
+        assert (unrelated_count, minimum, maximum) == (account_count * len(rulesets), 5, 5)
+
+
+def test_administrative_rebuild_repairs_corrupt_cached_sequence(rig):
+    service = Leagues(rig.core)
+    acct = rig.accounts["Archer"]["id"]
+    games = []
+    for _ in range(3):
+        games.append(finish_league_game(service, rig, "Keeper"))
+        service.drain()
+    assert peak(rig, acct, "brandubh") == 2
+
+    corrupt = games[1]
+    with rig.store.connection() as c:
+        authoritative = c.execute(
+            "SELECT sequence FROM rating_events WHERE game_id=?", (corrupt["id"],)
+        ).fetchone()[0]
+        c.execute(
+            "UPDATE league_games SET sequence=sequence+1000 WHERE game_id=?", (corrupt["id"],)
+        )
+    with rig.core._write() as c:
+        c.execute(
+            """INSERT INTO league_achievement_reconciliation
+               (account_id,season_id,ruleset,candidate_tier,due_at)
+               SELECT ?,season_id,'brandubh',2,0 FROM league_games WHERE game_id=?""",
+            (acct, corrupt["id"]),
+        )
+
+    # Reconciliation must reject page ordering based on the corrupt cached value.
+    failed = Leagues(rig.core).drain()
+    assert failed["achievement_retries"] == 1
+    assert peak(rig, acct, "brandubh") == 2
+
+    with rig.store.connection() as c:
+        season_id = c.execute(
+            "SELECT season_id FROM league_games WHERE game_id=?", (corrupt["id"],)
+        ).fetchone()[0]
+        revision = c.execute(
+            "SELECT revision FROM league_seasons WHERE id=?", (season_id,)
+        ).fetchone()[0]
+    administration = _administration(rig)
+    administration.rebuild(
+        rig.credentials["Odin"],
+        season_id,
+        revision,
+        "Repair corrupt cached sequence",
+    )
+    for _ in range(40):
+        if administration.process_rebuild(limit=2) == "idle":
+            break
+    else:
+        pytest.fail("Administrative repair did not complete")
+
+    with rig.store.connection() as c:
+        repaired = c.execute(
+            "SELECT sequence FROM league_games WHERE game_id=?", (corrupt["id"],)
+        ).fetchone()[0]
+        assert repaired == authoritative
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM league_contributions WHERE season_id=?", (season_id,)
+            ).fetchone()[0]
+            == 6
+        )
+        assert (
+            c.execute(
+                "SELECT points FROM league_standings WHERE account_id=? AND ruleset='brandubh'",
+                (acct,),
+            ).fetchone()[0]
+            == 9
+        )
+        assert c.execute("SELECT COUNT(*) FROM league_rebuild_jobs").fetchone()[0] == 0
+
+    # The repaired cache lets the queued reconciliation complete without
+    # changing the legitimate permanent peak.
+    for _ in range(4):
+        Leagues(rig.core).drain()
+        with rig.store.connection() as c:
+            remaining = c.execute(
+                """SELECT COUNT(*) FROM league_achievement_reconciliation
+                   WHERE account_id=? AND season_id=? AND ruleset='brandubh'""",
+                (acct, season_id),
+            ).fetchone()[0]
+        if not remaining:
+            break
+    assert remaining == 0
+    assert peak(rig, acct, "brandubh") == 2
+    assert awarded(rig, acct, "brandubh") == league_ids("brandubh", 2)
 
 
 def test_administrative_rebuild_invalidates_only_partial_reconciliation_scope(rig):

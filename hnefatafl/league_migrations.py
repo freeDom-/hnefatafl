@@ -296,6 +296,8 @@ def migrate_leagues(c):
         )""",
         """CREATE INDEX IF NOT EXISTS league_achievement_reconciliation_due
             ON league_achievement_reconciliation(due_at,account_id,season_id,ruleset)""",
+        """CREATE INDEX IF NOT EXISTS league_achievement_reconciliation_season
+            ON league_achievement_reconciliation(season_id,account_id,ruleset)""",
         """CREATE TABLE IF NOT EXISTS league_settlement_queue (
             game_id TEXT PRIMARY KEY REFERENCES league_games(game_id), due_at INTEGER NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error TEXT,

@@ -1048,20 +1048,17 @@ def invalidate_league_evidence(
 
 
 def bump_league_evidence_for_season(c: sqlite3.Connection, season_id: str) -> None:
-    """Invalidate reconciliation scopes affected by a completed season rebuild."""
-    scopes = c.execute(
-        """SELECT account_id,ruleset FROM league_achievement_reconciliation
-           WHERE season_id=?""",
+    """Invalidate all partially verified scopes of one season in one statement."""
+    c.execute(
+        """INSERT INTO league_achievement_evidence(
+             account_id,season_id,ruleset,generation)
+           SELECT account_id,season_id,ruleset,1
+           FROM league_achievement_reconciliation
+           WHERE season_id=?
+           ON CONFLICT(account_id,season_id,ruleset) DO UPDATE SET
+             generation=generation+1""",
         (season_id,),
-    ).fetchall()
-    for account_id, ruleset in scopes:
-        c.execute(
-            """INSERT INTO league_achievement_evidence(account_id,season_id,ruleset,generation)
-               VALUES(?,?,?,1)
-               ON CONFLICT(account_id,season_id,ruleset) DO UPDATE SET
-                 generation=generation+1""",
-            (account_id, season_id, ruleset),
-        )
+    )
 
 
 def record_league_candidate(

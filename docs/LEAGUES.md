@@ -81,9 +81,12 @@ arrives after a valid award commits follows the permanent-achievement policy.
 Administrative `fold_standings` writes candidate peaks only. They are validated
 after authoritative catch-up, not from the incomplete recovery projection, so a
 correction arriving between contribution restoration and folding cannot create a
-permanent award. The existing durable rebuild cursor and bounded batches remain
-unchanged. Unrelated accounts, rulesets and seasons retain their own rows and are
-not blocked by one rebuilding season.
+permanent award. Administrative recovery resolves authoritative rating evidence
+even when a cached league result sequence is wrong, then rewrites the cached value
+before folding. Achievement page ordering still rejects a cached sequence that
+disagrees with its rating event. The existing durable rebuild cursor and bounded
+batches remain unchanged. Final invalidation is one set-based statement over the
+season's queued scopes; unrelated accounts, rulesets and seasons are untouched.
 
 The Hall of Renown exposes an additive seasonal availability state. During an
 administrative rebuild it keeps permanent tiers and earned achievements visible,

@@ -261,8 +261,11 @@ validated later from effective official results. Schema 24 queues bounded histor
 contribution ledgers or standings; schema 25 adds streaming cursor and progress state; schema 26 adds
 scope-specific evidence generations and league-sequence keyset indexes so each
 transaction has a fixed row budget and unrelated settlements do not restart it.
-The Hall exposes seasonal availability and hides incomplete standings while
-permanent tiers remain visible. Play and replay use existing authorized online
+Administrative recovery validates and rewrites authoritative sequences before
+candidate folding, while reconciliation page ordering still rejects inconsistent
+cached sequences. Rebuild finalization invalidates the season's queued scopes in
+one set-based statement. The Hall exposes seasonal availability and hides
+incomplete standings while permanent tiers remain visible. Play and replay use existing authorized online
 routes. See [league policy, API and recovery](docs/LEAGUES.md).
 
 ## Training execution and inference

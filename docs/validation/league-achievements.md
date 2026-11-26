@@ -36,7 +36,7 @@ Focused backend run:
   tests/test_online_core.py tests/test_deployment.py -q
 ```
 
-Result: **284 passed**.
+Result: **286 passed**.
 
 Coverage includes the required out-of-order replay scenario (initial loss, four
 wins, deferred loss, fifth win, void, deferred correction and 14-point final peak),
@@ -47,7 +47,10 @@ late results, permanent awards after corrections, disabled leagues and Hall
 seasonal availability. New coverage also exercises continuous unrelated
 settlements between pages, same-account activity in another ruleset, scope-local
 evidence invalidation, and 15,000 unrelated rated results around 600 league
-results with early/intermediate/late cursors.
+results with early/intermediate/late cursors. The final recovery coverage corrupts
+a cached league sequence, confirms reconciliation rejects it, runs administrative
+repair, verifies the authoritative sequence is restored, and checks contributions,
+standings and permanent awards.
 
 Frontend coverage remains unchanged in design:
 
@@ -103,6 +106,10 @@ Synthetic large-history validation:
 - Derived reconciliation page writer work is about **3.7 ms** total wall time
   per page for the 2,700-result fixture (132.9 ms / 36 page transactions),
   excluding unrelated concurrent workloads.
+- Rebuild invalidation fixture: 3,000 queued scopes in one season plus 3,000 in an
+  unrelated season. One SQL statement invalidated all affected scopes in
+  **3.84 ms**; unrelated generations remained unchanged and trace showed no
+  per-scope statement growth.
 
 Every figure above is from isolated local fixtures, not production-scale or
 multi-installation claims.

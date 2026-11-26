@@ -235,13 +235,17 @@ row per account, season and ruleset instead of trusting the contribution table o
 final standings. Schema 25 adds a stable rating-sequence cursor and accumulated
 standing; schema 26 adds account/season/ruleset evidence generations. The League
 worker resolves fixed-size pages through indexed `league_games` provenance,
-applied rating applications and effective official rating revisions, folds stable
+authoritative applied rating events and effective official revisions, folds stable
 result order with the zero floor, requires qualification and grants all preceding
 tiers. Pending corrections and administrative rebuilds defer the row until
 catch-up completes. A relevant settlement or rebuild increments only the affected
 scope's generation, while unrelated accounts, rulesets and games in the same
 season leave the cursor intact. Any scope-generation change restarts the cursor
-before an award can commit. The process is idempotent, preserves unrelated awards
+before an award can commit. Administrative recovery derives the authoritative
+sequence independently of the cached projection, so it can repair a corrupt
+cached sequence before reconciliation ordering is evaluated again. Rebuild
+finalization invalidates every queued scope of its season in one set-based
+statement. The process is idempotent, preserves unrelated awards
 and portraits, participates in retained-authority restore, and never fabricates a
 peak when authoritative evidence is absent. A historical peak superseded before
 it was recorded cannot be recovered from later effective revisions.

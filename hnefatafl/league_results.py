@@ -22,7 +22,7 @@ class EffectiveLeagueResult:
     projection: tuple[int | None, int | None, str]
 
 
-def _effective_result_evidence(row: sqlite3.Row):
+def _effective_result_evidence(row: sqlite3.Row, *, require_cached_sequence: bool = False):
     """Validate one official league row and derive both eligible contributions."""
     accounts = (row["first_account"], row["second_account"])
     if (
@@ -32,8 +32,12 @@ def _effective_result_evidence(row: sqlite3.Row):
         or not row["starts_at"] <= row["paired_at"] < row["ends_at"]
     ):
         raise ValueError("League provenance does not match the official online game")
-    if row["sequence"] is not None and row["rating_sequence"] != row["sequence"]:
-        raise ValueError("A settled league result must match its authoritative rating sequence")
+    if (
+        require_cached_sequence
+        and row["sequence"] is not None
+        and row["rating_sequence"] != row["sequence"]
+    ):
+        raise ValueError("A cached league sequence must match authoritative rating evidence")
     if row["rating_sequence"] is not None and (
         row["pool"] != row["ruleset"]
         or row["rating_attackers"] != row["attackers_id"]
@@ -355,5 +359,5 @@ def authoritative_contribution_chunk(
 
 
 def validated_account_contribution(row: sqlite3.Row, account_id: str) -> policy.Contribution | None:
-    contributions = dict(_effective_result_evidence(row)[3])
+    contributions = dict(_effective_result_evidence(row, require_cached_sequence=True)[3])
     return contributions.get(account_id)
