@@ -189,7 +189,36 @@ function jarlResult(request?: {
   };
 }
 
-function neuralResult() {
+function neuralIdentity(
+  state: Record<string, unknown>,
+  settings: Record<string, unknown>,
+  model: { onnxSha256: string; ruleset: string; boardSize: number },
+  provider: string,
+): string {
+  return digest(
+    {
+      state,
+      settings,
+      model: { sha256: model.onnxSha256, ruleset: model.ruleset, size: model.boardSize },
+      provider,
+      protocol: 1,
+    },
+    new Set(['time_limit', 'exploration', 'temperature']),
+  );
+}
+
+function neuralResult(request?: {
+  state: Record<string, unknown>;
+  settings: Record<string, unknown>;
+  model: any;
+  provider: string;
+}) {
+  const settings = request?.settings ?? {
+    iterations: 32,
+    time_limit: 1,
+    seed: 51,
+    exploration: 1.4,
+  };
   return {
     analysis: {
       value: -0.2,
@@ -198,10 +227,10 @@ function neuralResult() {
       simulations: 32,
     },
     algorithm: 'neural_mcts' as const,
-    settings: { iterations: 32, time_limit: 1, seed: 51, exploration: 1.4 },
+    settings,
     evidence: {
       executionRuntime: 'pyodide' as const,
-      requestedProvider: 'wasm' as const,
+      requestedProvider: (request?.provider ?? 'wasm') as 'wasm' | 'webgpu',
       observedPlacement: 'wasm' as const,
       gpuExecutionVerified: false,
       inferenceObserved: true,
@@ -210,7 +239,9 @@ function neuralResult() {
       completionReason: 'simulations',
     },
     model: { sha256: model.onnxSha256, ruleset: model.ruleset, size: 7 },
-    positionIdentity: 'a'.repeat(64),
+    positionIdentity: request
+      ? neuralIdentity(request.state, request.settings, request.model, request.provider)
+      : 'a'.repeat(64),
     searchId: 'search',
     elapsedMs: 10,
     authoritative: false as const,
@@ -414,7 +445,7 @@ describe('transparent local analysis integration', () => {
         temperature: 0,
       }),
     );
-    const runtime = api({ runSearch: vi.fn(async () => neuralResult()) });
+    const runtime = api({ runSearch: vi.fn(async (request: any) => neuralResult(request)) });
     createBrowserAnalysis.mockResolvedValue(runtime);
     const outcome = await runLocalAnalysis(
       input({
@@ -454,7 +485,7 @@ describe('transparent local analysis integration', () => {
       }),
     );
     const runtime = api({
-      runSearch: vi.fn(async () => neuralResult()),
+      runSearch: vi.fn(async (request: any) => neuralResult(request)),
       modelReady: vi.fn(() => true),
     });
     createBrowserAnalysis.mockResolvedValue(runtime);
@@ -530,14 +561,14 @@ describe('transparent local analysis integration', () => {
     const runSearch = vi
       .fn()
       .mockRejectedValueOnce(new BrowserAnalysisError('capability-missing', 'WebGPU failed'))
-      .mockResolvedValueOnce({
-        ...neuralResult(),
+      .mockImplementationOnce(async (request: any) => ({
+        ...neuralResult(request),
         evidence: {
-          ...neuralResult().evidence,
+          ...neuralResult(request).evidence,
           requestedProvider: 'wasm',
           observedPlacement: 'wasm',
         },
-      });
+      }));
     const runtime = api({ runSearch });
     createBrowserAnalysis.mockResolvedValue(runtime);
     const outcome = await runLocalAnalysis(
@@ -1319,7 +1350,7 @@ describe('transparent local analysis integration', () => {
         if (request.provider === 'webgpu') {
           throw new BrowserAnalysisError('capability-missing', 'no adapter');
         }
-        return neuralResult();
+        return neuralResult(request);
       }),
     });
     createBrowserAnalysis.mockResolvedValue(runtime);
@@ -1352,7 +1383,9 @@ describe('transparent local analysis integration', () => {
     Object.defineProperty(navigator, 'gpu', { configurable: true, value: {} });
     const runtime = api({
       runSearch: vi.fn(async (request: any) =>
-        request.provider === 'webgpu' ? neuralResult() : { ...neuralResult(), provider: 'wasm' },
+        request.provider === 'webgpu'
+          ? neuralResult(request)
+          : { ...neuralResult(request), provider: 'wasm' },
       ),
       modelReady: vi.fn(() => true),
     });

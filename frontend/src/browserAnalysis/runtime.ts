@@ -37,6 +37,7 @@ import {
   type SearchResult,
 } from './contracts';
 import { DownloadManager, type DownloadSpec } from './downloads';
+import { searchIdentity } from './canonical';
 import {
   assertModelRuntimeCompatible,
   classifyFetchFailure,
@@ -1339,7 +1340,7 @@ export class BrowserAnalysisRuntime {
       op.controller.signal.removeEventListener('abort', abortCoordinator);
     }
     this.assertOwned(op, 'Neural search result was superseded');
-    return this.finalizeNeural(raw, model, provider, effective, started);
+    return this.finalizeNeural(raw, model, provider, effective, started, request.state);
   }
 
   private validateJarlEffective(expected: AnyRecord, actual: unknown): AnyRecord {
@@ -1396,13 +1397,14 @@ export class BrowserAnalysisRuntime {
     return actual;
   }
 
-  private finalizeNeural(
+  private async finalizeNeural(
     raw: AnyRecord,
     model: ModelManifest,
     provider: ProviderRequest,
     requestedSettings: AnyRecord,
     started: number,
-  ): SearchResult {
+    state: AnyRecord,
+  ): Promise<SearchResult> {
     if (!isRecord(raw) || !isRecord(raw.analysis) || !isRecord(raw.search)) {
       throw new BrowserAnalysisError('search-failed', 'Neural search result contract is malformed');
     }
@@ -1491,6 +1493,12 @@ export class BrowserAnalysisRuntime {
         'Provider evidence is present for a search without inference',
       );
     }
+    const searchPosition = await searchIdentity(
+      state as Record<string, unknown>,
+      effective,
+      model,
+      provider,
+    );
     return {
       analysis: raw.analysis as Record<string, unknown>,
       algorithm: NEURAL_ALGORITHM,
@@ -1506,12 +1514,7 @@ export class BrowserAnalysisRuntime {
         completionReason,
       },
       model: { sha256: model.onnxSha256, ruleset: model.ruleset, size: model.boardSize },
-      positionIdentity:
-        typeof raw.analysis.position_key === 'string'
-          ? raw.analysis.position_key
-          : typeof search.position_key === 'string'
-            ? search.position_key
-            : null,
+      positionIdentity: searchPosition,
       searchId: search.search_id,
       elapsedMs: now() - started,
       authoritative: false,

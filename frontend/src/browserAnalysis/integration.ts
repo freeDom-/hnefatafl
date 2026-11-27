@@ -13,6 +13,7 @@
 import type { AgentEvaluation, AnalyticsSettings, PositionAnalysis } from '../analysisTypes';
 import type { Game, Move, Side } from '../types';
 import { normalizeExecutionPolicy, type ExecutionPolicy } from '../analysisPolicy';
+import { canonicalDigest, searchIdentity } from './canonical';
 import {
   BrowserAnalysisError,
   createBrowserAnalysis,
@@ -579,45 +580,6 @@ async function fetchJson(path: string, signal: AbortSignal): Promise<unknown> {
   return response.json();
 }
 
-function canonicalJson(value: unknown, floatKeys?: Set<string>, keyName?: string): string {
-  if (
-    typeof value === 'number' &&
-    Number.isInteger(value) &&
-    keyName !== undefined &&
-    floatKeys?.has(keyName)
-  ) {
-    // Python's json.dumps renders a float such as 1.0 as "1.0"; JavaScript has
-    // already lost that distinction, so known canonical float fields are
-    // rendered explicitly for cross-language identity compatibility.
-    return `${value}.0`;
-  }
-  if (Array.isArray(value))
-    return `[${value.map((item) => canonicalJson(item, floatKeys)).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value as Record<string, unknown>)
-      .sort()
-      .map(
-        (key) =>
-          `${JSON.stringify(key)}:${canonicalJson(
-            (value as Record<string, unknown>)[key],
-            floatKeys,
-            key,
-          )}`,
-      )
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) {
-    throw failure('integrity', 'Canonical position verification is unavailable', false);
-  }
-  const digest = await subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 function completeState(
   state: Record<string, unknown>,
   historyKeys: string[],
@@ -711,7 +673,7 @@ async function validateContext(raw: unknown, input: LocalAnalysisInput): Promise
     );
   }
   const canonical = completeState(analyzed, payload.history_keys, input.cursor);
-  if ((await sha256Hex(canonicalJson(canonical))) !== payload.position_key) {
+  if ((await canonicalDigest(canonical)) !== payload.position_key) {
     throw failure('integrity', 'The analysis position identity is inconsistent', false);
   }
   const advisor = payload.advisor;
@@ -1376,26 +1338,27 @@ async function validateResultIdentity(
   state: Record<string, unknown>,
   result: SearchResult,
   settings: Record<string, unknown>,
+  model: ModelManifest | null,
+  provider: 'wasm' | 'webgpu',
 ): Promise<void> {
   const identity = result.positionIdentity;
   if (typeof identity !== 'string' || !/^[a-f0-9]{64}$/.test(identity)) {
     throw failure('integrity', 'The local result has no canonical position identity', false);
   }
-  if (algorithm === 'jarl') {
-    const effective = { algorithm: 'alpha_beta', ...settings, ...result.settings };
-    const expected = await sha256Hex(
-      canonicalJson(
-        { state, settings: effective, protocol: 1 },
-        new Set(['time_limit', 'exploration', 'temperature']),
-      ),
+  const expected =
+    algorithm === 'jarl'
+      ? await canonicalDigest({
+          state,
+          settings: { algorithm: 'alpha_beta', ...settings, ...result.settings },
+          protocol: 1,
+        })
+      : await searchIdentity(state, result.settings, model, provider);
+  if (identity !== expected) {
+    throw failure(
+      'integrity',
+      'The local result belongs to a different position or configuration',
+      false,
     );
-    if (identity !== expected) {
-      throw failure(
-        'integrity',
-        'The local result belongs to a different position or configuration',
-        false,
-      );
-    }
   }
 }
 
@@ -1613,7 +1576,7 @@ async function localAttempt(
   }, input.signal);
   assertGeneration(expectedGeneration);
   const result = ran.result;
-  await validateResultIdentity(algorithm, state, result, settings);
+  await validateResultIdentity(algorithm, state, result, settings, model, ran.provider);
   if (model) {
     rememberProvider(providerCacheKey(model, input.accountId, runtimeId), ran.provider);
   }
