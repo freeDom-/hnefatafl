@@ -719,7 +719,7 @@ Phase 3 is not complete.
   model. Local Jarl and 32-simulation neural MCTS executed through the application
   integration; warm offline searches completed with no analysis/authorization
   request; successful local analysis incremented no server computation counter.
-  Initial bundle 599,077 raw / 190,655 gzip (budgets 600,000/200,000); the runtime,
+  Initial bundle 599,439 raw / 190,757 gzip (budgets 600,000/200,000); the runtime,
   integration and entry chunks are absent from the initial graph. Details and
   limits are in the [Phase 5 report](../validation/browser-analysis-phase5.md).
 - **K1–K16 review corrections:** canonical server-resolved effective settings

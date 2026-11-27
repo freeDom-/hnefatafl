@@ -357,8 +357,8 @@ Current production initial bundle (authenticated graph):
 
 | Measurement | Phase 4 reported | Phase 5 measured | Budget |
 | --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **599,077** | 600,000 |
-| JavaScript gzip | 186,716 | **190,655** | 200,000 |
+| JavaScript raw | 585,756 | **599,439** | 600,000 |
+| JavaScript gzip | 186,716 | **190,757** | 200,000 |
 | CSS raw | — | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 35,000 |
 
@@ -488,7 +488,7 @@ validation-evidence organization, as shown above.
   passed**; `AgentAnalysis` **57 passed**; retirement registry **3 passed**.
 - **Backend:** focused policy/analysis/receipt/context/security suite **183
   passed**; the receipt/context modules add 16 deterministic tests.
-- **Production build:** passed; initial bundle **599,077 raw / 190,655 gzip**
+- **Production build:** passed; initial bundle **599,439 raw / 190,757 gzip**
   against unchanged **600,000 / 200,000** budgets. No budget was loosened.
 - **Context capacity benchmark:** regenerated evidence
   (`browser-analysis-phase5-context-benchmark.json`, SHA-256
@@ -653,7 +653,7 @@ no licensing right is declared resolved without owner/legal acceptance.
 | Retirement registry Vitest | **3 passed** |
 | Execution-policy projection Vitest | 3 passed |
 | Full frontend Vitest | **1,830 passed (117 files)** |
-| Production build + bundle budget | passed (**599,077 raw / 190,655 gzip**) |
+| Production build + bundle budget | passed (**599,439 raw / 190,757 gzip**) |
 | TypeScript check | passed |
 | Ruff / format check / mypy | passed (89 mypy files) |
 | `scripts/audit_api.py` | 146 routes accounted for |

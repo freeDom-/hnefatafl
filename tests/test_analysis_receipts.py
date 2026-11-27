@@ -85,6 +85,8 @@ def test_expired_unconsumed_receipts_release_capacity_but_consumed_retirement_ev
     )
     expired = receipt(registry)
     clock["now"] = 10.0
+    assert registry.status(expired, "a", "g", 1, 0, 2, False)["state"] == "expired"
+    clock["now"] = 400.0
     replacement = receipt(registry, game="g2")
     assert replacement
     assert registry.status(expired, "a", "g", 1, 0, 2, False)["state"] == "unknown"

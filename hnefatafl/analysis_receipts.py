@@ -32,6 +32,7 @@ MAX_RECEIPTS = 256
 MAX_PER_ACCOUNT = 32
 RECEIPT_TTL_SECONDS = 120.0
 ACTIVE_GRACE_SECONDS = 10.0
+EXPIRED_RETENTION_SECONDS = 300.0
 RETIRED_RETENTION_SECONDS = 600.0
 
 
@@ -76,7 +77,7 @@ class AnalysisReceipts:
     def _cleanup(self, now: float) -> None:
         for identifier, receipt in list(self.receipts.items()):
             if receipt.consumed_at is None:
-                if now >= receipt.expires_at:
+                if now - receipt.expires_at > EXPIRED_RETENTION_SECONDS:
                     self.receipts.pop(identifier, None)
                     self.expired += 1
             elif now - receipt.consumed_at > RETIRED_RETENTION_SECONDS:
