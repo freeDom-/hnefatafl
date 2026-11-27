@@ -113,9 +113,7 @@ export async function apiFetch(
   if (auth || path.startsWith('/online/')) headers.Origin = location.origin;
   const combined = auth
     ? signal
-    : signal
-      ? AbortSignal.any([session.signal, signal])
-      : session.signal;
+    : AbortSignal.any(signal ? [session.signal, signal] : [session.signal]);
   combined?.throwIfAborted();
   const response = await fetch(`/api${path}`, {
     method: method ?? (body === undefined ? 'GET' : 'POST'),
