@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "reviewed_revision": "592296ff0767e1ba4c9d93225d24ca271c00e81f",
+  "code_revision": "a29d3ceb52f1e7e5d2fa424dc6669ebe13e9f1b0",
+  "frontend_build": {
+    "node": "22.12.0",
+    "fingerprint": "7b2ba3b1780a6f1c4d260d88180f2da2a780edfa33f7be26cc7193633bd4a30b",
+    "initial_js_bytes": 598644,
+    "initial_js_gzip_bytes": 190505,
+    "initial_css_bytes": 115551,
+    "initial_css_gzip_bytes": 24114,
+    "fallback_and_runtime_deferred": true
+  },
+  "runtime_id": "145b2afae925f21a",
+  "chromium": "154.0.8037.57",
+  "smoke_model": {
+    "publication": "941d5932f87480b896770d95",
+    "onnx_sha256": "e8189a919eb917924afe64f9a5cac63b69b49b861e2cd3809cbc8e0c7c5973ba",
+    "ruleset": "brandubh",
+    "mode": "structural smoke model in disposable local storage"
+  },
+  "production_integration": {
+    "passed": 32,
+    "requests": {
+      "runtimeAssets": 311,
+      "modelArtifacts": 1,
+      "fallbackAnalysisPosts": 1,
+      "historicalReceiptPosts": 2,
+      "historicalFallbackPosts": 1,
+      "retryProbeFallbackPosts": 2
+    },
+    "measurements": {
+      "jarlOnlineMs": 3232.89999999851,
+      "neuralOnlineMs": 3530.5,
+      "offlineJarlMs": 154.69999999925494,
+      "offlineNeuralMs": 90.09999999776483
+    },
+    "historical_fallback": {
+      "injected_receipt_rejection": 503,
+      "receipt_state": "completed",
+      "analyzed_cursor": 3,
+      "stored_cursor": 0,
+      "canonical_position_key": "85a1d1d62ae7f385439475bfb79eaf2474086b3414dc2fc09b3c463e341a096c",
+      "admitted_computations": 1
+    },
+    "retired_partial_retry": {
+      "checks": [
+        "interrupted fallback retires with a usable checkpoint and the existing retry action",
+        "partial result retrieval starts no further evaluation",
+        "explicit retry completes on a fresh receipt at the same revision and position"
+      ],
+      "first_outcome": "partial",
+      "read_only_requests_after_retirement": 3,
+      "admissions_from_those_reads": 0,
+      "fresh_receipt": true,
+      "retry_outcome": "complete",
+      "cursor": 3,
+      "advisor_revision": 6,
+      "canonical_position_key": "85a1d1d62ae7f385439475bfb79eaf2474086b3414dc2fc09b3c463e341a096c",
+      "retry_admitted_computations": 1,
+      "retirement_counters_after_retry": {
+        "fallback_request": 4,
+        "admitted": 5,
+        "released": 5,
+        "active": 0,
+        "active_accounts": 0
+      }
+    }
+  },
+  "direct_runtime": {
+    "brandubh": {
+      "passed": 19
+    },
+    "tablut": {
+      "passed": 19
+    },
+    "copenhagen": {
+      "passed": 19
+    },
+    "neural": {
+      "passed": 25
+    }
+  },
+  "neural_runtime": {
+    "provider": "wasm",
+    "model_downloads": 1,
+    "completed_simulations": 32
+  },
+  "non_integer_settings": {
+    "passed": 9,
+    "advisor_time_limit_seconds": 2.5
+  },
+  "receipt_benchmark": {
+    "create_ms": 6.986870997934602,
+    "status_poll_avg_ms": 3.20253291996778,
+    "result_poll_avg_ms": 2.808106360171223,
+    "completed_result_avg_ms": 7.887914499369799,
+    "active_before": 0,
+    "active_after": 0,
+    "status_reads": 150,
+    "result_reads": 100,
+    "cleanup_runs": 1,
+    "context_reconstructions": 0
+  },
+  "context_benchmark": {
+    "same_context_concurrent": {
+      "requests": 8,
+      "latency_ms": 186.77599700095016,
+      "reconstructions": 1,
+      "leftover_records": 0
+    },
+    "distinct_contexts": {
+      "requests": 12,
+      "ok": 10,
+      "busy": 2,
+      "latency_ms": 366.9195220027177,
+      "cache_entries_before": 8,
+      "cache_entries_after": 8
+    },
+    "overload_status": 503,
+    "overload_code": "analysis_context_busy",
+    "remaining_build_records": 0
+  }
+}

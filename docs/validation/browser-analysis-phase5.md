@@ -4,11 +4,13 @@
 [Deployment](../DEPLOYMENT.md) · [Security](../SECURITY.md) ·
 [Phase 4 runtime](browser-analysis-phase4.md) · [Phase 3C-B](browser-analysis-phase3c-b.md)
 
-Phase 5 includes the sixth-review corrections P01–P06. Chromium exercised warm
-offline Jarl and neural MCTS, ordinary server fallback, and historical fallback
-after a temporary receipt-creation rejection. The [sixth-review matrix](#sixth-review-corrections-p01p06)
-records the current code revision, tests and measurements. Deployment remains
-opt-in and the [external acceptance gates](#19-remaining-gates-before-phase-7-acceptance)
+The [seventh-review matrix](#seventh-review-corrections-q01q03) records the Q01–Q03
+corrections and current validation. Chromium verified warm offline Jarl and
+neural MCTS, historical fallback after a temporary receipt-creation rejection,
+and a successful retry after a retained partial checkpoint. The
+[sixth-review matrix](#sixth-review-corrections-p01p06) preserves the previous
+P01–P06 evidence. Deployment remains opt-in and the
+[external acceptance gates](#19-remaining-gates-before-phase-7-acceptance)
 remain open.
 
 Verified here: server-owned execution policy and enforcement, transparent local
@@ -368,15 +370,15 @@ for German, and the production screenshots show the existing English UI.
 
 ## 10. Bundle and deferred loading
 
-Production initial bundle for the authenticated graph. Historical O-review
-figures are listed alongside the local Node 22 build of the P code revision.
+Production initial bundle for the authenticated graph, including the local
+Node 22 build of the Q code revision.
 
-| Measurement | Phase 4 | O review, CI | P review, local Node 22 | Budget |
-| --- | ---: | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | 599,385 | **598,774** | 600,000 |
-| JavaScript gzip | 186,716 | 190,564 | **190,475** | 200,000 |
-| CSS raw | — | 115,551 | 115,551 | 150,000 |
-| CSS gzip | — | 24,114 | 24,114 | 35,000 |
+| Measurement | Phase 4 | O review, CI | P review, local Node 22 | Q review, local Node 22 | Budget |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| JavaScript raw | 585,756 | 599,385 | 598,774 | **598,644** | 600,000 |
+| JavaScript gzip | 186,716 | 190,564 | 190,475 | **190,505** | 200,000 |
+| CSS raw | — | 115,551 | 115,551 | **115,551** | 150,000 |
+| CSS gzip | — | 24,114 | 24,114 | **24,114** | 35,000 |
 
 Budgets were not loosened. The build emits `integration-*.js` and `entry-*.js` as
 separate lazy chunks; `.cache/bundle-modules.json` confirms `integration.ts` and
@@ -614,6 +616,65 @@ reconciliation stay in the deferred integration chunk.
 The authenticated session cancels every protected request on a session change.
 Each request carries a separate abort signal, with a regression test for signal
 independence and cancellation on session replacement. [Transport tests](../../frontend/src/api.test.ts)
+
+## Seventh-review corrections Q01–Q03
+
+The regressions reproduced on `592296ff0767e1ba4c9d93225d24ca271c00e81f`.
+The production probes used code revision `a29d3ceb52f1e7e5d2fa424dc6669ebe13e9f1b0`.
+[Measured evidence](browser-analysis-phase5-q-review.json) · [PR checks](https://github.com/freeDom-/hnefatafl/pull/129/checks)
+
+| Finding | Root cause | Correction and source | Reproduction and validation |
+| --- | --- | --- | --- |
+| Q01 Explicit retry | The scheduler treated a retired checkpoint as a cache hit and storage protected it from writes. The Retry button could retrieve it again without evaluating. | A one-shot `retry_revision` binds the intent to the original work. Browser-preferred still tries local execution first. The shared executor joins equivalent active work. A successful retry can replace an incomplete advisor entry. Failed attempts preserve the best usable checkpoint. [Service](../../hnefatafl/analysis_service.py) · [Storage](../../hnefatafl/storage.py) · [Hook](../../frontend/src/useGameAnalysis.ts) | `test_explicit_retry_replaces_retired_partial_at_same_replay_revision` reproduced the unchanged invocation count. It now verifies active and duplicate retries, a weaker failure, stored evidence, an immutable completed result and replay credit only after success in both modes. The production Retry button completed on a fresh receipt with one additional admission at the original position and revision. [Backend tests](../../tests/test_analysis_receipt_lifecycle.py) · [Hook tests](../../frontend/src/useGameAnalysis.test.tsx) |
+| Q02 Legacy partial status | The legacy API used retirement to infer successful completion after stripping the stored advisor flags. | Classify retained advisor evidence before merging the presentation report. Active searches remain pending. Retired partial results keep their hints and historical playing-agent evidence. A requested advisor with no usable result is unavailable. [Server](../../hnefatafl/server.py) · [Panel](../../frontend/src/AgentAnalysis.tsx) | `test_retired_advisor_failure_preserves_playing_evidence_and_any_partial` reproduced a legacy `complete` status for a partial checkpoint and for a failed advisor. It now checks legacy/receipt classification, retained playing evidence and stable invocation counts through ordinary polling and a later retry. Chromium displayed the existing partial state and Retry button. Three repeated result reads admitted zero work. [Backend tests](../../tests/test_analysis_receipt_lifecycle.py) |
+| Q03 Superseded receipt recovery | Authorized terminal results lost the stale version or revision reason and the fallback observer classified a reportless supersession as a server failure. | Authorized reads include the established stale-game or stale-advisor error code when the corresponding version changed. Fresh and resumed fallback use the existing recovery outcomes after validating retirement and session ownership. A reasonless supersession maps to cancellation. [Server](../../hnefatafl/server.py) · [Fallback observer](../../frontend/src/analysisRetirements.ts) | `test_running_advisor_can_retire_as_superseded_with_reason` reproduced missing codes after a game or advisor change. Frontend tests cover both reasons, settings refresh, account changes, reasonless supersession and genuine server failure. [Backend tests](../../tests/test_analysis_receipt_lifecycle.py) · [Observer tests](../../frontend/src/analysisRetirements.test.ts) · [Hook tests](../../frontend/src/useGameAnalysis.test.tsx) |
+
+A running computation can publish usable hints while its task remains pending.
+Retirement records the end of that task. A complete evaluation is reusable and
+immutable. A retired partial evaluation preserves useful hints and earns no
+completed-analysis replay credit. Polling observes the retained outcome. An
+explicit retry authorizes another bounded attempt for the same position and
+advisor revision, using a fresh receipt when server fallback applies.
+[Analysis API](../ANALYSIS.md)
+
+The production integration passed **32/32** checks, including the 29 sixth-review
+checks. Ordinary fallback used one computation POST. The rewound replay
+recovered from an injected 503 with two receipt creation requests and one
+computation POST. Warm offline Jarl and neural MCTS completed locally, and
+successful local execution had zero optional server admissions. Direct Jarl
+probes passed on Brandubh, Tablut and Copenhagen (19 checks each). The
+verified structural model passed all 25 neural/WASM checks, including reuse
+after one download. The 2.5-second search settings probe passed all 9 checks.
+The local frontend suite passed 1,888 tests, and the analysis-localization
+suite passed 28 Chromium desktop and mobile viewport checks. Local deployment,
+cross-version deployment, dependency audit and type checks passed.
+
+The additional browser scenario uses a loopback FastAPI process and disposable
+storage. It interrupts the named fixture advisor once after publishing actual
+progress. The backend handles admission, storage, receipt reads and the
+successful retry. Start the launcher in one terminal with the production
+build, activated runtime and published structural model.
+
+```sh
+HNEFATAFL_ANALYSIS_MODE=browser_preferred .venv/bin/python \
+  scripts/phase5_retry_probe_server.py --data-dir path/to/disposable-data --port 8614
+```
+
+Run the probe in a second terminal with the disposable administrator password
+set in `BROWSER_ANALYSIS_PASSWORD`.
+
+```sh
+node scripts/verify_browser_analysis_integration.mjs --base-url http://127.0.0.1:8614 \
+  --dist frontend/dist --retry-after-partial
+```
+
+The local Node 22.12 initial JavaScript bundle measured **598,644 raw /
+190,505 gzip** bytes. The fallback observer and runtime remain deferred.
+The receipt benchmark recorded 6.99 ms for creation, 3.20 ms for
+status, 2.81 ms for a pending result and 7.89 ms for a completed result.
+Receipt reads caused zero context reconstructions. Eight concurrent reads of
+the same context shared one reconstruction. The preparation cap returned a
+structured 503 at capacity, and all build records were released during recovery.
 
 ## 12. Sustained-memory investigation
 
