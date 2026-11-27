@@ -47,6 +47,12 @@ def _status(client: TestClient, receipt: str) -> dict:
     return response.json()
 
 
+def _result(client: TestClient, receipt: str) -> dict:
+    response = client.get(f"/api/analysis/receipts/{receipt}/result")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def _wait_terminal(client: TestClient, receipt: str) -> dict:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -62,11 +68,17 @@ def test_consumed_but_unscheduled_receipt_stays_outstanding_then_retires(monkeyp
     client = TestClient(app)
     game = _game(client)
     receipt = _receipt(client, game)
+    context = client.get(
+        f"/api/games/{game['id']}/analysis-context",
+        params={"cursor": game["cursor"], "version": game["version"], "revision": 0},
+    ).json()
+    position_key = context["position_key"]
     analyses = app.state.analyses
     original = analyses.schedule
     entered = threading.Event()
     release = threading.Event()
     evaluated = threading.Event()
+    evaluation_count = 0
     original_evaluate = analyses.evaluate
 
     def blocked(*args, **kwargs):
@@ -75,6 +87,8 @@ def test_consumed_but_unscheduled_receipt_stays_outstanding_then_retires(monkeyp
         return original(*args, **kwargs)
 
     def evaluate(*args, **kwargs):
+        nonlocal evaluation_count
+        evaluation_count += 1
         evaluated.set()
         return original_evaluate(*args, **kwargs)
 
@@ -101,12 +115,59 @@ def test_consumed_but_unscheduled_receipt_stays_outstanding_then_retires(monkeyp
     assert status["state"] == "submitted"
     assert status["terminal"] is False
 
+    duplicate_client = TestClient(app)
+    duplicate = duplicate_client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": game["cursor"], "background": True},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json()["status"] == "pending"
+    assert evaluated.is_set() is False
+    assert evaluation_count == 0
+    assert app.state.store.advisor_analysis(game["id"], position_key, 0) is None
+    assert app.state.store.game_analysis(game["id"], position_key) is None
+
     release.set()
     thread.join(10)
     assert response["result"].status_code == 200, response["result"].text
     assert evaluated.wait(5)
     terminal = _wait_terminal(client, receipt)
     assert terminal["state"] == "completed"
+    retrieved = _result(client, receipt)
+    assert retrieved["status"] == "complete"
+    assert retrieved["report"]["evaluations"]
+    assert retrieved["report"]["position_key"] == position_key
+    # Retrieval is read-only and does not start another evaluation.
+    assert evaluation_count == 1
+    duplicate_after_terminal = client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": game["cursor"], "background": True},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert duplicate_after_terminal.status_code == 409
+    assert duplicate_after_terminal.json()["code"] == "analysis_receipt_terminal"
+
+
+def test_expired_unsubmitted_receipt_has_no_result_and_admits_nothing(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    game = _game(client)
+    receipt = _receipt(client, game)
+    receipts = app.state.analysis_receipts
+    original = receipts.clock
+    receipts.clock = lambda: original() + 10_000
+    result = _result(client, receipt)
+    assert result["status"] == "expired"
+    assert result["terminal"] is True
+    assert "report" not in result
+    response = client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": game["cursor"], "background": True},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "analysis_receipt_terminal"
 
 
 def test_admission_rejection_is_terminal_and_blocks_duplicate_submission(monkeypatch, tmp_path):
@@ -141,6 +202,8 @@ def test_admission_rejection_is_terminal_and_blocks_duplicate_submission(monkeyp
     assert evaluated.is_set() is False
     status = _status(client, receipt)
     assert status["state"] == "failed" and status["terminal"] is True
+    result = _result(client, receipt)
+    assert result["status"] == "failed"
     duplicate = client.post(
         f"/api/games/{game['id']}/analysis",
         json={"version": game["version"], "cursor": game["cursor"], "background": True},
@@ -180,6 +243,65 @@ def test_cache_hit_retires_without_starting_another_evaluation(monkeypatch, tmp_
     assert calls == 0
     status = _wait_terminal(client, receipt)
     assert status["state"] == "completed"
+
+
+def test_synchronous_duplicate_observes_without_writing_or_evaluating(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    game = _game(client)
+    receipt = _receipt(client, game)
+    context = client.get(
+        f"/api/games/{game['id']}/analysis-context",
+        params={"cursor": game["cursor"], "version": game["version"], "revision": 0},
+    ).json()
+    position_key = context["position_key"]
+    analyses = app.state.analyses
+    original = analyses.wait
+    entered = threading.Event()
+    release = threading.Event()
+    evaluation_count = 0
+    original_evaluate = analyses.evaluate
+
+    def blocked(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+
+    def evaluate(*args, **kwargs):
+        nonlocal evaluation_count
+        evaluation_count += 1
+        return original_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(analyses, "wait", blocked)
+    monkeypatch.setattr(analyses, "evaluate", evaluate)
+    primary: dict = {}
+
+    def submit():
+        primary["result"] = client.post(
+            f"/api/games/{game['id']}/analysis",
+            json={"version": game["version"], "cursor": game["cursor"], "background": False},
+            headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+        )
+
+    thread = threading.Thread(target=submit)
+    thread.start()
+    assert entered.wait(5)
+    duplicate_client = TestClient(app)
+    duplicate = duplicate_client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": game["cursor"], "background": False},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json()["status"] == "pending"
+    assert evaluation_count == 0
+    assert app.state.store.advisor_analysis(game["id"], position_key, 0) is None
+    assert app.state.store.game_analysis(game["id"], position_key) is None
+    release.set()
+    thread.join(10)
+    assert primary["result"].status_code == 200, primary["result"].text
+    assert evaluation_count == 1
+    assert _wait_terminal(client, receipt)["state"] == "completed"
 
 
 def test_synchronous_analysis_receipt_retires_after_wait(monkeypatch, tmp_path):

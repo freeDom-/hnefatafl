@@ -140,7 +140,9 @@ beforeEach(() => {
         receipt: `receipt-${url[url.indexOf('games') + 1]}-${body?.cursor ?? 0}`,
         epoch: 'server-epoch',
         created_at: 1000,
+        sequence: 1,
         reconciled_before: 0,
+        reconciled_before_sequence: 0,
         game_id: url[url.indexOf('games') + 1],
         version: body?.version ?? 0,
         cursor: body?.cursor ?? 0,
@@ -553,11 +555,12 @@ describe('useGameAnalysis execution-policy integration', () => {
         const active = ++statusReads < 2;
         return {
           schema: 1,
-          receipt: decodeURIComponent(String(path).split('/').pop() ?? ''),
-          epoch: 'server-epoch',
-          state: active ? 'active' : 'completed',
+          receipt: decodeURIComponent(String(path).split('/').at(-2) ?? ''),
+          receipt_state: active ? 'active' : 'completed',
+          receipt_epoch: 'server-epoch',
+          status: active ? 'pending' : 'complete',
           terminal: !active,
-          reconciled_before: 0,
+          ...(active ? {} : { report: { ...localReport(), position_key: 'server-result' } }),
         };
       }
       if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
@@ -577,7 +580,7 @@ describe('useGameAnalysis execution-policy integration', () => {
     await waitFor(() => expect(hook.result.current.report?.position_key).toBe('g2-1'));
     hook.rerender({ current: base });
     await waitFor(() => expect(statusReads).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('g1-2'));
+    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('server-result'));
     expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith('/analysis'))).toHaveLength(
       1,
     );
@@ -598,6 +601,64 @@ describe('useGameAnalysis execution-policy integration', () => {
     const receiptAt = paths.findIndex((path) => path.endsWith('/analysis-receipt'));
     const analysisAt = paths.findIndex((path) => path.endsWith('/analysis'));
     expect(receiptAt).toBeLessThan(analysisAt);
+  });
+
+  it('recovers a retryable admission rejection with a new receipt and result', async () => {
+    let analysisCalls = 0;
+    let resultReads = 0;
+    local.runLocalAnalysis.mockRejectedValue(
+      Object.assign(new Error('unsupported browser'), {
+        category: 'browser-unsupported',
+        fallbackEligible: true,
+      }),
+    );
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_preferred');
+      if (path.endsWith('/analysis')) {
+        analysisCalls += 1;
+        if (analysisCalls === 1) {
+          throw Object.assign(new Error('Analysis capacity is busy'), {
+            status: 503,
+            code: 'analysis_overloaded',
+          });
+        }
+        return localReport();
+      }
+      if (String(path).includes('/analysis/receipts/')) {
+        const id = decodeURIComponent(String(path).split('/').at(-2) ?? '');
+        resultReads += 1;
+        if (resultReads === 1) {
+          return {
+            schema: 1,
+            receipt: id,
+            receipt_state: 'failed',
+            receipt_epoch: 'server-epoch',
+            status: 'failed',
+            terminal: true,
+          };
+        }
+        return {
+          schema: 1,
+          receipt: id,
+          receipt_state: 'completed',
+          receipt_epoch: 'server-epoch',
+          status: 'complete',
+          terminal: true,
+          report: localReport(),
+        };
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('key'), {
+      timeout: 5000,
+    });
+    expect(hook.result.current.failed).toBe(false);
+    expect(analysisCalls).toBe(2);
+    const paths = apiMock.mock.calls.map(([path]) => String(path));
+    expect(paths.filter((path) => path.endsWith('/analysis-receipt'))).toHaveLength(2);
   });
 
   it('preserves retirement ownership across unmount and remount', async () => {
@@ -626,11 +687,12 @@ describe('useGameAnalysis execution-policy integration', () => {
         const active = ++statusReads < 2;
         return {
           schema: 1,
-          receipt: decodeURIComponent(String(path).split('/').pop() ?? ''),
-          epoch: 'server-epoch',
-          state: active ? 'active' : 'completed',
+          receipt: decodeURIComponent(String(path).split('/').at(-2) ?? ''),
+          receipt_state: active ? 'active' : 'completed',
+          receipt_epoch: 'server-epoch',
+          status: active ? 'pending' : 'complete',
           terminal: !active,
-          reconciled_before: 0,
+          ...(active ? {} : { report: { ...localReport(), position_key: 'server-result' } }),
         };
       }
       if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
@@ -645,10 +707,8 @@ describe('useGameAnalysis execution-policy integration', () => {
       useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
     );
     await waitFor(() => expect(statusReads).toBeGreaterThanOrEqual(2));
-    await waitFor(() =>
-      expect(second.result.current.report?.position_key).toBe('after-retirement'),
-    );
-    expect(localCalls).toBe(2);
+    await waitFor(() => expect(second.result.current.report?.position_key).toBe('server-result'));
+    expect(localCalls).toBe(1);
   });
 
   it('treats malformed retirement status as unknown and never starts local work', async () => {

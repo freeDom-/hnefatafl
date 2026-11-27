@@ -277,6 +277,69 @@ try {
     uiRequests.filter((request) => request.method === 'POST'),
   );
 
+  const metricsBeforeFallback = await context.request.get(
+    `${baseUrl}/api/analysis/metrics`,
+    { headers },
+  );
+  const fallbackBefore = await metricsBeforeFallback.json();
+  const fallbackRequestsBefore = pageRequestDetails.length;
+  const mctsSettings = await context.request.put(
+    `${baseUrl}/api/games/${game.id}/analytics`,
+    {
+      data: {
+        advisor: {
+          name: 'Classical MCTS',
+          profile_id: 'mcts',
+          config: {
+            algorithm: 'mcts',
+            iterations: 32,
+            rollout_depth: 4,
+            exploration: 1.4,
+            temperature: 0,
+            time_limit: 0.5,
+          },
+        },
+        time_limit: 5,
+        show_win_chances: true,
+      },
+      headers,
+    },
+  );
+  check('server-supported unsupported-local advisor is saved', mctsSettings.status() === 200);
+  await page.goto(`${baseUrl}/games/${game.id}`, { waitUntil: 'load' });
+  await openAnalytics();
+  await page
+    .getByText(/Analysis completed on the server/i)
+    .first()
+    .waitFor({ timeout: 90_000 });
+  const fallbackAfter = await (
+    await context.request.get(`${baseUrl}/api/analysis/metrics`, { headers })
+  ).json();
+  check(
+    'one logical server fallback request is admitted',
+    (fallbackAfter.counters.fallback_request ?? 0) ===
+      (fallbackBefore.counters.fallback_request ?? 0) + 1 &&
+      (fallbackAfter.counters.admitted ?? 0) > (fallbackBefore.counters.admitted ?? 0),
+    { before: fallbackBefore.counters, after: fallbackAfter.counters },
+  );
+  const fallbackRequests = pageRequestDetails.slice(fallbackRequestsBefore);
+  const fallbackAnalysisPosts = fallbackRequests.filter(
+    (request) =>
+      request.method === 'POST' &&
+      request.url.endsWith(`/api/games/${game.id}/analysis`),
+  );
+  check(
+    'the UI submits one fallback computation and retrieves its result read-only',
+    fallbackAnalysisPosts.length === 1 &&
+      fallbackRequests.some(
+        (request) =>
+          request.method === 'GET' &&
+          request.url.includes('/api/analysis/receipts/') &&
+          request.url.endsWith('/result'),
+      ),
+    fallbackRequests,
+  );
+
   if (screenshots) {
     await mkdir(screenshots, { recursive: true });
     const themes = ['kings-table', 'iron-ash', 'saga-hall'];
@@ -299,21 +362,27 @@ try {
     await page.screenshot({ path: `${screenshots}/analysis-mobile.png`, fullPage: true });
   }
 
-  const metricsAfter = await context.request.get(`${baseUrl}/api/analysis/metrics`, { headers });
-  const after = await metricsAfter.json();
   check(
     'successful local analysis caused zero server analysis computation',
-    (after.counters.admitted ?? 0) === (before.counters.admitted ?? 0) &&
-      (after.counters.fallback_request ?? 0) === (before.counters.fallback_request ?? 0),
-    { before: before.counters, after: after.counters },
+    (fallbackBefore.counters.admitted ?? 0) === (before.counters.admitted ?? 0) &&
+      (fallbackBefore.counters.fallback_request ?? 0) ===
+        (before.counters.fallback_request ?? 0),
+    { before: before.counters, localAfter: fallbackBefore.counters },
   );
 
   report.requests = {
     runtimeAssets: pageRequests.filter((url) => url.includes('/browser-analysis/runtime/')).length,
     modelArtifacts: pageRequests.filter((url) => url.includes('/artifact')).length,
+    fallbackAnalysisPosts: fallbackAnalysisPosts.length,
   };
   report.game = { id: game.id, publication: published.publication_id, model: published.onnx_sha256 };
-  report.results = { jarl, neural, offlineJarl, offlineNeural };
+  report.results = {
+    jarl,
+    neural,
+    offlineJarl,
+    offlineNeural,
+    fallbackAdmitted: fallbackAfter.counters.admitted,
+  };
   report.ordinaryPageRequests = pageRequests.length;
 } finally {
   await browser.close();

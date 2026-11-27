@@ -960,7 +960,7 @@ export class BrowserAnalysisRuntime {
       );
     }
     this.assertOwned(op);
-    this.modelAuthorizations.set(this.modelAuthKey(model), now());
+    this.modelAuthorizations.set(this.modelAuthKey(model), Date.now());
   }
 
   private modelSpec(model: ModelManifest): DownloadSpec {

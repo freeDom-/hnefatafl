@@ -260,7 +260,7 @@ function api(overrides: Record<string, unknown> = {}) {
       sha256: manifest.onnxSha256,
       publicationId: manifest.publicationId,
       runtimeId: '',
-      checkedAt: 0,
+      checkedAt: Date.now(),
     })),
     storageUsage: vi.fn(async () => ({ persistent: true, bytes: 0 })),
     ...overrides,
@@ -1642,6 +1642,91 @@ describe('transparent local analysis integration', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('derives model lease expiry from authorization time, not result-processing time', async () => {
+    const clock = { value: 3_000_000 };
+    vi.spyOn(Date, 'now').mockImplementation(() => clock.value);
+    const authorizedAt = clock.value;
+    let resolveSearch!: (value: unknown) => void;
+    const runtime = api({
+      modelReady: vi.fn(() => true),
+      modelAuthorization: vi.fn((manifest: any) => ({
+        sha256: manifest.onnxSha256,
+        publicationId: manifest.publicationId,
+        runtimeId: '',
+        checkedAt: authorizedAt,
+      })),
+      runSearch: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveSearch = resolve;
+          }),
+      ),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    const neural = input({
+      settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+    });
+    const pending = runLocalAnalysis(neural);
+    await vi.waitFor(() => expect(runtime.runSearch).toHaveBeenCalledTimes(1));
+    clock.value += 901_000;
+    resolveSearch(neuralResult((runtime.runSearch.mock.calls[0] as any[])[0]));
+    await pending;
+    expect(__testing.leaseStats().model).toHaveLength(0);
+    const offline = await runLocalAnalysis({ ...neural, offline: true }).catch((error) => error);
+    expect(offline.category).toBe('unauthorized');
+  });
+
+  it('does not extend a lease from repeated cached authorization evidence', async () => {
+    const clock = { value: 4_000_000 };
+    vi.spyOn(Date, 'now').mockImplementation(() => clock.value);
+    const authorization = {
+      sha256: model.onnxSha256,
+      publicationId: model.publicationId,
+      runtimeId: '',
+      checkedAt: clock.value,
+    };
+    const runtime = api({
+      modelReady: vi.fn(() => true),
+      modelAuthorization: vi.fn(() => authorization),
+      runSearch: vi.fn(async (request: any) => neuralResult(request)),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    const neural = input({
+      settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+    });
+    await runLocalAnalysis(neural);
+    const first = __testing.leaseStats().model[0];
+    clock.value += 800_000;
+    await runLocalAnalysis(neural);
+    const second = __testing.leaseStats().model[0];
+    expect(second.expiresAt).toBe(first.expiresAt);
+    clock.value += 101_000;
+    const failure = await runLocalAnalysis({ ...neural, offline: true }).catch((error) => error);
+    expect(failure.category).toBe('unauthorized');
+  });
+
   it('does not renew or install model authorization when publication revalidation is denied', async () => {
     const runtime = api({
       modelReady: vi.fn(() => true),
@@ -1680,7 +1765,7 @@ describe('transparent local analysis integration', () => {
         sha256: manifest.onnxSha256,
         publicationId: manifest.publicationId,
         runtimeId: '',
-        checkedAt: 0,
+        checkedAt: Date.now(),
       })),
       runSearch: vi
         .fn()

@@ -187,6 +187,31 @@ def test_terminal_evidence_capacity_is_independent_of_active_admission():
     assert _create(registry, account_id="fresh", game_id="fresh")
 
 
+def test_blocked_watermark_advances_after_older_active_receipt_retires():
+    clock = {"now": 0.0}
+    wall = {"now": 1000.0}
+    registry = AnalysisReceipts(
+        clock=lambda: clock["now"],
+        wall_clock=lambda: wall["now"],
+        max_terminal=1,
+        terminal_retention_seconds=10_000,
+    )
+    active = _create(registry, game_id="active")
+    active_lease = _begin(registry, active, game_id="active")
+    terminal = _create(registry, game_id="terminal")
+    terminal_lease = _begin(registry, terminal, game_id="terminal")
+    terminal_lease.finalize()
+    assert registry.snapshot()["reconciled_before_sequence"] == 0
+    # A backward wall-clock jump cannot affect sequence-based reconciliation.
+    wall["now"] = 10.0
+    active_lease.finalize()
+    snapshot = registry.snapshot()
+    assert snapshot["reconciled_before_sequence"] >= 2
+    unknown = registry.status_for_account(terminal, "a")
+    assert unknown["state"] == "unknown"
+    assert unknown["reconciled_before_sequence"] >= 2
+
+
 def test_receipts_are_account_bound_and_unknown_is_not_terminal_evidence():
     registry = AnalysisReceipts()
     identifier = _create(registry)

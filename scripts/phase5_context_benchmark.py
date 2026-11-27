@@ -131,7 +131,50 @@ def measure_capacity(app, client: TestClient) -> dict:
         params={"cursor": blocked["cursor"], "version": blocked["version"]},
     )
     assert recovered.status_code == 200, recovered.text
+
+    receipt_game = create_game(1400)
+    receipts_before = app.state.analysis_receipts.snapshot()
+    reconstructions_before_receipt = registry.snapshot()["reconstructions"]
+    started = time.perf_counter()
+    receipt_response = client.post(
+        f"/api/games/{receipt_game['id']}/analysis-receipt",
+        json={
+            "version": receipt_game["version"],
+            "cursor": receipt_game["cursor"],
+            "revision": 0,
+        },
+    )
+    receipt_create_ms = (time.perf_counter() - started) * 1000
+    assert receipt_response.status_code == 200, receipt_response.text
+    receipt_id = receipt_response.json()["receipt"]
+    receipt_status_ms = []
+    for _ in range(50):
+        begin = time.perf_counter()
+        status_response = client.get(f"/api/analysis/receipts/{receipt_id}")
+        receipt_status_ms.append((time.perf_counter() - begin) * 1000)
+        assert status_response.status_code == 200
+    receipt_result_ms = []
+    for _ in range(50):
+        begin = time.perf_counter()
+        result_response = client.get(f"/api/analysis/receipts/{receipt_id}/result")
+        receipt_result_ms.append((time.perf_counter() - begin) * 1000)
+        assert result_response.status_code == 200
+        assert result_response.json()["status"] == "pending"
+    receipts_after = app.state.analysis_receipts.snapshot()
     return {
+        "receipt_status": {
+            "create_ms": receipt_create_ms,
+            "status_poll_avg_ms": sum(receipt_status_ms) / len(receipt_status_ms),
+            "result_poll_avg_ms": sum(receipt_result_ms) / len(receipt_result_ms),
+            "active_before": receipts_before["active"],
+            "active_after": receipts_after["active"],
+            "status_reads": receipts_after["status_reads"] - receipts_before["status_reads"],
+            "result_reads": receipts_after["result_reads"] - receipts_before["result_reads"],
+            "cleanup_runs": receipts_after["cleanup_runs"] - receipts_before["cleanup_runs"],
+            "context_reconstructions": (
+                registry.snapshot()["reconstructions"] - reconstructions_before_receipt
+            ),
+        },
         "same_context_concurrent": {
             "requests": len(same_responses),
             "latency_ms": same_ms,

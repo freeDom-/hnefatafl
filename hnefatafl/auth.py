@@ -412,6 +412,7 @@ grant(
     "/api/history/online/{game_id}/analysis-receipt",
 )
 grant("play", "GET", "/api/analysis/receipts/{receipt_id}")
+grant("play", "GET", "/api/analysis/receipts/{receipt_id}/result")
 grant(
     "play",
     "GET",

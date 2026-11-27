@@ -155,17 +155,17 @@ class ContextBuildRegistry:
         """Reserve exactly one compatible build/wait slot for ``key``."""
         with self.guard:
             record = self.records.get(key)
+            if record is None and len(self.records) >= self.max_records:
+                self.rejections += 1
+                raise _busy("Analysis context preparation capacity is busy. Retry shortly.")
+            if self.waiting >= self.max_waiting:
+                self.rejections += 1
+                raise _busy("Analysis context preparation is busy. Retry shortly.")
             if record is None:
-                if len(self.records) >= self.max_records:
-                    self.rejections += 1
-                    raise _busy("Analysis context preparation capacity is busy. Retry shortly.")
                 record = _BuildRecord()
                 self.records[key] = record
             else:
                 self.records.move_to_end(key)
-            if self.waiting >= self.max_waiting:
-                self.rejections += 1
-                raise _busy("Analysis context preparation is busy. Retry shortly.")
             record.consumers += 1
             self.waiting += 1
             return BuildLease(self, key, record, wait_seconds=self.wait_seconds)
@@ -221,10 +221,18 @@ class ContextRequestLimiter:
         *,
         max_buckets: int = MAX_CONTEXT_RATE_BUCKETS,
         clock: Callable[[], float] = time.monotonic,
+        rate_code: str = "analysis_context_rate_limited",
+        busy_code: str = "analysis_context_busy",
+        rate_message: str = "Analysis context request rate limit reached. Retry shortly.",
+        busy_message: str = "Analysis context request capacity is busy. Retry shortly.",
     ) -> None:
         self.requests_per_minute = requests_per_minute
         self.max_buckets = max_buckets
         self.clock = clock
+        self.rate_code = rate_code
+        self.busy_code = busy_code
+        self.rate_message = rate_message
+        self.busy_message = busy_message
         self.lock = threading.Lock()
         self.buckets: dict[str, list[float]] = {}
         self.last_cleanup = 0.0
@@ -249,14 +257,19 @@ class ContextRequestLimiter:
                 self._expire_all(now)
                 if len(self.buckets) >= self.max_buckets:
                     self.rejections += 1
-                    raise _busy("Analysis context request capacity is busy. Retry shortly.")
+                    raise AnalysisPolicyError(
+                        self.busy_message,
+                        code=self.busy_code,
+                        status=503,
+                        retry_after=1,
+                    )
             window = now - 60.0
             recent = [value for value in self.buckets.get(account_id, []) if value > window]
             if len(recent) >= self.requests_per_minute:
                 self.rejections += 1
                 raise AnalysisPolicyError(
-                    "Analysis context request rate limit reached. Retry shortly.",
-                    code="analysis_context_rate_limited",
+                    self.rate_message,
+                    code=self.rate_code,
                     status=429,
                     retry_after=max(1, int(60 - (now - recent[0]))),
                 )

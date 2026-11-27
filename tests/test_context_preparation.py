@@ -292,6 +292,51 @@ def test_acquisition_timeout_then_double_close_releases_exactly_once():
     assert registry.snapshot()["building"] == 0
 
 
+def test_rejected_admission_does_not_publish_orphan_records():
+    registry = ContextBuildRegistry(max_records=2, max_waiting=1, max_concurrent=1)
+    reserved = registry.build("kept")
+    assert registry.snapshot()["waiting"] == 1
+    for index in range(20):
+        with pytest.raises(AnalysisPolicyError) as busy:
+            registry.build(("rejected", index, 0))
+        assert _busy(busy)
+        assert len(registry.records) == 1
+        assert ("rejected", index, 0) not in registry.records
+    with pytest.raises(AnalysisPolicyError):
+        registry.build("kept-other")
+    assert registry.snapshot()["records"] == 1
+    reserved.close()
+    assert registry.snapshot()["records"] == 0
+    assert registry.snapshot()["waiting"] == 0
+    with registry.build("fresh") as lease:
+        lease.reconstruct()
+        registry.note_reconstruction()
+    assert registry.snapshot()["records"] == 0
+    assert registry.snapshot()["building"] == 0
+
+
+def test_existing_key_rejection_preserves_original_consumer():
+    registry = ContextBuildRegistry(max_waiting=1)
+    owner = registry.build("same")
+    with pytest.raises(AnalysisPolicyError):
+        registry.build("same")
+    assert registry.records["same"].consumers == 1
+    owner.close()
+    assert registry.snapshot()["records"] == 0
+
+
+def test_simultaneous_record_and_waiting_capacity_rejection_is_atomic():
+    registry = ContextBuildRegistry(max_records=1, max_waiting=1)
+    owner = registry.build("owner")
+    with pytest.raises(AnalysisPolicyError):
+        registry.build("new")
+    assert set(registry.records) == {"owner"}
+    owner.close()
+    with registry.build("new") as lease:
+        lease.reconstruct()
+    assert registry.snapshot()["records"] == 0
+
+
 def test_context_request_rate_limit_is_separate_and_bounded():
     clock = {"now": 0.0}
     limiter = ContextRequestLimiter(2, max_buckets=2, clock=lambda: clock["now"])

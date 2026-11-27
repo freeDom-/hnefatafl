@@ -28,18 +28,23 @@ export type { ExecutionPolicy } from '../analysisPolicy';
 export {
   addRetirement,
   createReceipt,
+  fetchReceiptResult,
   receiptOutcome,
   reconcileRetirements,
   retirementFor,
   retirementKey,
+  runServerFallback,
   settleRetirement,
   validReceipt,
   validStatus,
   waitForReceipt,
+  waitForReceiptResult,
 } from '../analysisRetirements';
 export type {
   AnalysisReceipt,
   AnalysisStatus,
+  FallbackOutcome,
+  FallbackRequest,
   ReceiptOutcome,
   ReceiptStatus,
   RetirementRecord,
@@ -1649,14 +1654,17 @@ async function localAttempt(
         evidence.publicationId === model.publicationId &&
         evidence.sha256 === model.onnxSha256
       ) {
-        modelLeases.set(`${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`, {
-          account: input.accountId,
-          sha256: model.onnxSha256,
-          publicationId: model.publicationId,
-          runtimeId,
-          expiresAt: now() + input.policy.offlineAuthorizationSeconds * 1000,
-        });
-        trimLeases();
+        const expiresAt = evidence.checkedAt + input.policy.offlineAuthorizationSeconds * 1000;
+        if (expiresAt > now()) {
+          modelLeases.set(`${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`, {
+            account: input.accountId,
+            sha256: model.onnxSha256,
+            publicationId: model.publicationId,
+            runtimeId,
+            expiresAt,
+          });
+          trimLeases();
+        }
       }
     }
     rememberProvider(providerCacheKey(model, input.accountId, runtimeId), ran.provider);

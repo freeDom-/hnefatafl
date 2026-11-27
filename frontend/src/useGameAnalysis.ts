@@ -12,7 +12,6 @@ import {
 } from './analysisPolicy';
 import { browserAnalysisLoaded, loadAnalysisIntegration } from './browserAnalysis/loader';
 import type { LocalAnalysisError, LocalAnalysisStage } from './browserAnalysis/integration';
-import type { RetirementRecord } from './analysisRetirements';
 import type { Game } from './types';
 
 type RequestStatus = 'pending' | 'waiting' | 'done' | 'failed' | 'cancelled';
@@ -386,15 +385,6 @@ export function useGameAnalysis(
     const sequence = settingsSequence.current;
     const current = () =>
       alive && !controller.signal.aborted && settingsSequence.current === sequence;
-    // Retirement records are stored outside this component. They never
-    // authorize fallback; they only prevent an equivalent local search from
-    // overlapping server work that may still be admitted.
-    const waitForRetiredServer = async (): Promise<boolean> => {
-      const record = retirementApi.current?.retirementFor(workKey);
-      if (!record) return true;
-      const done = await retirementApi.current?.waitForReceipt(record, controller.signal);
-      return done === true && current();
-    };
     const baseReport = stored ?? undefined;
     const stateFor = (
       status: AnalysisRequestState['status'],
@@ -406,54 +396,41 @@ export function useGameAnalysis(
       ...patch,
     });
 
-    let receipt: RetirementRecord | null | undefined =
-      retirementApi.current?.retirementFor(workKey);
-    const ensureReceipt = async (): Promise<RetirementRecord | null> => {
-      if (receipt) return receipt;
-      receipt = await retirementApi.current?.createReceipt(
-        {
-          key: workKey,
-          account: accountId,
-          basePath,
-          gameId: game.id,
-          version: game.version,
-          cursor: game.cursor,
-          revision: settings.revision,
-        },
-        controller.signal,
+    const finishReport = (report: PositionAnalysis) => {
+      const replayKey = `${basePath}/${game.id}`;
+      if (
+        (game.recorded_winner || game.winner) &&
+        creditedReplay.current !== replayKey &&
+        report.evaluations.some(
+          (entry) =>
+            entry.agent_id === 'advisor' &&
+            entry.source !== 'unavailable' &&
+            !entry.unavailable_reason,
+        )
+      ) {
+        creditedReplay.current = replayKey;
+        window.dispatchEvent(new Event('progression-changed'));
+      }
+      failures = 0;
+      setRequest(
+        stateFor('done', {
+          status: 'done',
+          report,
+          local: localMode,
+          fallback: localMode,
+          stage: undefined,
+        }),
       );
-      return receipt ?? null;
     };
 
-    const pollServer = async () => {
+    const pollLegacyServer = async () => {
       if (!current() || running) return;
       if (Date.now() > retryDeadline) {
-        setRequest(
-          stateFor('failed', {
-            local: localMode,
-            fallback: localMode,
-            errorCategory: 'server-failed',
-          }),
-        );
+        setRequest(stateFor('failed', { errorCategory: 'server-failed' }));
         return;
       }
       running = true;
       try {
-        let record: RetirementRecord | null = null;
-        if (localMode && policy.fallback) {
-          record = await ensureReceipt();
-          if (!record) {
-            if (current())
-              setRequest(
-                stateFor('failed', {
-                  local: localMode,
-                  fallback: localMode,
-                  errorCategory: 'server-busy',
-                }),
-              );
-            return;
-          }
-        }
         const report = await api<PositionAnalysis>(
           `${basePath}/${game.id}/analysis`,
           {
@@ -464,97 +441,43 @@ export function useGameAnalysis(
           },
           undefined,
           controller.signal,
-          {
-            ...(localMode ? { 'X-Analysis-Fallback': '1' } : {}),
-            ...(record ? { 'X-Analysis-Receipt': record.receipt } : {}),
-          },
         );
         if (!current()) return;
         if ((report.advisor_revision ?? 0) !== settings.revision || report.cursor !== game.cursor) {
-          setRequest(stateFor('failed', { local: localMode, errorCategory: 'revision-stale' }));
+          setRequest(stateFor('failed', { errorCategory: 'revision-stale' }));
           await refreshSettings();
           return;
         }
         const pending = report.status === 'pending';
-        if (!pending && record) {
-          // An explicit completed analysis response for this exact receipt,
-          // cursor and revision is valid retirement evidence. A pending response
-          // or an aborted request is not.
-          retirementApi.current?.settleRetirement(workKey, record.receipt);
+        if (!pending) finishReport(report);
+        else {
+          setRequest(stateFor('pending', { status: 'pending', report }));
+          timer = setTimeout(() => void pollLegacyServer(), 300);
         }
-        // Only genuine completion clears the retry budget. A pending response
-        // followed by another 503 must not restart the retry allowance.
-        if (!pending) failures = 0;
-        const replayKey = `${basePath}/${game.id}`;
-        if (
-          !pending &&
-          (game.recorded_winner || game.winner) &&
-          creditedReplay.current !== replayKey &&
-          report.evaluations.some(
-            (entry) =>
-              entry.agent_id === 'advisor' &&
-              entry.source !== 'unavailable' &&
-              !entry.unavailable_reason,
-          )
-        ) {
-          creditedReplay.current = replayKey;
-          window.dispatchEvent(new Event('progression-changed'));
-        }
-        setRequest(
-          stateFor(pending ? 'pending' : 'done', {
-            status: pending ? 'pending' : 'done',
-            report,
-            local: localMode,
-            fallback: localMode,
-          }),
-        );
-        if (pending) timer = setTimeout(() => void pollServer(), 300);
       } catch (error) {
         if (!current()) return;
         const code = (error as { code?: string })?.code;
-        const status = (error as { status?: number })?.status;
-        if (localMode && (status === 401 || status === 403)) {
-          void loadAnalysisIntegration().then((integration) =>
-            integration.invalidateAnalysisAuthorization(accountId),
-          );
-        }
         if (code === 'analysis_revision_stale') {
-          setRequest(stateFor('failed', { local: localMode, errorCategory: 'revision-stale' }));
+          setRequest(stateFor('failed', { errorCategory: 'revision-stale' }));
           await refreshSettings();
           return;
         }
         if (code === 'analysis_context_stale') {
-          setRequest(stateFor('failed', { local: localMode, errorCategory: 'stale-game' }));
+          setRequest(stateFor('failed', { errorCategory: 'stale-game' }));
           return;
         }
-        if (code === 'analysis_receipt_expired' || code === 'analysis_receipt_terminal') {
-          // Explicit server evidence that the old request cannot be admitted.
-          if (receipt) retirementApi.current?.settleRetirement(workKey, receipt.receipt);
-          receipt = undefined;
-        } else if (code === 'analysis_receipt_invalid') {
-          // Missing evidence is unknown, not terminal. Do not reuse the id, but
-          // keep the retirement record for bounded reconciliation.
-          receipt = undefined;
-        }
+        const status = (error as { status?: number })?.status;
         const temporary = status === 503 || status === 429;
         const retry = temporary && failures < 8 && Date.now() + 1000 < retryDeadline;
         if (!retry) {
           setRequest((previous) => ({
-            ...stateFor('failed', {
-              local: localMode,
-              fallback: localMode,
-              errorCategory: temporary ? 'server-busy' : 'server-failed',
-            }),
+            ...stateFor('failed', { errorCategory: 'server-failed' }),
             report: previous?.key === key ? previous.report : baseReport,
           }));
           return;
         }
         setRequest((previous) => ({
-          ...stateFor('waiting', {
-            local: localMode,
-            fallback: localMode,
-            errorCategory: 'server-busy',
-          }),
+          ...stateFor('waiting', { errorCategory: 'server-busy' }),
           report: previous?.key === key ? previous.report : baseReport,
         }));
         const delay = Math.min(
@@ -562,7 +485,10 @@ export function useGameAnalysis(
           Math.max(1000 * 2 ** failures, (error as { retryAfterMs?: number }).retryAfterMs ?? 0),
         );
         failures += 1;
-        timer = setTimeout(() => void pollServer(), Math.min(delay, retryDeadline - Date.now()));
+        timer = setTimeout(
+          () => void pollLegacyServer(),
+          Math.min(delay, retryDeadline - Date.now()),
+        );
       } finally {
         running = false;
       }
@@ -578,19 +504,47 @@ export function useGameAnalysis(
           return;
         }
         if (!current()) return;
-        // A server request admitted for this logical position may still be
-        // retiring. Observe its authoritative status without starting server
-        // computation; only then start local work. A key alone is never
-        // authorization to run a fallback.
-        if (!(await waitForRetiredServer())) {
-          if (!current()) return;
-          setRequest(
-            stateFor('failed', {
-              local: true,
-              errorCategory: 'server-busy',
-            }),
+        const existing = retirementApi.current?.retirementFor(workKey);
+        if (existing) {
+          const result = await retirementApi.current?.waitForReceiptResult(
+            existing,
+            controller.signal,
           );
-          return;
+          if (!current()) return;
+          if (!result) {
+            setRequest(
+              stateFor('failed', {
+                local: true,
+                errorCategory: 'server-busy',
+              }),
+            );
+            return;
+          }
+          if (result.report) {
+            const report = result.report as PositionAnalysis;
+            if (
+              (report.advisor_revision ?? 0) !== settings.revision ||
+              report.cursor !== game.cursor
+            ) {
+              setRequest(stateFor('failed', { local: true, errorCategory: 'revision-stale' }));
+              await refreshSettings();
+              return;
+            }
+            retirementApi.current?.settleRetirement(workKey, existing.receipt);
+            finishReport(report);
+            return;
+          }
+          retirementApi.current?.settleRetirement(workKey, existing.receipt);
+          if (result.status === 'complete' || result.status === 'unavailable') {
+            setRequest(
+              stateFor('failed', {
+                local: true,
+                fallback: true,
+                errorCategory: 'server-failed',
+              }),
+            );
+            return;
+          }
         }
       }
       if (localMode) {
@@ -700,7 +654,95 @@ export function useGameAnalysis(
                 stage: 'fallback',
               }),
             );
-            await pollServer();
+            try {
+              const outcome = await retirementApi.current?.runServerFallback(
+                {
+                  key: workKey,
+                  account: accountId,
+                  basePath,
+                  gameId: game.id,
+                  version: game.version,
+                  cursor: game.cursor,
+                  revision: settings.revision,
+                  background: !readOnlyHistory,
+                  historical,
+                },
+                {
+                  signal: controller.signal,
+                  onWaiting: () => {
+                    if (current())
+                      setRequest(
+                        stateFor('waiting', {
+                          status: 'waiting',
+                          local: true,
+                          fallback: true,
+                          stage: 'fallback',
+                        }),
+                      );
+                  },
+                  onStage: (stage) => {
+                    if (current())
+                      setRequest(
+                        stateFor(stage === 'fallback' ? 'waiting' : 'pending', {
+                          status: stage === 'fallback' ? 'waiting' : 'pending',
+                          local: true,
+                          fallback: true,
+                          stage,
+                        }),
+                      );
+                  },
+                },
+              );
+              if (!current()) return;
+              if (!outcome) {
+                setRequest(
+                  stateFor('failed', {
+                    local: true,
+                    fallback: true,
+                    errorCategory: 'server-failed',
+                  }),
+                );
+                return;
+              }
+              if (outcome.kind === 'report') {
+                const report = outcome.report as unknown as PositionAnalysis;
+                if (
+                  (report.advisor_revision ?? 0) !== settings.revision ||
+                  report.cursor !== game.cursor
+                ) {
+                  setRequest(stateFor('failed', { local: true, errorCategory: 'revision-stale' }));
+                  await refreshSettings();
+                  return;
+                }
+                finishReport(report);
+                return;
+              }
+              if (outcome.kind === 'revision-stale') {
+                setRequest(stateFor('failed', { local: true, errorCategory: 'revision-stale' }));
+                await refreshSettings();
+                return;
+              }
+              if (outcome.kind === 'stale-game') {
+                setRequest(stateFor('failed', { local: true, errorCategory: 'stale-game' }));
+                return;
+              }
+              setRequest(
+                stateFor('failed', {
+                  local: true,
+                  fallback: true,
+                  errorCategory: outcome.category,
+                }),
+              );
+            } catch {
+              if (current())
+                setRequest(
+                  stateFor('failed', {
+                    local: true,
+                    fallback: true,
+                    errorCategory: 'server-failed',
+                  }),
+                );
+            }
             return;
           }
           setRequest(
@@ -713,7 +755,7 @@ export function useGameAnalysis(
         }
       }
       setRequest(stateFor('pending', { status: 'pending' }));
-      await pollServer();
+      await pollLegacyServer();
     };
     void run();
     return () => {

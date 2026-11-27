@@ -15,6 +15,7 @@ function record(receipt: string) {
     receipt,
     epoch: 'epoch',
     createdAt: 1000,
+    sequence: 1,
     account: 'account-1',
     gameId: 'g1',
     basePath: '/games',
@@ -64,7 +65,7 @@ describe('analysis retirement records', () => {
     const epochKey = retirementKey('account-1', '/games', 'g3', 0, 0, 1);
     const activeKey = retirementKey('account-1', '/games', 'g4', 0, 0, 1);
     addRetirement(terminalKey, record('terminal'));
-    addRetirement(floorKey, { ...record('floor'), createdAt: 500 });
+    addRetirement(floorKey, { ...record('floor'), createdAt: 500, sequence: 2 });
     addRetirement(epochKey, { ...record('epoch'), epoch: 'old-epoch' });
     addRetirement(activeKey, record('active'));
     vi.stubGlobal(
@@ -84,6 +85,7 @@ describe('analysis retirement records', () => {
             receipt: id,
             epoch: id === 'epoch' ? 'new-epoch' : 'epoch',
             reconciled_before: id === 'floor' ? 600 : 0,
+            reconciled_before_sequence: id === 'floor' ? 2 : 0,
             ...statuses[id],
           }),
         } as Response;
@@ -118,6 +120,23 @@ describe('analysis retirement records', () => {
     vi.unstubAllGlobals();
   });
 
+  it('does not let a previous account consume the current account capacity', () => {
+    for (let index = 0; index < MAX_RETIREMENTS; index += 1) {
+      expect(
+        addRetirement(retirementKey('previous', '/games', `g${index}`, 0, 0, 1), {
+          ...record(`previous-${index}`),
+          account: 'previous',
+        }),
+      ).toBe(true);
+    }
+    expect(
+      addRetirement(retirementKey('current', '/games', 'new', 0, 0, 1), {
+        ...record('current'),
+        account: 'current',
+      }),
+    ).toBe(true);
+  });
+
   it('recovers bounded capacity after repeated legitimate completed fallbacks', async () => {
     vi.stubGlobal(
       'fetch',
@@ -130,6 +149,7 @@ describe('analysis retirement records', () => {
             receipt: id,
             epoch: 'epoch',
             reconciled_before: 0,
+            reconciled_before_sequence: 0,
             state: 'completed',
             terminal: true,
           }),

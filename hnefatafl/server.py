@@ -424,9 +424,17 @@ def create_app(
     analysis_context_cache_bytes = 0
     analysis_context_builds = ContextBuildRegistry()
     analysis_context_requests = ContextRequestLimiter(analysis_policy.requests_per_minute)
+    analysis_receipt_requests = ContextRequestLimiter(
+        max(600, analysis_policy.requests_per_minute * 4),
+        rate_code="analysis_receipt_rate_limited",
+        busy_code="analysis_receipt_busy",
+        rate_message="Analysis receipt request rate limit reached. Retry shortly.",
+        busy_message="Analysis receipt request capacity is busy. Retry shortly.",
+    )
     app.state.analysis_context_cache = analysis_context_cache
     app.state.analysis_context_builds = analysis_context_builds
     app.state.analysis_context_requests = analysis_context_requests
+    app.state.analysis_receipt_requests = analysis_receipt_requests
     from .account_api import attach_accounts
 
     account_options = {"settings": account_settings, "transport": mail_transport}
@@ -1365,7 +1373,7 @@ def create_app(
         # A stale "pending" only causes another poll; stale "complete" could
         # otherwise hide the newly committed result indefinitely.
         pending = any(analyses.active(key) for key in tasks) or bool(
-            receipt is not None and not receipt.primary and receipt.state == "active"
+            receipt is not None and not receipt.primary and receipt.state in {"submitted", "active"}
         )
         result = current_analysis(game, settings, state=state) or missing_analysis(
             game, state=state, cursor=cursor
@@ -1399,10 +1407,22 @@ def create_app(
             http_request, game, request.cursor, analytics_settings(game), receipt_key
         )
         try:
+            if receipt is not None and not receipt.primary:
+                settings = analytics_settings(game)
+                retained = current_analysis(
+                    game, settings, state=_receipt_state
+                ) or missing_analysis(game, state=_receipt_state, cursor=request.cursor)
+                return analysis_response(
+                    {
+                        **retained,
+                        "status": "pending",
+                        "advisor_revision": settings["revision"],
+                    }
+                )
             if request.historical:
                 if not 0 <= request.cursor <= len(game["moves"]):
                     fail("The requested position is outside this recorded game.", 422)
-                state = state_at(game, request.cursor)
+                state = _receipt_state
                 if request.background:
                     return background_analysis(
                         game, state=state, cursor=request.cursor, receipt=receipt
@@ -1424,7 +1444,7 @@ def create_app(
                 fail("This game changed. Reload it before analyzing again.", 409)
             if request.background:
                 return background_analysis(game, receipt=receipt)
-            state = state_of(game)
+            state = _receipt_state
             key = position_key(state)
             settings = analytics_settings(game)
             saved_settings = store.analytics(game_id) is not None
@@ -1718,6 +1738,7 @@ def create_app(
     def create_analysis_receipt(
         game: dict, request: AnalysisReceiptRequest, account_id: str
     ) -> dict:
+        analysis_receipt_requests.limit(account_id)
         if not analysis_policy.server_computation:
             raise AnalysisPolicyError(
                 "Server-side analysis is disabled by the deployment policy.",
@@ -1752,6 +1773,8 @@ def create_app(
             request.cursor,
             int(settings["revision"]),
             key,
+            ply=_state.ply,
+            side_to_move=_state.turn,
         )
 
     @app.get("/api/games/{game_id}/analysis-context")
@@ -1914,6 +1937,91 @@ def create_app(
             game.get("_analysis_account_id"),
         )
 
+    def analysis_receipt_result(receipt_id: str, account_id: str) -> dict:
+        analysis_receipts.note_result_read()
+        recorded = analysis_receipts.status_for_account(receipt_id, account_id)
+        state = recorded.get("state", "unknown")
+        base = {
+            "schema": 1,
+            "receipt": receipt_id,
+            "receipt_state": state,
+            "receipt_epoch": recorded.get("epoch"),
+            "terminal": bool(recorded.get("terminal")),
+            "reconciled_before": recorded.get("reconciled_before", 0),
+            "reconciled_before_sequence": recorded.get("reconciled_before_sequence", 0),
+        }
+        if state in {"prepared", "submitted", "active"}:
+            return {**base, "status": "pending", "active": state in {"submitted", "active"}}
+        if state == "unknown":
+            return {**base, "status": "unknown"}
+        if state == "expired":
+            return {**base, "status": "expired", "unavailable_reason": "receipt_expired"}
+        if state == "failed":
+            return {**base, "status": "failed", "unavailable_reason": "evaluation_failed"}
+        if state != "completed":
+            return {**base, "status": "unknown"}
+        game_id = recorded.get("game_id")
+        position_key_value = recorded.get("position_key")
+        revision = int(recorded.get("advisor_revision", 0))
+        if not isinstance(game_id, str) or not isinstance(position_key_value, str):
+            return {**base, "status": "unknown"}
+        retained = store.game_analysis(game_id, position_key_value)
+        advisor = store.advisor_analysis(game_id, position_key_value, revision)
+        if retained is None and advisor is None:
+            return {
+                **base,
+                "status": "unavailable",
+                "unavailable_reason": "not_recorded",
+            }
+        result = dict(retained or advisor or {})
+        result["evaluations"] = [
+            entry
+            for entry in (retained or {}).get("evaluations", [])
+            if entry.get("agent_id") != "advisor"
+        ]
+        result["hint"] = None
+        if advisor:
+            result["evaluations"].extend(advisor["evaluations"])
+            result["hint"] = advisor["hint"]
+        result.pop("partial", None)
+        result.update(
+            {
+                "cursor": recorded.get("cursor", 0),
+                "ply": recorded.get("ply", 0),
+                "side_to_move": recorded.get("side_to_move", "attackers"),
+                "position_key": position_key_value,
+                "created_at": result.get("created_at") or now(),
+                "status": "complete",
+                "advisor_revision": revision,
+            }
+        )
+        rendered = analysis_response(result)
+        try:
+            game = store.get_game(game_id)
+            if game is None:
+                game = online_analysis_game(game_id)
+            if game is not None:
+                record_completed_replay(game, {"revision": revision}, result)
+        except Exception:
+            # Read-only retrieval must not fail because an optional progression
+            # receipt cannot be recorded.
+            pass
+        return {**base, "status": "complete", "report": rendered}
+
+    @app.get("/api/analysis/receipts/{receipt_id}/result")
+    def analysis_receipt_result_status(receipt_id: str):
+        from .security_context import principal
+
+        identity = principal.get()
+        if identity is None:
+            raise AnalysisPolicyError(
+                "Sign in to inspect analysis receipts.",
+                code="analysis_unauthorized",
+                status=401,
+            )
+        analysis_receipt_requests.limit(str(identity["id"]))
+        return analysis_receipt_result(receipt_id, str(identity["id"]))
+
     @app.get("/api/analysis/receipts/{receipt_id}")
     def analysis_receipt_status(receipt_id: str):
         from .security_context import principal
@@ -1925,6 +2033,7 @@ def create_app(
                 code="analysis_unauthorized",
                 status=401,
             )
+        analysis_receipt_requests.limit(str(identity["id"]))
         return analysis_receipts.status_for_account(receipt_id, str(identity["id"]))
 
     @app.post("/api/games/{game_id}/analysis-receipt")
@@ -2061,7 +2170,19 @@ def create_app(
             http_request, game, request.cursor, analytics_settings(game), receipt_key
         )
         try:
-            state = state_at(game, request.cursor)
+            if receipt is not None and not receipt.primary:
+                settings = analytics_settings(game)
+                retained = current_analysis(
+                    game, settings, state=_receipt_state
+                ) or missing_analysis(game, state=_receipt_state, cursor=request.cursor)
+                return analysis_response(
+                    {
+                        **retained,
+                        "status": "pending",
+                        "advisor_revision": settings["revision"],
+                    }
+                )
+            state = _receipt_state
             if request.background:
                 return background_analysis(
                     game, state=state, cursor=request.cursor, receipt=receipt
