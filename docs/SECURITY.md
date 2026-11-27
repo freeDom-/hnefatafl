@@ -216,6 +216,14 @@ data-authority checks to force a downgrade. See
 [portraits and achievements](PROGRESSION.md) and
 [deployment recovery](DEPLOYMENT.md#rollback-and-recovery).
 
+The Linux updater authenticates the utility generation and systemd unit from the
+verified archive before any application-owned build runs. It locks the validated
+HTTP gate inode, uses descriptor-relative operations for untrusted entries, and
+runs queries against live SQLite as the application account. Snapshot and restore
+work use private copies. Recovery checks release, snapshot and directory
+identities from protected metadata before service startup. See
+[installation, updates and recovery](DEPLOYMENT.md#rollback-and-recovery).
+
 ## Coverage and explicit exceptions
 
 The complete [JSON inventory](API_PERMISSIONS.json) records every API method/path,

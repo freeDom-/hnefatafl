@@ -13,6 +13,8 @@ from urllib.parse import urlparse
 import pytest
 from fastapi.testclient import TestClient
 
+from deployment_fixtures import TEST_RELEASE_DIGEST, legacy_snapshot
+
 from hnefatafl.auth import Auth, SecuritySettings
 from hnefatafl.deployment import Deployment, ReadinessError, atomic_json
 from hnefatafl.online_settings import OnlineSettings
@@ -74,7 +76,7 @@ class LiveDeployment(Deployment):
         target = self.releases / tag
         (target / "deployment").mkdir(parents=True)
         (target / "deployment/hnefatafl.service").write_text("service for " + tag)
-        atomic_json(target / ".release.json", {"version": tag})
+        atomic_json(target / ".release.json", {"version": tag, "sha256": TEST_RELEASE_DIGEST})
         return target
 
     def run(self, args, **kwargs):
@@ -226,7 +228,7 @@ def test_live_failed_activation_restores_previous_release_and_data(lifecycle):
 
 def test_live_interrupted_activation_explicit_recovery(lifecycle):
     _, old = bootstrap(lifecycle, version="0.40.0")
-    backup = lifecycle.snapshot()
+    backup = legacy_snapshot(lifecycle)
     target = lifecycle.release("0.41.1")
     lifecycle.activate(target)
     atomic_json(
@@ -282,3 +284,92 @@ def test_historical_harness_timeout_cleans_child_and_pid_file(tmp_path):
     pid = int(child_pid.read_text())
     assert support.process_gone(pid)
     assert not log.with_suffix(".pid").exists()
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "success",
+        "snapshot-failure",
+        "shutdown-interrupted",
+        "snapshot-interrupted",
+        "restart-failure",
+        "restart-interrupted",
+        "initially-stopped",
+    ],
+)
+def test_manual_backup_restores_real_application_lifespan(lifecycle, monkeypatch, outcome):
+    from hnefatafl.deployment import DeploymentError
+
+    bootstrap(lifecycle, version="0.41.1")
+    if outcome != "initially-stopped":
+        lifecycle.service("start")
+        assert lifecycle.client is not None
+        assert lifecycle.client.get("/api/health").status_code == 200
+    lifecycle.actions.clear()
+    monkeypatch.setattr(lifecycle, "_service_is_active", lambda: lifecycle.client is not None)
+    service = lifecycle.service
+    snapshot = lifecycle.snapshot
+
+    def lifecycle_action(action):
+        if action == "start" and outcome == "restart-failure":
+            raise OSError(5, "synthetic startup failure")
+        if action == "start" and outcome == "restart-interrupted":
+            raise KeyboardInterrupt()
+        service(action)
+        if action == "stop" and outcome == "shutdown-interrupted":
+            raise InterruptedError("shutdown interrupted")
+
+    def capture(**kwargs):
+        assert lifecycle.client is None
+        if outcome == "snapshot-failure":
+            raise OSError(28, "synthetic snapshot failure")
+        if outcome == "snapshot-interrupted":
+            raise KeyboardInterrupt()
+        return snapshot(**kwargs)
+
+    monkeypatch.setattr(lifecycle, "service", lifecycle_action)
+    monkeypatch.setattr(lifecycle, "snapshot", capture)
+    if outcome in {"success", "initially-stopped"}:
+        backup = lifecycle.backup()
+        assert backup.is_dir()
+    else:
+        with pytest.raises(DeploymentError):
+            lifecycle.backup()
+    if outcome == "initially-stopped":
+        assert lifecycle.actions == []
+        assert lifecycle.client is None
+    elif outcome in {"restart-failure", "restart-interrupted"}:
+        assert lifecycle.actions == ["service:stop"]
+        assert lifecycle.client is None
+        backup = Path(json.loads(lifecycle.journal.read_text())["backup"])
+        lifecycle.verify_snapshot(backup)
+        monkeypatch.setattr(lifecycle, "service", service)
+        lifecycle.recover()
+        assert lifecycle.client is not None
+    else:
+        assert lifecycle.actions == ["service:stop", "service:start"]
+        assert lifecycle.client is not None
+        assert lifecycle.client.get("/api/health").status_code == 200
+
+
+def test_cleanup_runs_with_gate_released_and_live_service(lifecycle, monkeypatch):
+    import fcntl
+
+    bootstrap(lifecycle, version="0.41.1")
+    lifecycle.service("start")
+    target = lifecycle.release("0.42")
+    observed = []
+    cleanup = lifecycle.cleanup
+
+    def clean_with_service_available(*args, **kwargs):
+        with (lifecycle.data / ".deployment-gate").open("rb") as handle:
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        assert lifecycle.client is not None
+        assert lifecycle.client.get("/api/health").status_code == 200
+        observed.append(True)
+        return cleanup(*args, **kwargs)
+
+    monkeypatch.setattr(lifecycle, "cleanup", clean_with_service_available)
+    lifecycle.deploy(target)
+    assert observed == [True]

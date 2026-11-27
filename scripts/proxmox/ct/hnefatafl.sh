@@ -119,7 +119,7 @@ stage='Starting LXC'
 (umask 022; exec pct start "$ct_id")
 stage='Transferring bootstrap'
 # Credentials are entered directly on the container console, never stored on PVE.
-tar -czf "$temporary/bootstrap.tar.gz" -C "$script_root" scripts/linux scripts/proxmox/install hnefatafl/deployment.py
+tar -czf "$temporary/bootstrap.tar.gz" -C "$script_root" scripts/linux scripts/proxmox/install hnefatafl/deployment.py hnefatafl/online_migrations.py hnefatafl/league_migrations.py hnefatafl/league_policy.py hnefatafl/league_recovery_migrations.py hnefatafl/rating.py
 pct push "$ct_id" "$temporary/bootstrap.tar.gz" /root/hnefatafl-bootstrap.tar.gz --perms 0600
 pct exec "$ct_id" -- mkdir -p /root/hnefatafl-bootstrap
 pct exec "$ct_id" -- tar -xzf /root/hnefatafl-bootstrap.tar.gz -C /root/hnefatafl-bootstrap
@@ -130,7 +130,7 @@ pct exec "$ct_id" -- bash /root/hnefatafl-bootstrap/scripts/proxmox/install/hnef
 stage='Verifying application service'
 pct exec "$ct_id" -- systemctl is-enabled hnefatafl
 pct exec "$ct_id" -- systemctl is-active hnefatafl
-pct exec "$ct_id" -- python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, "/usr/local/lib/hnefatafl"); from deployment import Deployment, protected_json; Deployment(protected_json(Path("/etc/hnefatafl/deployment.json"))).probe()'
+pct exec "$ct_id" -- /usr/local/bin/hnefatafl-update --verify-service
 pct exec "$ct_id" -- python3 -c 'import json; from pathlib import Path; print("Installed release: " + json.loads(Path("/etc/hnefatafl/installed.json").read_text())["version"]); print("Application port: " + str(json.loads(Path("/etc/hnefatafl/deployment.json").read_text())["port"]))'
 stage='Verifying maintenance commands'
 for name in hnefatafl-update hnefatafl-backup; do

@@ -13,6 +13,8 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from hnefatafl import deployment as deployment_module
+from deployment_fixtures import TEST_RELEASE_DIGEST, legacy_snapshot
+
 from hnefatafl.auth import Auth, SecuritySettings
 from hnefatafl.deployment import (
     Deployment,
@@ -159,7 +161,7 @@ class DisposableDeployment(Deployment):
         target = self.releases / tag
         (target / "deployment").mkdir(parents=True)
         (target / "deployment/hnefatafl.service").write_text("service for " + tag)
-        atomic_json(target / ".release.json", {"version": tag})
+        atomic_json(target / ".release.json", {"version": tag, "sha256": TEST_RELEASE_DIGEST})
         return target
 
     def service(self, action):
@@ -288,7 +290,7 @@ def test_schema14_profile_backup_requires_manual_upgrade_after_schema15_transiti
         c.execute("PRAGMA user_version=14")
     backup = deployment.snapshot()
     Store(deployment.store.path)
-    with pytest.raises(ValueError, match="Account schema changed"):
+    with pytest.raises(ValueError, match="(Account schema changed|Snapshot schema 14 differs)"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -304,7 +306,7 @@ def test_cross_account_schema_restore_refuses_to_replace_live_security(deploymen
     live = deployment.data / "hnefatafl.sqlite3"
     with sqlite3.connect(live) as c:
         c.execute("ALTER TABLE accounts ADD COLUMN future_security_state TEXT")
-    with pytest.raises(ValueError, match="Account schema changed"):
+    with pytest.raises(ValueError, match="(Account schema changed|Snapshot schema 14 differs)"):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["role"] == "ADMIN"
 
@@ -482,7 +484,7 @@ def test_online_schema_downgrade_restore_refuses_live_root_replacement(deploymen
         c.execute("PRAGMA user_version=9")
     backup = deployment.snapshot()
     Store(deployment.store.path)
-    with pytest.raises(ValueError, match="Online schema changed"):
+    with pytest.raises(ValueError, match="(Online schema changed|Snapshot schema 9 differs)"):
         deployment.restore(backup)
     with deployment.store.connection() as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -515,7 +517,9 @@ def test_snapshot_without_database_cannot_replace_live_authority(deployment):
     deployment.store.path.rename(held)
     backup = deployment.snapshot()
     held.rename(deployment.store.path)
-    with pytest.raises(ValueError, match="Snapshot has no database"):
+    with pytest.raises(
+        ValueError, match="(Snapshot has no database|snapshot has no regular SQLite database)"
+    ):
         deployment.restore(backup)
     assert deployment.auth.account(deployment.admin["id"])["active"] == 1
     with deployment.store.connection() as c:
@@ -601,13 +605,18 @@ def test_fresh_activation_and_recover_of_committed_release_is_noop(deployment):
 
 
 def test_interrupted_recovery_records_restored_version(deployment):
-    backup = deployment.snapshot()
+    backup = legacy_snapshot(deployment)
     target = deployment.release("2.0.0")
     deployment.activate(target)
     atomic_json(deployment.state, {"version": "2.0.0"})
     atomic_json(
         deployment.journal,
-        {"phase": "activated", "previous": str(deployment.old), "backup": str(backup)},
+        {
+            "phase": "activated",
+            "previous": str(deployment.old),
+            "target": str(target),
+            "backup": str(backup),
+        },
     )
     deployment.recover()
     assert deployment.current.resolve() == deployment.old
@@ -885,7 +894,10 @@ def test_diagnostics_tolerate_missing_or_malformed_release_metadata(deployment):
 
 def test_explicit_rollback_rejects_known_incompatible_release_before_change(deployment):
     incompatible = deployment.release("0.41.0")
-    atomic_json(deployment.state, {"version": "0.41.0", "previous": str(incompatible)})
+    atomic_json(
+        deployment.state,
+        {"version": "1.0.0", "target": str(deployment.old), "previous": str(incompatible)},
+    )
     deployment.actions.clear()
     with pytest.raises(ValueError, match="0.41.0") as error:
         deployment.recover(rollback=True)
@@ -904,7 +916,7 @@ def test_interrupted_recovery_rejects_known_incompatible_previous_release(deploy
             "phase": "activated",
             "previous": str(incompatible),
             "target": str(target),
-            "backup": None,
+            "backup": str(legacy_snapshot(deployment)),
         },
     )
     deployment.actions.clear()
@@ -929,7 +941,7 @@ def test_automatic_recovery_refuses_known_incompatible_previous_release(deployme
     assert "Automatic recovery: failed during unsupported rollback policy check" in message
     assert "0.41.0" in message
     assert deployment.current.resolve() == target
-    assert json.loads(deployment.journal.read_text())["phase"] == "activated"
+    assert json.loads(deployment.journal.read_text())["phase"] == "recovering"
     assert json.loads(deployment.state.read_text())["version"] == "0.41.0"
     assert (deployment.data / "models/weights").read_bytes() == b"retained-model"
 
@@ -940,7 +952,7 @@ def test_rollback_policy_allows_040_and_corrected_releases(deployment):
 
 
 def test_deployment_step_diagnostics_identify_snapshot_failure(deployment, monkeypatch):
-    def fail_snapshot():
+    def fail_snapshot(**_kwargs):
         raise OSError("snapshot failed")
 
     monkeypatch.setattr(deployment, "snapshot", fail_snapshot)
@@ -955,7 +967,7 @@ def test_deployment_step_diagnostics_identify_snapshot_failure(deployment, monke
 def test_recovery_step_diagnostics_identify_snapshot_restore_failure(deployment, monkeypatch):
     from hnefatafl.deployment import DeploymentError
 
-    def fail_restore(_backup):
+    def fail_restore(_backup, **_kwargs):
         raise DeploymentError("snapshot restore failed")
 
     deployment.probe_failures = ["readiness"]
@@ -970,7 +982,7 @@ def test_recovery_step_diagnostics_identify_snapshot_restore_failure(deployment,
 def test_recovery_preserves_actionable_schema_refusal_detail(deployment, monkeypatch):
     from hnefatafl.deployment import DeploymentError
 
-    def fail_restore(_backup):
+    def fail_restore(_backup, **_kwargs):
         raise DeploymentError("Online schema changed; manual recovery is required")
 
     deployment.probe_failures = ["readiness"]
@@ -991,7 +1003,7 @@ def test_recovery_preserves_actionable_schema_refusal_detail(deployment, monkeyp
 def test_recovery_diagnostics_do_not_expose_unexpected_payloads(
     deployment, monkeypatch, failure, category
 ):
-    def fail_restore(_backup):
+    def fail_restore(_backup, **_kwargs):
         raise failure
 
     deployment.probe_failures = ["readiness"]

@@ -705,6 +705,12 @@ Restoring also restores worker credential hashes. Coordinate worker endpoints an
 credentials so a test restore cannot claim live production work; avoid running two
 servers against the same worker ledger/storage.
 
+The updater's local backup retention (three verified backups by default) keeps
+`/var/lib/hnefatafl/backups` bounded, but it is not an off-host backup. Copy complete,
+verified backups to independent encrypted storage and test a restore there; local
+retention cannot protect against loss of the container, Proxmox thin pool or host.
+See [storage retention and cleanup](DEPLOYMENT.md#storage-retention-preflight-and-cleanup).
+
 For upgrades and rollback, see [Deployment](DEPLOYMENT.md#updating). Schema upgrades
 are additive but older code can reject a newer schema; rollback uses the matching
 pre-upgrade **database and files**, not just an older executable.

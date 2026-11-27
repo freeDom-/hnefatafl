@@ -42,7 +42,10 @@ check: docs lint typecheck test build
 # runs these tests; this target makes the real lifespan + exclusive flock path
 # explicit in CI.
 deployment-check:
-	$(PYTHON) -m pytest tests/test_deployment.py tests/test_deployment_lifecycle.py -q
+	$(PYTHON) -m pytest tests/test_deployment.py tests/test_deployment_lifecycle.py \
+		tests/test_deployment_storage.py tests/test_deployment_hardening.py \
+		tests/test_deployment_recovery.py tests/test_deployment_installed_cli.py \
+		tests/test_deployment_environment.py -q
 	$(PYTHON) -m pytest tests/test_player_tournaments.py -q -k 'startup_survives_exclusive_deployment_gate or recovery_defers_only or recovery_propagates_unexpected or shutdown_while_recovery_is_deferred or due_scheduled_start_stays_blocked or full_background_lifecycle or startup_failure_cleans or shutdown_while_reconciliation_is_deferred_stops_all'
 
 # Pinned historical sources are fetched into local refs, never committed.

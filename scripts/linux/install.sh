@@ -21,6 +21,30 @@ case $(dpkg --print-architecture) in
   *) echo 'Supported architectures: amd64 and arm64.' >&2; exit 1 ;;
 esac
 script_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+refresh_only=0
+forwarded=()
+for argument in "$@"; do
+  case $argument in
+    --refresh-updater-only) refresh_only=1 ;;
+    *) forwarded+=("$argument") ;;
+  esac
+done
+if ((${#forwarded[@]})); then
+  set -- "${forwarded[@]}"
+else
+  set --
+fi
+install_deployment_utilities() {
+  stage='Installing the verified deployment utility'
+  /usr/bin/python3 -I -B - "$script_root" /etc/hnefatafl /usr/local/lib/hnefatafl /usr/local/bin /run/lock/hnefatafl-update.lock <<'INSTALLER_PY'
+import runpy, sys
+from pathlib import Path
+
+source, config, utilities, commands, lock = map(Path, sys.argv[1:])
+installer = runpy.run_path(str(source / "hnefatafl/deployment.py"))
+installer["install_reviewed_updater"](source, config, utilities, commands, lock)
+INSTALLER_PY
+}
 verify_service() {
   stage='Enabling and verifying systemd service'
   systemctl enable hnefatafl.service
@@ -71,13 +95,17 @@ verify_cli_commands() {
   done
 }
 
-install -d -m 700 /etc/hnefatafl
-configure_root_cli_path
+if [[ $refresh_only -ne 1 ]]; then
+  install -d -m 700 /etc/hnefatafl
+  configure_root_cli_path
+fi
 if [[ -f /etc/hnefatafl/deployment.json ]]; then
   echo 'Existing configuration and accounts retained. Running the stable-release updater.'
-  install -m 644 "$script_root/hnefatafl/deployment.py" /usr/local/lib/hnefatafl/deployment.py
-  install -m 755 "$script_root/scripts/linux/update.sh" /usr/local/bin/hnefatafl-update
-  install -m 755 "$script_root/scripts/linux/backup.sh" /usr/local/bin/hnefatafl-backup
+  install_deployment_utilities
+  if [[ $refresh_only -eq 1 ]]; then
+    echo 'Deployment utility refreshed. Configuration, installed state, transactions and application data were retained.'
+    exit 0
+  fi
   stage='Resuming stable-release installation/update'
   if [[ -f /etc/hnefatafl/installed.json ]]; then
     /usr/local/bin/hnefatafl-update "$@"
@@ -87,6 +115,10 @@ if [[ -f /etc/hnefatafl/deployment.json ]]; then
   verify_service
   verify_cli_commands
   exit 0
+fi
+if [[ $refresh_only -eq 1 ]]; then
+  echo "No existing Hnefatafl installation found in /etc/hnefatafl." >&2
+  exit 1
 fi
 read -r -p 'GitHub repository [freeDom-/hnefatafl]: ' repository
 repository=${repository:-freeDom-/hnefatafl}
@@ -104,7 +136,7 @@ id hnefatafl >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/li
 [[ $(id -u hnefatafl) -ne 0 ]] || { echo 'The hnefatafl service account must not have UID 0.' >&2; exit 1; }
 install -d -m 755 /opt/hnefatafl /opt/hnefatafl/releases /opt/hnefatafl/tools /usr/local/lib/hnefatafl
 install -d -o hnefatafl -g hnefatafl -m 700 /var/lib/hnefatafl
-install -d -m 700 /var/lib/hnefatafl/backups
+install -d -m 700 /var/lib/hnefatafl-backups
 python3 -m venv /opt/hnefatafl/tools
 /opt/hnefatafl/tools/bin/pip install 'uv==0.12.23'
 temporary=$(mktemp -d)
@@ -152,18 +184,19 @@ root=pathlib.Path('/etc/hnefatafl')
 (root/'application.env').write_text(f'HNEFATAFL_ENV=production\nHNEFATAFL_PUBLIC_URL={origin}\nHNEFATAFL_ALLOWED_HOSTS={url.hostname},127.0.0.1,localhost\nHNEFATAFL_TRUSTED_PROXIES={proxies}\nHNEFATAFL_HOST=0.0.0.0\nHNEFATAFL_PORT={port}\n')
 PY
 chmod 600 /etc/hnefatafl/*.json /etc/hnefatafl/application.env
-install -m 644 "$script_root/hnefatafl/deployment.py" /usr/local/lib/hnefatafl/deployment.py
-install -m 755 "$script_root/scripts/linux/update.sh" /usr/local/bin/hnefatafl-update
-install -m 755 "$script_root/scripts/linux/backup.sh" /usr/local/bin/hnefatafl-backup
+install_deployment_utilities
 stage='Installing stable release, initializing administrator and verifying application readiness'
 /usr/local/bin/hnefatafl-update --initialize "$@"
 verify_service
 verify_cli_commands
 echo "Application: $public_url (port $app_port)"
 python3 - <<'PY'
-import json, sqlite3
+import json
 from pathlib import Path
 print('Installed release: ' + json.loads(Path('/etc/hnefatafl/installed.json').read_text())['version'])
+PY
+runuser -u hnefatafl -- /usr/bin/python3 -I -B - <<'PY'
+import sqlite3
 with sqlite3.connect('file:/var/lib/hnefatafl/hnefatafl.sqlite3?mode=ro', uri=True) as connection:
     row=connection.execute("SELECT a.username FROM accounts a JOIN auth_meta m ON a.id=m.value WHERE m.key='bootstrapped'").fetchone()
 print('Administrator: ' + (row[0] if row else 'see local account configuration'))

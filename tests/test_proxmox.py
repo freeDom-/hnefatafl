@@ -20,9 +20,20 @@ REQUIRED = (
     "scripts/proxmox/ct/hnefatafl.sh",
     "scripts/proxmox/install/hnefatafl-install.sh",
     "scripts/linux/install.sh",
+    "scripts/linux/launcher.py",
     "scripts/linux/update.sh",
     "scripts/linux/backup.sh",
     "hnefatafl/deployment.py",
+    *(
+        f"hnefatafl/{name}.py"
+        for name in (
+            "online_migrations",
+            "league_migrations",
+            "league_policy",
+            "league_recovery_migrations",
+            "rating",
+        )
+    ),
 )
 
 # Every Proxmox command, including all mutations, is a fixture executable. The
@@ -84,15 +95,14 @@ if name == 'pct':
             if case == 'no-module' and cmd[-1].endswith('deployment.py'): sys.exit(1)
         if cmd[:2] == ['test', '-x'] and case in {'no-updater', 'no-backup'} and (case == 'no-updater' or cmd[-1].endswith('hnefatafl-backup')): sys.exit(1)
         if cmd[:2] == ['bash', '-lc'] and case == 'no-cli-path': sys.exit(24)
+        if cmd[-1] == '--verify-service' and case == 'probe': sys.exit(23)
         if cmd[0] == '/usr/local/bin/hnefatafl-update': sys.exit(int(os.environ.get('UPDATE_STATUS', '0')))
         if cmd[0] == 'bash' and case == 'install': sys.exit(20)
         if cmd[0] == 'systemctl':
             if case == cmd[1]: sys.exit(21)
             print('enabled' if cmd[1] == 'is-enabled' else 'active')
         if cmd[0] == 'python3':
-            if '.probe()' in cmd[-1]:
-                if case == 'probe': sys.exit(23)
-            else: print('Installed release: 0.22.1\nApplication port: 8000')
+            print('Installed release: 0.22.1\nApplication port: 8000')
         if cmd[0] == 'hostname': print('192.0.2.185')
 """
 
@@ -383,7 +393,7 @@ def test_native_default_success_and_verified_summary(host):
     pct = host.calls("pct")
     assert any(c[-3:] == ["systemctl", "is-enabled", "hnefatafl"] for c in pct)
     assert any(c[-3:] == ["systemctl", "is-active", "hnefatafl"] for c in pct)
-    assert any(".probe()" in c[-1] for c in pct)
+    assert any(c[-1] == "--verify-service" for c in pct)
     for name in ("hnefatafl-update", "hnefatafl-backup"):
         assert any(c[-3:] == ["test", "-x", f"/usr/local/bin/{name}"] for c in pct)
     assert any(c[-2] == "-lc" and "command -v" in c[-1] for c in pct if len(c) >= 2)
@@ -615,8 +625,10 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
     config.mkdir(parents=True)
     retained = config / "deployment.json"
     retained.write_text('{"repository":"retained/repository","port":8123}')
+    retained.chmod(0o600)
     if installed:
         (config / "installed.json").write_text('{"version":"0.22.1"}')
+        (config / "installed.json").chmod(0o600)
     for name in ("usr/local/bin", "usr/local/lib/hnefatafl", "root"):
         (container / name).mkdir(parents=True)
     os_release = container / "os-release"
@@ -626,6 +638,7 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
     source = source.replace("/etc/hnefatafl", str(config)).replace(
         "/usr/local/", str(container / "usr/local") + "/"
     )
+    source = source.replace("/run/lock/hnefatafl-update.lock", str(container / "operation.lock"))
     source = source.replace("/etc/profile.d", str(container / "etc/profile.d"))
     source = source.replace("/root/.bashrc", str(container / "root/.bashrc"))
     # The isolated fixture cannot run a real root login shell against its rootfs.
@@ -636,11 +649,19 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
         "\n".join(line for line in source.splitlines() if not line.startswith("export PATH="))
         + "\n"
     )
-    script.write_text(source)
-    updater = host.checkout / "scripts/linux/update.sh"
-    updater.write_text(
+    # Publication must validate the genuine wrappers. Substitute only the
+    # subsequent updater call, which would reach the production paths.
+    installed_command = container / "usr/local/bin/hnefatafl-update"
+    delegate = host.bin / "fixture-update"
+    delegate.write_text(
         '#!/bin/bash\nprintf "%s\\n" "$@" > "$DELEGATE"\nexit "${UPDATE_STATUS:-0}"\n'
     )
+    delegate.chmod(0o755)
+    for arguments in ('"$@"', '--initialize "$@"'):
+        expected = f"    {installed_command} {arguments}"
+        assert expected in source
+        source = source.replace(expected, f'    "{delegate}" {arguments}', 1)
+    script.write_text(source)
     (host.bin / "install").symlink_to(shutil.which("install"))
     (host.bin / "grep").symlink_to(shutil.which("grep"))
     dpkg = host.bin / "dpkg"
@@ -658,6 +679,10 @@ def test_debian_resume_enables_service_and_preserves_configuration(host, install
         capture_output=True,
     )
     assert retained.read_text() == '{"repository":"retained/repository","port":8123}'
+    assert installed_command.read_bytes() == (ROOT / "scripts/linux/update.sh").read_bytes()
+    assert (installed_command.parent / "hnefatafl-backup").read_bytes() == (
+        ROOT / "scripts/linux/backup.sh"
+    ).read_bytes()
     assert Path(host.env["DELEGATE"]).exists(), (result.returncode, result.stderr)
     assert Path(host.env["DELEGATE"]).read_text().splitlines() == (
         [""] if installed else ["--initialize"]

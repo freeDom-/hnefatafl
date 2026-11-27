@@ -1,0 +1,900 @@
+"""Manual backup, rollback preflight and interruption-safe restore regressions."""
+
+import errno
+import json
+import os
+import shutil
+import sqlite3
+import time
+from pathlib import Path
+
+import pytest
+
+from deployment_fixtures import legacy_snapshot
+
+from hnefatafl.deployment import (
+    DeploymentError,
+    DeploymentStepError,
+    FilesystemInfo,
+    JOURNAL_RESERVE,
+    JOURNAL_RESERVE_BYTES,
+    ReadinessError,
+    StorageError,
+    atomic_json,
+)
+from test_deployment_storage import Harness, names
+
+
+def recovery_harness(tmp_path):
+    harness = Harness(tmp_path)
+    old = harness.release("1.0.0", "0001", prepared_at=10)
+    target = harness.release("2.0.0", "0002", prepared_at=20)
+    harness.activate(old)
+    harness.set_state("1.0.0", old)
+    return harness, old, target
+
+
+def with_database(harness, value="original"):
+    database = harness.data / "hnefatafl.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE IF NOT EXISTS persistent(value TEXT)")
+        connection.execute("DELETE FROM persistent")
+        connection.execute("INSERT INTO persistent VALUES(?)", (value,))
+        connection.commit()
+    return database
+
+
+def live_value(harness):
+    with sqlite3.connect(harness.data / "hnefatafl.sqlite3") as connection:
+        return connection.execute("SELECT value FROM persistent").fetchone()[0]
+
+
+@pytest.mark.parametrize(
+    ("point", "failure"),
+    [
+        ("initial", errno.ENOSPC),
+        ("shutdown", errno.ENOSPC),
+        ("snapshot", errno.EDQUOT),
+        ("migration", errno.EIO),
+        ("snapshot-failed", errno.EIO),
+    ],
+)
+def test_journal_failure_before_migration_preserves_previous_service(
+    tmp_path, monkeypatch, point, failure
+):
+    from hnefatafl import deployment
+
+    harness, old, target = recovery_harness(tmp_path)
+    database = with_database(harness)
+    prior_release = harness.release("0.9.0", "0000")
+    rollback = harness.make_backup("20261125T010000-0001")
+    harness.set_state("1.0.0", old, previous=prior_release, backup=rollback)
+    original_state = harness.state.read_bytes()
+    original_data = database.read_bytes()
+    original_directory = harness.data.stat().st_ino
+    atomic_json(harness.journal, {"phase": "recovered"})
+    original_journal = harness.journal.read_bytes()
+    last_durable = None
+    starts = []
+    original_service = harness.service
+
+    def guard_service(action):
+        if action == "start":
+            harness._authorize_service_start()
+            starts.append(harness.current.resolve())
+        original_service(action)
+
+    def write(path, value):
+        nonlocal last_durable
+        if path == harness.journal and (
+            (point == "initial" and value["phase"] == "prepared")
+            or (point == "shutdown" and value["phase"] == "prepared" and value["service_stopped"])
+            or (point == "snapshot" and value["phase"] == "snapshot")
+            or (point == "migration" and value["phase"] == "migrating")
+            or (point == "snapshot-failed" and value["phase"] == "recovered")
+        ):
+            last_durable = path.read_bytes()
+            raise OSError(failure, os.strerror(failure), path)
+        atomic_json(path, value)
+
+    monkeypatch.setattr(deployment, "atomic_json", write)
+    monkeypatch.setattr(harness, "service", guard_service)
+    monkeypatch.setattr(
+        harness, "restore", lambda *args, **kwargs: pytest.fail("restored live data")
+    )
+    if point == "snapshot-failed":
+
+        def no_snapshot(**_):
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), harness.backups)
+
+        monkeypatch.setattr(harness, "snapshot", no_snapshot)
+    with pytest.raises((DeploymentError, DeploymentStepError)) as caught:
+        harness.deploy(target)
+    message = str(caught.value)
+    assert errno.errorcode[failure] in message
+    assert str(harness.journal) in message
+    assert harness.state.read_bytes() == original_state
+    assert database.read_bytes() == original_data
+    assert harness.data.stat().st_ino == original_directory
+    assert harness.current.resolve() == old
+    assert rollback.is_dir() and prior_release.is_dir()
+    assert not list(harness.data.parent.glob(".retained-*"))
+    assert (harness.etc / JOURNAL_RESERVE).stat().st_size == JOURNAL_RESERVE_BYTES
+
+    if point == "initial":
+        assert "stop" not in harness.actions and not starts
+        assert harness.journal.read_bytes() == original_journal
+    elif point == "snapshot-failed":
+        assert "Deployment failed during pre-deployment snapshot" in message
+        assert "ENOSPC" in message and "EIO" in message
+        assert "service is running and verified" in message
+        assert "Recovery metadata remains incomplete" in message
+        assert "automatic recovery succeeded" not in message
+        assert starts == [old]
+        assert harness.journal.read_bytes() == last_durable
+        with pytest.raises(DeploymentError, match="startup is deferred"):
+            harness._authorize_service_start()
+        monkeypatch.setattr(deployment, "atomic_json", atomic_json)
+        monkeypatch.setattr(harness, "_service_is_active", lambda: True)
+        harness.recover()
+        assert starts == [old]
+        assert json.loads(harness.journal.read_text())["phase"] == "recovered"
+    else:
+        assert "automatic recovery succeeded" in message
+        assert starts == [old]
+        assert json.loads(harness.journal.read_text())["phase"] == "recovered"
+
+
+def test_unchanged_service_recovery_refuses_replaced_data_root(tmp_path, monkeypatch):
+    from hnefatafl import deployment
+
+    harness, _old, target = recovery_harness(tmp_path)
+    database = with_database(harness)
+    original = harness.data.with_name("previous-data")
+
+    def write(path, value):
+        if path == harness.journal and value["phase"] == "snapshot":
+            harness.data.rename(original)
+            harness.data.mkdir()
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), path)
+        atomic_json(path, value)
+
+    monkeypatch.setattr(deployment, "atomic_json", write)
+    with pytest.raises(
+        DeploymentStepError, match="Cannot prove the previous release and live data"
+    ):
+        harness.deploy(target)
+    assert (original / database.name).exists()
+    assert "start" not in harness.actions
+    assert harness.data.is_dir()
+    with pytest.raises(DeploymentError, match="Cannot prove"):
+        harness._authorize_service_start()
+
+
+@pytest.mark.parametrize("phase", ["migrating", "recovered", "committed"])
+def test_journal_directory_sync_failure_after_rename(tmp_path, monkeypatch, phase):
+    from hnefatafl import deployment
+
+    harness, old, target = recovery_harness(tmp_path)
+    database = with_database(harness)
+    original = database.read_bytes()
+    prior_release = harness.release("0.9.0", "0000", prepared_at=1)
+    prior_backup = harness.make_backup("20261125T010000-0001")
+    harness.set_state("1.0.0", old, previous=prior_release, backup=prior_backup)
+    sync = deployment.sync_directory
+    faults = []
+
+    def failing_sync(path):
+        if path == harness.etc and harness.journal.exists():
+            recorded = json.loads(harness.journal.read_text())
+            if recorded["phase"] == phase:
+                faults.append(phase)
+                raise OSError(errno.EIO, os.strerror(errno.EIO), path)
+        sync(path)
+
+    monkeypatch.setattr(deployment, "sync_directory", failing_sync)
+    if phase != "migrating":
+        monkeypatch.setattr(
+            harness,
+            "_post_operation_cleanup",
+            lambda *args, **kwargs: pytest.fail("retention ran after a failed journal sync"),
+        )
+    if phase == "recovered":
+
+        def no_snapshot(**_):
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), harness.backups)
+
+        monkeypatch.setattr(harness, "snapshot", no_snapshot)
+    with pytest.raises(DeploymentStepError, match="EIO") as caught:
+        harness.deploy(target)
+    assert faults == [phase]
+    active = target if phase == "committed" else old
+    assert harness.current.resolve() == active
+    assert database.read_bytes() == original
+    assert not any(harness.data.parent.glob(".retained-*"))
+    assert harness.actions.count("start") == 1
+    assert json.loads(harness.journal.read_text())["phase"] == (
+        "committed" if phase == "committed" else "recovered"
+    )
+    if phase == "migrating":
+        assert "automatic recovery succeeded" in str(caught.value)
+        return
+    if phase == "recovered":
+        assert "Recovery metadata remains incomplete" in str(caught.value)
+    else:
+        assert "Could not finish publishing the installed state" in str(caught.value)
+
+    next_release = harness.release("3.0.0", "0003", prepared_at=50)
+    expired = harness.release("0.8.0", "0010", prepared_at=0)
+    os.utime(expired, (1, 1))
+    relocated = harness.make_backup("20261126T010000-0002")
+    harness.legacy_backups.mkdir(mode=0o700)
+    legacy = harness.legacy_backups / relocated.name
+    relocated.rename(legacy)
+    orphan = harness.releases / ".staging-release-0123456789abcdef"
+    orphan.mkdir()
+    harness.fs.write_staging_marker(orphan, "release")
+    retained = harness.data.parent / ".retained-0123456789abcdef"
+    retained.mkdir()
+    (retained / "keep").write_text("retained data")
+    state = harness.state.read_bytes()
+    journal = harness.journal.read_bytes()
+    installed = json.loads(state)
+    protected = {active, Path(installed["previous"]), Path(installed["backup"])}
+
+    def fresh():
+        return deployment.Deployment(
+            harness.config,
+            base=harness.base,
+            data=harness.data,
+            etc=harness.etc,
+            unit_file=harness.unit_file,
+            backups=harness.backups,
+        )
+
+    for operation in (
+        lambda: fresh().cleanup(),
+        lambda: fresh().deploy(next_release),
+        lambda: fresh().recover(),
+    ):
+        with pytest.raises(DeploymentError, match="Cannot confirm durability") as failure:
+            operation()
+        assert "EIO" in str(failure.value)
+        assert str(harness.journal) in str(failure.value)
+        assert "hnefatafl-update --recover" in str(failure.value)
+        assert all(
+            path.exists()
+            for path in {
+                *protected,
+                prior_release,
+                prior_backup,
+                expired,
+                legacy,
+                orphan,
+                next_release,
+            }
+        )
+        assert not relocated.exists()
+        assert not harness.migration_journal.exists()
+        assert harness.current.resolve() == active
+        assert harness.state.read_bytes() == state and harness.journal.read_bytes() == journal
+        assert database.read_bytes() == original
+        assert (retained / "keep").read_text() == "retained data"
+
+    monkeypatch.setattr(deployment, "sync_directory", sync)
+    updater = fresh()
+    updater.recover()
+    assert relocated.is_dir() and not legacy.exists()
+    assert not orphan.exists()
+    report = updater.cleanup()
+    assert report.ok and not report.refused
+    assert not expired.exists()
+    assert all(path.exists() for path in protected)
+    assert harness.current.resolve() == active and database.read_bytes() == original
+    assert (retained / "keep").read_text() == "retained data"
+
+
+@pytest.mark.parametrize("point", ["after-migration", "after-activation", "uses-reserve"])
+def test_journal_failure_after_database_write_keeps_recovery_durable(tmp_path, monkeypatch, point):
+    from hnefatafl import deployment
+
+    harness, old, target = recovery_harness(tmp_path)
+    prior_release = harness.release("0.9.0", "0000")
+    rollback = harness.make_backup("20261125T010000-0001")
+    harness.set_state("1.0.0", old, previous=prior_release, backup=rollback)
+    original_state = harness.state.read_bytes()
+    database = with_database(harness)
+    reserve = harness.etc / JOURNAL_RESERVE
+    actions = harness.actions
+    reserve_writes = []
+    original_run, original_service = harness.run, harness.service
+
+    def run(args, **kwargs):
+        if args[1:4] == ["-m", "hnefatafl.accounts", "migrate"]:
+            with_database(harness, "migrated")
+        return original_run(args, **kwargs)
+
+    def service(action):
+        if action == "start":
+            harness._authorize_service_start()
+        original_service(action)
+
+    def probe():
+        if harness.current.resolve() == target:
+            raise ReadinessError("the activated service failed readiness")
+
+    def write(path, value):
+        if path == harness.journal:
+            if point != "after-activation" and value["phase"] == "activating":
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), path)
+            if value["phase"] == "recovering" and value.get("restore") is None:
+                if point != "uses-reserve":
+                    raise OSError(errno.EIO, os.strerror(errno.EIO), path)
+                reserve_writes.append(reserve.exists())
+                if reserve.exists():
+                    raise OSError(errno.EDQUOT, os.strerror(errno.EDQUOT), path)
+        atomic_json(path, value)
+
+    monkeypatch.setattr(deployment, "atomic_json", write)
+    monkeypatch.setattr(harness, "run", run)
+    monkeypatch.setattr(harness, "service", service)
+    monkeypatch.setattr(harness, "probe", probe)
+    with pytest.raises((DeploymentStepError, ReadinessError)) as caught:
+        harness.deploy(target)
+    message = str(caught.value)
+    assert harness.state.read_bytes() == original_state
+    assert rollback.is_dir() and prior_release.is_dir()
+    journal = json.loads(harness.journal.read_text())
+    backup = Path(journal["backup"])
+    harness.verify_snapshot(backup)
+    assert not (backup / "config" / JOURNAL_RESERVE).exists()
+    if point == "uses-reserve":
+        assert reserve_writes[:2] == [True, False]
+        assert not reserve.exists()
+        assert live_value(harness) == "original"
+        assert journal["phase"] == "recovered"
+        assert harness.current.resolve() == old
+        unreserved = harness._journal_storage_requirement()
+        harness._reserve_journal_space()
+        reserved = harness._journal_storage_requirement()
+        assert unreserved.bytes - reserved.bytes == JOURNAL_RESERVE_BYTES
+        assert unreserved.inodes - reserved.inodes == 1
+        assert "automatic recovery succeeded" in message
+    else:
+        assert "recording automatic recovery intent" in message and "EIO" in message
+        assert ("readiness" if point == "after-activation" else "ENOSPC") in message
+        assert "Restore reliable write access" in message
+        assert actions[-1] == "stop"
+        assert journal["phase"] == ("activated" if point == "after-activation" else "migrating")
+        assert live_value(harness) == "migrated"
+        assert not list(harness.data.parent.glob(".retained-*"))
+        if point == "after-activation":
+            assert harness.current.resolve() == target
+        else:
+            with pytest.raises(DeploymentError, match="startup is deferred"):
+                harness._authorize_service_start()
+        monkeypatch.setattr(deployment, "atomic_json", atomic_json)
+        harness.recover()
+        assert harness.current.resolve() == old
+        assert live_value(harness) == "original"
+    assert database.is_file()
+    (retained,) = harness.data.parent.glob(".retained-*")
+    assert (retained / database.name).is_file()
+
+
+# ---------------------------------------------------------------------------
+# F02 - manual backups
+# ---------------------------------------------------------------------------
+
+
+def test_manual_backup_refuses_insufficient_storage_without_stopping_service(tmp_path):
+    harness, _old, _target = recovery_harness(tmp_path)
+    harness._service_is_active = lambda: True
+    harness.filesystem_override = lambda path: FilesystemInfo(
+        1, Path(path), available_bytes=1024, available_inodes=100
+    )
+    with pytest.raises(StorageError):
+        harness.backup()
+    assert "stop" not in harness.actions
+    assert not any(entry.name.startswith("2026") for entry in harness.backups.iterdir())
+
+
+def test_manual_backup_checks_the_backup_filesystem_only(tmp_path):
+    harness, _old, _target = recovery_harness(tmp_path)
+    harness._service_is_active = lambda: True
+
+    def filesystem(path):
+        path = Path(path)
+        if str(path).startswith(str(harness.backups)):
+            return FilesystemInfo(9, path, available_bytes=1024, available_inodes=10)
+        return FilesystemInfo(1, path, 100 * 1024**3, 100000)
+
+    harness.filesystem_override = filesystem
+    with pytest.raises(StorageError) as error:
+        harness.backup()
+    assert error.value.filesystem.startswith(str(harness.backups))
+    assert "stop" not in harness.actions
+
+
+def test_manual_backup_snapshot_failure_removes_only_staging_and_restarts(tmp_path, monkeypatch):
+    harness, _old, _target = recovery_harness(tmp_path)
+    harness._service_is_active = lambda: True
+    preserved = harness.make_backup("20260101T000000-0001", payload=b"preserved")
+
+    def fail(**_kwargs):
+        raise OSError(28, os.strerror(28))
+
+    monkeypatch.setattr(harness, "snapshot", fail)
+    with pytest.raises(DeploymentError) as error:
+        harness.backup()
+    message = str(error.value)
+    assert "Manual backup failed" in message
+    assert "previously verified backups were preserved" in message
+    assert "ENOSPC" in message
+    assert preserved.exists()
+    assert (preserved / "data/sentinel").read_bytes() == b"preserved"
+    assert "stop" in harness.actions and "start" in harness.actions
+    assert "probe" in harness.actions
+
+
+def test_manual_backup_recovery_failure_is_reported_separately(tmp_path, monkeypatch):
+    harness, _old, _target = recovery_harness(tmp_path)
+    harness._service_is_active = lambda: True
+
+    def fail(**_kwargs):
+        raise OSError(5, os.strerror(5))
+
+    monkeypatch.setattr(harness, "snapshot", fail)
+    harness.probe_failure = ReadinessError("synthetic readiness failure")
+    with pytest.raises(DeploymentError) as error:
+        harness.backup()
+    message = str(error.value)
+    assert "Manual backup failed" in message
+    assert "automatic service recovery also failed" in message
+    assert "synthetic readiness failure" in message
+
+
+def test_manual_backup_applies_retention_and_keeps_the_new_backup(tmp_path):
+    harness, _old, _target = recovery_harness(tmp_path)
+    harness._service_is_active = lambda: True
+    for index in range(5):
+        harness.make_backup(f"2026010{index + 1}T000000-{index + 1:04x}", old=100 + index)
+    created = harness.backup()
+    assert created.exists()
+    backups = names(harness.backups)
+    assert created.name in backups
+    assert len(backups) <= 3
+
+
+def test_manual_backup_with_protected_history_reports_exception(tmp_path):
+    harness, old, _target = recovery_harness(tmp_path)
+    harness._service_is_active = lambda: True
+    protected = [
+        harness.make_backup(f"2026010{index + 1}T000000-{index + 1:04x}") for index in range(2)
+    ]
+    harness.set_state("1.0.0", old, backup=protected[0])
+    created = harness.backup()
+    assert created.exists()
+    assert protected[0].exists()
+    assert all(path.exists() for path in protected)
+
+
+# ---------------------------------------------------------------------------
+# F03 - verify snapshots before interrupting a healthy service
+# ---------------------------------------------------------------------------
+
+
+def test_rollback_corrupted_snapshot_is_refused_before_service_change(tmp_path):
+    harness, old, current = recovery_harness(tmp_path)
+    harness.activate(current)
+    harness.set_state("2.0.0", current, previous=old)
+    backup = harness.make_backup("20260101T000000-0001")
+    with_database(harness)
+    atomic_json(
+        harness.state,
+        {"version": "2.0.0", "target": str(current), "previous": str(old), "backup": str(backup)},
+    )
+    (backup / "data/sentinel").write_bytes(b"corrupted")
+    actions = list(harness.actions)
+    with pytest.raises(DeploymentError, match="snapshot verification failed"):
+        harness.recover(rollback=True)
+    assert harness.actions == actions
+    assert harness.current.resolve() == current
+
+
+def test_rollback_missing_snapshot_is_refused_before_service_change(tmp_path):
+    harness, old, current = recovery_harness(tmp_path)
+    harness.activate(current)
+    backup = harness.make_backup("20260101T000000-0001")
+    shutil.rmtree(backup)
+    harness.set_state("2.0.0", current, previous=old, backup=backup)
+    actions = list(harness.actions)
+    with pytest.raises(DeploymentError, match="(does not exist|Cannot inspect)"):
+        harness.recover(rollback=True)
+    assert harness.actions == actions
+    assert harness.current.resolve() == current
+
+
+def test_rollback_snapshot_from_different_release_is_refused(tmp_path):
+    harness, old, current = recovery_harness(tmp_path)
+    other = harness.release("0.9.0", "0003", prepared_at=1)
+    harness.activate(old)
+    snapshot = harness.snapshot()
+    harness.activate(current)
+    atomic_json(
+        harness.state,
+        {
+            "version": "2.0.0",
+            "target": str(current),
+            "previous": str(other),
+            "backup": str(snapshot),
+        },
+    )
+    actions = list(harness.actions)
+    with pytest.raises(DeploymentError, match="created for release"):
+        harness.recover(rollback=True)
+    assert harness.actions == actions
+    assert harness.current.resolve() == current
+
+
+def test_legacy_snapshot_without_association_is_accepted_with_warning(tmp_path, capsys):
+    harness, old, current = recovery_harness(tmp_path)
+    harness.activate(current)
+    legacy = harness.make_backup("20260101T000000-0001", payload=b"legacy")
+    harness.set_state("2.0.0", current, previous=old, backup=legacy)
+    harness.recover(rollback=True)
+    assert harness.current.resolve() == old
+    assert (harness.data / "sentinel").read_bytes() == b"legacy"
+    assert "legacy metadata" in capsys.readouterr().out
+
+
+def test_restore_storage_shortage_refuses_before_stopping(tmp_path):
+    harness, old, current = recovery_harness(tmp_path)
+    harness.activate(old)
+    snapshot = legacy_snapshot(harness)
+    harness.activate(current)
+    atomic_json(
+        harness.state,
+        {"version": "2.0.0", "target": str(current), "previous": str(old), "backup": str(snapshot)},
+    )
+    harness._service_is_active = lambda: True
+    harness.filesystem_override = lambda path: FilesystemInfo(
+        1, Path(path), available_bytes=1024, available_inodes=100
+    )
+    actions = list(harness.actions)
+    with pytest.raises(StorageError):
+        harness.recover(rollback=True)
+    assert harness.actions == actions
+    assert harness.current.resolve() == current
+
+
+# ---------------------------------------------------------------------------
+# F06 - interruption-safe restore and rollback
+# ---------------------------------------------------------------------------
+
+
+def interrupted_recovery_journal(harness, old, target, snapshot, database):
+    state = {
+        "version": "1.0.0",
+        "target": str(old),
+        "previous": None,
+        "backup": None,
+        "phase": "committed",
+    }
+    atomic_json(harness.state, state)
+    atomic_json(
+        harness.journal,
+        {
+            "phase": "migrating",
+            "previous": str(old),
+            "target": str(target),
+            "backup": str(snapshot),
+            "prior_state": state,
+            "service_stopped": True,
+            "migration_started": True,
+            "data_modified": True,
+            "restore": None,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "phase", ["prepared", "staged", "stopping", "data-renamed", "published", "ownership-set"]
+)
+def test_restore_interrupted_after_each_transition_is_recoverable(tmp_path, phase):
+    harness, old, target = recovery_harness(tmp_path)
+    database = with_database(harness, "snapshot-state")
+    snapshot = legacy_snapshot(harness)
+    with_database(harness, "newer-live-state")
+    (harness.data / "jobs/newer.log").write_text("newer data")
+    interrupted_recovery_journal(harness, old, target, snapshot, database)
+
+    original_record = harness.record
+    fired = {"value": False}
+
+    def interrupting_record(value):
+        restore = value.get("restore") if isinstance(value, dict) else None
+        if not fired["value"] and isinstance(restore, dict) and restore.get("phase") == phase:
+            fired["value"] = True
+            raise KeyboardInterrupt("synthetic interruption")
+        return original_record(value)
+
+    harness.record = interrupting_record
+    try:
+        harness.recover()
+    except (KeyboardInterrupt, DeploymentStepError, DeploymentError, StorageError):
+        pass
+    harness.record = original_record
+    if phase != "prepared":
+        assert fired["value"], "the requested interruption point was not reached"
+
+    harness.recover()
+
+    assert json.loads(harness.journal.read_text())["phase"] == "recovered"
+    assert harness.current.resolve() == old
+    assert live_value(harness) == "snapshot-state"
+    assert not (harness.data / "jobs/newer.log").exists()
+    retained = [
+        path for path in harness.data.parent.iterdir() if path.name.startswith(".retained-")
+    ]
+    assert retained, "previous persistent data must be retained for manual recovery"
+    assert (retained[0] / "jobs/newer.log").read_text() == "newer data"
+
+
+@pytest.mark.parametrize("phase", ["staged", "stopping", "data-renamed", "published"])
+def test_rollback_interrupted_after_each_transition_is_recoverable(tmp_path, phase):
+    harness, old, current = recovery_harness(tmp_path)
+    with_database(harness, "snapshot-state")
+    snapshot = legacy_snapshot(harness)
+    with_database(harness, "newer-live-state")
+    harness.activate(current)
+    atomic_json(
+        harness.state,
+        {
+            "version": "2.0.0",
+            "target": str(current),
+            "previous": str(old),
+            "backup": str(snapshot),
+            "phase": "committed",
+        },
+    )
+    original_record = harness.record
+    fired = {"value": False}
+
+    def interrupting_record(value):
+        restore = value.get("restore") if isinstance(value, dict) else None
+        if not fired["value"] and isinstance(restore, dict) and restore.get("phase") == phase:
+            fired["value"] = True
+            raise KeyboardInterrupt("synthetic interruption")
+        return original_record(value)
+
+    harness.record = interrupting_record
+    try:
+        harness.recover(rollback=True)
+    except (KeyboardInterrupt, DeploymentStepError, DeploymentError, StorageError):
+        pass
+    harness.record = original_record
+    assert fired["value"], "the requested interruption point was not reached"
+
+    harness.recover()
+
+    assert harness.current.resolve() == old
+    assert live_value(harness) == "snapshot-state"
+    state = json.loads(harness.state.read_text())
+    assert state["version"] == "1.0.0"
+    assert state["previous"] is None and state["backup"] is None
+
+
+def test_retained_persistent_data_is_never_pruned(tmp_path):
+    harness, old, _current = recovery_harness(tmp_path)
+    retained = harness.data.parent / ".retained-0123456789abcdef"
+    retained.mkdir()
+    (retained / "models").mkdir()
+    (retained / "models/weights").write_bytes(b"must survive")
+    report = harness.cleanup(dry_run=False)
+    assert retained.exists()
+    assert (retained / "models/weights").read_bytes() == b"must survive"
+    assert any(entry.category == "retained" for entry in report.entries)
+
+
+def test_abandoned_restore_staging_requires_a_valid_marker(tmp_path):
+    harness, old, _current = recovery_harness(tmp_path)
+    unmarked = harness.data.parent / ".restore-aaaaaaaaaaaaaaaa"
+    unmarked.mkdir()
+    marked = harness.data.parent / ".restore-bbbbbbbbbbbbbbbb"
+    marked.mkdir()
+    atomic_json(
+        marked / ".restore.json",
+        {"schema": 1, "transaction": "bbbbbbbb", "backup": "x", "created_at": time.time()},
+    )
+    old_time = time.time() - 7200
+    os.utime(unmarked, (old_time, old_time))
+    os.utime(marked, (old_time, old_time))
+    report = harness.cleanup(dry_run=False)
+    assert unmarked.exists()
+    assert not marked.exists()
+    assert any(entry.category == "restore-staging" for entry in report.retained)
+
+
+def test_restore_staging_referenced_by_the_journal_is_protected(tmp_path):
+    harness, old, target = recovery_harness(tmp_path)
+    with_database(harness)
+    snapshot = legacy_snapshot(harness)
+    staging = harness.data.parent / ".restore-cccccccc"
+    staging.mkdir()
+    atomic_json(
+        staging / ".restore.json",
+        {
+            "schema": 1,
+            "transaction": "cccccccc",
+            "backup": str(snapshot),
+            "created_at": time.time(),
+        },
+    )
+    old_time = time.time() - 9000
+    os.utime(staging, (old_time, old_time))
+    atomic_json(
+        harness.journal,
+        {
+            "phase": "migrating",
+            "previous": str(old),
+            "target": str(target),
+            "backup": str(snapshot),
+            "migration_started": True,
+            "restore": {
+                "phase": "staged",
+                "transaction": "cccccccc",
+                "backup": str(snapshot),
+                "data": str(harness.data),
+                "staging": str(staging),
+                "retained": str(harness.data.parent / ".retained-cccccccc"),
+            },
+        },
+    )
+    report = harness.cleanup(dry_run=False, allow_unfinished=True)
+    assert staging.exists()
+    assert any("unfinished transaction journal" in entry.reason for entry in report.retained)
+
+
+@pytest.mark.parametrize(
+    "change,error",
+    [
+        ("missing-field", "Invalid versioned snapshot"),
+        ("missing-file", "metadata is missing"),
+        ("empty", "Malformed legacy snapshot"),
+        ("wrong-transaction", "does not match the recorded association"),
+        ("wrong-digest", "archive digest disagrees"),
+        ("wrong-release-directory", "does not match the rollback directory"),
+        ("wrong-purpose", "purpose is not suitable"),
+        ("malformed", "Invalid snapshot association metadata"),
+    ],
+)
+def test_current_snapshot_association_is_enforced_before_downtime(tmp_path, change, error):
+    from hnefatafl.deployment import checksum
+
+    harness, old, target = recovery_harness(tmp_path)
+    with_database(harness, "pre-deployment")
+    harness.deploy(target)
+    state = json.loads(harness.state.read_text())
+    backup = Path(state["backup"])
+    association_path = backup / "snapshot.json"
+    association = json.loads(association_path.read_text())
+    journal = json.loads(harness.journal.read_text())
+    assert association == state["backup_association"] == journal["backup_association"]
+    assert association["snapshot"] == journal["snapshot_id"]
+    assert association["transaction"] == journal["transaction"]
+    manifest = json.loads((backup / "manifest.json").read_text())
+    if change == "missing-field":
+        del association["database_schema"]
+    elif change == "empty":
+        association = {}
+    elif change == "wrong-transaction":
+        association["transaction"] = "f" * 32
+    elif change == "wrong-digest":
+        association["release_sha256"] = "sha256:" + "f" * 64
+    elif change == "wrong-release-directory":
+        association["release"] = str(harness.release("1.0.0", "abcd"))
+    elif change == "wrong-purpose":
+        association["purpose"] = "manual"
+    if change == "missing-file":
+        association_path.unlink()
+        del manifest["snapshot.json"]
+    else:
+        if change == "malformed":
+            association_path.write_text("{not a JSON object")
+        else:
+            atomic_json(association_path, association)
+        manifest["snapshot.json"] = checksum(association_path)
+    atomic_json(backup / "manifest.json", manifest)
+    before = harness.journal.read_bytes()
+    harness.actions.clear()
+    with pytest.raises(DeploymentError, match=error):
+        harness.recover(rollback=True)
+    assert harness.current.resolve() == target and harness.actions == []
+    assert harness.journal.read_bytes() == before
+    assert old.is_dir() and backup.is_dir()
+    assert live_value(harness) == "pre-deployment"
+
+
+def test_explicit_rollback_preserves_the_older_valid_rollback_reference(tmp_path):
+    harness, first, second = recovery_harness(tmp_path)
+    with_database(harness, "first")
+    harness.deploy(second)
+    second_state = json.loads(harness.state.read_text())
+    with_database(harness, "second")
+    third = harness.release("3.0.0", "0003")
+    harness.deploy(third)
+    with_database(harness, "third")
+    harness.recover(rollback=True)
+    assert harness.current.resolve() == second
+    assert json.loads(harness.state.read_text()) == second_state
+    assert Path(second_state["backup"]).is_dir()
+    assert second_state["previous"] == str(first)
+    assert live_value(harness) == "second"
+
+
+@pytest.mark.parametrize("mounted", ["root", "nested"])
+def test_mounted_persistent_data_refuses_rollback_before_downtime(tmp_path, mounted):
+    from hnefatafl.deployment import PrivilegedFilesystem
+    from test_deployment_hardening import write_mountinfo
+
+    harness, old, target = recovery_harness(tmp_path)
+    snapshot = legacy_snapshot(harness)
+    harness.activate(target)
+    harness.set_state("2.0.0", target, previous=old, backup=snapshot)
+    mount = harness.data if mounted == "root" else harness.data / "models"
+    harness.fs = PrivilegedFilesystem(
+        mountinfo=write_mountinfo(tmp_path / "mountinfo", [str(mount)])
+    )
+    with pytest.raises(DeploymentError, match="unmounted persistent data directory"):
+        harness.recover(rollback=True)
+    assert harness.actions == [] and harness.current.resolve() == target
+    assert not harness.journal.exists()
+
+
+def test_startup_guard_requires_durable_activation_and_authoritative_data(tmp_path):
+    harness, old, target = recovery_harness(tmp_path)
+    with_database(harness)
+    harness.deploy(target)
+    harness._authorize_service_start()
+    transaction = json.loads(harness.journal.read_text())
+    transaction["phase"] = "activating"
+    atomic_json(harness.journal, transaction)
+    with pytest.raises(DeploymentError, match="startup is deferred"):
+        harness._authorize_service_start()
+    transaction["phase"] = "activated"
+    atomic_json(harness.journal, transaction)
+    harness._authorize_service_start()
+    harness.activate(old)
+    with pytest.raises(DeploymentError, match="startup is deferred"):
+        harness._authorize_service_start()
+
+
+def test_rollback_does_not_reuse_a_conflicting_destination_from_archived_legacy_metadata(tmp_path):
+    from hnefatafl.deployment import checksum
+
+    harness, first, second = recovery_harness(tmp_path)
+    third = harness.release("3.0.0", "0003")
+    conflict = harness.make_backup("20260101T000000-0001", payload=b"distinct backup")
+    snapshot = harness.make_backup("20260102T000000-0002")
+    archived = snapshot / "config/installed.json"
+    atomic_json(
+        archived,
+        {
+            "version": "2.0.0",
+            "phase": "committed",
+            "target": str(second),
+            "previous": str(first),
+            "backup": str(harness.legacy_backups / conflict.name),
+        },
+    )
+    manifest = snapshot / "manifest.json"
+    entries = json.loads(manifest.read_text())
+    entries["config/installed.json"] = checksum(archived)
+    atomic_json(manifest, entries)
+    harness.activate(third)
+    harness.set_state("3.0.0", third, previous=second, backup=snapshot)
+    harness.recover(rollback=True)
+    assert harness.current.resolve() == second
+    assert json.loads(harness.state.read_text())["backup"] is None
+    assert (conflict / "data/sentinel").read_bytes() == b"distinct backup"

@@ -68,7 +68,10 @@ try:
             'scripts/proxmox/ct/hnefatafl.sh',
             'scripts/proxmox/install/hnefatafl-install.sh',
             'scripts/linux/install.sh', 'scripts/linux/update.sh', 'scripts/linux/backup.sh',
-            'hnefatafl/deployment.py',
+            'scripts/linux/launcher.py',
+            'hnefatafl/deployment.py', 'hnefatafl/online_migrations.py',
+            'hnefatafl/league_migrations.py', 'hnefatafl/league_policy.py',
+            'hnefatafl/league_recovery_migrations.py', 'hnefatafl/rating.py',
         }
         files = {'/'.join(parts) for member, parts in entries if member.isfile()}
         if not required <= files:

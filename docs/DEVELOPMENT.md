@@ -129,7 +129,7 @@ cases sharing one peer; the production default remains five. See
 
 Backend online integration uses independent disposable SQLite connections/processes,
 barriers and controlled UTC clocks. Run
-`.venv/bin/python -m pytest tests/test_online_core.py tests/test_online_api.py tests/test_online_matches.py tests/test_online_migrations.py tests/test_lifecycle.py tests/test_security.py tests/test_account_migrations.py tests/test_deployment.py -q`
+`.venv/bin/python -m pytest tests/test_online_core.py tests/test_online_api.py tests/test_online_matches.py tests/test_online_migrations.py tests/test_lifecycle.py tests/test_security.py tests/test_account_migrations.py tests/test_deployment.py tests/test_deployment_storage.py -q`
 before `make check`. Production deployment changes additionally run
 `make deployment-check`, which starts a real lifespan under a real exclusive
 deployment flock and covers disposable update/rollback/recovery integration.
@@ -141,15 +141,15 @@ make historical-refs
 make deployment-cross-version
 ```
 
-`historical-refs` fetches only the pinned `0.40.0`, `0.41.0` and schema-20 commits
-from `origin` into local refs and verifies their commit IDs. Tests extract them
-into disposable directories; do not commit historical source trees. Cross-version
-coverage includes direct authentic upgrades from schemas 15, 20 and 21,
-cross-schema recovery refusal, process cleanup and post-commit authenticated
-mutation. The dedicated CI job performs the same sequence. See
-[online operations](ONLINE.md) and the
-[frontend handoff](designs/online-phase3-handoff.md). There is no lobby frontend
-or new browser validation claim in this backend phase.
+`historical-refs` verifies the commit IDs for `0.40.0`, `0.41.0`, `0.41.1`, `0.42`
+and the schema-20 fixture. The CI suite extracts the pinned releases into
+disposable directories. It covers authentic upgrades from schemas 15, 20 and 21,
+cross-schema recovery refusals, process cleanup, authenticated mutations and
+relocation of backup histories created by the released `0.41.1` and `0.42` updaters.
+The deployment tests also use process termination at actual filesystem and
+journal transitions, two filesystems for migration, and real application lifespans
+with an isolated service controller. These checks complement systemd and Proxmox
+validation on a target host.
 
 ## Check the change you made
 
@@ -163,7 +163,7 @@ or new browser validation claim in this backend phase.
 | `make format` | Rewrites Python/frontend formatting; review the diff |
 | `make docs` | Dependency-free local Markdown links, anchors, images and navigation checks |
 | `make deployment-check` | Real lifespan/exclusive-lock startup, deferred settlement recovery and disposable updater integration; mandatory in CI |
-| `make deployment-cross-version` | Genuine historical `0.40.0` updater/schema-20/`0.41.0` subprocess coverage; needs built frontend and `make historical-refs` |
+| `make deployment-cross-version` | Historical updater, schema and backup migration subprocess coverage. Requires a built frontend and `make historical-refs` |
 | `make historical-refs` | Fetch and verify pinned historical Git objects from `origin`; never commits source trees |
 
 Run focused tests first when appropriate, for example:
