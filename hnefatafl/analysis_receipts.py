@@ -24,7 +24,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 
 from .analysis_policy import AnalysisPolicyError
 
@@ -37,6 +37,7 @@ TERMINAL_RETENTION_SECONDS = 1800.0
 CLEANUP_INTERVAL_SECONDS = 5.0
 
 TERMINAL_STATES = frozenset({"completed", "failed", "expired"})
+AdvisorOutcome = Literal["complete", "partial", "unavailable", "failed", "superseded"]
 
 
 @dataclass
@@ -50,13 +51,15 @@ class _Receipt:
     position_key: str
     created_at: float
     expires_at: float
+    online: bool = False
     ply: int = 0
     side_to_move: str = "attackers"
     sequence: int = 0
     state: str = "prepared"
     submissions: int = 0
     tasks: int = 0
-    success: bool = False
+    admitted: bool = False
+    advisor_outcome: AdvisorOutcome | None = None
     failed: bool = False
     terminal_at: float | None = None
 
@@ -69,37 +72,28 @@ class ReceiptLease:
         self.receipt = receipt
         self.primary = primary
         self.finished = False
-        self._result_seen = False
-        self._failed = False
-        self._tracked = False
 
     @property
     def state(self) -> str:
         return self.receipt.state
 
     def track(self) -> None:
-        self._tracked = True
         self.registry.track_task(self.receipt)
 
-    def complete(self, success: bool) -> None:
-        self.registry.complete_task(self.receipt, success)
+    def complete(self, outcome: AdvisorOutcome | None) -> None:
+        self.registry.complete_task(self.receipt, outcome)
 
-    def result_available(self) -> None:
-        self._result_seen = True
-        self.registry.mark_success(self.receipt)
+    def result_available(self, outcome: AdvisorOutcome) -> None:
+        self.registry.mark_result(self.receipt, outcome)
 
     def fail(self) -> None:
-        self._failed = True
         self.registry.mark_failure(self.receipt)
 
     def finalize(self) -> None:
-        """Finish this submission exactly once; auto-success only for a primary
-        cache/no-computation path that never scheduled a task."""
+        """Finish this submission exactly once, independently of its result."""
         if self.finished:
             return
         self.finished = True
-        if self.primary and not self._tracked and not self._result_seen and not self._failed:
-            self.registry.mark_success(self.receipt)
         self.registry.finish_submission(self.receipt)
 
 
@@ -216,6 +210,7 @@ class AnalysisReceipts:
         revision: int,
         position_key: str,
         *,
+        online: bool = False,
         ply: int = 0,
         side_to_move: str = "attackers",
     ) -> dict:
@@ -250,6 +245,7 @@ class AnalysisReceipts:
                 position_key=position_key,
                 created_at=wall,
                 expires_at=now + self.ttl_seconds,
+                online=online,
                 ply=int(ply),
                 side_to_move=side_to_move,
                 sequence=self.sequence,
@@ -269,6 +265,7 @@ class AnalysisReceipts:
                 "cursor": receipt.cursor,
                 "ply": receipt.ply,
                 "side_to_move": receipt.side_to_move,
+                "position_key": receipt.position_key,
                 "advisor_revision": receipt.revision,
             }
 
@@ -329,9 +326,9 @@ class AnalysisReceipts:
             return
         if receipt.identifier in self.terminal:
             return
-        if receipt.success:
-            state = "completed"
-        elif receipt.failed:
+        if receipt.advisor_outcome in {"failed", "superseded"} or (
+            receipt.advisor_outcome is None and receipt.failed
+        ):
             state = "failed"
         else:
             state = "completed"
@@ -342,20 +339,21 @@ class AnalysisReceipts:
             if receipt.identifier in self.terminal:
                 return
             receipt.tasks += 1
+            receipt.admitted = True
             receipt.state = "active"
 
-    def complete_task(self, receipt: _Receipt, success: bool) -> None:
+    def complete_task(self, receipt: _Receipt, outcome: AdvisorOutcome | None) -> None:
         with self.lock:
             if receipt.tasks > 0:
                 receipt.tasks -= 1
-            receipt.success = receipt.success or success
-            if not success:
-                receipt.failed = True
+            if outcome is not None:
+                receipt.advisor_outcome = outcome
             self._maybe_terminal(receipt)
 
-    def mark_success(self, receipt: _Receipt) -> None:
+    def mark_result(self, receipt: _Receipt, outcome: AdvisorOutcome) -> None:
         with self.lock:
-            receipt.success = True
+            if receipt.advisor_outcome is None:
+                receipt.advisor_outcome = outcome
 
     def mark_failure(self, receipt: _Receipt) -> None:
         with self.lock:
@@ -388,7 +386,9 @@ class AnalysisReceipts:
                 return None
             return receipt.position_key
 
-    def status_for_account(self, identifier: str, account_id: str) -> dict:
+    def status_for_account(
+        self, identifier: str, account_id: str, *, include_position: bool = True
+    ) -> dict:
         with self.lock:
             now = self.clock()
             self.status_reads += 1
@@ -405,12 +405,17 @@ class AnalysisReceipts:
             }
             if receipt is None:
                 return {**payload, "state": "unknown", "terminal": False}
-            return {
+            lifecycle = {
                 **payload,
                 "state": receipt.state,
                 "terminal": receipt.state in TERMINAL_STATES,
-                "created_at": receipt.created_at,
                 "sequence": receipt.sequence,
+            }
+            if not include_position:
+                return lifecycle
+            return {
+                **lifecycle,
+                "created_at": receipt.created_at,
                 "game_id": receipt.game_id,
                 "version": receipt.version,
                 "cursor": receipt.cursor,
@@ -418,6 +423,11 @@ class AnalysisReceipts:
                 "side_to_move": receipt.side_to_move,
                 "position_key": receipt.position_key,
                 "advisor_revision": receipt.revision,
+                "advisor_outcome": receipt.advisor_outcome,
+                "online": receipt.online,
+                "retry_admission": receipt.state == "failed"
+                and not receipt.admitted
+                and receipt.advisor_outcome is None,
             }
 
     def status(

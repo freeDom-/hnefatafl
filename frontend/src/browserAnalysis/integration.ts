@@ -26,28 +26,11 @@ import {
 export { normalizeExecutionPolicy } from '../analysisPolicy';
 export type { ExecutionPolicy } from '../analysisPolicy';
 export {
-  addRetirement,
-  createReceipt,
-  fetchReceiptResult,
-  receiptOutcome,
   reconcileRetirements,
   retirementFor,
-  retirementKey,
   runServerFallback,
   settleRetirement,
-  validReceipt,
-  validStatus,
-  waitForReceipt,
   waitForReceiptResult,
-} from '../analysisRetirements';
-export type {
-  AnalysisReceipt,
-  AnalysisStatus,
-  FallbackOutcome,
-  FallbackRequest,
-  ReceiptOutcome,
-  ReceiptStatus,
-  RetirementRecord,
 } from '../analysisRetirements';
 
 export type LocalAnalysisStage =

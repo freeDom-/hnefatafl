@@ -181,16 +181,26 @@ locally through the shared Python engine in a worker; the server's
 history). `browser_preferred` retains the server endpoint as a bounded fallback for
 classified failures only. `browser_only` rejects all server analysis computation,
 while `disabled` suppresses optional analysis without affecting replay, gameplay,
-AI opponents, training or tournaments. In `browser_preferred`, a browser fallback
-first obtains a short-lived admission receipt; the read-only `analysis-status`
-check uses that receipt to distinguish prepared, submitted, active and terminal
-work. The account-bound `GET /api/analysis/receipts/{receipt_id}` endpoint reports
-receipt lifecycle evidence without requiring the game's current version/revision,
-and terminal cleanup exposes sequence-based `reconciled_before` evidence. A
-terminal, completed receipt has a read-only
-`GET /api/analysis/receipts/{receipt_id}/result` view of the retained result; it
-never starts computation and failed/expired receipts return no report. A missing record is
-treated as unknown, never as evidence that already-admitted server work finished.
+AI opponents, training or tournaments. In `browser_preferred`, fallback obtains a
+short-lived admission receipt for one canonical position and advisor revision.
+The two-minute budget covers creation, submission, observation, result retrieval
+and retry delays. A repeated submission requires a structured rejection before
+admission and a still-prepared receipt, or a terminal receipt that proves no task
+was admitted. Ambiguous submission outcomes are observed through GET requests.
+
+The account-bound `GET /api/analysis/receipts/{receipt_id}` endpoint reports
+retirement evidence independently of the game's current version, advisor or
+visibility. Matching terminal evidence, a process epoch change or an applicable
+sequence watermark can free a browser slot. A missing receipt in the same epoch
+above the watermark leaves the slot reserved.
+
+`GET /api/analysis/receipts/{receipt_id}/result` also checks current ownership or
+completed online participation, including current administrator access. A report
+requires the current game version and advisor revision. A retired operation may
+return a complete advisor evaluation, a partial checkpoint, or an unavailable
+advisor alongside retained playing-agent evaluations. Progression credit comes
+from successful computation or an explicit POST that finds a completed cached
+advisor evaluation.
 
 Local results are advisory and render through the existing panel. They do not
 write authoritative game state, clocks, ratings, league/tournament progression or

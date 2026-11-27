@@ -5,10 +5,14 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
 from auth_support import AuthenticatedClient as TestClient
+from fastapi.testclient import TestClient as RawClient
 from record_fixtures import historical_game
+from test_ratings import api_client, verified_login
 
 from hnefatafl.analysis_policy import AnalysisPolicyError
+from hnefatafl.engine import Move, State, apply_move, legal_moves, new_game
 from hnefatafl.server import create_app
 
 ADVISOR = {
@@ -27,13 +31,13 @@ def _game(client: TestClient):
     return historical_game(client, ruleset="brandubh", seed=51, advisor=ADVISOR)
 
 
-def _receipt(client: TestClient, game: dict) -> str:
-    settings = client.get(f"/api/games/{game['id']}/analytics").json()
+def _receipt(client: TestClient, game: dict, *, cursor=None, base="/api/games") -> str:
+    settings = client.get(f"{base}/{game['id']}/analytics").json()
     response = client.post(
-        f"/api/games/{game['id']}/analysis-receipt",
+        f"{base}/{game['id']}/analysis-receipt",
         json={
             "version": game["version"],
-            "cursor": game["cursor"],
+            "cursor": game["cursor"] if cursor is None else cursor,
             "revision": settings["revision"],
         },
     )
@@ -221,7 +225,7 @@ def test_cache_hit_retires_without_starting_another_evaluation(monkeypatch, tmp_
     # Produce the cache entry without a receipt first.
     first = client.post(
         f"/api/games/{game['id']}/analysis",
-        json={"version": game["version"], "cursor": game["cursor"], "background": True},
+        json={"version": game["version"], "cursor": game["cursor"]},
     )
     assert first.status_code == 200, first.text
     receipt = _receipt(client, game)
@@ -243,6 +247,7 @@ def test_cache_hit_retires_without_starting_another_evaluation(monkeypatch, tmp_
     assert calls == 0
     status = _wait_terminal(client, receipt)
     assert status["state"] == "completed"
+    assert _result(client, receipt)["status"] == "complete"
 
 
 def test_synchronous_duplicate_observes_without_writing_or_evaluating(monkeypatch, tmp_path):
@@ -337,3 +342,414 @@ def test_failed_task_submission_retires_as_failure(monkeypatch, tmp_path):
     assert response.status_code >= 500
     status = _status(client, receipt)
     assert status["state"] == "failed" and status["terminal"] is True
+
+
+@pytest.mark.parametrize("use_receipt", [False, True], ids=["server-only", "fallback"])
+def test_historical_analysis_matches_canonical_replay_after_seek(
+    monkeypatch, tmp_path, use_receipt
+):
+    monkeypatch.setenv(
+        "HNEFATAFL_ANALYSIS_MODE", "browser_preferred" if use_receipt else "server_only"
+    )
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    game = historical_game(client, ruleset="brandubh", seed=51, advisor=ADVISOR)
+    base = f"/api/games/{game['id']}"
+    states = [new_game("brandubh")]
+    for source, target in [(3, 2), (17, 16), (2, 3), (16, 17)] * 2:
+        moved = client.post(
+            base + "/moves", json={"version": game["version"], "source": source, "target": target}
+        )
+        assert moved.status_code == 200, moved.text
+        game = moved.json()
+        states.append(apply_move(states[-1], Move(source, target)))
+    assert game["winner"] == "draw"
+    analyzed = []
+    real_evaluate = app.state.analyses.evaluate
+
+    def capture(*args, state, **kwargs):
+        analyzed.append(state)
+        return real_evaluate(*args, state=state, **kwargs)
+
+    monkeypatch.setattr(app.state.analyses, "evaluate", capture)
+    # At the real frontier and after rewinding, compare each read against the
+    # same replay contract that the browser uses (including the history prefix).
+    for stored_cursor, requested in [(8, 7), (2, 8), (2, 2), (2, 4), (8, 8)]:
+        if game["cursor"] != stored_cursor:
+            game = client.post(
+                base + "/seek", json={"version": game["version"], "cursor": stored_cursor}
+            ).json()
+        assert game["cursor"] == stored_cursor
+        path = base + "/analysis"
+        body = {
+            "version": game["version"],
+            "cursor": requested,
+            "historical": True,
+            "background": True,
+        }
+        if use_receipt:
+            receipt = _receipt(client, game, cursor=requested)
+            response = client.post(
+                path, json=body, headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt}
+            )
+            assert response.status_code == 200, response.text
+            assert _wait_terminal(client, receipt)["state"] == "completed"
+            report = _result(client, receipt)["report"]
+            context = client.get(base + "/analysis-context", params={"cursor": requested}).json()
+            assert report["position_key"] == context["position_key"]
+        else:
+            deadline = time.monotonic() + 5
+            while True:
+                response = client.post(path, json=body)
+                assert response.status_code == 200, response.text
+                report = response.json()
+                if report["status"] == "complete":
+                    break
+                assert time.monotonic() < deadline
+                time.sleep(0.02)
+        if (stored_cursor, requested) == (8, 8):
+            # Returning to the genuine frontier reuses the correct cached result.
+            assert len(analyzed) == 4
+        else:
+            assert analyzed[-1] == states[requested]
+        assert report["cursor"] == report["ply"] == requested
+        assert report["side_to_move"] == states[requested].turn
+        advisor = next(entry for entry in report["evaluations"] if entry["agent_id"] == "advisor")
+        assert advisor["search_seed"] == 51 + requested
+        assert (advisor["source"] == "terminal") == bool(states[requested].winner)
+
+
+def _completed_online(monkeypatch, tmp_path, *, board_result=False):
+    from uuid import uuid4
+
+    monkeypatch.setenv("HNEFATAFL_ANALYSIS_MODE", "browser_preferred")
+    app, archer = api_client(tmp_path)
+    verified_login(app, archer, "Archer")
+    keeper = RawClient(app)
+    verified_login(app, keeper, "Keeper")
+    created = archer.post(
+        "/api/online/games",
+        json={"request_id": str(uuid4()), "ruleset": "brandubh", "side_selection": "attackers"},
+    )
+    assert created.status_code == 201, created.text
+    path = f"/api/online/games/{created.json()['game']['id']}"
+    game = keeper.post(path + "/join", json={"version": 0}).json()["game"]
+    moves = (
+        [Move(3, 2), Move(17, 16), Move(2, 3), Move(16, 17)] * 2
+        if board_result
+        else legal_moves(State.from_dict(game["position"]))[:1]
+    )
+    for move in moves:
+        player = archer if game["position"]["turn"] == "attackers" else keeper
+        moved = player.post(path + "/moves", json={"version": game["version"], **move.to_dict()})
+        assert moved.status_code == 200, moved.text
+        game = moved.json()["game"]
+    if not board_result:
+        ended = keeper.post(path + "/concede", json={"version": game["version"]})
+        assert ended.status_code == 200, ended.text
+        game = ended.json()["game"]
+    assert game["status"] == "completed"
+    assert game["position"]["winner"] == ("draw" if board_result else None)
+    return app, archer, {**game, "cursor": len(game["moves"])}
+
+
+@pytest.mark.parametrize(
+    "background,online", [(True, False), (False, False), (True, True), (False, True)]
+)
+def test_advisor_change_after_receipt_validation_never_substitutes_settings(
+    monkeypatch, tmp_path, background, online
+):
+    if online:
+        app, client, game = _completed_online(monkeypatch, tmp_path)
+    else:
+        app = _app(tmp_path, monkeypatch)
+        client = TestClient(app)
+        game = _game(client)
+    base = "/api/history/online" if online else "/api/games"
+    path = f"{base}/{game['id']}"
+
+    def save(advisor):
+        response = client.put(
+            path + "/analytics",
+            json={"advisor": advisor, "time_limit": 1, "show_win_chances": True},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["revision"]
+
+    revision = save(ADVISOR)
+    receipt = _receipt(client, game, base=base)
+    registry = app.state.analysis_receipts
+    real_begin = registry.begin_submission
+    real_evaluate = app.state.analyses.evaluate
+    evaluated = []
+
+    def begin(*args, **kwargs):
+        lease = real_begin(*args, **kwargs)
+        entered.set()
+        assert release.wait(5)
+        return lease
+
+    def capture(game, role, agent, settings, *args, **kwargs):
+        evaluated.append((role, settings["revision"]))
+        return real_evaluate(game, role, agent, settings, *args, **kwargs)
+
+    entered, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(registry, "begin_submission", begin)
+    monkeypatch.setattr(app.state.analyses, "evaluate", capture)
+    responses = []
+    thread = threading.Thread(
+        target=lambda: responses.append(
+            client.post(
+                path + "/analysis",
+                json={
+                    "version": game["version"],
+                    "cursor": game["cursor"],
+                    "background": background,
+                },
+                headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+            )
+        )
+    )
+    thread.start()
+    try:
+        assert entered.wait(5)
+        new_revision = save(
+            {**ADVISOR, "name": "Different advisor", "config": {**ADVISOR["config"], "depth": 2}}
+        )
+    finally:
+        release.set()
+        thread.join(10)
+    assert _wait_terminal(client, receipt)["terminal"] is True
+    assert evaluated == []
+    assert new_revision != revision
+    assert responses[0].status_code == 409
+    assert responses[0].json()["code"] == "analysis_revision_stale"
+    result = _result(client, receipt)
+    assert result["status"] == "superseded" and "report" not in result
+
+
+def test_receipt_content_access_tracks_current_owner_and_admin_permissions(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch)
+    admin = TestClient(app)
+    owner = RawClient(app)
+    private = verified_login(app, owner, "Private")
+    game = _game(owner)
+    path = f"/api/games/{game['id']}"
+
+    def complete(actor):
+        receipt = _receipt(actor, game)
+        response = actor.post(
+            path + "/analysis",
+            json={"version": game["version"], "cursor": 0},
+            headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+        )
+        assert response.status_code == 200, response.text
+        assert _result(actor, receipt)["status"] == "complete"
+        return receipt
+
+    owners_receipt = complete(owner)
+    admins_receipt = complete(admin)
+    assert _result(admin, owners_receipt)["status"] == "unknown"
+    with app.state.store.connection() as connection:
+        connection.execute("UPDATE accounts SET role='USER' WHERE username='Odin'")
+    assert _status(admin, admins_receipt)["terminal"] is True
+    assert "game_id" not in _status(admin, admins_receipt)
+    assert "report" not in _result(admin, admins_receipt)
+    assert _result(owner, owners_receipt)["status"] == "complete"
+    with app.state.store.connection() as connection:
+        connection.execute(
+            "UPDATE games SET owner_account_id=NULL WHERE id=? AND owner_account_id=?",
+            (game["id"], private["id"]),
+        )
+    for payload in (_status(owner, owners_receipt), _result(owner, owners_receipt)):
+        assert payload["terminal"] is True
+        assert not (
+            payload.keys() & {"game_id", "report", "hint", "evaluations", "position_key", "ply"}
+        )
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_retired_advisor_failure_preserves_playing_evidence_and_any_partial(
+    monkeypatch, tmp_path, partial
+):
+    app = _app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    game = historical_game(
+        client,
+        ruleset="brandubh",
+        mode="human-ai",
+        human_side="attackers",
+        seed=51,
+        advisor=ADVISOR,
+    )
+    path = f"/api/games/{game['id']}/analysis"
+    receipt = _receipt(client, game)
+    real_evaluate = app.state.analyses.evaluate
+
+    def compute(game, role, agent, settings, progress, *, state):
+        if role == "advisor" and not partial:
+            raise RuntimeError("deterministic advisor failure")
+        result = real_evaluate(game, role, agent, settings, progress, state=state)
+        if role == "advisor":
+            progress(result)
+            raise RuntimeError("failure after useful advisor progress")
+        return result
+
+    monkeypatch.setattr(app.state.analyses, "evaluate", compute)
+    response = client.post(
+        path,
+        json={"version": game["version"], "cursor": 0, "background": True},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert response.status_code == 200, response.text
+    assert _wait_terminal(client, receipt)["terminal"] is True
+    result = _result(client, receipt)
+    assert result["status"] == ("partial" if partial else "failed")
+    assert result["report"]["status"] == ("partial" if partial else "unavailable")
+    evaluations = {entry["agent_id"]: entry for entry in result["report"]["evaluations"]}
+    assert evaluations["defenders"]["source"] != "unavailable"
+    assert (evaluations["advisor"]["source"] != "unavailable") == partial
+    if partial:
+        # Legacy polling reuses the retired checkpoint without starting a new task.
+        reply = client.post(
+            path, json={"version": game["version"], "cursor": 0, "background": True}
+        )
+        assert reply.json()["status"] == "complete"
+        assert not app.state.analyses.tasks
+
+
+def test_terminal_receipts_stay_inspectable_after_game_changes_or_deletion(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    game = _game(client)
+    receipt = _receipt(client, game)
+    path = f"/api/games/{game['id']}"
+    submitted = client.post(
+        path + "/analysis",
+        json={"version": game["version"], "cursor": 0},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert submitted.status_code == 200
+    assert _result(client, receipt)["status"] == "complete"
+    move = client.post(path + "/moves", json={"version": game["version"], **game["legal_moves"][0]})
+    assert move.status_code == 200, move.text
+    retired = _result(client, receipt)
+    assert retired["terminal"] and retired["status"] == "superseded" and "report" not in retired
+    deleted = client.delete(path, params={"version": move.json()["version"]})
+    assert deleted.status_code == 200, deleted.text
+    assert _status(client, receipt)["terminal"]
+    retired = _result(client, receipt)
+    assert retired["terminal"] and retired["status"] == "unavailable" and "report" not in retired
+
+
+@pytest.mark.parametrize("board_result", [False, True], ids=["concession", "board-draw"])
+def test_completed_online_receipt_uses_canonical_position_and_participant_scope(
+    monkeypatch, tmp_path, board_result
+):
+    app, client, game = _completed_online(monkeypatch, tmp_path, board_result=board_result)
+    base = "/api/history/online"
+    path = f"{base}/{game['id']}"
+    saved = client.put(path + "/analytics", json={"advisor": ADVISOR, "time_limit": 1})
+    assert saved.status_code == 200, saved.text
+    revision = saved.json()["revision"]
+    cursor = game["cursor"]
+    receipt = _receipt(client, game, base=base)
+    context = client.get(path + "/analysis-context", params={"cursor": cursor}).json()
+    analyzed = []
+    real_evaluate = app.state.analyses.evaluate
+
+    def capture(*args, state, **kwargs):
+        analyzed.append(state)
+        return real_evaluate(*args, state=state, **kwargs)
+
+    monkeypatch.setattr(app.state.analyses, "evaluate", capture)
+    submitted = client.post(
+        path + "/analysis",
+        json={"version": game["version"], "cursor": cursor, "background": True},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert submitted.status_code == 200, submitted.text
+    assert _wait_terminal(client, receipt)["state"] == "completed"
+    expected = new_game("brandubh")
+    for move in game["moves"]:
+        expected = apply_move(expected, Move(move["source"], move["target"]))
+    assert analyzed == [expected]
+    assert expected.winner == ("draw" if board_result else None)
+
+    # No game reconstruction, search or replay-credit write is involved in reading.
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("receipt lookup rebuilt a position or attempted replay credit")
+
+    monkeypatch.setattr(app.state.store, "record_replay_analysis", forbidden)
+    monkeypatch.setattr(app.state.store, "get_game", forbidden)
+    monkeypatch.setattr("hnefatafl.server.apply_move", forbidden)
+    result = _result(client, receipt)
+    assert result["status"] == "complete"
+    assert result["report"]["position_key"] == context["position_key"]
+    assert result["report"]["ply"] == cursor
+    assert result["report"]["advisor_revision"] == revision
+    with app.state.store.connection() as c:
+        assert c.execute("SELECT count(*) FROM replay_analysis_completions").fetchone()[0] == 1
+    visitor = RawClient(app)
+    verified_login(app, visitor, "Visitor")
+    assert _result(visitor, receipt)["status"] == "unknown"
+    unauthorized = visitor.post(
+        path + "/analysis-receipt",
+        json={
+            "cursor": cursor,
+            "version": game["version"],
+            "revision": revision,
+        },
+    )
+    assert unauthorized.status_code == 404
+
+
+def test_retired_read_with_no_requested_advisor_result_is_unavailable(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    game = _game(client)
+    receipt = _receipt(client, game)
+    submitted = client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": 0, "historical": True},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert submitted.status_code == 200, submitted.text
+    assert _status(client, receipt)["terminal"]
+    result = _result(client, receipt)
+    assert result["status"] == "unavailable" and "report" not in result
+
+
+def test_running_advisor_revision_can_retire_as_superseded(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    game = _game(client)
+    base = f"/api/games/{game['id']}"
+    receipt = _receipt(client, game)
+    entered, release = threading.Event(), threading.Event()
+    real_evaluate = app.state.analyses.evaluate
+
+    def compute(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(app.state.analyses, "evaluate", compute)
+    try:
+        submitted = client.post(
+            base + "/analysis",
+            json={"version": game["version"], "cursor": 0, "background": True},
+            headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+        )
+        assert submitted.status_code == 200, submitted.text
+        assert entered.wait(5)
+        assert _status(client, receipt)["state"] == "active"
+        saved = client.put(base + "/analytics", json={"advisor": ADVISOR, "time_limit": 2})
+        assert saved.status_code == 200, saved.text
+    finally:
+        release.set()
+    assert _wait_terminal(client, receipt)["state"] == "failed"
+    result = _result(client, receipt)
+    assert result["status"] == "superseded" and "report" not in result
+    key = client.get(base + "/analysis-context").json()["position_key"]
+    assert app.state.store.advisor_analysis(game["id"], key, 0) is None

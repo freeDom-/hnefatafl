@@ -101,7 +101,7 @@ export default function Auth({ children }: { children: ReactNode }) {
     if (current?.id !== session.account.id || revision >= verificationRevision.current)
       verificationRevision.current = revision;
     acceptedAccount.current = updated;
-    setCSRF(session.csrf_token);
+    setCSRF(session.csrf_token, session.account.id);
     setAccount(updated);
   }
   function clear(clearPreferences = true) {

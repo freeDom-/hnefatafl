@@ -8,7 +8,8 @@
  * registry pressure are never evidence that work finished.
  */
 
-import { api } from './api';
+import { api, requestSession } from './api';
+import type { PositionAnalysis } from './analysisTypes';
 
 export interface RetirementRecord {
   receipt: string;
@@ -21,6 +22,9 @@ export interface RetirementRecord {
   version: number;
   cursor: number;
   revision: number;
+  positionKey: string;
+  ply: number;
+  turn: PositionAnalysis['side_to_move'];
 }
 
 export const MAX_RETIREMENTS = 64;
@@ -39,19 +43,9 @@ export interface AnalysisReceipt {
   version: number;
   cursor: number;
   advisor_revision: number;
-}
-
-export interface AnalysisStatus {
-  schema: number;
-  active: boolean;
-  game_id: string;
-  cursor: number;
-  version: number;
   position_key: string;
-  advisor_revision: number;
-  receipt?: string;
-  receipt_state?: string;
-  receipt_epoch?: string;
+  ply: number;
+  side_to_move: PositionAnalysis['side_to_move'];
 }
 
 export function validReceipt(
@@ -69,49 +63,26 @@ export function validReceipt(
     typeof value.created_at !== 'number' ||
     !Number.isFinite(value.created_at) ||
     typeof value.sequence !== 'number' ||
-    !Number.isInteger(value.sequence) ||
+    !Number.isSafeInteger(value.sequence) ||
+    value.sequence <= 0 ||
     typeof value.reconciled_before !== 'number' ||
     !Number.isFinite(value.reconciled_before) ||
     typeof value.reconciled_before_sequence !== 'number' ||
-    !Number.isInteger(value.reconciled_before_sequence) ||
-    value.game_id !== expected.game_id ||
-    value.version !== expected.version ||
-    value.cursor !== expected.cursor ||
-    value.advisor_revision !== expected.advisor_revision
-  ) {
-    return null;
-  }
-  return value as AnalysisReceipt;
-}
-
-export function validStatus(
-  raw: unknown,
-  expected: {
-    game_id: string;
-    version: number;
-    cursor: number;
-    advisor_revision: number;
-    receipt: string;
-  },
-): AnalysisStatus | null {
-  const value = raw as Partial<AnalysisStatus> | null;
-  if (
-    !value ||
-    value.schema !== 1 ||
-    typeof value.active !== 'boolean' ||
+    !Number.isSafeInteger(value.reconciled_before_sequence) ||
+    value.reconciled_before_sequence < 0 ||
+    value.reconciled_before_sequence >= value.sequence ||
     value.game_id !== expected.game_id ||
     value.version !== expected.version ||
     value.cursor !== expected.cursor ||
     value.advisor_revision !== expected.advisor_revision ||
-    value.receipt !== expected.receipt ||
     typeof value.position_key !== 'string' ||
     !value.position_key ||
-    typeof value.receipt_state !== 'string' ||
-    typeof value.receipt_epoch !== 'string'
+    value.ply !== expected.cursor ||
+    (value.side_to_move !== 'attackers' && value.side_to_move !== 'defenders')
   ) {
     return null;
   }
-  return value as AnalysisStatus;
+  return value as AnalysisReceipt;
 }
 
 export function retirementKey(
@@ -173,6 +144,8 @@ export interface ReceiptStatus {
 
 export type ReceiptOutcome = 'terminal' | 'active' | 'unknown' | 'invalid';
 
+const terminalStates = new Set(['completed', 'failed', 'expired']);
+
 export function receiptOutcome(raw: unknown, record: RetirementRecord): ReceiptOutcome {
   const value = raw as Partial<ReceiptStatus> | null;
   if (
@@ -186,70 +159,117 @@ export function receiptOutcome(raw: unknown, record: RetirementRecord): ReceiptO
     typeof value.reconciled_before !== 'number' ||
     !Number.isFinite(value.reconciled_before) ||
     typeof value.reconciled_before_sequence !== 'number' ||
-    !Number.isInteger(value.reconciled_before_sequence)
+    !Number.isSafeInteger(value.reconciled_before_sequence) ||
+    value.reconciled_before_sequence < 0 ||
+    value.terminal !== terminalStates.has(value.state)
   ) {
     return 'invalid';
   }
-  const terminalStates = new Set(['completed', 'failed', 'expired']);
-  if (value.terminal !== terminalStates.has(value.state)) return 'invalid';
-  if (value.terminal) return 'terminal';
   if (value.state === 'unknown') {
-    if (value.epoch !== record.epoch) return 'terminal';
-    if (record.sequence <= value.reconciled_before_sequence) return 'terminal';
-    return 'unknown';
+    return value.epoch !== record.epoch || record.sequence <= value.reconciled_before_sequence
+      ? 'terminal'
+      : 'unknown';
   }
-  return 'active';
+  if (value.epoch !== record.epoch) return 'invalid';
+  if (value.terminal) return 'terminal';
+  return ['prepared', 'submitted', 'active'].includes(value.state) &&
+    record.sequence > value.reconciled_before_sequence
+    ? 'active'
+    : 'invalid';
 }
 
-/**
- * Reconcile every record for one account without revisiting their games.
- * Records are removed only with explicit terminal evidence or the server's
- * reconciled-before watermark/epoch change.
- */
-const reconciliation = new Map<string, Promise<number>>();
+async function withDeadline<T>(
+  owner: AbortSignal,
+  ms: number,
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await run(AbortSignal.any([owner, controller.signal]));
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-async function runReconciliation(accountId: string | null, signal?: AbortSignal): Promise<number> {
-  let removed = 0;
-  const deadline = Date.now() + 5_000;
-  for (const [key, record] of [...records]) {
-    if (record.account !== accountId) continue;
-    if (signal?.aborted || Date.now() >= deadline) break;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()));
-    const abort = () => controller.abort();
-    signal?.addEventListener('abort', abort, { once: true });
-    try {
-      const response = await fetch(`/api/analysis/receipts/${encodeURIComponent(record.receipt)}`, {
-        credentials: 'same-origin',
-        cache: 'no-store',
-        headers: { accept: 'application/json' },
-        signal: controller.signal,
-      });
-      if (!response.ok) continue;
-      const outcome = receiptOutcome(await response.json(), record);
-      if (outcome === 'terminal' && settleRetirement(key, record.receipt)) removed += 1;
-    } catch {
-      // Unknown transport state: keep the record for a later reconciliation.
-    } finally {
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
       clearTimeout(timer);
-      signal?.removeEventListener('abort', abort);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
+
+function receiptPath(receipt: string): string {
+  return `/analysis/receipts/${encodeURIComponent(receipt)}`;
+}
+
+async function runReconciliation(account: string, signal: AbortSignal): Promise<number> {
+  let removed = 0;
+  for (const [key, record] of [...records]) {
+    if (signal.aborted) break;
+    if (record.account !== account || records.get(key) !== record) continue;
+    try {
+      const raw = await api<unknown>(receiptPath(record.receipt), undefined, undefined, signal);
+      if (!signal.aborted && receiptOutcome(raw, record) === 'terminal') {
+        if (settleRetirement(key, record.receipt)) removed += 1;
+      }
+    } catch {
+      // Another record may still have readable evidence within this pass.
     }
   }
   return removed;
 }
 
+interface Reconciliation {
+  owner: AbortSignal;
+  controller: AbortController;
+  task: Promise<number>;
+  consumers: number;
+}
+
+let reconciliation: Reconciliation | undefined;
+
+/** One bounded reconciliation per authenticated session, with independent callers. */
 export function reconcileRetirements(
-  accountId: string | null,
+  account: string | null,
   signal?: AbortSignal,
 ): Promise<number> {
-  const owner = accountId ?? '';
-  const existing = reconciliation.get(owner);
-  if (existing) return existing;
-  const pass = runReconciliation(accountId, signal).finally(() => {
-    if (reconciliation.get(owner) === pass) reconciliation.delete(owner);
+  const session = requestSession();
+  if (!account || account !== session.account || signal?.aborted) return Promise.resolve(0);
+  if (reconciliation?.owner !== session.signal || reconciliation.controller.signal.aborted) {
+    const controller = new AbortController();
+    const owner = AbortSignal.any([session.signal, controller.signal]);
+    const task = withDeadline(owner, 5_000, (signal) => runReconciliation(account, signal)).finally(
+      () => {
+        if (reconciliation?.task === task) reconciliation = undefined;
+      },
+    );
+    reconciliation = { owner: session.signal, controller, task, consumers: 0 };
+  }
+  const pass = reconciliation;
+  pass.consumers += 1;
+  return new Promise((resolve) => {
+    const caller = signal ? AbortSignal.any([session.signal, signal]) : session.signal;
+    const finish = (removed: number) => {
+      caller.removeEventListener('abort', cancel);
+      pass.consumers -= 1;
+      resolve(removed);
+    };
+    const cancel = () => {
+      finish(0);
+      if (!pass.consumers) pass.controller.abort();
+    };
+    caller.addEventListener('abort', cancel, { once: true });
+    void pass.task.then((removed) => {
+      if (!caller.aborted) finish(removed);
+    });
   });
-  reconciliation.set(owner, pass);
-  return pass;
 }
 
 export interface ReceiptRequest {
@@ -262,17 +282,27 @@ export interface ReceiptRequest {
   revision: number;
 }
 
-/** Create and reserve a bounded receipt before submitting fallback work. */
-export async function createReceipt(
+async function createReceipt(
   request: ReceiptRequest,
   signal: AbortSignal,
 ): Promise<RetirementRecord | null> {
+  // Check account capacity before creating server-side prepared work. At global
+  // capacity a single creation can also supply a fresh registry watermark.
+  const owned = () =>
+    [...records.values()].filter((record) => record.account === request.account).length;
+  if (owned() >= MAX_RETIREMENTS) {
+    await reconcileRetirements(request.account, signal);
+    if (owned() >= MAX_RETIREMENTS) return null;
+  }
+  signal.throwIfAborted();
+  const previous = records.size >= MAX_GLOBAL_RETIREMENTS ? [...records] : [];
   const raw = await api<unknown>(
     `${request.basePath}/${request.gameId}/analysis-receipt`,
     { version: request.version, cursor: request.cursor, revision: request.revision },
     'POST',
     signal,
   );
+  signal.throwIfAborted();
   const created = validReceipt(raw, {
     game_id: request.gameId,
     version: request.version,
@@ -280,6 +310,13 @@ export async function createReceipt(
     advisor_revision: request.revision,
   });
   if (!created) return null;
+  for (const [key, old] of previous) {
+    // This response describes the shared registry. Only consider receipts
+    // known before the request, so a late response cannot clear a newer epoch.
+    if (old.epoch !== created.epoch || old.sequence <= created.reconciled_before_sequence) {
+      settleRetirement(key, old.receipt);
+    }
+  }
   const record: RetirementRecord = {
     receipt: created.receipt,
     epoch: created.epoch,
@@ -291,55 +328,102 @@ export async function createReceipt(
     version: request.version,
     cursor: request.cursor,
     revision: request.revision,
+    positionKey: created.position_key,
+    ply: created.ply,
+    turn: created.side_to_move,
   };
-  if (addRetirement(request.key, record)) return record;
-  // Free terminal evidence from this account before refusing a new fallback.
-  await reconcileRetirements(request.account, signal);
   return addRetirement(request.key, record) ? record : null;
 }
 
-export interface ReceiptResult {
-  schema: number;
-  receipt: string;
+type ResultStatus =
+  | 'pending'
+  | 'unknown'
+  | 'expired'
+  | 'complete'
+  | 'partial'
+  | 'unavailable'
+  | 'failed'
+  | 'superseded';
+
+interface ReceiptResult {
+  status: ResultStatus;
   receipt_state: string;
-  receipt_epoch: string;
-  status: string;
-  terminal: boolean;
-  reconciled_before?: number;
-  reconciled_before_sequence?: number;
-  report?: unknown;
+  retired: boolean;
+  retry_admission?: boolean;
+  report?: PositionAnalysis;
 }
 
-export async function fetchReceiptResult(
+const resultStates: Record<string, readonly ResultStatus[]> = {
+  prepared: ['pending'],
+  submitted: ['pending'],
+  active: ['pending'],
+  unknown: ['unknown'],
+  expired: ['expired'],
+  completed: ['complete', 'partial', 'unavailable', 'superseded'],
+  failed: ['failed', 'unavailable', 'superseded'],
+};
+
+function consistentReport(result: ReceiptResult, record: RetirementRecord): boolean {
+  const { status, report } = result;
+  const success = status === 'complete' || status === 'partial';
+  if (!report) return !success && report === undefined;
+  if (!result.retired || (!success && status !== 'unavailable' && status !== 'failed'))
+    return false;
+  if (
+    report.status !== (success ? status : 'unavailable') ||
+    report.cursor !== record.cursor ||
+    report.ply !== record.ply ||
+    report.side_to_move !== record.turn ||
+    report.position_key !== record.positionKey ||
+    report.advisor_revision !== record.revision ||
+    !Array.isArray(report.evaluations) ||
+    report.evaluations.some((entry) => !entry || typeof entry.source !== 'string')
+  )
+    return false;
+  const usable = report.evaluations.some(
+    (entry) =>
+      entry.agent_id === 'advisor' && entry.source !== 'unavailable' && !entry.unavailable_reason,
+  );
+  return (
+    success === usable && (report.hint === null || (success && report.hint?.agent_id === 'advisor'))
+  );
+}
+
+async function fetchReceiptResult(
   record: RetirementRecord,
   signal: AbortSignal,
 ): Promise<ReceiptResult | null> {
   const raw = await api<unknown>(
-    `/analysis/receipts/${encodeURIComponent(record.receipt)}/result`,
+    `${receiptPath(record.receipt)}/result`,
     undefined,
     undefined,
     signal,
   );
-  const value = raw as Partial<ReceiptResult> | null;
-  if (
-    !value ||
-    value.schema !== 1 ||
-    value.receipt !== record.receipt ||
-    typeof value.receipt_state !== 'string' ||
-    typeof value.receipt_epoch !== 'string' ||
-    typeof value.status !== 'string' ||
-    typeof value.terminal !== 'boolean'
-  ) {
+  signal.throwIfAborted();
+  const value = raw as
+    | (Partial<ReceiptResult> & Partial<ReceiptStatus> & { receipt_epoch?: string })
+    | null;
+  if (!value || !value.receipt_state || !value.status) return null;
+  const outcome = receiptOutcome(
+    { ...value, epoch: value.receipt_epoch, state: value.receipt_state },
+    record,
+  );
+  if (outcome === 'invalid' || !resultStates[value.receipt_state]?.includes(value.status))
     return null;
-  }
-  return value as ReceiptResult;
+  const result = { ...value, retired: outcome === 'terminal' } as ReceiptResult;
+  if (
+    result.retry_admission !== undefined &&
+    (result.retry_admission !== true || result.status !== 'failed' || result.report !== undefined)
+  )
+    return null;
+  return consistentReport(result, record) ? result : null;
 }
 
 export type FallbackOutcome =
-  | { kind: 'report'; report: Record<string, unknown> }
+  | { kind: 'report'; report: PositionAnalysis }
   | { kind: 'revision-stale' }
   | { kind: 'stale-game' }
-  | { kind: 'failed'; category: string; retryable: boolean };
+  | { kind: 'failed'; category: string };
 
 export interface FallbackRequest extends ReceiptRequest {
   background: boolean;
@@ -352,218 +436,151 @@ interface FallbackHooks {
   onWaiting: () => void;
 }
 
-/**
- * Submit one logical fallback and retrieve its result through read-only receipt
- * evidence. Retryable admission rejection retires the failed receipt before a
- * new receipt is requested; terminal receipts never submit another computation.
- */
-export async function runServerFallback(
-  request: FallbackRequest,
-  hooks: FallbackHooks,
-): Promise<FallbackOutcome> {
-  const deadline = Date.now() + 120_000;
-  let failures = 0;
-  let record = retirementFor(request.key) ?? null;
-  const observed = async (
-    candidate: RetirementRecord,
-  ): Promise<{
-    report?: Record<string, unknown>;
-    pending?: boolean;
-    prepared?: boolean;
-    failed?: string;
-  }> => {
-    const result = await fetchReceiptResult(candidate, hooks.signal);
-    if (!result) return { failed: 'server-failed' };
-    if (result.report) {
-      settleRetirement(request.key, candidate.receipt);
-      return { report: result.report as Record<string, unknown> };
-    }
-    if (result.status === 'pending') {
-      return {
-        pending: true,
-        prepared: result.receipt_state === 'prepared',
-      };
-    }
-    if (result.terminal) {
-      settleRetirement(request.key, candidate.receipt);
-      return {
-        failed: result.status === 'expired' ? 'server-busy' : 'server-failed',
-      };
-    }
-    return { failed: 'server-failed' };
-  };
-  const poll = async (candidate: RetirementRecord): Promise<FallbackOutcome> => {
-    while (!hooks.signal.aborted && Date.now() < deadline) {
-      const result = await observed(candidate);
-      if (result.report) return { kind: 'report', report: result.report };
-      if (result.failed) {
-        return { kind: 'failed', category: result.failed, retryable: false };
-      }
-      if (result.prepared) return { kind: 'failed', category: 'server-busy', retryable: true };
-      hooks.onStage('searching');
-      await new Promise<void>((resolve) => setTimeout(resolve, 300));
-    }
-    return { kind: 'failed', category: 'server-busy', retryable: false };
-  };
+type RequestError = { code?: string; status?: number; retryAfterMs?: number };
 
-  while (!hooks.signal.aborted && Date.now() < deadline) {
-    if (!record) {
-      record = await createReceipt(request, hooks.signal);
-      if (!record) return { kind: 'failed', category: 'server-busy', retryable: false };
-    }
-    hooks.onStage('fallback');
-    try {
-      const report = await api<Record<string, unknown>>(
-        `${request.basePath}/${request.gameId}/analysis`,
-        {
-          version: request.version,
-          cursor: request.cursor,
-          background: request.background,
-          historical: request.historical,
-        },
-        undefined,
-        hooks.signal,
-        { 'X-Analysis-Fallback': '1', 'X-Analysis-Receipt': record.receipt },
-      );
-      if (report.status !== 'pending') {
-        settleRetirement(request.key, record.receipt);
-        return { kind: 'report', report };
-      }
-      const outcome = await poll(record);
-      if (outcome.kind === 'report') return outcome;
-      if (outcome.kind !== 'failed' || !outcome.retryable) return outcome;
-      record = null;
-      continue;
-    } catch (error) {
-      if (hooks.signal.aborted) break;
-      const code = (error as { code?: string })?.code;
-      const status = (error as { status?: number })?.status;
-      if (code === 'analysis_revision_stale') return { kind: 'revision-stale' };
-      if (code === 'analysis_context_stale') return { kind: 'stale-game' };
-      const seen = record ? await observed(record) : { failed: 'server-failed' };
-      if (seen.report) return { kind: 'report', report: seen.report };
-      if (seen.pending && !seen.prepared) {
-        const outcome = await poll(record as RetirementRecord);
-        if (outcome.kind === 'report') return outcome;
-        if (outcome.kind !== 'failed' || !outcome.retryable) return outcome;
-        record = null;
-        continue;
-      }
-      if (seen.failed && code === 'analysis_receipt_invalid') {
-        return { kind: 'failed', category: 'server-failed', retryable: false };
-      }
-      const temporary = status === 503 || status === 429;
-      if (!temporary || failures >= 8) {
-        return {
-          kind: 'failed',
-          category: temporary ? 'server-busy' : 'server-failed',
-          retryable: false,
-        };
-      }
-      hooks.onWaiting();
-      const delay = Math.min(
-        30000,
-        Math.max(1000 * 2 ** failures, (error as { retryAfterMs?: number }).retryAfterMs ?? 0),
-      );
-      failures += 1;
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, Math.min(delay, Math.max(0, deadline - Date.now()))),
-      );
-      if (seen.failed) {
-        if (retirementFor(request.key)) {
-          return { kind: 'failed', category: 'server-failed', retryable: false };
-        }
-        record = null;
-      }
-    }
-  }
-  return { kind: 'failed', category: 'server-busy', retryable: false };
+function overload(error: RequestError): boolean {
+  return error.status === 429 || error.status === 503;
 }
-export async function waitForReceiptResult(
+
+function retryWait(signal: AbortSignal, onWaiting?: () => void) {
+  let failures = 0;
+  return async (error: RequestError): Promise<boolean> => {
+    if (signal.aborted || failures >= 8) return false;
+    onWaiting?.();
+    const backoff = Math.min(30_000, 1000 * 2 ** failures++);
+    await delay(Math.min(120_000, Math.max(backoff, error.retryAfterMs ?? 0)), signal);
+    return !signal.aborted;
+  };
+}
+
+async function observeResult(
   record: RetirementRecord,
   signal: AbortSignal,
+  retry: (error: RequestError) => Promise<boolean>,
+  allowPrepared: boolean,
+  onPending?: () => void,
 ): Promise<ReceiptResult | null> {
-  const deadline = Date.now() + 30_000;
-  while (!signal.aborted && Date.now() < deadline) {
+  while (!signal.aborted) {
+    let result: ReceiptResult | null;
     try {
-      const raw = await api<unknown>(
-        `/analysis/receipts/${encodeURIComponent(record.receipt)}/result`,
-        undefined,
-        undefined,
-        signal,
-      );
-      const value = raw as Partial<ReceiptResult> | null;
-      if (
-        !value ||
-        value.schema !== 1 ||
-        value.receipt !== record.receipt ||
-        typeof value.receipt_state !== 'string' ||
-        typeof value.receipt_epoch !== 'string' ||
-        typeof value.status !== 'string' ||
-        typeof value.terminal !== 'boolean'
-      ) {
-        return null;
-      }
-      const outcome = receiptOutcome(
-        {
-          schema: 1,
-          receipt: record.receipt,
-          epoch: String(value.receipt_epoch),
-          state: value.receipt_state,
-          terminal: value.terminal,
-          reconciled_before: Number(value.reconciled_before ?? 0),
-          reconciled_before_sequence: Number(value.reconciled_before_sequence ?? 0),
-        },
-        record,
-      );
-      if (outcome === 'invalid') return null;
-      if (outcome === 'terminal' || value.terminal) {
-        return {
-          ...(value as ReceiptResult),
-          terminal: true,
-          status: value.status === 'unknown' ? 'unknown' : value.status,
-        };
-      }
-    } catch {
-      return null;
+      result = await fetchReceiptResult(record, signal);
+    } catch (failure) {
+      const error = failure as RequestError;
+      const temporary =
+        failure instanceof TypeError ||
+        overload(error) ||
+        [408, 502, 504].includes(error.status ?? 0);
+      if (!temporary || !(await retry(error))) return null;
+      continue;
     }
-    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    if (!result || result.retired || (allowPrepared && result.receipt_state === 'prepared'))
+      return result;
+    onPending?.();
+    await delay(300, signal);
   }
   return null;
 }
 
-/** Poll authoritative receipt evidence. Time alone never retires the record. */
-export async function waitForReceipt(
+function serverFailure(busy = false): FallbackOutcome {
+  return { kind: 'failed', category: busy ? 'server-busy' : 'server-failed' };
+}
+
+function observedOutcome(result: ReceiptResult | null, signal: AbortSignal): FallbackOutcome {
+  if (result?.report) return { kind: 'report', report: result.report };
+  return serverFailure(signal.aborted || result?.status === 'expired' || result?.retry_admission);
+}
+
+/** Submit once unless the server explicitly proves an admission rejection. */
+export async function runServerFallback(
+  request: FallbackRequest,
+  hooks: FallbackHooks,
+): Promise<FallbackOutcome> {
+  const session = requestSession();
+  if (!session.account || request.account !== session.account) return serverFailure();
+  const owner = AbortSignal.any([session.signal, hooks.signal]);
+  return withDeadline(owner, 120_000, async (signal) => {
+    const retry = retryWait(signal, hooks.onWaiting);
+    const observe = async (record: RetirementRecord, allowPrepared = false) => {
+      const result = await observeResult(record, signal, retry, allowPrepared, () =>
+        hooks.onStage('searching'),
+      );
+      if (signal.aborted) return null;
+      if (result?.retired) settleRetirement(request.key, record.receipt);
+      return result;
+    };
+    let record = retirementFor(request.key);
+    // An earlier submission may still reach the server. Only observe it.
+    if (record) return observedOutcome(await observe(record), signal);
+    while (!signal.aborted) {
+      if (!record) {
+        try {
+          record = (await createReceipt(request, signal)) ?? undefined;
+        } catch (failure) {
+          const error = failure as RequestError;
+          if (error.code === 'analysis_revision_stale') return { kind: 'revision-stale' };
+          if (error.code === 'analysis_context_stale') return { kind: 'stale-game' };
+          if (overload(error) && error.code && (await retry(error))) continue;
+          return serverFailure(signal.aborted || overload(error));
+        }
+        if (!record) return serverFailure(true);
+      }
+      if (signal.aborted) break;
+      hooks.onStage('fallback');
+      let rejection: RequestError | undefined;
+      try {
+        await api<unknown>(
+          `${request.basePath}/${request.gameId}/analysis`,
+          {
+            version: request.version,
+            cursor: request.cursor,
+            background: request.background,
+            historical: request.historical,
+          },
+          undefined,
+          signal,
+          { 'X-Analysis-Fallback': '1', 'X-Analysis-Receipt': record.receipt },
+        );
+      } catch (failure) {
+        const error = failure as RequestError;
+        if (error.code === 'analysis_revision_stale') return { kind: 'revision-stale' };
+        if (error.code === 'analysis_context_stale') return { kind: 'stale-game' };
+        if (overload(error)) rejection = error;
+      }
+      const beforeAdmission =
+        rejection?.code === 'analysis_rate_limited' || rejection?.code === 'analysis_rate_capacity';
+      // Check a prepared receipt after the delay so a receipt that expired
+      // during Retry-After will never be submitted as prepared.
+      if (rejection && beforeAdmission && !(await retry(rejection))) return serverFailure(true);
+      const result = await observe(record, beforeAdmission);
+      if (
+        !rejection ||
+        !result ||
+        !(result.retry_admission || result.receipt_state === 'prepared')
+      ) {
+        return observedOutcome(result, signal);
+      }
+      if (!beforeAdmission && !(await retry(rejection))) return serverFailure(true);
+      if (result.retired) {
+        // A concurrent observer may have reserved the replacement while we waited.
+        const replacement = retirementFor(request.key);
+        if (replacement) return observedOutcome(await observe(replacement), signal);
+        record = undefined;
+      } else if (retirementFor(request.key) !== record) {
+        return serverFailure(true);
+      }
+    }
+    return serverFailure(true);
+  });
+}
+
+export async function waitForReceiptResult(
   record: RetirementRecord,
   signal: AbortSignal,
-): Promise<boolean> {
-  const key = retirementKey(
-    record.account,
-    record.basePath,
-    record.gameId,
-    record.version,
-    record.cursor,
-    record.revision,
-  );
-  const deadline = Date.now() + 30_000;
-  while (!signal.aborted && Date.now() < deadline) {
-    try {
-      const raw = await api<unknown>(
-        `/analysis/receipts/${encodeURIComponent(record.receipt)}`,
-        undefined,
-        undefined,
-        signal,
-      );
-      const outcome = receiptOutcome(raw, record);
-      if (outcome === 'terminal') {
-        settleRetirement(key, record.receipt);
-        return true;
-      }
-      if (outcome !== 'active' && outcome !== 'unknown') return false;
-    } catch {
-      return false;
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, 300));
-  }
-  return false;
+): Promise<ReceiptResult | null> {
+  const session = requestSession();
+  if (!session.account || session.account !== record.account) return null;
+  return withDeadline(AbortSignal.any([session.signal, signal]), 30_000, async (owned) => {
+    const result = await observeResult(record, owned, retryWait(owned), false);
+    return owned.aborted ? null : result;
+  });
 }

@@ -8,6 +8,7 @@ for short and long histories and repeated version changes.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import json
 import random
 import sys
@@ -109,23 +110,20 @@ def measure_capacity(app, client: TestClient) -> dict:
 
     blocked = create_game(1300)
     registry = app.state.analysis_context_builds
-    leases = [registry.build(("capacity", index, 0)) for index in range(registry.max_concurrent)]
-    for lease in leases:
-        lease.__enter__()
-    try:
+    with ExitStack() as leases:
+        for index in range(registry.max_concurrent):
+            leases.enter_context(registry.build(("capacity", index, 0))).reconstruct()
         overloaded = client.get(
             f"/api/games/{blocked['id']}/analysis-context",
             params={"cursor": blocked["cursor"], "version": blocked["version"]},
         )
+        assert overloaded.status_code == 503, overloaded.text
         gameplay = []
         for _ in range(10):
             begin = time.perf_counter()
             response = client.get(f"/api/games/{blocked['id']}")
             gameplay.append((time.perf_counter() - begin) * 1000)
             assert response.status_code == 200
-    finally:
-        for lease in leases:
-            lease.__exit__(None, None, None)
     recovered = client.get(
         f"/api/games/{blocked['id']}/analysis-context",
         params={"cursor": blocked["cursor"], "version": blocked["version"]},
@@ -133,15 +131,21 @@ def measure_capacity(app, client: TestClient) -> dict:
     assert recovered.status_code == 200, recovered.text
 
     receipt_game = create_game(1400)
+    receipt_game_path = f"/api/games/{receipt_game['id']}"
+    selected = client.put(
+        receipt_game_path + "/analytics",
+        json={"advisor": {"profile_id": "baseline", "config": {}}, "time_limit": 1},
+    )
+    assert selected.status_code == 200, selected.text
     receipts_before = app.state.analysis_receipts.snapshot()
     reconstructions_before_receipt = registry.snapshot()["reconstructions"]
     started = time.perf_counter()
     receipt_response = client.post(
-        f"/api/games/{receipt_game['id']}/analysis-receipt",
+        receipt_game_path + "/analysis-receipt",
         json={
             "version": receipt_game["version"],
             "cursor": receipt_game["cursor"],
-            "revision": 0,
+            "revision": selected.json()["revision"],
         },
     )
     receipt_create_ms = (time.perf_counter() - started) * 1000
@@ -160,12 +164,26 @@ def measure_capacity(app, client: TestClient) -> dict:
         receipt_result_ms.append((time.perf_counter() - begin) * 1000)
         assert result_response.status_code == 200
         assert result_response.json()["status"] == "pending"
+    submitted = client.post(
+        receipt_game_path + "/analysis",
+        json={"version": receipt_game["version"], "cursor": receipt_game["cursor"]},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt_id},
+    )
+    assert submitted.status_code == 200, submitted.text
+    receipt_completed_ms = []
+    for _ in range(50):
+        begin = time.perf_counter()
+        result_response = client.get(f"/api/analysis/receipts/{receipt_id}/result")
+        receipt_completed_ms.append((time.perf_counter() - begin) * 1000)
+        assert result_response.status_code == 200, result_response.text
+        assert result_response.json()["status"] == "complete", result_response.text
     receipts_after = app.state.analysis_receipts.snapshot()
     return {
         "receipt_status": {
             "create_ms": receipt_create_ms,
             "status_poll_avg_ms": sum(receipt_status_ms) / len(receipt_status_ms),
             "result_poll_avg_ms": sum(receipt_result_ms) / len(receipt_result_ms),
+            "completed_result_avg_ms": sum(receipt_completed_ms) / len(receipt_completed_ms),
             "active_before": receipts_before["active"],
             "active_after": receipts_after["active"],
             "status_reads": receipts_after["status_reads"] - receipts_before["status_reads"],

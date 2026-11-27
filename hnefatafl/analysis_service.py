@@ -9,7 +9,7 @@ from functools import partial
 from typing import Callable
 
 from .analysis_policy import AnalysisAdmission
-
+from .analysis_receipts import AdvisorOutcome, ReceiptLease
 from .storage import ConflictError, Store
 
 
@@ -43,6 +43,28 @@ class AnalysisUnavailable(Exception):
     """Analysis capacity, shutdown or a finite request wait prevents completion."""
 
 
+def advisor_result_status(report: dict | None) -> AdvisorOutcome:
+    advisor = next(
+        (
+            entry
+            for entry in (report or {}).get("evaluations", [])
+            if entry.get("agent_id") == "advisor"
+        ),
+        None,
+    )
+    if advisor is None:
+        return "unavailable"
+    if advisor.get("unavailable_reason") == "evaluation_failed":
+        return "failed"
+    if advisor.get("source") in {None, "unavailable"} or advisor.get("unavailable_reason"):
+        return "unavailable"
+    return "partial" if (report or {}).get("partial") else "complete"
+
+
+def retained_advisor_result(report: dict | None) -> bool:
+    return bool(report and (not report.get("partial") or report.get("retired_partial")))
+
+
 class AnalysisService:
     def __init__(
         self, store: Store, evaluate: Callable, admission: AnalysisAdmission | None = None
@@ -53,7 +75,7 @@ class AnalysisService:
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="board-analysis")
         self.lock = threading.RLock()
         self.requester_lock = threading.RLock()
-        self.tasks: dict[tuple, Future] = {}
+        self.tasks: dict[tuple, Future[AdvisorOutcome | None]] = {}
         self.requesters: dict[tuple, set[str]] = {}
         self.closed = False
         self.latest_advisor: dict[str, tuple] = {}
@@ -73,7 +95,7 @@ class AnalysisService:
         settings: dict,
         *,
         state=None,
-        receipt=None,
+        receipt: ReceiptLease | None = None,
     ) -> tuple:
         key, _ = self._schedule(game, snapshot, role, agent, settings, state=state, receipt=receipt)
         return key
@@ -87,7 +109,7 @@ class AnalysisService:
         settings: dict,
         *,
         state=None,
-        receipt=None,
+        receipt: ReceiptLease | None = None,
     ) -> None:
         """Join the same bounded work as background clients, outside the pool lock.
 
@@ -127,27 +149,29 @@ class AnalysisService:
     def _completed(self, key: tuple) -> bool:
         game_id, position_key, role, revision = key
         if role == "advisor":
-            cached = self.store.advisor_analysis(game_id, position_key, revision)
-            return cached is not None and not cached.get("partial")
+            return retained_advisor_result(
+                self.store.advisor_analysis(game_id, position_key, revision)
+            )
         cached = self.store.game_analysis(game_id, position_key)
         return bool(cached and any(item["agent_id"] == role for item in cached["evaluations"]))
 
-    def _observe_receipt(self, receipt, task: Future | None) -> None:
+    def _observe_receipt(
+        self, receipt: ReceiptLease | None, task: Future[AdvisorOutcome | None], role: str
+    ) -> None:
         """Tie one receipt submission to an existing or newly scheduled task."""
 
-        if receipt is None or task is None:
+        if receipt is None:
             return
         receipt.track()
 
-        def completed(future: Future) -> None:
-            success = False
+        def completed(future: Future[AdvisorOutcome | None]) -> None:
             try:
-                success = future.exception() is None
+                outcome = future.result()
             except CancelledError:
-                success = False
+                outcome = "superseded"
             except BaseException:  # pragma: no cover - defensive future contract
-                success = False
-            receipt.complete(success)
+                outcome = "failed"
+            receipt.complete(outcome if role == "advisor" else None)
 
         task.add_done_callback(completed)
 
@@ -160,12 +184,16 @@ class AnalysisService:
         settings: dict,
         *,
         state=None,
-        receipt=None,
-    ) -> tuple[tuple, Future | None]:
+        receipt: ReceiptLease | None = None,
+    ) -> tuple[tuple, Future[AdvisorOutcome | None] | None]:
         revision = settings["revision"] if role == "advisor" else None
         key = (game["id"], snapshot["position_key"], role, revision)
         requester = self.store.replay_requester(game) if role == "advisor" else None
         with self.lock:
+            if receipt is not None and revision is not None:
+                current = self.store.analytics(game["id"])
+                if (current["revision"] if current else 0) != revision:
+                    raise SupersededAnalysis("The move advisor changed. Retry analysis.")
             previous = self.tasks.get(key)
             # Capture activity before reading storage. If this future completes
             # during the cache read, joining it still observes that completion.
@@ -173,18 +201,20 @@ class AnalysisService:
             # Playing-agent polls retain their existing read ordering: their
             # final report read follows the activity check in the HTTP adapter.
             if role != "advisor" and previous_running and not self.closed:
-                self._observe_receipt(receipt, previous)
+                assert previous is not None
+                self._observe_receipt(receipt, previous, role)
                 return key, previous
             # A poll may have read its report just before the preceding worker
             # committed. Recheck under the scheduling lock before starting work.
             if self._completed(key):
-                if requester and revision is not None:
+                if (requester or receipt is not None) and revision is not None:
                     cached = self.store.advisor_analysis(
                         game["id"], snapshot["position_key"], revision
                     )
-                    self.store.record_replay_analysis(game, cached, requester)
-                if receipt is not None:
-                    receipt.result_available()
+                    if requester:
+                        self.store.record_replay_analysis(game, cached, requester)
+                    if receipt is not None:
+                        receipt.result_available(advisor_result_status(cached))
                 return key, None
             if self.closed:
                 raise AnalysisUnavailable("Analysis service is stopping. Retry later.")
@@ -208,7 +238,8 @@ class AnalysisService:
                                     "Replay requester capacity is busy. Retry later."
                                 )
                             registered.add(requester)
-                self._observe_receipt(receipt, previous)
+                assert previous is not None
+                self._observe_receipt(receipt, previous, role)
                 return key, previous
             if len(self.tasks) >= MAX_ANALYSIS_TASKS:
                 raise AnalysisUnavailable("Analysis workers are busy. Retry shortly.")
@@ -232,10 +263,12 @@ class AnalysisService:
                 raise
             self.tasks[key] = task
             task.add_done_callback(partial(self._forget, key, token=token))
-            self._observe_receipt(receipt, task)
+            self._observe_receipt(receipt, task, role)
         return key, task
 
-    def _forget(self, key: tuple, task: Future, token: tuple[str, int] | None = None) -> None:
+    def _forget(
+        self, key: tuple, task: Future[AdvisorOutcome | None], token: tuple[str, int] | None = None
+    ) -> None:
         with self.lock:
             if self.tasks.get(key) is task:
                 self.tasks.pop(key, None)
@@ -249,7 +282,9 @@ class AnalysisService:
         if token is not None and self.admission is not None:
             self.admission.release_task(token)
 
-    def _run(self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict, state=None):
+    def _run(
+        self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict, state=None
+    ) -> AdvisorOutcome | None:
         revision = settings["revision"] if role == "advisor" else None
 
         def check() -> None:
@@ -289,7 +324,7 @@ class AnalysisService:
             with self.requester_lock:
                 check()
                 key = (game["id"], snapshot["position_key"], role, revision)
-                self.store.save_analysis_entry(
+                retained = self.store.save_analysis_entry(
                     game,
                     snapshot,
                     entry,
@@ -297,10 +332,11 @@ class AnalysisService:
                     online=bool(game.get("online")),
                     requester_ids=tuple(self.requesters.get(key, ())),
                 )
+            return advisor_result_status(retained) if role == "advisor" else None
         except (ConflictError, SupersededAnalysis):
             # Cancellation is expected: a late opinion must not revive a game,
             # replace a new advisor, or attach itself to a different branch.
-            pass
+            return "superseded"
         except Exception:
             logging.getLogger(__name__).exception("Background analysis failed")
             entry = {
@@ -315,15 +351,16 @@ class AnalysisService:
             }
             try:
                 check()
-                self.store.save_analysis_entry(
+                retained = self.store.save_analysis_entry(
                     game,
                     snapshot,
                     entry,
                     advisor_revision=revision,
                     online=bool(game.get("online")),
                 )
+                return advisor_result_status(retained) if role == "advisor" else None
             except (ConflictError, SupersededAnalysis):
-                pass
+                return "superseded"
 
     def shutdown(self) -> None:
         with self.lock:

@@ -1191,7 +1191,7 @@ it('reports completed server analysis without claiming it is still running', () 
   render(
     <AgentAnalysis
       game={game}
-      report={report}
+      report={{ ...report, status: 'complete' }}
       pending={false}
       failed={false}
       retry={vi.fn()}
@@ -1203,6 +1203,34 @@ it('reports completed server analysis without claiming it is still running', () 
   expect(screen.queryByText('Analyse läuft auf dem Server…')).toBeNull();
   expect(screen.queryByText('Analyse auf diesem Gerät abgeschlossen.')).toBeNull();
 });
+
+it.each(['partial', 'unavailable'] as const)(
+  'keeps recorded evidence visible for a %s server result',
+  (status) => {
+    setLanguage('en', false);
+    render(
+      <AgentAnalysis
+        game={game}
+        report={{ ...report, status, hint: null }}
+        pending={false}
+        failed={status === 'unavailable'}
+        retry={vi.fn()}
+        local
+        fallback
+      />,
+    );
+    expect(screen.getByText('Hugin')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry evaluation' })).toBeInTheDocument();
+    expect(screen.queryByText('Analysis completed on the server.')).toBeNull();
+    expect(
+      screen.getByText(
+        status === 'partial'
+          ? 'The analysis could not be completed. Retry to try again.'
+          : 'The evaluation is unavailable. You can keep playing.',
+      ),
+    ).toBeInTheDocument();
+  },
+);
 
 it('distinguishes cancelled and failed analysis from completion', () => {
   setLanguage('de', false);

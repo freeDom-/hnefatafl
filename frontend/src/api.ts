@@ -1,13 +1,18 @@
 let csrf = '';
-let sessionEpoch = 0;
-const protectedRequests = new Set<AbortController>();
-export function setCSRF(value: string) {
-  if (csrf !== value) {
-    sessionEpoch++;
-    for (const controller of protectedRequests) controller.abort();
-    protectedRequests.clear();
-  }
+let account: string | null = null;
+let session = new AbortController();
+
+export function requestSession() {
+  return { account, signal: session.signal };
+}
+
+export function setCSRF(value: string, owner: string | null = null) {
+  if (csrf === value && account === owner) return;
+  const previous = session;
   csrf = value;
+  account = owner;
+  session = new AbortController();
+  previous.abort();
 }
 
 const MAX_ERROR_LENGTH = 300;
@@ -104,30 +109,24 @@ export async function apiFetch(
 ): Promise<Response> {
   const headers: Record<string, string> = { ...extraHeaders, 'X-CSRF-Token': csrf };
   if (!(body instanceof FormData)) headers['Content-Type'] = 'application/json';
-  if (path.startsWith('/auth/') || path.startsWith('/online/')) headers.Origin = location.origin;
-  const expected = sessionEpoch;
-  const protectedRequest = !path.startsWith('/auth/');
-  const controller = new AbortController();
-  const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
-  if (protectedRequest) protectedRequests.add(controller);
-  let response: Response;
-  try {
-    response = await fetch(`/api${path}`, {
-      method: method ?? (body === undefined ? 'GET' : 'POST'),
-      headers,
-      credentials: 'same-origin',
-      signal: combined,
-      body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
-    });
-  } finally {
-    protectedRequests.delete(controller);
-  }
-  if (combined.aborted || (protectedRequest && expected !== sessionEpoch))
-    throw new DOMException('Request cancelled', 'AbortError');
-  if (response.status === 403 && !path.startsWith('/auth/'))
-    window.dispatchEvent(new Event('permissions-changed'));
-  if (response.status === 401 && !path.startsWith('/auth/'))
-    window.dispatchEvent(new Event('authentication-required'));
+  const auth = path.startsWith('/auth/');
+  if (auth || path.startsWith('/online/')) headers.Origin = location.origin;
+  const combined = auth
+    ? signal
+    : signal
+      ? AbortSignal.any([session.signal, signal])
+      : session.signal;
+  combined?.throwIfAborted();
+  const response = await fetch(`/api${path}`, {
+    method: method ?? (body === undefined ? 'GET' : 'POST'),
+    headers,
+    credentials: 'same-origin',
+    signal: combined,
+    body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
+  });
+  combined?.throwIfAborted();
+  if (response.status === 403 && !auth) window.dispatchEvent(new Event('permissions-changed'));
+  if (response.status === 401 && !auth) window.dispatchEvent(new Event('authentication-required'));
   return response;
 }
 
@@ -138,24 +137,26 @@ export async function api<T>(
   signal?: AbortSignal,
   headers?: Record<string, string>,
 ): Promise<T> {
-  const expected = sessionEpoch;
+  const owner = path.startsWith('/auth/') ? undefined : session.signal;
   const response = await apiFetch(path, body, method, signal, headers);
+  const value = await response.json().catch((error) => {
+    if (response.ok) throw error;
+    return null;
+  });
+  owner?.throwIfAborted();
+  signal?.throwIfAborted();
   if (!response.ok) {
-    const payload = await response.json().catch(() => null);
     const message =
-      readableDetail(payload) ||
+      readableDetail(value) ||
       response.statusText?.trim() ||
       `Request failed (${response.status}).`;
     throw new ApiError(
       response.status,
       cap(message),
-      errorCode(payload),
-      errorFields(payload),
+      errorCode(value),
+      errorFields(value),
       retryAfter(response),
     );
   }
-  const value = await response.json();
-  if (!path.startsWith('/auth/') && expected !== sessionEpoch)
-    throw new DOMException('Request cancelled', 'AbortError');
   return value as T;
 }

@@ -89,7 +89,7 @@ def test_task_lifetime_keeps_receipt_active_until_completion():
     lease.track()
     lease.finalize()
     assert registry.status_for_account(identifier, "a")["state"] == "active"
-    lease.complete(False)
+    lease.complete("failed")
     status = registry.status_for_account(identifier, "a")
     assert status["state"] == "failed" and status["terminal"] is True
 
@@ -98,7 +98,7 @@ def test_cache_result_without_task_is_terminal_completion():
     registry = AnalysisReceipts()
     identifier = _create(registry)
     lease = _begin(registry, identifier)
-    lease.result_available()
+    lease.result_available("complete")
     lease.finalize()
     assert registry.status_for_account(identifier, "a")["state"] == "completed"
 

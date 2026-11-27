@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api';
+import { api, requestSession } from './api';
 import {
   defaultAnalyticsSettings,
   type AnalyticsSettings,
@@ -88,6 +88,7 @@ export function useGameAnalysis(
   const refreshSequence = useRef(0);
   const accountRef = useRef(accountId);
   accountRef.current = accountId;
+  const session = requestSession().signal;
   const inlineSettings = game?.analytics;
   const confirmedSettings = useRef<{ gameId: string; value: AnalyticsSettings } | null>(null);
   useEffect(() => {
@@ -347,15 +348,13 @@ export function useGameAnalysis(
   // private game data.
   useEffect(() => {
     if (!localMode) return;
-    let alive = true;
-    void loadAnalysisIntegration().then(async (integration) => {
-      if (!alive) return;
-      await integration.reconcileRetirements(accountId);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [localMode, accountId, onlineEpoch]);
+    const controller = new AbortController();
+    const signal = AbortSignal.any([session, controller.signal]);
+    void loadAnalysisIntegration()
+      .then((integration) => integration.reconcileRetirements(accountId, signal))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [localMode, accountId, onlineEpoch, session]);
 
   // One effect owns one logical request. It executes locally, retires it, then
   // (only after a classified eligible failure) hands the same request to the
@@ -384,7 +383,10 @@ export function useGameAnalysis(
     let timer: ReturnType<typeof setTimeout> | undefined;
     const sequence = settingsSequence.current;
     const current = () =>
-      alive && !controller.signal.aborted && settingsSequence.current === sequence;
+      alive &&
+      !session.aborted &&
+      !controller.signal.aborted &&
+      settingsSequence.current === sequence;
     const baseReport = stored ?? undefined;
     const stateFor = (
       status: AnalysisRequestState['status'],
@@ -399,6 +401,7 @@ export function useGameAnalysis(
     const finishReport = (report: PositionAnalysis) => {
       const replayKey = `${basePath}/${game.id}`;
       if (
+        report.status !== 'partial' &&
         (game.recorded_winner || game.winner) &&
         creditedReplay.current !== replayKey &&
         report.evaluations.some(
@@ -412,10 +415,11 @@ export function useGameAnalysis(
         window.dispatchEvent(new Event('progression-changed'));
       }
       failures = 0;
+      const unavailable = report.status === 'unavailable';
       setRequest(
-        stateFor('done', {
-          status: 'done',
+        stateFor(unavailable ? 'failed' : 'done', {
           report,
+          errorCategory: unavailable ? 'server-failed' : undefined,
           local: localMode,
           fallback: localMode,
           stage: undefined,
@@ -520,22 +524,12 @@ export function useGameAnalysis(
             );
             return;
           }
+          retirementApi.current?.settleRetirement(workKey, existing.receipt);
           if (result.report) {
-            const report = result.report as PositionAnalysis;
-            if (
-              (report.advisor_revision ?? 0) !== settings.revision ||
-              report.cursor !== game.cursor
-            ) {
-              setRequest(stateFor('failed', { local: true, errorCategory: 'revision-stale' }));
-              await refreshSettings();
-              return;
-            }
-            retirementApi.current?.settleRetirement(workKey, existing.receipt);
-            finishReport(report);
+            finishReport(result.report);
             return;
           }
-          retirementApi.current?.settleRetirement(workKey, existing.receipt);
-          if (result.status === 'complete' || result.status === 'unavailable') {
+          if (result.status !== 'unknown' && result.status !== 'expired') {
             setRequest(
               stateFor('failed', {
                 local: true,
@@ -705,16 +699,7 @@ export function useGameAnalysis(
                 return;
               }
               if (outcome.kind === 'report') {
-                const report = outcome.report as unknown as PositionAnalysis;
-                if (
-                  (report.advisor_revision ?? 0) !== settings.revision ||
-                  report.cursor !== game.cursor
-                ) {
-                  setRequest(stateFor('failed', { local: true, errorCategory: 'revision-stale' }));
-                  await refreshSettings();
-                  return;
-                }
-                finishReport(report);
+                finishReport(outcome.report);
                 return;
               }
               if (outcome.kind === 'revision-stale') {
@@ -782,6 +767,7 @@ export function useGameAnalysis(
     attempt,
     historical,
     onlineEpoch,
+    session,
   ]);
   const current = request?.key === key ? request : null;
   const report = current?.report ?? stored ?? null;

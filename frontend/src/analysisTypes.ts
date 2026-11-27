@@ -75,6 +75,6 @@ export interface PositionAnalysis {
   evaluations: AgentEvaluation[];
   hint: { agent_id: 'advisor'; move: Move } | null;
   unavailable_reason?: 'not_recorded';
-  status?: 'pending' | 'complete';
+  status?: 'pending' | 'complete' | 'partial' | 'unavailable';
   advisor_revision?: number;
 }

@@ -30,10 +30,11 @@ const { chromium } = await import(
   pathToFileURL(resolve('frontend/node_modules/playwright/index.mjs')).href
 );
 const manifest = JSON.parse(await readFile(resolve(dist, '.vite', 'manifest.json'), 'utf8'));
+const build = JSON.parse(await readFile(resolve(dist, 'arena-build.json'), 'utf8'));
 const integration = manifest['src/browserAnalysis/integration.ts'];
 if (!integration?.file) throw new Error('The integration chunk is not in the build');
 
-const report = { schema: 1, baseUrl, checks: [], requests: {}, measurements: {} };
+const report = { schema: 1, baseUrl, build, checks: [], requests: {}, measurements: {} };
 const results = [];
 function check(name, ok, detail = null) {
   report.checks.push({ name, ok: Boolean(ok), detail });
@@ -283,25 +284,26 @@ try {
   );
   const fallbackBefore = await metricsBeforeFallback.json();
   const fallbackRequestsBefore = pageRequestDetails.length;
+  const classicalMcts = {
+    advisor: {
+      name: 'Classical MCTS',
+      profile_id: 'mcts',
+      config: {
+        algorithm: 'mcts',
+        iterations: 32,
+        rollout_depth: 4,
+        exploration: 1.4,
+        temperature: 0,
+        time_limit: 0.5,
+      },
+    },
+    time_limit: 5,
+    show_win_chances: true,
+  };
   const mctsSettings = await context.request.put(
     `${baseUrl}/api/games/${game.id}/analytics`,
     {
-      data: {
-        advisor: {
-          name: 'Classical MCTS',
-          profile_id: 'mcts',
-          config: {
-            algorithm: 'mcts',
-            iterations: 32,
-            rollout_depth: 4,
-            exploration: 1.4,
-            temperature: 0,
-            time_limit: 0.5,
-          },
-        },
-        time_limit: 5,
-        show_win_chances: true,
-      },
+      data: classicalMcts,
       headers,
     },
   );
@@ -370,10 +372,104 @@ try {
     { before: before.counters, localAfter: fallbackBefore.counters },
   );
 
+  // Keep the stored live state rewound while the production replay opens the
+  // last recorded position. Switch advisors only once the replay is there.
+  const gamePath = `${baseUrl}/api/games/${game.id}`;
+  const post = async (action, data) => {
+    const response = await context.request.post(`${gamePath}/${action}`, { data, headers });
+    if (!response.ok()) throw new Error(`${action}: ${response.status()} ${await response.text()}`);
+    return response.json();
+  };
+  let frontier = await (await context.request.get(gamePath, { headers })).json();
+  frontier = await post('moves', { version: frontier.version, ...frontier.legal_moves[0] });
+  frontier = await post('ai-move', { version: frontier.version });
+  frontier = await post('moves', { version: frontier.version, ...frontier.legal_moves[0] });
+  const rewound = await post('seek', { version: frontier.version, cursor: 0 });
+  check('the stored game is rewound behind the recorded frontier',
+    rewound.cursor === 0 && rewound.total_moves === frontier.cursor && frontier.cursor === 3);
+  const restoredJarl = await context.request.put(`${gamePath}/analytics`, {
+    data: { advisor: jarlAdvisor, time_limit: 5, show_win_chances: true },
+    headers,
+  });
+  if (!restoredJarl.ok()) throw new Error(await restoredJarl.text());
+  await page.goto(`${baseUrl}/dashboard/single-player/${game.id}`, { waitUntil: 'load' });
+  for (let move = 0; move < frontier.cursor; move += 1) {
+    await page.getByRole('button', { name: 'Next move' }).click();
+  }
+  await openAnalytics();
+  await page.getByText('Analysis completed on this device.', { exact: true }).first().waitFor();
+
+  let receiptPosts = 0;
+  const receiptBodies = [];
+  const admissionBodies = [];
+  const inject = async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    receiptBodies.push(route.request().postDataJSON());
+    if (++receiptPosts !== 1) return route.fallback();
+    // Only the temporary rejection is injected. The next creation, computation
+    // submission and observation all run through the real backend.
+    await route.fulfill({
+      status: 503,
+      headers: { 'Retry-After': '1' },
+      json: { detail: 'Analysis receipt capacity is busy. Retry shortly.', code: 'analysis_receipt_capacity' },
+    });
+  };
+  const capture = (request) => {
+    if (request.method() === 'POST' && request.url() === `${gamePath}/analysis`) {
+      admissionBodies.push(request.postDataJSON());
+    }
+  };
+  await page.route(`${gamePath}/analysis-receipt`, inject);
+  page.on('request', capture);
+  const recoveryBefore = await (
+    await context.request.get(`${baseUrl}/api/analysis/metrics`, { headers })
+  ).json();
+  const requested = await context.request.put(`${gamePath}/analytics`, { data: classicalMcts, headers });
+  if (!requested.ok()) throw new Error(await requested.text());
+  const { revision } = await requested.json();
+  const exactContext = await (
+    await context.request.get(`${gamePath}/analysis-context`, {
+      headers,
+      params: { cursor: frontier.cursor, version: rewound.version, revision },
+    })
+  ).json();
+  const resultRead = page.waitForResponse(async (response) =>
+    response.request().method() === 'GET' && response.url().endsWith('/result') && response.ok() &&
+    (await response.json()).terminal === true, { timeout: 90_000 });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const recovered = await (await resultRead).json();
+  await page.getByText('Analysis completed on the server.', { exact: true }).first().waitFor();
+  const recoveryAfter = await (
+    await context.request.get(`${baseUrl}/api/analysis/metrics`, { headers })
+  ).json();
+  const advisor = recovered.report?.evaluations.find((entry) => entry.agent_id === 'advisor');
+  check('receipt-creation overload recovers in the real replay UI',
+    receiptPosts === 2 && receiptBodies.every((body) => body.cursor === frontier.cursor), { receiptBodies });
+  check('historical fallback submits the recorded frontier while the game stays rewound',
+    admissionBodies.length === 1 && admissionBodies[0].historical === true &&
+    admissionBodies[0].version === rewound.version && admissionBodies[0].cursor === frontier.cursor &&
+    (await (await context.request.get(gamePath, { headers })).json()).cursor === rewound.cursor,
+    { admissionBodies, storedCursor: rewound.cursor });
+  check('the exact requested advisor completes at the canonical historical position',
+    recovered.receipt_state === 'completed' && recovered.status === 'complete' &&
+    recovered.report.status === 'complete' && recovered.report.advisor_revision === revision &&
+    recovered.report.position_key === exactContext.position_key && recovered.report.ply === frontier.cursor &&
+    recovered.report.side_to_move === frontier.turn && advisor?.source === 'mcts_rollout' &&
+    advisor.search_seed === (advisor.config.seed + frontier.cursor) % 2 ** 32,
+    { receiptState: recovered.receipt_state, report: recovered.report, expectedKey: exactContext.position_key });
+  check('recovery admits exactly one computation',
+    recoveryAfter.counters.fallback_request - recoveryBefore.counters.fallback_request === 1 &&
+    recoveryAfter.counters.admitted - recoveryBefore.counters.admitted === 1,
+    { before: recoveryBefore.counters, after: recoveryAfter.counters });
+  page.off('request', capture);
+  await page.unroute(`${gamePath}/analysis-receipt`, inject);
+
   report.requests = {
     runtimeAssets: pageRequests.filter((url) => url.includes('/browser-analysis/runtime/')).length,
     modelArtifacts: pageRequests.filter((url) => url.includes('/artifact')).length,
     fallbackAnalysisPosts: fallbackAnalysisPosts.length,
+    historicalReceiptPosts: receiptPosts,
+    historicalFallbackPosts: admissionBodies.length,
   };
   report.game = { id: game.id, publication: published.publication_id, model: published.onnx_sha256 };
   report.results = {

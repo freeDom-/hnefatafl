@@ -5,7 +5,8 @@ import type { Game } from './types';
 
 const apiMock = vi.fn();
 const apiHandler = vi.fn();
-vi.mock('./api', () => ({
+vi.mock('./api', async (original) => ({
+  ...(await original<typeof import('./api')>()),
   api: (...args: unknown[]) => apiMock(...args),
   ApiError: class ApiError extends Error {
     constructor(
@@ -49,6 +50,7 @@ vi.mock('./browserAnalysis/loader', async () => {
 
 import { useGameAnalysis } from './useGameAnalysis';
 import { __resetRetirements } from './analysisRetirements';
+import { setCSRF } from './api';
 
 function game(): Game {
   return {
@@ -129,6 +131,7 @@ function localReport(): PositionAnalysis {
 }
 
 beforeEach(() => {
+  setCSRF('session', 'account-1');
   __resetRetirements();
   apiMock.mockReset();
   apiHandler.mockReset();
@@ -146,10 +149,17 @@ beforeEach(() => {
         game_id: url[url.indexOf('games') + 1],
         version: body?.version ?? 0,
         cursor: body?.cursor ?? 0,
+        ply: body?.cursor ?? 0,
+        side_to_move: 'attackers',
+        position_key: 'key',
         advisor_revision: body?.revision ?? 0,
       });
     }
-    return apiHandler(path, body, ...rest);
+    return Promise.resolve(apiHandler(path, body, ...rest)).then((payload) =>
+      String(path).endsWith('/result')
+        ? { reconciled_before: 0, reconciled_before_sequence: 0, ...payload }
+        : payload,
+    );
   });
   local.runLocalAnalysis.mockReset();
   local.setAnalysisAccount.mockClear();
@@ -288,6 +298,21 @@ describe('useGameAnalysis execution-policy integration', () => {
   });
 
   it('retries local execution without retaining a stale fallback decision', async () => {
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_preferred');
+      if (path.endsWith('/analysis')) return { status: 'pending' };
+      if (path.endsWith('/result')) {
+        return {
+          schema: 1,
+          receipt: 'receipt-g1-0',
+          receipt_state: 'failed',
+          receipt_epoch: 'server-epoch',
+          status: 'failed',
+          terminal: true,
+        };
+      }
+      throw new Error(`unexpected ${path}`);
+    });
     local.runLocalAnalysis
       .mockRejectedValueOnce(
         Object.assign(new Error('unsupported browser'), {
@@ -303,8 +328,10 @@ describe('useGameAnalysis execution-policy integration', () => {
         model: null,
         fromCache: true,
       });
-    const hook = render('browser_preferred');
-    await waitFor(() => expect(hook.result.current.fallback).toBe(true));
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(hook.result.current.failed).toBe(true));
     await act(async () => {
       hook.result.current.retry();
     });
@@ -317,6 +344,17 @@ describe('useGameAnalysis execution-policy integration', () => {
     apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_preferred');
       if (path.endsWith('/analysis')) return { ...localReport(), status: 'complete' };
+      if (path.endsWith('/result')) {
+        return {
+          schema: 1,
+          receipt: 'receipt-g1-0',
+          receipt_state: 'completed',
+          receipt_epoch: 'server-epoch',
+          status: 'complete',
+          terminal: true,
+          report: localReport(),
+        };
+      }
       throw new Error(`unexpected ${path}`);
     });
     let localCalls = 0;
@@ -346,7 +384,7 @@ describe('useGameAnalysis execution-policy integration', () => {
     await waitFor(() =>
       expect(apiMock.mock.calls.some(([path]) => String(path).endsWith('/analysis'))).toBe(true),
     );
-    await waitFor(() => expect(hook.result.current.fallback).toBe(true));
+    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('key'));
     hook.rerender({ current: second });
     await waitFor(() => expect(hook.result.current.report?.position_key).toBe('g2-2'));
     hook.rerender({ current: base });
@@ -560,7 +598,7 @@ describe('useGameAnalysis execution-policy integration', () => {
           receipt_epoch: 'server-epoch',
           status: active ? 'pending' : 'complete',
           terminal: !active,
-          ...(active ? {} : { report: { ...localReport(), position_key: 'server-result' } }),
+          ...(active ? {} : { report: localReport() }),
         };
       }
       if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
@@ -580,7 +618,7 @@ describe('useGameAnalysis execution-policy integration', () => {
     await waitFor(() => expect(hook.result.current.report?.position_key).toBe('g2-1'));
     hook.rerender({ current: base });
     await waitFor(() => expect(statusReads).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('server-result'));
+    await waitFor(() => expect(hook.result.current.report?.position_key).toBe('key'));
     expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith('/analysis'))).toHaveLength(
       1,
     );
@@ -635,6 +673,7 @@ describe('useGameAnalysis execution-policy integration', () => {
             receipt_epoch: 'server-epoch',
             status: 'failed',
             terminal: true,
+            retry_admission: true,
           };
         }
         return {
@@ -692,7 +731,7 @@ describe('useGameAnalysis execution-policy integration', () => {
           receipt_epoch: 'server-epoch',
           status: active ? 'pending' : 'complete',
           terminal: !active,
-          ...(active ? {} : { report: { ...localReport(), position_key: 'server-result' } }),
+          ...(active ? {} : { report: localReport() }),
         };
       }
       if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
@@ -707,7 +746,7 @@ describe('useGameAnalysis execution-policy integration', () => {
       useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
     );
     await waitFor(() => expect(statusReads).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(second.result.current.report?.position_key).toBe('server-result'));
+    await waitFor(() => expect(second.result.current.report?.position_key).toBe('key'));
     expect(localCalls).toBe(1);
   });
 

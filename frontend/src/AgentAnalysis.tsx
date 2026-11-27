@@ -111,7 +111,7 @@ export default function AgentAnalysis({
                 : t('Analysis completed on this device.')}
           </p>
         )}
-        {!failed && !cancelled && fallback && !pending && (
+        {!failed && !cancelled && fallback && report?.status === 'complete' && !pending && (
           <p className="subtle">{t('Analysis completed on the server.')}</p>
         )}
         {downloadProgress && downloadProgress.total > 0 && pending && stage === 'downloading' && (
@@ -132,9 +132,13 @@ export default function AgentAnalysis({
               {t('Retry evaluation')}
             </button>
           </div>
-        ) : failed ? (
+        ) : failed || report?.status === 'partial' ? (
           <div className="analysis-status">
-            <p>{t('The evaluation is unavailable. You can keep playing.')}</p>
+            <p>
+              {report?.status === 'partial'
+                ? t('The analysis could not be completed. Retry to try again.')
+                : t('The evaluation is unavailable. You can keep playing.')}
+            </p>
             {analysisError && (
               <p className="subtle">
                 {failureMessages[analysisError] ??
@@ -147,7 +151,9 @@ export default function AgentAnalysis({
           </div>
         ) : (!report || report.unavailable_reason === 'not_recorded') && !pending ? (
           <p className="subtle">{t('No evaluation was recorded for this position.')}</p>
-        ) : (
+        ) : null}
+        {!cancelled &&
+          (!failed || report?.status === 'unavailable') &&
           (compact ? (selected ? [selected] : []) : evaluations).map((agent) => (
             <article className="agent-estimate" key={agent.agent_id}>
               <div className="agent-estimate-heading">
@@ -232,8 +238,7 @@ export default function AgentAnalysis({
                 </p>
               )}
             </article>
-          ))
-        )}
+          ))}
       </>
       {report?.hint && (
         <p className="analysis-hint">
