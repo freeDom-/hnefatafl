@@ -4,12 +4,13 @@
 [Deployment](../DEPLOYMENT.md) · [Security](../SECURITY.md) ·
 [Phase 4 runtime](browser-analysis-phase4.md) · [Phase 3C-B](browser-analysis-phase3c-b.md)
 
-The [seventh-review matrix](#seventh-review-corrections-q01q03) records the Q01–Q03
-corrections and current validation. Chromium verified warm offline Jarl and
-neural MCTS, historical fallback after a temporary receipt-creation rejection,
-and a successful retry after a retained partial checkpoint. The
-[sixth-review matrix](#sixth-review-corrections-p01p06) preserves the previous
-P01–P06 evidence. Deployment remains opt-in and the
+The [eighth-review matrix](#eighth-review-corrections-r01r02) records the R01–R02
+legacy server-only retry corrections. It preserves the
+[seventh-review matrix](#seventh-review-corrections-q01q03), where Chromium
+verified warm offline Jarl and neural MCTS, historical fallback after a temporary
+receipt-creation rejection, and a successful retry after a retained partial
+checkpoint. The [sixth-review matrix](#sixth-review-corrections-p01p06) preserves
+the previous P01–P06 evidence. Deployment remains opt-in and the
 [external acceptance gates](#19-remaining-gates-before-phase-7-acceptance)
 remain open.
 
@@ -370,15 +371,15 @@ for German, and the production screenshots show the existing English UI.
 
 ## 10. Bundle and deferred loading
 
-Production initial bundle for the authenticated graph, including the local
-Node 22 build of the Q code revision.
+Production initial bundle for the authenticated graph, including local
+Node 22 builds of the Q and R code revisions.
 
-| Measurement | Phase 4 | O review, CI | P review, local Node 22 | Q review, local Node 22 | Budget |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | 599,385 | 598,774 | **598,644** | 600,000 |
-| JavaScript gzip | 186,716 | 190,564 | 190,475 | **190,505** | 200,000 |
-| CSS raw | — | 115,551 | 115,551 | **115,551** | 150,000 |
-| CSS gzip | — | 24,114 | 24,114 | **24,114** | 35,000 |
+| Measurement | Phase 4 | O review, CI | P review, local Node 22 | Q review, local Node 22 | R review, local Node 22 | Budget |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| JavaScript raw | 585,756 | 599,385 | 598,774 | 598,644 | **598,893** | 600,000 |
+| JavaScript gzip | 186,716 | 190,564 | 190,475 | 190,505 | **190,622** | 200,000 |
+| CSS raw | — | 115,551 | 115,551 | 115,551 | **115,551** | 150,000 |
+| CSS gzip | — | 24,114 | 24,114 | 24,114 | **24,114** | 35,000 |
 
 Budgets were not loosened. The build emits `integration-*.js` and `entry-*.js` as
 separate lazy chunks; `.cache/bundle-modules.json` confirms `integration.ts` and
@@ -684,6 +685,38 @@ status, 3.16 ms for a pending result and 3.92 ms for a completed result.
 Receipt reads caused zero context reconstructions. Eight concurrent reads of
 the same context shared one reconstruction. The preparation cap returned a
 structured 503 at capacity, and all build records were released during recovery.
+
+## Eighth-review corrections R01–R02
+
+The regressions reproduced on `3002c5215154bc3996dd5157be94af57856b8758`. The
+corrections are on `23ccb02c16ea5bdc27bf1471b7606df888519f24`; GitHub Actions
+status for that head is reported on [PR #129](https://github.com/freeDom-/hnefatafl/pull/129/checks).
+
+| Finding | Root cause | Correction and source | Reproduction and validation |
+| --- | --- | --- | --- |
+| R01 Server-only retry intent | `pollLegacyServer()` cleared `retryRevision` before the analysis POST. A confirmed 429/503 admission rejection therefore continued ordinary backoff polls without the explicit retry indicator; a retired legacy checkpoint could then satisfy the request without starting the replacement computation. | Retry intent is consumed only after an accepted response. Only the existing structured pre-admission codes (`analysis_overloaded`, `analysis_account_busy`, `analysis_rate_limited`, `analysis_rate_capacity`, and the new `analysis_admission_unavailable` for `AnalysisUnavailable`) preserve it across backoff. Ambiguous transport failures clear the intent and never trigger an unbounded automatic resubmission. The intent remains scoped to the effect's game/version/cursor/revision key and authenticated session, so navigation, cancellation, advisor changes and account changes discard it. [Hook](../../frontend/src/useGameAnalysis.ts) · [Server](../../hnefatafl/server.py) | The new hook test returned a partial result, rejected the first explicit retry with 503, advanced the timer, verified `retry_revision` on the next eligible request, accepted a pending response, and verified subsequent ordinary polls omit it. On the reviewed revision the second request lost the indicator. Additional deterministic cases cover 429 with `Retry-After`, ambiguous transport failure, cancellation during backoff, advisor revision change, account change and no further computation after admission. [Hook tests](../../frontend/src/useGameAnalysis.test.tsx) |
+| R02 Active replacement versus legacy cache | The revision-zero compatibility branch returned cached `game_analysis` advisor evidence before checking whether an equivalent replacement search was already active. An ordinary poll could return a terminal partial or unavailable report and stop the client while the approved retry was still running. | `background_analysis()` now checks `AnalysisService.active()` for the same game, position, advisor role and revision before applying the legacy retained-result shortcut. While active, the report stays pending and preserves the original evaluations and playing-agent evidence. Ordinary polls join the existing task through the shared executor instead of scheduling another search. Completed replacements are returned normally; failed replacements retain the existing unavailable classification. [Server](../../hnefatafl/server.py) | The new backend tests seeded a revision-zero game with a partial advisor entry in `game_analysis` and no `advisor_analysis` row, blocked the evaluator before its first progress publication, and issued ordinary polls: each remained pending with one running computation. After release, the completed replacement supplied the hint while historical playing-agent evidence was unchanged. The reviewed revision returned `partial` immediately on the ordinary poll. Separate cases cover a failed replacement and an immutable completed legacy evaluation. [Background tests](../../tests/test_background_analysis.py) |
+
+Focused correction-head validation:
+
+| Check | Result |
+| --- | --- |
+| New R01 hook cases | 6 passed (2 failed on the reviewed revision before correction) |
+| New R02 backend cases | 3 passed (2 failed on the reviewed revision before correction) |
+| `tests/test_background_analysis.py`, `test_analysis_receipt_lifecycle.py`, `test_analysis_receipts.py`, `test_analysis_policy.py`, `test_analysis_api.py`, `test_analysis_coordination.py`, `test_context_preparation.py`, `test_browser_analysis_api.py` | **192 passed** |
+| `useGameAnalysis.test.tsx` and `AgentAnalysis.test.tsx` | 92 passed |
+| Full frontend Vitest | **1,894 passed (118 files)** |
+| Ruff check/format, Prettier check, TypeScript check | passed |
+| Production build and bundle budget | passed (**598,893 raw / 190,622 gzip**; CSS 115,551/24,114) |
+
+The previous 32/32 production-browser integration result remains historical
+evidence for the reviewed revision; this focused correction did not re-stage the
+browser runtime. The affected legacy server-only retry path is covered by the new
+deterministic API and hook regressions above. No database schema, receipt
+protocol, execution policy, bundle budget or UI component changed. Remaining
+limitations are unchanged: legacy revision-zero compatibility remains, P06
+capacity recovery remains bounded, and the external Phase 7 acceptance gates are
+still open.
 
 ## 12. Sustained-memory investigation
 
