@@ -13,6 +13,7 @@ import random
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +46,116 @@ def generated_moves(ruleset: str, limit: int, seed: int):
         if state.winner:
             break
     return state, moves
+
+
+def measure_capacity(app, client: TestClient) -> dict:
+    """Aggregate preparation, polling and gameplay-under-load measurements."""
+
+    def create_game(seed: int) -> dict:
+        state, moves = generated_moves("copenhagen", 160, seed)
+        players = {
+            side: {"name": side.title(), "kind": "human", "config": {}}
+            for side in ("attackers", "defenders")
+        }
+        game = game_record("copenhagen", "human-human", "defenders", players, seed)
+        game["moves"] = moves
+        game["cursor"] = len(moves)
+        game["state"] = state.to_dict()
+        game["version"] = len(moves)
+        app.state.store.create_game(game)
+        return game
+
+    same = create_game(901)
+    same_url = f"/api/games/{same['id']}/analysis-context"
+    same_params = {"cursor": same["cursor"], "version": same["version"]}
+    before_builds = app.state.analysis_context_builds.snapshot()
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        same_responses = list(
+            pool.map(lambda _: client.get(same_url, params=same_params), range(8))
+        )
+    same_ms = (time.perf_counter() - started) * 1000
+    assert all(response.status_code == 200 for response in same_responses)
+    builds = app.state.analysis_context_builds.snapshot()
+    same_reconstructions = builds["reconstructions"] - before_builds["reconstructions"]
+
+    distinct_games = [create_game(1000 + index) for index in range(12)]
+    cache_before = len(app.state.analysis_context_cache)
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        distinct_responses = list(
+            pool.map(
+                lambda game: client.get(
+                    f"/api/games/{game['id']}/analysis-context",
+                    params={"cursor": game["cursor"], "version": game["version"]},
+                ),
+                distinct_games,
+            )
+        )
+    distinct_ms = (time.perf_counter() - started) * 1000
+    distinct_ok = sum(response.status_code == 200 for response in distinct_responses)
+    distinct_busy = sum(response.status_code == 503 for response in distinct_responses)
+    assert distinct_ok + distinct_busy == len(distinct_responses)
+
+    status_game = create_game(1200)
+    started = time.perf_counter()
+    for _ in range(50):
+        status = client.get(
+            f"/api/games/{status_game['id']}/analysis-status",
+            params={"cursor": status_game["cursor"], "version": status_game["version"]},
+        )
+        assert status.status_code == 200, status.text
+    status_ms = (time.perf_counter() - started) * 1000 / 50
+
+    blocked = create_game(1300)
+    registry = app.state.analysis_context_builds
+    leases = [registry.build(("capacity", index, 0)) for index in range(registry.max_concurrent)]
+    for lease in leases:
+        lease.__enter__()
+    try:
+        overloaded = client.get(
+            f"/api/games/{blocked['id']}/analysis-context",
+            params={"cursor": blocked["cursor"], "version": blocked["version"]},
+        )
+        gameplay = []
+        for _ in range(10):
+            begin = time.perf_counter()
+            response = client.get(f"/api/games/{blocked['id']}")
+            gameplay.append((time.perf_counter() - begin) * 1000)
+            assert response.status_code == 200
+    finally:
+        for lease in leases:
+            lease.__exit__(None, None, None)
+    recovered = client.get(
+        f"/api/games/{blocked['id']}/analysis-context",
+        params={"cursor": blocked["cursor"], "version": blocked["version"]},
+    )
+    assert recovered.status_code == 200, recovered.text
+    return {
+        "same_context_concurrent": {
+            "requests": len(same_responses),
+            "latency_ms": same_ms,
+            "reconstructions": same_reconstructions,
+            "leftover_records": registry.snapshot()["records"],
+        },
+        "distinct_contexts": {
+            "requests": len(distinct_responses),
+            "ok": distinct_ok,
+            "busy": distinct_busy,
+            "latency_ms": distinct_ms,
+            "cache_entries_before": cache_before,
+            "cache_entries_after": len(app.state.analysis_context_cache),
+        },
+        "status_poll_avg_ms": status_ms,
+        "preparation_capacity": {
+            "rejected_status": overloaded.status_code,
+            "rejected_code": overloaded.json().get("code"),
+            "max_concurrent": registry.max_concurrent,
+            "gameplay_latency_ms": gameplay,
+        },
+        "cache_entries_after_load": len(app.state.analysis_context_cache),
+        "build_snapshot": registry.snapshot(),
+    }
 
 
 def main() -> int:
@@ -121,6 +232,7 @@ def main() -> int:
                                 ),
                             }
                         )
+                capacity = measure_capacity(app, client)
             finally:
                 principal.reset(token)
     report = {
@@ -128,6 +240,7 @@ def main() -> int:
         "schema": 1,
         "environment": {"python": sys.version.split()[0]},
         "records": records,
+        "capacity": capacity,
         "limits": {"max_states": 4096, "cache_entries": 8, "cache_bytes": 24 * 1024 * 1024},
     }
     args.output.write_text(json.dumps(report, indent=2) + "\n")

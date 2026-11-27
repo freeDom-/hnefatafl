@@ -9,6 +9,11 @@ export type AnalysisIntegrationModule = typeof import('./integration');
 
 let pending: Promise<AnalysisIntegrationModule> | null = null;
 
+/** True once this tab has requested (or completed) the deferred integration. */
+export function browserAnalysisLoaded(): boolean {
+  return pending !== null;
+}
+
 export function loadAnalysisIntegration(): Promise<AnalysisIntegrationModule> {
   if (!pending) {
     const request = import('./integration');

@@ -4,6 +4,7 @@ import type { AnalyticsSettings, PositionAnalysis } from './analysisTypes';
 import type { Game } from './types';
 
 const apiMock = vi.fn();
+const apiHandler = vi.fn();
 vi.mock('./api', () => ({
   api: (...args: unknown[]) => apiMock(...args),
   ApiError: class ApiError extends Error {
@@ -19,17 +20,31 @@ vi.mock('./api', () => ({
 const local = vi.hoisted(() => ({
   runLocalAnalysis: vi.fn(),
   setAnalysisAccount: vi.fn(async () => undefined),
+  setAnalysisPolicy: vi.fn(async () => undefined),
+  loaded: false,
 }));
-vi.mock('./browserAnalysis/loader', () => ({
-  loadAnalysisIntegration: async () => ({
-    runLocalAnalysis: (...args: unknown[]) =>
-      (local.runLocalAnalysis as (...values: unknown[]) => unknown)(...args),
-    setAnalysisAccount: (...args: unknown[]) =>
-      (local.setAnalysisAccount as (...values: unknown[]) => unknown)(...args),
-  }),
-}));
+vi.mock('./browserAnalysis/loader', async () => {
+  const retirements =
+    await vi.importActual<typeof import('./analysisRetirements')>('./analysisRetirements');
+  return {
+    browserAnalysisLoaded: () => local.loaded,
+    loadAnalysisIntegration: async () => {
+      local.loaded = true;
+      return {
+        ...retirements,
+        runLocalAnalysis: (...args: unknown[]) =>
+          (local.runLocalAnalysis as (...values: unknown[]) => unknown)(...args),
+        setAnalysisAccount: (...args: unknown[]) =>
+          (local.setAnalysisAccount as (...values: unknown[]) => unknown)(...args),
+        setAnalysisPolicy: (...args: unknown[]) =>
+          (local.setAnalysisPolicy as (...values: unknown[]) => unknown)(...args),
+      };
+    },
+  };
+});
 
 import { useGameAnalysis } from './useGameAnalysis';
+import { __resetRetirements } from './analysisRetirements';
 
 function game(): Game {
   return {
@@ -110,11 +125,30 @@ function localReport(): PositionAnalysis {
 }
 
 beforeEach(() => {
+  __resetRetirements();
   apiMock.mockReset();
+  apiHandler.mockReset();
+  apiMock.mockImplementation((path: string, body: any, ...rest: any[]) => {
+    if (String(path).endsWith('/analysis-receipt')) {
+      const url = String(path).split('/');
+      return Promise.resolve({
+        schema: 1,
+        receipt: `receipt-${url[url.indexOf('games') + 1]}-${body?.cursor ?? 0}`,
+        epoch: 'server-epoch',
+        game_id: url[url.indexOf('games') + 1],
+        version: body?.version ?? 0,
+        cursor: body?.cursor ?? 0,
+        advisor_revision: body?.revision ?? 0,
+      });
+    }
+    return apiHandler(path, body, ...rest);
+  });
   local.runLocalAnalysis.mockReset();
   local.setAnalysisAccount.mockClear();
+  local.setAnalysisPolicy.mockClear();
+  local.loaded = false;
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
-  apiMock.mockImplementation(async (path: string) => {
+  apiHandler.mockImplementation(async (path: string) => {
     if (path.endsWith('/analytics')) return settings('server_only');
     if (path.endsWith('/analysis')) {
       return { ...localReport(), evaluations: [] };
@@ -129,7 +163,7 @@ afterEach(() => {
 });
 
 function render(mode: string, visible = true) {
-  apiMock.mockImplementation(async (path: string) => {
+  apiHandler.mockImplementation(async (path: string) => {
     if (path.endsWith('/analytics')) return settings(mode);
     if (path.endsWith('/analysis')) return { ...localReport(), evaluations: [] };
     throw new Error(`unexpected ${path}`);
@@ -185,7 +219,7 @@ describe('useGameAnalysis execution-policy integration', () => {
       expect(apiMock.mock.calls.some(([path]) => String(path).endsWith('/analysis'))).toBe(true),
     );
     const call = apiMock.mock.calls.find(([path]) => String(path).endsWith('/analysis'))!;
-    expect(call[4]).toEqual({ 'X-Analysis-Fallback': '1' });
+    expect(call[4]).toMatchObject({ 'X-Analysis-Fallback': '1' });
     await waitFor(() => expect(hook.result.current.fallback).toBe(true));
   });
 
@@ -202,7 +236,7 @@ describe('useGameAnalysis execution-policy integration', () => {
   });
 
   it('suppresses analysis computation in disabled mode while keeping stored results', async () => {
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('disabled');
       throw new Error('analysis endpoint must not be called');
     });
@@ -216,7 +250,7 @@ describe('useGameAnalysis execution-policy integration', () => {
   });
 
   it('rejects a stale local result after rapid navigation', async () => {
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_only');
       throw new Error('analysis endpoint must not be called');
     });
@@ -270,7 +304,7 @@ describe('useGameAnalysis execution-policy integration', () => {
   });
 
   it('does not resurrect an older fallback when navigating A → B → A', async () => {
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_preferred');
       if (path.endsWith('/analysis')) return { ...localReport(), status: 'complete' };
       throw new Error(`unexpected ${path}`);
@@ -314,7 +348,7 @@ describe('useGameAnalysis execution-policy integration', () => {
   });
 
   it('merges local advice with immutable stored playing-agent evaluations', async () => {
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_only');
       throw new Error(`unexpected ${path}`);
     });
@@ -370,7 +404,7 @@ describe('useGameAnalysis execution-policy integration', () => {
   });
 
   it('fails closed when the server execution policy projection is malformed', async () => {
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) {
         return { ...settings('browser_only'), execution: { mode: 'local' } };
       }
@@ -388,7 +422,7 @@ describe('useGameAnalysis execution-policy integration', () => {
 
   it('refreshes changed policy and does not fall back under a stale browser_preferred decision', async () => {
     let mode = 'browser_preferred';
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings(mode);
       if (path.endsWith('/analysis')) return { ...localReport(), status: 'complete' };
       throw new Error(`unexpected ${path}`);
@@ -413,7 +447,7 @@ describe('useGameAnalysis execution-policy integration', () => {
   });
 
   it('does not restore a stale stored hint when new advice has no hint', async () => {
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_only');
       throw new Error('unexpected analysis endpoint');
     });
@@ -453,7 +487,7 @@ describe('useGameAnalysis execution-policy integration', () => {
           finish = resolve;
         }),
     );
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_only');
       throw new Error(`unexpected ${path}`);
     });
@@ -505,9 +539,24 @@ describe('useGameAnalysis execution-policy integration', () => {
         fromCache: true,
       };
     });
-    apiMock.mockImplementation(async (path: string) => {
+    apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_preferred');
-      if (String(path).includes('/analysis-status')) return { active: ++statusReads < 2 };
+      if (String(path).includes('/analysis-status')) {
+        const parsed = new URL(String(path), 'https://example.test');
+        const active = ++statusReads < 2;
+        return {
+          schema: 1,
+          active,
+          game_id: parsed.pathname.split('/')[2],
+          cursor: Number(parsed.searchParams.get('cursor') ?? 0),
+          version: Number(parsed.searchParams.get('version') ?? 0),
+          position_key: 'server-position-key',
+          advisor_revision: 1,
+          receipt: parsed.searchParams.get('receipt'),
+          receipt_state: active ? 'active' : 'retired',
+          receipt_epoch: 'server-epoch',
+        };
+      }
       if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
       throw new Error(`unexpected ${path}`);
     });
@@ -529,5 +578,218 @@ describe('useGameAnalysis execution-policy integration', () => {
     expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith('/analysis'))).toHaveLength(
       1,
     );
+  });
+
+  it('creates an admission receipt for admitted server fallback work', async () => {
+    local.runLocalAnalysis.mockRejectedValue(
+      Object.assign(new Error('unsupported browser'), {
+        category: 'browser-unsupported',
+        fallbackEligible: true,
+      }),
+    );
+    const hook = render('browser_preferred');
+    await waitFor(() => expect(hook.result.current.fallback).toBe(true));
+    const paths = apiMock.mock.calls.map(([path]) => String(path));
+    expect(paths.some((path) => path.endsWith('/analysis-receipt'))).toBe(true);
+    expect(paths.some((path) => path.endsWith('/analysis'))).toBe(true);
+    const receiptAt = paths.findIndex((path) => path.endsWith('/analysis-receipt'));
+    const analysisAt = paths.findIndex((path) => path.endsWith('/analysis'));
+    expect(receiptAt).toBeLessThan(analysisAt);
+  });
+
+  it('preserves retirement ownership across unmount and remount', async () => {
+    let statusReads = 0;
+    let localCalls = 0;
+    local.runLocalAnalysis.mockImplementation(async () => {
+      localCalls += 1;
+      if (localCalls === 1) {
+        throw Object.assign(new Error('unsupported browser'), {
+          category: 'browser-unsupported',
+          fallbackEligible: true,
+        });
+      }
+      return {
+        report: { ...localReport(), position_key: 'after-retirement' },
+        evidence: {},
+        provider: 'wasm',
+        offline: false,
+        model: null,
+        fromCache: true,
+      };
+    });
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_preferred');
+      if (String(path).includes('/analysis-status')) {
+        const parsed = new URL(String(path), 'https://example.test');
+        const active = ++statusReads < 2;
+        return {
+          schema: 1,
+          active,
+          game_id: 'g1',
+          cursor: 0,
+          version: 0,
+          position_key: 'server-position-key',
+          advisor_revision: 1,
+          receipt: parsed.searchParams.get('receipt'),
+          receipt_state: active ? 'active' : 'retired',
+          receipt_epoch: 'server-epoch',
+        };
+      }
+      if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
+      throw new Error(`unexpected ${path}`);
+    });
+    const first = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(first.result.current.fallback).toBe(true));
+    first.unmount();
+    const second = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(statusReads).toBeGreaterThanOrEqual(2));
+    await waitFor(() =>
+      expect(second.result.current.report?.position_key).toBe('after-retirement'),
+    );
+    expect(localCalls).toBe(2);
+  });
+
+  it('treats malformed retirement status as unknown and never starts local work', async () => {
+    let localCalls = 0;
+    local.runLocalAnalysis.mockImplementation(async () => {
+      localCalls += 1;
+      if (localCalls === 1) {
+        throw Object.assign(new Error('unsupported browser'), {
+          category: 'browser-unsupported',
+          fallbackEligible: true,
+        });
+      }
+      return {
+        report: localReport(),
+        evidence: {},
+        provider: 'wasm',
+        offline: false,
+        model: null,
+        fromCache: true,
+      };
+    });
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_preferred');
+      if (String(path).includes('/analysis-status')) return { active: false };
+      if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
+      throw new Error(`unexpected ${path}`);
+    });
+    const first = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(first.result.current.fallback).toBe(true));
+    first.unmount();
+    const second = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(second.result.current.failed).toBe(true));
+    expect(localCalls).toBe(1);
+    expect(second.result.current.pending).toBe(false);
+  });
+
+  it('restarts execution when only the WebGPU policy attribute changes', async () => {
+    let webgpu = false;
+    local.runLocalAnalysis.mockResolvedValue({
+      report: localReport(),
+      evidence: {},
+      provider: 'wasm',
+      offline: false,
+      model: null,
+      fromCache: true,
+    });
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) {
+        return {
+          ...settings('browser_only'),
+          execution: { ...execution('browser_only'), webgpu },
+        };
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    renderHook(() => useGameAnalysis(game(), true, false, '/games', false, 'account-1'));
+    await waitFor(() => expect(local.runLocalAnalysis).toHaveBeenCalledTimes(1));
+    webgpu = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() => expect(local.runLocalAnalysis).toHaveBeenCalledTimes(2));
+  });
+
+  it('recovers a stale advisor revision without leaving an abandoned pending state', async () => {
+    let analyticsReads = 0;
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) {
+        analyticsReads += 1;
+        return { ...settings('server_only'), revision: analyticsReads > 1 ? 2 : 1 };
+      }
+      if (path.endsWith('/analysis')) {
+        if (analyticsReads <= 1) {
+          throw Object.assign(new Error('stale advisor'), {
+            status: 409,
+            code: 'analysis_revision_stale',
+          });
+        }
+        return { ...localReport(), advisor_revision: 2 };
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() =>
+      expect(apiMock.mock.calls.some(([path]) => String(path).endsWith('/analysis'))).toBe(true),
+    );
+    // The first analysis response is stale; the hook must refresh settings and
+    // schedule a replacement rather than remain pending forever.
+    await waitFor(() => expect(hook.result.current.settings.revision).toBe(2));
+    await waitFor(() => expect(hook.result.current.report?.advisor_revision).toBe(2));
+    expect(hook.result.current.pending).toBe(false);
+    expect(hook.result.current.failed).toBe(false);
+  });
+
+  it('ends in a terminal stale-game state instead of remaining pending', async () => {
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('server_only');
+      if (path.endsWith('/analysis')) {
+        throw Object.assign(new Error('game changed'), {
+          status: 409,
+          code: 'analysis_context_stale',
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(hook.result.current.failed).toBe(true));
+    expect(hook.result.current.pending).toBe(false);
+    expect(hook.result.current.analysisError).toBe('stale-game');
+  });
+
+  it('does not apply a delayed settings response from the previous account', async () => {
+    let resolveSettings!: (value: AnalyticsSettings) => void;
+    apiHandler.mockImplementation((path: string) => {
+      if (path.endsWith('/analytics')) {
+        return new Promise((resolve) => {
+          resolveSettings = resolve;
+        });
+      }
+      if (path.endsWith('/analysis')) return { ...localReport(), evaluations: [] };
+      throw new Error(`unexpected ${path}`);
+    });
+    const hook = renderHook(
+      ({ account }: { account: string }) =>
+        useGameAnalysis(game(), true, false, '/games', false, account),
+      { initialProps: { account: 'account-1' } },
+    );
+    await waitFor(() => expect(resolveSettings).toBeDefined());
+    const previous = resolveSettings;
+    hook.rerender({ account: 'account-2' });
+    previous({ ...settings('browser_only'), revision: 9 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(hook.result.current.settings.revision).not.toBe(9);
+    expect(local.runLocalAnalysis).not.toHaveBeenCalled();
   });
 });

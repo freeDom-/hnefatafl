@@ -29,6 +29,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 from .analysis_policy import AnalysisAdmission, AnalysisPolicyError
+from .analysis_receipts import AnalysisReceipts
+from .context_preparation import ContextBuildRegistry, ContextRequestLimiter
 from .account_policy import (
     BIDI_CONTROLS,
     game_accounts,
@@ -286,6 +288,10 @@ class AnalysisRequest(SeekRequest):
     historical: bool = False
 
 
+class AnalysisReceiptRequest(SeekRequest):
+    revision: StrictInt = Field(default=0, ge=0)
+
+
 class AdvisorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(default="Move advisor", min_length=1, max_length=80)
@@ -411,11 +417,16 @@ def create_app(
     )
     app.state.analysis_policy = analysis_policy
     app.state.analysis_admission = analysis_admission
+    analysis_receipts = AnalysisReceipts()
+    app.state.analysis_receipts = analysis_receipts
     analysis_context_cache: OrderedDict[tuple[str, int, int], tuple[dict, int]] = OrderedDict()
     analysis_context_cache_lock = threading.Lock()
     analysis_context_cache_bytes = 0
-    analysis_context_build_locks: OrderedDict[tuple[str, int, int], threading.Lock] = OrderedDict()
+    analysis_context_builds = ContextBuildRegistry()
+    analysis_context_requests = ContextRequestLimiter(analysis_policy.requests_per_minute)
     app.state.analysis_context_cache = analysis_context_cache
+    app.state.analysis_context_builds = analysis_context_builds
+    app.state.analysis_context_requests = analysis_context_requests
     from .account_api import attach_accounts
 
     account_options = {"settings": account_settings, "transport": mail_transport}
@@ -1360,6 +1371,12 @@ def create_app(
             **game_or_404(game_id, request.version),
             "_analysis_account_id": identity["id"] if identity else None,
         }
+        if not 0 <= request.cursor <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        _receipt_state, receipt_key = analysis_request_position(game, request.cursor)
+        consume_analysis_receipt(
+            http_request, game, request.cursor, analytics_settings(game), receipt_key
+        )
         if request.historical:
             if not 0 <= request.cursor <= len(game["moves"]):
                 fail("The requested position is outside this recorded game.", 422)
@@ -1504,26 +1521,12 @@ def create_app(
                 _, (_, removed) = analysis_context_cache.popitem(last=False)
                 analysis_context_cache_bytes -= removed
 
-    def analysis_context_build_lock(key: tuple[str, int, int]) -> threading.Lock:
-        with analysis_context_cache_lock:
-            build_lock = analysis_context_build_locks.get(key)
-            if build_lock is None:
-                build_lock = threading.Lock()
-                analysis_context_build_locks[key] = build_lock
-                while len(analysis_context_build_locks) > 64:
-                    _, candidate = analysis_context_build_locks.popitem(last=False)
-                    if not candidate.locked():
-                        break
-                    analysis_context_build_locks[next(iter(analysis_context_build_locks))] = (
-                        candidate
-                    )
-            return build_lock
-
     def analysis_context_payload(
         game: dict,
         cursor: int,
         expected_version: int | None = None,
         expected_revision: int | None = None,
+        account_id: str | None = None,
     ) -> dict:
         """Authoritative serialized positions for browser-local analysis.
 
@@ -1568,8 +1571,8 @@ def create_app(
                 "position_key": position_keys[cursor],
                 "execution": analysis_policy.public(),
             }
-        build_lock = analysis_context_build_lock(cache_key)
-        with build_lock:
+        analysis_context_requests.limit(account_id or "anonymous")
+        with analysis_context_builds.build(cache_key):
             cached = analysis_context_cache_get(cache_key)
             if cached is not None:
                 cached_payload, _cached_bytes = cached
@@ -1580,6 +1583,7 @@ def create_app(
                     "position_key": position_keys[cursor],
                     "execution": analysis_policy.public(),
                 }
+            analysis_context_builds.note_reconstruction()
             state = new_game(game["ruleset"])
             try:
                 compact_states = [
@@ -1641,6 +1645,78 @@ def create_app(
             analysis_context_cache_put(cache_key, payload, size)
             return payload
 
+    def analysis_request_position(game: dict, cursor: int) -> tuple[State, str]:
+        if cursor == len(game["moves"]):
+            state = state_of(game)
+        else:
+            state = state_at(game, cursor)
+        return state, position_key(state)
+
+    def analysis_receipt_account(http_request: Request, game: dict) -> str:
+        from .security_context import principal
+
+        identity = principal.get()
+        account_id = identity["id"] if identity else game.get("_analysis_account_id")
+        if not account_id:
+            raise AnalysisPolicyError(
+                "Sign in to request analysis.", code="analysis_unauthorized", status=401
+            )
+        return str(account_id)
+
+    def consume_analysis_receipt(
+        http_request: Request, game: dict, cursor: int, settings: dict, key: str
+    ) -> None:
+        identifier = http_request.headers.get("x-analysis-receipt", "").strip()
+        if not identifier:
+            return
+        analysis_receipts.consume(
+            identifier,
+            analysis_receipt_account(http_request, game),
+            game["id"],
+            int(game.get("version", 0)),
+            cursor,
+            int(settings["revision"]),
+            key,
+        )
+
+    def create_analysis_receipt(
+        game: dict, request: AnalysisReceiptRequest, account_id: str
+    ) -> dict:
+        if not analysis_policy.server_computation:
+            raise AnalysisPolicyError(
+                "Server-side analysis is disabled by the deployment policy.",
+                code="analysis_server_disabled",
+                status=409,
+            )
+        if not 0 <= request.cursor <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        settings = analytics_settings(game)
+        if request.revision != int(settings["revision"]):
+            raise AnalysisPolicyError(
+                "The move advisor changed. Refresh analysis settings.",
+                code="analysis_revision_stale",
+                status=409,
+            )
+        analysis_context_requests.limit(account_id)
+        with analysis_context_builds.build(
+            (
+                "receipt",
+                game["id"],
+                int(game.get("version", 0)),
+                request.cursor,
+                settings["revision"],
+            )
+        ):
+            _state, key = analysis_request_position(game, request.cursor)
+        return analysis_receipts.create(
+            account_id,
+            game["id"],
+            int(game.get("version", 0)),
+            request.cursor,
+            int(settings["revision"]),
+            key,
+        )
+
     @app.get("/api/games/{game_id}/analysis-context")
     def game_analysis_context(
         game_id: str,
@@ -1648,9 +1724,16 @@ def create_app(
         version: int | None = Query(default=None, ge=0),
         revision: int | None = Query(default=None, ge=0),
     ):
+        from .security_context import principal
+
         game = game_or_404(game_id)
+        identity = principal.get()
         return analysis_context_payload(
-            game, game["cursor"] if cursor is None else cursor, version, revision
+            game,
+            game["cursor"] if cursor is None else cursor,
+            version,
+            revision,
+            str(identity["id"]) if identity else None,
         )
 
     @app.get("/api/history/online/{game_id}/analysis-context")
@@ -1666,9 +1749,17 @@ def create_app(
             len(game["moves"]) if cursor is None else cursor,
             version,
             revision,
+            game.get("_analysis_account_id"),
         )
 
-    def analysis_status_payload(game: dict, cursor: int, expected_version: int) -> dict:
+    def analysis_status_payload(
+        game: dict,
+        cursor: int,
+        expected_version: int,
+        expected_revision: int | None = None,
+        receipt: str | None = None,
+        account_id: str | None = None,
+    ) -> dict:
         """Read-only status of already-admitted analysis work for this position.
 
         The endpoint never computes or schedules analysis. It lets a client that
@@ -1681,15 +1772,38 @@ def create_app(
                 code="analysis_context_stale",
                 status=409,
             )
-        state = state_at(game, cursor) if cursor < len(game["moves"]) else state_of(game)
-        key = position_key(state)
         settings = analytics_settings(game)
-        revision = settings["revision"]
+        revision = int(settings["revision"])
+        if expected_revision is not None and expected_revision != revision:
+            raise AnalysisPolicyError(
+                "The move advisor changed. Refresh analysis settings.",
+                code="analysis_revision_stale",
+                status=409,
+            )
+        key = None
+        if receipt:
+            key = analysis_receipts.position_key(
+                receipt,
+                account_id or "anonymous",
+                game["id"],
+                int(game.get("version", 0)),
+                cursor,
+                revision,
+            )
+        if key is None:
+            cache_key = (game["id"], int(game.get("version", 0)), revision)
+            cached = analysis_context_cache_get(cache_key)
+            if cached is not None and cursor < len(cached[0]["position_keys"]):
+                key = cached[0]["position_keys"][cursor]
+            elif cursor == len(game["moves"]):
+                key = position_key(state_of(game))
+            else:
+                key = position_key(state_at(game, cursor))
         active = any(
             analyses.active((game["id"], key, role, revision if role == "advisor" else None))
             for role in ("advisor", *game["players"])
         )
-        return {
+        payload = {
             "schema": 1,
             "active": active,
             "game_id": game["id"],
@@ -1697,31 +1811,96 @@ def create_app(
             "version": game.get("version", 0),
             "position_key": key,
             "advisor_revision": revision,
+            "epoch": analysis_receipts.epoch,
         }
+        if receipt:
+            recorded = analysis_receipts.status(
+                receipt,
+                account_id or "anonymous",
+                game["id"],
+                int(game.get("version", 0)),
+                cursor,
+                revision,
+                active,
+            )
+            payload.update(
+                {
+                    "receipt": receipt,
+                    "receipt_state": recorded.get("state", "unknown"),
+                    "receipt_epoch": recorded.get("epoch"),
+                }
+            )
+        return payload
 
     @app.get("/api/games/{game_id}/analysis-status")
     def game_analysis_status(
         game_id: str,
         version: int = Query(..., ge=0),
         cursor: int | None = Query(default=None, ge=0),
+        revision: int | None = Query(default=None, ge=0),
+        receipt: str | None = Query(default=None, max_length=128),
     ):
+        from .security_context import principal
+
         game = game_or_404(game_id)
         position = game["cursor"] if cursor is None else cursor
         if not 0 <= position <= len(game["moves"]):
             fail("The requested position is outside this recorded game.", 422)
-        return analysis_status_payload(game, position, version)
+        identity = principal.get()
+        return analysis_status_payload(
+            game,
+            position,
+            version,
+            revision,
+            receipt,
+            str(identity["id"]) if identity else None,
+        )
 
     @app.get("/api/history/online/{game_id}/analysis-status")
     def online_analysis_status(
         game_id: str,
         version: int = Query(..., ge=0),
         cursor: int | None = Query(default=None, ge=0),
+        revision: int | None = Query(default=None, ge=0),
+        receipt: str | None = Query(default=None, max_length=128),
     ):
         game = online_analysis_game(game_id)
         position = len(game["moves"]) if cursor is None else cursor
         if not 0 <= position <= len(game["moves"]):
             fail("The requested position is outside this recorded game.", 422)
-        return analysis_status_payload(game, position, version)
+        return analysis_status_payload(
+            game,
+            position,
+            version,
+            revision,
+            receipt,
+            game.get("_analysis_account_id"),
+        )
+
+    @app.post("/api/games/{game_id}/analysis-receipt")
+    def game_analysis_receipt(game_id: str, request: AnalysisReceiptRequest):
+        from .security_context import principal
+
+        game = game_or_404(game_id, request.version)
+        identity = principal.get()
+        account_id = str(identity["id"]) if identity else None
+        if not account_id:
+            raise AnalysisPolicyError(
+                "Sign in to request analysis.", code="analysis_unauthorized", status=401
+            )
+        return create_analysis_receipt(game, request, account_id)
+
+    @app.post("/api/history/online/{game_id}/analysis-receipt")
+    def online_analysis_receipt(game_id: str, request: AnalysisReceiptRequest):
+        game = online_analysis_game(game_id)
+        account_id = game.get("_analysis_account_id")
+        if not account_id:
+            raise AnalysisPolicyError(
+                "Sign in to request analysis.", code="analysis_unauthorized", status=401
+            )
+        if request.version != int(game.get("version", 0)):
+            fail("This game changed. Reload it before analyzing again.", 409)
+        return create_analysis_receipt(game, request, str(account_id))
 
     def online_analysis_game(identifier: str) -> dict:
         """Read-only analysis view of a completed online game.
@@ -1827,6 +2006,10 @@ def create_app(
         game = online_analysis_game(game_id)
         if not 0 <= request.cursor <= len(game["moves"]):
             fail("The requested position is outside this recorded game.", 422)
+        _receipt_state, receipt_key = analysis_request_position(game, request.cursor)
+        consume_analysis_receipt(
+            http_request, game, request.cursor, analytics_settings(game), receipt_key
+        )
         state = state_at(game, request.cursor)
         if request.background:
             return background_analysis(game, state=state, cursor=request.cursor)
@@ -3826,10 +4009,18 @@ def create_app(
 
         if not permits(principal.get(), "accounts"):
             fail("Administrator access required.", 403)
+        with analysis_context_cache_lock:
+            context_entries = len(analysis_context_cache)
         return {
             "schema": 1,
             "policy": analysis_policy.public(),
             "counters": analysis_admission.snapshot(),
+            "context": {
+                "builds": analysis_context_builds.snapshot(),
+                "requests": analysis_context_requests.snapshot(),
+                "cache_entries": context_entries,
+            },
+            "receipts": analysis_receipts.snapshot(),
         }
 
     @app.get("/api/browser-analysis/models/{publication_id}/artifact")

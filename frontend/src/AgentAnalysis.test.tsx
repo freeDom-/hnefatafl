@@ -1131,7 +1131,8 @@ it('shows only server provenance while a fallback is pending', () => {
   );
   expect(screen.getByRole('status')).toHaveTextContent('Warten auf freie Analysekapazität');
   expect(screen.queryByText('Die Analyse läuft auf diesem Gerät.')).toBeNull();
-  expect(screen.getByText('Warten auf freie Server-Analysekapazität…')).toBeInTheDocument();
+  expect(screen.queryByText('Warten auf freie Server-Analysekapazität…')).toBeNull();
+  expect(screen.queryByText('Analyse läuft auf dem Server…')).toBeNull();
 });
 
 it('renders determinate download progress and a cancellation action', () => {
@@ -1183,4 +1184,46 @@ it('uses completed local/offline terminology after analysis finishes', () => {
   );
   expect(screen.getByRole('status')).toHaveTextContent('Analyse läuft auf dem Server…');
   expect(screen.queryByRole('progressbar')).toBeNull();
+});
+
+it('reports completed server analysis without claiming it is still running', () => {
+  setLanguage('de', false);
+  render(
+    <AgentAnalysis
+      game={game}
+      report={report}
+      pending={false}
+      failed={false}
+      retry={vi.fn()}
+      local
+      fallback
+    />,
+  );
+  expect(screen.getByText('Analyse auf dem Server abgeschlossen.')).toBeInTheDocument();
+  expect(screen.queryByText('Analyse läuft auf dem Server…')).toBeNull();
+  expect(screen.queryByText('Analyse auf diesem Gerät abgeschlossen.')).toBeNull();
+});
+
+it('distinguishes cancelled and failed analysis from completion', () => {
+  setLanguage('de', false);
+  const view = render(
+    <AgentAnalysis
+      game={game}
+      report={report}
+      pending={false}
+      failed={false}
+      cancelled
+      retry={vi.fn()}
+      local
+    />,
+  );
+  expect(screen.getByText('Die Analyse wurde abgebrochen.')).toBeInTheDocument();
+  expect(screen.queryByText('Analyse auf diesem Gerät abgeschlossen.')).toBeNull();
+  view.rerender(
+    <AgentAnalysis game={game} report={report} pending={false} failed retry={vi.fn()} local />,
+  );
+  expect(
+    screen.getByText('Die Bewertung ist nicht verfügbar. Du kannst weiterspielen.'),
+  ).toBeInTheDocument();
+  expect(screen.queryByText('Analyse auf diesem Gerät abgeschlossen.')).toBeNull();
 });

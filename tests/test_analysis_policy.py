@@ -314,6 +314,8 @@ def test_concurrent_context_misses_share_one_bounded_cache_entry(monkeypatch, tm
     assert all(response.status_code == 200 for response in responses)
     cache = app.state.analysis_context_cache
     assert len(cache) == 1
+    assert app.state.analysis_context_builds.snapshot()["reconstructions"] == 1
+    assert app.state.analysis_context_builds.snapshot()["records"] == 0
     assert all(
         response.json()["position_key"] == responses[0].json()["position_key"]
         for response in responses
@@ -444,6 +446,129 @@ def test_rate_window_resets_and_old_requests_are_pruned():
     assert admission.snapshot().get("rate_rejected", 0) == 0
 
 
+def test_analysis_receipt_tracks_prepared_admission_and_retirement(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_preferred")
+    client = TestClient(app)
+    game = _game(client)
+    settings = client.get(f"/api/games/{game['id']}/analytics").json()
+    created = client.post(
+        f"/api/games/{game['id']}/analysis-receipt",
+        json={
+            "version": game["version"],
+            "cursor": game["cursor"],
+            "revision": settings["revision"],
+        },
+    )
+    assert created.status_code == 200, created.text
+    receipt = created.json()["receipt"]
+    params = {
+        "version": game["version"],
+        "cursor": game["cursor"],
+        "revision": settings["revision"],
+        "receipt": receipt,
+    }
+    prepared = client.get(f"/api/games/{game['id']}/analysis-status", params=params).json()
+    assert prepared["receipt_state"] == "prepared"
+    assert prepared["receipt"] == receipt
+    assert prepared["receipt_epoch"] == created.json()["epoch"]
+
+    analysed = client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": game["cursor"], "background": True},
+        headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
+    )
+    assert analysed.status_code == 200, analysed.text
+    retired = client.get(f"/api/games/{game['id']}/analysis-status", params=params).json()
+    assert retired["receipt_state"] in {"active", "retired"}
+    assert retired["game_id"] == game["id"]
+    assert retired["advisor_revision"] == settings["revision"]
+
+    unknown = client.get(
+        f"/api/games/{game['id']}/analysis-status",
+        params={**params, "receipt": "not-a-real-receipt"},
+    ).json()
+    assert unknown["receipt_state"] == "unknown"
+
+
+def test_analysis_receipt_is_bound_to_account_position_and_revision(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_preferred")
+    client = TestClient(app)
+    game = _game(client)
+    settings = client.get(f"/api/games/{game['id']}/analytics").json()
+    created = client.post(
+        f"/api/games/{game['id']}/analysis-receipt",
+        json={
+            "version": game["version"],
+            "cursor": game["cursor"],
+            "revision": settings["revision"],
+        },
+    )
+    assert created.status_code == 200, created.text
+    receipt = created.json()["receipt"]
+    stale = client.get(
+        f"/api/games/{game['id']}/analysis-status",
+        params={
+            "version": game["version"],
+            "cursor": game["cursor"],
+            "revision": settings["revision"] + 1,
+            "receipt": receipt,
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["code"] == "analysis_revision_stale"
+    other = _game(client)
+    mismatch = client.post(
+        f"/api/games/{other['id']}/analysis",
+        json={"version": other["version"], "cursor": other["cursor"], "background": True},
+        headers={"X-Analysis-Receipt": receipt, "X-Analysis-Fallback": "1"},
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["code"] in {
+        "analysis_receipt_invalid",
+        "analysis_receipt_mismatch",
+    }
+    # The original receipt was never consumed by the rejected request.
+    status = client.get(
+        f"/api/games/{game['id']}/analysis-status",
+        params={
+            "version": game["version"],
+            "cursor": game["cursor"],
+            "revision": settings["revision"],
+            "receipt": receipt,
+        },
+    ).json()
+    assert status["receipt_state"] == "prepared"
+
+
+def test_analysis_context_build_capacity_rejects_instead_of_corrupting_ownership(
+    monkeypatch, tmp_path
+):
+    app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_only")
+    client = TestClient(app)
+    game = _game(client)
+    registry = app.state.analysis_context_builds
+    leases = [registry.build(("blocked", index, 0)) for index in range(registry.max_concurrent)]
+    for lease in leases:
+        lease.__enter__()
+    try:
+        response = client.get(
+            f"/api/games/{game['id']}/analysis-context",
+            params={"cursor": 0, "version": game["version"], "revision": 0},
+        )
+        assert response.status_code == 503
+        assert response.json()["code"] == "analysis_context_busy"
+        assert all(key[0] == "blocked" for key in registry.records)
+    finally:
+        for lease in leases:
+            lease.__exit__(None, None, None)
+    recovered = client.get(
+        f"/api/games/{game['id']}/analysis-context",
+        params={"cursor": 0, "version": game["version"], "revision": 0},
+    )
+    assert recovered.status_code == 200, recovered.text
+    assert registry.snapshot()["reconstructions"] == 1
+
+
 def test_analysis_metrics_requires_administrator(monkeypatch, tmp_path):
     app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_preferred")
     client = TestClient(app)
@@ -451,7 +576,10 @@ def test_analysis_metrics_requires_administrator(monkeypatch, tmp_path):
     # by the session boundary before the handler's permission check.
     anonymous = RawTestClient(app)
     assert anonymous.get("/api/analysis/metrics").status_code == 401
-    assert client.get("/api/analysis/metrics").status_code == 200
+    metrics = client.get("/api/analysis/metrics")
+    assert metrics.status_code == 200
+    assert metrics.json()["context"]["builds"]["max_records"] == 64
+    assert metrics.json()["receipts"]["max_per_account"] == 32
 
 
 def test_synchronous_playing_agent_evaluations_use_task_admission(monkeypatch, tmp_path):

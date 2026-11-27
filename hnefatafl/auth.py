@@ -407,6 +407,12 @@ grant("play", "PUT", "/api/history/online/{game_id}/analytics")
 grant("play", "POST", "/api/history/online/{game_id}/analysis")
 grant(
     "play",
+    "POST",
+    "/api/games/{game_id}/analysis-receipt",
+    "/api/history/online/{game_id}/analysis-receipt",
+)
+grant(
+    "play",
     "GET",
     "/api/online/games",
     "/api/online/games/{game_id}",

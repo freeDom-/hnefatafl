@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import type { AnalyticsSettings } from '../analysisTypes';
 import type { Game } from '../types';
 import type { ExecutionPolicy } from '../analysisPolicy';
@@ -20,6 +21,7 @@ import {
   disposeLocalAnalysis,
   runLocalAnalysis,
   setAnalysisAccount,
+  setAnalysisPolicy,
   type LocalAnalysisInput,
 } from './integration';
 
@@ -32,6 +34,42 @@ const state = {
   reason: null,
   history: ['attackers:' + '.'.repeat(49)],
 };
+
+function canonical(value: unknown, floatKeys?: Set<string>, keyName?: string): string {
+  if (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    keyName !== undefined &&
+    floatKeys?.has(keyName)
+  )
+    return `${value}.0`;
+  if (Array.isArray(value)) return `[${value.map((item) => canonical(item, floatKeys)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${canonical(
+            (value as Record<string, unknown>)[key],
+            floatKeys,
+            key,
+          )}`,
+      )
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function digest(value: unknown, floatKeys?: Set<string>): string {
+  return createHash('sha256').update(canonical(value, floatKeys)).digest('hex');
+}
+
+function positionIdentity(state: Record<string, unknown>, config: Record<string, unknown>): string {
+  return digest(
+    { state, settings: { algorithm: 'alpha_beta', ...config }, protocol: 1 },
+    new Set(['time_limit', 'exploration', 'temperature']),
+  );
+}
 
 function game(): Game {
   return {
@@ -109,7 +147,19 @@ const model = {
   registeredModelIds: ['model-registered'],
 };
 
-function jarlResult() {
+function jarlResult(request?: {
+  state: Record<string, unknown>;
+  settings: Record<string, unknown>;
+}) {
+  const settings = request
+    ? { algorithm: 'alpha_beta', ...request.settings }
+    : {
+        algorithm: 'alpha_beta',
+        depth: 3,
+        time_limit: 1,
+        seed: 51,
+        heuristic: 'shield_maiden',
+      };
   return {
     analysis: {
       value: 0.4,
@@ -118,13 +168,7 @@ function jarlResult() {
       completed_depth: 3,
     },
     algorithm: 'jarl' as const,
-    settings: {
-      algorithm: 'alpha_beta',
-      depth: 3,
-      time_limit: 1,
-      seed: 51,
-      heuristic: 'shield_maiden',
-    },
+    settings,
     evidence: {
       executionRuntime: 'pyodide' as const,
       requestedProvider: null,
@@ -136,7 +180,9 @@ function jarlResult() {
       completionReason: null,
     },
     model: null,
-    positionIdentity: 'position',
+    positionIdentity: request
+      ? positionIdentity(request.state, request.settings)
+      : positionIdentity(state, settings),
     searchId: null,
     elapsedMs: 10,
     authoritative: false as const,
@@ -164,7 +210,7 @@ function neuralResult() {
       completionReason: 'simulations',
     },
     model: { sha256: model.onnxSha256, ruleset: model.ruleset, size: 7 },
-    positionIdentity: 'position',
+    positionIdentity: 'a'.repeat(64),
     searchId: 'search',
     elapsedMs: 10,
     authoritative: false as const,
@@ -183,7 +229,7 @@ function api(overrides: Record<string, unknown> = {}) {
       retained: true,
       persistent: true,
     })),
-    runSearch: vi.fn(async () => jarlResult()),
+    runSearch: vi.fn(async (request: any) => jarlResult(request)),
     cancel: vi.fn(async () => undefined),
     invalidateAccountContext: vi.fn(async () => undefined),
     noteOnlineAuthorization: vi.fn(),
@@ -211,22 +257,43 @@ function contextPayload(
   gameId = 'game-1',
 ) {
   const next = { ...state, ply: cursor };
-  const states = [state, next].slice(0, cursor + 1).map(({ history: _history, ...rest }) => rest);
-  const history = states.map((_, index) => `history-${index}`);
+  const compact = [state, next].slice(0, cursor + 1).map(({ history: _history, ...rest }) => rest);
+  const history = compact.map((item) => `${item.turn}:${(item.board as string[]).join('')}`);
+  const full = compact.map((item) => ({
+    ...item,
+    history: history.slice(0, Math.max(1, Number(item.ply) + 1)),
+  }));
+  const positionKeys = full.map((item) => digest(item));
+  const neural = config.algorithm === 'neural';
+  const effective = {
+    seed: 51,
+    time_limit: 1,
+    evaluation: neural ? 'neural' : 'heuristic',
+    ...(neural
+      ? {
+          search_wrapper: 'mcts',
+          iterations: 32,
+          rollout_depth: 8,
+          exploration: 1.4,
+          temperature: 0,
+        }
+      : {}),
+    ...config,
+  };
   return {
     schema: 1,
     game_id: gameId,
     version: 0,
     ruleset: 'brandubh',
     cursor,
-    position_key: `server-position-key-${cursor}`,
-    position_keys: states.map((_, index) => `server-position-key-${index}`),
+    position_key: positionKeys[cursor],
+    position_keys: positionKeys,
     history_keys: history,
-    states,
+    states: compact,
     advisor: {
       effective_config:
         config.algorithm !== undefined
-          ? { seed: 51, time_limit: 1, evaluation: 'heuristic', ...config }
+          ? effective
           : {
               algorithm: 'alpha_beta',
               seed: 51,
@@ -305,6 +372,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await disposeLocalAnalysis();
+  delete (navigator as { gpu?: unknown }).gpu;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -329,7 +397,7 @@ describe('transparent local analysis integration', () => {
     });
     expect(outcome.report.hint?.move).toEqual({ source: 24, target: 17 });
     expect(outcome.report.status).toBe('complete');
-    expect(outcome.report.position_key).toBe('server-position-key-0');
+    expect(outcome.report.position_key).toBe(contextPayload(0).position_key);
     expect(outcome.provider).toBe('wasm');
     expect(runtime.downloadModel).not.toHaveBeenCalled();
   });
@@ -526,7 +594,7 @@ describe('transparent local analysis integration', () => {
   });
 
   it('runs warm offline Jarl and neural searches from prepared contexts', async () => {
-    const runtime = api({ runSearch: vi.fn(async () => jarlResult()) });
+    const runtime = api({ runSearch: vi.fn(async (request: any) => jarlResult(request)) });
     createBrowserAnalysis.mockResolvedValue(runtime);
     await runLocalAnalysis(input());
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
@@ -633,7 +701,7 @@ describe('transparent local analysis integration', () => {
     const request = (runtime.runSearch.mock.calls[0] as any[])[0];
     expect(request.settings.seed).toBe(52);
     expect((request.state as { history: string[] }).history).toHaveLength(2);
-    expect(outcome.report.position_key).toBe('server-position-key-1');
+    expect(outcome.report.position_key).toBe(contextPayload(1).position_key);
   });
 
   it('honours the server show_win_chances setting while retaining advice', async () => {
@@ -806,8 +874,19 @@ describe('transparent local analysis integration', () => {
       { ...valid, version: 1 },
       { ...valid, cursor: 1 },
       { ...valid, history_keys: [] },
+      {
+        ...valid,
+        history_keys: valid.history_keys.map((key, index) =>
+          index === 0 ? 'attackers:wrong' : key,
+        ),
+      },
       { ...valid, position_keys: undefined },
       { ...valid, states: [{ ...valid.states[0], ply: 2 }] },
+      {
+        ...valid,
+        position_key: 'a'.repeat(64),
+        position_keys: ['a'.repeat(64)],
+      },
     ];
     for (const variant of variants) {
       __testing.resetCaches();
@@ -904,6 +983,79 @@ describe('transparent local analysis integration', () => {
       expect(failure.fallbackEligible).toBe(false);
       expect(runtime.runSearch).not.toHaveBeenCalled();
     }
+  });
+
+  it('rejects missing or malformed canonical configuration instead of using defaults', async () => {
+    const variants: Array<[Record<string, unknown>, string]> = [
+      [{ algorithm: 'alpha_beta', depth: undefined, time_limit: 1 }, 'depth'],
+      [{ algorithm: 'alpha_beta', depth: 3, time_limit: undefined }, 'time limit'],
+      [{ algorithm: 'alpha_beta', depth: '3', time_limit: 1 }, 'numeric depth'],
+      [{ algorithm: 'alpha_beta', depth: 3, time_limit: 1, seed: -1 }, 'seed'],
+      [
+        {
+          algorithm: 'neural',
+          model_id: 'model-registered',
+          search_wrapper: 'mcts',
+          iterations: undefined,
+          time_limit: 1,
+        },
+        'iterations',
+      ],
+      [
+        {
+          algorithm: 'neural',
+          model_id: 'model-registered',
+          search_wrapper: 'mcts',
+          iterations: 32,
+          time_limit: 1,
+          exploration: 11,
+        },
+        'exploration',
+      ],
+    ];
+    for (const [config, label] of variants) {
+      __testing.resetCaches();
+      vi.stubGlobal('fetch', contextFetch([], config));
+      const runtime = api();
+      createBrowserAnalysis.mockResolvedValue(runtime);
+      const failure = await runLocalAnalysis(input({ settings: settings(config) })).catch(
+        (error) => error,
+      );
+      expect(failure.category, label).toBe('integrity');
+      expect(failure.fallbackEligible, label).toBe(false);
+      expect(runtime.runSearch, label).not.toHaveBeenCalled();
+    }
+  });
+
+  it('requires the modern context execution-policy projection', async () => {
+    const payload = contextPayload(0, { algorithm: 'alpha_beta', depth: 3, time_limit: 1 });
+    delete (payload as { execution?: unknown }).execution;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => payload }) as Response),
+    );
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('integrity');
+    expect(failure.fallbackEligible).toBe(false);
+  });
+
+  it('rejects a runtime result whose canonical identity belongs to another position', async () => {
+    const runtime = api({
+      runSearch: vi.fn(async (request: any) => {
+        const other = { ...request.state, board: [...request.state.board] };
+        other.board[0] = 'K';
+        return {
+          ...jarlResult(request),
+          positionIdentity: positionIdentity(other, request.settings),
+        };
+      }),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('integrity');
+    expect(failure.fallbackEligible).toBe(false);
   });
 
   it('rejects a canonical model identity that differs from the requested model', async () => {
@@ -1012,5 +1164,237 @@ describe('transparent local analysis integration', () => {
     const failure = await runLocalAnalysis(input()).catch((error) => error);
     expect(failure.category).toBe('initialization');
     expect(failure.fallbackEligible).toBe(false);
+  });
+
+  it('awaits genuine logout retirement before creating a replacement runtime', async () => {
+    let resolveDispose!: (value: unknown) => void;
+    let disposed = false;
+    const outcome = {
+      drained: true,
+      activeTransfers: 0,
+      reservedBytes: 0,
+      transfers: 0,
+      queued: 0,
+      cacheVerifications: 0,
+    };
+    const runtime = api({
+      dispose: vi.fn(() => {
+        if (disposed) return Promise.resolve(outcome);
+        return new Promise((resolve) => {
+          resolveDispose = (value) => {
+            disposed = true;
+            resolve(value);
+          };
+        });
+      }),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    await runLocalAnalysis(input());
+    void setAnalysisAccount(null);
+    const login = setAnalysisAccount('account-2');
+    const pending = runLocalAnalysis(input({ accountId: 'account-2' }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(createBrowserAnalysis).toHaveBeenCalledTimes(1);
+    resolveDispose(outcome);
+    await login;
+    await pending;
+    expect(createBrowserAnalysis).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not install a runtime created during A → B → A navigation', async () => {
+    let resolveFirst!: (value: ReturnType<typeof api>) => void;
+    createBrowserAnalysis.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+    );
+    const first = runLocalAnalysis(input());
+    await vi.waitFor(() => expect(createBrowserAnalysis).toHaveBeenCalledTimes(1));
+    const second = setAnalysisAccount('account-2');
+    const back = setAnalysisAccount('account-1');
+    const obsolete = api();
+    const replacement = api();
+    createBrowserAnalysis.mockResolvedValue(replacement);
+    resolveFirst(obsolete);
+    await second;
+    await back;
+    await expect(first).rejects.toMatchObject({ category: 'cancelled' });
+    await runLocalAnalysis(input());
+    expect(obsolete.dispose).toHaveBeenCalled();
+    expect(createBrowserAnalysis).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats a healthy searching runtime as busy instead of a browser failure', async () => {
+    const runtime = api({
+      initialize: vi.fn(async () => ({ state: 'searching' })),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('busy');
+    expect(failure.fallbackEligible).toBe(false);
+    expect(runtime.runSearch).not.toHaveBeenCalled();
+  });
+
+  it('reinitializes a runtime whose identity changes during availability revalidation', async () => {
+    let runtimeId = 'runtime-a';
+    let state = 'ready';
+    const runtime = api({
+      initialize: vi.fn(async () => {
+        state = 'ready';
+        return { state, runtimeId };
+      }),
+      status: vi.fn(() => ({ state, runtimeId })),
+      availability: vi.fn(async () => {
+        runtimeId = 'runtime-b';
+        state = 'idle';
+        return { enabled: true };
+      }),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const outcome = await runLocalAnalysis(input());
+    expect(outcome.report.status).toBe('complete');
+    expect(runtime.initialize).toHaveBeenCalledTimes(2);
+    expect(runtime.availability).toHaveBeenCalledTimes(1);
+    expect(runtime.runSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the loaded runtime when a known policy change removes browser execution', async () => {
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    await runLocalAnalysis(input());
+    await setAnalysisPolicy(
+      policy({
+        mode: 'server_only',
+        browserDelivery: false,
+        browserExecution: false,
+        serverComputation: true,
+        fallback: false,
+      }),
+      'account-1',
+    );
+    expect(runtime.dispose).toHaveBeenCalled();
+    const failure = await runLocalAnalysis(input()).catch((error) => error);
+    expect(failure.category).toBe('disabled');
+  });
+
+  it('ignores an obsolete account policy change instead of mutating newer state', async () => {
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    await runLocalAnalysis(input());
+    await setAnalysisAccount('account-2');
+    await runLocalAnalysis(input({ accountId: 'account-2' }));
+    const searches = runtime.runSearch.mock.calls.length;
+    await setAnalysisPolicy(
+      policy({
+        mode: 'server_only',
+        browserDelivery: false,
+        browserExecution: false,
+        serverComputation: true,
+        fallback: false,
+      }),
+      'account-1',
+    );
+    expect(runtime.dispose).not.toHaveBeenCalled();
+    await runLocalAnalysis(input({ accountId: 'account-2' }));
+    expect(runtime.runSearch.mock.calls.length).toBe(searches + 1);
+    expect(createBrowserAnalysis).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a successful WASM recovery instead of retrying WebGPU', async () => {
+    Object.defineProperty(navigator, 'gpu', { configurable: true, value: {} });
+    let modelReady = false;
+    const runtime = api({
+      modelReady: vi.fn(() => modelReady),
+      downloadModel: vi.fn(async () => {
+        modelReady = true;
+        return {
+          sha256: model.onnxSha256,
+          bytes: 1024,
+          fromCache: false,
+          retained: true,
+          persistent: true,
+        };
+      }),
+      runSearch: vi.fn(async (request: any) => {
+        if (request.provider === 'webgpu') {
+          throw new BrowserAnalysisError('capability-missing', 'no adapter');
+        }
+        return neuralResult();
+      }),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch(
+        [],
+        {
+          algorithm: 'neural',
+          model_id: 'model-registered',
+          search_wrapper: 'mcts',
+          iterations: 32,
+          time_limit: 1,
+          temperature: 0,
+        },
+        { webgpu: true },
+      ),
+    );
+    const neural = input({
+      settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+      policy: policy({ webgpu: true }),
+    });
+    await runLocalAnalysis(neural);
+    await runLocalAnalysis(neural);
+    const providers = (runtime.runSearch.mock.calls as any[]).map(([request]) => request.provider);
+    expect(providers).toEqual(['webgpu', 'wasm', 'wasm']);
+  });
+
+  it('does not reuse a cached WebGPU decision after the policy disables it', async () => {
+    Object.defineProperty(navigator, 'gpu', { configurable: true, value: {} });
+    const runtime = api({
+      runSearch: vi.fn(async (request: any) =>
+        request.provider === 'webgpu' ? neuralResult() : { ...neuralResult(), provider: 'wasm' },
+      ),
+      modelReady: vi.fn(() => true),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch(
+        [],
+        {
+          algorithm: 'neural',
+          model_id: 'model-registered',
+          search_wrapper: 'mcts',
+          iterations: 32,
+          time_limit: 1,
+          temperature: 0,
+        },
+        { webgpu: true },
+      ),
+    );
+    const neural = input({
+      settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+      policy: policy({ webgpu: true }),
+    });
+    await runLocalAnalysis(neural);
+    await setAnalysisPolicy(policy({ webgpu: false }), 'account-1');
+    vi.stubGlobal(
+      'fetch',
+      contextFetch(
+        [],
+        {
+          algorithm: 'neural',
+          model_id: 'model-registered',
+          search_wrapper: 'mcts',
+          iterations: 32,
+          time_limit: 1,
+          temperature: 0,
+        },
+        { webgpu: false },
+      ),
+    );
+    await runLocalAnalysis({ ...neural, policy: policy({ webgpu: false }) });
+    const providers = (runtime.runSearch.mock.calls as any[]).map(([request]) => request.provider);
+    expect(providers).toEqual(['webgpu', 'wasm']);
   });
 });

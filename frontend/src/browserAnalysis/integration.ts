@@ -24,6 +24,13 @@ import {
 
 export { normalizeExecutionPolicy } from '../analysisPolicy';
 export type { ExecutionPolicy } from '../analysisPolicy';
+export {
+  addRetirement,
+  retirementFor,
+  retirementKey,
+  settleRetirement,
+} from '../analysisRetirements';
+export type { RetirementRecord } from '../analysisRetirements';
 
 export type LocalAnalysisStage =
   | 'preparing'
@@ -44,6 +51,7 @@ export type LocalFailureCategory =
   | 'unauthorized'
   | 'offline'
   | 'disabled'
+  | 'busy'
   | 'search'
   | 'unknown';
 
@@ -144,7 +152,11 @@ const MODEL_CACHE_MS = 5 * 60_000;
 let account: string | null = null;
 let generation = 0;
 let binding: Promise<void> = Promise.resolve();
+let retirement: Promise<void> = Promise.resolve();
 let bindSequence = 0;
+let policyRevision = 0;
+let currentPolicy: ExecutionPolicy | null = null;
+let searchQueue: Promise<unknown> = Promise.resolve();
 let runtimePromise: Promise<BrowserAnalysisApi> | null = null;
 let runtimeGeneration = -1;
 let modelCache: {
@@ -208,6 +220,86 @@ function clearAccountState(): void {
   lastOnlineValidationAt = 0;
 }
 
+function chainRetirement(task: () => Promise<void>): Promise<void> {
+  const previous = retirement;
+  retirement = previous.catch(() => undefined).then(task);
+  return retirement;
+}
+
+function retireRuntime(reason: string): Promise<void> {
+  const previous = runtimePromise;
+  runtimePromise = null;
+  runtimeGeneration = -1;
+  generation += 1;
+  clearAccountState();
+  policyRevision += 1;
+  searchQueue = Promise.resolve();
+  return chainRetirement(async () => {
+    if (!previous) return;
+    try {
+      const api = await previous;
+      await api.clearOfflineAuthorization();
+      await api.dispose();
+    } catch {
+      // A failed creation has nothing left to retire.
+    }
+    void reason;
+  });
+}
+
+function exclusiveSearch<T>(task: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  const run = searchQueue
+    .catch(() => undefined)
+    .then(() => {
+      if (signal.aborted) {
+        throw failure('cancelled', 'Analysis was cancelled', false, 'cancelled');
+      }
+      return task();
+    });
+  searchQueue = run.catch(() => undefined);
+  return run;
+}
+
+/**
+ * Apply a server-authoritative policy change outside a request. Known policy
+ * changes must invalidate continuation authorizations even when no further local
+ * search runs. An obsolete account request is ignored and cannot mutate the
+ * current account's policy state.
+ */
+export function setAnalysisPolicy(
+  policy: ExecutionPolicy,
+  accountId: string | null,
+): Promise<void> {
+  if (account !== accountId) return Promise.resolve();
+  policyRevision += 1;
+  currentPolicy = policy;
+  const signature = policySignature(policy);
+  if (lastPolicySignature === signature) return binding;
+  lastPolicySignature = signature;
+  contextLeases.clear();
+  modelLeases.clear();
+  lastProviders.clear();
+  onlineValidationRequired = true;
+  lastOnlineValidationAt = 0;
+  if (!policy.browserExecution) {
+    return retireRuntime('Execution policy no longer permits browser analysis');
+  }
+  const current = runtimePromise;
+  if (current) {
+    void current.then((api) => api.clearOfflineAuthorization()).catch(() => undefined);
+  }
+  return binding;
+}
+
+/** Explicit authorization denial invalidates every continuation artifact. */
+export function invalidateAnalysisAuthorization(accountId: string | null): void {
+  if (account !== accountId) return;
+  contextLeases.clear();
+  modelLeases.clear();
+  lastProviders.clear();
+  onlineValidationRequired = true;
+}
+
 /**
  * Bind the runtime to the current account. A change invalidates every worker,
  * cached position, catalogue and lease before a new search can start; logout
@@ -217,11 +309,14 @@ export function setAnalysisAccount(next: string | null): Promise<void> {
   if (next === account) return binding;
   const sequence = ++bindSequence;
   generation += 1;
+  policyRevision += 1;
+  searchQueue = Promise.resolve();
   const targetGeneration = generation;
   const previous = runtimePromise;
   account = next;
   clearAccountState();
   binding = (async () => {
+    await retirement;
     if (!previous) return;
     let api: BrowserAnalysisApi;
     try {
@@ -230,8 +325,10 @@ export function setAnalysisAccount(next: string | null): Promise<void> {
       return;
     }
     if (next === null) {
-      await api.clearOfflineAuthorization();
-      await api.dispose();
+      await chainRetirement(async () => {
+        await api.clearOfflineAuthorization();
+        await api.dispose();
+      });
       return;
     }
     if (bindSequence === sequence && generation === targetGeneration) {
@@ -244,16 +341,18 @@ export function setAnalysisAccount(next: string | null): Promise<void> {
 }
 
 /** Test/logout hook: release the managed runtime and every cached context. */
-export async function disposeLocalAnalysis(): Promise<void> {
+export function disposeLocalAnalysis(): Promise<void> {
   bindSequence += 1;
   generation += 1;
+  policyRevision += 1;
+  searchQueue = Promise.resolve();
   account = null;
   clearAccountState();
   const previous = runtimePromise;
   runtimePromise = null;
   runtimeGeneration = -1;
-  binding = Promise.resolve();
-  if (previous) {
+  const disposal = chainRetirement(async () => {
+    if (!previous) return;
     try {
       const api = await previous;
       await api.clearOfflineAuthorization();
@@ -261,11 +360,14 @@ export async function disposeLocalAnalysis(): Promise<void> {
     } catch {
       // A failed creation has nothing to retire.
     }
-  }
+  });
+  binding = disposal;
+  return disposal;
 }
 
 async function getRuntime(accountId: string | null, expected: number): Promise<BrowserAnalysisApi> {
   await binding;
+  await retirement;
   assertGeneration(expected);
   if (account !== accountId) {
     throw failure(
@@ -282,8 +384,10 @@ async function getRuntime(accountId: string | null, expected: number): Promise<B
     creation.then(
       (api) => {
         if (generation !== creationGeneration || account !== accountId) {
-          void api.clearOfflineAuthorization();
-          void api.dispose();
+          void chainRetirement(async () => {
+            await api.clearOfflineAuthorization();
+            await api.dispose();
+          });
           if (runtimePromise === creation) {
             runtimePromise = null;
             runtimeGeneration = -1;
@@ -369,7 +473,7 @@ function classify(error: unknown): LocalAnalysisError {
       return failure('initialization', text, true, code, false);
     }
     if (code === 'disabled') return failure('disabled', text, false, code, false);
-    if (code === 'superseded') return failure('cancelled', text, false, code, false);
+    if (code === 'superseded') return failure('busy', text, false, code, true);
     if (code === 'unsupported') {
       // Runtime-internal unsupported/disposed states are not evidence that a
       // server fallback is appropriate; user-requested incompatibilities are
@@ -473,7 +577,55 @@ async function fetchJson(path: string, signal: AbortSignal): Promise<unknown> {
   return response.json();
 }
 
-function validateContext(raw: unknown, input: LocalAnalysisInput): ContextPayload {
+function canonicalJson(value: unknown, floatKeys?: Set<string>, keyName?: string): string {
+  if (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    keyName !== undefined &&
+    floatKeys?.has(keyName)
+  ) {
+    // Python's json.dumps renders a float such as 1.0 as "1.0"; JavaScript has
+    // already lost that distinction, so known canonical float fields are
+    // rendered explicitly for cross-language identity compatibility.
+    return `${value}.0`;
+  }
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalJson(item, floatKeys)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${canonicalJson(
+            (value as Record<string, unknown>)[key],
+            floatKeys,
+            key,
+          )}`,
+      )
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw failure('integrity', 'Canonical position verification is unavailable', false);
+  }
+  const digest = await subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function completeState(
+  state: Record<string, unknown>,
+  historyKeys: string[],
+  index: number,
+): Record<string, unknown> {
+  const ply = Number.isInteger(state.ply) ? Number(state.ply) : index;
+  return { ...state, history: historyKeys.slice(0, Math.max(1, ply + 1)) };
+}
+
+async function validateContext(raw: unknown, input: LocalAnalysisInput): Promise<ContextPayload> {
   if (
     !raw ||
     typeof raw !== 'object' ||
@@ -538,6 +690,27 @@ function validateContext(raw: unknown, input: LocalAnalysisInput): ContextPayloa
     ) {
       throw failure('integrity', 'A serialized analysis position is malformed', false);
     }
+    const board = (state as { board: string[] }).board;
+    const expectedHistoryKey = `${(state as { turn: string }).turn}:${board.join('')}`;
+    if (payload.history_keys[index] !== expectedHistoryKey) {
+      throw failure('integrity', 'The analysis repetition history is inconsistent', false);
+    }
+  }
+  const analyzed = payload.states[input.cursor] as Record<string, unknown>;
+  if (
+    JSON.stringify(analyzed.board) !== JSON.stringify(input.game.board) ||
+    analyzed.turn !== input.game.turn ||
+    Number(analyzed.ply) !== input.cursor
+  ) {
+    throw failure(
+      'integrity',
+      'The analysis context does not describe the displayed position',
+      false,
+    );
+  }
+  const canonical = completeState(analyzed, payload.history_keys, input.cursor);
+  if ((await sha256Hex(canonicalJson(canonical))) !== payload.position_key) {
+    throw failure('integrity', 'The analysis position identity is inconsistent', false);
   }
   const advisor = payload.advisor;
   if (
@@ -579,7 +752,14 @@ function validateContext(raw: unknown, input: LocalAnalysisInput): ContextPayloa
   ) {
     throw failure('integrity', 'The analysis advisor algorithm changed', false);
   }
-  if (payload.execution !== undefined && payload.execution !== null) {
+  if (!payload.execution || typeof payload.execution !== 'object') {
+    throw failure(
+      'integrity',
+      'The canonical analysis execution-policy projection is missing',
+      false,
+    );
+  }
+  {
     const next = executionPolicy(payload.execution, input.policy);
     if (!policiesEqual(next, input.policy)) {
       throw failure(
@@ -701,7 +881,7 @@ async function ensureContext(
   }
   const requestKey = `${key}:${force ? 'revalidated' : 'initial'}`;
   let shared = contextRequests.get(requestKey);
-  if (!shared || shared.generation !== expectedGeneration) {
+  if (!shared || shared.generation !== expectedGeneration || shared.controller.signal.aborted) {
     const controller = new AbortController();
     const promise = (async () => {
       const path =
@@ -712,7 +892,7 @@ async function ensureContext(
       if (controller.signal.aborted) {
         throw failure('cancelled', 'Analysis was cancelled', false, 'cancelled');
       }
-      const payload = validateContext(raw, input);
+      const payload = await validateContext(raw, input);
       assertGeneration(expectedGeneration);
       const context = contextFromPayload(payload, key);
       cacheContext(key, context);
@@ -867,13 +1047,54 @@ function rejectUnsupportedConfig(config: Record<string, unknown>, allowed: Set<s
   }
 }
 
+function canonicalNumber(
+  config: Record<string, unknown>,
+  field: string,
+  bounds: { min: number; max: number; integer?: boolean; unsupported?: boolean },
+): number {
+  const value = config[field];
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    (bounds.integer === true && !Number.isInteger(value))
+  ) {
+    throw failure(
+      'integrity',
+      `Canonical analysis setting ${field} is missing or malformed`,
+      false,
+      'canonical-config',
+    );
+  }
+  if (value < bounds.min || value > bounds.max) {
+    throw failure(
+      bounds.unsupported === false ? 'integrity' : 'unsupported-budget',
+      `The requested analysis setting ${field} is outside the supported local range`,
+      bounds.unsupported !== false,
+      bounds.unsupported === false ? 'canonical-config' : 'local-budget',
+    );
+  }
+  return value;
+}
+
+function canonicalSeed(config: Record<string, unknown>): number {
+  const seed = config.seed;
+  if (typeof seed !== 'number' || !Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
+    throw failure(
+      'integrity',
+      'Canonical analysis seed is missing or invalid',
+      false,
+      'canonical-config',
+    );
+  }
+  return seed;
+}
+
 function seedForState(
   config: Record<string, unknown>,
   state: Record<string, unknown>,
   seedWithPly: boolean,
 ): number {
-  const base = Number.isInteger(config.seed) ? Number(config.seed) : 0;
-  return (base + (seedWithPly ? Number(state.ply ?? 0) : 0)) >>> 0;
+  return (canonicalSeed(config) + (seedWithPly ? Number(state.ply ?? 0) : 0)) >>> 0;
 }
 
 function jarlSettings(
@@ -882,14 +1103,34 @@ function jarlSettings(
   seedWithPly: boolean,
 ) {
   rejectUnsupportedConfig(config, JARL_CONFIG_FIELDS);
-  const depth = numeric(config.depth) ?? 2;
-  const seconds = numeric(config.time_limit) ?? 2;
-  if (!Number.isInteger(depth) || depth < 1 || depth > 5 || seconds > 5 || seconds < 0.01) {
+  if (config.evaluation !== 'heuristic') {
     throw failure(
-      'unsupported-budget',
-      'The requested Jarl depth or time budget is not supported by local execution',
-      true,
-      'local-budget',
+      'integrity',
+      'Canonical Jarl evaluation mode is invalid',
+      false,
+      'canonical-config',
+    );
+  }
+  const depth = canonicalNumber(config, 'depth', { min: 1, max: 5, integer: true });
+  const seconds = canonicalNumber(config, 'time_limit', { min: 0.01, max: 5 });
+  canonicalSeed(config);
+  if (
+    config.heuristic !== undefined &&
+    (typeof config.heuristic !== 'string' ||
+      !['shield_maiden', 'shield_bearer'].includes(config.heuristic))
+  ) {
+    throw failure('integrity', 'Canonical Jarl heuristic is invalid', false, 'canonical-config');
+  }
+  if (
+    config.search !== undefined &&
+    config.search !== null &&
+    (typeof config.search !== 'object' || Array.isArray(config.search))
+  ) {
+    throw failure(
+      'integrity',
+      'Canonical Jarl search settings are invalid',
+      false,
+      'canonical-config',
     );
   }
   const settings: Record<string, unknown> = {
@@ -916,21 +1157,24 @@ function neuralSettings(
       'unsupported-agent',
     );
   }
-  const iterations = numeric(config.iterations) ?? 80;
-  const seconds = numeric(config.time_limit) ?? 2;
-  if (
-    !Number.isInteger(iterations) ||
-    iterations < 1 ||
-    iterations > 4096 ||
-    seconds < 0.05 ||
-    seconds > 10
-  ) {
+  if (config.evaluation !== 'neural' || typeof config.model_id !== 'string' || !config.model_id) {
     throw failure(
-      'unsupported-budget',
-      'The requested simulation count or time budget is not supported by local execution',
-      true,
-      'local-budget',
+      'integrity',
+      'Canonical neural model identity is missing or malformed',
+      false,
+      'canonical-config',
     );
+  }
+  const iterations = canonicalNumber(config, 'iterations', { min: 1, max: 4096, integer: true });
+  const seconds = canonicalNumber(config, 'time_limit', { min: 0.05, max: 10 });
+  const exploration = canonicalNumber(config, 'exploration', {
+    min: 0,
+    max: 10,
+    unsupported: false,
+  });
+  canonicalSeed(config);
+  if (config.rollout_depth !== undefined) {
+    canonicalNumber(config, 'rollout_depth', { min: 0, max: 50, integer: true });
   }
   if (config.temperature !== undefined && config.temperature !== 0) {
     throw failure(
@@ -944,20 +1188,37 @@ function neuralSettings(
     iterations,
     time_limit: seconds,
     seed: seedForState(config, state, seedWithPly),
-    exploration: numeric(config.exploration) ?? 1.4,
+    exploration,
   };
 }
 
-function providerFor(input: LocalAnalysisInput, model: ModelManifest | null): 'wasm' | 'webgpu' {
-  if (!model) return 'wasm';
-  if (!input.policy.webgpu) return 'wasm';
-  const previous = lastProviders.get(
-    `${model.publicationId}:${model.onnxSha256}:${input.accountId ?? ''}`,
-  );
+function providerCacheKey(
+  model: ModelManifest,
+  accountId: string | null,
+  runtimeId: string,
+): string {
+  return `${accountId ?? ''}:${model.publicationId}:${model.onnxSha256}:${runtimeId}`;
+}
+
+function rememberProvider(key: string, provider: 'wasm' | 'webgpu'): void {
+  lastProviders.delete(key);
+  lastProviders.set(key, provider);
+  while (lastProviders.size > 16) {
+    const oldest = lastProviders.keys().next().value;
+    if (oldest === undefined) break;
+    lastProviders.delete(oldest);
+  }
+}
+
+function providerFor(
+  input: LocalAnalysisInput,
+  model: ModelManifest | null,
+  runtimeId: string,
+): 'wasm' | 'webgpu' {
+  if (!model || !input.policy.webgpu) return 'wasm';
+  const previous = lastProviders.get(providerCacheKey(model, input.accountId, runtimeId));
   if (previous) return previous;
-  return input.policy.webgpu &&
-    typeof navigator !== 'undefined' &&
-    Boolean((navigator as { gpu?: unknown }).gpu)
+  return typeof navigator !== 'undefined' && Boolean((navigator as { gpu?: unknown }).gpu)
     ? 'webgpu'
     : 'wasm';
 }
@@ -969,7 +1230,7 @@ async function runWithProvider(
   provider: 'wasm' | 'webgpu',
   offline: boolean,
   model: ModelManifest | null,
-): Promise<SearchResult> {
+): Promise<{ result: SearchResult; provider: 'wasm' | 'webgpu' }> {
   const attempt = (next: 'wasm' | 'webgpu') =>
     api.runSearch(
       { ...request, provider: model ? next : undefined },
@@ -979,7 +1240,7 @@ async function runWithProvider(
       },
     );
   try {
-    return await attempt(provider);
+    return { result: await attempt(provider), provider };
   } catch (error) {
     const classified = classify(error);
     if (
@@ -989,7 +1250,7 @@ async function runWithProvider(
         classified.category === 'initialization' ||
         classified.code === 'capability-missing')
     ) {
-      return attempt('wasm');
+      return { result: await attempt('wasm'), provider: 'wasm' };
     }
     throw classified;
   }
@@ -1108,6 +1369,34 @@ function searchState(context: CachedContext, cursor: number): Record<string, unk
   return { ...state, history };
 }
 
+async function validateResultIdentity(
+  algorithm: 'jarl' | 'neural_mcts',
+  state: Record<string, unknown>,
+  result: SearchResult,
+  settings: Record<string, unknown>,
+): Promise<void> {
+  const identity = result.positionIdentity;
+  if (typeof identity !== 'string' || !/^[a-f0-9]{64}$/.test(identity)) {
+    throw failure('integrity', 'The local result has no canonical position identity', false);
+  }
+  if (algorithm === 'jarl') {
+    const effective = { algorithm: 'alpha_beta', ...settings, ...result.settings };
+    const expected = await sha256Hex(
+      canonicalJson(
+        { state, settings: effective, protocol: 1 },
+        new Set(['time_limit', 'exploration', 'temperature']),
+      ),
+    );
+    if (identity !== expected) {
+      throw failure(
+        'integrity',
+        'The local result belongs to a different position or configuration',
+        false,
+      );
+    }
+  }
+}
+
 async function localAttempt(
   input: LocalAnalysisInput,
   offline: boolean,
@@ -1117,39 +1406,44 @@ async function localAttempt(
   const stage = (value: LocalAnalysisStage) => input.onStage?.(value);
   stage('preparing');
   stage('initializing');
-  const initialized = await api.initialize({ signal: input.signal });
+  const requireReady = (status: {
+    state: string;
+    runtimeId?: string | null;
+    error?: { message?: string; code?: string; retryable?: boolean } | null;
+  }): string => {
+    if (status.state === 'disabled') {
+      throw failure('disabled', 'Browser analysis is disabled', false, 'disabled');
+    }
+    if (status.state === 'unavailable') {
+      throw failure(
+        'browser-unsupported',
+        status.error?.message ?? 'The browser analysis runtime is unavailable',
+        true,
+        status.error?.code ?? 'runtime-missing',
+        true,
+      );
+    }
+    if (status.state === 'error') {
+      throw failure(
+        'initialization',
+        status.error?.message ?? 'The browser analysis runtime failed',
+        true,
+        status.error?.code ?? 'initialization-failed',
+        true,
+      );
+    }
+    if (status.state === 'initializing' || status.state === 'searching') {
+      // A healthy runtime busy with compatible work is not unsupported and must
+      // never trigger a server fallback merely because it is occupied.
+      throw failure('busy', 'The browser analysis runtime is busy', false, 'runtime-busy', true);
+    }
+    if (status.state !== 'ready') {
+      throw failure('integrity', 'The browser analysis runtime state is invalid', false);
+    }
+    return status.runtimeId ?? api.status().runtimeId ?? '';
+  };
+  let runtimeId = requireReady(await api.initialize({ signal: input.signal }));
   assertGeneration(expectedGeneration);
-  if (initialized.state === 'disabled') {
-    throw failure('disabled', 'Browser analysis is disabled', false, 'disabled');
-  }
-  if (initialized.state === 'unavailable') {
-    throw failure(
-      'browser-unsupported',
-      initialized.error?.message ?? 'The browser analysis runtime is unavailable',
-      true,
-      initialized.error?.code ?? 'runtime-missing',
-      true,
-    );
-  }
-  if (initialized.state === 'error') {
-    throw failure(
-      'initialization',
-      initialized.error?.message ?? 'The browser analysis runtime failed',
-      true,
-      initialized.error?.code ?? 'initialization-failed',
-      true,
-    );
-  }
-  if (initialized.state !== 'ready') {
-    throw failure(
-      'browser-unsupported',
-      'The browser analysis runtime is not ready',
-      true,
-      'runtime-unavailable',
-      true,
-    );
-  }
-  const runtimeId = api.status().runtimeId ?? '';
 
   let context: CachedContext;
   let freshAuthorization = false;
@@ -1161,6 +1455,11 @@ async function localAttempt(
     if (stale) {
       await api.availability({ signal: input.signal });
       assertGeneration(expectedGeneration);
+      const revalidated = api.status();
+      if (String(revalidated.runtimeId ?? '') !== runtimeId || revalidated.state !== 'ready') {
+        runtimeId = requireReady(await api.initialize({ signal: input.signal }));
+        assertGeneration(expectedGeneration);
+      }
       ({ context } = await ensureContext(input, false, expectedGeneration, true));
       freshAuthorization = true;
     } else {
@@ -1250,7 +1549,7 @@ async function localAttempt(
         'model-not-published',
       );
     }
-    provider = providerFor(input, model);
+    provider = providerFor(input, model, runtimeId);
     if (offline && !modelLeaseValid(input, model, runtimeId)) {
       throw failure(
         'unauthorized',
@@ -1276,6 +1575,8 @@ async function localAttempt(
       assertGeneration(expectedGeneration);
       fromCache = downloaded.fromCache;
       stage('loading-model');
+    }
+    if (freshAuthorization) {
       modelLeases.set(`${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`, {
         account: input.accountId,
         sha256: model.onnxSha256,
@@ -1283,33 +1584,36 @@ async function localAttempt(
         runtimeId,
         expiresAt: now() + input.policy.offlineAuthorizationSeconds * 1000,
       });
+      trimLeases();
     }
   }
 
   stage('searching');
-  const result = await runWithProvider(
-    api,
-    input,
-    { state, algorithm, settings, model: model ?? undefined },
-    provider,
-    offline,
-    model,
-  );
-  assertGeneration(expectedGeneration);
-  if (model) {
-    lastProviders.set(
-      `${model.onnxSha256}:${input.accountId ?? ''}`,
-      result.evidence.requestedProvider ?? provider,
-    );
-    if (!offline) {
-      modelLeases.set(`${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`, {
-        account: input.accountId,
-        sha256: model.onnxSha256,
-        publicationId: model.publicationId,
-        runtimeId,
-        expiresAt: now() + input.policy.offlineAuthorizationSeconds * 1000,
-      });
+  const policyBeforeSearch = policyRevision;
+  const ran = await exclusiveSearch(() => {
+    if (policyRevision !== policyBeforeSearch) {
+      throw failure(
+        'disabled',
+        'The analysis execution policy changed before the local search started',
+        false,
+        'policy-changed',
+        true,
+      );
     }
+    return runWithProvider(
+      api,
+      input,
+      { state, algorithm, settings, model: model ?? undefined },
+      provider,
+      offline,
+      model,
+    );
+  }, input.signal);
+  assertGeneration(expectedGeneration);
+  const result = ran.result;
+  await validateResultIdentity(algorithm, state, result, settings);
+  if (model) {
+    rememberProvider(providerCacheKey(model, input.accountId, runtimeId), ran.provider);
   }
   return { ...adaptReport(input, context, result, effectiveConfig, offline), fromCache };
 }
@@ -1327,14 +1631,16 @@ export async function runLocalAnalysis(input: LocalAnalysisInput): Promise<Local
     throw failure('disabled', 'Browser analysis is not permitted', false, 'disabled');
   }
   const signature = policySignature(input.policy);
-  if (lastPolicySignature !== null && lastPolicySignature !== signature) {
-    // A changed policy invalidates all continuation authorizations issued under
-    // the older policy; authority must be freshly obtained online.
-    contextLeases.clear();
-    modelLeases.clear();
-    lastProviders.clear();
+  if (currentPolicy !== null && policySignature(currentPolicy) !== signature) {
+    throw failure(
+      'disabled',
+      'The analysis execution policy changed. Retry analysis.',
+      false,
+      'policy-changed',
+      true,
+    );
   }
-  lastPolicySignature = signature;
+  const policyAtStart = policyRevision;
   const expectedGeneration = generation;
   if (account !== input.accountId) {
     throw failure(
@@ -1344,6 +1650,24 @@ export async function runLocalAnalysis(input: LocalAnalysisInput): Promise<Local
       'account-context-changed',
     );
   }
+  if (policyRevision !== policyAtStart) {
+    throw failure(
+      'disabled',
+      'The analysis execution policy changed before local analysis started',
+      false,
+      'policy-changed',
+      true,
+    );
+  }
+  assertGeneration(expectedGeneration);
+  if (lastPolicySignature !== null && lastPolicySignature !== signature) {
+    // A policy passed directly by the caller also invalidates continuation
+    // authorizations issued under the older policy.
+    contextLeases.clear();
+    modelLeases.clear();
+    lastProviders.clear();
+  }
+  lastPolicySignature = signature;
   const startOffline =
     input.offline === true || (typeof navigator !== 'undefined' && navigator.onLine === false);
   try {
@@ -1351,6 +1675,7 @@ export async function runLocalAnalysis(input: LocalAnalysisInput): Promise<Local
   } catch (error) {
     const classified = classify(error);
     if (classified.category === 'cancelled') throw classified;
+    if (classified.category === 'busy') throw classified;
     assertGeneration(expectedGeneration);
     if (
       !startOffline &&
@@ -1413,6 +1738,12 @@ export const __testing = {
     contextLeases.clear();
     modelLeases.clear();
     modelCache = null;
+    lastPolicySignature = null;
+    currentPolicy = null;
+    policyRevision = 0;
+    searchQueue = Promise.resolve();
+    onlineValidationRequired = true;
+    lastOnlineValidationAt = 0;
   },
   contextStats() {
     return { entries: contexts.size, bytes: contextBytes };

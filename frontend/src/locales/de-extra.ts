@@ -109,12 +109,16 @@ const translations: Record<string, string> = {
   'Analysis was cancelled.': 'Die Analyse wurde abgebrochen.',
   'Analysis settings changed. Retry to use the updated policy.':
     'Die Analyseeinstellungen haben sich geändert. Erneut versuchen, um die aktualisierte Richtlinie zu nutzen.',
+  'This game changed. Reload it before analyzing again.':
+    'Das Spiel hat sich geändert. Vor einer neuen Analyse neu laden.',
   'Analysis capacity is busy. Retry shortly.':
     'Die Analysekapazität ist ausgelastet. Bitte kurz warten.',
   'The analysis service is unavailable.': 'Der Analysedienst ist nicht verfügbar.',
   'The analysis could not be completed. Retry to try again.':
     'Die Analyse konnte nicht abgeschlossen werden. Erneut versuchen.',
   'Running analysis on the server…': 'Analyse läuft auf dem Server…',
+  'Analysis completed on the server.': 'Analyse auf dem Server abgeschlossen.',
+  'Analysis is already running on this device.': 'Die Analyse läuft bereits auf diesem Gerät.',
   'Analysis completed on this device.': 'Analyse auf diesem Gerät abgeschlossen.',
   'Analysis completed on this device offline.': 'Analyse offline auf diesem Gerät abgeschlossen.',
   'This advisor is not available for local analysis. Choose Jarl or a neural MCTS model.':

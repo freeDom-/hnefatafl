@@ -21,6 +21,7 @@ export default function AgentAnalysis({
   analysisError,
   downloadProgress,
   cancel,
+  cancelled = false,
 }: {
   game: Game;
   report: PositionAnalysis | null;
@@ -35,6 +36,7 @@ export default function AgentAnalysis({
   analysisError?: string;
   downloadProgress?: { transferred: number; total: number };
   cancel?: () => void;
+  cancelled?: boolean;
 }) {
   const { t, locale } = useI18n();
   const compact = useCompactPlay();
@@ -56,6 +58,7 @@ export default function AgentAnalysis({
     'unsupported-budget': t('This analysis setting is not available on this device.'),
     'model-unavailable': t('A compatible model is not available for this advisor.'),
     'browser-unsupported': t('Local analysis is not available in this browser.'),
+    busy: t('Analysis is already running on this device.'),
     initialization: t('The local analysis engine could not start.'),
     download: t('Required analysis resources could not be downloaded.'),
     integrity: t('Analysis resources failed a safety check.'),
@@ -63,6 +66,8 @@ export default function AgentAnalysis({
     unauthorized: t('Analysis authorization is no longer valid.'),
     cancelled: t('Analysis was cancelled.'),
     'policy-changed': t('Analysis settings changed. Retry to use the updated policy.'),
+    'revision-stale': t('Analysis settings changed. Retry to use the updated policy.'),
+    'stale-game': t('This game changed. Reload it before analyzing again.'),
     'server-busy': t('Analysis capacity is busy. Retry shortly.'),
     'server-failed': t('The analysis service is unavailable.'),
   };
@@ -88,18 +93,14 @@ export default function AgentAnalysis({
         {pending && (
           <p className="analysis-status" role="status">
             <i className="analysis-spinner" />
-            {t(
-              fallback
-                ? waiting
-                  ? 'Waiting for analysis capacity…'
-                  : 'Running analysis on the server…'
-                : waiting
-                  ? 'Waiting for analysis capacity…'
-                  : (stage && pendingMessages[stage]) || 'Evaluating this position…',
-            )}
+            {waiting
+              ? t('Waiting for analysis capacity…')
+              : fallback
+                ? t('Running analysis on the server…')
+                : (stage && pendingMessages[stage]) || t('Evaluating this position…')}
           </p>
         )}
-        {local && !fallback && (
+        {!failed && !cancelled && local && !fallback && (
           <p className="subtle">
             {pending
               ? offline
@@ -110,14 +111,10 @@ export default function AgentAnalysis({
                 : t('Analysis completed on this device.')}
           </p>
         )}
-        {fallback && (
-          <p className="subtle">
-            {pending
-              ? t('Waiting for server analysis capacity…')
-              : t('Analysis is running on the server.')}
-          </p>
+        {!failed && !cancelled && fallback && !pending && (
+          <p className="subtle">{t('Analysis completed on the server.')}</p>
         )}
-        {downloadProgress && downloadProgress.total > 0 && pending && (
+        {downloadProgress && downloadProgress.total > 0 && pending && stage === 'downloading' && (
           <label className="subtle">
             {t('Downloading analysis resources…')}
             <progress max={downloadProgress.total} value={downloadProgress.transferred} />
@@ -128,7 +125,14 @@ export default function AgentAnalysis({
             {t('Cancel analysis')}
           </button>
         )}
-        {failed ? (
+        {cancelled ? (
+          <div className="analysis-status">
+            <p>{t('Analysis was cancelled.')}</p>
+            <button className="text-button" onClick={retry}>
+              {t('Retry evaluation')}
+            </button>
+          </div>
+        ) : failed ? (
           <div className="analysis-status">
             <p>{t('The evaluation is unavailable. You can keep playing.')}</p>
             {analysisError && (
