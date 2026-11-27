@@ -322,7 +322,11 @@ The authorized `analysis-context` endpoints return the same serialized positions
 (including repetition history) only where the existing analysis/replay permission
 already applies. They expose no new game or account data and never compute. Active
 online/league/tournament games remain ineligible; public spectator pages do not
-initialize the runtime or download models. Browser results are advisory and cannot
+initialize the runtime or download models. Browser fallback receipts are
+account/game/position/revision-bound, bounded, short-lived and created without
+starting computation; late consumption after expiry is rejected. The status check
+is read-only, returns `unknown` rather than `retired` for missing or malformed
+records, and never initiates a search. Browser results are advisory and cannot
 mutate authoritative results, clocks, ratings or progression.
 
 Enabling browser delivery adds exactly one narrow CSP source,

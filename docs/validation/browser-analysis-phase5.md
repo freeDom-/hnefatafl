@@ -4,11 +4,13 @@
 [Deployment](../DEPLOYMENT.md) · [Security](../SECURITY.md) ·
 [Phase 4 runtime](browser-analysis-phase4.md) · [Phase 3C-B](browser-analysis-phase3c-b.md)
 
-Status: **Phase 5 implementation and the independent-review corrections K1–K16
-are complete at the software level and validated in a production-equivalent
-browser build. It is not production acceptance and the feature remains opt-in and
-disabled by default on existing installations. K10 (replay-analysis achievement
-credit under browser-only operation) remains an explicit owner-decision blocker.**
+Status: **Phase 5 implementation, the independent-review corrections K1–K16,
+L1–L11 and the third-review corrections M1–M8 are complete at the software level.
+The M correction passed its focused backend/frontend suites and production build;
+the prior production-browser probe evidence is retained and was not rerun for the
+M head. This is not production acceptance; the feature remains opt-in and disabled
+by default on existing installations. K10 (replay-analysis achievement credit under
+browser-only operation) remains an explicit owner-decision blocker.**
 
 Verified here: server-owned execution policy and enforcement, transparent local
 Jarl and neural MCTS through the existing analysis UI, automatic WASM selection,
@@ -355,8 +357,8 @@ Current production initial bundle (authenticated graph):
 
 | Measurement | Phase 4 reported | Phase 5 measured | Budget |
 | --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **596,620** | 600,000 |
-| JavaScript gzip | 186,716 | **190,104** | 200,000 |
+| JavaScript raw | 585,756 | **599,813** | 600,000 |
+| JavaScript gzip | 186,716 | **190,870** | 200,000 |
 | CSS raw | — | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 35,000 |
 
@@ -417,7 +419,8 @@ suite, not by relying on PR descriptions.
 | K11 policy revalidation | Missing policy was treated like legacy; malformed policy was silently server-only; only mode name compared; stale fallback could survive policy change. | Missing projection retains legacy; malformed projection fails closed as `disabled`; full policy attributes are compared; context/policy change triggers analytics refresh; stale fallback becomes failed/refresh, never a fallback decision. | `frontend/src/useGameAnalysis.ts`, `frontend/src/browserAnalysis/integration.ts` | Malformed projection, policy transition/refresh, context policy mismatch tests. | There is no continuous policy polling; change detected on next context/retry/reconnect, by design to avoid background origin traffic. |
 | K12 error/recovery | Any `TypeError` meant network failure; retries were loosely bounded. | Fetch-boundary network errors are explicit; generic TypeError is unknown/engine fault; integrity fails closed; WebGPU and offline recovery are one-shot; server 429/503 retries are capped at 8 with Retry-After; cancelled requests cannot retry. | `frontend/src/browserAnalysis/integration.ts`, `useGameAnalysis.ts` | TypeError, integrity, WebGPU recovery, 429/503 backoff/cap, timer cleanup tests. | Server-side task duration remains bounded by its own service deadline. |
 | K13 admission accounting | Inactive rate buckets accumulated; duplicate releases could undercount. | Lazy bounded bucket cleanup (≤once/30 s), 4096-bucket cap; token ownership and duplicate-release detection; exactly-once release; global/per-account counters. | `hnefatafl/analysis_policy.py`, `analysis_service.py`, `server.py` | High-cardinality expiry, duplicate release, concurrent/rejected admission, failed-submission tests. | Supported deployment invariant remains one API worker; no multi-worker-global claim. |
-| K14–K15 UI feedback/cancellation | Device line could contradict fallback state; no download progress/cancel action; raw error text surfaced. | Provenance now chooses local vs server text, determinate `<progress>` only with real byte totals, a local cancel action, and localized user-facing error categories; existing classes/tokens only. | `frontend/src/AgentAnalysis.tsx`, `useGameAnalysis.ts`, `locales/de-extra.ts` | Fallback provenance, progress/cancel, localized failure and theme/mobile snapshots. | Server fallback cancellation stops observation but not already-admitted server work (documented handover). |
+| K14 UI feedback | Device line could contradict fallback state; raw error text surfaced. | Provenance chooses local vs server text; localized user-facing error categories; existing classes/tokens only. | `frontend/src/AgentAnalysis.tsx`, `useGameAnalysis.ts`, `locales/de-extra.ts` | Fallback provenance, localized failure and theme/mobile snapshots. | Server fallback cancellation stops observation but not already-admitted server work (documented handover). |
+| K15 cancellation/progress | No download progress or local cancel action. | Determinate `<progress>` only with real byte totals and a local cancel action; obsolete progress cleared outside the download stage. | `frontend/src/AgentAnalysis.tsx`, `useGameAnalysis.ts` | Progress/cancel tests. | Cancellation is cooperative; admitted server work may continue. |
 | K16 validation evidence organization | Large raw memory JSON increased repository/diff noise. | Raw evidence is gzip-compressed with SHA-256 recorded; summaries and reproducible commands retained. | `docs/validation/browser-analysis-phase5-memory-*.json.gz`, this report | `make docs`, hashes, validator runs against decompressed evidence. | Compression is a repository-storage choice; evidence is byte-identical after `gzip -dc`. |
 | Previous-phase preservation (E1/F/G/H/I/J regression requirement) | New orchestration could regress runtime/account/download guarantees. | Phase 4 runtime, accounting, download and cleanup code preserved; runtime/account/offline tests extended; no threshold or budget loosened. | Runtime/analysis service/integration | 77 runtime tests plus 23 integration tests, full frontend/CI. | External acceptance gates remain unchanged. |
 
@@ -460,6 +463,43 @@ credit, and the roadmap records this compatibility blocker.
 | L9 runtime recovery | Fetch TypeError could escape unclassified; unavailable initialization was ignored; internal unsupported states could look fallback-eligible; server retry deadline was unbounded/reset by pending responses. | Runtime fetch boundary maps transport failure to `network-unavailable`; initialization state is checked for ready/unavailable/disabled/error; internal unsupported is non-fallback; finite 120 s server deadline, no reset on pending, 429/503 Retry-After honored. | `runtime.ts`, `integration.ts`, `useGameAnalysis.ts` | Transport, unavailable runtime, internal unsupported, pending/overload alternation, deadline/cancel tests. | A server task already running is bounded by its own service deadline; browser cancellation stops observation only. |
 | L10 historical hint | Merge restored `stored.hint` when new advice explicitly had none. | New advisor hint is authoritative, including explicit null; immutable playing-agent evaluations remain preserved. | `useGameAnalysis.ts` | Stored hint followed by no-hint local result. | None within the local presentation contract. |
 | L11 UI state | Device/server provenance could contradict; download progress survived stage changes; completed local/offline wording was imprecise. | Status text distinguishes local/server provenance and waiting/running/completed/offline; download progress is cleared outside the download stage; localized error categories and cancellation preserved; existing classes/tokens only. | `AgentAnalysis.tsx`, `useGameAnalysis.ts`, `locales/de-extra.ts` | Fallback provenance, progress/cancel, completed offline, theme/mobile snapshots. | Server cancellation stops observation but not already-admitted server work. |
+
+The earlier K14–K15 row combined two separate findings. The canonical mapping is
+K14 = UI feedback/provenance, K15 = cancellation/download progress, K16 =
+validation-evidence organization, as shown above.
+
+## M1–M8 third-review correction matrix
+
+| Finding | Root cause | Implemented correction | Source references | Deterministic regression tests | Actual execution evidence / remaining limitation |
+| --- | --- | --- | --- | --- | --- |
+| M1 context-build lock ownership | Capacity eviction moved a still-locked entry to another key and could retire a returned-but-unacquired lock. | New `ContextBuildRegistry`/`BuildLease`: one record per context identity, consumers counted before a lock is returned, one serialized reconstruction, retirement only at zero consumers, no eviction of active/pending records, bounded records/builds/waiters and structured 503 overload. Endpoint keeps cache-byte accounting and lock-free expensive work. | `hnefatafl/context_preparation.py`, `hnefatafl/server.py` | `tests/test_context_preparation.py` (owned records, >64 sequential identities, acquired/returned locks, multiple consumers, waits/timeouts, exceptions, capacity, retirement reuse); concurrent endpoint test asserts exactly one reconstruction and zero leftover records. | 8 concurrent same-context endpoint requests produced **1 reconstruction**, 0 leftover records; 12 distinct contexts produced 10 OK / 2 bounded 503s with the registry returning to 0 records. |
+| M2 server-task retirement tracking | Elapsed time, registry pressure and HTTP failure deleted retirement metadata; no receipt distinguished submitted from admitted work. | Module-scoped retirement records plus new narrowly scoped `analysis-receipt` routes and receipt-bound `analysis-status` states (`prepared`, `active`, `retired`, `expired`, `unknown`). Frontend keeps records across unmount/remount/account/route transitions, never evicts for capacity, treats malformed/missing status as unknown, and only deletes on explicit retirement/expiry/epoch evidence or a valid completed response. Server rejects late receipt consumption after expiry. | `hnefatafl/analysis_receipts.py`, `server.py`, `auth.py`, `docs/API_PERMISSIONS.json`, `frontend/src/analysisRetirements.ts`, `useGameAnalysis.ts` | `tests/test_analysis_receipts.py`; receipt endpoint/account/position/revision tests; frontend retirement bound, unmount/remount, malformed status, A→B→A, fallback receipt-order and server-retirement tests. | Receipt registries are bounded (256 total/32 per account) and expiry is 120 s; a missing record is never treated as safe. HTTP cancellation still cannot stop already-admitted server work. |
+| M3 authoritative policy lifecycle | Policy comparison ran only inside a subsequent local search, so server-only/disabled transitions left runtime/context/model/provider continuation alive. | `setAnalysisPolicy()` applies known policy changes outside search: clears continuation leases/providers, forces online revalidation, clears runtime offline authorization, disposes the runtime when browser execution is removed, and ignores obsolete account generations. Queued stale work observes a policy revision and fails closed; policy-keyed operation identity prevents stale results. | `frontend/src/browserAnalysis/integration.ts`, `useGameAnalysis.ts`, `loader.ts`, `analysisRetirements.ts` | Integration policy-disable/WebGPU/obsolete-account tests; hook-only WebGPU policy-change test; authorization denial and offline-continuation tests; existing K/L policy tests. | Offline authorization is cleared only when a policy change is actually observed online; inability to reach the server is not revocation. |
+| M4 canonical configuration and position validation | Missing/malformed depth, time, seed, iterations and exploration silently used frontend defaults; context policy projection was optional; result identity was not bound to the analyzed position. | Required canonical fields per local algorithm with integrity failures for missing/malformed data and unsupported-budget only for valid out-of-range requests; execution projection required; context states/history/board/turn/ply are checked and the server position key is recomputed with canonical sorted JSON + SHA-256; Jarl result identity is recomputed from state + effective settings; neural identity must be a canonical digest and model/ruleset-bound. | `frontend/src/browserAnalysis/integration.ts` | Missing depth/time, malformed numeric, invalid seed, missing iterations, invalid exploration, missing policy projection, wrong state/digest/history, changed position result and valid unsupported budget tests; existing three-ruleset and server-resolved parity tests. | JavaScript still validates rather than reimplements the rules engine; neural search identity is supplied by the validated runtime, while its model/ruleset/evidence contract remains enforced. |
+| M5 runtime acquisition and readiness | Logout replaced the retirement barrier before disposal settled; busy/retiring states could be classified as browser failures; runtime identity was captured before availability revalidation. | Chained retirement barriers across logout/account transitions; runtime creation waits for genuine retirement; pending creation/disposal handled; A→B→A creation cannot install obsolete work; ready/searching/initializing/cancelled/disabled/unavailable/failed states are distinguished; healthy busy runtimes return `busy` without fallback; compatible searches serialize; availability-change identity is reinitialized before search; authorization binds to the final runtime identity. | `frontend/src/browserAnalysis/integration.ts`, `runtime.ts` | Logout-while-disposal-pending, A→B→A creation, searching-runtime busy, identity change during revalidation, policy retirement, obsolete-account generation, no-duplicate-runtime and no-premature-fallback tests. | Managed singleton remains an independent Phase 4 safety net; the supported deployment still serializes local searches per tab. |
+| M6 settings refresh and terminal states | Policy attributes were absent from operation identity; stale revision/version conflicts and deadline exhaustion could leave orphaned pending states; settings reads/writes could cross accounts. | Full policy signature in operation identity; explicit `analysis_revision_stale` and stale-game terminal handling; refresh only on genuine change; serialized settings writes check account/game/generation before sending; account-bound initial/recovery reads; retry deadline always terminal; partial reports preserved; pending displays require visible owned work; structured Retry-After honored. | `frontend/src/useGameAnalysis.ts` | Stale revision recovery, policy-only WebGPU/limits restart, unchanged visibility refresh, account-bound settings, partial report retention, retry/deadline and existing reconnect/navigation tests. | Stale game versions end in an explicit terminal state; the owning route remains responsible for reloading a newer game record. |
+| M7 aggregate context-preparation capacity | Many distinct cache misses could each consume a thread and reconstruct long histories. | Separate bounded preparation registry (4 concurrent distinct builds, 64 records, 16 waiters) plus per-account context-request rate bucket; distinct excess is rejected immediately with structured 503, same-context waits are bounded and deduplicated, status polling reuses receipt/context identity instead of reconstructing, and gameplay/search admission stays separate. | `hnefatafl/context_preparation.py`, `server.py`, `scripts/phase5_context_benchmark.py` | Registry/rate tests; endpoint same-context dedup, distinct overload, capacity exhaustion/recovery, status read-only tests; benchmark extended with same/distinct load, polling, cache saturation, capacity rejection and gameplay latency. | Measured: same-context 8 requests → 1 reconstruction/172 ms; distinct 12 → 10 OK/2×503/430 ms; status poll average 7.1 ms; gameplay GET ~17 ms while preparation capacity was exhausted; cache occupied 8 entries. |
+| M8 provider cache and UI status | Provider cache was read with publication+artifact+account but written with artifact+account, and WebGPU recovery was not persisted; UI could show completed server work as running and duplicate waiting messages. | One canonical provider-cache key (publication, artifact, account, runtime); policy checked before cache reuse; successful WASM recovery recorded and reused; maps trimmed at insertion; UI distinguishes preparing/downloading/local/offline/waiting/server-running/completed/cancelled/failed without contradictory messages or stale progress. | `frontend/src/browserAnalysis/integration.ts`, `AgentAnalysis.tsx`, `useGameAnalysis.ts`, `locales/de-extra.ts` | WebGPU→WASM reuse, policy-disabled provider reuse, publication/runtime/account identity, repeated cache churn, completed server, cancelled/failed and waiting-vs-running UI tests. | Existing styles/classes/tokens and responsive/mobile layout are reused; no new UI library or analysis surface. |
+
+### Third-review execution evidence
+
+- **Frontend:** full Vitest **1,830 passed (117 files)**; focused browser-integration
+  suite **44 passed** (including 11 new M3–M8 cases); `useGameAnalysis` **21
+  passed**; `AgentAnalysis` **57 passed**; retirement registry **3 passed**.
+- **Backend:** focused policy/analysis/receipt/context/security suite **183
+  passed**; the receipt/context modules add 16 deterministic tests.
+- **Production build:** passed; initial bundle **599,813 raw / 190,870 gzip**
+  against unchanged **600,000 / 200,000** budgets. No budget was loosened.
+- **Context capacity benchmark:** regenerated evidence
+  (`browser-analysis-phase5-context-benchmark.json`, SHA-256
+  `5f1335d26ab1cd417466f2e71c066d2127c30ac7b30373cb4ebae4fd75b16ceb`) records
+  same-context dedup, distinct-context overload, status polling, cache saturation
+  and gameplay latency under preparation-capacity exhaustion.
+- **Not rerun/blocked here:** the production-browser integration probe was not
+  rerun for the M head (previous L-head evidence is retained); physical-device
+  matrix, independently verified GPU, competitive checkpoints and strength,
+  sustained-memory acceptance, Copenhagen depth-5, and distribution licensing
+  remain Phase 7 external gates. No claim in this matrix changes those gates.
 
 ## 12. Sustained-memory investigation
 
@@ -528,8 +568,15 @@ Measured with `scripts/phase5_context_benchmark.py` against the real endpoint:
 Response size is linear in move count rather than quadratic in accumulated
 history text. Cold/cached timings include the authenticated HTTP test client and
 are server-side measurements; browser parsing/memory is covered by the sustained
-profile. Evidence: [context benchmark](browser-analysis-phase5-context-benchmark.json)
-(sha256 `5b626b2073878c7f2cdcd71f46655cec82b0e2305e595f088969761b6552c8e7`).
+profile. The benchmark now also measures aggregate preparation capacity: eight
+concurrent requests for one immutable context produced exactly one reconstruction
+(172 ms total), twelve distinct contexts produced ten successes and two structured
+`analysis_context_busy`/503 rejections (430 ms total) rather than unbounded thread
+blocking, read-only status polling averaged 7.1 ms over 50 calls, cache occupancy
+stayed at its eight-entry bound, and ordinary gameplay reads remained around 17 ms
+while all four preparation slots were held. Evidence:
+[context benchmark](browser-analysis-phase5-context-benchmark.json)
+(sha256 `5f1335d26ab1cd417466f2e71c066d2127c30ac7b30373cb4ebae4fd75b16ceb`).
 
 ## 13. Copenhagen depth-5 status
 
@@ -593,20 +640,23 @@ no licensing right is declared resolved without owner/legal acceptance.
 
 | Check | Result |
 | --- | --- |
-| `tests/test_analysis_policy.py` | 28 passed |
-| Focused backend policy/analysis/security/browser set | 182 passed on final L head (233 on K head) |
-| Full backend CI (`python` job) | **4,616 passed, 50 skipped**; deployment check 64 + 9 passed |
+| `tests/test_analysis_policy.py` | 31 passed (receipt/context cases added) |
+| Focused backend policy/analysis/security/browser set | **183 passed** on the M correction head |
+| Full backend CI (`python` job) | **4,616 passed, 50 skipped** on the previous L head; not rerun locally for M |
 | `tests/test_browser_analysis_api.py` | 12 passed |
-| `tests/test_analysis_api.py`, `test_background_analysis.py`, `test_analysis_coordination.py` | 102 passed (earlier focused run) |
+| `tests/test_analysis_api.py`, `test_background_analysis.py`, `test_analysis_coordination.py` | 102 passed |
+| `tests/test_analysis_receipts.py`, `test_context_preparation.py` | 16 passed (new deterministic M1/M2 helpers) |
 | Browser-analysis runtime Vitest | 77 passed in `runtime.test.ts` (Phase 4 lifecycle + offline authorization tests) |
-| Browser-analysis integration Vitest | 33 passed |
-| `useGameAnalysis` policy Vitest | 14 passed |
+| Browser-analysis integration Vitest | **44 passed** (M3–M8 additions) |
+| `useGameAnalysis` policy Vitest | **21 passed** |
+| `AgentAnalysis` Vitest | **57 passed** |
+| Retirement registry Vitest | **3 passed** |
 | Execution-policy projection Vitest | 3 passed |
-| Full frontend Vitest | **1,807 passed (116 files)** |
-| Production build + bundle budget | passed (596,620 raw / 190,104 gzip) |
+| Full frontend Vitest | **1,830 passed (117 files)** |
+| Production build + bundle budget | passed (**599,813 raw / 190,870 gzip**) |
 | TypeScript check | passed |
 | Ruff / format check / mypy | passed (89 mypy files) |
-| `scripts/audit_api.py` | 144 routes accounted for |
+| `scripts/audit_api.py` | 146 routes accounted for |
 | `make docs` / Prettier check | passed |
 | Production-browser direct runtime probe | 26/26 checks, `ok:true` |
 | Production-browser integration/offline/UI probe | 21/21 checks, `ok:true` |
@@ -614,14 +664,15 @@ no licensing right is declared resolved without owner/legal acceptance.
 | Copenhagen depth-5 reassessment | measured; depth 5 not completed (blocker retained) |
 | Physical device / verified GPU / competitive strength | blocked; not claimed |
 
-GitHub Actions on the correction head passed every required job (`security`,
-`python`, `node22`, `deployment-cross-version`, `browser`) after a rerun of the
-browser job. The first browser run timed out in the unrelated mobile
-shield-maiden interaction test; the targeted local Playwright run passed, and the
-CI rerun passed (50m11s). No test, timeout or budget was weakened. The full backend suite reported **4,660 passed / 50 skipped** on the final L
-head. Tests that require external hardware, private checkpoints or
-licensing evidence are explicitly blocked rather than reported as passing here. The actual
-browser scripts are reproducible with the disposable setup commands below.
+Historical GitHub Actions evidence for the previous L correction head passed every
+required job (`security`, `python`, `node22`, `deployment-cross-version`,
+`browser`) after a rerun of the browser job; that evidence is retained as
+historical and is not recast as M-head validation. The M correction was validated
+locally with the focused suites above and a production build; its GitHub Actions
+status is reported on PR #129 after pushing. The earlier browser rerun took
+50m11s and no test, timeout or budget was weakened. Tests requiring external
+hardware, private checkpoints or licensing evidence are explicitly blocked rather
+than reported as passing.
 
 ## 17. Enabling and verifying on an existing test installation
 

@@ -181,7 +181,11 @@ locally through the shared Python engine in a worker; the server's
 history). `browser_preferred` retains the server endpoint as a bounded fallback for
 classified failures only. `browser_only` rejects all server analysis computation,
 while `disabled` suppresses optional analysis without affecting replay, gameplay,
-AI opponents, training or tournaments.
+AI opponents, training or tournaments. In `browser_preferred`, a browser fallback
+first obtains a short-lived admission receipt; the read-only `analysis-status`
+check uses that receipt to distinguish prepared, active, retired and expired work.
+A missing record is treated as unknown, never as evidence that already-admitted
+server work finished.
 
 Local results are advisory and render through the existing panel. They do not
 write authoritative game state, clocks, ratings, league/tournament progression or
