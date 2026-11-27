@@ -5,12 +5,13 @@
 [Phase 4 runtime](browser-analysis-phase4.md) · [Phase 3C-B](browser-analysis-phase3c-b.md)
 
 Status: **Phase 5 implementation, the independent-review corrections K1–K16,
-L1–L11 and the third-review corrections M1–M8 are complete at the software level.
-The M correction passed its focused backend/frontend suites and production build;
-the prior production-browser probe evidence is retained and was not rerun for the
-M head. This is not production acceptance; the feature remains opt-in and disabled
-by default on existing installations. K10 (replay-analysis achievement credit under
-browser-only operation) remains an explicit owner-decision blocker.**
+L1–L11, M1–M8 and N1–N6 are complete at the software level. The N-correction head
+`731001cbdddad5a72f9c44621165779778c281d0` passed focused backend/frontend suites,
+the production bundle, and the direct-runtime, integration/offline and
+non-integer-identity production-browser probes. This is not production acceptance;
+the feature remains opt-in and disabled by default on existing installations. K10
+(replay-analysis achievement credit under browser-only operation) remains an
+explicit owner-decision blocker.**
 
 Verified here: server-owned execution policy and enforcement, transparent local
 Jarl and neural MCTS through the existing analysis UI, automatic WASM selection,
@@ -292,42 +293,51 @@ is **not** a measured Phase 5 result.
 Environment: Chromium from the project Playwright install, real FastAPI process,
 production Vite build, real CSP, same-origin workers, actual Pyodide/WASM and
 ONNX Runtime, a staged verified runtime
-(`runtime_id 35c2e5188e967850`, 48,106,695 bytes) and one published structural smoke
+(`runtime_id 145b2afae925f21a`, 48,106,695 bytes) and one published structural smoke
 model (`f8f0345749723a28f5a2b6f5`, ONNX SHA-256
 `64c4a60e1c08bec38c1af909b9cb8193a36c8dcc48f6d49e4ee676e96ea80d74`, 47,540
 bytes). This is structural model evidence, **not** competitive strength evidence.
 
 Evidence files:
 
-- [direct runtime probe](browser-analysis-phase5-browser-runtime.json)
+- [direct runtime probe — Brandubh](browser-analysis-phase5-browser-runtime.json)
+- [direct runtime probe — Tablut](browser-analysis-phase5-browser-runtime-tablut.json)
+- [direct runtime probe — Copenhagen](browser-analysis-phase5-browser-runtime-copenhagen.json)
+- [direct runtime probe — neural MCTS](browser-analysis-phase5-browser-runtime-neural.json)
 - [application integration, offline and UI probe](browser-analysis-phase5-browser-integration.json)
+- [non-integer identity/time-limit probe](browser-analysis-phase5-identity-limits.json)
 
 | Measurement | Result |
 | --- | --- |
-| Cold runtime initialization (direct probe) | 2,652.4 ms |
+| Cold runtime initialization (direct probe) | 2,406.3 ms |
 | Repeated `initialize()` when ready | 0 ms |
-| Jarl depth-3 search (direct probe) | 243.2 ms |
-| Runtime asset requests (single direct probe) | 104 |
+| Jarl depth-3 search (direct probe) | 242 ms |
+| Runtime asset requests (single direct probe) | 172 |
 | Model artifact transfers (cold model) | 1 |
 | Publication metadata checks | 3 |
 | Neural MCTS | 33 inferences, 32 simulations, provider `wasm`, `gpuExecutionVerified:false` |
-| Application integration: Jarl online (cold) | 2,809.6 ms |
-| Application integration: neural online (cold) | 2,259.6 ms |
-| Warm offline Jarl | 207.4 ms |
-| Warm offline neural MCTS | 78.5 ms |
+| Application integration: Jarl online (cold) | 2,634.7 ms |
+| Application integration: neural online (cold) | 2,190.6 ms |
+| Warm offline Jarl | 212.3 ms |
+| Warm offline neural MCTS | 66.2 ms |
 | Offline analysis/authorization requests | 0 |
 | Local searches causing server analysis computation | 0 (metrics counters unchanged) |
-| Production UI local indication | “Analysis runs on this device.” |
+| Non-integer effective Jarl limit | 2.5 s preserved with canonical identity and seed |
+| Production UI local indication | “Analysis completed on this device.” |
 | Production UI advisory evaluation | Rendered from local execution |
 | Production UI POSTs to legacy analysis endpoint | 0 |
 
-The direct probe's model run reproduced the Phase 4 provider evidence exactly:
-WASM request/placement, unverified GPU, 33 inferences for 32 completed simulations.
-The application integration probe loaded the production build, switched the
-advisor to the published neural model, rendered the existing analysis panel, then
+The direct probes ran Jarl on Brandubh, Tablut and Copenhagen, and neural MCTS on
+Brandubh. The first integration run on the N head exposed a real canonical identity
+mismatch: JavaScript rendered an integral time limit as `5.0`, while Python
+received the transported JSON integer `5`. The shared identity contract now
+preserves transported JSON number types; Python/JavaScript fixtures cover
+integer `5`, decimal `1.5`, fraction `0.1`, and neural WASM/WebGPU identities. The
+application integration probe then loaded the production build, switched the
+advisor to the published neural model, rendered the existing analysis panel,
 disconnected the browser completely and repeated Jarl and neural searches using
-only initialized resources. Its runtime-asset count (516) includes multiple
-full-page reloads for the theme screenshots; it is not a single cold-start count.
+only initialized resources. Its runtime-asset count includes the additional
+non-integer probe page load; it is not a single cold-start count.
 
 ## 9. UI validation and screenshots
 
@@ -357,8 +367,8 @@ Current production initial bundle (authenticated graph):
 
 | Measurement | Phase 4 reported | Phase 5 measured | Budget |
 | --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **599,439** | 600,000 |
-| JavaScript gzip | 186,716 | **190,757** | 200,000 |
+| JavaScript raw | 585,756 | **598,415** | 600,000 |
+| JavaScript gzip | 186,716 | **190,503** | 200,000 |
 | CSS raw | — | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 35,000 |
 
@@ -495,11 +505,43 @@ validation-evidence organization, as shown above.
   `5f1335d26ab1cd417466f2e71c066d2127c30ac7b30373cb4ebae4fd75b16ceb`) records
   same-context dedup, distinct-context overload, status polling, cache saturation
   and gameplay latency under preparation-capacity exhaustion.
-- **Not rerun/blocked here:** the production-browser integration probe was not
-  rerun for the M head (previous L-head evidence is retained); physical-device
-  matrix, independently verified GPU, competitive checkpoints and strength,
-  sustained-memory acceptance, Copenhagen depth-5, and distribution licensing
-  remain Phase 7 external gates. No claim in this matrix changes those gates.
+- **M-head browser probe:** was not rerun for the M head; the subsequent N
+  correction reran the direct and integration probes on `731001c` (see the N7
+  matrix). Physical-device matrix, independently verified GPU, competitive
+  checkpoints and strength, sustained-memory acceptance, Copenhagen depth-5, and
+  distribution licensing remain Phase 7 external gates. No claim in this matrix
+  changes those gates.
+
+## N1–N7 fourth-review correction matrix
+
+| Finding | Root cause | Required invariant / correction | Reproduction and regression tests | Validation evidence / limitations |
+| --- | --- | --- | --- | --- |
+| N1 genuine receipt retirement | Receipt consumption and task admission were separate; status inferred retirement from elapsed grace and visible activity, while consumed receipts could be consumed again. | Receipts are now authoritative lifecycle records: `prepared` → `submitted` → `active` → terminal (`completed`/`failed`/`expired`). `AnalysisService.schedule/wait` registers every joined or new task and completes it through the future callback; duplicate submissions cannot schedule independently; terminal receipts reject all later submissions. No timeout replaces the old grace period. | `tests/test_analysis_receipts.py` (expiry, submitted-outstanding, terminal non-reuse, task lifetime, cache hit, admission failure, capacity); `tests/test_analysis_receipt_lifecycle.py` (consumed-but-unscheduled barrier, admission rejection, cache-hit completion, failed submit, synchronous wait); service/API suites. | Actual endpoint tests assert the engine evaluation starts and the receipt only becomes terminal after the task future settles. HTTP cancellation cannot stop already-admitted work; server restart yields unknown and is reconciled by epoch/watermark (N3). |
+| N2 aggregate context-preparation capacity | A waiting consumer acquired the per-key lock and incremented active builders without acquiring aggregate capacity; cache-hit consumers could also acquire unnecessary capacity. | Per-key records remain correctly owned. Capacity is acquired only through `BuildLease.reconstruct()` after a cache miss, held until reconstruction exits, and released exactly once. Waiter admission, timeout, failure, exception, double close and cache-hit paths are bounded. | `tests/test_context_preparation.py` with `max_concurrent=1` for A-builder/waiter/B-capacity, failed builder takeover, waiters, cache reads without capacity, timeout+double close, exception and retirement reuse; endpoint cached-read/capacity tests. | Continuous assertions check `building`, `waiting`, record lifetime and reconstruction counts at controlled transitions; no global lock is held during reconstruction. |
+| N3 recoverable bounded reconciliation | Completed/expired receipt IDs eventually became unknown while browser records were bounded to 64 and game-bound status became unqueryable after game/revision changes. | Active admission capacity is separate from bounded terminal evidence. A read-only account-bound `GET /api/analysis/receipts/{id}` works without current game/revision data. Terminal cleanup advances `reconciled_before`; unknown receipts at/before that watermark (or after a server-epoch change) are safely terminal. Browser reconciliation queries all account records without revisiting games. | Receipt capacity tests (>40 per account, 300 across accounts, active-capacity separation, terminal cleanup, watermark), frontend retirement tests (>64 records, terminal/floor/epoch reconciliation, malformed status, account filter), direct receipt-route tests. | Terminal evidence is retained for 30 minutes/2048 records; active receipts are never evicted. Old evidence beyond retention is reconciled by the watermark only when no older active receipt can exist. |
+| N4 account/policy generation ownership | A deferred loader callback mutated account before checking `alive`; local execution recaptured policy immediately before search; digest verification added another async boundary. | Account/policy generation is captured once at logical-request entry and checked after runtime acquisition, initialization, context preparation, model catalogue/download, search queue admission, result search and canonical digest. Unchanged policy projections do not increment the policy revision or dispose the runtime. Obsolete requests cannot publish results, renew leases/provider caches or clear newer state. | Deferred-load/account-change hook test; context-preparation, model-download, queued-search and digest-boundary integration tests; unchanged-policy continuation test; existing account/runtime A→B→A tests. | The hook only invokes deferred account/policy mutation while its captured account remains current; the service-side checks remain the final authority. |
+| N5 cached-position validation | Only the originally requested context position was fully validated; later cursors reused cached states without checking board/turn/ply, history prefix or canonical digest. | Every local search validates the selected cursor against the displayed board/turn, advisor revision, exact history prefix and canonical position digest. Verification is cached per context/cursor; account/policy checks run again after the digest await. | Noninitial valid cursor, invalid digest/board/history, shared consumers at different cursors, warm offline navigation, and existing cache/eviction tests. | Per-position verification avoids rehashing the whole replay; no JavaScript rules engine was introduced. |
+| N6 model-specific authorization | The integration renewed model leases from game-context authorization, while actual publication revalidation happened later inside the neural runtime; runtime authorization was keyed only by artifact digest. | Runtime exposes narrow publication/artifact/runtime-identity authorization evidence; evidence is cleared at the start of each online revalidation and set only after successful published-manifest validation. The integration renews model leases only from that fresh evidence. Keys bind account, publication, artifact and runtime; denial/revocation clears leases; unreachable revalidation does not renew but may still use a valid existing offline lease. | Model lease renewal on reused context, denied publication, unreachable revalidation, account change during revalidation, provider/digest binding, existing warm offline tests. | No extra metadata request or artifact transfer was added; game-context and model-publication authorization remain distinct. |
+| N7 production-browser validation | The previous report explicitly did not rerun the dedicated probes on the M head. | Rebuilt the production bundle from commit `731001cbdddad5a72f9c44621165779778c281d0`, staged/activated a verified runtime, published a structural Brandubh model, ran the real backend/CSP/workers/WASM and exercised real network disconnection. | `browser-analysis-phase5-browser-integration.json`; `browser-analysis-phase5-browser-runtime-{brandubh,tablut,copenhagen,neural}.json`; `browser-analysis-phase5-identity-limits.json`; cross-language identity vectors. | The first probe exposed a real canonical mismatch: the JS float-aware serializer rendered integral JSON numbers as `5.0` while Python received `5`. Canonical serialization now preserves transported JSON number types; Python and JS fixtures cover integer/decimal Jarl limits and neural identities. All probes pass. |
+
+### Fourth-review execution evidence
+
+- Direct runtime probe: Jarl on **Brandubh, Tablut and Copenhagen**, plus neural
+  MCTS with the published structural Brandubh model; all `ok:true`.
+- Application integration probe: Jarl and neural local execution, UI provenance,
+  real warm offline disconnection, zero server analysis computation, one model
+  artifact transfer; all checks pass.
+- Non-integer limit probe: server-resolved **2.5 s** effective Jarl budget,
+  canonical position identity and reported seed pass through the production build.
+- Cross-language identity fixtures cover integer `5`, decimal `1.5`, fraction
+  `0.1`, and neural WASM/WebGPU identities.
+- Production build from the tested commit: **598,415 raw / 190,503 gzip** local
+  (CI may differ by a few hundred bytes); budgets remain 600,000 / 200,000.
+  Deferred integration chunk: 28,262 bytes; browser-analysis entry chunk: 582
+  bytes; canonical/identity helpers remain in deferred chunks.
+- Focused backend suite: **190 passed** (policy, receipts, lifecycle, context,
+  identity vectors, analysis/background/coordination, browser API, security).
+- Full frontend suite: **1,852 passed (118 files)**.
 
 ## 12. Sustained-memory investigation
 
@@ -641,25 +683,26 @@ no licensing right is declared resolved without owner/legal acceptance.
 | Check | Result |
 | --- | --- |
 | `tests/test_analysis_policy.py` | 31 passed (receipt/context cases added) |
-| Focused backend policy/analysis/security/browser set | **183 passed** on the M correction head |
-| Full backend CI (`python` job) | **4,616 passed, 50 skipped** on the previous L head; not rerun locally for M |
+| Focused backend policy/analysis/security/browser set | **190 passed** on the N correction head |
+| Full backend CI (`python` job) | passed on the N correction head |
 | `tests/test_browser_analysis_api.py` | 12 passed |
 | `tests/test_analysis_api.py`, `test_background_analysis.py`, `test_analysis_coordination.py` | 102 passed |
-| `tests/test_analysis_receipts.py`, `test_context_preparation.py` | 16 passed (new deterministic M1/M2 helpers) |
+| `tests/test_analysis_receipts.py`, `test_analysis_receipt_lifecycle.py`, `test_context_preparation.py`, `test_browser_analysis_identity_vectors.py` | **31 passed** (new N1/N2/N3/N7 helpers) |
 | Browser-analysis runtime Vitest | 77 passed in `runtime.test.ts` (Phase 4 lifecycle + offline authorization tests) |
-| Browser-analysis integration Vitest | **44 passed** (M3–M8 additions) |
-| `useGameAnalysis` policy Vitest | **21 passed** |
+| Browser-analysis integration Vitest | **57 passed** (M3–M8 plus N4–N6 additions) |
+| `useGameAnalysis` policy Vitest | **22 passed** |
 | `AgentAnalysis` Vitest | **57 passed** |
-| Retirement registry Vitest | **3 passed** |
+| Retirement registry Vitest | **6 passed** |
 | Execution-policy projection Vitest | 3 passed |
-| Full frontend Vitest | **1,830 passed (117 files)** |
-| Production build + bundle budget | passed (**599,439 raw / 190,757 gzip**) |
+| Full frontend Vitest | **1,852 passed (118 files)** |
+| Production build + bundle budget | passed (**598,415 raw / 190,503 gzip** local) |
 | TypeScript check | passed |
-| Ruff / format check / mypy | passed (89 mypy files) |
-| `scripts/audit_api.py` | 146 routes accounted for |
+| Ruff / format check / mypy | passed |
+| `scripts/audit_api.py` | 147 routes accounted for |
 | `make docs` / Prettier check | passed |
-| Production-browser direct runtime probe | 26/26 checks, `ok:true` |
-| Production-browser integration/offline/UI probe | 21/21 checks, `ok:true` |
+| Production-browser direct runtime probe | Jarl Brandubh/Tablut/Copenhagen + neural, all `ok:true` |
+| Production-browser integration/offline/UI probe | all checks `ok:true` on `731001c` |
+| Production-browser non-integer identity-limits probe | `ok:true` (2.5 s effective Jarl limit) |
 | Sustained-memory validator | blocked: JS-heap high-water threshold + unobservable WASM capacity |
 | Copenhagen depth-5 reassessment | measured; depth 5 not completed (blocker retained) |
 | Physical device / verified GPU / competitive strength | blocked; not claimed |

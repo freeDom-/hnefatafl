@@ -324,9 +324,13 @@ already applies. They expose no new game or account data and never compute. Acti
 online/league/tournament games remain ineligible; public spectator pages do not
 initialize the runtime or download models. Browser fallback receipts are
 account/game/position/revision-bound, bounded, short-lived and created without
-starting computation; late consumption after expiry is rejected. The status check
-is read-only, returns `unknown` rather than `retired` for missing or malformed
-records, and never initiates a search. Browser results are advisory and cannot
+starting computation; late or duplicate consumption after a terminal transition is
+rejected. Task admission and receipt retirement are atomic with the existing
+analysis service lifecycle. The direct receipt-status endpoint is account-bound,
+does not reveal game/position data to other accounts, and a bounded terminal-
+evidence watermark allows abandoned records to reconcile without revisiting their
+games. Missing or malformed evidence is `unknown`, never `retired`, and never
+initiates a search. Browser results are advisory and cannot
 mutate authoritative results, clocks, ratings or progression.
 
 Enabling browser delivery adds exactly one narrow CSP source,
