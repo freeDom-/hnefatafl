@@ -65,96 +65,6 @@ function resolvePolicy(settings: AnalyticsSettings): ExecutionPolicy {
   }
 }
 
-function policyIdentity(policy: ExecutionPolicy): string {
-  return JSON.stringify([
-    policy.mode,
-    policy.browserDelivery,
-    policy.browserExecution,
-    policy.serverComputation,
-    policy.fallback,
-    policy.webgpu,
-    policy.offlineAuthorizationSeconds,
-    policy.limits.maxConcurrent,
-    policy.limits.maxPerUser,
-    policy.limits.requestsPerMinute,
-  ]);
-}
-
-interface AnalysisReceipt {
-  schema: number;
-  receipt: string;
-  epoch: string;
-  game_id: string;
-  version: number;
-  cursor: number;
-  advisor_revision: number;
-}
-
-interface AnalysisStatus {
-  schema: number;
-  active: boolean;
-  game_id: string;
-  cursor: number;
-  version: number;
-  position_key: string;
-  advisor_revision: number;
-  receipt?: string;
-  receipt_state?: string;
-  receipt_epoch?: string;
-}
-
-function validReceipt(
-  raw: unknown,
-  expected: Omit<AnalysisReceipt, 'schema' | 'receipt' | 'epoch'>,
-): AnalysisReceipt | null {
-  const value = raw as Partial<AnalysisReceipt> | null;
-  if (
-    !value ||
-    value.schema !== 1 ||
-    typeof value.receipt !== 'string' ||
-    !value.receipt ||
-    typeof value.epoch !== 'string' ||
-    !value.epoch ||
-    value.game_id !== expected.game_id ||
-    value.version !== expected.version ||
-    value.cursor !== expected.cursor ||
-    value.advisor_revision !== expected.advisor_revision
-  ) {
-    return null;
-  }
-  return value as AnalysisReceipt;
-}
-
-function validStatus(
-  raw: unknown,
-  expected: {
-    game_id: string;
-    version: number;
-    cursor: number;
-    advisor_revision: number;
-    receipt: string;
-  },
-): AnalysisStatus | null {
-  const value = raw as Partial<AnalysisStatus> | null;
-  if (
-    !value ||
-    value.schema !== 1 ||
-    typeof value.active !== 'boolean' ||
-    value.game_id !== expected.game_id ||
-    value.version !== expected.version ||
-    value.cursor !== expected.cursor ||
-    value.advisor_revision !== expected.advisor_revision ||
-    value.receipt !== expected.receipt ||
-    typeof value.position_key !== 'string' ||
-    !value.position_key ||
-    typeof value.receipt_state !== 'string' ||
-    typeof value.receipt_epoch !== 'string'
-  ) {
-    return null;
-  }
-  return value as AnalysisStatus;
-}
-
 /** Background requests are tied to both the position and the advisor revision. */
 export function useGameAnalysis(
   game: Game | null,
@@ -316,7 +226,7 @@ export function useGameAnalysis(
   const mode: ExecutionMode = policy.mode;
   const localMode = policy.browserExecution;
   const disabled = mode === 'disabled';
-  const policyKey = policyIdentity(policy);
+  const policyKey = JSON.stringify(settings.execution);
   const workKey = game
     ? `${accountId ?? ''}:${basePath}:${game.id}:${game.version}:${game.cursor}:${settings.revision}`
     : '';
@@ -474,7 +384,7 @@ export function useGameAnalysis(
             undefined,
             controller.signal,
           );
-          const status = validStatus(raw, {
+          const status = retirementApi.current?.validStatus(raw, {
             game_id: game.id,
             version: game.version,
             cursor: game.cursor,
@@ -525,7 +435,7 @@ export function useGameAnalysis(
         'POST',
         controller.signal,
       );
-      const created = validReceipt(raw, {
+      const created = retirementApi.current?.validReceipt(raw, {
         game_id: game.id,
         version: game.version,
         cursor: game.cursor,

@@ -22,6 +22,81 @@ export interface RetirementRecord {
 export const MAX_RETIREMENTS = 64;
 const records = new Map<string, RetirementRecord>();
 
+export interface AnalysisReceipt {
+  schema: number;
+  receipt: string;
+  epoch: string;
+  game_id: string;
+  version: number;
+  cursor: number;
+  advisor_revision: number;
+}
+
+export interface AnalysisStatus {
+  schema: number;
+  active: boolean;
+  game_id: string;
+  cursor: number;
+  version: number;
+  position_key: string;
+  advisor_revision: number;
+  receipt?: string;
+  receipt_state?: string;
+  receipt_epoch?: string;
+}
+
+export function validReceipt(
+  raw: unknown,
+  expected: Omit<AnalysisReceipt, 'schema' | 'receipt' | 'epoch'>,
+): AnalysisReceipt | null {
+  const value = raw as Partial<AnalysisReceipt> | null;
+  if (
+    !value ||
+    value.schema !== 1 ||
+    typeof value.receipt !== 'string' ||
+    !value.receipt ||
+    typeof value.epoch !== 'string' ||
+    !value.epoch ||
+    value.game_id !== expected.game_id ||
+    value.version !== expected.version ||
+    value.cursor !== expected.cursor ||
+    value.advisor_revision !== expected.advisor_revision
+  ) {
+    return null;
+  }
+  return value as AnalysisReceipt;
+}
+
+export function validStatus(
+  raw: unknown,
+  expected: {
+    game_id: string;
+    version: number;
+    cursor: number;
+    advisor_revision: number;
+    receipt: string;
+  },
+): AnalysisStatus | null {
+  const value = raw as Partial<AnalysisStatus> | null;
+  if (
+    !value ||
+    value.schema !== 1 ||
+    typeof value.active !== 'boolean' ||
+    value.game_id !== expected.game_id ||
+    value.version !== expected.version ||
+    value.cursor !== expected.cursor ||
+    value.advisor_revision !== expected.advisor_revision ||
+    value.receipt !== expected.receipt ||
+    typeof value.position_key !== 'string' ||
+    !value.position_key ||
+    typeof value.receipt_state !== 'string' ||
+    typeof value.receipt_epoch !== 'string'
+  ) {
+    return null;
+  }
+  return value as AnalysisStatus;
+}
+
 export function retirementKey(
   account: string | null,
   basePath: string,

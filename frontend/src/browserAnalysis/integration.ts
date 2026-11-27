@@ -29,8 +29,10 @@ export {
   retirementFor,
   retirementKey,
   settleRetirement,
+  validReceipt,
+  validStatus,
 } from '../analysisRetirements';
-export type { RetirementRecord } from '../analysisRetirements';
+export type { AnalysisReceipt, AnalysisStatus, RetirementRecord } from '../analysisRetirements';
 
 export type LocalAnalysisStage =
   | 'preparing'
