@@ -11,7 +11,9 @@ import shutil
 import sqlite3
 import subprocess
 import tarfile
+import tempfile
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -20,10 +22,12 @@ from hnefatafl.deployment import (
     Deployment,
     DeploymentStepError,
     FilesystemInfo,
+    MIB,
     StorageError,
     atomic_json,
     checksum,
     normalized_config,
+    scan_usage,
 )
 
 
@@ -922,6 +926,179 @@ def test_snapshot_fits_but_automatic_recovery_requires_more_space(harness, separ
     assert harness.current.resolve() == old
     assert (harness.data / "jobs/job.log").stat().st_size == 192 * 1024**2
     assert not harness.journal.exists()
+
+
+@pytest.fixture
+def separate_backup_root(harness):
+    shared = Path("/dev/shm")
+    if not shared.is_dir() or shared.stat().st_dev == harness.data.stat().st_dev:
+        pytest.skip("requires a separate disposable backup filesystem")
+    with tempfile.TemporaryDirectory(dir=shared, prefix="hnefatafl-copy-") as directory:
+        yield Path(directory)
+
+
+def files_with_copy_expansion(directory):
+    primary = directory / "primary"
+    primary.write_bytes(b"d" * (4 * MIB))
+    os.link(primary, directory / "second")
+    os.link(primary, directory / "third")
+    plain = directory / "plain"
+    plain.write_bytes(b"ordinary data")
+    sparse = directory / "sparse"
+    with sparse.open("wb") as handle:
+        handle.seek(8 * MIB)
+        handle.write(b"s")
+    return primary, plain, sparse
+
+
+def test_tree_usage_counts_logical_copy_payload_and_deduplicates_allocated_blocks(tmp_path):
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    primary, plain, sparse = files_with_copy_expansion(tree)
+    outside = tmp_path / "outside"
+    os.link(primary, outside)
+    assert sparse.stat().st_blocks * 512 < sparse.stat().st_size
+    usage = scan_usage(tree)
+    assert usage.files == 5 and usage.inodes == 6
+    assert (
+        usage.apparent_bytes
+        == 3 * primary.stat().st_size + plain.stat().st_size + sparse.stat().st_size
+    )
+    assert usage.hardlink_bytes == 2 * primary.stat().st_size
+    assert usage.allocated_bytes == sum(
+        path.stat().st_blocks * 512 for path in (tree, primary, plain, sparse)
+    )
+    assert usage.reclaimable_bytes == usage.allocated_bytes - primary.stat().st_blocks * 512
+    assert usage.reclaimable_inodes == 3  # the directory and two independent files
+    assert (
+        usage.independent_copy_bytes(65536)
+        >= sum((path.stat().st_size + 65535) // 65536 * 65536 for path in tree.iterdir()) + 65536
+    )
+    assert usage.independent_copy_bytes(65536) > usage.independent_copy_bytes(4096)
+    outside.unlink()
+    usage = scan_usage(tree)
+    assert usage.reclaimable_bytes == usage.allocated_bytes
+    assert usage.reclaimable_inodes == 4
+
+
+@pytest.mark.parametrize("limited", ["snapshot", "recovery"])
+def test_copy_expansion_preflight_before_shutdown_with_separate_backups(
+    harness, separate_backup_root, limited, monkeypatch
+):
+    harness.backups = separate_backup_root
+    harness.storage_settings.update(headroom_mib=0, minimum_free_inodes=0)
+    live = harness.data / "jobs"
+    primary, _plain, sparse = files_with_copy_expansion(live)
+    old = harness.release("1.0.0", "0011")
+    target = harness.release("2.0.0", "0012")
+    harness.activate(old)
+    harness.set_state("1.0.0", old)
+    monkeypatch.setattr(harness, "_service_is_active", lambda: True)
+    real_filesystem = super(Harness, harness).filesystem_info
+    planned = harness._deployment_requirements()
+    location = harness.backups if limited == "snapshot" else harness.data.parent
+    device = real_filesystem(location).device
+    # Each of these two devices has only one named phase in the deployment
+    # plan. Leave enough for a deduplicated estimate, but not all three names.
+    required = sum(item.bytes for item in planned if real_filesystem(item.path).device == device)
+    capacity = required - primary.stat().st_size
+    assert capacity > scan_usage(live).bytes
+    assert planned[0].bytes > scan_usage(live).apparent_bytes
+    assert (
+        next(item for item in planned if item.label.startswith("restore candidate")).bytes
+        > scan_usage(live).apparent_bytes
+    )
+
+    def capacity_at(path):
+        info = real_filesystem(path)
+        return replace(info, available_bytes=capacity) if info.device == device else info
+
+    harness.filesystem_override = capacity_at
+    expected = "snapshot" if limited == "snapshot" else "restore candidate"
+    with pytest.raises(StorageError, match=expected):
+        harness.deploy(target)
+    assert "stop" not in harness.actions
+    assert not harness.journal.exists()
+    assert all(
+        path.stat().st_ino == primary.stat().st_ino for path in (live / "second", live / "third")
+    )
+    assert harness.current.resolve() == old
+
+    if limited == "snapshot":
+        harness.filesystem_override = None
+        backup = harness.backup()
+        copy = backup / "data/jobs"
+        assert copy.stat().st_dev != live.stat().st_dev
+        assert len({(copy / name).stat().st_ino for name in ("primary", "second", "third")}) == 3
+        assert (copy / "sparse").stat().st_blocks * 512 >= sparse.stat().st_size
+        assert checksum(copy / "sparse") == checksum(sparse)
+        harness.verify_snapshot(backup)
+
+
+def test_restore_staging_counts_independent_copies_before_stopping(harness):
+    old = harness.release("1.0.0", "0011")
+    current = harness.release("2.0.0", "0012")
+    harness.activate(current)
+    backup = harness.make_backup("20261126T010000-0001")
+    primary, _plain, sparse = files_with_copy_expansion(backup / "data")
+    harness._write_snapshot_manifest(backup)
+    harness.set_state("2.0.0", current, previous=old, backup=backup)
+    harness.storage_settings.update(headroom_mib=0, minimum_free_inodes=0)
+    requirement = harness.restore_requirement(backup)
+    assert requirement.bytes >= scan_usage(backup / "data").apparent_bytes + 16 * MIB
+    real_filesystem = super(Harness, harness).filesystem_info
+    harness.filesystem_override = lambda path: replace(
+        real_filesystem(path), available_bytes=requirement.bytes - primary.stat().st_size
+    )
+    with pytest.raises(StorageError, match="restore candidate"):
+        harness.recover(rollback=True)
+    assert "stop" not in harness.actions
+    assert harness.current.resolve() == current
+    assert not any(harness.data.parent.glob(".restore-*"))
+
+    harness.filesystem_override = None
+    harness.recover(rollback=True)
+    assert harness.current.resolve() == old
+    assert (
+        len({(harness.data / name).stat().st_ino for name in ("primary", "second", "third")}) == 3
+    )
+    assert checksum(harness.data / "sparse") == checksum(sparse)
+
+
+def test_cross_filesystem_migration_reserves_all_independent_copies(
+    harness, separate_backup_root, capsys
+):
+    harness.storage_settings.update(headroom_mib=0, minimum_free_inodes=0)
+    legacy = harness.legacy_backups
+    legacy.mkdir(mode=0o700)
+    sources = []
+    for index in (1, 2):
+        backup = harness.make_backup(f"20261126T010000-{index:04d}")
+        files_with_copy_expansion(backup / "data")
+        harness._write_snapshot_manifest(backup)
+        source = legacy / backup.name
+        backup.rename(source)
+        sources.append(source)
+    harness.backups = separate_backup_root
+    usage = [scan_usage(source) for source in sources]
+    real_filesystem = super(Harness, harness).filesystem_info
+    individual = [harness._migration_copy_requirement(item) for item in usage]
+    available = sum(item.bytes for item in individual) - 4 * MIB
+    assert sum(item.bytes for item in usage) < available
+    assert all(item.bytes < available for item in individual)
+    assert all(item.allocated_bytes < item.apparent_bytes for item in usage)
+    harness.filesystem_override = lambda path: replace(
+        real_filesystem(path), available_bytes=available
+    )
+    preview = harness.cleanup(dry_run=True)
+    assert len([entry for entry in preview.entries if entry.action == "copy"]) == 2
+    assert f"{sum(item.bytes for item in individual):,} bytes" in capsys.readouterr().out
+    with pytest.raises(StorageError, match="retained legacy snapshot copies") as error:
+        harness.ensure_layout()
+    assert error.value.required_bytes == sum(item.bytes for item in individual)
+    assert all(source.exists() for source in sources)
+    assert not list(harness.backups.iterdir())
+    assert not harness.migration_journal.exists()
 
 
 def test_storage_recheck_after_shutdown_before_snapshot(harness, monkeypatch):

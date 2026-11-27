@@ -334,18 +334,17 @@ class FilesystemInfo:
     # meaningful unprivileged inode budget. Byte checks still apply and the
     # inode budget is reported as unavailable instead of silently passing.
     inode_reporting: bool = True
+    allocation_unit: int = TREE_OVERHEAD_PER_DIRECTORY
 
 
 @dataclass(frozen=True)
 class Usage:
-    """Conservative tree usage for storage preflight.
+    """Existing tree usage and the entry counts needed to estimate copies.
 
-    ``bytes`` is the larger of apparent and allocated size per entry, plus an
-    allowance for directory and inode metadata, so filesystem allocation overhead
-    for many small files is included. ``inodes`` counts directories, regular files
-    and symlinks, because a copied tree consumes an inode for each. Hardlinked files
-    are counted per entry (a copy does not share them) while ``hardlink_bytes``
-    records how much of the apparent size is shared today for reclamation reports.
+    ``bytes`` estimates existing size for historical release and cleanup reports.
+    ``allocated_bytes`` counts observed blocks once per inode. The reclaimable
+    totals exclude inodes with links outside the scanned tree. The apparent
+    size and entry counts include each name independently, including hardlinks.
     """
 
     bytes: int = 0
@@ -355,6 +354,18 @@ class Usage:
     apparent_bytes: int = 0
     allocated_bytes: int = 0
     hardlink_bytes: int = 0
+    reclaimable_bytes: int = 0
+    reclaimable_inodes: int = 0
+
+    def independent_copy_bytes(self, allocation_unit: int) -> int:
+        # Charge the full logical payload, including sparse regions, and allow
+        # for rounding each file separately to a destination allocation unit.
+        return (
+            self.apparent_bytes
+            + self.files * (allocation_unit - 1)
+            + self.inodes * TREE_OVERHEAD_PER_FILE
+            + self.directories * max(allocation_unit, TREE_OVERHEAD_PER_DIRECTORY)
+        )
 
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(
@@ -365,6 +376,8 @@ class Usage:
             apparent_bytes=self.apparent_bytes + other.apparent_bytes,
             allocated_bytes=self.allocated_bytes + other.allocated_bytes,
             hardlink_bytes=self.hardlink_bytes + other.hardlink_bytes,
+            reclaimable_bytes=self.reclaimable_bytes + other.reclaimable_bytes,
+            reclaimable_inodes=self.reclaimable_inodes + other.reclaimable_inodes,
         )
 
 
@@ -403,6 +416,8 @@ class CleanupReport:
     errors: list[str] = field(default_factory=list)
     # Apparent size of artifacts selected for removal.
     reclaimable_bytes: int = 0
+    # Observed blocks excluding inodes with links outside each selected artifact.
+    reclaimable_allocated_bytes: int = 0
     # Actual filesystem free-space delta observed after removal.
     reclaimed_bytes: int = 0
     hardlink_bytes: int = 0
@@ -1119,44 +1134,40 @@ def scan_usage(path: Path, skip_top=frozenset()) -> Usage:
         )
     if not stat.S_ISDIR(top.st_mode):
         raise DeploymentError(f"Storage location is not a directory: {path}")
-    # The top directory itself is created by a copy operation and consumes an
-    # inode and metadata blocks.
-    usage = Usage(bytes=TREE_OVERHEAD_PER_DIRECTORY, inodes=1, directories=1)
-    seen: set[tuple[int, int]] = set()
+    usage = Usage()
+    links: dict[tuple[int, int], tuple[int, int, int]] = {}
 
     def add(info, *, directory: bool) -> None:
         nonlocal usage
-        key = (int(info.st_dev), int(info.st_ino))
         allocated = int(getattr(info, "st_blocks", 0)) * 512
-        size = int(info.st_size)
         if directory:
             usage = usage + Usage(
                 bytes=TREE_OVERHEAD_PER_DIRECTORY,
                 inodes=1,
                 directories=1,
+                allocated_bytes=allocated,
+                reclaimable_bytes=allocated,
+                reclaimable_inodes=1,
             )
             return
-        entry = Usage(
-            bytes=max(size, allocated) + TREE_OVERHEAD_PER_FILE,
+        size = int(info.st_size)
+        seen = 0
+        if info.st_nlink > 1:
+            key = file_identity(info)
+            seen, link_count, _ = links.get(key, (0, 0, 0))
+            links[key] = (seen + 1, max(link_count, info.st_nlink), allocated)
+        usage = usage + Usage(
+            bytes=(0 if seen else max(size, allocated)) + TREE_OVERHEAD_PER_FILE,
             inodes=1,
             files=1,
             apparent_bytes=size,
-            allocated_bytes=allocated,
+            allocated_bytes=0 if seen else allocated,
+            hardlink_bytes=size if seen else 0,
+            reclaimable_bytes=allocated if info.st_nlink == 1 else 0,
+            reclaimable_inodes=int(info.st_nlink == 1),
         )
-        if info.st_nlink > 1:
-            if key in seen:
-                entry = Usage(
-                    bytes=TREE_OVERHEAD_PER_FILE,
-                    inodes=1,
-                    files=1,
-                    apparent_bytes=size,
-                    allocated_bytes=allocated,
-                    hardlink_bytes=size,
-                )
-            else:
-                seen.add(key)
-        usage = usage + entry
 
+    add(top, directory=True)
     stack = [(path, set(skip_top))]
     while stack:
         current, skipped = stack.pop()
@@ -1183,7 +1194,8 @@ def scan_usage(path: Path, skip_top=frozenset()) -> Usage:
                 stack.append((Path(entry.path), set()))
             elif stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
                 add(info, directory=False)
-    return usage
+    contained = [blocks for seen, count, blocks in links.values() if seen == count]
+    return usage + Usage(reclaimable_bytes=sum(contained), reclaimable_inodes=len(contained))
 
 
 class VerificationCache:
@@ -1820,7 +1832,7 @@ class Deployment:
     def _migration_copy_requirement(self, usage: Usage) -> StorageRequirement:
         return StorageRequirement(
             self.backups,
-            usage.bytes,
+            usage.independent_copy_bytes(self.filesystem_info(self.backups).allocation_unit),
             "retained legacy snapshot copies",
             usage.inodes,
         )
@@ -1865,7 +1877,7 @@ class Deployment:
                 journal["kept_destination"].append(record)
             else:
                 journal["prune_destination"].append({**record, "phase": "prune"})
-                credit += scan_usage(path)
+                credit += scan_usage(Path(f"/proc/self/fd/{dest_fd}") / path.name)
         requirement = self._migration_copy_requirement(copies)
         # Check the actual destination before trusting reclamation estimates.
         capacity = self.filesystem_info(self.backups)
@@ -1874,10 +1886,9 @@ class Deployment:
         except StorageError as error:
             if (
                 error.__cause__ is not None
-                or capacity.available_bytes + max(0, credit.allocated_bytes - credit.hardlink_bytes)
-                < error.required_bytes
+                or capacity.available_bytes + credit.reclaimable_bytes < error.required_bytes
                 or capacity.inode_reporting
-                and capacity.available_inodes + credit.inodes < error.required_inodes
+                and capacity.available_inodes + credit.reclaimable_inodes < error.required_inodes
             ):
                 raise
         journal["copy_bytes"] = requirement.bytes
@@ -2351,14 +2362,7 @@ class Deployment:
             raise DeploymentError(f"The legacy snapshot {source.name} failed verification")
         usage = scan_usage(source)
         self.check_storage(
-            [
-                StorageRequirement(
-                    self.backups,
-                    max(usage.bytes, usage.apparent_bytes),
-                    "legacy snapshot copy",
-                    usage.inodes,
-                )
-            ],
+            [self._migration_copy_requirement(usage)],
             phase="cross-filesystem backup migration",
         )
         shutil.copytree(source, staging, symlinks=True)
@@ -2964,6 +2968,7 @@ json.dump(rows, sys.stdout)
             int(vfs.f_bavail) * int(vfs.f_frsize),
             available_inodes if reporting else 0,
             reporting,
+            max(TREE_OVERHEAD_PER_DIRECTORY, int(vfs.f_bsize), int(vfs.f_frsize)),
         )
 
     def _free_space_snapshot(self, paths: list[Path]) -> dict[str, tuple[int, int]]:
@@ -3022,7 +3027,7 @@ json.dump(rows, sys.stdout)
             "hnefatafl.sqlite3-journal",
         }
 
-    def _database_size(self, root: Path | None = None) -> tuple[int, int]:
+    def _database_size(self, root: Path | None = None, *, allocation_unit: int) -> tuple[int, int]:
         """Conservatively account for SQLite and every live sidecar without opening them."""
         size, files = 0, 0
         for suffix in ("", "-wal", "-shm", "-journal"):
@@ -3034,7 +3039,8 @@ json.dump(rows, sys.stdout)
             if not stat.S_ISREG(info.st_mode):
                 raise DeploymentError(f"Unexpected SQLite path: {path}")
             files += 1
-            size += max(info.st_size, info.st_blocks * 512) + TREE_OVERHEAD_PER_FILE
+            rounded = (info.st_size + allocation_unit - 1) // allocation_unit * allocation_unit
+            size += max(rounded, info.st_blocks * 512) + TREE_OVERHEAD_PER_FILE
         return size, files
 
     def snapshot_requirement(
@@ -3048,10 +3054,15 @@ json.dump(rows, sys.stdout)
         excluded = self._snapshot_excluded()
         data_usage = data_usage if data_usage is not None else scan_usage(self.data, excluded)
         config_usage = self._usage(self.etc)
-        database_bytes, database_inodes = database or self._database_size()
+        unit = self.filesystem_info(self.backups).allocation_unit
+        database_bytes, database_inodes = database or self._database_size(allocation_unit=unit)
         manifest_bytes = max(MIB, (data_usage.inodes + config_usage.inodes + 32) * 512)
         usage = data_usage + config_usage
-        total = usage.bytes + (2 if include_conversion else 1) * database_bytes + manifest_bytes
+        total = (
+            usage.independent_copy_bytes(unit)
+            + (2 if include_conversion else 1) * database_bytes
+            + manifest_bytes
+        )
         margin = int(total * self.storage_settings["snapshot_margin_percent"] / 100)
         return StorageRequirement(
             self.backups,
@@ -3131,10 +3142,14 @@ json.dump(rows, sys.stdout)
 
     def _deployment_requirements(self) -> list[StorageRequirement]:
         usage = scan_usage(self.data, self._snapshot_excluded())
-        database_bytes, database_inodes = self._database_size()
+        backup_database = self._database_size(
+            allocation_unit=self.filesystem_info(self.backups).allocation_unit
+        )
+        recovery_unit = self.filesystem_info(self.data.parent).allocation_unit
+        database_bytes, database_inodes = self._database_size(allocation_unit=recovery_unit)
         persisted = self.snapshot_requirement(
             data_usage=usage,
-            database=(database_bytes, database_inodes),
+            database=backup_database,
             include_conversion=False,
         )
         margin = self.storage_settings["snapshot_margin_percent"]
@@ -3143,7 +3158,7 @@ json.dump(rows, sys.stdout)
         # candidate and a private copy of the possibly grown live database.
         migration = max(64 * MIB, database_bytes)
         recovery = self._restore_allocation(
-            usage.bytes + database_bytes,
+            usage.independent_copy_bytes(recovery_unit) + database_bytes,
             usage.inodes + database_inodes,
             database_bytes,
             database_bytes + migration,
@@ -3153,7 +3168,7 @@ json.dump(rows, sys.stdout)
             persisted,
             StorageRequirement(
                 self.backups,
-                database_bytes * (100 + margin) // 100,
+                backup_database[0] * (100 + margin) // 100,
                 "temporary second SQLite copy during snapshot conversion",
                 4,
                 "snapshot",
@@ -3189,8 +3204,12 @@ json.dump(rows, sys.stdout)
         """Restore-specific estimate against the actual snapshot destination."""
         data = Path(backup) / "data"
         usage = scan_usage(data)
+        unit = self.filesystem_info(self.data.parent).allocation_unit
         return self._restore_allocation(
-            usage.bytes, usage.inodes, self._database_size(data)[0], self._database_size()[0]
+            usage.independent_copy_bytes(unit),
+            usage.inodes,
+            self._database_size(data, allocation_unit=unit)[0],
+            self._database_size(allocation_unit=unit)[0],
         )
 
     def updater_requirement(
@@ -4167,7 +4186,8 @@ json.dump(rows, sys.stdout)
                     if migration == "copy":
                         usage = self._legacy_cleanup_entry(path, identity, dry_run=True)
                         copied += usage
-                        detail += f" requires {format_bytes(usage.bytes)} and {usage.inodes} inodes"
+                        cost = self._migration_copy_requirement(usage)
+                        detail += f" requires {cost.bytes:,} bytes and {cost.inodes} inodes"
                     add("backup", migration, path, detail, status="migration", identity=identity)
                 placement = (
                     path
@@ -4227,9 +4247,10 @@ json.dump(rows, sys.stdout)
             if self._path_key(str(path)) in protected_backup_map
         )
         if copied.inodes:
+            cost = self._migration_copy_requirement(copied)
             print(
-                f"Retained legacy copies require {format_bytes(copied.bytes)} and "
-                f"{copied.inodes} inodes on {self.backups}, plus headroom."
+                f"Retained legacy copies require {cost.bytes:,} bytes and "
+                f"{cost.inodes} inodes on {self.backups}, plus headroom."
             )
         backup_entries.sort(key=lambda item: (item[1], item[3].name), reverse=True)
         unprotected_backups = []
@@ -4358,6 +4379,7 @@ json.dump(rows, sys.stdout)
             if dry_run:
                 if can_delete:
                     report.reclaimable_bytes += usage.bytes
+                    report.reclaimable_allocated_bytes += usage.reclaimable_bytes
                 continue
             root = location_root(candidate)
             try:
@@ -4381,6 +4403,7 @@ json.dump(rows, sys.stdout)
             else:
                 candidate.action = "removed"
                 report.reclaimable_bytes += usage.bytes
+                report.reclaimable_allocated_bytes += usage.reclaimable_bytes
                 report.removed.append(candidate)
 
         if not dry_run and can_delete:
@@ -4591,9 +4614,13 @@ json.dump(rows, sys.stdout)
         if report.hardlink_bytes:
             print(
                 "Hardlinked content in selected artifacts: "
-                f"{format_bytes(report.hardlink_bytes)} (counted per copy)"
+                f"{format_bytes(report.hardlink_bytes)} in additional names"
             )
         print(f"Estimated apparent reclamation: {format_bytes(report.reclaimable_bytes)}")
+        print(
+            "Allocated artifact blocks eligible for reclamation: "
+            f"{format_bytes(report.reclaimable_allocated_bytes)}"
+        )
         if not report.dry_run:
             print(f"Actually reclaimed filesystem space: {format_bytes(report.reclaimed_bytes)}")
         if report.status_counts:

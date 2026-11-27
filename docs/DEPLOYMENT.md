@@ -601,12 +601,22 @@ filesystem from the live data and restore staging. The live data root and
 its parent must share a filesystem for the atomic swaps during restore.
 Filesystems without inode reporting still enforce the byte requirement.
 
+Snapshot creation, restore staging and cross-filesystem backup migration
+estimate an independent copy for each filename. Three names that share a
+500 MiB inode need room for about 1,500 MiB of copied data. The estimate also
+charges the full apparent size of sparse files because a copy can allocate
+their holes. It allows for per-file rounding using the destination's reported
+allocation unit and adds directory, manifest and SQLite overhead. The same
+copy calculation is used for the aggregate legacy migration plan and for
+individual copies. Same-filesystem backup relocation still renames the files.
+
 The updater rechecks capacity after retention cleanup, after preparation
 and after shutdown before writing the snapshot. A later restore rechecks
 the actual snapshot and live database sizes. If safe retention or old cache
 maintenance cannot free enough space, predictable shortages are refused
 before downtime. Unexpected storage failures report the affected phase and
-recovery status.
+recovery status. Quotas, filesystem metadata, shared extents, concurrent
+allocations and thin-provisioned host storage can affect actual capacity.
 
 The dependency and frontend builds also record peak and final release sizes.
 After sealing, the updater removes build-only `frontend/node_modules`,
@@ -657,8 +667,11 @@ hnefatafl-update --cleanup
 ```
 
 Dry-run lists managed releases and backups, protection reasons, retention
-candidates, validation outcomes and estimated apparent reclamation. The executing
-form also reports actual reclaimed space and maintains dependency caches. `--check`,
+candidates, validation outcomes and estimated apparent reclamation. The allocated
+block estimate counts each hardlinked inode once and excludes blocks still
+linked outside the scanned artifact. A sparse file may account for few of those
+blocks. The executing form measures the actual filesystem free-space change
+and maintains dependency caches. `--check`,
 `--list` and `--cleanup --dry-run` leave files and configuration untouched and read
 an existing deployment lock without creating or truncating it. They report when
 `--recover` is required. The executing cleanup resumes legacy relocation as
