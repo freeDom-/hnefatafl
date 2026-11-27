@@ -65,6 +65,21 @@ function resolvePolicy(settings: AnalyticsSettings): ExecutionPolicy {
   }
 }
 
+/** Confirmed rejections raised before the server submits replacement work. */
+const LEGACY_PRE_ADMISSION_CODES = new Set([
+  'analysis_admission_unavailable',
+  'analysis_overloaded',
+  'analysis_account_busy',
+  'analysis_rate_limited',
+  'analysis_rate_capacity',
+]);
+
+function confirmedPreAdmissionRejection(error: unknown): boolean {
+  const status = (error as { status?: number })?.status;
+  const code = (error as { code?: string })?.code;
+  return (status === 503 || status === 429) && !!code && LEGACY_PRE_ADMISSION_CODES.has(code);
+}
+
 /** Background requests are tied to both the position and the advisor revision. */
 export function useGameAnalysis(
   game: Game | null,
@@ -455,8 +470,9 @@ export function useGameAnalysis(
         return;
       }
       running = true;
+      // The explicit retry intent is consumed only once a request is accepted.
+      // A confirmed pre-admission rejection keeps it for the next bounded poll.
       const requestedRetry = retryRevision;
-      retryRevision = undefined;
       try {
         const report = await api<PositionAnalysis>(
           `${basePath}/${game.id}/analysis`,
@@ -471,6 +487,7 @@ export function useGameAnalysis(
           controller.signal,
         );
         if (!current()) return;
+        retryRevision = undefined;
         if ((report.advisor_revision ?? 0) !== settings.revision || report.cursor !== game.cursor) {
           setRequest(stateFor('failed', { errorCategory: 'revision-stale' }));
           await refreshSettings();
@@ -485,6 +502,10 @@ export function useGameAnalysis(
       } catch (error) {
         if (!current()) return;
         const code = (error as { code?: string })?.code;
+        // Ambiguous failures are never treated as proof that no work was
+        // admitted. Only a structured pre-admission rejection preserves the
+        // explicit retry indicator; otherwise ordinary bounded polling resumes.
+        retryRevision = confirmedPreAdmissionRejection(error) ? requestedRetry : undefined;
         if (code === 'analysis_revision_stale') {
           setRequest(stateFor('failed', { errorCategory: 'revision-stale' }));
           await refreshSettings();

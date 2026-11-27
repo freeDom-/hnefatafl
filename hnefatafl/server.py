@@ -1288,7 +1288,14 @@ def create_app(
 
     @app.exception_handler(AnalysisUnavailable)
     async def _analysis_unavailable(_request, error: AnalysisUnavailable):
-        return JSONResponse({"detail": str(error)}, status_code=503, headers={"Retry-After": "1"})
+        # The background/retry path raises this before submitting work. The
+        # structured code lets clients distinguish that confirmed pre-admission
+        # rejection from an ambiguous transport failure.
+        return JSONResponse(
+            {"detail": str(error), "code": "analysis_admission_unavailable"},
+            status_code=503,
+            headers={"Retry-After": "1"},
+        )
 
     @app.get("/api/games/{game_id}/analytics")
     def get_analytics(game_id: str):
@@ -1374,10 +1381,17 @@ def create_app(
             advisor_report = store.advisor_analysis(
                 game["id"], snapshot["position_key"], settings["revision"]
             )
+            advisor_key = (game["id"], snapshot["position_key"], "advisor", settings["revision"])
+            # A replacement retry may be running before it publishes its first
+            # checkpoint. That activity must win over retained legacy evidence,
+            # otherwise an ordinary poll reports a terminal cached result and the
+            # client stops observing the replacement.
+            replacement_active = analyses.active(advisor_key)
             if (
                 advisor_report is None
                 and "advisor" in existing
                 and settings["revision"] == 0
+                and not replacement_active
                 and (
                     not retry
                     or (
@@ -1388,9 +1402,7 @@ def create_app(
             ):
                 if receipt is not None:
                     receipt.result_available(advisor_result_status(recorded))
-            elif not retained_advisor_result(advisor_report, retry=retry) or analyses.active(
-                (game["id"], snapshot["position_key"], "advisor", settings["revision"])
-            ):
+            elif not retained_advisor_result(advisor_report, retry=retry) or replacement_active:
                 tasks.append(
                     analyses.schedule(
                         game,

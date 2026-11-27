@@ -727,3 +727,146 @@ def test_partial_replay_display_does_not_record_completion(client, monkeypatch):
     wait_for(lambda: client.post(path, json=body).json()["status"] == "complete")
     with client.app.state.store.connection() as c:
         assert c.execute("SELECT count(*) FROM replay_analysis_completions").fetchone()[0] == 1
+
+
+def legacy_entry(agent, *, agent_id, **overrides):
+    return {
+        "agent_id": agent_id,
+        "role": agent_id,
+        "name": agent["name"],
+        "profile_id": agent.get("profile_id"),
+        "profile_name": agent.get("profile_name"),
+        "config": agent["config"],
+        "source": "heuristic",
+        "win_probability": 0.4,
+        "estimated": True,
+        "calibrated": False,
+        **overrides,
+    }
+
+
+def seed_legacy_analysis(client, game, *, advisor=True, playing=True, partial=True):
+    store = client.app.state.store
+    context = client.get(
+        f"/api/games/{game['id']}/analysis-context",
+        params={"version": game["version"], "cursor": 0, "revision": 0},
+    ).json()
+    original = store.get_game(game["id"])
+    evaluations = []
+    if playing:
+        evaluations.append(
+            legacy_entry(original["players"]["defenders"], agent_id="defenders", value=-0.2)
+        )
+    if advisor:
+        # Revision-zero evidence can be usable but incomplete: a partial run.
+        evaluations.append(legacy_entry(original["advisor"], agent_id="advisor", value=0.1))
+    snapshot = {
+        "cursor": 0,
+        "position_key": context["position_key"],
+        "evaluations": evaluations,
+        "hint": None,
+        "partial": partial,
+    }
+    store.save_game_analysis(game["id"], game["version"], snapshot)
+    return snapshot["position_key"], store.game_analysis(game["id"], snapshot["position_key"])
+
+
+def test_active_explicit_retry_wins_over_legacy_cached_advisor_evidence(client, monkeypatch):
+    game = create(client, mode="human-human", advisor={"profile_id": "baseline"})
+    key, legacy = seed_legacy_analysis(client, game)
+    store, service = client.app.state.store, client.app.state.analyses
+    assert legacy is not None and store.advisor_analysis(game["id"], key, 0) is None
+
+    real_evaluate = service.evaluate
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def blocked(game_arg, role, agent, settings_arg, progress, *, state):
+        calls.append((role, settings_arg["revision"]))
+        entered.set()
+        assert release.wait(5)
+        return real_evaluate(game_arg, role, agent, settings_arg, progress, state=state)
+
+    monkeypatch.setattr(service, "evaluate", blocked)
+    body = {"version": game["version"], "cursor": 0, "background": True, "retry_revision": 0}
+    try:
+        submitted = client.post(f"/api/games/{game['id']}/analysis", json=body)
+        assert submitted.status_code == 200, submitted.text
+        assert submitted.json()["status"] == "pending"
+        assert entered.wait(5)
+        for _ in range(3):
+            polled = analyze(client, game)
+            assert polled["status"] == "pending"
+            assert any(entry["agent_id"] == "advisor" for entry in polled["evaluations"])
+        assert calls == [("advisor", 0)]
+        assert len([task for task in service.tasks.values() if not task.done()]) == 1
+    finally:
+        release.set()
+
+    completed = complete(client, game)
+    assert completed["status"] == "complete" and completed["hint"]
+    replacement = next(
+        entry for entry in completed["evaluations"] if entry["agent_id"] == "advisor"
+    )
+    assert replacement["best_move"] == completed["hint"]["move"]
+    # The legacy cached advisor entry did not satisfy the requested retry.
+    assert replacement["win_probability"] != legacy["evaluations"][0]["win_probability"]
+    assert store.game_analysis(game["id"], key) == legacy
+    assert calls == [("advisor", 0)]
+
+
+def test_failed_replacement_retry_preserves_legacy_play_evidence(client, monkeypatch):
+    game = create(client, mode="human-human", advisor={"profile_id": "baseline"})
+    key, legacy = seed_legacy_analysis(client, game)
+    store, service = client.app.state.store, client.app.state.analyses
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def failing(game_arg, role, agent, settings_arg, progress, *, state):
+        calls.append((role, settings_arg["revision"]))
+        entered.set()
+        assert release.wait(5)
+        raise RuntimeError("deterministic replacement failure")
+
+    monkeypatch.setattr(service, "evaluate", failing)
+    body = {"version": game["version"], "cursor": 0, "background": True, "retry_revision": 0}
+    try:
+        submitted = client.post(f"/api/games/{game['id']}/analysis", json=body)
+        assert submitted.status_code == 200, submitted.text
+        assert entered.wait(5)
+        assert analyze(client, game)["status"] == "pending"
+    finally:
+        release.set()
+    wait_for(lambda: not service.tasks)
+    for _ in range(2):
+        failed = analyze(client, game)
+        assert failed["status"] == "unavailable"
+        assert (
+            next(entry for entry in failed["evaluations"] if entry["agent_id"] == "advisor")[
+                "unavailable_reason"
+            ]
+            == "evaluation_failed"
+        )
+        assert store.game_analysis(game["id"], key) == legacy
+    assert calls == [("advisor", 0)]
+
+
+def test_immutable_legacy_completed_advisor_is_not_recomputed(client, monkeypatch):
+    game = create(client, mode="human-human", advisor={"profile_id": "baseline"})
+    key, legacy = seed_legacy_analysis(client, game, playing=False, partial=False)
+    store, service = client.app.state.store, client.app.state.analyses
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("A completed legacy evaluation must not be recomputed")
+
+    monkeypatch.setattr(service, "evaluate", forbidden)
+    ordinary = analyze(client, game)
+    assert ordinary["status"] == "complete"
+    explicit = client.post(
+        f"/api/games/{game['id']}/analysis",
+        json={"version": game["version"], "cursor": 0, "background": True, "retry_revision": 0},
+    )
+    assert explicit.status_code == 200, explicit.text
+    assert explicit.json()["status"] == "complete"
+    assert store.game_analysis(game["id"], key) == legacy
+    assert store.advisor_analysis(game["id"], key, 0) is None

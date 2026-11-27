@@ -191,6 +191,16 @@ function render(mode: string, visible = true) {
   return renderHook(() => useGameAnalysis(game(), visible, false, '/games', false, 'account-1'));
 }
 
+async function advanceTime(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+async function flushMicrotasks() {
+  for (let index = 0; index < 5; index += 1) await advanceTime(0);
+}
+
 describe('useGameAnalysis execution-policy integration', () => {
   it.each(['server_only', 'browser_preferred'])(
     'retries a partial result explicitly once in %s',
@@ -241,6 +251,271 @@ describe('useGameAnalysis execution-policy integration', () => {
       expect(local.runLocalAnalysis).toHaveBeenCalledTimes(mode === 'browser_preferred' ? 2 : 0);
     },
   );
+
+  it('preserves an explicit server retry across a confirmed pre-admission rejection', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: Array<{ retry_revision?: number }> = [];
+      let attempt = 0;
+      apiHandler.mockImplementation(async (path: string, body: { retry_revision?: number }) => {
+        if (path.endsWith('/analytics')) return settings('server_only');
+        if (path.endsWith('/analysis')) {
+          calls.push(body);
+          attempt += 1;
+          if (attempt === 1) return { ...localReport(), status: 'partial' };
+          if (attempt === 2)
+            throw Object.assign(new Error('Analysis capacity is busy.'), {
+              status: 503,
+              code: 'analysis_overloaded',
+              retryAfterMs: 1000,
+            });
+          if (attempt === 3) return { ...localReport(), status: 'pending' };
+          return { ...localReport(), status: 'complete' };
+        }
+        throw new Error(`unexpected ${path}`);
+      });
+      const hook = renderHook(() =>
+        useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+      );
+      await flushMicrotasks();
+      expect(hook.result.current.report?.status).toBe('partial');
+      expect(calls).toHaveLength(1);
+
+      act(() => hook.result.current.retry());
+      await flushMicrotasks();
+      expect(calls).toHaveLength(2);
+      expect(calls[1].retry_revision).toBe(1);
+      expect(hook.result.current.waiting).toBe(true);
+
+      await advanceTime(999);
+      expect(calls).toHaveLength(2);
+      await advanceTime(1);
+      expect(calls).toHaveLength(3);
+      expect(calls[2].retry_revision).toBe(1);
+      expect(hook.result.current.report?.status).toBe('pending');
+
+      // Successful admission consumes the intent; ordinary polls must not
+      // request another explicit replacement computation.
+      await advanceTime(300);
+      expect(calls).toHaveLength(4);
+      expect(calls[3].retry_revision).toBeUndefined();
+      expect(hook.result.current.report?.status).toBe('complete');
+      await advanceTime(5000);
+      expect(calls).toHaveLength(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('honours a structured 429 Retry-After before resubmitting the explicit retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: Array<{ retry_revision?: number }> = [];
+      let attempt = 0;
+      apiHandler.mockImplementation(async (path: string, body: { retry_revision?: number }) => {
+        if (path.endsWith('/analytics')) return settings('server_only');
+        if (path.endsWith('/analysis')) {
+          calls.push(body);
+          attempt += 1;
+          if (attempt === 1) return { ...localReport(), status: 'partial' };
+          if (attempt === 2)
+            throw Object.assign(new Error('Analysis request rate limit reached.'), {
+              status: 429,
+              code: 'analysis_rate_limited',
+              retryAfterMs: 5000,
+            });
+          if (attempt === 3) return { ...localReport(), status: 'pending' };
+          return { ...localReport(), status: 'complete' };
+        }
+        throw new Error(`unexpected ${path}`);
+      });
+      const hook = renderHook(() =>
+        useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+      );
+      await flushMicrotasks();
+      act(() => hook.result.current.retry());
+      await flushMicrotasks();
+      expect(calls[1].retry_revision).toBe(1);
+
+      await advanceTime(4999);
+      expect(calls).toHaveLength(2);
+      await advanceTime(1);
+      expect(calls).toHaveLength(3);
+      expect(calls[2].retry_revision).toBe(1);
+      await advanceTime(300);
+      expect(calls[3].retry_revision).toBeUndefined();
+      expect(hook.result.current.report?.status).toBe('complete');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not retry an ambiguous transport failure without admission evidence', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: Array<{ retry_revision?: number }> = [];
+      let attempt = 0;
+      apiHandler.mockImplementation(async (path: string, body: { retry_revision?: number }) => {
+        if (path.endsWith('/analytics')) return settings('server_only');
+        if (path.endsWith('/analysis')) {
+          calls.push(body);
+          attempt += 1;
+          if (attempt === 1) return { ...localReport(), status: 'partial' };
+          if (attempt === 2) throw new Error('Connection lost after submission.');
+          return { ...localReport(), status: 'complete' };
+        }
+        throw new Error(`unexpected ${path}`);
+      });
+      const hook = renderHook(() =>
+        useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+      );
+      await flushMicrotasks();
+      act(() => hook.result.current.retry());
+      await flushMicrotasks();
+      expect(calls).toHaveLength(2);
+      expect(calls[1].retry_revision).toBe(1);
+      expect(hook.result.current.failed).toBe(true);
+      await advanceTime(5000);
+      expect(calls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels an explicit retry during backoff without sending another request', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: Array<{ retry_revision?: number }> = [];
+      let attempt = 0;
+      apiHandler.mockImplementation(async (path: string, body: { retry_revision?: number }) => {
+        if (path.endsWith('/analytics')) return settings('server_only');
+        if (path.endsWith('/analysis')) {
+          calls.push(body);
+          attempt += 1;
+          if (attempt === 1) return { ...localReport(), status: 'partial' };
+          throw Object.assign(new Error('Analysis capacity is busy.'), {
+            status: 503,
+            code: 'analysis_overloaded',
+            retryAfterMs: 1000,
+          });
+        }
+        throw new Error(`unexpected ${path}`);
+      });
+      const hook = renderHook(() =>
+        useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+      );
+      await flushMicrotasks();
+      act(() => hook.result.current.retry());
+      await flushMicrotasks();
+      expect(calls).toHaveLength(2);
+      act(() => hook.result.current.cancel());
+      await advanceTime(5000);
+      expect(calls).toHaveLength(2);
+      expect(hook.result.current.cancelled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a pending legacy retry intent when the advisor changes during backoff', async () => {
+    vi.useFakeTimers();
+    try {
+      let revision = 1;
+      const calls: Array<{ retry_revision?: number }> = [];
+      apiHandler.mockImplementation(
+        async (
+          path: string,
+          body: { retry_revision?: number; advisor?: unknown },
+          method?: string,
+        ) => {
+          if (path.endsWith('/analytics')) {
+            if (method === 'PUT' || body?.advisor) {
+              revision = 2;
+              return { ...settings('server_only'), revision };
+            }
+            return { ...settings('server_only'), revision };
+          }
+          if (path.endsWith('/analysis')) {
+            calls.push(body);
+            if (calls.length === 1) return { ...localReport(), status: 'partial' };
+            if (calls.length === 2)
+              throw Object.assign(new Error('Analysis capacity is busy.'), {
+                status: 503,
+                code: 'analysis_overloaded',
+                retryAfterMs: 1000,
+              });
+            return { ...localReport(), status: 'complete', advisor_revision: revision };
+          }
+          throw new Error(`unexpected ${path}`);
+        },
+      );
+      const hook = renderHook(() =>
+        useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+      );
+      await flushMicrotasks();
+      act(() => hook.result.current.retry());
+      await flushMicrotasks();
+      expect(calls[1].retry_revision).toBe(1);
+      await act(async () => {
+        await hook.result.current.updateSettings({
+          ...settings('server_only'),
+          revision: 2,
+          advisor: { ...settings('server_only').advisor!, name: 'Replacement advisor' },
+        });
+      });
+      await flushMicrotasks();
+      expect(calls.length).toBeGreaterThanOrEqual(3);
+      expect(calls.slice(2).some((body) => body.retry_revision === 1)).toBe(false);
+      await advanceTime(5000);
+      expect(calls.slice(2).some((body) => body.retry_revision === 1)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a pending legacy retry intent when the authenticated account changes', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: Array<{ retry_revision?: number }> = [];
+      let attempt = 0;
+      apiHandler.mockImplementation(async (path: string, body: { retry_revision?: number }) => {
+        if (path.endsWith('/analytics')) return settings('server_only');
+        if (path.endsWith('/analysis')) {
+          calls.push(body);
+          attempt += 1;
+          if (attempt === 1) return { ...localReport(), status: 'partial' };
+          if (attempt === 2)
+            throw Object.assign(new Error('Analysis capacity is busy.'), {
+              status: 503,
+              code: 'analysis_overloaded',
+              retryAfterMs: 1000,
+            });
+          return { ...localReport(), status: 'complete' };
+        }
+        throw new Error(`unexpected ${path}`);
+      });
+      const hook = renderHook(
+        ({ account }: { account: string }) =>
+          useGameAnalysis(game(), true, false, '/games', false, account),
+        { initialProps: { account: 'account-1' } },
+      );
+      await flushMicrotasks();
+      act(() => hook.result.current.retry());
+      await flushMicrotasks();
+      expect(calls[1].retry_revision).toBe(1);
+      act(() => {
+        setCSRF('session-2', 'account-2');
+        hook.rerender({ account: 'account-2' });
+      });
+      await flushMicrotasks();
+      expect(calls.length).toBeGreaterThanOrEqual(3);
+      expect(calls.slice(2).some((body) => body.retry_revision === 1)).toBe(false);
+      await advanceTime(5000);
+      expect(calls.slice(2).some((body) => body.retry_revision === 1)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('refreshes the advisor after a superseded fallback retires', async () => {
     let refreshes = 0;
