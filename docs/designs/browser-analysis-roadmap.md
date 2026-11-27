@@ -15,8 +15,7 @@ Related: [Phase 2 validation](../validation/browser-analysis-phase2.md) ·
 **Current integration revision:** Phase 5 transparent browser-first integration
 is implemented on the merged Phase 4 runtime (PR #124 /
 `37684e4362498361530bb8e3a833c2b68ddbf2b7`) and is under fourth-review correction
-on PR #129 (`feat/browser-analysis-phase5`, N-correction commit
-`731001cbdddad5a72f9c44621165779778c281d0`). The server owns a deployment execution
+on PR #129 (`feat/browser-analysis-phase5`, O-correction round). The server owns a deployment execution
 policy (`browser_only`, `browser_preferred`, `server_only`, `disabled`); the
 existing analysis UI executes locally without a player-facing mode selector and
 falls back to the server only under `browser_preferred` and only for classified
@@ -63,7 +62,7 @@ Phase 3 is not complete.
 | 3C | Competitive strength and stability | Not started | **In progress: 3C-A validation platform; external gates blocked** | [Phase 3C-A validation](../validation/browser-analysis-phase3c.md), [device matrix](../validation/device-matrix-phase3c.md) | Competitive checkpoints, tournaments, verified WebGPU, physical desktop/mobile, sustained memory, playing strength |
 | 3C-B | Competitive measurements, performance and stability | Not started | **Partial: software + structural measurements; external gates blocked** | [Phase 3C-B report](../validation/browser-analysis-phase3c-b.md) | Competitive models, physical devices, verified GPU, full tournaments, memory acceptance |
 | 4 | Production security and runtime integration | Not started | **Implemented; structurally and browser validated; feature disabled by default** | [Phase 4 report](../validation/browser-analysis-phase4.md), [browser evidence](../validation/browser-analysis-phase4-browser.json), [neural browser evidence](../validation/browser-analysis-phase4-browser-neural.json) | Competitive/physical/sustained-memory gates remain external |
-| 5 | Transparent browser-first integration | Not started | **Implemented; K/L/M/N corrections complete at software level; external gates open** | [Phase 5 report](../validation/browser-analysis-phase5.md), [browser integration evidence](../validation/browser-analysis-phase5-browser-integration.json), [memory 30 m](../validation/browser-analysis-phase5-memory-30m.json.gz) | Sustained-memory step, competitive weights/strength, physical devices, verified GPU, distribution licensing |
+| 5 | Transparent browser-first integration | Not started | **Implemented; K/L/M/N/O corrections complete at software level; external gates open** | [Phase 5 report](../validation/browser-analysis-phase5.md), [browser integration evidence](../validation/browser-analysis-phase5-browser-integration.json), [memory 30 m](../validation/browser-analysis-phase5-memory-30m.json.gz) | Sustained-memory step, competitive weights/strength, physical devices, verified GPU, distribution licensing |
 | 6 | Offline readiness and resilience | Not started | Not started | — | Persistent verified runtime caching, cold offline initialization, storage/version lifecycle |
 | 7 | Production acceptance | Not started | Not started | — | All external gates, controlled rollout, browser-only default decision |
 | 8 | Server analysis decommissioning | Not started | Not started | — | Remove legacy analysis endpoints after Phase 7 acceptance |
@@ -720,7 +719,7 @@ Phase 3 is not complete.
   model. Local Jarl and 32-simulation neural MCTS executed through the application
   integration; warm offline searches completed with no analysis/authorization
   request; successful local analysis incremented no server computation counter.
-  Initial bundle 598,777 raw / 190,607 gzip in CI (598,415/190,503 local; budgets 600,000/200,000); the runtime,
+  Initial bundle 599,023 raw / 190,468 gzip local (budgets 600,000/200,000); the runtime,
   integration and entry chunks are absent from the initial graph. Details and
   limits are in the [Phase 5 report](../validation/browser-analysis-phase5.md).
 - **K1–K16 review corrections:** canonical server-resolved effective settings
@@ -764,6 +763,14 @@ Phase 3 is not complete.
   position verification; publication-specific runtime model-authorization evidence;
   cross-language canonical identity fixtures; and passed production-browser direct,
   integration/offline and non-integer-limit probes on the final corrected head.
+- **O1–O6 fifth-review corrections:** read-only receipt result retrieval with
+  submit/observe/retrieve separation; duplicate submissions as pending observers
+  without schedules or writes; atomic context-build admission with no orphaned
+  records; sequence-based blocked-watermark reconciliation with bounded coalesced
+  browser passes; model lease expiry derived from genuine authorization time; and
+  separate bounded receipt/status rate protection with periodic cleanup. Production
+  browser probes now include a real eligible local failure and completed server
+  fallback with exactly one fallback POST/read-only result retrieval.
 - **K10 open owner decision:** browser-only execution does not earn replay-analysis
   achievement credit because no server-verifiable analysis evidence exists. A
   future authorized replay-review activity protocol could preserve credit without
@@ -1089,6 +1096,7 @@ documented in `spikes/browser_offline/README.md`.
 | 2026-11-25 | Phase 4 H1–H4: idempotent initialization during active searches with sequenced availability; captured-resource cancellation quarantine and recovery; managed-instance admission retained until workers/downloads/hashing/admission settle with bounded disposal outcome; one caller deadline across cache/queue/transfer/hash/admission with explicit response-stream cancellation; caller-signal listener cleanup. Owner-approval recorded for deferring offline runtime execution to a separate phase; embedded-notice licensing blocker documented. |
 | 2026-11-25 | Phase 4 G1–G6 corrections: complete cancellation/session recovery and atomic account invalidation; global download occupancy across retiring generations with ownership-token cache cleanup and per-tab singleton admission; strict provider/effective-settings and completion-budget validation; device/ctime file-identity hardening with verified-descriptor streaming; healthy-session reuse without model-byte retrieval; fixed-zero temperature and strict nested Jarl search settings; E1 cleanup diagnostics; offline runtime execution deferred pending owner approval and embedded notice review documented as unresolved. |
 | 2026-11-25 | Phase 4 review corrections F1–F8: operation ownership, immutable runtime identity and snapshot delivery, real provider evidence, generation-safe download reservations, verified model bytes for inference, atomic publication/version binding, complete compatibility validation, explicit algorithm/effective-settings contract; E1 follow-up exit code 6 and deterministic transition-history producer handshake; actual production-browser Jarl/neural and runtime-identity-change evidence. Offline runtime execution remains an explicit proposed deferral. |
+| 2026-11-27 | Phase 5 fifth-review O1–O6 correction on PR #129: read-only receipt result retrieval after terminal retirement, duplicate observers without scheduling/writes, orphan-free context-build admission, sequence-watermark reconciliation with bounded coalescing, authorization-time model lease expiry, separate receipt/status rate protection and real production-browser fallback validation. External gates remain open. |
 | 2026-11-27 | Phase 5 fourth-review N1–N7 correction on PR #129 (`731001c`): authoritative receipt lifecycle tied to service task futures, cache-hit/admission/terminal semantics, separate active/terminal receipt capacity with reconciled-before recovery, exactly-once bounded context-build capacity, account/policy generation ownership across async boundaries, per-cursor cached-position identity validation, publication-specific model authorization evidence, cross-language identity fixtures and passed production-browser direct/integration/offline/non-integer-limit probes. External gates remain open. |
 | 2026-11-27 | Phase 5 third-review M1–M8 correction on PR #129: correctly owned bounded context-build records with separate preparation/rate capacity; receipt-bound admission/retirement tracking; explicit policy lifecycle invalidation; canonical configuration and recomputed position/result identity; genuine runtime-retirement barriers and busy-state handling; policy-complete operation identity and terminal stale states; canonical provider-cache identity; corrected UI status semantics. Focused backend/frontend/bundle checks pass; physical/GPU/competitive/sustained-memory/licensing gates remain open. |
 | 2026-11-25 | Phase 4 production integration: pinned same-origin runtime distribution and verification, explicit administrator model publication with immutable/audited artifacts, authenticated delivery API, narrow enabled-only WASM CSP, bounded IndexedDB storage/download/runtime lifecycle managers, disabled-by-default feature flag, deployment/rollback documentation, canonical export validation shared with the spike, E1 lifecycle-sweep correction and actual production-browser evidence. Browser analysis remains disabled; competitive/physical/sustained-memory gates remain open. |

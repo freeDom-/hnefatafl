@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "baseUrl": "http://127.0.0.1:8123",
+  "baseUrl": "http://127.0.0.1:8124",
   "checks": [
     {
       "name": "login succeeds",
@@ -10,7 +10,7 @@
     {
       "name": "account game is created",
       "ok": true,
-      "detail": "{\"id\":\"4627438341d9413ba75f5515eed568c7\",\"ruleset\":\"brandubh\",\"ruleset_version\":1,\"mode\":\"human-ai\",\"human_side\":\"attackers\",\"players\":{\"attackers\":{\"name\":\"admin\",\"account_id\":\"f39875691a1c4f468aa5d7f568a39523\",\"kind\":\"human\",\"config\":{},\"username\":\"admin\",\"rune\":\"ᚠ\"},\"defenders\":{\"name\":\"Shield bearer\",\"kind\":\"ai\",\"profile_id\":\"baseline\",\"profile_name\":\"Shield bearer\",\"config\":{\"algorithm\":\"baseline\",\"seed\":518967604,\"time_limit\":1.0,\"evaluation\":\"heuristic\"},\"variant_id\":\"ai:846ed51404db4f89279a0852\",\"rune\":\"ᚢ\"}},\"advisor\":null,\"analysis_enabled\":true,\"seed\":518967604,\"moves\":[],\"cursor\":0,\"version\":0,\"created_at\":\"2026-11-27T06:01:22.368394+00:00\",\"ended_at\":null,\"recorded_result\":null,\"creation_policy\":1,\"size\":7,\"board\":[\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\"A\",\"A\",\"D\",\"K\",\"D\",\"A\",\"A\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\"],\"turn\":\"attackers\",\"ply\":0,\"winner\":null,\"reason\":null,\"total_moves\":0,\"recorded_winner\":null,\"recorded_reason\":null,\"recorded_plies\":0,\"legal_moves\":[{\"source\":3,\"target\":2},{\"source\":3,\"target\":1},{\"source\":3,\"target\":4},{\"source\":3,\"target\":5},{\"source\":10,\"target\":9},{\"source\":10,\"target\":8},{\"source\":10,\"target\":7},{\"source\":10,\"target\":11},{\"source\":10,\"target\":12},{\"source\":10,\"target\":13},{\"source\":21,\"target\":14},{\"source\":21,\"target\":7},{\"source\":21,\"target\":28},{\"source\":21,\"target\":35},{\"source\":22,\"target\":15},{\"source\":22,\"target\":8},{\"source\":22,\"target\":1},{\"source\":22,\"target\":29},{\"source\":22,\"target\":36},{\"source\":22,\"target\":43},{\"source\":26,\"target\":19},{\"source\":26,\"target\":12},{\"source\":26,\"target\":5},{\"source\":26,\"target\":33},{\"source\":26,\"target\":40},{\"source\":26,\"target\":47},{\"source\":27,\"target\":20},{\"source\":27,\"target\":13},{\"source\":27,\"target\":34},{\"source\":27,\"target\":41},{\"source\":38,\"target\":37},{\"source\":38,\"target\":36},{\"source\":38,\"target\":35},{\"source\":38,\"target\":39},{\"source\":38,\"target\":40},{\"source\":38,\"target\":41},{\"source\":45,\"target\":44},{\"source\":45,\"target\":43},{\"source\":45,\"target\":46},{\"source\":45,\"target\":47}],\"captured\":{\"attackers\":0,\"defenders\":0},\"analysis\":null,\"analytics\":{\"advisor\":null,\"time_limit\":5,\"show_win_chances\":true,\"revision\":0,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}}"
+      "detail": "{\"id\":\"cc15a3ead02040b1914a728cdabc1a91\",\"ruleset\":\"brandubh\",\"ruleset_version\":1,\"mode\":\"human-ai\",\"human_side\":\"attackers\",\"players\":{\"attackers\":{\"name\":\"admin\",\"account_id\":\"d6966c216aee485ba541eb2bb2201ec6\",\"kind\":\"human\",\"config\":{},\"username\":\"admin\",\"rune\":\"ᚠ\"},\"defenders\":{\"name\":\"Shield bearer\",\"kind\":\"ai\",\"profile_id\":\"baseline\",\"profile_name\":\"Shield bearer\",\"config\":{\"algorithm\":\"baseline\",\"seed\":1980075776,\"time_limit\":1.0,\"evaluation\":\"heuristic\"},\"variant_id\":\"ai:846ed51404db4f89279a0852\",\"rune\":\"ᚢ\"}},\"advisor\":null,\"analysis_enabled\":true,\"seed\":1980075776,\"moves\":[],\"cursor\":0,\"version\":0,\"created_at\":\"2026-11-27T10:01:13.693888+00:00\",\"ended_at\":null,\"recorded_result\":null,\"creation_policy\":1,\"size\":7,\"board\":[\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\"A\",\"A\",\"D\",\"K\",\"D\",\"A\",\"A\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\"],\"turn\":\"attackers\",\"ply\":0,\"winner\":null,\"reason\":null,\"total_moves\":0,\"recorded_winner\":null,\"recorded_reason\":null,\"recorded_plies\":0,\"legal_moves\":[{\"source\":3,\"target\":2},{\"source\":3,\"target\":1},{\"source\":3,\"target\":4},{\"source\":3,\"target\":5},{\"source\":10,\"target\":9},{\"source\":10,\"target\":8},{\"source\":10,\"target\":7},{\"source\":10,\"target\":11},{\"source\":10,\"target\":12},{\"source\":10,\"target\":13},{\"source\":21,\"target\":14},{\"source\":21,\"target\":7},{\"source\":21,\"target\":28},{\"source\":21,\"target\":35},{\"source\":22,\"target\":15},{\"source\":22,\"target\":8},{\"source\":22,\"target\":1},{\"source\":22,\"target\":29},{\"source\":22,\"target\":36},{\"source\":22,\"target\":43},{\"source\":26,\"target\":19},{\"source\":26,\"target\":12},{\"source\":26,\"target\":5},{\"source\":26,\"target\":33},{\"source\":26,\"target\":40},{\"source\":26,\"target\":47},{\"source\":27,\"target\":20},{\"source\":27,\"target\":13},{\"source\":27,\"target\":34},{\"source\":27,\"target\":41},{\"source\":38,\"target\":37},{\"source\":38,\"target\":36},{\"source\":38,\"target\":35},{\"source\":38,\"target\":39},{\"source\":38,\"target\":40},{\"source\":38,\"target\":41},{\"source\":45,\"target\":44},{\"source\":45,\"target\":43},{\"source\":45,\"target\":46},{\"source\":45,\"target\":47}],\"captured\":{\"attackers\":0,\"defenders\":0},\"analysis\":null,\"analytics\":{\"advisor\":null,\"time_limit\":5,\"show_win_chances\":true,\"revision\":0,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}}"
     },
     {
       "name": "Jarl analytics settings are saved",
@@ -50,7 +50,7 @@
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-27T06:01:25.345Z",
+        "created_at": "2026-11-27T10:01:16.963Z",
         "evaluations": [
           {
             "rune": "ᚨ",
@@ -61,7 +61,7 @@
             "profile_name": "Jarl",
             "config": {
               "algorithm": "alpha_beta",
-              "seed": 518967604,
+              "seed": 1980075776,
               "time_limit": 5,
               "evaluation": "heuristic",
               "heuristic": "shield_maiden",
@@ -81,24 +81,24 @@
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 21,
-              "target": 14
+              "source": 45,
+              "target": 44
             },
             "completed_depth": 3,
             "searched_moves": 40,
             "nodes": 144,
-            "evaluations": 2132,
-            "cutoffs": 99,
+            "evaluations": 2066,
+            "cutoffs": 100,
             "transposition_hits": 0,
             "symmetry_moves_skipped": 0,
-            "search_seed": 518967604
+            "search_seed": 1980075776
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 21,
-            "target": 14
+            "source": 45,
+            "target": 44
           }
         },
         "status": "complete",
@@ -113,7 +113,7 @@
     {
       "name": "neural analytics settings are saved",
       "ok": true,
-      "detail": "{\"advisor\":{\"name\":\"Structural Brandubh\",\"kind\":\"ai\",\"profile_id\":\"neural\",\"profile_name\":\"Trained model\",\"config\":{\"algorithm\":\"neural\",\"seed\":518967604,\"time_limit\":1.0,\"evaluation\":\"neural\",\"iterations\":32,\"rollout_depth\":8,\"exploration\":1.4,\"temperature\":0.0,\"model_id\":\"c30ce4bb9619cf374941ea1c\"},\"model_name\":\"Smoke Brandubh\",\"rune\":\"ᚦ\"},\"time_limit\":5.0,\"show_win_chances\":true,\"revision\":2,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}"
+      "detail": "{\"advisor\":{\"name\":\"Structural Brandubh\",\"kind\":\"ai\",\"profile_id\":\"neural\",\"profile_name\":\"Trained model\",\"config\":{\"algorithm\":\"neural\",\"seed\":1980075776,\"time_limit\":1.0,\"evaluation\":\"neural\",\"iterations\":32,\"rollout_depth\":8,\"exploration\":1.4,\"temperature\":0.0,\"model_id\":\"19b07326da313f2735bd4239\"},\"model_name\":\"Smoke Brandubh\",\"rune\":\"ᚦ\"},\"time_limit\":5.0,\"show_win_chances\":true,\"revision\":2,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}"
     },
     {
       "name": "analysis context data is readable",
@@ -128,7 +128,7 @@
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-27T06:01:27.580Z",
+        "created_at": "2026-11-27T10:01:19.280Z",
         "evaluations": [
           {
             "rune": "ᚦ",
@@ -140,33 +140,33 @@
             "model_name": "Smoke Brandubh",
             "config": {
               "algorithm": "mcts",
-              "seed": 518967604,
+              "seed": 1980075776,
               "time_limit": 5,
               "evaluation": "neural",
               "iterations": 32,
               "rollout_depth": 8,
               "exploration": 1.4,
               "temperature": 0,
-              "model_id": "c30ce4bb9619cf374941ea1c"
+              "model_id": "19b07326da313f2735bd4239"
             },
             "source": "neural_search",
-            "value": -0.41852362640202045,
-            "win_probability": 0.7092618132010102,
+            "value": -0.4184891879558563,
+            "win_probability": 0.7092445939779282,
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 26,
-              "target": 12
+              "source": 22,
+              "target": 29
             },
             "simulations": 32,
-            "search_seed": 518967604
+            "search_seed": 1980075776
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 26,
-            "target": 12
+            "source": 22,
+            "target": 29
           }
         },
         "status": "complete",
@@ -218,7 +218,12 @@
       "detail": []
     },
     {
-      "name": "successful local analysis caused zero server analysis computation",
+      "name": "server-supported unsupported-local advisor is saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "one logical server fallback request is admitted",
       "ok": true,
       "detail": {
         "before": {
@@ -226,6 +231,401 @@
           "active_accounts": 0
         },
         "after": {
+          "fallback_request": 1,
+          "admitted": 2,
+          "released": 2,
+          "active": 0,
+          "active_accounts": 0
+        }
+      }
+    },
+    {
+      "name": "the UI submits one fallback computation and retrieves its result read-only",
+      "ok": true,
+      "detail": [
+        {
+          "url": "http://127.0.0.1:8124/games/cc15a3ead02040b1914a728cdabc1a91",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/appearance-init.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/index-C2XCb2-O.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/index-CfVJSv5_.css",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/arena-v2/assets/textures/kings-table-parchment.webp",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/AuthenticatedArena-DUgc4QU5.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/arenaTopBar-CEeatUX_.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/arenaTopBar-DEZM5DEj.css",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/analysisPolicy-DrWFuhQh.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/AuthenticatedArena-BR28sF9z.css",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/auth/me",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/arena-v2/assets/icons/hnefatafl-knot.svg",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/personal/achievements",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/rulesets",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/ai/profiles",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/models",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/games/cc15a3ead02040b1914a728cdabc1a91",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/arena-v2/assets/art/kings-table-forest.webp",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/arena-v2/assets/textures/kings-table-pine.webp",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/arena-v2/assets/icons/knot-band.svg",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/AgentAnalysis-pdDkRQ-Z.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/analysis-Csx_b9uQ.css",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/AdvisorSelect-B-o4VNQ2.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/profileConfiguration-DXi5xLAu.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/modelLabel-DrJ5t5bf.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/FieldTooltip-CJN7eOhW.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/integration-CV3ILyQn.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/entry-Beho8tXV.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/assets/arena-v2/assets/textures/board-ash-grain.webp",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/browser-analysis/availability",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/analysis-client.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/assets.json",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/bridge.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/licenses/ONNXRUNTIME-MIT.txt",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/licenses/PYODIDE-MPL-2.0.txt",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/licenses/PYTHON-PSF-2.0.txt",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/neural-client.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/neural-identity.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/neural-provider.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/neural-tensors.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/neural-worker.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/ort/ort-wasm-simd-threaded.jsep.mjs",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/ort/ort-wasm-simd-threaded.jsep.wasm",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/ort/ort-wasm-simd-threaded.mjs",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/ort/ort-wasm-simd-threaded.wasm",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/ort/ort.min.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/ort/ort.webgpu.min.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/__init__.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/ai.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/browser_engine_identity.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/encoding.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/engine.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/mcts_driver.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/openings.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/shield_maiden.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/symmetry.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/tournament_statistics.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/pyodide-lock.json",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/pyodide.asm.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/pyodide.asm.wasm",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/pyodide.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/python_stdlib.zip",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/search-assets.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/search-assets.json",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/search-client.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/search-worker.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/search_bridge.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/worker.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/analysis-client.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/worker.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/pyodide.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/python_stdlib.zip",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/pyodide.asm.wasm",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/pyodide-lock.json",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/runtime/pyodide.asm.js",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/assets.json",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/__init__.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/engine.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/ai.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/openings.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/symmetry.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/tournament_statistics.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/shield_maiden.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/encoding.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/mcts_driver.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/python/hnefatafl/browser_engine_identity.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/browser-analysis/runtime/145b2afae925f21a/bridge.py",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/browser-analysis/availability",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/games/cc15a3ead02040b1914a728cdabc1a91/analysis-context?cursor=0&version=0&revision=3",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/games/cc15a3ead02040b1914a728cdabc1a91/analysis-receipt",
+          "method": "POST"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/games/cc15a3ead02040b1914a728cdabc1a91/analysis",
+          "method": "POST"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/analysis/receipts/FZvcZ3g_G_BEQX7Y9NfZw5bfSMWFVziL/result",
+          "method": "GET"
+        },
+        {
+          "url": "http://127.0.0.1:8124/api/analysis/receipts/FZvcZ3g_G_BEQX7Y9NfZw5bfSMWFVziL/result",
+          "method": "GET"
+        }
+      ]
+    },
+    {
+      "name": "successful local analysis caused zero server analysis computation",
+      "ok": true,
+      "detail": {
+        "before": {
+          "active": 0,
+          "active_accounts": 0
+        },
+        "localAfter": {
           "active": 0,
           "active_accounts": 0
         }
@@ -233,29 +633,30 @@
     }
   ],
   "requests": {
-    "runtimeAssets": 172,
-    "modelArtifacts": 1
+    "runtimeAssets": 229,
+    "modelArtifacts": 1,
+    "fallbackAnalysisPosts": 1
   },
   "measurements": {
-    "jarlOnlineMs": 2634.7000000476837,
-    "neuralOnlineMs": 2190.600000023842,
-    "offlineJarlMs": 212.29999995231628,
-    "offlineNeuralMs": 66.19999992847443
+    "jarlOnlineMs": 2849.399999976158,
+    "neuralOnlineMs": 2273.2000000476837,
+    "offlineJarlMs": 217.70000004768372,
+    "offlineNeuralMs": 84.70000004768372
   },
   "game": {
-    "id": "4627438341d9413ba75f5515eed568c7",
+    "id": "cc15a3ead02040b1914a728cdabc1a91",
     "publication": "f8f0345749723a28f5a2b6f5",
     "model": "64c4a60e1c08bec38c1af909b9cb8193a36c8dcc48f6d49e4ee676e96ea80d74"
   },
   "results": {
     "jarl": {
-      "ms": 2634.7000000476837,
+      "ms": 2849.399999976158,
       "report": {
         "cursor": 0,
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-27T06:01:25.345Z",
+        "created_at": "2026-11-27T10:01:16.963Z",
         "evaluations": [
           {
             "rune": "ᚨ",
@@ -266,7 +667,7 @@
             "profile_name": "Jarl",
             "config": {
               "algorithm": "alpha_beta",
-              "seed": 518967604,
+              "seed": 1980075776,
               "time_limit": 5,
               "evaluation": "heuristic",
               "heuristic": "shield_maiden",
@@ -286,24 +687,24 @@
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 21,
-              "target": 14
+              "source": 45,
+              "target": 44
             },
             "completed_depth": 3,
             "searched_moves": 40,
             "nodes": 144,
-            "evaluations": 2132,
-            "cutoffs": 99,
+            "evaluations": 2066,
+            "cutoffs": 100,
             "transposition_hits": 0,
             "symmetry_moves_skipped": 0,
-            "search_seed": 518967604
+            "search_seed": 1980075776
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 21,
-            "target": 14
+            "source": 45,
+            "target": 44
           }
         },
         "status": "complete",
@@ -324,13 +725,13 @@
       "model": null
     },
     "neural": {
-      "ms": 2190.600000023842,
+      "ms": 2273.2000000476837,
       "report": {
         "cursor": 0,
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-27T06:01:27.580Z",
+        "created_at": "2026-11-27T10:01:19.280Z",
         "evaluations": [
           {
             "rune": "ᚦ",
@@ -342,33 +743,33 @@
             "model_name": "Smoke Brandubh",
             "config": {
               "algorithm": "mcts",
-              "seed": 518967604,
+              "seed": 1980075776,
               "time_limit": 5,
               "evaluation": "neural",
               "iterations": 32,
               "rollout_depth": 8,
               "exploration": 1.4,
               "temperature": 0,
-              "model_id": "c30ce4bb9619cf374941ea1c"
+              "model_id": "19b07326da313f2735bd4239"
             },
             "source": "neural_search",
-            "value": -0.41852362640202045,
-            "win_probability": 0.7092618132010102,
+            "value": -0.4184891879558563,
+            "win_probability": 0.7092445939779282,
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 26,
-              "target": 12
+              "source": 22,
+              "target": 29
             },
             "simulations": 32,
-            "search_seed": 518967604
+            "search_seed": 1980075776
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 26,
-            "target": 12
+            "source": 22,
+            "target": 29
           }
         },
         "status": "complete",
@@ -393,13 +794,13 @@
       }
     },
     "offlineJarl": {
-      "ms": 212.29999995231628,
+      "ms": 217.70000004768372,
       "report": {
         "cursor": 0,
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-27T06:01:27.802Z",
+        "created_at": "2026-11-27T10:01:19.508Z",
         "evaluations": [
           {
             "rune": "ᚨ",
@@ -410,7 +811,7 @@
             "profile_name": "Jarl",
             "config": {
               "algorithm": "alpha_beta",
-              "seed": 518967604,
+              "seed": 1980075776,
               "time_limit": 5,
               "evaluation": "heuristic",
               "heuristic": "shield_maiden",
@@ -430,24 +831,24 @@
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 21,
-              "target": 14
+              "source": 45,
+              "target": 44
             },
             "completed_depth": 3,
             "searched_moves": 40,
             "nodes": 144,
-            "evaluations": 2132,
-            "cutoffs": 99,
+            "evaluations": 2066,
+            "cutoffs": 100,
             "transposition_hits": 0,
             "symmetry_moves_skipped": 0,
-            "search_seed": 518967604
+            "search_seed": 1980075776
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 21,
-            "target": 14
+            "source": 45,
+            "target": 44
           }
         },
         "status": "complete",
@@ -468,13 +869,13 @@
       "model": null
     },
     "offlineNeural": {
-      "ms": 66.19999992847443,
+      "ms": 84.70000004768372,
       "report": {
         "cursor": 0,
         "ply": 0,
         "side_to_move": "attackers",
         "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
-        "created_at": "2026-11-27T06:01:27.874Z",
+        "created_at": "2026-11-27T10:01:19.600Z",
         "evaluations": [
           {
             "rune": "ᚦ",
@@ -486,33 +887,33 @@
             "model_name": "Smoke Brandubh",
             "config": {
               "algorithm": "mcts",
-              "seed": 518967604,
+              "seed": 1980075776,
               "time_limit": 5,
               "evaluation": "neural",
               "iterations": 32,
               "rollout_depth": 8,
               "exploration": 1.4,
               "temperature": 0,
-              "model_id": "c30ce4bb9619cf374941ea1c"
+              "model_id": "19b07326da313f2735bd4239"
             },
             "source": "neural_search",
-            "value": -0.41852362640202045,
-            "win_probability": 0.7092618132010102,
+            "value": -0.4184891879558563,
+            "win_probability": 0.7092445939779282,
             "estimated": true,
             "calibrated": false,
             "best_move": {
-              "source": 26,
-              "target": 12
+              "source": 22,
+              "target": 29
             },
             "simulations": 32,
-            "search_seed": 518967604
+            "search_seed": 1980075776
           }
         ],
         "hint": {
           "agent_id": "advisor",
           "move": {
-            "source": 26,
-            "target": 12
+            "source": 22,
+            "target": 29
           }
         },
         "status": "complete",
@@ -535,8 +936,9 @@
         "ruleset": "brandubh",
         "size": 7
       }
-    }
+    },
+    "fallbackAdmitted": 2
   },
-  "ordinaryPageRequests": 259,
+  "ordinaryPageRequests": 352,
   "ok": true
 }

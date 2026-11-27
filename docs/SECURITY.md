@@ -326,10 +326,10 @@ initialize the runtime or download models. Browser fallback receipts are
 account/game/position/revision-bound, bounded, short-lived and created without
 starting computation; late or duplicate consumption after a terminal transition is
 rejected. Task admission and receipt retirement are atomic with the existing
-analysis service lifecycle. The direct receipt-status endpoint is account-bound,
-does not reveal game/position data to other accounts, and a bounded terminal-
-evidence watermark allows abandoned records to reconcile without revisiting their
-games. Missing or malformed evidence is `unknown`, never `retired`, and never
+analysis service lifecycle. The direct receipt-status and receipt-result endpoints are account-bound,
+do not reveal game/position data to other accounts, and a bounded sequence
+watermark allows abandoned records to reconcile without revisiting their games.
+Result retrieval is read-only and refuses to start or renew computation. Missing or malformed evidence is `unknown`, never `retired`, and never
 initiates a search. Browser results are advisory and cannot
 mutate authoritative results, clocks, ratings or progression.
 

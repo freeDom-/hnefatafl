@@ -4,14 +4,13 @@
 [Deployment](../DEPLOYMENT.md) · [Security](../SECURITY.md) ·
 [Phase 4 runtime](browser-analysis-phase4.md) · [Phase 3C-B](browser-analysis-phase3c-b.md)
 
-Status: **Phase 5 implementation, the independent-review corrections K1–K16,
-L1–L11, M1–M8 and N1–N6 are complete at the software level. The N-correction head
-`731001cbdddad5a72f9c44621165779778c281d0` passed focused backend/frontend suites,
-the production bundle, and the direct-runtime, integration/offline and
-non-integer-identity production-browser probes. This is not production acceptance;
-the feature remains opt-in and disabled by default on existing installations. K10
-(replay-analysis achievement credit under browser-only operation) remains an
-explicit owner-decision blocker.**
+Status: **Phase 5 implementation and independent-review corrections K1–K16,
+L1–L11, M1–M8, N1–N7 and O1–O6 are complete at the software level. The O-correction
+code head `83f5aaab581917c2bf854cf9db2d7f15459cdca0` passed focused backend/frontend
+suites, the production build, receipt/context benchmarks, and production-browser
+local, neural, offline and real server-fallback probes. This is not production acceptance; the feature remains opt-in and disabled
+by default on existing installations. K10 remains an explicit owner-decision
+blocker.**
 
 Verified here: server-owned execution policy and enforcement, transparent local
 Jarl and neural MCTS through the existing analysis UI, automatic WASM selection,
@@ -325,7 +324,10 @@ Evidence files:
 | Non-integer effective Jarl limit | 2.5 s preserved with canonical identity and seed |
 | Production UI local indication | “Analysis completed on this device.” |
 | Production UI advisory evaluation | Rendered from local execution |
-| Production UI POSTs to legacy analysis endpoint | 0 |
+| Production UI POSTs to legacy analysis endpoint | 0 during local execution |
+| Server-fallback probe | MCTS unsupported locally → exactly **1** fallback POST, **1** receipt, read-only result retrieval, completed-server provenance |
+| Fallback admission | One logical fallback request; retained result rendered; no duplicate computation |
+| Probe checks | **24/24**, `ok:true` |
 
 The direct probes ran Jarl on Brandubh, Tablut and Copenhagen, and neural MCTS on
 Brandubh. The first integration run on the N head exposed a real canonical identity
@@ -337,7 +339,11 @@ application integration probe then loaded the production build, switched the
 advisor to the published neural model, rendered the existing analysis panel,
 disconnected the browser completely and repeated Jarl and neural searches using
 only initialized resources. Its runtime-asset count includes the additional
-non-integer probe page load; it is not a single cold-start count.
+non-integer probe page load; it is not a single cold-start count. The same probe
+finally selected a server-supported classical MCTS advisor that the browser does
+not implement locally, observed the eligible local failure and completed-server
+provenance, and verified exactly one fallback POST plus read-only result retrieval
+with no duplicate computation.
 
 ## 9. UI validation and screenshots
 
@@ -367,8 +373,8 @@ Current production initial bundle (authenticated graph):
 
 | Measurement | Phase 4 reported | Phase 5 measured | Budget |
 | --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **598,777** (CI) | 600,000 |
-| JavaScript gzip | 186,716 | **190,607** (CI) | 200,000 |
+| JavaScript raw | 585,756 | **599,023** (local) | 600,000 |
+| JavaScript gzip | 186,716 | **190,468** (local) | 200,000 |
 | CSS raw | — | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 35,000 |
 
@@ -502,7 +508,7 @@ validation-evidence organization, as shown above.
   against unchanged **600,000 / 200,000** budgets. No budget was loosened.
 - **Context capacity benchmark:** regenerated evidence
   (`browser-analysis-phase5-context-benchmark.json`, SHA-256
-  `5f1335d26ab1cd417466f2e71c066d2127c30ac7b30373cb4ebae4fd75b16ceb`) records
+  `bf5c560e66fd6bc5df685785ad3eff9497994c4008add1644205fe73cfb13562`) records
   same-context dedup, distinct-context overload, status polling, cache saturation
   and gameplay latency under preparation-capacity exhaustion.
 - **M-head browser probe:** was not rerun for the M head; the subsequent N
@@ -542,6 +548,31 @@ validation-evidence organization, as shown above.
 - Focused backend suite: **190 passed** (policy, receipts, lifecycle, context,
   identity vectors, analysis/background/coordination, browser API, security).
 - Full frontend suite: **1,852 passed (118 files)**.
+
+## O1–O6 fifth-review correction matrix
+
+| Finding | Root cause | Required invariant / correction | Regression tests | Validation evidence / limitations |
+| --- | --- | --- | --- | --- |
+| O1 fallback result after retirement | Frontend polled the computation POST; after the worker retired, the receipt was terminal and the next POST received 409 instead of the successful retained result. | Split submission, observation and retrieval. Added account-bound read-only `GET /api/analysis/receipts/{id}/result`, returning pending/failed/expired/unavailable or the retained advisor + playing-agent report. Frontend submits once, polls the read-only result, settles on terminal evidence and never reuses a terminal receipt. Retryable admission rejection retires the failed receipt before creating a new one. | Receipt lifecycle tests (submitted/active/terminal, cache hit, rejection, failed submit, sync path); frontend result-retrieval tests; production-browser MCTS fallback probe. | Production fallback probe observed one logical POST, one receipt, read-only result GETs, completed-server UI and one admitted logical fallback. Legacy server-only path remains unchanged. |
+| O2 duplicate submission effects | Duplicate pending calculation only recognized `active`, so a `submitted` primary could make a duplicate report `complete`; synchronous duplicate path could continue into snapshot storage. | Duplicates are observers. Both `submitted` and `active` are nonterminal; non-primary sync/background requests return pending without scheduling or writing retained evidence. Primary task completion and receipt terminal transition remain authoritative. | Concurrent background duplicate while scheduling is blocked; synchronous duplicate test; no engine invocation, no empty advisor/agent store rows; completion/result retrieval afterwards. | Tests assert evaluation count and retained-store contents, not just response strings. |
+| O3 orphaned context-build records | `build()` inserted a new record before checking waiting capacity, leaving a zero-consumer record when admission failed. | Admission checks run before publishing a record. Rejected existing-key/new-key/record-capacity paths mutate nothing; original consumers remain intact and later cleanup leaves an empty registry. | Repeated distinct rejections, existing-key rejection, simultaneous record/waiting exhaustion, returned-unacquired lease, timeout/double close, builder failure/takeover, capacity recovery. | Registry occupancy and `building`/`waiting` counters are asserted throughout controlled transitions. |
+| O4 blocked receipt reconciliation | Terminal evidence could be evicted while an older active receipt blocked watermark advancement; the candidate was discarded, leaving unknown receipts unreconcilable. Terminal cleanup also scanned on every poll. | Monotonic server sequence ordering replaced wall-clock watermark ordering. A blocked candidate is retained and re-evaluated when the older active receipt retires. Periodic bounded cleanup plus cheap per-receipt expiry checks avoid full scans on every status request. Browser reconciliation is coalesced, bounded to 5 s, signal-aware, per-account and capacity-triggered. | Older-active blocking/retirement, terminal eviction, backward clock, per-account/global capacity, >64 records, malformed/unknown status, epoch restart, concurrent/cancelled reconciliation. | Backward/forward clock changes cannot affect sequence proof; active receipts are never evicted. Terminal evidence remains bounded at 30 minutes/2048 records. |
+| O5 model lease expiry | Integration used `now()` after search/digest completion, while runtime evidence used `performance.now()`, extending the lease past actual authorization. | Runtime evidence now carries wall-clock `Date.now()` authorization time. Lease expiry is `checkedAt + policy window`; stale/expired evidence is not installed, and result processing cannot extend lifetime. | Delayed search completion past authorization expiry, repeated cached evidence, denied/unreachable revalidation, account change, offline before/after expiry, genuine unchanged-context revalidation. | Existing frozen-context renewal now increases expiry only when fresh evidence is genuinely issued. |
+| O6 receipt/status overhead | Receipt result lookup could reconstruct historical positions; status polling could scan the full terminal registry; receipt traffic had no separate limiter. | Analyze endpoints reuse the already computed position state; result retrieval uses stored receipt cursor/ply/turn/key. Cleanup runs at most once per 5 s with O(1) per-receipt expiry checks; receipt create/status/result use a separate bounded per-account limiter. | State reuse tests; receipt latency/reconstruction benchmark; context capacity benchmark; rate/capacity tests; gameplay latency under load. | Measured receipt create 7.8 ms, status 3.28 ms, result 3.36 ms, 0 extra context reconstructions, one cleanup pass across 50 polls; ordinary gameplay remains responsive. |
+
+### Fifth-review execution evidence
+
+- Production-browser fallback probe on O head `83f5aaa`: MCTS (server-supported,
+  unsupported locally) produced exactly **one** fallback POST, one receipt, read-only
+  result GETs, completed-server UI, and one logical fallback admission. Local Jarl,
+  neural, warm-offline, canonical identity and zero-local-server-computation checks
+  remain passing (24/24 probe checks).
+- Receipt benchmark: create **7.8 ms**, status poll **3.28 ms**, result poll
+  **3.36 ms**, **0** additional context reconstructions, one bounded cleanup pass.
+- Focused backend receipt/lifecycle/context/identity suites: **37 passed**;
+  broader focused analysis/security set: **195 passed**.
+- Full frontend suite: see section 16.
+- CI bundle on the final O head is recorded in section 10/16; budgets unchanged.
 
 ## 12. Sustained-memory investigation
 
@@ -616,9 +647,12 @@ concurrent requests for one immutable context produced exactly one reconstructio
 `analysis_context_busy`/503 rejections (430 ms total) rather than unbounded thread
 blocking, read-only status polling averaged 7.1 ms over 50 calls, cache occupancy
 stayed at its eight-entry bound, and ordinary gameplay reads remained around 17 ms
-while all four preparation slots were held. Evidence:
+while all four preparation slots were held. The same run measures receipt traffic:
+create **7.8 ms**, status poll **3.28 ms**, result poll **3.36 ms**, zero additional
+context reconstructions and one bounded cleanup pass across 50 status polls.
+Evidence:
 [context benchmark](browser-analysis-phase5-context-benchmark.json)
-(sha256 `5f1335d26ab1cd417466f2e71c066d2127c30ac7b30373cb4ebae4fd75b16ceb`).
+(sha256 `bf5c560e66fd6bc5df685785ad3eff9497994c4008add1644205fe73cfb13562`).
 
 ## 13. Copenhagen depth-5 status
 
@@ -683,25 +717,25 @@ no licensing right is declared resolved without owner/legal acceptance.
 | Check | Result |
 | --- | --- |
 | `tests/test_analysis_policy.py` | 31 passed (receipt/context cases added) |
-| Focused backend policy/analysis/security/browser set | **190 passed** on the N correction head |
+| Focused backend policy/analysis/security/browser set | **196 passed** on the O correction head |
 | Full backend CI (`python` job) | passed on the N correction head |
 | `tests/test_browser_analysis_api.py` | 12 passed |
 | `tests/test_analysis_api.py`, `test_background_analysis.py`, `test_analysis_coordination.py` | 102 passed |
-| `tests/test_analysis_receipts.py`, `test_analysis_receipt_lifecycle.py`, `test_context_preparation.py`, `test_browser_analysis_identity_vectors.py` | **31 passed** (new N1/N2/N3/N7 helpers) |
+| `tests/test_analysis_receipts.py`, `test_analysis_receipt_lifecycle.py`, `test_context_preparation.py`, `test_browser_analysis_identity_vectors.py` | **37 passed** (N/O receipt, lifecycle, context and identity helpers) |
 | Browser-analysis runtime Vitest | 77 passed in `runtime.test.ts` (Phase 4 lifecycle + offline authorization tests) |
-| Browser-analysis integration Vitest | **57 passed** (M3–M8 plus N4–N6 additions) |
-| `useGameAnalysis` policy Vitest | **22 passed** |
+| Browser-analysis integration Vitest | **59 passed** (M/N additions plus O5 expiry) |
+| `useGameAnalysis` policy Vitest | **23 passed** |
 | `AgentAnalysis` Vitest | **57 passed** |
-| Retirement registry Vitest | **6 passed** |
+| Retirement registry Vitest | **7 passed** |
 | Execution-policy projection Vitest | 3 passed |
-| Full frontend Vitest | **1,852 passed (118 files)** |
-| Production build + bundle budget | passed (**598,777 raw / 190,607 gzip** CI; 598,415/190,503 local) |
+| Full frontend Vitest | **1,856 passed (118 files)** |
+| Production build + bundle budget | passed (**599,023 raw / 190,468 gzip** local; CI recorded after push) |
 | TypeScript check | passed |
 | Ruff / format check / mypy | passed |
-| `scripts/audit_api.py` | 147 routes accounted for |
+| `scripts/audit_api.py` | 148 routes accounted for |
 | `make docs` / Prettier check | passed |
 | Production-browser direct runtime probe | Jarl Brandubh/Tablut/Copenhagen + neural, all `ok:true` |
-| Production-browser integration/offline/UI probe | all checks `ok:true` on `731001c` |
+| Production-browser integration/offline/UI + fallback probe | **24/24 checks `ok:true`** on O head |
 | Production-browser non-integer identity-limits probe | `ok:true` (2.5 s effective Jarl limit) |
 | Sustained-memory validator | blocked: JS-heap high-water threshold + unobservable WASM capacity |
 | Copenhagen depth-5 reassessment | measured; depth 5 not completed (blocker retained) |

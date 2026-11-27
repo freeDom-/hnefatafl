@@ -186,7 +186,10 @@ first obtains a short-lived admission receipt; the read-only `analysis-status`
 check uses that receipt to distinguish prepared, submitted, active and terminal
 work. The account-bound `GET /api/analysis/receipts/{receipt_id}` endpoint reports
 receipt lifecycle evidence without requiring the game's current version/revision,
-and terminal cleanup exposes a `reconciled_before` watermark. A missing record is
+and terminal cleanup exposes sequence-based `reconciled_before` evidence. A
+terminal, completed receipt has a read-only
+`GET /api/analysis/receipts/{receipt_id}/result` view of the retained result; it
+never starts computation and failed/expired receipts return no report. A missing record is
 treated as unknown, never as evidence that already-admitted server work finished.
 
 Local results are advisory and render through the existing panel. They do not
