@@ -269,6 +269,13 @@ export interface SearchResult {
   authoritative: false;
 }
 
+export interface ModelAuthorizationEvidence {
+  sha256: string;
+  publicationId: string;
+  runtimeId: string;
+  checkedAt: number;
+}
+
 export interface RuntimeDisposalOutcome {
   /** True only when every download/hashing/admission operation has settled. */
   drained: boolean;

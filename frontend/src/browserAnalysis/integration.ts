@@ -27,13 +27,23 @@ export { normalizeExecutionPolicy } from '../analysisPolicy';
 export type { ExecutionPolicy } from '../analysisPolicy';
 export {
   addRetirement,
+  createReceipt,
+  receiptOutcome,
+  reconcileRetirements,
   retirementFor,
   retirementKey,
   settleRetirement,
   validReceipt,
   validStatus,
+  waitForReceipt,
 } from '../analysisRetirements';
-export type { AnalysisReceipt, AnalysisStatus, RetirementRecord } from '../analysisRetirements';
+export type {
+  AnalysisReceipt,
+  AnalysisStatus,
+  ReceiptOutcome,
+  ReceiptStatus,
+  RetirementRecord,
+} from '../analysisRetirements';
 
 export type LocalAnalysisStage =
   | 'preparing'
@@ -127,6 +137,7 @@ interface CachedContext {
   version: number;
   scope: string;
   bytes: number;
+  verifiedPositions: Set<number>;
 }
 
 interface ContextLease {
@@ -274,10 +285,10 @@ export function setAnalysisPolicy(
   accountId: string | null,
 ): Promise<void> {
   if (account !== accountId) return Promise.resolve();
-  policyRevision += 1;
   currentPolicy = policy;
   const signature = policySignature(policy);
   if (lastPolicySignature === signature) return binding;
+  policyRevision += 1;
   lastPolicySignature = signature;
   contextLeases.clear();
   modelLeases.clear();
@@ -749,6 +760,7 @@ function contextFromPayload(payload: ContextPayload, scope: string): CachedConte
     version: payload.version,
     scope,
     bytes,
+    verifiedPositions: new Set<number>(),
   };
 }
 
@@ -1333,6 +1345,43 @@ function searchState(context: CachedContext, cursor: number): Record<string, unk
   return { ...state, history };
 }
 
+async function validateCachedPosition(
+  input: LocalAnalysisInput,
+  context: CachedContext,
+): Promise<Record<string, unknown>> {
+  const state = context.states[input.cursor];
+  const expectedKey = context.positionKeys[input.cursor];
+  if (
+    !state ||
+    !expectedKey ||
+    state.ply !== input.cursor ||
+    state.turn !== input.game.turn ||
+    context.advisor?.revision !== input.settings.revision ||
+    JSON.stringify(state.board) !== JSON.stringify(input.game.board)
+  ) {
+    throw failure(
+      'integrity',
+      'The cached analysis position does not match the requested position',
+      false,
+    );
+  }
+  const history = context.historyKeys.slice(0, Math.max(1, input.cursor + 1));
+  if (
+    history.length !== Math.max(1, input.cursor + 1) ||
+    history[history.length - 1] !== `${state.turn}:${(state.board as string[]).join('')}`
+  ) {
+    throw failure('integrity', 'The cached repetition history is inconsistent', false);
+  }
+  if (!context.verifiedPositions.has(input.cursor)) {
+    const canonical = completeState(state, context.historyKeys, input.cursor);
+    if ((await canonicalDigest(canonical)) !== expectedKey) {
+      throw failure('integrity', 'The cached analysis position identity is inconsistent', false);
+    }
+    context.verifiedPositions.add(input.cursor);
+  }
+  return state;
+}
+
 async function validateResultIdentity(
   algorithm: 'jarl' | 'neural_mcts',
   state: Record<string, unknown>,
@@ -1366,8 +1415,22 @@ async function localAttempt(
   input: LocalAnalysisInput,
   offline: boolean,
   expectedGeneration: number,
+  expectedPolicy: number,
 ): Promise<LocalAnalysisOutcome> {
+  const assertCurrent = () => {
+    assertGeneration(expectedGeneration);
+    if (policyRevision !== expectedPolicy) {
+      throw failure(
+        'disabled',
+        'The analysis execution policy changed during local analysis',
+        false,
+        'policy-changed',
+        true,
+      );
+    }
+  };
   const api = await getRuntime(input.accountId, expectedGeneration);
+  assertCurrent();
   const stage = (value: LocalAnalysisStage) => input.onStage?.(value);
   stage('preparing');
   stage('initializing');
@@ -1408,7 +1471,7 @@ async function localAttempt(
     return status.runtimeId ?? api.status().runtimeId ?? '';
   };
   let runtimeId = requireReady(await api.initialize({ signal: input.signal }));
-  assertGeneration(expectedGeneration);
+  assertCurrent();
 
   let context: CachedContext;
   let freshAuthorization = false;
@@ -1419,18 +1482,21 @@ async function localAttempt(
       !contextLeaseValid(input, runtimeId);
     if (stale) {
       await api.availability({ signal: input.signal });
-      assertGeneration(expectedGeneration);
+      assertCurrent();
       const revalidated = api.status();
       if (String(revalidated.runtimeId ?? '') !== runtimeId || revalidated.state !== 'ready') {
         runtimeId = requireReady(await api.initialize({ signal: input.signal }));
-        assertGeneration(expectedGeneration);
+        assertCurrent();
       }
       ({ context } = await ensureContext(input, false, expectedGeneration, true));
+      assertCurrent();
       freshAuthorization = true;
     } else {
       ({ context } = await ensureContext(input, false, expectedGeneration));
+      assertCurrent();
     }
     if (freshAuthorization) {
+      assertCurrent();
       if (input.accountId) {
         api.noteOnlineAuthorization(input.accountId, input.policy.offlineAuthorizationSeconds);
       }
@@ -1450,6 +1516,7 @@ async function localAttempt(
     }
   } else {
     ({ context } = await ensureContext(input, true, expectedGeneration));
+    assertCurrent();
     if (!contextLeaseValid(input, runtimeId)) {
       throw failure(
         'unauthorized',
@@ -1467,7 +1534,9 @@ async function localAttempt(
     throw failure('integrity', 'Canonical advisor configuration is unavailable', false);
   }
   const seedWithPly = context.advisor?.seed_with_ply === true;
-  const state = searchState(context, input.cursor);
+  let state = searchState(context, input.cursor);
+  state = { ...(await validateCachedPosition(input, context)), history: state.history };
+  assertCurrent();
   const algorithm = effectiveAlgorithm(effectiveConfig);
   if (!algorithm) {
     throw failure(
@@ -1498,6 +1567,7 @@ async function localAttempt(
   } else {
     settings = neuralSettings(effectiveConfig, state, seedWithPly);
     const models = await ensureModels(api, input, offline, expectedGeneration);
+    assertCurrent();
     const requestedId = String(effectiveConfig.model_id);
     model =
       models.find(
@@ -1537,26 +1607,18 @@ async function localAttempt(
         signal: input.signal,
         onProgress: input.onDownloadProgress,
       });
-      assertGeneration(expectedGeneration);
+      assertCurrent();
       fromCache = downloaded.fromCache;
       stage('loading-model');
     }
     if (freshAuthorization) {
-      modelLeases.set(`${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`, {
-        account: input.accountId,
-        sha256: model.onnxSha256,
-        publicationId: model.publicationId,
-        runtimeId,
-        expiresAt: now() + input.policy.offlineAuthorizationSeconds * 1000,
-      });
-      trimLeases();
+      assertCurrent();
     }
   }
 
   stage('searching');
-  const policyBeforeSearch = policyRevision;
   const ran = await exclusiveSearch(() => {
-    if (policyRevision !== policyBeforeSearch) {
+    if (policyRevision !== expectedPolicy) {
       throw failure(
         'disabled',
         'The analysis execution policy changed before the local search started',
@@ -1574,10 +1636,29 @@ async function localAttempt(
       model,
     );
   }, input.signal);
-  assertGeneration(expectedGeneration);
+  assertCurrent();
   const result = ran.result;
   await validateResultIdentity(algorithm, state, result, settings, model, ran.provider);
+  assertCurrent();
   if (model) {
+    if (!offline) {
+      const evidence = api.modelAuthorization(model);
+      if (
+        evidence &&
+        evidence.runtimeId === runtimeId &&
+        evidence.publicationId === model.publicationId &&
+        evidence.sha256 === model.onnxSha256
+      ) {
+        modelLeases.set(`${input.accountId ?? ''}:${model.publicationId}:${model.onnxSha256}`, {
+          account: input.accountId,
+          sha256: model.onnxSha256,
+          publicationId: model.publicationId,
+          runtimeId,
+          expiresAt: now() + input.policy.offlineAuthorizationSeconds * 1000,
+        });
+        trimLeases();
+      }
+    }
     rememberProvider(providerCacheKey(model, input.accountId, runtimeId), ran.provider);
   }
   return { ...adaptReport(input, context, result, effectiveConfig, offline), fromCache };
@@ -1636,7 +1717,7 @@ export async function runLocalAnalysis(input: LocalAnalysisInput): Promise<Local
   const startOffline =
     input.offline === true || (typeof navigator !== 'undefined' && navigator.onLine === false);
   try {
-    return await localAttempt(input, startOffline, expectedGeneration);
+    return await localAttempt(input, startOffline, expectedGeneration, policyAtStart);
   } catch (error) {
     const classified = classify(error);
     if (classified.category === 'cancelled') throw classified;
@@ -1670,7 +1751,7 @@ export async function runLocalAnalysis(input: LocalAnalysisInput): Promise<Local
       // Origin unreachable while the browser still reports online. Reuse only an
       // already-authorized warm context; never treat the failure as fresh auth.
       try {
-        return await localAttempt(input, true, expectedGeneration);
+        return await localAttempt(input, true, expectedGeneration, policyAtStart);
       } catch (retry) {
         const second = classify(retry);
         throw second.category === 'cancelled' ? second : classified;
@@ -1712,5 +1793,14 @@ export const __testing = {
   },
   contextStats() {
     return { entries: contexts.size, bytes: contextBytes };
+  },
+  leaseStats() {
+    return {
+      context: [...contextLeases.values()],
+      model: [...modelLeases.values()],
+    };
+  },
+  mutateContexts(mutate: (context: CachedContext) => void) {
+    for (const context of contexts.values()) mutate(context);
   },
 };

@@ -2,37 +2,19 @@
  * Cross-language canonical identity for local search results.
  *
  * Python produces the server position key and the Pyodide bridge identity with
- * sorted JSON and no insignificant whitespace. Keep the same float spelling for
- * known floating-point settings so JavaScript and Python agree on the digest.
+ * sorted JSON and no insignificant whitespace. JSON transport normalizes
+ * JavaScript floats with an integral value to integers before Python computes
+ * the same identity, so the browser must preserve the received JSON types rather
+ * than reinterpreting known fields as floats.
  */
 
-export const CANONICAL_FLOAT_KEYS = new Set(['time_limit', 'exploration', 'temperature']);
-
-export function canonicalJson(
-  value: unknown,
-  floatKeys: Set<string> = CANONICAL_FLOAT_KEYS,
-  keyName?: string,
-): string {
-  if (
-    typeof value === 'number' &&
-    Number.isInteger(value) &&
-    keyName !== undefined &&
-    floatKeys.has(keyName)
-  ) {
-    return `${value}.0`;
-  }
-  if (Array.isArray(value))
-    return `[${value.map((item) => canonicalJson(item, floatKeys)).join(',')}]`;
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
   if (value && typeof value === 'object') {
     return `{${Object.keys(value as Record<string, unknown>)
       .sort()
       .map(
-        (key) =>
-          `${JSON.stringify(key)}:${canonicalJson(
-            (value as Record<string, unknown>)[key],
-            floatKeys,
-            key,
-          )}`,
+        (key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`,
       )
       .join(',')}}`;
   }

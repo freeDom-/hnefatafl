@@ -329,15 +329,34 @@ export function useGameAnalysis(
   useEffect(() => {
     if (!localMode && !browserAnalysisLoaded()) return;
     let alive = true;
+    const requestedAccount = accountRef.current;
+    const owned = () => alive && accountRef.current === requestedAccount;
     void loadAnalysisIntegration().then(async (integration) => {
-      await integration.setAnalysisAccount(accountId);
-      if (alive) await integration.setAnalysisPolicy(policy, accountId);
+      if (!owned()) return;
+      await integration.setAnalysisAccount(requestedAccount);
+      if (!owned()) return;
+      await integration.setAnalysisPolicy(policy, requestedAccount);
     });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localMode, accountId, policyKey]);
+
+  // Reconcile abandoned retirements in the background without visiting their
+  // games. The server binds every lookup to this account and never reveals
+  // private game data.
+  useEffect(() => {
+    if (!localMode) return;
+    let alive = true;
+    void loadAnalysisIntegration().then(async (integration) => {
+      if (!alive) return;
+      await integration.reconcileRetirements(accountId);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [localMode, accountId, onlineEpoch]);
 
   // One effect owns one logical request. It executes locally, retires it, then
   // (only after a classified eligible failure) hands the same request to the
@@ -367,53 +386,14 @@ export function useGameAnalysis(
     const sequence = settingsSequence.current;
     const current = () =>
       alive && !controller.signal.aborted && settingsSequence.current === sequence;
-    const statusUrl = (record: RetirementRecord) =>
-      `${basePath}/${game.id}/analysis-status?version=${game.version}&cursor=${game.cursor}&revision=${settings.revision}&receipt=${encodeURIComponent(record.receipt)}`;
     // Retirement records are stored outside this component. They never
     // authorize fallback; they only prevent an equivalent local search from
     // overlapping server work that may still be admitted.
     const waitForRetiredServer = async (): Promise<boolean> => {
       const record = retirementApi.current?.retirementFor(workKey);
       if (!record) return true;
-      const deadline = Date.now() + 30_000;
-      while (current() && Date.now() < deadline) {
-        try {
-          const raw = await api<unknown>(
-            statusUrl(record),
-            undefined,
-            undefined,
-            controller.signal,
-          );
-          const status = retirementApi.current?.validStatus(raw, {
-            game_id: game.id,
-            version: game.version,
-            cursor: game.cursor,
-            advisor_revision: settings.revision,
-            receipt: record.receipt,
-          });
-          if (!status) return false;
-          if (status.receipt_state === 'retired' || status.receipt_state === 'expired') {
-            retirementApi.current?.settleRetirement(workKey, record.receipt);
-            return true;
-          }
-          if (
-            status.receipt_state === 'unknown' &&
-            status.receipt_epoch &&
-            status.receipt_epoch !== record.epoch
-          ) {
-            // A different server epoch cannot admit this old request.
-            retirementApi.current?.settleRetirement(workKey, record.receipt);
-            return true;
-          }
-        } catch {
-          // Unknown retirement state: do not start an equivalent local search.
-          return false;
-        }
-        await new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, 300);
-        });
-      }
-      return false;
+      const done = await retirementApi.current?.waitForReceipt(record, controller.signal);
+      return done === true && current();
     };
     const baseReport = stored ?? undefined;
     const stateFor = (
@@ -426,35 +406,23 @@ export function useGameAnalysis(
       ...patch,
     });
 
-    let receipt = retirementApi.current?.retirementFor(workKey);
+    let receipt: RetirementRecord | null | undefined =
+      retirementApi.current?.retirementFor(workKey);
     const ensureReceipt = async (): Promise<RetirementRecord | null> => {
       if (receipt) return receipt;
-      const raw = await api<unknown>(
-        `${basePath}/${game.id}/analysis-receipt`,
-        { version: game.version, cursor: game.cursor, revision: settings.revision },
-        'POST',
+      receipt = await retirementApi.current?.createReceipt(
+        {
+          key: workKey,
+          account: accountId,
+          basePath,
+          gameId: game.id,
+          version: game.version,
+          cursor: game.cursor,
+          revision: settings.revision,
+        },
         controller.signal,
       );
-      const created = retirementApi.current?.validReceipt(raw, {
-        game_id: game.id,
-        version: game.version,
-        cursor: game.cursor,
-        advisor_revision: settings.revision,
-      });
-      if (!created) return null;
-      const record: RetirementRecord = {
-        receipt: created.receipt,
-        epoch: created.epoch,
-        account: accountId,
-        gameId: game.id,
-        basePath,
-        version: game.version,
-        cursor: game.cursor,
-        revision: settings.revision,
-      };
-      if (!retirementApi.current?.addRetirement(workKey, record)) return null;
-      receipt = record;
-      return record;
+      return receipt ?? null;
     };
 
     const pollServer = async () => {
@@ -559,9 +527,13 @@ export function useGameAnalysis(
           setRequest(stateFor('failed', { local: localMode, errorCategory: 'stale-game' }));
           return;
         }
-        if (code === 'analysis_receipt_expired' || code === 'analysis_receipt_invalid') {
+        if (code === 'analysis_receipt_expired' || code === 'analysis_receipt_terminal') {
           // Explicit server evidence that the old request cannot be admitted.
           if (receipt) retirementApi.current?.settleRetirement(workKey, receipt.receipt);
+          receipt = undefined;
+        } else if (code === 'analysis_receipt_invalid') {
+          // Missing evidence is unknown, not terminal. Do not reuse the id, but
+          // keep the retirement record for bounded reconciliation.
           receipt = undefined;
         }
         const temporary = status === 503 || status === 429;

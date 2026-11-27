@@ -8,9 +8,12 @@
  * registry pressure are never evidence that work finished.
  */
 
+import { api } from './api';
+
 export interface RetirementRecord {
   receipt: string;
   epoch: string;
+  createdAt: number;
   account: string | null;
   gameId: string;
   basePath: string;
@@ -26,6 +29,8 @@ export interface AnalysisReceipt {
   schema: number;
   receipt: string;
   epoch: string;
+  created_at: number;
+  reconciled_before: number;
   game_id: string;
   version: number;
   cursor: number;
@@ -47,7 +52,7 @@ export interface AnalysisStatus {
 
 export function validReceipt(
   raw: unknown,
-  expected: Omit<AnalysisReceipt, 'schema' | 'receipt' | 'epoch'>,
+  expected: Pick<AnalysisReceipt, 'game_id' | 'version' | 'cursor' | 'advisor_revision'>,
 ): AnalysisReceipt | null {
   const value = raw as Partial<AnalysisReceipt> | null;
   if (
@@ -57,6 +62,10 @@ export function validReceipt(
     !value.receipt ||
     typeof value.epoch !== 'string' ||
     !value.epoch ||
+    typeof value.created_at !== 'number' ||
+    !Number.isFinite(value.created_at) ||
+    typeof value.reconciled_before !== 'number' ||
+    !Number.isFinite(value.reconciled_before) ||
     value.game_id !== expected.game_id ||
     value.version !== expected.version ||
     value.cursor !== expected.cursor ||
@@ -136,4 +145,143 @@ export function retirementCount(): number {
 /** Test-only/reset hook; production callers never clear potentially active work. */
 export function __resetRetirements(): void {
   records.clear();
+}
+
+export interface ReceiptStatus {
+  schema: number;
+  receipt: string;
+  epoch: string;
+  state: string;
+  terminal: boolean;
+  reconciled_before: number;
+  created_at?: number;
+}
+
+export type ReceiptOutcome = 'terminal' | 'active' | 'unknown' | 'invalid';
+
+export function receiptOutcome(raw: unknown, record: RetirementRecord): ReceiptOutcome {
+  const value = raw as Partial<ReceiptStatus> | null;
+  if (
+    !value ||
+    value.schema !== 1 ||
+    value.receipt !== record.receipt ||
+    typeof value.epoch !== 'string' ||
+    !value.epoch ||
+    typeof value.state !== 'string' ||
+    typeof value.terminal !== 'boolean' ||
+    typeof value.reconciled_before !== 'number' ||
+    !Number.isFinite(value.reconciled_before)
+  ) {
+    return 'invalid';
+  }
+  if (value.terminal) return 'terminal';
+  if (value.state === 'unknown') {
+    if (value.epoch !== record.epoch) return 'terminal';
+    if (record.createdAt <= value.reconciled_before) return 'terminal';
+    return 'unknown';
+  }
+  return 'active';
+}
+
+/**
+ * Reconcile every record for one account without revisiting their games.
+ * Records are removed only with explicit terminal evidence or the server's
+ * reconciled-before watermark/epoch change.
+ */
+export async function reconcileRetirements(accountId: string | null): Promise<number> {
+  let removed = 0;
+  for (const [key, record] of [...records]) {
+    if (record.account !== accountId) continue;
+    try {
+      const response = await fetch(`/api/analysis/receipts/${encodeURIComponent(record.receipt)}`, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { accept: 'application/json' },
+      });
+      if (!response.ok) continue;
+      const outcome = receiptOutcome(await response.json(), record);
+      if (outcome === 'terminal' && settleRetirement(key, record.receipt)) removed += 1;
+    } catch {
+      // Unknown transport state: keep the record for a later reconciliation.
+    }
+  }
+  return removed;
+}
+
+export interface ReceiptRequest {
+  key: string;
+  account: string | null;
+  basePath: string;
+  gameId: string;
+  version: number;
+  cursor: number;
+  revision: number;
+}
+
+/** Create and reserve a bounded receipt before submitting fallback work. */
+export async function createReceipt(
+  request: ReceiptRequest,
+  signal: AbortSignal,
+): Promise<RetirementRecord | null> {
+  const raw = await api<unknown>(
+    `${request.basePath}/${request.gameId}/analysis-receipt`,
+    { version: request.version, cursor: request.cursor, revision: request.revision },
+    'POST',
+    signal,
+  );
+  const created = validReceipt(raw, {
+    game_id: request.gameId,
+    version: request.version,
+    cursor: request.cursor,
+    advisor_revision: request.revision,
+  });
+  if (!created) return null;
+  const record: RetirementRecord = {
+    receipt: created.receipt,
+    epoch: created.epoch,
+    createdAt: created.created_at,
+    account: request.account,
+    gameId: request.gameId,
+    basePath: request.basePath,
+    version: request.version,
+    cursor: request.cursor,
+    revision: request.revision,
+  };
+  return addRetirement(request.key, record) ? record : null;
+}
+
+/** Poll authoritative receipt evidence. Time alone never retires the record. */
+export async function waitForReceipt(
+  record: RetirementRecord,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const key = retirementKey(
+    record.account,
+    record.basePath,
+    record.gameId,
+    record.version,
+    record.cursor,
+    record.revision,
+  );
+  const deadline = Date.now() + 30_000;
+  while (!signal.aborted && Date.now() < deadline) {
+    try {
+      const raw = await api<unknown>(
+        `/analysis/receipts/${encodeURIComponent(record.receipt)}`,
+        undefined,
+        undefined,
+        signal,
+      );
+      const outcome = receiptOutcome(raw, record);
+      if (outcome === 'terminal') {
+        settleRetirement(key, record.receipt);
+        return true;
+      }
+      if (outcome !== 'active' && outcome !== 'unknown') return false;
+    } catch {
+      return false;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+  }
+  return false;
 }

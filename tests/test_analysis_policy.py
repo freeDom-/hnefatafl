@@ -550,6 +550,7 @@ def test_analysis_context_build_capacity_rejects_instead_of_corrupting_ownership
     leases = [registry.build(("blocked", index, 0)) for index in range(registry.max_concurrent)]
     for lease in leases:
         lease.__enter__()
+        lease.reconstruct()
     try:
         response = client.get(
             f"/api/games/{game['id']}/analysis-context",
@@ -569,6 +570,26 @@ def test_analysis_context_build_capacity_rejects_instead_of_corrupting_ownership
     assert registry.snapshot()["reconstructions"] == 1
 
 
+def test_cached_context_reads_do_not_require_reconstruction_capacity(monkeypatch, tmp_path):
+    app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_only")
+    client = TestClient(app)
+    game = _game(client)
+    params = {"cursor": 0, "version": game["version"], "revision": 0}
+    assert client.get(f"/api/games/{game['id']}/analysis-context", params=params).status_code == 200
+    registry = app.state.analysis_context_builds
+    leases = [registry.build(("blocked", index, 0)) for index in range(registry.max_concurrent)]
+    for lease in leases:
+        lease.__enter__()
+        lease.reconstruct()
+    try:
+        cached = client.get(f"/api/games/{game['id']}/analysis-context", params=params)
+        assert cached.status_code == 200, cached.text
+        assert registry.snapshot()["reconstructions"] == 1
+    finally:
+        for lease in leases:
+            lease.__exit__(None, None, None)
+
+
 def test_analysis_metrics_requires_administrator(monkeypatch, tmp_path):
     app = _app(tmp_path, monkeypatch, HNEFATAFL_ANALYSIS_MODE="browser_preferred")
     client = TestClient(app)
@@ -579,7 +600,7 @@ def test_analysis_metrics_requires_administrator(monkeypatch, tmp_path):
     metrics = client.get("/api/analysis/metrics")
     assert metrics.status_code == 200
     assert metrics.json()["context"]["builds"]["max_records"] == 64
-    assert metrics.json()["receipts"]["max_per_account"] == 32
+    assert metrics.json()["receipts"]["max_active_per_account"] == 32
 
 
 def test_synchronous_playing_agent_evaluations_use_task_admission(monkeypatch, tmp_path):

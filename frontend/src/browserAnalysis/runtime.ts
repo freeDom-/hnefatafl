@@ -389,6 +389,22 @@ export class BrowserAnalysisRuntime {
   private offlineLease: { accountId: string; until: number; runtimeId: string } | null = null;
   private modelAuthorizations = new Map<string, number>();
 
+  private modelAuthKey(model: ModelManifest): string {
+    return `${model.publicationId}:${model.onnxSha256}`;
+  }
+
+  /** Latest genuine online publication authorization for this runtime identity. */
+  modelAuthorization(model: ModelManifest) {
+    const checkedAt = this.modelAuthorizations.get(this.modelAuthKey(model));
+    if (checkedAt === undefined || !this.runtimeId) return null;
+    return {
+      sha256: model.onnxSha256,
+      publicationId: model.publicationId,
+      runtimeId: this.runtimeId,
+      checkedAt,
+    };
+  }
+
   constructor(private readonly options: RuntimeOptions = {}) {
     this.cache = options.cache ?? null;
     this.digestFn = options.digestFn ?? sha256Hex;
@@ -913,6 +929,9 @@ export class BrowserAnalysisRuntime {
   // ---------------------------------------------------------------------- downloads
   /** Re-check current publication authorization without inferring it from cache. */
   private async revalidateModel(model: ModelManifest, op: Operation): Promise<void> {
+    // Evidence belongs to the current online authorization attempt. A failed or
+    // unreachable revalidation must not leave an older authorization renewable.
+    this.modelAuthorizations.delete(this.modelAuthKey(model));
     let payload: AnyRecord;
     try {
       payload = await this.fetchJson(
@@ -940,6 +959,8 @@ export class BrowserAnalysisRuntime {
         'The model publication changed; refresh the published model list',
       );
     }
+    this.assertOwned(op);
+    this.modelAuthorizations.set(this.modelAuthKey(model), now());
   }
 
   private modelSpec(model: ModelManifest): DownloadSpec {
@@ -1206,7 +1227,6 @@ export class BrowserAnalysisRuntime {
     if (!offline) {
       await this.revalidateModel(model, op);
       this.assertOwned(op);
-      this.modelAuthorizations.set(model.onnxSha256, now());
     }
     if (!this.neural) {
       const neuralModule = await this.loadRuntimeModule(op, RUNTIME_JS.neuralClient);
@@ -1244,7 +1264,7 @@ export class BrowserAnalysisRuntime {
       current.ruleset === model.ruleset &&
       current.size === model.boardSize &&
       current.provider === provider;
-    if (offline && !this.modelAuthorizations.has(model.onnxSha256)) {
+    if (offline && !this.modelAuthorizations.has(this.modelAuthKey(model))) {
       throw new BrowserAnalysisError(
         'unauthorized',
         'The requested model has no offline authorization',

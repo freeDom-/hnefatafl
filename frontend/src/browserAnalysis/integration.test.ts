@@ -35,40 +35,23 @@ const state = {
   history: ['attackers:' + '.'.repeat(49)],
 };
 
-function canonical(value: unknown, floatKeys?: Set<string>, keyName?: string): string {
-  if (
-    typeof value === 'number' &&
-    Number.isInteger(value) &&
-    keyName !== undefined &&
-    floatKeys?.has(keyName)
-  )
-    return `${value}.0`;
-  if (Array.isArray(value)) return `[${value.map((item) => canonical(item, floatKeys)).join(',')}]`;
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => canonical(item)).join(',')}]`;
   if (value && typeof value === 'object') {
     return `{${Object.keys(value as Record<string, unknown>)
       .sort()
-      .map(
-        (key) =>
-          `${JSON.stringify(key)}:${canonical(
-            (value as Record<string, unknown>)[key],
-            floatKeys,
-            key,
-          )}`,
-      )
+      .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
       .join(',')}}`;
   }
   return JSON.stringify(value);
 }
 
-function digest(value: unknown, floatKeys?: Set<string>): string {
-  return createHash('sha256').update(canonical(value, floatKeys)).digest('hex');
+function digest(value: unknown): string {
+  return createHash('sha256').update(canonical(value)).digest('hex');
 }
 
 function positionIdentity(state: Record<string, unknown>, config: Record<string, unknown>): string {
-  return digest(
-    { state, settings: { algorithm: 'alpha_beta', ...config }, protocol: 1 },
-    new Set(['time_limit', 'exploration', 'temperature']),
-  );
+  return digest({ state, settings: { algorithm: 'alpha_beta', ...config }, protocol: 1 });
 }
 
 function game(): Game {
@@ -195,16 +178,13 @@ function neuralIdentity(
   model: { onnxSha256: string; ruleset: string; boardSize: number },
   provider: string,
 ): string {
-  return digest(
-    {
-      state,
-      settings,
-      model: { sha256: model.onnxSha256, ruleset: model.ruleset, size: model.boardSize },
-      provider,
-      protocol: 1,
-    },
-    new Set(['time_limit', 'exploration', 'temperature']),
-  );
+  return digest({
+    state,
+    settings,
+    model: { sha256: model.onnxSha256, ruleset: model.ruleset, size: model.boardSize },
+    provider,
+    protocol: 1,
+  });
 }
 
 function neuralResult(request?: {
@@ -276,6 +256,12 @@ function api(overrides: Record<string, unknown> = {}) {
     status: vi.fn(() => ({ state: 'ready' })),
     lastResult: vi.fn(() => null),
     modelReady: vi.fn(() => false),
+    modelAuthorization: vi.fn((manifest: typeof model) => ({
+      sha256: manifest.onnxSha256,
+      publicationId: manifest.publicationId,
+      runtimeId: '',
+      checkedAt: 0,
+    })),
     storageUsage: vi.fn(async () => ({ persistent: true, bytes: 0 })),
     ...overrides,
   };
@@ -353,6 +339,23 @@ function contextPayload(
       ...execution,
     },
   };
+}
+
+function fullContext(cursor: number, config: Record<string, unknown> = {}) {
+  const base = contextPayload(1, config);
+  return {
+    ...base,
+    cursor,
+    position_key: base.position_keys[cursor],
+  };
+}
+
+function fullContextFetch(config: Record<string, unknown> = {}) {
+  return vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://example.test');
+    const cursor = Number(parsed.searchParams.get('cursor') ?? '0');
+    return { ok: true, json: async () => fullContext(cursor, config) } as Response;
+  });
 }
 
 function contextFetch(
@@ -1379,6 +1382,82 @@ describe('transparent local analysis integration', () => {
     expect(providers).toEqual(['webgpu', 'wasm', 'wasm']);
   });
 
+  it('validates a noninitial cached cursor before searching', async () => {
+    vi.stubGlobal('fetch', fullContextFetch());
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const base = game();
+    const first = await runLocalAnalysis(input());
+    expect(first.report.cursor).toBe(0);
+    const second = await runLocalAnalysis(input({ game: { ...base, cursor: 1 }, cursor: 1 }));
+    expect(second.report.cursor).toBe(1);
+    expect(second.report.position_key).toBe(contextPayload(1).position_key);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(runtime.runSearch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['digest', (context: any) => (context.positionKeys[1] = 'a'.repeat(64))],
+    ['board', (context: any) => (context.states[1].board[0] = 'A')],
+    ['history', (context: any) => (context.historyKeys[1] = 'attackers:wrong')],
+  ])('rejects an inconsistent noninitial cached position (%s)', async (_label, mutate) => {
+    vi.stubGlobal('fetch', fullContextFetch());
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const base = game();
+    await runLocalAnalysis(input());
+    __testing.mutateContexts(mutate);
+    const failure = await runLocalAnalysis(
+      input({ game: { ...base, cursor: 1 }, cursor: 1 }),
+    ).catch((error) => error);
+    expect(failure.category).toBe('integrity');
+    expect(runtime.runSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one context across consumers requesting different cursors', async () => {
+    const fetchMock = vi.fn(
+      (url: string) =>
+        new Promise<Response>((resolve) => {
+          const parsed = new URL(url, 'https://example.test');
+          const cursor = Number(parsed.searchParams.get('cursor') ?? '0');
+          setTimeout(() => {
+            resolve({
+              ok: true,
+              json: async () => fullContext(cursor),
+            } as Response);
+          }, 5);
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const base = game();
+    const [first, second] = await Promise.all([
+      runLocalAnalysis(input()),
+      runLocalAnalysis(input({ game: { ...base, cursor: 1 }, cursor: 1 })),
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect([first.report.cursor, second.report.cursor].sort()).toEqual([0, 1]);
+    expect(runtime.runSearch).toHaveBeenCalledTimes(2);
+  });
+
+  it('validates warm offline navigation to another prepared cursor', async () => {
+    vi.stubGlobal('fetch', fullContextFetch());
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const base = game();
+    await runLocalAnalysis(input());
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    const calls = (globalThis.fetch as any).mock.calls.length;
+    const offline = await runLocalAnalysis(
+      input({ game: { ...base, cursor: 1 }, cursor: 1, offline: true }),
+    );
+    expect(offline.report.cursor).toBe(1);
+    expect(offline.offline).toBe(true);
+    expect((globalThis.fetch as any).mock.calls.length).toBe(calls);
+    expect(runtime.runSearch).toHaveBeenCalledTimes(2);
+  });
+
   it('does not reuse a cached WebGPU decision after the policy disables it', async () => {
     Object.defineProperty(navigator, 'gpu', { configurable: true, value: {} });
     const runtime = api({
@@ -1429,5 +1508,244 @@ describe('transparent local analysis integration', () => {
     await runLocalAnalysis({ ...neural, policy: policy({ webgpu: false }) });
     const providers = (runtime.runSearch.mock.calls as any[]).map(([request]) => request.provider);
     expect(providers).toEqual(['webgpu', 'wasm']);
+  });
+
+  it('cancels a request whose policy changes during context preparation', async () => {
+    let resolveFetch!: (value: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const firstPolicy = policy();
+    const pending = runLocalAnalysis(input({ policy: firstPolicy }));
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    await setAnalysisPolicy(policy({ offlineAuthorizationSeconds: 1200 }), 'account-1');
+    resolveFetch({
+      ok: true,
+      json: async () => contextPayload(0, { algorithm: 'alpha_beta', depth: 3, time_limit: 1 }),
+    } as Response);
+    const failure = await pending.catch((error) => error);
+    expect(failure).toMatchObject({ category: 'disabled', code: 'policy-changed' });
+    expect(runtime.runSearch).not.toHaveBeenCalled();
+  });
+
+  it('keeps valid work when an identical policy refresh arrives during preparation', async () => {
+    let resolveFetch!: (value: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const runtime = api();
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    const firstPolicy = policy();
+    const pending = runLocalAnalysis(input({ policy: firstPolicy }));
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    await setAnalysisPolicy(policy(), 'account-1');
+    resolveFetch({
+      ok: true,
+      json: async () => contextPayload(0, { algorithm: 'alpha_beta', depth: 3, time_limit: 1 }),
+    } as Response);
+    await expect(pending).resolves.toMatchObject({ report: { status: 'complete' } });
+    expect(runtime.runSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a request whose policy changes during model download', async () => {
+    let resolveDownload!: (value: unknown) => void;
+    const runtime = api({
+      downloadModel: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveDownload = resolve;
+          }),
+      ),
+      modelReady: vi.fn(() => false),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    const firstPolicy = policy();
+    const pending = runLocalAnalysis(
+      input({
+        policy: firstPolicy,
+        settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+      }),
+    );
+    await vi.waitFor(() => expect(runtime.downloadModel).toHaveBeenCalledTimes(1));
+    await setAnalysisPolicy(policy({ offlineAuthorizationSeconds: 1200 }), 'account-1');
+    resolveDownload({
+      sha256: model.onnxSha256,
+      bytes: 1024,
+      fromCache: false,
+      retained: true,
+      persistent: true,
+    });
+    const failure = await pending.catch((error) => error);
+    expect(failure).toMatchObject({ category: 'disabled', code: 'policy-changed' });
+    expect(runtime.runSearch).not.toHaveBeenCalled();
+  });
+
+  it('renews a model lease only after genuine model revalidation with reused context', async () => {
+    const clock = { value: 2_000_000 };
+    vi.spyOn(Date, 'now').mockImplementation(() => clock.value);
+    const runtime = api({
+      modelReady: vi.fn(() => true),
+      runSearch: vi.fn(async (request: any) => neuralResult(request)),
+      modelAuthorization: vi.fn((manifest: any) => ({
+        sha256: manifest.onnxSha256,
+        publicationId: manifest.publicationId,
+        runtimeId: '',
+        checkedAt: clock.value,
+      })),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    const neural = input({
+      settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+    });
+    await runLocalAnalysis(neural);
+    const first = __testing.leaseStats().model[0];
+    clock.value += 800_000;
+    await runLocalAnalysis(neural);
+    const second = __testing.leaseStats().model[0];
+    expect(second.expiresAt).toBeGreaterThan(first.expiresAt);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not renew or install model authorization when publication revalidation is denied', async () => {
+    const runtime = api({
+      modelReady: vi.fn(() => true),
+      runSearch: vi
+        .fn()
+        .mockImplementationOnce(async (request: any) => neuralResult(request))
+        .mockRejectedValueOnce(new BrowserAnalysisError('model-not-published', 'revoked')),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    const neural = input({
+      settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+    });
+    await runLocalAnalysis(neural);
+    expect(__testing.leaseStats().model).toHaveLength(1);
+    window.dispatchEvent(new Event('online'));
+    const failure = await runLocalAnalysis(neural).catch((error) => error);
+    expect(failure.category).toBe('model-unavailable');
+    expect(__testing.leaseStats().model).toHaveLength(0);
+  });
+
+  it('keeps a valid old model lease when online revalidation is unreachable but does not renew it', async () => {
+    const runtime = api({
+      modelReady: vi.fn(() => true),
+      modelAuthorization: vi.fn((manifest: any) => ({
+        sha256: manifest.onnxSha256,
+        publicationId: manifest.publicationId,
+        runtimeId: '',
+        checkedAt: 0,
+      })),
+      runSearch: vi
+        .fn()
+        .mockImplementationOnce(async (request: any) => neuralResult(request))
+        .mockRejectedValueOnce(
+          new BrowserAnalysisError('network-unavailable', 'origin unreachable', true),
+        )
+        .mockImplementationOnce(async (request: any) => neuralResult(request)),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    const neural = input({
+      settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+    });
+    await runLocalAnalysis(neural);
+    const before = __testing.leaseStats().model[0];
+    const outcome = await runLocalAnalysis(neural);
+    const after = __testing.leaseStats().model[0];
+    expect(outcome.offline).toBe(true);
+    expect(after.expiresAt).toBe(before.expiresAt);
+  });
+
+  it('rejects a result whose model was invalidated by an account change', async () => {
+    let resolveSearch!: (value: unknown) => void;
+    const runtime = api({
+      modelReady: vi.fn(() => true),
+      runSearch: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveSearch = resolve;
+          }),
+      ),
+    });
+    createBrowserAnalysis.mockResolvedValue(runtime);
+    vi.stubGlobal(
+      'fetch',
+      contextFetch([], {
+        algorithm: 'neural',
+        model_id: 'model-registered',
+        search_wrapper: 'mcts',
+        iterations: 32,
+        time_limit: 1,
+        temperature: 0,
+      }),
+    );
+    const pending = runLocalAnalysis(
+      input({
+        settings: settings({ algorithm: 'neural', model_id: 'model-registered', iterations: 32 }),
+      }),
+    );
+    await vi.waitFor(() => expect(runtime.runSearch).toHaveBeenCalledTimes(1));
+    await setAnalysisAccount('account-2');
+    resolveSearch(neuralResult((runtime.runSearch.mock.calls[0] as any[])[0]));
+    const failure = await pending.catch((error) => error);
+    expect(failure.category).toBe('cancelled');
+    expect(__testing.leaseStats().model).toHaveLength(0);
   });
 });

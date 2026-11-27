@@ -1,20 +1,20 @@
 """Narrow admission/retirement receipts for browser fallback analysis.
 
 A browser can abort an HTTP request but cannot know whether the server received
-it. The existing read-only analysis-status check could therefore observe no
-active task for a request that was still in flight and conclude that local work
-was safe to start. These receipts make that distinction explicit:
+it. Receipts therefore distinguish:
 
-* ``prepared`` — the receipt exists but the analysis request has not been
-  consumed. It is *not* safe evidence of retirement.
-* ``active`` — the request was consumed and its task may still be running.
-* ``retired`` — the request was consumed and no task remains active.
-* ``expired`` — the request was never consumed and can no longer be admitted.
-* missing/invalid data is ``unknown`` and never evidence of retirement.
+* ``prepared`` — created, not submitted; still admissible until it expires;
+* ``submitted`` — accepted by an endpoint, awaiting scheduling/admission;
+* ``active`` — at least one task is queued/running or a duplicate is joining it;
+* terminal states ``completed``/``failed``/``expired`` — no new computation is
+  permitted with this receipt.
 
-Receipts are bounded, account-bound and never start computation. The status
-endpoint remains read-only: it only inspects this registry and the existing
-analysis service activity.
+Receipt transitions are authoritative and atomic. A terminal receipt is moved to
+a bounded terminal-evidence store so completed work does not consume active
+admission capacity. ``reconciled_before`` is a server-wall-clock watermark: an
+unknown receipt created at or before it was necessarily terminal before its
+evidence was removed (active receipts are never evicted). This makes bounded
+terminal cleanup safe for browser reconciliation.
 """
 
 from __future__ import annotations
@@ -28,12 +28,14 @@ from typing import Callable
 
 from .analysis_policy import AnalysisPolicyError
 
-MAX_RECEIPTS = 256
-MAX_PER_ACCOUNT = 32
+MAX_ACTIVE_RECEIPTS = 256
+MAX_ACTIVE_PER_ACCOUNT = 32
+MAX_TERMINAL_RECEIPTS = 2048
+MAX_TERMINAL_PER_ACCOUNT = 512
 RECEIPT_TTL_SECONDS = 120.0
-ACTIVE_GRACE_SECONDS = 10.0
-EXPIRED_RETENTION_SECONDS = 300.0
-RETIRED_RETENTION_SECONDS = 600.0
+TERMINAL_RETENTION_SECONDS = 1800.0
+
+TERMINAL_STATES = frozenset({"completed", "failed", "expired"})
 
 
 @dataclass
@@ -47,7 +49,54 @@ class _Receipt:
     position_key: str
     created_at: float
     expires_at: float
-    consumed_at: float | None = None
+    state: str = "prepared"
+    submissions: int = 0
+    tasks: int = 0
+    success: bool = False
+    failed: bool = False
+    terminal_at: float | None = None
+
+
+class ReceiptLease:
+    """One endpoint submission for a receipt, with exactly-once finalization."""
+
+    def __init__(self, registry: "AnalysisReceipts", receipt: _Receipt, primary: bool) -> None:
+        self.registry = registry
+        self.receipt = receipt
+        self.primary = primary
+        self.finished = False
+        self._result_seen = False
+        self._failed = False
+        self._tracked = False
+
+    @property
+    def state(self) -> str:
+        return self.receipt.state
+
+    def track(self) -> None:
+        self._tracked = True
+        self.registry.track_task(self.receipt)
+
+    def complete(self, success: bool) -> None:
+        self.registry.complete_task(self.receipt, success)
+
+    def result_available(self) -> None:
+        self._result_seen = True
+        self.registry.mark_success(self.receipt)
+
+    def fail(self) -> None:
+        self._failed = True
+        self.registry.mark_failure(self.receipt)
+
+    def finalize(self) -> None:
+        """Finish this submission exactly once; auto-success only for a primary
+        cache/no-computation path that never scheduled a task."""
+        if self.finished:
+            return
+        self.finished = True
+        if self.primary and not self._tracked and not self._result_seen and not self._failed:
+            self.registry.mark_success(self.receipt)
+        self.registry.finish_submission(self.receipt)
 
 
 class AnalysisReceipts:
@@ -57,31 +106,80 @@ class AnalysisReceipts:
         self,
         *,
         clock: Callable[[], float] = time.monotonic,
-        max_receipts: int = MAX_RECEIPTS,
-        max_per_account: int = MAX_PER_ACCOUNT,
+        wall_clock: Callable[[], float] = time.time,
+        max_active: int = MAX_ACTIVE_RECEIPTS,
+        max_active_per_account: int = MAX_ACTIVE_PER_ACCOUNT,
+        max_terminal: int = MAX_TERMINAL_RECEIPTS,
+        max_terminal_per_account: int = MAX_TERMINAL_PER_ACCOUNT,
         ttl_seconds: float = RECEIPT_TTL_SECONDS,
+        terminal_retention_seconds: float = TERMINAL_RETENTION_SECONDS,
     ) -> None:
         self.clock = clock
-        self.max_receipts = max_receipts
-        self.max_per_account = max_per_account
+        self.wall_clock = wall_clock
+        self.max_active = max_active
+        self.max_active_per_account = max_active_per_account
+        self.max_terminal = max_terminal
+        self.max_terminal_per_account = max_terminal_per_account
         self.ttl_seconds = ttl_seconds
+        self.terminal_retention_seconds = terminal_retention_seconds
         self.epoch = uuid.uuid4().hex
         self.lock = threading.RLock()
-        self.receipts: dict[str, _Receipt] = {}
+        self.active: dict[str, _Receipt] = {}
+        self.terminal: dict[str, _Receipt] = {}
+        self.reconciled_before = 0.0
         self.rejections = 0
         self.expired = 0
 
     def _error(self, message: str, code: str, status: int = 409) -> AnalysisPolicyError:
         return AnalysisPolicyError(message, code=code, status=status)
 
+    def _advance_reconciled(self, candidate: float) -> None:
+        oldest_active = min(
+            (receipt.created_at for receipt in self.active.values()), default=float("inf")
+        )
+        if candidate < oldest_active:
+            self.reconciled_before = max(self.reconciled_before, candidate)
+
+    def _move_terminal(self, receipt: _Receipt, state: str, now: float) -> None:
+        if receipt.identifier in self.active:
+            self.active.pop(receipt.identifier, None)
+        receipt.state = state
+        receipt.terminal_at = now
+        self.terminal[receipt.identifier] = receipt
+        self._trim_terminal()
+
+    def _trim_terminal(self) -> None:
+        owned: dict[str, int] = {}
+        for identifier, receipt in list(self.terminal.items()):
+            state_terminal_at = receipt.terminal_at or receipt.created_at
+            if self.wall_clock() - state_terminal_at > self.terminal_retention_seconds:
+                self.terminal.pop(identifier, None)
+                self._advance_reconciled(state_terminal_at)
+                continue
+            owned[receipt.account_id] = owned.get(receipt.account_id, 0) + 1
+        for account_id, count in owned.items():
+            if count <= self.max_terminal_per_account:
+                continue
+            excess = count - self.max_terminal_per_account
+            for identifier, receipt in list(self.terminal.items()):
+                if excess <= 0:
+                    break
+                if receipt.account_id != account_id:
+                    continue
+                self.terminal.pop(identifier, None)
+                self._advance_reconciled(receipt.terminal_at or receipt.created_at)
+                excess -= 1
+        while len(self.terminal) > self.max_terminal:
+            identifier, receipt = next(iter(self.terminal.items()))
+            self.terminal.pop(identifier, None)
+            self._advance_reconciled(receipt.terminal_at or receipt.created_at)
+
     def _cleanup(self, now: float) -> None:
-        for identifier, receipt in list(self.receipts.items()):
-            if receipt.consumed_at is None:
-                if now - receipt.expires_at > EXPIRED_RETENTION_SECONDS:
-                    self.receipts.pop(identifier, None)
-                    self.expired += 1
-            elif now - receipt.consumed_at > RETIRED_RETENTION_SECONDS:
-                self.receipts.pop(identifier, None)
+        for identifier, receipt in list(self.active.items()):
+            if receipt.state == "prepared" and now >= receipt.expires_at:
+                self.expired += 1
+                self._move_terminal(receipt, "expired", self.wall_clock())
+        self._trim_terminal()
 
     def create(
         self,
@@ -95,15 +193,15 @@ class AnalysisReceipts:
         with self.lock:
             now = self.clock()
             self._cleanup(now)
-            if len(self.receipts) >= self.max_receipts:
+            if len(self.active) >= self.max_active:
                 self.rejections += 1
                 raise self._error(
                     "Analysis receipt capacity is busy. Retry shortly.",
                     "analysis_receipt_capacity",
                     503,
                 )
-            owned = sum(1 for receipt in self.receipts.values() if receipt.account_id == account_id)
-            if owned >= self.max_per_account:
+            owned = sum(1 for receipt in self.active.values() if receipt.account_id == account_id)
+            if owned >= self.max_active_per_account:
                 self.rejections += 1
                 raise self._error(
                     "Too many pending analysis requests for this account.",
@@ -111,6 +209,7 @@ class AnalysisReceipts:
                     429,
                 )
             identifier = secrets.token_urlsafe(24)
+            wall = self.wall_clock()
             receipt = _Receipt(
                 identifier=identifier,
                 account_id=account_id,
@@ -119,22 +218,33 @@ class AnalysisReceipts:
                 cursor=int(cursor),
                 revision=int(revision),
                 position_key=position_key,
-                created_at=now,
+                created_at=wall,
                 expires_at=now + self.ttl_seconds,
             )
-            self.receipts[identifier] = receipt
+            self.active[identifier] = receipt
             return {
                 "schema": 1,
                 "receipt": identifier,
                 "epoch": self.epoch,
+                "created_at": wall,
                 "expires_in": self.ttl_seconds,
+                "reconciled_before": self.reconciled_before,
                 "game_id": game_id,
                 "version": receipt.version,
                 "cursor": receipt.cursor,
                 "advisor_revision": receipt.revision,
             }
 
-    def consume(
+    def _lookup(self, identifier: str, account_id: str) -> tuple[_Receipt | None, bool]:
+        receipt = self.active.get(identifier)
+        if receipt is not None:
+            return (receipt, False) if receipt.account_id == account_id else (None, False)
+        receipt = self.terminal.get(identifier)
+        if receipt is not None:
+            return (receipt, True) if receipt.account_id == account_id else (None, True)
+        return None, False
+
+    def begin_submission(
         self,
         identifier: str,
         account_id: str,
@@ -143,18 +253,20 @@ class AnalysisReceipts:
         cursor: int,
         revision: int,
         position_key: str,
-    ) -> None:
+    ) -> ReceiptLease:
         with self.lock:
             now = self.clock()
-            receipt = self.receipts.get(identifier)
+            self._cleanup(now)
+            receipt, terminal = self._lookup(identifier, account_id)
             if receipt is None:
                 raise self._error(
                     "The analysis receipt is missing or no longer valid.",
                     "analysis_receipt_invalid",
                 )
-            if receipt.account_id != account_id:
+            if receipt.state == "expired" or terminal:
                 raise self._error(
-                    "The analysis receipt belongs to another account.", "analysis_receipt_invalid"
+                    "The analysis receipt is already terminal and cannot admit more work.",
+                    "analysis_receipt_terminal",
                 )
             if (
                 receipt.game_id != game_id
@@ -167,14 +279,54 @@ class AnalysisReceipts:
                     "The analysis receipt does not match this position.",
                     "analysis_receipt_mismatch",
                 )
-            if receipt.consumed_at is None and now >= receipt.expires_at:
-                self.receipts.pop(identifier, None)
-                self.expired += 1
-                raise self._error(
-                    "The analysis receipt expired before the request arrived.",
-                    "analysis_receipt_expired",
-                )
-            receipt.consumed_at = now
+            primary = receipt.state == "prepared"
+            if primary:
+                receipt.state = "submitted"
+            receipt.submissions += 1
+            return ReceiptLease(self, receipt, primary)
+
+    def _maybe_terminal(self, receipt: _Receipt) -> None:
+        if receipt.submissions != 0 or receipt.tasks != 0:
+            return
+        if receipt.identifier in self.terminal:
+            return
+        if receipt.success:
+            state = "completed"
+        elif receipt.failed:
+            state = "failed"
+        else:
+            state = "completed"
+        self._move_terminal(receipt, state, self.wall_clock())
+
+    def track_task(self, receipt: _Receipt) -> None:
+        with self.lock:
+            if receipt.identifier in self.terminal:
+                return
+            receipt.tasks += 1
+            receipt.state = "active"
+
+    def complete_task(self, receipt: _Receipt, success: bool) -> None:
+        with self.lock:
+            if receipt.tasks > 0:
+                receipt.tasks -= 1
+            receipt.success = receipt.success or success
+            if not success:
+                receipt.failed = True
+            self._maybe_terminal(receipt)
+
+    def mark_success(self, receipt: _Receipt) -> None:
+        with self.lock:
+            receipt.success = True
+
+    def mark_failure(self, receipt: _Receipt) -> None:
+        with self.lock:
+            receipt.failed = True
+
+    def finish_submission(self, receipt: _Receipt) -> None:
+        with self.lock:
+            if receipt.submissions > 0:
+                receipt.submissions -= 1
+            self._maybe_terminal(receipt)
 
     def position_key(
         self,
@@ -186,10 +338,9 @@ class AnalysisReceipts:
         revision: int,
     ) -> str | None:
         with self.lock:
-            receipt = self.receipts.get(identifier)
+            receipt, _terminal = self._lookup(identifier, account_id)
             if (
                 receipt is None
-                or receipt.account_id != account_id
                 or receipt.game_id != game_id
                 or receipt.version != int(version)
                 or receipt.cursor != int(cursor)
@@ -197,6 +348,30 @@ class AnalysisReceipts:
             ):
                 return None
             return receipt.position_key
+
+    def status_for_account(self, identifier: str, account_id: str) -> dict:
+        with self.lock:
+            now = self.clock()
+            self._cleanup(now)
+            receipt, _terminal = self._lookup(identifier, account_id)
+            payload = {
+                "schema": 1,
+                "receipt": identifier,
+                "epoch": self.epoch,
+                "reconciled_before": self.reconciled_before,
+            }
+            if receipt is None:
+                return {**payload, "state": "unknown", "terminal": False}
+            return {
+                **payload,
+                "state": receipt.state,
+                "terminal": receipt.state in TERMINAL_STATES,
+                "created_at": receipt.created_at,
+                "game_id": receipt.game_id,
+                "version": receipt.version,
+                "cursor": receipt.cursor,
+                "advisor_revision": receipt.revision,
+            }
 
     def status(
         self,
@@ -206,33 +381,33 @@ class AnalysisReceipts:
         version: int,
         cursor: int,
         revision: int,
-        active: bool,
     ) -> dict:
         with self.lock:
             now = self.clock()
-            receipt = self.receipts.get(identifier)
-            if receipt is None or receipt.account_id != account_id:
-                # Missing, cleaned or foreign data is explicitly unknown. It is
-                # never interpreted as proof that work completed.
-                return {"schema": 1, "receipt": identifier, "epoch": self.epoch, "state": "unknown"}
+            self._cleanup(now)
+            receipt, _terminal = self._lookup(identifier, account_id)
             if (
-                receipt.game_id != game_id
+                receipt is None
+                or receipt.game_id != game_id
                 or receipt.version != int(version)
                 or receipt.cursor != int(cursor)
                 or receipt.revision != int(revision)
             ):
-                return {"schema": 1, "receipt": identifier, "epoch": self.epoch, "state": "unknown"}
-            if receipt.consumed_at is None:
-                state = "expired" if now >= receipt.expires_at else "prepared"
-            elif active or now - receipt.consumed_at < ACTIVE_GRACE_SECONDS:
-                state = "active"
-            else:
-                state = "retired"
+                return {
+                    "schema": 1,
+                    "receipt": identifier,
+                    "epoch": self.epoch,
+                    "state": "unknown",
+                    "terminal": False,
+                    "reconciled_before": self.reconciled_before,
+                }
             return {
                 "schema": 1,
                 "receipt": identifier,
                 "epoch": self.epoch,
-                "state": state,
+                "state": receipt.state,
+                "terminal": receipt.state in TERMINAL_STATES,
+                "reconciled_before": self.reconciled_before,
                 "game_id": receipt.game_id,
                 "version": receipt.version,
                 "cursor": receipt.cursor,
@@ -243,9 +418,13 @@ class AnalysisReceipts:
     def snapshot(self) -> dict:
         with self.lock:
             return {
-                "receipts": len(self.receipts),
+                "active": len(self.active),
+                "terminal": len(self.terminal),
+                "reconciled_before": self.reconciled_before,
                 "rejections": self.rejections,
                 "expired": self.expired,
-                "max_receipts": self.max_receipts,
-                "max_per_account": self.max_per_account,
+                "max_active": self.max_active,
+                "max_active_per_account": self.max_active_per_account,
+                "max_terminal": self.max_terminal,
+                "max_terminal_per_account": self.max_terminal_per_account,
             }

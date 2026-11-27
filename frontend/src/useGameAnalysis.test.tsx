@@ -22,6 +22,8 @@ const local = vi.hoisted(() => ({
   setAnalysisAccount: vi.fn(async () => undefined),
   setAnalysisPolicy: vi.fn(async () => undefined),
   loaded: false,
+  started: false,
+  gate: null as Promise<void> | null,
 }));
 vi.mock('./browserAnalysis/loader', async () => {
   const retirements =
@@ -29,6 +31,8 @@ vi.mock('./browserAnalysis/loader', async () => {
   return {
     browserAnalysisLoaded: () => local.loaded,
     loadAnalysisIntegration: async () => {
+      local.started = true;
+      if (local.gate) await local.gate;
       local.loaded = true;
       return {
         ...retirements,
@@ -135,6 +139,8 @@ beforeEach(() => {
         schema: 1,
         receipt: `receipt-${url[url.indexOf('games') + 1]}-${body?.cursor ?? 0}`,
         epoch: 'server-epoch',
+        created_at: 1000,
+        reconciled_before: 0,
         game_id: url[url.indexOf('games') + 1],
         version: body?.version ?? 0,
         cursor: body?.cursor ?? 0,
@@ -147,6 +153,8 @@ beforeEach(() => {
   local.setAnalysisAccount.mockClear();
   local.setAnalysisPolicy.mockClear();
   local.loaded = false;
+  local.started = false;
+  local.gate = null;
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
   apiHandler.mockImplementation(async (path: string) => {
     if (path.endsWith('/analytics')) return settings('server_only');
@@ -541,20 +549,15 @@ describe('useGameAnalysis execution-policy integration', () => {
     });
     apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_preferred');
-      if (String(path).includes('/analysis-status')) {
-        const parsed = new URL(String(path), 'https://example.test');
+      if (String(path).includes('/analysis/receipts/')) {
         const active = ++statusReads < 2;
         return {
           schema: 1,
-          active,
-          game_id: parsed.pathname.split('/')[2],
-          cursor: Number(parsed.searchParams.get('cursor') ?? 0),
-          version: Number(parsed.searchParams.get('version') ?? 0),
-          position_key: 'server-position-key',
-          advisor_revision: 1,
-          receipt: parsed.searchParams.get('receipt'),
-          receipt_state: active ? 'active' : 'retired',
-          receipt_epoch: 'server-epoch',
+          receipt: decodeURIComponent(String(path).split('/').pop() ?? ''),
+          epoch: 'server-epoch',
+          state: active ? 'active' : 'completed',
+          terminal: !active,
+          reconciled_before: 0,
         };
       }
       if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
@@ -619,20 +622,15 @@ describe('useGameAnalysis execution-policy integration', () => {
     });
     apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_preferred');
-      if (String(path).includes('/analysis-status')) {
-        const parsed = new URL(String(path), 'https://example.test');
+      if (String(path).includes('/analysis/receipts/')) {
         const active = ++statusReads < 2;
         return {
           schema: 1,
-          active,
-          game_id: 'g1',
-          cursor: 0,
-          version: 0,
-          position_key: 'server-position-key',
-          advisor_revision: 1,
-          receipt: parsed.searchParams.get('receipt'),
-          receipt_state: active ? 'active' : 'retired',
-          receipt_epoch: 'server-epoch',
+          receipt: decodeURIComponent(String(path).split('/').pop() ?? ''),
+          epoch: 'server-epoch',
+          state: active ? 'active' : 'completed',
+          terminal: !active,
+          reconciled_before: 0,
         };
       }
       if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
@@ -674,7 +672,7 @@ describe('useGameAnalysis execution-policy integration', () => {
     });
     apiHandler.mockImplementation(async (path: string) => {
       if (path.endsWith('/analytics')) return settings('browser_preferred');
-      if (String(path).includes('/analysis-status')) return { active: false };
+      if (String(path).includes('/analysis/receipts/')) return { active: false };
       if (String(path).endsWith('/analysis')) return { ...localReport(), status: 'pending' };
       throw new Error(`unexpected ${path}`);
     });
@@ -791,5 +789,26 @@ describe('useGameAnalysis execution-policy integration', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(hook.result.current.settings.revision).not.toBe(9);
     expect(local.runLocalAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('does not bind a deferred integration load after an account change', async () => {
+    let release!: () => void;
+    local.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_only');
+      throw new Error(`unexpected ${path}`);
+    });
+    const hook = renderHook(
+      ({ account }: { account: string }) =>
+        useGameAnalysis(game(), true, false, '/games', false, account),
+      { initialProps: { account: 'account-1' } },
+    );
+    await waitFor(() => expect(local.started).toBe(true));
+    hook.rerender({ account: 'account-2' });
+    release();
+    await waitFor(() => expect(local.setAnalysisAccount).toHaveBeenCalledWith('account-2'));
+    expect(local.setAnalysisAccount).not.toHaveBeenCalledWith('account-1');
   });
 });

@@ -50,8 +50,6 @@ def _busy(message: str, retry_after: int = 1) -> AnalysisPolicyError:
 class _BuildRecord:
     lock: threading.Lock = field(default_factory=threading.Lock)
     consumers: int = 0
-    pending: int = 0
-    building: bool = False
 
 
 class BuildLease(AbstractContextManager["BuildLease"]):
@@ -59,7 +57,9 @@ class BuildLease(AbstractContextManager["BuildLease"]):
 
     Reserving a lease increments the record's consumer count *before* the lock
     is returned to the caller. A returned-but-not-yet-acquired lease can
-    therefore never be retired by capacity enforcement.
+    therefore never be retired by capacity enforcement. Cluster reconstruction
+    capacity is acquired separately, only after the caller has rechecked the
+    cache and established that it genuinely needs to rebuild.
     """
 
     def __init__(
@@ -68,30 +68,38 @@ class BuildLease(AbstractContextManager["BuildLease"]):
         key: Hashable,
         record: _BuildRecord,
         *,
-        owner: bool,
-        waiting: bool,
         wait_seconds: float,
     ) -> None:
         self.registry = registry
         self.key = key
         self.record = record
-        self.owner = owner
-        self.waiting = waiting
         self.wait_seconds = wait_seconds
         self.acquired = False
+        self.capacity_held = False
+        self.waiting = True
         self.closed = False
 
     def __enter__(self) -> "BuildLease":
         if self.closed:
             raise _busy("The analysis context build was already released.")
-        started = self.registry.clock()
         if not self.record.lock.acquire(timeout=max(0.0, self.wait_seconds)):
             self.registry.abandon_lease(self)
+            self.closed = True
             raise _busy("Timed out waiting for the analysis context builder.")
-        elapsed = self.registry.clock() - started
         self.acquired = True
-        self.registry.enter_lease(self, elapsed)
+        self.registry.enter_lease(self)
         return self
+
+    def reconstruct(self, timeout: float = 0.0) -> None:
+        """Reserve aggregate reconstruction capacity for an actual rebuild."""
+        if self.closed or not self.acquired:
+            raise _busy("The analysis context build is not active.")
+        if self.capacity_held:
+            return
+        if not self.registry.capacity.acquire(timeout=max(0.0, timeout)):
+            raise _busy("Analysis context reconstruction capacity is busy. Retry shortly.")
+        self.capacity_held = True
+        self.registry.capacity_acquired()
 
     def __exit__(self, exc_type, exc, traceback) -> None:
         self.close()
@@ -100,10 +108,22 @@ class BuildLease(AbstractContextManager["BuildLease"]):
         if self.closed:
             return
         self.closed = True
+        if self.capacity_held:
+            self.capacity_held = False
+            self.registry.capacity_released()
+            try:
+                self.registry.capacity.release()
+            except ValueError:
+                # A bounded semaphore duplicate release is a bookkeeping fault,
+                # never a reason to keep the record or its lock alive.
+                pass
         if self.acquired:
-            self.registry.release_lease(self)
-        else:
-            self.registry.abandon_lease(self)
+            self.acquired = False
+            try:
+                self.record.lock.release()
+            except RuntimeError:
+                pass
+        self.registry.abandon_lease(self)
 
 
 class ContextBuildRegistry:
@@ -125,8 +145,8 @@ class ContextBuildRegistry:
         self.clock = clock
         self.guard = threading.Lock()
         self.records: OrderedDict[Hashable, _BuildRecord] = OrderedDict()
+        self.capacity = threading.BoundedSemaphore(max_concurrent)
         self.building = 0
-        self.pending = 0
         self.waiting = 0
         self.reconstructions = 0
         self.rejections = 0
@@ -135,81 +155,40 @@ class ContextBuildRegistry:
         """Reserve exactly one compatible build/wait slot for ``key``."""
         with self.guard:
             record = self.records.get(key)
-            if record is not None:
-                active = record.building or record.pending > 0
-                if active:
-                    if self.waiting >= self.max_waiting:
-                        self.rejections += 1
-                        raise _busy("Analysis context preparation is busy. Retry shortly.")
-                    self.waiting += 1
-                    record.consumers += 1
-                    self.records.move_to_end(key)
-                    return BuildLease(
-                        self, key, record, owner=False, waiting=True, wait_seconds=self.wait_seconds
-                    )
-                if self.building + self.pending >= self.max_concurrent:
+            if record is None:
+                if len(self.records) >= self.max_records:
                     self.rejections += 1
-                    raise _busy("Analysis context preparation is busy. Retry shortly.")
-                self.pending += 1
-                record.pending += 1
-                record.consumers += 1
+                    raise _busy("Analysis context preparation capacity is busy. Retry shortly.")
+                record = _BuildRecord()
+                self.records[key] = record
+            else:
                 self.records.move_to_end(key)
-                return BuildLease(
-                    self, key, record, owner=True, waiting=False, wait_seconds=self.wait_seconds
-                )
-            if len(self.records) >= self.max_records:
-                self.rejections += 1
-                raise _busy("Analysis context preparation capacity is busy. Retry shortly.")
-            if self.building + self.pending >= self.max_concurrent:
+            if self.waiting >= self.max_waiting:
                 self.rejections += 1
                 raise _busy("Analysis context preparation is busy. Retry shortly.")
-            record = _BuildRecord()
-            record.consumers = 1
-            record.pending = 1
-            self.records[key] = record
-            self.pending += 1
-            return BuildLease(
-                self, key, record, owner=True, waiting=False, wait_seconds=self.wait_seconds
-            )
+            record.consumers += 1
+            self.waiting += 1
+            return BuildLease(self, key, record, wait_seconds=self.wait_seconds)
 
-    def enter_lease(self, lease: BuildLease, waited_seconds: float = 0.0) -> None:
-        del waited_seconds
+    def enter_lease(self, lease: BuildLease) -> None:
         with self.guard:
             if lease.waiting:
-                self.waiting = max(0, self.waiting - 1)
                 lease.waiting = False
-            elif self.pending:
-                self.pending -= 1
-                lease.record.pending = max(0, lease.record.pending - 1)
-            lease.record.building = True
+                self.waiting = max(0, self.waiting - 1)
+
+    def capacity_acquired(self) -> None:
+        with self.guard:
             self.building += 1
 
-    def release_lease(self, lease: BuildLease) -> None:
+    def capacity_released(self) -> None:
         with self.guard:
-            record = lease.record
-            if record.building:
-                record.building = False
-                self.building = max(0, self.building - 1)
-            record.consumers = max(0, record.consumers - 1)
-            if record.consumers == 0 and self.records.get(lease.key) is record:
-                # The actual lifetime ends here: no builder and no waiter can
-                # still reach this record. The lock is released below.
-                self.records.pop(lease.key, None)
-        try:
-            record.lock.release()
-        except RuntimeError:
-            # A failed acquisition is handled by abandon_lease; never mask the
-            # caller's reconstruction error with a bookkeeping release error.
-            pass
+            self.building = max(0, self.building - 1)
 
     def abandon_lease(self, lease: BuildLease) -> None:
         with self.guard:
             if lease.waiting:
-                self.waiting = max(0, self.waiting - 1)
                 lease.waiting = False
-            elif lease.record.pending:
-                self.pending = max(0, self.pending - 1)
-                lease.record.pending = max(0, lease.record.pending - 1)
+                self.waiting = max(0, self.waiting - 1)
             lease.record.consumers = max(0, lease.record.consumers - 1)
             if lease.record.consumers == 0 and self.records.get(lease.key) is lease.record:
                 self.records.pop(lease.key, None)
@@ -223,7 +202,7 @@ class ContextBuildRegistry:
             return {
                 "records": len(self.records),
                 "building": self.building,
-                "pending": self.pending,
+                "pending": 0,
                 "waiting": self.waiting,
                 "reconstructions": self.reconstructions,
                 "rejections": self.rejections,

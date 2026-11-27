@@ -73,12 +73,21 @@ class AnalysisService:
         settings: dict,
         *,
         state=None,
+        receipt=None,
     ) -> tuple:
-        key, _ = self._schedule(game, snapshot, role, agent, settings, state=state)
+        key, _ = self._schedule(game, snapshot, role, agent, settings, state=state, receipt=receipt)
         return key
 
     def wait(
-        self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict, *, state=None
+        self,
+        game: dict,
+        snapshot: dict,
+        role: str,
+        agent: dict,
+        settings: dict,
+        *,
+        state=None,
+        receipt=None,
     ) -> None:
         """Join the same bounded work as background clients, outside the pool lock.
 
@@ -94,7 +103,9 @@ class AnalysisService:
                 "Synchronous analysis capacity is busy. Retry later or use background analysis."
             )
         try:
-            key, task = self._schedule(game, snapshot, role, agent, settings, state=state)
+            key, task = self._schedule(
+                game, snapshot, role, agent, settings, state=state, receipt=receipt
+            )
             if task is not None:
                 try:
                     task.result(timeout=SYNCHRONOUS_WAIT_SECONDS)
@@ -121,8 +132,35 @@ class AnalysisService:
         cached = self.store.game_analysis(game_id, position_key)
         return bool(cached and any(item["agent_id"] == role for item in cached["evaluations"]))
 
+    def _observe_receipt(self, receipt, task: Future) -> None:
+        """Tie one receipt submission to an existing or newly scheduled task."""
+
+        if receipt is None:
+            return
+        receipt.track()
+
+        def completed(future: Future) -> None:
+            success = False
+            try:
+                success = future.exception() is None
+            except CancelledError:
+                success = False
+            except BaseException:  # pragma: no cover - defensive future contract
+                success = False
+            receipt.complete(success)
+
+        task.add_done_callback(completed)
+
     def _schedule(
-        self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict, *, state=None
+        self,
+        game: dict,
+        snapshot: dict,
+        role: str,
+        agent: dict,
+        settings: dict,
+        *,
+        state=None,
+        receipt=None,
     ) -> tuple[tuple, Future | None]:
         revision = settings["revision"] if role == "advisor" else None
         key = (game["id"], snapshot["position_key"], role, revision)
@@ -135,6 +173,7 @@ class AnalysisService:
             # Playing-agent polls retain their existing read ordering: their
             # final report read follows the activity check in the HTTP adapter.
             if role != "advisor" and previous_running and not self.closed:
+                self._observe_receipt(receipt, previous)
                 return key, previous
             # A poll may have read its report just before the preceding worker
             # committed. Recheck under the scheduling lock before starting work.
@@ -144,6 +183,8 @@ class AnalysisService:
                         game["id"], snapshot["position_key"], revision
                     )
                     self.store.record_replay_analysis(game, cached, requester)
+                if receipt is not None:
+                    receipt.result_available()
                 return key, None
             if self.closed:
                 raise AnalysisUnavailable("Analysis service is stopping. Retry later.")
@@ -167,6 +208,7 @@ class AnalysisService:
                                     "Replay requester capacity is busy. Retry later."
                                 )
                             registered.add(requester)
+                self._observe_receipt(receipt, previous)
                 return key, previous
             if len(self.tasks) >= MAX_ANALYSIS_TASKS:
                 raise AnalysisUnavailable("Analysis workers are busy. Retry shortly.")
@@ -190,6 +232,7 @@ class AnalysisService:
                 raise
             self.tasks[key] = task
             task.add_done_callback(partial(self._forget, key, token=token))
+            self._observe_receipt(receipt, task)
         return key, task
 
     def _forget(self, key: tuple, task: Future, token: tuple[str, int] | None = None) -> None:

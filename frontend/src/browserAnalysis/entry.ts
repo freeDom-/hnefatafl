@@ -15,6 +15,7 @@ export {
   type BrowserAnalysisErrorCode,
   type BrowserAnalysisState,
   type DownloadProgress,
+  type ModelAuthorizationEvidence,
   type ModelDownloadResult,
   type ModelManifest,
   type ProviderRequest,
@@ -39,6 +40,7 @@ import type {
   Availability,
   AnalysisAlgorithm,
   DownloadProgress,
+  ModelAuthorizationEvidence,
   ModelDownloadResult,
   ModelManifest,
   RuntimeDisposalOutcome,
@@ -72,6 +74,7 @@ export interface BrowserAnalysisApi {
   status(): RuntimeStatus;
   lastResult(): SearchResult | null;
   modelReady(model: ModelManifest, provider: 'wasm' | 'webgpu'): boolean;
+  modelAuthorization(model: ModelManifest): ModelAuthorizationEvidence | null;
   storageUsage(): Promise<{ persistent: boolean; bytes: number }>;
 }
 
@@ -94,6 +97,7 @@ export async function createBrowserAnalysis(
     status: () => runtime.getStatus(),
     lastResult: () => runtime.getLastResult(),
     modelReady: (model, provider) => runtime.modelReady(model, provider),
+    modelAuthorization: (model) => runtime.modelAuthorization(model),
     storageUsage: () => runtime.storageUsage(),
   };
 }
