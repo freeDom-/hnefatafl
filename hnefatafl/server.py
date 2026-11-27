@@ -1103,6 +1103,9 @@ def create_app(
             return None
         result = dict(recorded or advisor or {})
         if settings["revision"] == 0 and advisor is None:
+            if not settings["advisor"]:
+                # Public replay filters the original legacy entries in its projection.
+                return recorded
             # Legacy advisor evidence can be embedded in the original report.
             if any(entry["agent_id"] == "advisor" for entry in result.get("evaluations", [])):
                 advisor = recorded
