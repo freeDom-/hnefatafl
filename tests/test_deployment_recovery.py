@@ -171,13 +171,16 @@ def test_unchanged_service_recovery_refuses_replaced_data_root(tmp_path, monkeyp
         harness._authorize_service_start()
 
 
-@pytest.mark.parametrize("phase", ["migrating", "recovered"])
+@pytest.mark.parametrize("phase", ["migrating", "recovered", "committed"])
 def test_journal_directory_sync_failure_after_rename(tmp_path, monkeypatch, phase):
     from hnefatafl import deployment
 
     harness, old, target = recovery_harness(tmp_path)
     database = with_database(harness)
     original = database.read_bytes()
+    prior_release = harness.release("0.9.0", "0000", prepared_at=1)
+    prior_backup = harness.make_backup("20261125T010000-0001")
+    harness.set_state("1.0.0", old, previous=prior_release, backup=prior_backup)
     sync = deployment.sync_directory
     faults = []
 
@@ -190,35 +193,105 @@ def test_journal_directory_sync_failure_after_rename(tmp_path, monkeypatch, phas
         sync(path)
 
     monkeypatch.setattr(deployment, "sync_directory", failing_sync)
+    if phase != "migrating":
+        monkeypatch.setattr(
+            harness,
+            "_post_operation_cleanup",
+            lambda *args, **kwargs: pytest.fail("retention ran after a failed journal sync"),
+        )
     if phase == "recovered":
 
         def no_snapshot(**_):
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), harness.backups)
 
         monkeypatch.setattr(harness, "snapshot", no_snapshot)
-        monkeypatch.setattr(
-            harness,
-            "_post_operation_cleanup",
-            lambda *args, **kwargs: pytest.fail("retention ran after a failed journal sync"),
-        )
     with pytest.raises(DeploymentStepError, match="EIO") as caught:
         harness.deploy(target)
     assert faults == [phase]
-    assert harness.current.resolve() == old
+    active = target if phase == "committed" else old
+    assert harness.current.resolve() == active
     assert database.read_bytes() == original
     assert not any(harness.data.parent.glob(".retained-*"))
     assert harness.actions.count("start") == 1
-    assert json.loads(harness.journal.read_text())["phase"] == "recovered"
+    assert json.loads(harness.journal.read_text())["phase"] == (
+        "committed" if phase == "committed" else "recovered"
+    )
+    if phase == "migrating":
+        assert "automatic recovery succeeded" in str(caught.value)
+        return
     if phase == "recovered":
         assert "Recovery metadata remains incomplete" in str(caught.value)
-        with pytest.raises(OSError) as failure:
-            harness.recover()
-        assert failure.value.errno == errno.EIO
-        monkeypatch.setattr(deployment, "sync_directory", sync)
-        harness.recover()
-        assert harness.actions.count("start") == 1
     else:
-        assert "automatic recovery succeeded" in str(caught.value)
+        assert "Could not finish publishing the installed state" in str(caught.value)
+
+    next_release = harness.release("3.0.0", "0003", prepared_at=50)
+    expired = harness.release("0.8.0", "0010", prepared_at=0)
+    os.utime(expired, (1, 1))
+    relocated = harness.make_backup("20261126T010000-0002")
+    harness.legacy_backups.mkdir(mode=0o700)
+    legacy = harness.legacy_backups / relocated.name
+    relocated.rename(legacy)
+    orphan = harness.releases / ".staging-release-0123456789abcdef"
+    orphan.mkdir()
+    harness.fs.write_staging_marker(orphan, "release")
+    retained = harness.data.parent / ".retained-0123456789abcdef"
+    retained.mkdir()
+    (retained / "keep").write_text("retained data")
+    state = harness.state.read_bytes()
+    journal = harness.journal.read_bytes()
+    installed = json.loads(state)
+    protected = {active, Path(installed["previous"]), Path(installed["backup"])}
+
+    def fresh():
+        return deployment.Deployment(
+            harness.config,
+            base=harness.base,
+            data=harness.data,
+            etc=harness.etc,
+            unit_file=harness.unit_file,
+            backups=harness.backups,
+        )
+
+    for operation in (
+        lambda: fresh().cleanup(),
+        lambda: fresh().deploy(next_release),
+        lambda: fresh().recover(),
+    ):
+        with pytest.raises(DeploymentError, match="Cannot confirm durability") as failure:
+            operation()
+        assert "EIO" in str(failure.value)
+        assert str(harness.journal) in str(failure.value)
+        assert "hnefatafl-update --recover" in str(failure.value)
+        assert all(
+            path.exists()
+            for path in {
+                *protected,
+                prior_release,
+                prior_backup,
+                expired,
+                legacy,
+                orphan,
+                next_release,
+            }
+        )
+        assert not relocated.exists()
+        assert not harness.migration_journal.exists()
+        assert harness.current.resolve() == active
+        assert harness.state.read_bytes() == state and harness.journal.read_bytes() == journal
+        assert database.read_bytes() == original
+        assert (retained / "keep").read_text() == "retained data"
+
+    monkeypatch.setattr(deployment, "sync_directory", sync)
+    updater = fresh()
+    updater.recover()
+    assert relocated.is_dir() and not legacy.exists()
+    assert not orphan.exists()
+    report = updater.cleanup()
+    assert report.ok and not report.refused
+    assert not expired.exists()
+    assert all(path.exists() for path in protected)
+    assert harness.current.resolve() == active and database.read_bytes() == original
+    assert (retained / "keep").read_text() == "retained data"
 
 
 @pytest.mark.parametrize("point", ["after-migration", "after-activation", "uses-reserve"])

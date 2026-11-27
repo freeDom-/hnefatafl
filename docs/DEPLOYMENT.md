@@ -869,6 +869,15 @@ before running `hnefatafl-update --recover`. Respect the startup guard while
 authority is uncertain. Release and data capacity checks still apply when
 recovery resumes.
 
+A terminal phase can be visible after the journal was replaced and its parent
+directory failed to sync. Before an update or executing cleanup relies on
+that record, the updater confirms durability by synchronizing the directory.
+Recovery makes the same check before backup relocation or staging cleanup.
+If the check fails, the updater keeps the recovery artifacts in place and
+reports the affected filesystem. Restore reliable access and run
+`hnefatafl-update --recover`. Read-only commands continue to inspect the
+visible metadata without synchronizing the directory.
+
 ### Cross-schema automatic recovery is fail-closed
 
 Creating an automatic pre-deployment snapshot is **not** a guarantee that an

@@ -1755,6 +1755,10 @@ class Deployment:
         root-owned sibling backup root before any privileged snapshot operation, and
         recorded metadata references are rewritten atomically.
         """
+        # Backup migration and its callers' retention can use terminal journal
+        # references even when the layout has already been initialized.
+        journal, _, _ = self._load_metadata(self.journal, "transaction journal")
+        self._confirm_terminal_journal_durability(journal)
         if self._layout_ready:
             return
         self._migrate_legacy_backups(protected_backups)
@@ -6789,7 +6793,20 @@ for name, validate in (
             return error
         return None
 
-    def _require_idle_transaction(self, action: str) -> None:
+    def _confirm_terminal_journal_durability(self, journal: dict | None) -> None:
+        if journal is None or journal.get("phase") not in ("committed", "recovered"):
+            return
+        # Atomic publication may have reached rename but failed to sync the parent.
+        try:
+            sync_directory(self.journal.parent)
+        except OSError as error:
+            raise JournalWriteError(
+                f"Cannot confirm durability of {self.journal} in phase {journal['phase']} "
+                f"({describe_exception(error)}). Restore reliable write access to the "
+                f"filesystem holding {self.journal.parent}, then run hnefatafl-update --recover."
+            ) from error
+
+    def _require_idle_transaction(self, action: str, *, read_only: bool = False) -> None:
         transaction, readable, reason = self._load_metadata(self.journal, "transaction journal")
         valid = readable
         if transaction is not None:
@@ -6805,6 +6822,8 @@ for name, validate in (
                 f"Cannot {action} before resolving the deployment journal. "
                 f"Run hnefatafl-update --recover. {reason}"
             )
+        if not read_only:
+            self._confirm_terminal_journal_durability(transaction)
 
     # ------------------------------------------------------------------
     # Restore transaction
@@ -8146,8 +8165,8 @@ for name, validate in (
     def deploy(self, target: Path, *, initialize=False):
         self._deployment_transaction_started = False
         self._deployment_recovery_completed = False
+        self._require_idle_transaction("start deployment")
         try:
-            self._require_idle_transaction("start deployment")
             self.ensure_layout()
             self.recover_updater_refresh()
             self._remove_orphan_staging()
@@ -8769,9 +8788,7 @@ for name, validate in (
             transaction = journal
             phase = transaction["phase"]
             if phase in {"committed", "recovered"}:
-                # A prior attempt may have reached rename but failed to sync
-                # the journal directory. Confirm durability before cleanup.
-                sync_directory(self.etc)
+                self._confirm_terminal_journal_durability(transaction)
                 if transaction.get("restore"):
                     self._require_active_state(self._installed_metadata())
                     self.finalize_restore(transaction)
@@ -9091,17 +9108,15 @@ def main(argv=None, *, layout=None, installed_generation=None, deployment_lock=N
             raise DeploymentError(
                 "Interrupted updater publication. Run hnefatafl-update --recover."
             )
-        if not read_only:
-            deployment.recover_updater_refresh()
         if read_only and os.path.lexists(deployment.migration_journal):
             raise DeploymentError("Interrupted backup migration. Run hnefatafl-update --recover.")
         if args.recover:
             deployment.recover()
             return 0
-        deployment._require_idle_transaction("continue")
+        deployment._require_idle_transaction("continue", read_only=read_only)
+        if not read_only:
+            deployment.recover_updater_refresh()
         if args.cleanup:
-            if not read_only:
-                deployment.ensure_layout()
             report = deployment.cleanup(dry_run=args.dry_run, include_caches=True)
             deployment.print_cleanup_report(report)
             if report.failed or report.errors or report.refused and not read_only:

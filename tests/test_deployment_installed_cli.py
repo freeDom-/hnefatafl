@@ -128,6 +128,7 @@ def run_cli(
     interrupt=None,
     install_scenario=None,
     journal_fault=False,
+    journal_sync_fault=False,
     through_command=False,
 ):
     env = {
@@ -142,6 +143,8 @@ def run_cli(
         env["DISPOSABLE_APPLICATION_SOURCE"] = str(REPO)
     if journal_fault:
         env["DISPOSABLE_JOURNAL_FULL"] = "1"
+    if journal_sync_fault:
+        env["DISPOSABLE_JOURNAL_SYNC_FAILED"] = "1"
     bootstrap = """
 import errno, json, os, runpy, signal, subprocess, sys
 from pathlib import Path
@@ -155,6 +158,14 @@ if os.getenv('DISPOSABLE_JOURNAL_FULL'):
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), path)
         atomic_json(path, value)
     namespace['atomic_json'] = write
+if os.getenv('DISPOSABLE_JOURNAL_SYNC_FAILED'):
+    namespace = module['Deployment'].record.__globals__
+    sync_directory = namespace['sync_directory']
+    def sync(path):
+        if path == root/'etc':
+            raise OSError(errno.EIO, os.strerror(errno.EIO), path)
+        sync_directory(path)
+    namespace['sync_directory'] = sync
 point = os.getenv('DISPOSABLE_UPDATER_INTERRUPTION')
 if point:
     deployment = module['Deployment']
@@ -491,6 +502,50 @@ def test_clean_dry_run_preserves_legacy_layout_and_missing_lock(tmp_path):
     assert (legacy / snapshot.name).is_dir()
     assert not (root / "etc/backup-migration.json").exists()
     assert not (root / "update.lock").exists()
+
+
+@pytest.mark.parametrize("arguments", [("--check",), ("--list",), ("--cleanup", "--dry-run")])
+def test_read_only_cli_leaves_visible_terminal_journal_alone(tmp_path, arguments):
+    root, _release, snapshot, database, installed, bin_directory = build_layout(tmp_path)
+    journal = root / "etc/transaction.json"
+    atomic_json(journal, {"phase": "recovered"})
+    atomic_json(root / "etc/deployment.json", {**CONFIG, "repository": "example/hnefatafl"})
+    before = {path: path.read_bytes() for path in (journal, root / "etc/installed.json", database)}
+    legacy = root / "data/backups"
+    legacy.mkdir(mode=0o700)
+    snapshot.rename(legacy / snapshot.name)
+
+    result = run_cli(
+        installed,
+        root,
+        bin_directory,
+        *arguments,
+        install_scenario="success",
+        journal_sync_fault=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert {path: path.read_bytes() for path in before} == before
+    assert (legacy / snapshot.name).is_dir() and not snapshot.exists()
+    assert not (root / "etc/backup-migration.json").exists()
+    assert not (root / "update.lock").exists()
+
+
+@pytest.mark.parametrize("arguments", [(), ("--cleanup",), ("--recover",)])
+def test_mutating_cli_checks_terminal_journal_before_housekeeping(tmp_path, arguments):
+    root, _release, _snapshot, database, installed, bin_directory = build_layout(tmp_path)
+    journal = root / "etc/transaction.json"
+    atomic_json(journal, {"phase": "recovered"})
+    refresh = installed / ".refresh.json"
+    atomic_json(refresh, {"schema": 1, "phase": "prepared", "entries": []})
+    before = {path: path.read_bytes() for path in (journal, refresh, database)}
+
+    result = run_cli(installed, root, bin_directory, *arguments, journal_sync_fault=True)
+
+    assert result.returncode == 1
+    assert "Cannot confirm durability" in result.stderr and "EIO" in result.stderr
+    assert "hnefatafl-update --recover" in result.stderr
+    assert {path: path.read_bytes() for path in before} == before
 
 
 def test_killed_manual_backup_recovers_service_and_keeps_published_snapshot(tmp_path):
