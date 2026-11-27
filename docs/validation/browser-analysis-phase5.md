@@ -689,8 +689,12 @@ structured 503 at capacity, and all build records were released during recovery.
 ## Eighth-review corrections R01–R02
 
 The regressions reproduced on `3002c5215154bc3996dd5157be94af57856b8758`. The
-corrections are on `23ccb02c16ea5bdc27bf1471b7606df888519f24`; GitHub Actions
-status for that head is reported on [PR #129](https://github.com/freeDom-/hnefatafl/pull/129/checks).
+corrections are on `23ccb02c16ea5bdc27bf1471b7606df888519f24`. GitHub Actions
+passed every required job on correction head
+`98a1cdbbf40771f3c09d2b2725997b2642993f91`
+([run 46065185854](https://github.com/freeDom-/hnefatafl/actions/runs/46065185854)):
+`browser`, `deployment-cross-version`, `node22`, `python` and `security`.
+[PR checks](https://github.com/freeDom-/hnefatafl/pull/129/checks)
 
 | Finding | Root cause | Correction and source | Reproduction and validation |
 | --- | --- | --- | --- |
@@ -708,6 +712,7 @@ Focused correction-head validation:
 | Full frontend Vitest | **1,894 passed (118 files)** |
 | Ruff check/format, Prettier check, TypeScript check | passed |
 | Production build and bundle budget | passed (**598,893 raw / 190,622 gzip**; CSS 115,551/24,114) |
+| GitHub Actions on `98a1cdb` | all five required jobs passed (run 46065185854) |
 
 The previous 32/32 production-browser integration result remains historical
 evidence for the reviewed revision; this focused correction did not re-stage the
