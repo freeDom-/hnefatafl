@@ -14,8 +14,9 @@ Related: [Phase 2 validation](../validation/browser-analysis-phase2.md) ·
 
 **Current integration revision:** Phase 5 transparent browser-first integration
 is implemented on the merged Phase 4 runtime (PR #124 /
-`37684e4362498361530bb8e3a833c2b68ddbf2b7`) and is under fourth-review correction
-on PR #129 (`feat/browser-analysis-phase5`, O-correction round). The server owns a deployment execution
+`37684e4362498361530bb8e3a833c2b68ddbf2b7`) and its fifth-review corrections are
+published on PR #129 (`feat/browser-analysis-phase5`, head
+`18bdfdd27d9693ef2e66ab430ea9d98425f5a975`). The server owns a deployment execution
 policy (`browser_only`, `browser_preferred`, `server_only`, `disabled`); the
 existing analysis UI executes locally without a player-facing mode selector and
 falls back to the server only under `browser_preferred` and only for classified
@@ -718,8 +719,11 @@ Phase 3 is not complete.
   a staged 48,106,695-byte runtime; one published 47,540-byte structural smoke
   model. Local Jarl and 32-simulation neural MCTS executed through the application
   integration; warm offline searches completed with no analysis/authorization
-  request; successful local analysis incremented no server computation counter.
-  Initial bundle 599,023 raw / 190,468 gzip local (budgets 600,000/200,000); the runtime,
+  request; successful local analysis incremented no server computation counter;
+  a server-supported advisor that the browser cannot run locally failed eligibility
+  checks and completed through exactly one logical server fallback whose retained
+  result was retrieved read-only after receipt retirement.
+  Initial bundle 599,385 raw / 190,564 gzip in CI (599,023/190,468 local; budgets 600,000/200,000); the runtime,
   integration and entry chunks are absent from the initial graph. Details and
   limits are in the [Phase 5 report](../validation/browser-analysis-phase5.md).
 - **K1–K16 review corrections:** canonical server-resolved effective settings

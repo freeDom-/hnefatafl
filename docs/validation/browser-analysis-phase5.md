@@ -6,9 +6,11 @@
 
 Status: **Phase 5 implementation and independent-review corrections K1–K16,
 L1–L11, M1–M8, N1–N7 and O1–O6 are complete at the software level. The O-correction
-code head `83f5aaab581917c2bf854cf9db2d7f15459cdca0` passed focused backend/frontend
-suites, the production build, receipt/context benchmarks, and production-browser
-local, neural, offline and real server-fallback probes. This is not production acceptance; the feature remains opt-in and disabled
+code head `83f5aaab581917c2bf854cf9db2d7f15459cdca0` (documented on head
+`18bdfdd27d9693ef2e66ab430ea9d98425f5a975`) passed focused backend/frontend suites,
+the production build, receipt/context benchmarks, and production-browser local,
+neural, offline and real server-fallback probes. All required CI jobs pass on that
+head. This is not production acceptance; the feature remains opt-in and disabled
 by default on existing installations. K10 remains an explicit owner-decision
 blocker.**
 
@@ -373,8 +375,8 @@ Current production initial bundle (authenticated graph):
 
 | Measurement | Phase 4 reported | Phase 5 measured | Budget |
 | --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **599,023** (local) | 600,000 |
-| JavaScript gzip | 186,716 | **190,468** (local) | 200,000 |
+| JavaScript raw | 585,756 | **599,385** (CI) / 599,023 (local) | 600,000 |
+| JavaScript gzip | 186,716 | **190,564** (CI) / 190,468 (local) | 200,000 |
 | CSS raw | — | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 35,000 |
 
@@ -570,9 +572,11 @@ validation-evidence organization, as shown above.
 - Receipt benchmark: create **7.8 ms**, status poll **3.28 ms**, result poll
   **3.36 ms**, **0** additional context reconstructions, one bounded cleanup pass.
 - Focused backend receipt/lifecycle/context/identity suites: **37 passed**;
-  broader focused analysis/security set: **195 passed**.
-- Full frontend suite: see section 16.
-- CI bundle on the final O head is recorded in section 10/16; budgets unchanged.
+  broader focused analysis/security set: **196 passed**.
+- Full frontend suite: **1,856 passed (118 files)**.
+- CI on O head `18bdfdd27d9693ef2e66ab430ea9d98425f5a975`: security, python,
+  node22, deployment-cross-version and browser jobs all pass. Node 22 bundle
+  **599,385 raw / 190,564 gzip**; budgets unchanged.
 
 ## 12. Sustained-memory investigation
 
@@ -729,7 +733,7 @@ no licensing right is declared resolved without owner/legal acceptance.
 | Retirement registry Vitest | **7 passed** |
 | Execution-policy projection Vitest | 3 passed |
 | Full frontend Vitest | **1,856 passed (118 files)** |
-| Production build + bundle budget | passed (**599,023 raw / 190,468 gzip** local; CI recorded after push) |
+| Production build + bundle budget | passed (**599,385 raw / 190,564 gzip** CI; 599,023/190,468 local) |
 | TypeScript check | passed |
 | Ruff / format check / mypy | passed |
 | `scripts/audit_api.py` | 148 routes accounted for |
