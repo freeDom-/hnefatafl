@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 import unicodedata
+from collections import OrderedDict
 from contextlib import asynccontextmanager, contextmanager, ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,9 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
+from .analysis_policy import AnalysisAdmission, AnalysisPolicyError
+from .analysis_receipts import AnalysisReceipts, ReceiptLease
+from .context_preparation import ContextBuildRegistry, ContextRequestLimiter
 from .account_policy import (
     BIDI_CONTROLS,
     game_accounts,
@@ -282,6 +286,11 @@ class AnalysisRequest(SeekRequest):
     # Read-only history review analyzes any recorded cursor without seeking the
     # authoritative game; live gameplay keeps the exact-cursor contract.
     historical: bool = False
+    retry_revision: StrictInt | None = Field(default=None, ge=0)
+
+
+class AnalysisReceiptRequest(SeekRequest):
+    revision: StrictInt = Field(default=0, ge=0)
 
 
 class AdvisorRequest(BaseModel):
@@ -403,6 +412,30 @@ def create_app(
     from .auth import attach_auth
 
     auth = attach_auth(app, store)
+    analysis_policy = auth.settings.analysis_policy
+    analysis_admission = AnalysisAdmission(
+        analysis_policy, enforce=analysis_policy.mode == "browser_preferred"
+    )
+    app.state.analysis_policy = analysis_policy
+    app.state.analysis_admission = analysis_admission
+    analysis_receipts = AnalysisReceipts()
+    app.state.analysis_receipts = analysis_receipts
+    analysis_context_cache: OrderedDict[tuple[str, int, int], tuple[dict, int]] = OrderedDict()
+    analysis_context_cache_lock = threading.Lock()
+    analysis_context_cache_bytes = 0
+    analysis_context_builds = ContextBuildRegistry()
+    analysis_context_requests = ContextRequestLimiter(analysis_policy.requests_per_minute)
+    analysis_receipt_requests = ContextRequestLimiter(
+        max(600, analysis_policy.requests_per_minute * 4),
+        rate_code="analysis_receipt_rate_limited",
+        busy_code="analysis_receipt_busy",
+        rate_message="Analysis receipt request rate limit reached. Retry shortly.",
+        busy_message="Analysis receipt request capacity is busy. Retry shortly.",
+    )
+    app.state.analysis_context_cache = analysis_context_cache
+    app.state.analysis_context_builds = analysis_context_builds
+    app.state.analysis_context_requests = analysis_context_requests
+    app.state.analysis_receipt_requests = analysis_receipt_requests
     from .account_api import attach_accounts
 
     account_options = {"settings": account_settings, "transport": mail_transport}
@@ -562,12 +595,16 @@ def create_app(
         return hashlib.sha256(encoded.encode()).hexdigest()
 
     def analytics_settings(game: dict) -> dict:
-        return store.analytics(game["id"]) or {
+        settings = store.analytics(game["id"]) or {
             "advisor": game.get("advisor"),
             "time_limit": 5,
             "show_win_chances": True,
             "revision": 0,
         }
+        # The server, not a browser preference, owns the execution policy. It is
+        # delivered with the existing per-game settings payload so transparent
+        # browser execution needs no additional capability round-trip.
+        return {**settings, "execution": analysis_policy.public()}
 
     def referenced_agents(game: dict) -> list[dict]:
         advisor = analytics_settings(game)["advisor"]
@@ -601,12 +638,15 @@ def create_app(
     def with_agent_rune(agent: dict) -> dict:
         return {**agent, "rune": agent_rune(agent)}
 
-    def analysis_response(analysis: dict | None) -> dict | None:
+    def analysis_response(analysis: dict | None, *, retain_runes=False) -> dict | None:
         if analysis is None:
             return None
         return {
             **analysis,
-            "evaluations": [with_agent_rune(entry) for entry in analysis["evaluations"]],
+            "evaluations": [
+                entry if retain_runes and entry.get("rune") else with_agent_rune(entry)
+                for entry in analysis["evaluations"]
+            ],
         }
 
     def resolved_players(games: list[dict]) -> dict[str, dict]:
@@ -1059,24 +1099,43 @@ def create_app(
         key = position_key(state or state_of(game))
         recorded = store.game_analysis(game["id"], key)
         advisor = store.advisor_analysis(game["id"], key, settings["revision"])
-        # Before the first preference change, legacy advisor reports keep their
-        # original representation and remain usable without model weights.
-        if store.analytics(game["id"]) is None and advisor is None:
-            return recorded
         if recorded is None and advisor is None:
             return None
         result = dict(recorded or advisor or {})
-        result["evaluations"] = [
-            entry
-            for entry in (recorded or {}).get("evaluations", [])
-            if entry["agent_id"] != "advisor"
-        ]
-        result["hint"] = None
-        if settings["advisor"] and advisor:
-            result["evaluations"].extend(advisor["evaluations"])
-            result["hint"] = advisor["hint"]
+        if settings["revision"] == 0 and advisor is None:
+            if not settings["advisor"]:
+                # Public replay filters the original legacy entries in its projection.
+                return recorded
+            # Legacy advisor evidence can be embedded in the original report.
+            if any(entry["agent_id"] == "advisor" for entry in result.get("evaluations", [])):
+                advisor = recorded
+        else:
+            result["evaluations"] = [
+                entry
+                for entry in (recorded or {}).get("evaluations", [])
+                if entry["agent_id"] != "advisor"
+            ]
+            result["hint"] = None
+            if settings["advisor"] and advisor:
+                result["evaluations"].extend(advisor["evaluations"])
+                result["hint"] = advisor["hint"]
+        if (
+            settings["advisor"]
+            and advisor
+            and (outcome := advisor_result_status(advisor)) != "complete"
+        ):
+            result["status"] = "partial" if outcome == "partial" else "unavailable"
+            result["advisor_revision"] = settings["revision"]
         result.pop("partial", None)
+        result.pop("retired_partial", None)
         return result
+
+    def analysis_display_status(report: dict, settings: dict) -> str:
+        if status := report.get("status"):
+            return status
+        if settings["advisor"] and advisor_result_status(report) != "complete":
+            return "unavailable"
+        return "complete"
 
     def record_completed_replay(game: dict, settings: dict, recorded: dict | None) -> None:
         # Presentation merges intentionally omit the advisor's partial flag.
@@ -1084,12 +1143,27 @@ def create_app(
         if not recorded or not (game.get("recorded_result") or {}).get("winner"):
             return
         raw = store.advisor_analysis(game["id"], recorded["position_key"], settings["revision"])
-        if raw is None and store.analytics(game["id"]) is None:
+        if raw is None and settings["revision"] == 0:
             raw = store.game_analysis(game["id"], recorded["position_key"])
         from .security_context import principal
 
         identity = principal.get()
         store.record_replay_analysis(game, raw, identity["id"] if identity else None)
+
+    def advisor_effective_config(agent: dict, settings: dict) -> dict:
+        """Canonical advisor search configuration shared with browser execution.
+
+        Profile defaults, the analytics time limit and model identity are resolved
+        once here. The analyzed position's ply is deliberately applied by the
+        caller (``search_seed``/context metadata) so historical positions do not
+        inherit the current game ply.
+        """
+        from .analysis_service import advisor_config
+
+        raw = advisor_config(agent["config"], agent.get("profile_id"))
+        configuration = effective_ai_config(raw, agent.get("profile_id"))
+        configuration["time_limit"] = settings["time_limit"]
+        return configuration
 
     def evaluation_entry(
         game: dict,
@@ -1101,16 +1175,11 @@ def create_app(
         state: State | None = None,
     ) -> dict:
         state = state or state_of(game)
-        from .analysis_service import advisor_config
-
-        raw = (
-            advisor_config(agent["config"], agent.get("profile_id"))
+        configuration = (
+            advisor_effective_config(agent, settings)
             if role == "advisor"
-            else agent["config"]
+            else effective_ai_config(agent["config"], agent.get("profile_id"))
         )
-        configuration = effective_ai_config(raw, agent.get("profile_id"))
-        if role == "advisor":
-            configuration["time_limit"] = settings["time_limit"]
         entry = {
             "agent_id": role,
             "role": role,
@@ -1170,14 +1239,63 @@ def create_app(
             entry["unavailable_reason"] = "evaluation_failed"
         return entry
 
-    from .analysis_service import AnalysisService, AnalysisUnavailable, SupersededAnalysis
+    from .analysis_service import (
+        AnalysisService,
+        AnalysisUnavailable,
+        SupersededAnalysis,
+        advisor_result_status,
+        retained_advisor_result,
+    )
 
-    analyses = AnalysisService(store, evaluate_background)
+    analyses = AnalysisService(store, evaluate_background, analysis_admission)
     app.state.analyses = analyses
+
+    @app.exception_handler(AnalysisPolicyError)
+    async def _analysis_policy_error(_request, error: AnalysisPolicyError):
+        headers = {"Retry-After": str(error.retry_after)} if error.retry_after else None
+        return JSONResponse(
+            {"detail": error.message, "code": error.code},
+            status_code=error.status,
+            headers=headers,
+        )
+
+    def require_analysis_computation(http_request: Request | None = None) -> None:
+        """Reject server analysis that the deployment policy does not permit.
+
+        The check runs before any cache read, scheduling or evaluation so a direct
+        request cannot bypass the policy. Browser-reported failure reasons never
+        influence admission; only the authenticated account and server limits do.
+        """
+        from .security_context import principal
+
+        admission = app.state.analysis_admission
+        if http_request is not None:
+            fallback = http_request.headers.get("x-analysis-fallback") == "1"
+            admission.count("fallback_request" if fallback else "direct_request")
+        if analysis_policy.mode in {"browser_only", "disabled"}:
+            raise AnalysisPolicyError(
+                "Server-side analysis is disabled by the deployment policy.",
+                code="analysis_server_disabled",
+                status=409,
+            )
+        if analysis_policy.mode == "browser_preferred":
+            identity = principal.get()
+            if identity is None:
+                raise AnalysisPolicyError(
+                    "Sign in to request analysis.", code="analysis_unauthorized", status=401
+                )
+            admission.limit_request(str(identity["id"]))
 
     @app.exception_handler(AnalysisUnavailable)
     async def _analysis_unavailable(_request, error: AnalysisUnavailable):
-        return JSONResponse({"detail": str(error)}, status_code=503, headers={"Retry-After": "1"})
+        # The background/retry path raises this before submitting work. The
+        # structured code lets clients distinguish that confirmed pre-admission
+        # rejection from an ambiguous transport failure.
+        return JSONResponse(
+            {"detail": str(error), "code": "analysis_admission_unavailable"},
+            status_code=503,
+            headers={"Retry-After": "1"},
+        )
 
     @app.get("/api/games/{game_id}/analytics")
     def get_analytics(game_id: str):
@@ -1212,7 +1330,7 @@ def create_app(
                 )
             )
             try:
-                return store.save_analytics(
+                saved = store.save_analytics(
                     game_id,
                     {
                         "advisor": advisor,
@@ -1220,28 +1338,28 @@ def create_app(
                         "show_win_chances": request.show_win_chances,
                     },
                 )
+                return {**saved, "execution": analysis_policy.public()}
             except ConflictError as exc:
                 fail(str(exc), 409)
 
     def background_analysis(
-        game: dict, *, state: State | None = None, cursor: int | None = None
+        game: dict,
+        settings: dict,
+        *,
+        state: State,
+        cursor: int,
+        receipt: ReceiptLease | None = None,
+        retry: bool = False,
     ) -> dict:
-        from .security_context import principal
-
-        identity = principal.get()
-        game = {**game, "_analysis_account_id": identity["id"] if identity else None}
-        state = state or state_of(game)
-        settings = analytics_settings(game)
         snapshot = position_snapshot(game, state=state, cursor=cursor)
         recorded = current_analysis(game, settings, state=state)
         existing = {entry["agent_id"] for entry in (recorded or {}).get("evaluations", [])}
         tasks = []
         # Actual AI turns produce their own evidence in /ai-move. Historical
         # player evidence is never invented later using changed model weights.
-        position = game["cursor"] if cursor is None else cursor
-        frontier = position == len(game["moves"])
+        frontier = cursor == len(game["moves"])
         human_turn = game["players"][state.turn]["kind"] == "human"
-        if settings["show_win_chances"] and game.get("analysis_enabled") and frontier:
+        if not retry and settings["show_win_chances"] and game.get("analysis_enabled") and frontier:
             for role, agent in game["players"].items():
                 if (
                     agent["kind"] == "ai"
@@ -1249,24 +1367,56 @@ def create_app(
                     and (human_turn or state.winner or role != state.turn)
                 ):
                     tasks.append(
-                        analyses.schedule(game, snapshot, role, agent, settings, state=state)
+                        analyses.schedule(
+                            game,
+                            snapshot,
+                            role,
+                            agent,
+                            settings,
+                            state=state,
+                            receipt=receipt,
+                        )
                     )
         if settings["advisor"]:
             advisor_report = store.advisor_analysis(
                 game["id"], snapshot["position_key"], settings["revision"]
             )
+            advisor_key = (game["id"], snapshot["position_key"], "advisor", settings["revision"])
+            # A replacement retry may be running before it publishes its first
+            # checkpoint. That activity must win over retained legacy evidence,
+            # otherwise an ordinary poll reports a terminal cached result and the
+            # client stops observing the replacement.
+            replacement_active = analyses.active(advisor_key)
             if (
                 advisor_report is None
                 and "advisor" in existing
-                and store.analytics(game["id"]) is None
-            ):
-                pass  # An immutable legacy advisor report is already retained.
-            elif advisor_report is None or advisor_report.get("partial"):
-                tasks.append(
-                    analyses.schedule(
-                        game, snapshot, "advisor", settings["advisor"], settings, state=state
+                and settings["revision"] == 0
+                and not replacement_active
+                and (
+                    not retry
+                    or (
+                        recorded is not None
+                        and analysis_display_status(recorded, settings) == "complete"
                     )
                 )
+            ):
+                if receipt is not None:
+                    receipt.result_available(advisor_result_status(recorded))
+            elif not retained_advisor_result(advisor_report, retry=retry) or replacement_active:
+                tasks.append(
+                    analyses.schedule(
+                        game,
+                        snapshot,
+                        "advisor",
+                        settings["advisor"],
+                        settings,
+                        state=state,
+                        receipt=receipt,
+                        retry=retry,
+                    )
+                )
+            elif receipt is not None:
+                receipt.result_available(advisor_result_status(advisor_report))
         # Read activity before data: a worker can commit between these reads.
         # A stale "pending" only causes another poll; stale "complete" could
         # otherwise hide the newly committed result indefinitely.
@@ -1277,7 +1427,10 @@ def create_app(
         rendered = analysis_response(
             {
                 **result,
-                "status": "pending" if pending else "complete",
+                "cursor": cursor,
+                "status": "pending"
+                if pending or receipt is not None
+                else analysis_display_status(result, settings),
                 "advisor_revision": settings["revision"],
             }
         )
@@ -1285,9 +1438,44 @@ def create_app(
         record_completed_replay(game, settings, result)
         return rendered
 
+    def explicit_analysis_retry(request: AnalysisRequest, settings: dict) -> bool:
+        if request.retry_revision is None:
+            return False
+        if request.retry_revision != settings["revision"]:
+            raise AnalysisPolicyError(
+                "The move advisor changed. Refresh analysis settings.",
+                code="analysis_revision_stale",
+                status=409,
+            )
+        return True
+
+    def validate_receipt_revision(
+        game: dict, settings: dict, receipt: ReceiptLease | None, *, retry: bool = False
+    ) -> None:
+        if receipt is None and not retry:
+            return
+        current = store.analytics(game["id"])
+        if (current["revision"] if current else 0) != settings["revision"]:
+            if receipt is not None:
+                receipt.result_available("superseded")
+            raise AnalysisPolicyError(
+                "The move advisor changed. Refresh analysis settings.",
+                code="analysis_revision_stale",
+                status=409,
+            )
+
+    def note_retained_advisor(
+        receipt: ReceiptLease | None, game: dict, settings: dict, key: str
+    ) -> None:
+        if receipt is not None and settings["advisor"]:
+            raw = store.advisor_analysis(game["id"], key, settings["revision"])
+            if raw is None and settings["revision"] == 0:
+                raw = store.game_analysis(game["id"], key)
+            receipt.result_available(advisor_result_status(raw))
+
     @app.post("/api/games/{game_id}/analysis")
-    def analyze_game(game_id: str, request: AnalysisRequest):
-        from .ai import analyze_position
+    def analyze_game(game_id: str, request: AnalysisRequest, http_request: Request):
+        require_analysis_computation(http_request)
 
         from .security_context import principal
 
@@ -1296,142 +1484,717 @@ def create_app(
             **game_or_404(game_id, request.version),
             "_analysis_account_id": identity["id"] if identity else None,
         }
-        if request.historical:
-            if not 0 <= request.cursor <= len(game["moves"]):
-                fail("The requested position is outside this recorded game.", 422)
-            state = state_at(game, request.cursor)
-            if request.background:
-                return background_analysis(game, state=state, cursor=request.cursor)
-            settings = analytics_settings(game)
-            recorded = current_analysis(game, settings, state=state) or missing_analysis(
-                game, state=state, cursor=request.cursor
-            )
-            record_completed_replay(game, settings, recorded)
-            return analysis_response(
-                {
-                    **recorded,
-                    "cursor": request.cursor,
-                    "status": "complete",
-                    "advisor_revision": settings["revision"],
-                }
-            )
-        if request.cursor != game["cursor"]:
+        if not 0 <= request.cursor <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        if not request.historical and request.cursor != game["cursor"]:
             fail("This game changed. Reload it before analyzing again.", 409)
-        if request.background:
-            return background_analysis(game)
-        state = state_of(game)
-        key = position_key(state)
+        state, key = analysis_request_position(game, request.cursor)
         settings = analytics_settings(game)
-        saved_settings = store.analytics(game_id) is not None
-        cached = store.game_analysis(game_id, key)
+        retry = explicit_analysis_retry(request, settings)
+        receipt = begin_analysis_receipt(http_request, game, request.cursor, settings, key)
+        try:
+            validate_receipt_revision(game, settings, receipt, retry=retry)
+            if receipt is not None and not receipt.primary:
+                retained = current_analysis(game, settings, state=state) or missing_analysis(
+                    game, state=state, cursor=request.cursor
+                )
+                return analysis_response(
+                    {
+                        **retained,
+                        "status": "pending",
+                        "advisor_revision": settings["revision"],
+                    }
+                )
+            if request.background or retry:
+                return background_analysis(
+                    game, settings, state=state, cursor=request.cursor, receipt=receipt, retry=retry
+                )
+            if request.historical:
+                pending = analyses.active((game_id, key, "advisor", settings["revision"]))
+                recorded = current_analysis(game, settings, state=state) or missing_analysis(
+                    game, state=state, cursor=request.cursor
+                )
+                note_retained_advisor(receipt, game, settings, key)
+                record_completed_replay(game, settings, recorded)
+                return analysis_response(
+                    {
+                        **recorded,
+                        "cursor": request.cursor,
+                        "status": "pending"
+                        if pending or receipt is not None
+                        else analysis_display_status(recorded, settings),
+                        "advisor_revision": settings["revision"],
+                    }
+                )
+            saved_settings = settings["revision"] != 0
+            cached = store.game_analysis(game_id, key)
 
-        def retained_response() -> dict | None:
-            result = current_analysis(game, settings) or missing_analysis(game)
-            current = analytics_settings(game_or_404(game_id, request.version))
-            if current["revision"] != settings["revision"]:
-                fail("The move advisor changed. Retry analysis.", 409)
-            if saved_settings:
-                result = {**result, "advisor_revision": settings["revision"]}
-            record_completed_replay(game, settings, result)
-            return analysis_response(result)
+            def retained_response() -> dict | None:
+                result = current_analysis(game, settings, state=state) or missing_analysis(
+                    game, state=state
+                )
+                current = analytics_settings(game_or_404(game_id, request.version))
+                if current["revision"] != settings["revision"]:
+                    if receipt is not None:
+                        validate_receipt_revision(game, settings, receipt)
+                    fail("The move advisor changed. Retry analysis.", 409)
+                if saved_settings or receipt is not None:
+                    result = {**result, "advisor_revision": settings["revision"]}
+                if receipt is not None:
+                    result = {**result, "status": "pending"}
+                elif (status := analysis_display_status(result, settings)) != "complete":
+                    result = {**result, "status": status}
+                note_retained_advisor(receipt, game, settings, key)
+                record_completed_replay(game, settings, result)
+                return analysis_response(result)
 
-        # A recorded opinion belongs to the original point in play. Never
-        # fabricate historical evidence by evaluating with newer/deleted weights.
-        if game["cursor"] < len(game["moves"]) or (
-            not game.get("analysis_enabled") and not saved_settings
-        ):
-            return retained_response()
-        legacy_advisor = bool(
-            not saved_settings
-            and cached
-            and any(entry["agent_id"] == "advisor" for entry in cached["evaluations"])
-        )
-        if settings["advisor"] and not legacy_advisor:
-            try:
+            # A recorded opinion belongs to the original point in play. Never
+            # fabricate historical evidence by evaluating with newer/deleted weights.
+            if game["cursor"] < len(game["moves"]) or (
+                not game.get("analysis_enabled") and not saved_settings
+            ):
+                return retained_response()
+            legacy_advisor = bool(
+                not saved_settings
+                and cached
+                and any(entry["agent_id"] == "advisor" for entry in cached["evaluations"])
+            )
+            if settings["advisor"] and not legacy_advisor:
                 analyses.wait(
                     game,
-                    position_snapshot(game),
+                    position_snapshot(game, state=state),
                     "advisor",
                     settings["advisor"],
                     settings,
                     state=state,
+                    receipt=receipt,
                 )
-            except SupersededAnalysis as exc:
-                fail(str(exc), 409)
-            # Preserve the synchronous API's optimistic version contract after
-            # waiting. The worker still owns its independent retained-line guard.
-            game_or_404(game_id, request.version)
-        if cached is not None or not game.get("analysis_enabled"):
-            return retained_response()
-        snapshot = {
-            "cursor": game["cursor"],
-            "ply": state.ply,
-            "side_to_move": state.turn,
-            "position_key": key,
-            "created_at": now(),
-            "evaluations": [],
-            "hint": None,
-        }
-        agents = [
-            (side, player) for side, player in game["players"].items() if player["kind"] == "ai"
-        ]
-        for role, agent in agents:
-            configuration = effective_ai_config(agent["config"], agent.get("profile_id"))
-            entry = {
-                "agent_id": role,
-                "role": role,
-                "name": agent["name"],
-                "rune": agent_rune(agent),
-                "profile_id": agent.get("profile_id"),
-                "profile_name": agent.get("profile_name"),
-                "model_name": agent.get("model_name"),
-                "config": configuration,
-                "source": "unavailable",
-                "win_probability": None,
-                "estimated": not bool(state.winner),
-                "calibrated": bool(state.winner),
+                # Preserve the synchronous API's optimistic version contract after
+                # waiting. The worker still owns its independent retained-line guard.
+                game_or_404(game_id, request.version)
+            if cached is not None or not game.get("analysis_enabled"):
+                return retained_response()
+            snapshot = {
+                "cursor": game["cursor"],
+                "ply": state.ply,
+                "side_to_move": state.turn,
+                "position_key": key,
+                "created_at": now(),
+                "evaluations": [],
+                "hint": None,
             }
-            runtime_config = dict(configuration)
-            if "seed" in game:
-                runtime_config["seed"] = (configuration["seed"] + state.ply) % 2**32
-            try:
-                # An exact terminal value does not need model weights and stays
-                # inspectable even if the completed game's model was removed.
-                if runtime_config.get("model_id") and not state.winner:
-                    with catalog_lock:
-                        available = next(
-                            (m for m in models_list() if m["id"] == runtime_config["model_id"]),
-                            None,
-                        )
-                        if available is None:
-                            raise FileNotFoundError("The recorded model is unavailable")
-                        runtime_config["model_path"] = str(model_file(available))
-                report = analyze_position(state, runtime_config)
-                defender_value = report["value"]
-                current_value = defender_value if state.turn == "defenders" else -defender_value
-                entry.update(
-                    report,
-                    value=defender_value,
-                    win_probability=max(0.0, min(1.0, (current_value + 1.0) / 2.0)),
-                    search_seed=runtime_config["seed"],
+            agents = [
+                (side, player) for side, player in game["players"].items() if player["kind"] == "ai"
+            ]
+            # Optional playing-agent evaluations share the bounded analysis executor
+            # and admission path with advisor/background work. The HTTP thread waits
+            # on the bounded synchronous waiter; it never runs the engine itself.
+            for role, agent in agents:
+                analyses.wait(
+                    game,
+                    position_snapshot(game, state=state),
+                    role,
+                    agent,
+                    settings,
+                    state=state,
+                    receipt=receipt,
                 )
-            except (OSError, HTTPException):
-                entry["unavailable_reason"] = "model_unavailable"
-            except (ValueError, RuntimeError):
-                entry["unavailable_reason"] = "evaluation_failed"
-            snapshot["evaluations"].append(entry)
-        if not saved_settings:
-            # Keep the original synchronous response/storage shape for clients
-            # with a legacy game advisor, while sharing its bounded computation.
-            advisor = store.advisor_analysis(game_id, key, settings["revision"])
-            if advisor:
-                snapshot["evaluations"].extend(advisor["evaluations"])
-                snapshot["hint"] = advisor["hint"]
-        try:
-            store.save_game_analysis(game_id, request.version, snapshot)
-            return retained_response()
-        except ConflictError as exc:
+            recorded_agents = store.game_analysis(game_id, key) if agents else None
+            if recorded_agents is not None:
+                snapshot = {
+                    **recorded_agents,
+                    "evaluations": [
+                        entry
+                        for entry in recorded_agents.get("evaluations", [])
+                        if entry.get("agent_id") in {role for role, _ in agents}
+                    ],
+                    "hint": None,
+                }
+            if not saved_settings:
+                # Keep the original synchronous response/storage shape for clients
+                # with a legacy game advisor, while sharing its bounded computation.
+                advisor = store.advisor_analysis(game_id, key, settings["revision"])
+                if advisor:
+                    snapshot["evaluations"].extend(advisor["evaluations"])
+                    snapshot["hint"] = advisor["hint"]
+            try:
+                if recorded_agents is None:
+                    store.save_game_analysis(game_id, request.version, snapshot)
+                return retained_response()
+            except ConflictError as exc:
+                fail(str(exc), 409)
+        except SupersededAnalysis as exc:
+            if receipt is not None:
+                receipt.result_available("superseded")
+            validate_receipt_revision(game, settings, receipt, retry=retry)
             fail(str(exc), 409)
+        except BaseException:
+            if receipt is not None:
+                receipt.fail()
+            raise
+        finally:
+            if receipt is not None:
+                receipt.finalize()
+
+    def analysis_context_cache_get(
+        key: tuple[str, int, int],
+    ) -> tuple[dict, int] | None:
+        with analysis_context_cache_lock:
+            cached = analysis_context_cache.get(key)
+            if cached is not None:
+                analysis_context_cache.move_to_end(key)
+            return cached
+
+    def analysis_context_cache_put(key: tuple[str, int, int], payload: dict, size: int) -> None:
+        nonlocal analysis_context_cache_bytes
+        with analysis_context_cache_lock:
+            previous = analysis_context_cache.pop(key, None)
+            if previous is not None:
+                analysis_context_cache_bytes -= previous[1]
+            if size <= 2 * 1024 * 1024:
+                analysis_context_cache[key] = (payload, size)
+                analysis_context_cache_bytes += size
+                analysis_context_cache.move_to_end(key)
+            while len(analysis_context_cache) > 8 or (
+                analysis_context_cache_bytes > 24 * 1024 * 1024 and len(analysis_context_cache) > 1
+            ):
+                _, (_, removed) = analysis_context_cache.popitem(last=False)
+                analysis_context_cache_bytes -= removed
+
+    def analysis_context_payload(
+        game: dict,
+        cursor: int,
+        expected_version: int | None = None,
+        expected_revision: int | None = None,
+        account_id: str | None = None,
+    ) -> dict:
+        """Authoritative serialized positions for browser-local analysis.
+
+        This endpoint is a read: it schedules and evaluates nothing. It returns
+        the same rule-relevant state (including repetition history) the server
+        engine uses, so a local search is not a divergent implementation. Access
+        follows the existing analysis surface exactly: a game that cannot be
+        analyzed on the server is not exposed as a local analysis context.
+        """
+        if not game.get("analysis_enabled") and store.analytics(game["id"]) is None:
+            raise AnalysisPolicyError(
+                "Analysis is not enabled for this game.",
+                code="analysis_not_enabled",
+                status=409,
+            )
+        version = int(game.get("version", 0))
+        if expected_version is not None and expected_version != version:
+            raise AnalysisPolicyError(
+                "This game changed. Reload it before preparing browser analysis.",
+                code="analysis_context_stale",
+                status=409,
+            )
+        settings = analytics_settings(game)
+        if expected_revision is not None and expected_revision != int(settings["revision"]):
+            raise AnalysisPolicyError(
+                "The move advisor changed. Refresh analysis settings.",
+                code="analysis_revision_stale",
+                status=409,
+            )
+        cache_key = (game["id"], version, int(settings["revision"]))
+        if len(game["moves"]) > 4095:
+            fail("This replay is too long for browser analysis context delivery.", 422)
+        if not 0 <= cursor <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        cached = analysis_context_cache_get(cache_key)
+        if cached is not None:
+            cached_payload, _cached_bytes = cached
+            position_keys = cached_payload["position_keys"]
+            return {
+                **cached_payload,
+                "cursor": cursor,
+                "position_key": position_keys[cursor],
+                "execution": analysis_policy.public(),
+            }
+        analysis_context_requests.limit(account_id or "anonymous")
+        with analysis_context_builds.build(cache_key) as build:
+            cached = analysis_context_cache_get(cache_key)
+            if cached is not None:
+                cached_payload, _cached_bytes = cached
+                position_keys = cached_payload["position_keys"]
+                return {
+                    **cached_payload,
+                    "cursor": cursor,
+                    "position_key": position_keys[cursor],
+                    "execution": analysis_policy.public(),
+                }
+            build.reconstruct()
+            analysis_context_builds.note_reconstruction()
+            state = new_game(game["ruleset"])
+            try:
+                compact_states = [
+                    {key: value for key, value in state.to_dict().items() if key != "history"}
+                ]
+                position_keys = [position_key(state)]
+                for recorded in game["moves"]:
+                    state = apply_move(state, Move(recorded["source"], recorded["target"]))
+                    compact_states.append(
+                        {key: value for key, value in state.to_dict().items() if key != "history"}
+                    )
+                    position_keys.append(position_key(state))
+            except (KeyError, TypeError, ValueError):
+                fail("Stored game history failed deterministic validation.", 409)
+            history_keys = list(state.history or ())
+            if len(compact_states) != len(game["moves"]) + 1 or len(history_keys) != len(
+                compact_states
+            ):
+                raise AnalysisPolicyError(
+                    "Stored position history is inconsistent with its recorded moves.",
+                    code="analysis_context_invalid",
+                    status=409,
+                )
+            advisor = settings["advisor"]
+            advisor_metadata = None
+            if advisor:
+                advisor_metadata = {
+                    "name": advisor.get("name"),
+                    "profile_id": advisor.get("profile_id"),
+                    "model_name": advisor.get("model_name"),
+                    "requested_config": advisor.get("config", {}),
+                    "effective_config": advisor_effective_config(advisor, settings),
+                    "time_limit": settings["time_limit"],
+                    "show_win_chances": settings["show_win_chances"],
+                    "revision": settings["revision"],
+                    "seed_with_ply": "seed" in game,
+                }
+            payload = {
+                "schema": 1,
+                "game_id": game["id"],
+                "version": version,
+                "ruleset": game["ruleset"],
+                "cursor": cursor,
+                "position_key": position_keys[cursor],
+                "position_keys": position_keys,
+                "history_keys": history_keys,
+                "states": compact_states,
+                "advisor": advisor_metadata,
+                "execution": analysis_policy.public(),
+            }
+            rendered = json.dumps(payload, separators=(",", ":"), allow_nan=False)
+            size = len(rendered.encode("utf-8"))
+            if size > 2 * 1024 * 1024:
+                raise AnalysisPolicyError(
+                    "The analysis context exceeds the delivery size limit.",
+                    code="analysis_context_too_large",
+                    status=413,
+                )
+            analysis_context_cache_put(cache_key, payload, size)
+            return payload
+
+    def analysis_request_position(game: dict, cursor: int) -> tuple[State, str]:
+        # Seek updates the persisted state and cursor together. The last recorded
+        # move can be ahead of that cursor, even for a completed replay.
+        if cursor == game["cursor"]:
+            state = state_of(game)
+            if (
+                state.ruleset == game["ruleset"]
+                and state.ply == cursor
+                and len(state.history) == cursor + 1
+            ):
+                return state, position_key(state)
+        state = state_at(game, cursor)
+        return state, position_key(state)
+
+    def analysis_receipt_account(game: dict) -> str:
+        from .security_context import principal
+
+        identity = principal.get()
+        account_id = identity["id"] if identity else game.get("_analysis_account_id")
+        if not account_id:
+            raise AnalysisPolicyError(
+                "Sign in to request analysis.", code="analysis_unauthorized", status=401
+            )
+        return str(account_id)
+
+    def begin_analysis_receipt(
+        http_request: Request, game: dict, cursor: int, settings: dict, key: str
+    ) -> ReceiptLease | None:
+        identifier = http_request.headers.get("x-analysis-receipt", "").strip()
+        if not identifier:
+            return None
+        return analysis_receipts.begin_submission(
+            identifier,
+            analysis_receipt_account(game),
+            game["id"],
+            int(game.get("version", 0)),
+            cursor,
+            int(settings["revision"]),
+            key,
+        )
+
+    def create_analysis_receipt(
+        game: dict, request: AnalysisReceiptRequest, account_id: str
+    ) -> dict:
+        analysis_receipt_requests.limit(account_id)
+        if not analysis_policy.server_computation:
+            raise AnalysisPolicyError(
+                "Server-side analysis is disabled by the deployment policy.",
+                code="analysis_server_disabled",
+                status=409,
+            )
+        if not 0 <= request.cursor <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        settings = analytics_settings(game)
+        if request.revision != int(settings["revision"]):
+            raise AnalysisPolicyError(
+                "The move advisor changed. Refresh analysis settings.",
+                code="analysis_revision_stale",
+                status=409,
+            )
+        analysis_context_requests.limit(account_id)
+        with analysis_context_builds.build(
+            (
+                "receipt",
+                game["id"],
+                int(game.get("version", 0)),
+                request.cursor,
+                settings["revision"],
+            )
+        ) as build:
+            build.reconstruct()
+            _state, key = analysis_request_position(game, request.cursor)
+        return analysis_receipts.create(
+            account_id,
+            game["id"],
+            int(game.get("version", 0)),
+            request.cursor,
+            int(settings["revision"]),
+            key,
+            online=bool(game.get("online")),
+            ply=_state.ply,
+            side_to_move=_state.turn,
+        )
+
+    @app.get("/api/games/{game_id}/analysis-context")
+    def game_analysis_context(
+        game_id: str,
+        cursor: int | None = Query(default=None, ge=0),
+        version: int | None = Query(default=None, ge=0),
+        revision: int | None = Query(default=None, ge=0),
+    ):
+        from .security_context import principal
+
+        game = game_or_404(game_id)
+        identity = principal.get()
+        return analysis_context_payload(
+            game,
+            game["cursor"] if cursor is None else cursor,
+            version,
+            revision,
+            str(identity["id"]) if identity else None,
+        )
+
+    @app.get("/api/history/online/{game_id}/analysis-context")
+    def online_analysis_context(
+        game_id: str,
+        cursor: int | None = Query(default=None, ge=0),
+        version: int | None = Query(default=None, ge=0),
+        revision: int | None = Query(default=None, ge=0),
+    ):
+        game = online_analysis_game(game_id)
+        return analysis_context_payload(
+            game,
+            len(game["moves"]) if cursor is None else cursor,
+            version,
+            revision,
+            game.get("_analysis_account_id"),
+        )
+
+    def analysis_status_payload(
+        game: dict,
+        cursor: int,
+        expected_version: int,
+        expected_revision: int | None = None,
+        receipt: str | None = None,
+        account_id: str | None = None,
+    ) -> dict:
+        """Read-only status of already-admitted analysis work for this position.
+
+        The endpoint never computes or schedules analysis. It lets a client that
+        abandoned a fallback request distinguish active admitted work from
+        permission to start a new request.
+        """
+        if int(game.get("version", 0)) != expected_version:
+            raise AnalysisPolicyError(
+                "This game changed. Reload it before checking analysis.",
+                code="analysis_context_stale",
+                status=409,
+            )
+        settings = analytics_settings(game)
+        revision = int(settings["revision"])
+        if expected_revision is not None and expected_revision != revision:
+            raise AnalysisPolicyError(
+                "The move advisor changed. Refresh analysis settings.",
+                code="analysis_revision_stale",
+                status=409,
+            )
+        key = None
+        recorded = None
+        if receipt:
+            recorded = analysis_receipts.status(
+                receipt,
+                account_id or "anonymous",
+                game["id"],
+                int(game.get("version", 0)),
+                cursor,
+                revision,
+            )
+            key = recorded.get("position_key")
+        if key is None:
+            cache_key = (game["id"], int(game.get("version", 0)), revision)
+            cached = analysis_context_cache_get(cache_key)
+            if cached is not None and cursor < len(cached[0]["position_keys"]):
+                key = cached[0]["position_keys"][cursor]
+            else:
+                _, key = analysis_request_position(game, cursor)
+        if recorded is not None:
+            active = recorded.get("state") in {"submitted", "active"}
+        else:
+            active = any(
+                analyses.active((game["id"], key, role, revision if role == "advisor" else None))
+                for role in ("advisor", *game["players"])
+            )
+        payload = {
+            "schema": 1,
+            "active": active,
+            "game_id": game["id"],
+            "cursor": cursor,
+            "version": game.get("version", 0),
+            "position_key": key,
+            "advisor_revision": revision,
+            "epoch": analysis_receipts.epoch,
+        }
+        if receipt:
+            payload.update(
+                {
+                    "receipt": receipt,
+                    "receipt_state": (recorded or {}).get("state", "unknown"),
+                    "receipt_epoch": (recorded or {}).get("epoch"),
+                    "receipt_terminal": bool((recorded or {}).get("terminal")),
+                    "reconciled_before": (recorded or {}).get(
+                        "reconciled_before", analysis_receipts.snapshot()["reconciled_before"]
+                    ),
+                }
+            )
+        return payload
+
+    @app.get("/api/games/{game_id}/analysis-status")
+    def game_analysis_status(
+        game_id: str,
+        version: int = Query(..., ge=0),
+        cursor: int | None = Query(default=None, ge=0),
+        revision: int | None = Query(default=None, ge=0),
+        receipt: str | None = Query(default=None, max_length=128),
+    ):
+        from .security_context import principal
+
+        game = game_or_404(game_id)
+        position = game["cursor"] if cursor is None else cursor
+        if not 0 <= position <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        identity = principal.get()
+        return analysis_status_payload(
+            game,
+            position,
+            version,
+            revision,
+            receipt,
+            str(identity["id"]) if identity else None,
+        )
+
+    @app.get("/api/history/online/{game_id}/analysis-status")
+    def online_analysis_status(
+        game_id: str,
+        version: int = Query(..., ge=0),
+        cursor: int | None = Query(default=None, ge=0),
+        revision: int | None = Query(default=None, ge=0),
+        receipt: str | None = Query(default=None, max_length=128),
+    ):
+        game = online_analysis_game(game_id)
+        position = len(game["moves"]) if cursor is None else cursor
+        if not 0 <= position <= len(game["moves"]):
+            fail("The requested position is outside this recorded game.", 422)
+        return analysis_status_payload(
+            game,
+            position,
+            version,
+            revision,
+            receipt,
+            game.get("_analysis_account_id"),
+        )
+
+    def analysis_receipt_result(receipt_id: str, account_id: str) -> dict:
+        analysis_receipts.note_result_read()
+        recorded = analysis_receipts.status_for_account(receipt_id, account_id)
+        state = recorded.get("state", "unknown")
+        base = {
+            "schema": 1,
+            "receipt": receipt_id,
+            "receipt_state": state,
+            "receipt_epoch": recorded.get("epoch"),
+            "terminal": bool(recorded.get("terminal")),
+            "reconciled_before": recorded.get("reconciled_before", 0),
+            "reconciled_before_sequence": recorded.get("reconciled_before_sequence", 0),
+        }
+        if state in {"prepared", "submitted", "active"}:
+            return {**base, "status": "pending", "active": state in {"submitted", "active"}}
+        if state == "unknown":
+            return {**base, "status": "unknown"}
+        if state == "expired":
+            return {**base, "status": "expired", "unavailable_reason": "receipt_expired"}
+        if recorded["retry_admission"]:
+            return {**base, "status": "failed", "retry_admission": True}
+
+        game_id = recorded["game_id"]
+        position_key_value = recorded["position_key"]
+        revision = recorded["advisor_revision"]
+        outcome = recorded["advisor_outcome"]
+        # Read access, version and the retained reports in one SQLite snapshot.
+        # These indexed queries avoid decoding any move history or game state.
+        with store.connection() as c:
+            c.execute("BEGIN")
+            version = (
+                online_analysis_version(c, game_id)
+                if recorded["online"]
+                else store.game_version(game_id, c)
+            )
+            if version is None:
+                return {**base, "status": "unavailable"}
+            if version != recorded["version"]:
+                return {**base, "status": "superseded", "code": "analysis_context_stale"}
+            settings = store.analytics(game_id, connection=c)
+            if (settings["revision"] if settings else 0) != revision:
+                return {**base, "status": "superseded", "code": "analysis_revision_stale"}
+            if outcome == "superseded":
+                return {**base, "status": "superseded"}
+            retained = store.game_analysis(game_id, position_key_value, connection=c)
+            advisor = store.advisor_analysis(game_id, position_key_value, revision, connection=c)
+        if advisor is None and revision == 0:
+            advisor = retained  # Legacy revisions retain the advisor with the original evidence.
+        if advisor and advisor.get("position_key") != position_key_value:
+            advisor = None
+        actual = advisor_result_status(advisor)
+        if outcome in {"complete", "partial"} and actual != outcome:
+            outcome = "unavailable"
+        status = outcome or ("failed" if state == "failed" else "unavailable")
+        if retained is None and advisor is None:
+            return {**base, "status": status}
+        result = dict(retained or advisor or {})
+        result["evaluations"] = [
+            entry
+            for entry in (retained or {}).get("evaluations", [])
+            if entry.get("agent_id") != "advisor"
+        ]
+        result["hint"] = None
+        if advisor and actual == status:
+            result["evaluations"].extend(
+                entry for entry in advisor["evaluations"] if entry.get("agent_id") == "advisor"
+            )
+            if status in {"complete", "partial"}:
+                result["hint"] = advisor["hint"]
+        if not result["evaluations"]:
+            return {**base, "status": status}
+        result.pop("partial", None)
+        result.pop("retired_partial", None)
+        result.update(
+            {
+                "cursor": recorded["cursor"],
+                "ply": recorded["ply"],
+                "side_to_move": recorded["side_to_move"],
+                "position_key": position_key_value,
+                "created_at": result.get("created_at") or now(),
+                "status": status if status in {"complete", "partial"} else "unavailable",
+                "advisor_revision": revision,
+            }
+        )
+        return {**base, "status": status, "report": analysis_response(result, retain_runes=True)}
+
+    @app.get("/api/analysis/receipts/{receipt_id}/result")
+    def analysis_receipt_result_status(receipt_id: str):
+        from .security_context import principal
+
+        identity = principal.get()
+        if identity is None:
+            raise AnalysisPolicyError(
+                "Sign in to inspect analysis receipts.",
+                code="analysis_unauthorized",
+                status=401,
+            )
+        analysis_receipt_requests.limit(str(identity["id"]))
+        return analysis_receipt_result(receipt_id, str(identity["id"]))
+
+    @app.get("/api/analysis/receipts/{receipt_id}")
+    def analysis_receipt_status(receipt_id: str):
+        from .security_context import principal
+
+        identity = principal.get()
+        if identity is None:
+            raise AnalysisPolicyError(
+                "Sign in to inspect analysis receipts.",
+                code="analysis_unauthorized",
+                status=401,
+            )
+        analysis_receipt_requests.limit(str(identity["id"]))
+        return analysis_receipts.status_for_account(
+            receipt_id, str(identity["id"]), include_position=False
+        )
+
+    @app.post("/api/games/{game_id}/analysis-receipt")
+    def game_analysis_receipt(game_id: str, request: AnalysisReceiptRequest):
+        from .security_context import principal
+
+        game = game_or_404(game_id, request.version)
+        identity = principal.get()
+        account_id = str(identity["id"]) if identity else None
+        if not account_id:
+            raise AnalysisPolicyError(
+                "Sign in to request analysis.", code="analysis_unauthorized", status=401
+            )
+        return create_analysis_receipt(game, request, account_id)
+
+    @app.post("/api/history/online/{game_id}/analysis-receipt")
+    def online_analysis_receipt(game_id: str, request: AnalysisReceiptRequest):
+        game = online_analysis_game(game_id)
+        account_id = game.get("_analysis_account_id")
+        if not account_id:
+            raise AnalysisPolicyError(
+                "Sign in to request analysis.", code="analysis_unauthorized", status=401
+            )
+        if request.version != int(game.get("version", 0)):
+            fail("This game changed. Reload it before analyzing again.", 409)
+        return create_analysis_receipt(game, request, str(account_id))
+
+    def online_analysis_account(c, game_id: str) -> dict:
+        from .security_context import allowed, session_identity
+
+        account = online._identity(c, session_identity.get())
+        if not allowed(account, "all_data"):
+            online._participant(c, account["id"], game_id)
+        return account
+
+    def online_analysis_version(c, game_id: str) -> int | None:
+        from .online_core import OnlineError
+
+        try:
+            online_analysis_account(c, game_id)
+            row = c.execute(
+                "SELECT g.version,g.ruleset,g.ruleset_version FROM online_games g "
+                "JOIN online_results r ON r.game_id=g.id AND r.revision=g.result_revision "
+                "WHERE g.id=? AND g.status='completed'",
+                (game_id,),
+            ).fetchone()
+            if row is not None:
+                rules = RULESETS.get(row["ruleset"])
+                if rules is not None and rules.version == row["ruleset_version"]:
+                    return row["version"]
+        except OnlineError:
+            pass
+        return None
 
     def online_analysis_game(identifier: str) -> dict:
         """Read-only analysis view of a completed online game.
@@ -1441,7 +2204,6 @@ def create_app(
         countdown reaching zero is never treated as completion.
         """
         from .online_core import OnlineError
-        from .security_context import allowed, session_identity
 
         # The requested online game id must stay distinct from the participant
         # account ids read below, or the move query and returned game object end
@@ -1450,9 +2212,7 @@ def create_app(
         try:
             with store.connection() as c:
                 c.execute("BEGIN")
-                account = online._identity(c, session_identity.get())
-                if not allowed(account, "all_data"):
-                    online._participant(c, account["id"], game_id)
+                account = online_analysis_account(c, game_id)
                 row, game = online._load(c, game_id)
                 if game.status.value != "completed" or game.result is None:
                     fail("Analysis is available only for completed online games.", 403)
@@ -1478,6 +2238,7 @@ def create_app(
         return {
             "id": game_id,
             "online": True,
+            "version": row["version"],
             "_analysis_account_id": account["id"],
             "ruleset": row["ruleset"],
             "mode": "human-human",
@@ -1517,7 +2278,7 @@ def create_app(
                 existing if same_advisor else normalise_advisor(request.advisor, game["ruleset"], 0)
             )
             try:
-                return store.save_analytics(
+                saved = store.save_analytics(
                     game_id,
                     {
                         "advisor": advisor,
@@ -1526,23 +2287,65 @@ def create_app(
                     },
                     allow_online=True,
                 )
+                return {**saved, "execution": analysis_policy.public()}
             except ConflictError as exc:
                 fail(str(exc), 409)
 
     @app.post("/api/history/online/{game_id}/analysis")
-    def analyze_online_game(game_id: str, request: AnalysisRequest):
+    def analyze_online_game(game_id: str, request: AnalysisRequest, http_request: Request):
+        require_analysis_computation(http_request)
         game = online_analysis_game(game_id)
         if not 0 <= request.cursor <= len(game["moves"]):
             fail("The requested position is outside this recorded game.", 422)
-        state = state_at(game, request.cursor)
-        if request.background:
-            return background_analysis(game, state=state, cursor=request.cursor)
+        state, key = analysis_request_position(game, request.cursor)
         settings = analytics_settings(game)
-        recorded = current_analysis(game, settings, state=state)
-        record_completed_replay(game, settings, recorded)
-        return analysis_response(
-            recorded or missing_analysis(game, state=state, cursor=request.cursor)
-        )
+        retry = explicit_analysis_retry(request, settings)
+        if retry and request.version != game["version"]:
+            raise AnalysisPolicyError(
+                "This game changed. Reload it before analyzing again.",
+                code="analysis_context_stale",
+                status=409,
+            )
+        receipt = begin_analysis_receipt(http_request, game, request.cursor, settings, key)
+        try:
+            validate_receipt_revision(game, settings, receipt, retry=retry)
+            if receipt is not None and not receipt.primary:
+                retained = current_analysis(game, settings, state=state) or missing_analysis(
+                    game, state=state, cursor=request.cursor
+                )
+                return analysis_response(
+                    {
+                        **retained,
+                        "status": "pending",
+                        "advisor_revision": settings["revision"],
+                    }
+                )
+            if request.background or retry:
+                return background_analysis(
+                    game, settings, state=state, cursor=request.cursor, receipt=receipt, retry=retry
+                )
+            pending = analyses.active((game_id, key, "advisor", settings["revision"]))
+            recorded = current_analysis(game, settings, state=state)
+            note_retained_advisor(receipt, game, settings, key)
+            record_completed_replay(game, settings, recorded)
+            result = recorded or missing_analysis(game, state=state, cursor=request.cursor)
+            if pending or receipt is not None:
+                result = {**result, "status": "pending", "advisor_revision": settings["revision"]}
+            elif (status := analysis_display_status(result, settings)) != "complete":
+                result = {**result, "status": status, "advisor_revision": settings["revision"]}
+            return analysis_response(result)
+        except SupersededAnalysis as exc:
+            if receipt is not None:
+                receipt.result_available("superseded")
+            validate_receipt_revision(game, settings, receipt, retry=retry)
+            fail(str(exc), 409)
+        except BaseException:
+            if receipt is not None:
+                receipt.fail()
+            raise
+        finally:
+            if receipt is not None:
+                receipt.finalize()
 
     @app.delete("/api/games/{game_id}")
     def delete_game(
@@ -3463,6 +4266,27 @@ def create_app(
             # artifact discovery.
             raise HTTPException(404, "Browser analysis is unavailable")
 
+    def registered_model_ids(weights: object) -> list[str]:
+        """Map a published weight fingerprint to already-visible model ids.
+
+        Model ids are part of the existing play-facing inference catalogue, and
+        the fingerprint mapping only lets a browser resolve the model an advisor
+        already references. No checkpoint bytes or training metadata are exposed.
+        """
+        if not isinstance(weights, str):
+            return []
+        return sorted(
+            entry["id"]
+            for entry in registry().list()
+            if entry.get("weights_sha256") == weights and isinstance(entry.get("id"), str)
+        )
+
+    def browser_model_record(record: dict) -> dict:
+        return {
+            **browser_models.public_record(record),
+            "registered_model_ids": registered_model_ids(record.get("source_weights_sha256")),
+        }
+
     @app.get("/api/browser-analysis/availability")
     def browser_analysis_availability():
         enabled = auth.settings.browser_analysis
@@ -3477,12 +4301,20 @@ def create_app(
             ),
             "reason": None if snapshot is not None else reason,
             "published_models": len(browser_models.list_public()) if enabled else 0,
+            # Policy is always reported, including disabled/unavailable modes, so
+            # the front-end can choose server, local or no execution without a
+            # second capability request. It never grants server computation.
+            "analysis_mode": analysis_policy.mode,
+            "execution": analysis_policy.public(),
         }
 
     @app.get("/api/browser-analysis/models")
     def browser_analysis_models():
         require_browser_analysis()
-        return {"schema": 1, "models": browser_models.list_public()}
+        return {
+            "schema": 1,
+            "models": [browser_model_record(record) for record in browser_models.list_public()],
+        }
 
     @app.get("/api/browser-analysis/models/{publication_id}")
     def browser_analysis_model(publication_id: str):
@@ -3491,7 +4323,32 @@ def create_app(
             record, _path = browser_models.resolve_artifact(publication_id)
         except PublicationError:
             raise HTTPException(404, "Published model not found") from None
-        return browser_models.public_record(record)
+        return browser_model_record(record)
+
+    @app.get("/api/analysis/metrics")
+    def analysis_metrics():
+        """Coarse, privacy-preserving server-analysis counters for operators.
+
+        Client-reported local failures are not trusted as evidence; these counts
+        describe actual server admissions and rejections only.
+        """
+        from .security_context import allowed as permits, principal
+
+        if not permits(principal.get(), "accounts"):
+            fail("Administrator access required.", 403)
+        with analysis_context_cache_lock:
+            context_entries = len(analysis_context_cache)
+        return {
+            "schema": 1,
+            "policy": analysis_policy.public(),
+            "counters": analysis_admission.snapshot(),
+            "context": {
+                "builds": analysis_context_builds.snapshot(),
+                "requests": analysis_context_requests.snapshot(),
+                "cache_entries": context_entries,
+            },
+            "receipts": analysis_receipts.snapshot(),
+        }
 
     @app.get("/api/browser-analysis/models/{publication_id}/artifact")
     def browser_analysis_artifact(publication_id: str, version: str | None = None):

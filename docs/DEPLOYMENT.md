@@ -977,9 +977,40 @@ HNEFATAFL_DATA_DIR=/var/lib/hnefatafl make browser-runtime-status
   revoke <publication_id> --account Odin --reason "replaced"
 ```
 
-Then set `HNEFATAFL_BROWSER_ANALYSIS_ENABLED=1` in the service configuration and
-restart. The enabled CSP adds only `script-src 'self' 'wasm-unsafe-eval'` and
-`worker-src 'self'`; disabled deployments keep the existing strict policy.
+Then choose the server-owned execution policy and restart:
+
+```ini
+# Browser-first operation; no server analysis computation.
+HNEFATAFL_ANALYSIS_MODE=browser_only
+
+# Or opt-in rollout with strictly bounded server fallback.
+# HNEFATAFL_ANALYSIS_MODE=browser_preferred
+```
+
+`browser_only` and `browser_preferred` enable browser runtime delivery and the
+narrow CSP; `server_only` and `disabled` do not. The legacy
+`HNEFATAFL_BROWSER_ANALYSIS_ENABLED=1` without `HNEFATAFL_ANALYSIS_MODE` keeps the
+historical server-only behaviour and delivery, but does not activate browser-first
+execution. An explicit mode always wins, and the legacy flag cannot re-enable
+delivery under `server_only`/`disabled`. Existing installations therefore keep
+their previous behaviour until an owner explicitly selects a browser mode.
+
+Additional administrative limits (defaults; all server-enforced and shared by
+direct and fallback requests):
+
+```ini
+# HNEFATAFL_ANALYSIS_WEBGPU=0
+# HNEFATAFL_ANALYSIS_OFFLINE_SECONDS=900
+# HNEFATAFL_ANALYSIS_MAX_CONCURRENT=16
+# HNEFATAFL_ANALYSIS_MAX_PER_USER=4
+# HNEFATAFL_ANALYSIS_REQUESTS_PER_MINUTE=240
+```
+
+The supported deployment keeps one API worker, so these task-lifetime limits are
+global for the service. The existing bounded analysis queue, result cache,
+deduplication and overload `503`/`Retry-After` behaviour are reused. The enabled
+CSP adds only `script-src 'self' 'wasm-unsafe-eval'` and `worker-src 'self'`;
+disabled deployments keep the existing strict policy.
 Runtime assets are served from the application origin with immutable caching and
 per-identity snapshot verification; model downloads are authenticated, streamed,
 `no-store`, digest-verified and may bind the immutable artifact version with
@@ -987,6 +1018,17 @@ per-identity snapshot verification; model downloads are authenticated, streamed,
 serving their own bytes while present; pruning makes their URLs return a controlled
 404. Source-checkout (`0+local`) runtime staging requires the explicit
 `--development` flag and is never treated as production compatibility.
+
+`browser_only` rejects every server analysis computation request with
+`409 analysis_server_disabled`; `browser_preferred` retains the server endpoints as
+a fallback with admission controls; `disabled` suppresses optional analysis while
+replay, gameplay, move validation, AI opponents, training and tournaments continue.
+Policy is resolved at process start, so a mode change requires a restart. The
+existing analysis-service shutdown handles queued/running work; in-flight work
+cannot bypass the old process's already-loaded policy. To roll back, set
+`HNEFATAFL_ANALYSIS_MODE=server_only` (or remove the variable and set
+`HNEFATAFL_BROWSER_ANALYSIS_ENABLED=0`) and restart. No reverse-proxy or new
+deployment requirement is introduced.
 
 Behavior across installation, update and rollback:
 

@@ -170,6 +170,57 @@ games hide AI playback and restart controls, including when seeking to an earlie
 position. Captured kings remain visible in the finished board presentation;
 the authoritative engine state and capture rules are unchanged.
 
+## Execution policy and local analysis
+
+The server deployment, not the player, chooses where optional analysis runs:
+`browser_only`, `browser_preferred`, `server_only` or `disabled`
+(`HNEFATAFL_ANALYSIS_MODE`). There is no Local/Server/Auto selector in the UI. In
+browser modes the existing analysis controls execute the same advisor/model search
+locally through the shared Python engine in a worker; the server's
+`analysis-context` read supplies the authoritative position (including repetition
+history). `browser_preferred` retains the server endpoint as a bounded fallback for
+classified failures only. `browser_only` rejects all server analysis computation,
+while `disabled` suppresses optional analysis without affecting replay, gameplay,
+AI opponents, training or tournaments. In `browser_preferred`, fallback obtains a
+short-lived admission receipt for one canonical position and advisor revision.
+The two-minute budget covers creation, submission, observation, result retrieval
+and retry delays. A repeated submission requires a structured rejection before
+admission and a still-prepared receipt, or a terminal receipt that proves no task
+was admitted. Ambiguous submission outcomes are observed through GET requests.
+
+The account-bound `GET /api/analysis/receipts/{receipt_id}` endpoint reports
+retirement evidence independently of the game's current version, advisor or
+visibility. Matching terminal evidence, a process epoch change or an applicable
+sequence watermark can free a browser slot. A missing receipt in the same epoch
+above the watermark leaves the slot reserved.
+
+`GET /api/analysis/receipts/{receipt_id}/result` also checks current ownership or
+completed online participation, including current administrator access. A report
+requires the current game version and advisor revision. A retired operation may
+return a complete advisor evaluation, a partial checkpoint, or an unavailable
+advisor alongside retained playing-agent evaluations. If the game version or
+advisor revision changed, the result carries `analysis_context_stale` or
+`analysis_revision_stale` for the corresponding recovery path.
+
+An active advisor search can publish a `pending` report with a usable checkpoint.
+Once that search retires, the analysis POST and receipt result classify the
+advisor evaluation as `complete`, `partial`, or unavailable. Ordinary polling
+reads the retained checkpoint and stops when work retires. **Retry evaluation**
+requests a separate attempt using the same position and advisor revision.
+The browser attempts local execution first where policy permits. A server retry
+uses the optional `retry_revision` field on its first analysis POST, with a
+fresh receipt if it uses fallback. The bounded executor joins equivalent active
+work and keeps complete evaluations immutable. An interrupted retry keeps the
+best retained checkpoint by completed search work. Progression credit comes from
+successful computation or an explicit POST that finds a completed cached advisor
+evaluation.
+
+Local results are advisory and render through the existing panel. They do not
+write authoritative game state, clocks, ratings, league/tournament progression or
+replay-achievement credit. See the
+[Phase 5 validation](validation/browser-analysis-phase5.md) and
+[deployment guide](DEPLOYMENT.md#browser-local-analysis-distribution-optional).
+
 ## Replay achievement evidence
 
 Schema 20 records account-scoped successful analysis of completed replays for

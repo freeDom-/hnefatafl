@@ -25,15 +25,15 @@ def test_explicit_algorithm_is_required_and_baseline_is_rejected():
 def test_classical_budgets_are_bounded_consistently():
     for config in (
         {"algorithm": "alpha_beta", "depth": 6},
-        {"algorithm": "alpha_beta", "time_limit": 3.5},
+        {"algorithm": "alpha_beta", "time_limit": 5.5},
         {"algorithm": "alpha_beta", "time_limit": 0},
     ):
         with pytest.raises(ValueError):
             browser_bridge.analysis_config(config)
     accepted = browser_bridge.analysis_config(
-        {"algorithm": "alpha_beta", "depth": 5, "time_limit": 3.0}
+        {"algorithm": "alpha_beta", "depth": 5, "time_limit": 5.0}
     )
-    assert accepted["depth"] == 5 and accepted["time_limit"] == 3.0
+    assert accepted["depth"] == 5 and accepted["time_limit"] == 5.0
 
 
 def test_nested_search_configuration_is_strictly_validated():

@@ -15,6 +15,7 @@ export {
   type BrowserAnalysisErrorCode,
   type BrowserAnalysisState,
   type DownloadProgress,
+  type ModelAuthorizationEvidence,
   type ModelDownloadResult,
   type ModelManifest,
   type ProviderRequest,
@@ -39,6 +40,7 @@ import type {
   Availability,
   AnalysisAlgorithm,
   DownloadProgress,
+  ModelAuthorizationEvidence,
   ModelDownloadResult,
   ModelManifest,
   RuntimeDisposalOutcome,
@@ -52,19 +54,27 @@ import { BrowserAnalysisRuntime, type RuntimeOptions } from './runtime';
 export const BROWSER_ANALYSIS_DEFAULT_ENABLED = false;
 
 export interface BrowserAnalysisApi {
-  availability(): Promise<Availability>;
+  availability(options?: { signal?: AbortSignal }): Promise<Availability>;
   initialize(options?: { signal?: AbortSignal; skipProbe?: boolean }): Promise<RuntimeStatus>;
-  listModels(): Promise<ModelManifest[]>;
+  listModels(options?: { signal?: AbortSignal }): Promise<ModelManifest[]>;
   downloadModel(
     model: ModelManifest,
     hooks?: { onProgress?: (progress: DownloadProgress) => void; signal?: AbortSignal },
   ): Promise<ModelDownloadResult>;
-  runSearch(request: SearchRequest, options?: { signal?: AbortSignal }): Promise<SearchResult>;
+  runSearch(
+    request: SearchRequest,
+    options?: { signal?: AbortSignal; offline?: { accountId: string } },
+  ): Promise<SearchResult>;
   cancel(reason?: string): Promise<void>;
   invalidateAccountContext(): Promise<void>;
+  /** Record a successful online authorization for bounded warm-offline work. */
+  noteOnlineAuthorization(accountId: string, seconds: number): void;
+  clearOfflineAuthorization(): void;
   dispose(): Promise<RuntimeDisposalOutcome>;
   status(): RuntimeStatus;
   lastResult(): SearchResult | null;
+  modelReady(model: ModelManifest, provider: 'wasm' | 'webgpu'): boolean;
+  modelAuthorization(model: ModelManifest): ModelAuthorizationEvidence | null;
   storageUsage(): Promise<{ persistent: boolean; bytes: number }>;
 }
 
@@ -73,16 +83,21 @@ export async function createBrowserAnalysis(
 ): Promise<BrowserAnalysisApi> {
   const runtime = await BrowserAnalysisRuntime.create(options);
   return {
-    availability: () => runtime.availability(),
+    availability: (options) => runtime.availability(options),
     initialize: (initOptions) => runtime.initialize(initOptions),
-    listModels: () => runtime.listModels(),
+    listModels: (options) => runtime.listModels(options),
     downloadModel: (model, hooks) => runtime.downloadModel(model, hooks),
     runSearch: (request, searchOptions) => runtime.runSearch(request, searchOptions),
     cancel: (reason) => runtime.cancel(reason),
     invalidateAccountContext: () => runtime.invalidateAccountContext(),
+    noteOnlineAuthorization: (accountId, seconds) =>
+      runtime.noteOnlineAuthorization(accountId, seconds),
+    clearOfflineAuthorization: () => runtime.clearOfflineAuthorization(),
     dispose: () => runtime.dispose(),
     status: () => runtime.getStatus(),
     lastResult: () => runtime.getLastResult(),
+    modelReady: (model, provider) => runtime.modelReady(model, provider),
+    modelAuthorization: (model) => runtime.modelAuthorization(model),
     storageUsage: () => runtime.storageUsage(),
   };
 }

@@ -101,7 +101,7 @@ export default function Auth({ children }: { children: ReactNode }) {
     if (current?.id !== session.account.id || revision >= verificationRevision.current)
       verificationRevision.current = revision;
     acceptedAccount.current = updated;
-    setCSRF(session.csrf_token);
+    setCSRF(session.csrf_token, session.account.id);
     setAccount(updated);
   }
   function clear(clearPreferences = true) {
@@ -116,6 +116,11 @@ export default function Auth({ children }: { children: ReactNode }) {
     }
     setCSRF('');
     setAccount(null);
+    // A loaded browser-analysis runtime must discard its workers, cached
+    // positions and warm-offline lease before another account can use this tab.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('hnefatafl:session-ended'));
+    }
     if (clearPreferences) {
       try {
         for (const key of [

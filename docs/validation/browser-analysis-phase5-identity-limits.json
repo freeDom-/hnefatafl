@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "baseUrl": "http://127.0.0.1:8124",
+  "checks": [
+    {
+      "name": "login succeeds",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "name": "account game is created",
+      "ok": true,
+      "detail": "{\"id\":\"e9620b64b42b49629bd1900f652bd18d\",\"ruleset\":\"brandubh\",\"ruleset_version\":1,\"mode\":\"human-ai\",\"human_side\":\"attackers\",\"players\":{\"attackers\":{\"name\":\"admin\",\"account_id\":\"d6966c216aee485ba541eb2bb2201ec6\",\"kind\":\"human\",\"config\":{},\"username\":\"admin\",\"rune\":\"ᚠ\"},\"defenders\":{\"name\":\"Shield bearer\",\"kind\":\"ai\",\"profile_id\":\"baseline\",\"profile_name\":\"Shield bearer\",\"config\":{\"algorithm\":\"baseline\",\"seed\":2507352727,\"time_limit\":1.0,\"evaluation\":\"heuristic\"},\"variant_id\":\"ai:846ed51404db4f89279a0852\",\"rune\":\"ᚢ\"}},\"advisor\":null,\"analysis_enabled\":true,\"seed\":2507352727,\"moves\":[],\"cursor\":0,\"version\":0,\"created_at\":\"2026-11-27T10:01:35.689370+00:00\",\"ended_at\":null,\"recorded_result\":null,\"creation_policy\":1,\"size\":7,\"board\":[\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\"A\",\"A\",\"D\",\"K\",\"D\",\"A\",\"A\",\".\",\".\",\".\",\"D\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\",\".\",\".\",\".\",\"A\",\".\",\".\",\".\"],\"turn\":\"attackers\",\"ply\":0,\"winner\":null,\"reason\":null,\"total_moves\":0,\"recorded_winner\":null,\"recorded_reason\":null,\"recorded_plies\":0,\"legal_moves\":[{\"source\":3,\"target\":2},{\"source\":3,\"target\":1},{\"source\":3,\"target\":4},{\"source\":3,\"target\":5},{\"source\":10,\"target\":9},{\"source\":10,\"target\":8},{\"source\":10,\"target\":7},{\"source\":10,\"target\":11},{\"source\":10,\"target\":12},{\"source\":10,\"target\":13},{\"source\":21,\"target\":14},{\"source\":21,\"target\":7},{\"source\":21,\"target\":28},{\"source\":21,\"target\":35},{\"source\":22,\"target\":15},{\"source\":22,\"target\":8},{\"source\":22,\"target\":1},{\"source\":22,\"target\":29},{\"source\":22,\"target\":36},{\"source\":22,\"target\":43},{\"source\":26,\"target\":19},{\"source\":26,\"target\":12},{\"source\":26,\"target\":5},{\"source\":26,\"target\":33},{\"source\":26,\"target\":40},{\"source\":26,\"target\":47},{\"source\":27,\"target\":20},{\"source\":27,\"target\":13},{\"source\":27,\"target\":34},{\"source\":27,\"target\":41},{\"source\":38,\"target\":37},{\"source\":38,\"target\":36},{\"source\":38,\"target\":35},{\"source\":38,\"target\":39},{\"source\":38,\"target\":40},{\"source\":38,\"target\":41},{\"source\":45,\"target\":44},{\"source\":45,\"target\":43},{\"source\":45,\"target\":46},{\"source\":45,\"target\":47}],\"captured\":{\"attackers\":0,\"defenders\":0},\"analysis\":null,\"analytics\":{\"advisor\":null,\"time_limit\":5,\"show_win_chances\":true,\"revision\":0,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}}"
+    },
+    {
+      "name": "non-integer analytics time limit is saved",
+      "ok": true,
+      "detail": "{\"advisor\":{\"name\":\"Jarl advisor\",\"kind\":\"ai\",\"profile_id\":\"alpha_beta\",\"profile_name\":\"Jarl\",\"config\":{\"algorithm\":\"alpha_beta\",\"seed\":2507352727,\"time_limit\":1.0,\"evaluation\":\"heuristic\",\"heuristic\":\"shield_maiden\",\"depth\":3},\"rune\":\"ᚨ\"},\"time_limit\":2.5,\"show_win_chances\":true,\"revision\":1,\"execution\":{\"mode\":\"browser_preferred\",\"browser_delivery\":true,\"browser_execution\":true,\"server_computation\":true,\"fallback\":true,\"webgpu\":false,\"offline_authorization_seconds\":900,\"limits\":{\"max_concurrent\":16,\"max_per_user\":4,\"requests_per_minute\":240}}}"
+    },
+    {
+      "name": "server resolves the non-integer effective limit",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "game is readable",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "non-integer Jarl search completes",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "effective time limit is preserved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "search reports the analyzed seed",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "canonical position key is present",
+      "ok": true,
+      "detail": null
+    }
+  ],
+  "report": {
+    "cursor": 0,
+    "ply": 0,
+    "side_to_move": "attackers",
+    "position_key": "f6ee42a77214266a69bee8a14b8d3b7d06ff4474c720ea828f1e274ab70a2b43",
+    "created_at": "2026-11-27T10:01:38.652Z",
+    "evaluations": [
+      {
+        "rune": "ᚨ",
+        "agent_id": "advisor",
+        "name": "Jarl advisor",
+        "role": "advisor",
+        "profile_id": "alpha_beta",
+        "profile_name": "Jarl",
+        "config": {
+          "algorithm": "alpha_beta",
+          "seed": 2507352727,
+          "time_limit": 2.5,
+          "evaluation": "heuristic",
+          "heuristic": "shield_maiden",
+          "depth": 3,
+          "search": {
+            "legacy": false,
+            "transposition": true,
+            "move_ordering": true,
+            "symmetry_transposition": false,
+            "symmetry_pruning": false,
+            "table_capacity": 100000
+          }
+        },
+        "source": "heuristic",
+        "value": -0.05272882825841763,
+        "win_probability": 0.5263644141292089,
+        "estimated": true,
+        "calibrated": false,
+        "best_move": {
+          "source": 3,
+          "target": 2
+        },
+        "completed_depth": 3,
+        "searched_moves": 40,
+        "nodes": 149,
+        "evaluations": 2149,
+        "cutoffs": 103,
+        "transposition_hits": 0,
+        "symmetry_moves_skipped": 0,
+        "search_seed": 2507352727
+      }
+    ],
+    "hint": {
+      "agent_id": "advisor",
+      "move": {
+        "source": 3,
+        "target": 2
+      }
+    },
+    "status": "complete",
+    "advisor_revision": 1
+  },
+  "ok": true
+}

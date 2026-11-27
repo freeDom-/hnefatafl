@@ -568,5 +568,6 @@ def test_read_only_historical_analysis_does_not_start_search_or_mutate_game(clie
     )
     assert response.status_code == 200
     assert response.json()["cursor"] == 0
-    assert response.json()["status"] == "complete"
+    assert response.json()["status"] == "unavailable"
+    assert response.json()["unavailable_reason"] == "not_recorded"
     assert client.get(f"/api/games/{game['id']}").json() == before

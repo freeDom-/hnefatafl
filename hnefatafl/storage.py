@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from threading import Lock
 from typing import Iterable, Iterator
@@ -26,6 +26,14 @@ MAX_IDLE_ONLINE_WRITERS = 4
 
 class ConflictError(ValueError):
     """A client attempted to update an old game version."""
+
+
+def usable_advisor_entry(entry: dict) -> bool:
+    return (
+        entry.get("agent_id") == "advisor"
+        and entry.get("source") not in (None, "unavailable")
+        and not entry.get("unavailable_reason")
+    )
 
 
 class Store:
@@ -286,6 +294,15 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
+    def game_version(self, game_id: str, connection: sqlite3.Connection) -> int | None:
+        """Read the version with the same visibility as the owned game."""
+        owner = owner_scope()
+        row = connection.execute(
+            "SELECT version FROM games WHERE id=?" + (" AND owner_account_id=?" if owner else ""),
+            (game_id, owner) if owner else (game_id,),
+        ).fetchone()
+        return row["version"] if row else None
+
     def game_owner(self, game_id: str) -> str | None:
         """Trusted creating-account lookup, independent of the caller's owner scope."""
         with self.connection() as connection:
@@ -385,9 +402,11 @@ class Store:
                     LOCAL_CRITERIA,
                 )
 
-    def game_analysis(self, game_id: str, position_key: str) -> dict | None:
-        with self.connection() as connection:
-            row = connection.execute(
+    def game_analysis(
+        self, game_id: str, position_key: str, *, connection: sqlite3.Connection | None = None
+    ) -> dict | None:
+        with nullcontext(connection) if connection is not None else self.connection() as c:
+            row = c.execute(
                 "SELECT data FROM game_analysis WHERE game_id=? AND position_key=?",
                 (game_id, position_key),
             ).fetchone()
@@ -415,9 +434,11 @@ class Store:
             ).fetchone()
             return json.loads(retained["data"])
 
-    def analytics(self, game_id: str) -> dict | None:
-        with self.connection() as connection:
-            row = connection.execute(
+    def analytics(
+        self, game_id: str, *, connection: sqlite3.Connection | None = None
+    ) -> dict | None:
+        with nullcontext(connection) if connection is not None else self.connection() as c:
+            row = c.execute(
                 "SELECT data FROM game_analytics WHERE game_id=?", (game_id,)
             ).fetchone()
         return json.loads(row["data"]) if row else None
@@ -451,9 +472,11 @@ class Store:
             )
             return result
 
-    def advisor_analysis(self, game_id: str, key: str, revision: int) -> dict | None:
-        with self.connection() as connection:
-            row = connection.execute(
+    def advisor_analysis(
+        self, game_id: str, key: str, revision: int, *, connection: sqlite3.Connection | None = None
+    ) -> dict | None:
+        with nullcontext(connection) if connection is not None else self.connection() as c:
+            row = c.execute(
                 "SELECT data FROM advisor_analysis WHERE game_id=? AND position_key=? AND revision=?",
                 (game_id, key, revision),
             ).fetchone()
@@ -493,12 +516,7 @@ class Store:
             (game.get("recorded_result") or {}).get("winner")
             and report
             and not report.get("partial")
-            and any(
-                entry.get("agent_id") == "advisor"
-                and entry.get("source") not in (None, "unavailable")
-                and not entry.get("unavailable_reason")
-                for entry in report.get("evaluations", [])
-            )
+            and any(usable_advisor_entry(entry) for entry in report.get("evaluations", []))
         )
 
     def _record_replay_analysis(
@@ -554,6 +572,7 @@ class Store:
         *,
         advisor_revision: int | None = None,
         partial: bool = False,
+        retry: bool = False,
         online: bool = False,
         requester_ids: Iterable[str] = (),
     ) -> dict:
@@ -600,19 +619,38 @@ class Store:
                     "SELECT data FROM advisor_analysis WHERE game_id=? AND position_key=? AND revision=?",
                     (game_id, key, advisor_revision),
                 ).fetchone()
-                if retained is not None:
-                    completed = json.loads(retained["data"])
-                    if not completed.get("partial"):
-                        # Completion is immutable, even if a late observer or
-                        # another writer publishes progress for this same key.
-                        self._record_replay_analysis(connection, original, completed, requester_ids)
-                        return completed
                 report = {**snapshot, "evaluations": [entry], "partial": partial}
                 report["hint"] = (
                     {"agent_id": "advisor", "move": entry["best_move"]}
                     if entry.get("best_move")
                     else None
                 )
+                if retained is not None:
+                    completed = json.loads(retained["data"])
+                    checkpoint = completed.get("partial")
+                    if not checkpoint or completed.get("retired_partial"):
+                        previous: dict = next(iter(completed["evaluations"]), {})
+                        if not retry or (not checkpoint and usable_advisor_entry(previous)):
+                            # Successful evaluations are immutable across attempts.
+                            self._record_replay_analysis(
+                                connection, original, completed, requester_ids
+                            )
+                            return completed
+                        if not usable_advisor_entry(entry):
+                            return completed
+                        if partial:
+                            work = ("completed_depth", "simulations", "searched_moves")
+                            if checkpoint and tuple(entry.get(k) or 0 for k in work) <= tuple(
+                                previous.get(k) or 0 for k in work
+                            ):
+                                return completed
+                            # Activity is tracked by the executor while retrying.
+                            # The saved checkpoint stays usable after interruption.
+                            report["retired_partial"] = True
+                    elif not partial and not usable_advisor_entry(entry):
+                        # Keep the last usable checkpoint and stop background polls
+                        # from rescheduling a search that has already failed.
+                        report = {**completed, "retired_partial": True}
                 connection.execute(
                     "INSERT INTO advisor_analysis(game_id,position_key,revision,data) VALUES(?,?,?,?) "
                     "ON CONFLICT(game_id,position_key,revision) DO UPDATE SET data=excluded.data",

@@ -80,6 +80,51 @@ const translations: Record<string, string> = {
   'Winning chances': 'Gewinnchancen',
   'For the current player: {side}': 'Für die Seite am Zug: {side}',
   'Evaluating this position…': 'Stellung wird bewertet…',
+  'Preparing analysis…': 'Analyse wird vorbereitet…',
+  'Downloading required analysis resources…': 'Benötigte Analyseressourcen werden heruntergeladen…',
+  'Starting the analysis engine…': 'Analyse-Engine wird gestartet…',
+  'Loading the analysis model…': 'Analysemodell wird geladen…',
+  'Analysis runs on this device.': 'Die Analyse läuft auf diesem Gerät.',
+  'Analysis is running on this device without a network connection.':
+    'Die Analyse läuft ohne Netzwerkverbindung auf diesem Gerät.',
+  'Analysis is running on the server.': 'Die Analyse läuft auf dem Server.',
+  'Waiting for server analysis capacity…': 'Warten auf freie Server-Analysekapazität…',
+  'Downloading analysis resources…': 'Analyseressourcen werden heruntergeladen…',
+  'Cancel analysis': 'Analyse abbrechen',
+  'This advisor cannot run on this device.':
+    'Dieser Berater kann auf diesem Gerät nicht ausgeführt werden.',
+  'This analysis setting is not available on this device.':
+    'Diese Analyseeinstellung ist auf diesem Gerät nicht verfügbar.',
+  'A compatible model is not available for this advisor.':
+    'Für diesen Berater ist kein kompatibles Modell verfügbar.',
+  'Local analysis is not available in this browser.':
+    'Die lokale Analyse ist in diesem Browser nicht verfügbar.',
+  'The local analysis engine could not start.': 'Die lokale Analyse-Engine konnte nicht starten.',
+  'Required analysis resources could not be downloaded.':
+    'Benötigte Analyseressourcen konnten nicht heruntergeladen werden.',
+  'Analysis resources failed a safety check.':
+    'Analyseressourcen haben eine Sicherheitsprüfung nicht bestanden.',
+  'This position is not available offline yet.': 'Diese Stellung ist noch nicht offline verfügbar.',
+  'Analysis authorization is no longer valid.': 'Die Analysegenehmigung ist nicht mehr gültig.',
+  'Analysis was cancelled.': 'Die Analyse wurde abgebrochen.',
+  'Analysis settings changed. Retry to use the updated policy.':
+    'Die Analyseeinstellungen haben sich geändert. Erneut versuchen, um die aktualisierte Richtlinie zu nutzen.',
+  'This game changed. Reload it before analyzing again.':
+    'Das Spiel hat sich geändert. Vor einer neuen Analyse neu laden.',
+  'Analysis capacity is busy. Retry shortly.':
+    'Die Analysekapazität ist ausgelastet. Bitte kurz warten.',
+  'The analysis service is unavailable.': 'Der Analysedienst ist nicht verfügbar.',
+  'The analysis could not be completed. Retry to try again.':
+    'Die Analyse konnte nicht abgeschlossen werden. Erneut versuchen.',
+  'Running analysis on the server…': 'Analyse läuft auf dem Server…',
+  'Analysis completed on the server.': 'Analyse auf dem Server abgeschlossen.',
+  'Analysis is already running on this device.': 'Die Analyse läuft bereits auf diesem Gerät.',
+  'Analysis completed on this device.': 'Analyse auf diesem Gerät abgeschlossen.',
+  'Analysis completed on this device offline.': 'Analyse offline auf diesem Gerät abgeschlossen.',
+  'This advisor is not available for local analysis. Choose Jarl or a neural MCTS model.':
+    'Dieser Berater ist für die lokale Analyse nicht verfügbar. Jarl oder ein neuronales MCTS-Modell wählen.',
+  'Local analysis supports at most {seconds} seconds for this advisor.':
+    'Die lokale Analyse unterstützt für diesen Berater höchstens {seconds} Sekunden.',
   'Waiting for analysis capacity…': 'Warten auf freie Analysekapazität…',
   'The evaluation is unavailable. You can keep playing.':
     'Die Bewertung ist nicht verfügbar. Du kannst weiterspielen.',

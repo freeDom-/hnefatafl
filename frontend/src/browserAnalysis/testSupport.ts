@@ -220,6 +220,7 @@ export function modelManifest(overrides: Partial<ModelManifest> = {}): ModelMani
     io: { input: null, outputs: null },
     status: 'published',
     publishedAt: '2026-11-25T00:00:00+00:00',
+    registeredModelIds: [],
     ...overrides,
   };
 }
@@ -231,6 +232,17 @@ export const AVAILABILITY: Availability = {
   runtime: runtimeManifest(),
   reason: null,
   publishedModels: 1,
+  analysisMode: 'server_only',
+  execution: {
+    mode: 'server_only',
+    browserDelivery: true,
+    browserExecution: false,
+    serverComputation: true,
+    fallback: false,
+    webgpu: false,
+    offlineAuthorizationSeconds: 900,
+    limits: { maxConcurrent: 16, maxPerUser: 2, requestsPerMinute: 30 },
+  },
 };
 
 /** Minimal Response-like object for streamed download tests. */

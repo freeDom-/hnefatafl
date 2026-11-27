@@ -307,14 +307,54 @@ namespace is gated by
 `HNEFATAFL_PUBLIC_ONLINE_ENABLED` (default enabled) without a schema or
 `SCHEMA_VERSION` change.
 
-## Browser-local analysis distribution
+## Browser-local analysis distribution and execution policy
 
-Browser-local analysis is optional and disabled by default
-(`HNEFATAFL_BROWSER_ANALYSIS_ENABLED=0`). Enabling it adds exactly one narrow CSP
-source, `script-src 'self' 'wasm-unsafe-eval'`, plus `worker-src 'self'` for the
-same-origin workers. The disabled policy is unchanged, and there is no broad
-`unsafe-eval`, inline script, blob worker, wildcard or remote runtime origin and
-no COOP/COEP change.
+Browser-local analysis is optional and disabled by default. The deployment owns
+the execution policy: `browser_only` permits local execution only,
+`browser_preferred` permits strictly bounded server fallback, `server_only` keeps
+the historical server path, and `disabled` suppresses optional analysis. There is
+no player execution-mode setting. The legacy
+`HNEFATAFL_BROWSER_ANALYSIS_ENABLED=0` flag is retained for compatibility; an
+explicit `HNEFATAFL_ANALYSIS_MODE` always wins and cannot be reopened by the
+legacy flag.
+
+In `browser_only`/`disabled`, the authenticated analysis endpoints reject requests
+before any cache read, scheduling or evaluation. In `browser_preferred`, direct
+and fallback requests share server-side per-account/global concurrency, request
+rate, queue and computation limits; a client-reported local failure is never
+treated as authorization for unrestricted server work. Coarse administrator
+counters at `/api/analysis/metrics` expose no account identifiers, positions,
+credentials or device fingerprints.
+
+The authorized `analysis-context` endpoints return the same serialized positions
+(including repetition history) only where the existing analysis/replay permission
+already applies. They expose no new game or account data and never compute. Active
+online/league/tournament games remain ineligible; public spectator pages do not
+initialize the runtime or download models. Browser fallback receipts are
+account/game/position/revision-bound, bounded, short-lived and created without
+starting computation; late or duplicate consumption after a terminal transition is
+rejected. Task admission and receipt retirement are atomic with the existing
+analysis service lifecycle. The direct receipt-status and receipt-result endpoints are account-bound,
+do not reveal game/position data to other accounts, and a bounded sequence
+watermark allows abandoned records to reconcile without revisiting their games.
+Result retrieval is read-only and refuses to start or renew computation. Missing or malformed evidence is `unknown`, never `retired`, and never
+initiates a search. Browser results are advisory and cannot
+mutate authoritative results, clocks, ratings or progression.
+
+Enabling browser delivery adds exactly one narrow CSP source,
+`script-src 'self' 'wasm-unsafe-eval'`, plus `worker-src 'self'` for the same-origin
+workers. The disabled policy is unchanged, and there is no broad `unsafe-eval`,
+inline script, blob worker, wildcard or remote runtime origin and no COOP/COEP
+change.
+
+Warm offline execution is allowed only after successful online authorization and
+runtime/model initialization. The client lease is account/runtime/TTL bound and is
+never server-verifiable proof of permission; logout/account change disposes it and
+reconnection requires origin revalidation before further work. Revocation cannot be
+delivered to an already disconnected browser; the bounded TTL, no-new-resource rule
+and documented inability to recall downloaded bytes limit but do not eliminate
+that risk. Cold offline startup and persistent offline authorization remain out of
+scope until Phase 6.
 
 Runtime assets (pinned Pyodide 0.27.7 and ONNX Runtime Web 1.22.0, the engine
 closure, workers, manifests and third-party license texts) are staged under the

@@ -14,6 +14,7 @@ import { modelLabel } from './modelLabel';
 import { profileConfiguration } from './profileConfiguration';
 import HeuristicSelect, { heuristicFromConfig } from './HeuristicSelect';
 import { FieldLabel } from './FieldTooltip';
+import { normalizeExecutionPolicy } from './analysisPolicy';
 
 export function advisorOptions(profiles: AIProfile[], models: Model[], ruleset: string) {
   const options: { id: string; label: string; rune?: string; advisor: Advisor }[] = profiles
@@ -220,6 +221,20 @@ export function AnalyticsSettingsPanel({
       (advisor.config.search_wrapper ?? 'mcts') === 'mcts') ||
       (advisor.config.algorithm === 'mcts' && !!advisor.config.model_id));
   const compatibleModels = models.filter((model) => model.ruleset === game.ruleset);
+  let browserOnly = false;
+  try {
+    browserOnly = normalizeExecutionPolicy(settings.execution).mode === 'browser_only';
+  } catch {
+    browserOnly = false;
+  }
+  const advisorAlgorithm = advisor?.config.algorithm;
+  const neuralAdvisor =
+    advisorAlgorithm === 'neural' ||
+    (advisorAlgorithm === 'mcts' && Boolean(advisor?.config.model_id));
+  const unsupportedLocalAgent =
+    browserOnly && (advisorAlgorithm === 'mcts' || advisorAlgorithm === 'baseline');
+  const localLimit = neuralAdvisor ? 10 : 5;
+  const unsupportedLocalTime = browserOnly && settings.time_limit > localLimit;
   const update = (next: Partial<AnalyticsSettings>) => void onChange({ ...settings, ...next });
   const updateConfig = (key: string, input: string | number) => {
     if (!advisor) return;
@@ -256,6 +271,20 @@ export function AnalyticsSettingsPanel({
   return (
     <section className="panel analytics-settings" aria-label={t('Analytics')}>
       <h2>{t('Analytics')}</h2>
+      {browserOnly && unsupportedLocalAgent && (
+        <p className="subtle">
+          {t(
+            'This advisor is not available for local analysis. Choose Jarl or a neural MCTS model.',
+          )}
+        </p>
+      )}
+      {browserOnly && !unsupportedLocalAgent && unsupportedLocalTime && (
+        <p className="subtle">
+          {t('Local analysis supports at most {seconds} seconds for this advisor.', {
+            seconds: localLimit,
+          })}
+        </p>
+      )}
       <label>
         {t('Move advisor')}
         <select

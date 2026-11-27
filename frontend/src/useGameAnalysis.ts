@@ -1,11 +1,84 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ApiError } from './api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api, requestSession } from './api';
 import {
   defaultAnalyticsSettings,
   type AnalyticsSettings,
   type PositionAnalysis,
 } from './analysisTypes';
+import {
+  normalizeExecutionPolicy,
+  type ExecutionMode,
+  type ExecutionPolicy,
+} from './analysisPolicy';
+import { browserAnalysisLoaded, loadAnalysisIntegration } from './browserAnalysis/loader';
+import type { LocalAnalysisError, LocalAnalysisStage } from './browserAnalysis/integration';
+import type { FallbackOutcome } from './analysisRetirements';
 import type { Game } from './types';
+
+type RequestStatus = 'pending' | 'waiting' | 'done' | 'failed' | 'cancelled';
+
+interface AnalysisRequestState {
+  key: string;
+  status: RequestStatus;
+  report?: PositionAnalysis;
+  /** Local execution stage; absent for server execution. */
+  stage?: LocalAnalysisStage | 'fallback';
+  local?: boolean;
+  fallback?: boolean;
+  offline?: boolean;
+  errorCategory?: string;
+  download?: { transferred: number; total: number };
+}
+
+function mergeAdvisorReport(
+  stored: PositionAnalysis | undefined,
+  local: PositionAnalysis,
+): PositionAnalysis {
+  if (!stored || stored.cursor !== local.cursor || stored.position_key !== local.position_key) {
+    return local;
+  }
+  return {
+    ...local,
+    evaluations: [
+      ...stored.evaluations.filter((entry) => entry.agent_id !== 'advisor'),
+      ...local.evaluations,
+    ],
+    // The newly calculated advice owns the hint, including an explicit null.
+    hint: local.hint,
+  };
+}
+
+function resolvePolicy(settings: AnalyticsSettings): ExecutionPolicy {
+  try {
+    return normalizeExecutionPolicy(settings.execution, { browserDelivery: false });
+  } catch {
+    // A malformed modern projection fails closed: do not guess server-only or
+    // silently enable local execution.
+    return {
+      ...normalizeExecutionPolicy(undefined),
+      mode: 'disabled' as const,
+      browserDelivery: false,
+      browserExecution: false,
+      serverComputation: false,
+      fallback: false,
+    };
+  }
+}
+
+/** Confirmed rejections raised before the server submits replacement work. */
+const LEGACY_PRE_ADMISSION_CODES = new Set([
+  'analysis_admission_unavailable',
+  'analysis_overloaded',
+  'analysis_account_busy',
+  'analysis_rate_limited',
+  'analysis_rate_capacity',
+]);
+
+function confirmedPreAdmissionRejection(error: unknown): boolean {
+  const status = (error as { status?: number })?.status;
+  const code = (error as { code?: string })?.code;
+  return (status === 503 || status === 429) && !!code && LEGACY_PRE_ADMISSION_CODES.has(code);
+}
 
 /** Background requests are tied to both the position and the advisor revision. */
 export function useGameAnalysis(
@@ -14,6 +87,7 @@ export function useGameAnalysis(
   historical = false,
   basePath = '/games',
   readOnlyHistory = false,
+  accountId: string | null = null,
 ) {
   const gameId = game?.id ?? '';
   const currentGame = useRef(gameId);
@@ -27,12 +101,17 @@ export function useGameAnalysis(
   } | null>(null);
   const settingsQueue = useRef<Promise<unknown>>(Promise.resolve());
   const settingsSequence = useRef(0);
+  const refreshSequence = useRef(0);
+  const accountRef = useRef(accountId);
+  accountRef.current = accountId;
+  const session = requestSession().signal;
   const inlineSettings = game?.analytics;
   const confirmedSettings = useRef<{ gameId: string; value: AnalyticsSettings } | null>(null);
   useEffect(() => {
     if (!gameId) return;
     let alive = true;
     const sequence = ++settingsSequence.current;
+    const requestedAccount = accountRef.current;
     if (inlineSettings) {
       confirmedSettings.current = { gameId, value: inlineSettings };
       setPreferences({ gameId, value: inlineSettings, pending: false, confirmed: true });
@@ -41,13 +120,21 @@ export function useGameAnalysis(
     setPreferences({ gameId, value: defaultAnalyticsSettings, pending: true, confirmed: false });
     void api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`)
       .then((value) => {
-        if (alive && settingsSequence.current === sequence) {
+        if (
+          alive &&
+          settingsSequence.current === sequence &&
+          accountRef.current === requestedAccount
+        ) {
           confirmedSettings.current = { gameId, value };
           setPreferences({ gameId, value, pending: false, confirmed: true });
         }
       })
       .catch((error: Error) => {
-        if (alive && settingsSequence.current === sequence)
+        if (
+          alive &&
+          settingsSequence.current === sequence &&
+          accountRef.current === requestedAccount
+        )
           setPreferences({
             gameId,
             value: defaultAnalyticsSettings,
@@ -61,7 +148,7 @@ export function useGameAnalysis(
     };
     // A settings update is independent of subsequent gameplay responses.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameId, basePath]);
+  }, [gameId, basePath, accountId]);
   const settings =
     preferences?.gameId === gameId
       ? preferences.value
@@ -72,13 +159,17 @@ export function useGameAnalysis(
   const updateSettings = useCallback(
     async (next: AnalyticsSettings) => {
       if (!gameId) return;
+      const requestedAccount = accountRef.current;
       const sequence = ++settingsSequence.current;
       setPreferences({ gameId, value: next, pending: true, confirmed: false });
       // Serialize writes so a slow older request cannot undo the latest selection.
       const operation = settingsQueue.current
         .catch(() => undefined)
-        .then(() =>
-          api<AnalyticsSettings>(
+        .then(() => {
+          if (accountRef.current !== requestedAccount || currentGame.current !== gameId) {
+            throw new DOMException('Request cancelled', 'AbortError');
+          }
+          return api<AnalyticsSettings>(
             `${basePath}/${gameId}/analytics`,
             {
               advisor: next.advisor && {
@@ -92,27 +183,45 @@ export function useGameAnalysis(
               show_win_chances: true,
             },
             'PUT',
-          ),
-        );
+          );
+        });
       settingsQueue.current = operation;
       try {
         const value = await operation;
-        if (currentGame.current === gameId) confirmedSettings.current = { gameId, value };
-        if (currentGame.current === gameId && settingsSequence.current === sequence)
+        if (
+          currentGame.current === gameId &&
+          accountRef.current === requestedAccount &&
+          settingsSequence.current === sequence
+        ) {
+          confirmedSettings.current = { gameId, value };
           setPreferences({ gameId, value, pending: false, confirmed: true });
+        }
       } catch (error) {
-        if (currentGame.current !== gameId || settingsSequence.current !== sequence) return;
+        if (
+          currentGame.current !== gameId ||
+          accountRef.current !== requestedAccount ||
+          settingsSequence.current !== sequence
+        )
+          return;
         const message = (error as Error).message;
         // A failed response may still have committed. Read the server's effective
         // preferences before showing results or enabling a new analysis request.
         try {
           const value = await api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`);
-          if (currentGame.current === gameId && settingsSequence.current === sequence) {
+          if (
+            currentGame.current === gameId &&
+            accountRef.current === requestedAccount &&
+            settingsSequence.current === sequence
+          ) {
             confirmedSettings.current = { gameId, value };
             setPreferences({ gameId, value, pending: false, confirmed: true, error: message });
           }
         } catch {
-          if (currentGame.current === gameId && settingsSequence.current === sequence) {
+          if (
+            currentGame.current === gameId &&
+            accountRef.current === requestedAccount &&
+            settingsSequence.current === sequence
+          ) {
             const value =
               confirmedSettings.current?.gameId === gameId
                 ? confirmedSettings.current.value
@@ -124,50 +233,246 @@ export function useGameAnalysis(
     },
     [gameId, basePath],
   );
+  const policy = useMemo(
+    () => resolvePolicy(settings),
+    // Policy fields, not the whole settings object, determine execution.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settings.execution],
+  );
+  const mode: ExecutionMode = policy.mode;
+  const localMode = policy.browserExecution;
+  const disabled = mode === 'disabled';
+  const policyKey = JSON.stringify(settings.execution);
+  const workKey = game
+    ? `${accountId ?? ''}:${basePath}:${game.id}:${game.version}:${game.cursor}:${settings.revision}`
+    : '';
   const key = game
-    ? `${game.id}:${game.version}:${game.cursor}:${settings.revision}:${JSON.stringify([settings.advisor, settings.time_limit, settings.show_win_chances])}`
+    ? `${workKey}:${policyKey}:${JSON.stringify([settings.advisor, settings.time_limit, settings.show_win_chances])}`
     : '';
   // Winning chances and the best-move hint belong to the selected move advisor.
   const needed = !!game && !!settings.advisor;
-  const stored =
-    !settingsPending &&
-    game?.analysis?.cursor === game?.cursor &&
-    (game?.analysis?.advisor_revision ?? 0) === settings.revision
-      ? game?.analysis
-      : null;
-  const [request, setRequest] = useState<{
-    key: string;
-    status: 'pending' | 'waiting' | 'done' | 'failed';
-    report?: PositionAnalysis;
-  } | null>(null);
+  const rawStored =
+    !settingsPending && game?.analysis?.cursor === game?.cursor ? game?.analysis : null;
+  const storedAdvisorCurrent = (rawStored?.advisor_revision ?? 0) === settings.revision;
+  const stored = rawStored
+    ? storedAdvisorCurrent
+      ? rawStored
+      : {
+          ...rawStored,
+          evaluations: rawStored.evaluations.filter((entry) => entry.agent_id !== 'advisor'),
+          hint: null,
+        }
+    : null;
+  const storedAdvisorComplete = Boolean(
+    stored &&
+      stored.cursor === game?.cursor &&
+      stored.status === 'complete' &&
+      stored.evaluations.some(
+        (entry) =>
+          entry.agent_id === 'advisor' &&
+          entry.source !== 'unavailable' &&
+          !entry.unavailable_reason,
+      ) &&
+      ((stored.advisor_revision ?? 0) === settings.revision || settings.revision === 0),
+  );
+  const [request, setRequest] = useState<AnalysisRequestState | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const retryIntent = useRef<{ key: string; session: AbortSignal } | null>(null);
+  const [onlineEpoch, setOnlineEpoch] = useState(0);
+  const activeController = useRef<AbortController | null>(null);
   const creditedReplay = useRef('');
+
+  const refreshSettings = useCallback(async (): Promise<boolean> => {
+    if (!gameId) return false;
+    const requestSequence = ++refreshSequence.current;
+    const settingsSequenceAtStart = settingsSequence.current;
+    const requestedAccount = accountRef.current;
+    try {
+      const value = await api<AnalyticsSettings>(`${basePath}/${gameId}/analytics`);
+      const currentConfirmed =
+        confirmedSettings.current?.gameId === gameId
+          ? confirmedSettings.current.value
+          : preferences?.value;
+      const unchanged =
+        currentConfirmed !== undefined &&
+        JSON.stringify(currentConfirmed) === JSON.stringify(value);
+      if (
+        currentGame.current !== gameId ||
+        accountRef.current !== requestedAccount ||
+        refreshSequence.current !== requestSequence ||
+        settingsSequence.current !== settingsSequenceAtStart ||
+        unchanged
+      ) {
+        return false;
+      }
+      // A genuine settings/policy change is a new ownership generation. An
+      // unchanged visibility/online refresh must not cancel running analysis.
+      settingsSequence.current += 1;
+      confirmedSettings.current = { gameId, value };
+      setPreferences({ gameId, value, pending: false, confirmed: true });
+      return true;
+    } catch {
+      // Keep the last confirmed settings; the failed execution remains visible
+      // and retry re-reads them.
+      return false;
+    }
+  }, [gameId, basePath, preferences?.value]);
+
+  // Revalidate the local authorization boundary when connectivity returns.
   useEffect(() => {
+    const online = () => setOnlineEpoch((value) => value + 1);
+    window.addEventListener('online', online);
+    return () => window.removeEventListener('online', online);
+  }, []);
+
+  // Refresh the server-owned policy projection on reconnect or when a visible
+  // analysis surface resumes after a server restart/policy change.
+  useEffect(() => {
+    if (!gameId || !visible) return;
+    const refresh = () => {
+      if (!document.hidden) void refreshSettings();
+    };
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [gameId, visible, refreshSettings]);
+
+  // Bind the managed local runtime and deliver known policy changes even when no
+  // further local search runs. Server-only/disabled installations that never
+  // loaded the deferred integration still never import it.
+  useEffect(() => {
+    if (!localMode && !browserAnalysisLoaded()) return;
+    let alive = true;
+    const requestedAccount = accountRef.current;
+    const owned = () => alive && accountRef.current === requestedAccount;
+    void loadAnalysisIntegration().then(async (integration) => {
+      if (!owned()) return;
+      await integration.setAnalysisAccount(requestedAccount);
+      if (!owned()) return;
+      await integration.setAnalysisPolicy(policy, requestedAccount);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localMode, accountId, policyKey]);
+
+  // Reconcile abandoned retirements in the background without visiting their
+  // games. The server binds every lookup to this account and never reveals
+  // private game data.
+  useEffect(() => {
+    if (!localMode) return;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([session, controller.signal]);
+    void loadAnalysisIntegration()
+      .then((integration) => integration.reconcileRetirements(accountId, signal))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [localMode, accountId, onlineEpoch, session]);
+
+  // One effect owns one logical request. It executes locally, retires it, then
+  // (only after a classified eligible failure) hands the same request to the
+  // server. No second effect or key-based fallback flag can resurrect an older
+  // execution path after navigation.
+  useEffect(() => {
+    const intent = retryIntent.current;
+    retryIntent.current = null;
+    let retryRevision =
+      intent?.key === key && intent.session === session ? settings.revision : undefined;
     if (
       !game ||
+      disabled ||
       !visible ||
       !needed ||
       settingsPending ||
       !settingsConfirmed ||
-      stored?.status === 'complete'
+      storedAdvisorComplete
     )
       return;
     let alive = true;
     let running = false;
     let failures = 0;
+    const retirementApi: { current: Awaited<ReturnType<typeof loadAnalysisIntegration>> | null } = {
+      current: null,
+    };
+    const retryDeadline = Date.now() + 120_000;
     const controller = new AbortController();
+    activeController.current = controller;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const sequence = settingsSequence.current;
     const current = () =>
-      alive && !controller.signal.aborted && settingsSequence.current === sequence;
-    setRequest((previous) => ({
+      alive &&
+      !session.aborted &&
+      !controller.signal.aborted &&
+      settingsSequence.current === sequence;
+    const baseReport = (request?.key === key ? request.report : undefined) ?? stored ?? undefined;
+    const stateFor = (
+      status: AnalysisRequestState['status'],
+      patch: Partial<AnalysisRequestState> = {},
+    ): AnalysisRequestState => ({
       key,
-      status: 'pending',
-      report: previous?.key === key ? previous.report : (stored ?? undefined),
-    }));
-    const poll = async () => {
+      status,
+      report: baseReport,
+      ...patch,
+    });
+
+    const finishReport = (report: PositionAnalysis) => {
+      const replayKey = `${basePath}/${game.id}`;
+      if (
+        report.status !== 'partial' &&
+        report.status !== 'unavailable' &&
+        (game.recorded_winner || game.winner) &&
+        creditedReplay.current !== replayKey &&
+        report.evaluations.some(
+          (entry) =>
+            entry.agent_id === 'advisor' &&
+            entry.source !== 'unavailable' &&
+            !entry.unavailable_reason,
+        )
+      ) {
+        creditedReplay.current = replayKey;
+        window.dispatchEvent(new Event('progression-changed'));
+      }
+      failures = 0;
+      const unavailable = report.status === 'unavailable';
+      setRequest(
+        stateFor(unavailable ? 'failed' : 'done', {
+          report,
+          errorCategory: unavailable ? 'server-failed' : undefined,
+          local: localMode,
+          fallback: localMode,
+          stage: undefined,
+        }),
+      );
+    };
+
+    const finishFallback = (
+      outcome: FallbackOutcome = { kind: 'failed', category: 'server-failed' },
+    ) => {
+      if (outcome.kind === 'report') return finishReport(outcome.report);
+      setRequest(
+        stateFor(outcome.kind === 'cancelled' ? 'cancelled' : 'failed', {
+          local: true,
+          fallback: true,
+          errorCategory: outcome.kind === 'failed' ? outcome.category : outcome.kind,
+        }),
+      );
+      if (outcome.kind === 'revision-stale') void refreshSettings();
+    };
+
+    const pollLegacyServer = async () => {
       if (!current() || running) return;
+      if (Date.now() > retryDeadline) {
+        setRequest(stateFor('failed', { errorCategory: 'server-failed' }));
+        return;
+      }
       running = true;
+      // The explicit retry intent is consumed only once a request is accepted.
+      // A confirmed pre-admission rejection keeps it for the next bounded poll.
+      const requestedRetry = retryRevision;
       try {
         const report = await api<PositionAnalysis>(
           `${basePath}/${game.id}/analysis`,
@@ -176,66 +481,258 @@ export function useGameAnalysis(
             cursor: game.cursor,
             background: !readOnlyHistory,
             historical,
+            retry_revision: requestedRetry,
           },
           undefined,
           controller.signal,
         );
         if (!current()) return;
-        // A response from before an advisor edit must never redraw its arrow.
-        if ((report.advisor_revision ?? 0) !== settings.revision) {
-          const value = await api<AnalyticsSettings>(
-            `${basePath}/${game.id}/analytics`,
-            undefined,
-            undefined,
-            controller.signal,
-          );
-          if (current()) {
-            confirmedSettings.current = { gameId, value };
-            setPreferences({ gameId, value, pending: false, confirmed: true });
-          }
+        retryRevision = undefined;
+        if ((report.advisor_revision ?? 0) !== settings.revision || report.cursor !== game.cursor) {
+          setRequest(stateFor('failed', { errorCategory: 'revision-stale' }));
+          await refreshSettings();
           return;
         }
-        failures = 0;
         const pending = report.status === 'pending';
-        const replayKey = `${basePath}/${game.id}`;
-        if (
-          !pending &&
-          (game.recorded_winner || game.winner) &&
-          creditedReplay.current !== replayKey &&
-          report.evaluations.some(
-            (entry) =>
-              entry.agent_id === 'advisor' &&
-              entry.source !== 'unavailable' &&
-              !entry.unavailable_reason,
-          )
-        ) {
-          creditedReplay.current = replayKey;
-          window.dispatchEvent(new Event('progression-changed'));
+        if (!pending) finishReport(report);
+        else {
+          setRequest(stateFor('pending', { status: 'pending', report }));
+          timer = setTimeout(() => void pollLegacyServer(), 300);
         }
-        setRequest({ key, status: pending ? 'pending' : 'done', report });
-        if (pending) timer = setTimeout(() => void poll(), 300);
       } catch (error) {
         if (!current()) return;
-        const temporary = error instanceof ApiError && error.status === 503;
-        setRequest((previous) => ({
-          key,
-          status: temporary ? 'waiting' : 'failed',
-          report: previous?.key === key ? previous.report : (stored ?? undefined),
-        }));
-        if (temporary) {
-          // Match the existing poller's capped backoff, while retaining fast
-          // progress polling for an admitted search. Never spin during overload.
-          const delay = Math.min(30000, Math.max(1000 * 2 ** failures, error.retryAfterMs ?? 0));
-          failures = Math.min(failures + 1, 5);
-          timer = setTimeout(() => void poll(), delay);
+        const code = (error as { code?: string })?.code;
+        // Ambiguous failures are never treated as proof that no work was
+        // admitted. Only a structured pre-admission rejection preserves the
+        // explicit retry indicator; otherwise ordinary bounded polling resumes.
+        retryRevision = confirmedPreAdmissionRejection(error) ? requestedRetry : undefined;
+        if (code === 'analysis_revision_stale') {
+          setRequest(stateFor('failed', { errorCategory: 'revision-stale' }));
+          await refreshSettings();
+          return;
         }
+        if (code === 'analysis_context_stale') {
+          setRequest(stateFor('failed', { errorCategory: 'stale-game' }));
+          return;
+        }
+        const status = (error as { status?: number })?.status;
+        const temporary = status === 503 || status === 429;
+        const retry = temporary && failures < 8 && Date.now() + 1000 < retryDeadline;
+        if (!retry) {
+          setRequest((previous) => ({
+            ...stateFor('failed', { errorCategory: 'server-failed' }),
+            report: previous?.key === key ? previous.report : baseReport,
+          }));
+          return;
+        }
+        setRequest((previous) => ({
+          ...stateFor('waiting', { errorCategory: 'server-busy' }),
+          report: previous?.key === key ? previous.report : baseReport,
+        }));
+        const delay = Math.min(
+          30000,
+          Math.max(1000 * 2 ** failures, (error as { retryAfterMs?: number }).retryAfterMs ?? 0),
+        );
+        failures += 1;
+        timer = setTimeout(
+          () => void pollLegacyServer(),
+          Math.min(delay, retryDeadline - Date.now()),
+        );
       } finally {
         running = false;
       }
     };
-    void poll();
+
+    const run = async () => {
+      if (localMode) {
+        try {
+          retirementApi.current = await loadAnalysisIntegration();
+        } catch {
+          if (current())
+            setRequest(stateFor('failed', { local: true, errorCategory: 'initialization' }));
+          return;
+        }
+        if (!current()) return;
+        const existing = retirementApi.current?.retirementFor(workKey);
+        if (existing) {
+          const outcome = await retirementApi.current?.resumeServerFallback(
+            workKey,
+            existing,
+            controller.signal,
+          );
+          if (!current()) return;
+          if (outcome?.kind !== 'retired') return finishFallback(outcome);
+        }
+      }
+      if (localMode) {
+        setRequest(stateFor('pending', { status: 'pending', local: true, stage: 'preparing' }));
+        try {
+          const integration = await loadAnalysisIntegration();
+          if (!current()) return;
+          const outcome = await integration.runLocalAnalysis({
+            accountId,
+            game,
+            basePath,
+            cursor: game.cursor,
+            settings,
+            policy,
+            signal: controller.signal,
+            offline: typeof navigator !== 'undefined' && navigator.onLine === false,
+            onStage: (nextStage) => {
+              if (current()) {
+                setRequest((previous) =>
+                  previous?.key === key
+                    ? {
+                        ...previous,
+                        status: 'pending',
+                        stage: nextStage,
+                        local: true,
+                        download: nextStage === 'downloading' ? previous.download : undefined,
+                      }
+                    : previous,
+                );
+              }
+            },
+            onDownloadProgress: (progress) => {
+              if (current()) {
+                setRequest((previous) =>
+                  previous?.key === key
+                    ? {
+                        ...previous,
+                        download: {
+                          transferred: progress.transferredBytes,
+                          total: progress.totalBytes,
+                        },
+                      }
+                    : previous,
+                );
+              }
+            },
+          });
+          if (!current()) return;
+          setRequest(
+            stateFor('done', {
+              status: 'done',
+              report: mergeAdvisorReport(baseReport, outcome.report),
+              local: true,
+              offline: outcome.offline,
+              stage: undefined,
+            }),
+          );
+          return;
+        } catch (error) {
+          if (!current()) return;
+          const failure = error as Partial<LocalAnalysisError>;
+          if (failure?.category === 'cancelled') {
+            if (current())
+              setRequest(stateFor('cancelled', { local: true, errorCategory: 'cancelled' }));
+            return;
+          }
+          if (failure?.code === 'policy-changed') {
+            setRequest(
+              stateFor('failed', {
+                local: true,
+                errorCategory: 'policy-changed',
+              }),
+            );
+            void refreshSettings();
+            return;
+          }
+          if (failure?.code === 'analysis_revision_stale') {
+            setRequest(
+              stateFor('failed', {
+                local: true,
+                errorCategory: 'revision-stale',
+              }),
+            );
+            void refreshSettings();
+            return;
+          }
+          if (failure?.code === 'analysis_context_stale') {
+            setRequest(
+              stateFor('failed', {
+                local: true,
+                errorCategory: 'stale-game',
+              }),
+            );
+            return;
+          }
+          if (
+            failure?.fallbackEligible === true &&
+            policy.fallback &&
+            mode === 'browser_preferred' &&
+            (typeof navigator === 'undefined' || navigator.onLine !== false)
+          ) {
+            setRequest(
+              stateFor('waiting', {
+                status: 'waiting',
+                local: true,
+                fallback: true,
+                stage: 'fallback',
+              }),
+            );
+            try {
+              const outcome = await retirementApi.current?.runServerFallback(
+                {
+                  key: workKey,
+                  account: accountId,
+                  basePath,
+                  gameId: game.id,
+                  version: game.version,
+                  cursor: game.cursor,
+                  revision: settings.revision,
+                  background: !readOnlyHistory,
+                  historical,
+                  retryRevision,
+                },
+                {
+                  signal: controller.signal,
+                  onWaiting: () => {
+                    if (current())
+                      setRequest(
+                        stateFor('waiting', {
+                          status: 'waiting',
+                          local: true,
+                          fallback: true,
+                          stage: 'fallback',
+                        }),
+                      );
+                  },
+                  onStage: (stage) => {
+                    if (current())
+                      setRequest(
+                        stateFor(stage === 'fallback' ? 'waiting' : 'pending', {
+                          status: stage === 'fallback' ? 'waiting' : 'pending',
+                          local: true,
+                          fallback: true,
+                          stage,
+                        }),
+                      );
+                  },
+                },
+              );
+              if (current()) finishFallback(outcome);
+            } catch {
+              if (current()) finishFallback();
+            }
+            return;
+          }
+          setRequest(
+            stateFor('failed', {
+              local: true,
+              errorCategory: failure?.category ?? 'unknown',
+            }),
+          );
+          return;
+        }
+      }
+      setRequest(stateFor('pending', { status: 'pending' }));
+      await pollLegacyServer();
+    };
+    void run();
     return () => {
       alive = false;
+      activeController.current = null;
       if (timer) clearTimeout(timer);
       controller.abort();
     };
@@ -247,28 +744,59 @@ export function useGameAnalysis(
     needed,
     settingsPending,
     settingsConfirmed,
+    storedAdvisorComplete,
+    localMode,
+    disabled,
+    mode,
+    policy.fallback,
+    policy.offlineAuthorizationSeconds,
+    accountId,
     attempt,
     historical,
-    readOnlyHistory,
+    onlineEpoch,
+    session,
   ]);
   const current = request?.key === key ? request : null;
   const report = current?.report ?? stored ?? null;
+  const cancel = () => {
+    activeController.current?.abort();
+    setRequest((previous) =>
+      previous?.key === key
+        ? { ...previous, status: 'cancelled', errorCategory: 'cancelled' }
+        : previous,
+    );
+  };
   return {
     report,
     pending:
+      visible &&
       needed &&
       !settingsPending &&
       settingsConfirmed &&
+      !disabled &&
       (current
         ? current.status === 'pending' || current.status === 'waiting'
-        : !stored || stored.status === 'pending'),
+        : !storedAdvisorComplete),
     waiting: current?.status === 'waiting',
     failed: current?.status === 'failed',
-    retry: () => setAttempt((value) => value + 1),
+    cancelled: current?.status === 'cancelled',
+    retry: () => {
+      retryIntent.current = { key, session };
+      setAttempt((value) => value + 1);
+    },
+    cancel,
     show: !!game && !!settings.advisor,
     settings,
     updateSettings,
     settingsPending,
     settingsError,
+    // Additive presentation state; existing consumers ignore unknown fields.
+    executionMode: mode,
+    local: current?.local === true,
+    stage: current?.stage,
+    fallback: current?.fallback === true,
+    offline: current?.offline === true,
+    analysisError: current?.errorCategory,
+    downloadProgress: current?.download,
   };
 }

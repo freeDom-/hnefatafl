@@ -1,0 +1,152 @@
+{
+  "kind": "copenhagen-depth5-reassessment",
+  "schema": 1,
+  "runtime": "native-cpython",
+  "environment": {
+    "python": "3.12.16",
+    "implementation": "cpython"
+  },
+  "requested_depth": 5,
+  "budgets_seconds": [
+    2.0,
+    5.0,
+    10.0,
+    30.0
+  ],
+  "records": [
+    {
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "time_limit_s": 2.0,
+      "elapsed_ms": 2000.3062349860556,
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "time_limit_s": 5.0,
+      "elapsed_ms": 5000.307485985104,
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "time_limit_s": 10.0,
+      "elapsed_ms": 10000.370122957975,
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-opening",
+      "kind": "opening",
+      "time_limit_s": 30.0,
+      "elapsed_ms": 30000.500478956383,
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "time_limit_s": 2.0,
+      "elapsed_ms": 2000.4168250015937,
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "time_limit_s": 5.0,
+      "elapsed_ms": 5000.5486739682965,
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "time_limit_s": 10.0,
+      "elapsed_ms": 10000.474257976748,
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-midgame",
+      "kind": "midgame",
+      "time_limit_s": 30.0,
+      "elapsed_ms": 30000.44405896915,
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "time_limit_s": 2.0,
+      "elapsed_ms": 2000.3375880187377,
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "time_limit_s": 5.0,
+      "elapsed_ms": 5000.291055999696,
+      "completed_depth": 3,
+      "interrupted_depth": 4,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "time_limit_s": 10.0,
+      "elapsed_ms": 10000.428800994996,
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    },
+    {
+      "position": "copenhagen-repetition",
+      "kind": "repetition",
+      "time_limit_s": 30.0,
+      "elapsed_ms": 30000.76224602526,
+      "completed_depth": 4,
+      "interrupted_depth": 5,
+      "completed": false,
+      "deadline_limited": true,
+      "error": null
+    }
+  ],
+  "browser_status": "blocked: owner must run verify_jarl.mjs on a staged runtime",
+  "authoritative": false
+}

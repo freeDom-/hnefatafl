@@ -2045,3 +2045,117 @@ describe('browser analysis runtime — cleanup-barrier recovery (I2)', () => {
     expect(env.workers.neuralDisposed).toBe(1);
   }, 20000);
 });
+
+describe('browser analysis runtime — warm offline authorization (Phase 5)', () => {
+  it('executes an initialized Jarl search without a network revalidation lease gap', async () => {
+    const env = await ready();
+    env.runtime.noteOnlineAuthorization('account-1', 900);
+    const result = await env.runtime.runSearch(
+      { state: STATE, algorithm: 'jarl', settings: { depth: 1, time_limit: 0.1 } },
+      { offline: { accountId: 'account-1' } },
+    );
+    expect(result.algorithm).toBe('jarl');
+    expect(result.authoritative).toBe(false);
+  });
+
+  it('fails closed when offline work has no matching or unexpired authorization', async () => {
+    const env = await ready();
+    await expect(
+      env.runtime.runSearch(
+        { state: STATE, algorithm: 'jarl' },
+        { offline: { accountId: 'account-1' } },
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+
+    env.runtime.noteOnlineAuthorization('account-1', 0.001);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await expect(
+      env.runtime.runSearch(
+        { state: STATE, algorithm: 'jarl' },
+        { offline: { accountId: 'account-1' } },
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+
+    env.runtime.noteOnlineAuthorization('account-1', 900);
+    await expect(
+      env.runtime.runSearch(
+        { state: STATE, algorithm: 'jarl' },
+        { offline: { accountId: 'account-2' } },
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+
+  it('reuses a healthy neural session offline with no catalogue, metadata or transfer', async () => {
+    const env = await ready();
+    env.setCoordinatorResult(
+      coordinatorEnvelope({
+        iterations: 8,
+        completed: 8,
+        settings: { iterations: 8, time_limit: 1, seed: 7, exploration: 1.4, algorithm: 'mcts' },
+      }),
+    );
+    await env.runtime.downloadModel(model);
+    await env.runtime.runSearch({
+      state: STATE,
+      algorithm: 'neural_mcts',
+      model,
+      provider: 'wasm',
+      settings: { iterations: 8 },
+    });
+    env.runtime.noteOnlineAuthorization('account-1', 900);
+    const before = env.requests.length;
+    const transfers = env.modelRequests;
+    const result = await env.runtime.runSearch(
+      {
+        state: STATE,
+        algorithm: 'neural_mcts',
+        model,
+        provider: 'wasm',
+        settings: { iterations: 8 },
+      },
+      { offline: { accountId: 'account-1' } },
+    );
+    expect(result.model?.sha256).toBe(model.onnxSha256);
+    expect(env.modelRequests).toBe(transfers);
+    const offlineRequests = env.requests.slice(before);
+    expect(offlineRequests.some((url) => url.includes('/api/browser-analysis/models'))).toBe(false);
+  });
+
+  it('does not reconstruct a missing model session offline', async () => {
+    const env = await ready();
+    env.runtime.noteOnlineAuthorization('account-1', 900);
+    await expect(
+      env.runtime.runSearch(
+        {
+          state: STATE,
+          algorithm: 'neural_mcts',
+          model,
+          provider: 'wasm',
+          settings: { iterations: 8 },
+        },
+        { offline: { accountId: 'account-1' } },
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(env.modelRequests).toBe(0);
+  });
+
+  it('clears the offline lease on account invalidation and disposal', async () => {
+    const env = await ready();
+    env.runtime.noteOnlineAuthorization('account-1', 900);
+    await env.runtime.invalidateAccountContext();
+    await expect(
+      env.runtime.runSearch(
+        { state: STATE, algorithm: 'jarl' },
+        { offline: { accountId: 'account-1' } },
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    env.runtime.noteOnlineAuthorization('account-1', 900);
+    await env.runtime.dispose();
+    await expect(
+      env.runtime.runSearch(
+        { state: STATE, algorithm: 'jarl' },
+        { offline: { accountId: 'account-1' } },
+      ),
+    ).rejects.toBeInstanceOf(BrowserAnalysisError);
+  });
+});

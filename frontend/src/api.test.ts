@@ -124,3 +124,19 @@ it('rejects old account data when a response body finishes after the account cha
   finish({ private_game: 'old-account' });
   await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
 });
+
+it('gives protected fetches independent signals that follow their session', async () => {
+  setCSRF('old-session');
+  const signals: AbortSignal[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_path: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return Response.json({});
+    }),
+  );
+  await Promise.all([api('/games/one'), api('/games/two')]);
+  expect(signals[0]).not.toBe(signals[1]);
+  setCSRF('new-session');
+  expect(signals.map((signal) => signal.aborted)).toEqual([true, true]);
+});

@@ -1,0 +1,275 @@
+{
+  "kind": "browser-analysis-context-benchmark",
+  "schema": 1,
+  "environment": {
+    "python": "3.12.16"
+  },
+  "records": [
+    {
+      "ruleset": "brandubh",
+      "moves": 0,
+      "response_bytes": 911,
+      "cold_ms": 9.783174027688801,
+      "cached_ms": [
+        8.586987969465554,
+        8.743009995669127,
+        8.332489989697933,
+        8.264416945166886,
+        8.309522992931306
+      ],
+      "states": 1,
+      "history_keys": 1,
+      "position_keys": 1,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "brandubh",
+      "moves": 20,
+      "response_bytes": 9184,
+      "cold_ms": 11.047668056562543,
+      "cached_ms": [
+        9.082707925699651,
+        9.925664984621108,
+        11.718209949322045,
+        10.605432908050716,
+        10.634219972416759
+      ],
+      "states": 21,
+      "history_keys": 21,
+      "position_keys": 21,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "brandubh",
+      "moves": 80,
+      "response_bytes": 34024,
+      "cold_ms": 17.695690970867872,
+      "cached_ms": [
+        12.32779398560524,
+        12.040932080708444,
+        12.058823020197451,
+        11.131387087516487,
+        12.138583930209279
+      ],
+      "states": 81,
+      "history_keys": 81,
+      "position_keys": 81,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "brandubh",
+      "moves": 160,
+      "response_bytes": 67207,
+      "cold_ms": 25.781097006984055,
+      "cached_ms": [
+        15.743647003546357,
+        15.430797007866204,
+        14.857550035230815,
+        16.084845061413944,
+        15.607362962327898
+      ],
+      "states": 161,
+      "history_keys": 161,
+      "position_keys": 161,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "tablut",
+      "moves": 0,
+      "response_bytes": 1067,
+      "cold_ms": 8.690350921824574,
+      "cached_ms": [
+        8.702946011908352,
+        8.972979034297168,
+        8.009926066733897,
+        7.827879977412522,
+        7.777272025123239
+      ],
+      "states": 1,
+      "history_keys": 1,
+      "position_keys": 1,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "tablut",
+      "moves": 20,
+      "response_bytes": 12500,
+      "cold_ms": 10.179881937801838,
+      "cached_ms": [
+        8.672615047544241,
+        9.377010050229728,
+        10.027991025708616,
+        9.790693991817534,
+        9.220508974976838
+      ],
+      "states": 21,
+      "history_keys": 21,
+      "position_keys": 21,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "tablut",
+      "moves": 80,
+      "response_bytes": 46820,
+      "cold_ms": 17.5470020622015,
+      "cached_ms": [
+        13.094449997879565,
+        12.600318063050508,
+        13.347657979466021,
+        23.57744099572301,
+        13.035334995947778
+      ],
+      "states": 81,
+      "history_keys": 81,
+      "position_keys": 81,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "tablut",
+      "moves": 160,
+      "response_bytes": 92643,
+      "cold_ms": 29.45047791581601,
+      "cached_ms": [
+        17.937519936822355,
+        18.208323046565056,
+        17.358229029923677,
+        17.64782308600843,
+        17.572571989148855
+      ],
+      "states": 161,
+      "history_keys": 161,
+      "position_keys": 161,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "copenhagen",
+      "moves": 0,
+      "response_bytes": 1275,
+      "cold_ms": 8.985874010249972,
+      "cached_ms": [
+        7.942522061057389,
+        8.234816021285951,
+        8.185653015971184,
+        7.873511058278382,
+        7.461562054231763
+      ],
+      "states": 1,
+      "history_keys": 1,
+      "position_keys": 1,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "copenhagen",
+      "moves": 20,
+      "response_bytes": 16788,
+      "cold_ms": 11.945692007429898,
+      "cached_ms": [
+        9.49555600527674,
+        9.337316965684295,
+        8.943106979131699,
+        8.665135013870895,
+        9.182339999824762
+      ],
+      "states": 21,
+      "history_keys": 21,
+      "position_keys": 21,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "copenhagen",
+      "moves": 80,
+      "response_bytes": 63348,
+      "cold_ms": 23.956670076586306,
+      "cached_ms": [
+        13.811421929858625,
+        14.29235702380538,
+        13.92358704470098,
+        14.827720005996525,
+        14.387005940079689
+      ],
+      "states": 81,
+      "history_keys": 81,
+      "position_keys": 81,
+      "duplicated_history_bytes": 0
+    },
+    {
+      "ruleset": "copenhagen",
+      "moves": 160,
+      "response_bytes": 125491,
+      "cold_ms": 42.91398904751986,
+      "cached_ms": [
+        19.377886899746954,
+        19.95958003681153,
+        19.63948691263795,
+        19.969827961176634,
+        20.91141405981034
+      ],
+      "states": 161,
+      "history_keys": 161,
+      "position_keys": 161,
+      "duplicated_history_bytes": 0
+    }
+  ],
+  "capacity": {
+    "receipt_status": {
+      "create_ms": 7.8451610170304775,
+      "status_poll_avg_ms": 3.2797394995577633,
+      "result_poll_avg_ms": 3.3558809920214117,
+      "active_before": 0,
+      "active_after": 1,
+      "status_reads": 100,
+      "result_reads": 50,
+      "cleanup_runs": 1,
+      "context_reconstructions": 0
+    },
+    "same_context_concurrent": {
+      "requests": 8,
+      "latency_ms": 177.71042603999376,
+      "reconstructions": 1,
+      "leftover_records": 0
+    },
+    "distinct_contexts": {
+      "requests": 12,
+      "ok": 8,
+      "busy": 4,
+      "latency_ms": 344.22248404007405,
+      "cache_entries_before": 8,
+      "cache_entries_after": 8
+    },
+    "status_poll_avg_ms": 7.815894680097699,
+    "preparation_capacity": {
+      "rejected_status": 200,
+      "rejected_code": null,
+      "max_concurrent": 4,
+      "gameplay_latency_ms": [
+        17.26334192790091,
+        16.566438018344343,
+        17.132601933553815,
+        16.5985421044752,
+        17.161629046313465,
+        26.486171991564333,
+        16.46008505485952,
+        19.593106932006776,
+        17.257909988984466,
+        17.787236953154206
+      ]
+    },
+    "cache_entries_after_load": 8,
+    "build_snapshot": {
+      "records": 0,
+      "building": 0,
+      "pending": 0,
+      "waiting": 0,
+      "reconstructions": 22,
+      "rejections": 0,
+      "max_records": 64,
+      "max_concurrent": 4,
+      "max_waiting": 16
+    }
+  },
+  "limits": {
+    "max_states": 4096,
+    "cache_entries": 8,
+    "cache_bytes": 25165824
+  }
+}

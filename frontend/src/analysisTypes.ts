@@ -18,6 +18,12 @@ export interface AnalyticsSettings {
   time_limit: number;
   show_win_chances: boolean;
   revision: number;
+  /**
+   * Server-owned execution policy projection. Kept unknown here so the initial
+   * application bundle never imports the browser-analysis runtime contract;
+   * `normalizeExecutionPolicy` validates it before use.
+   */
+  execution?: unknown;
 }
 
 export const defaultAnalyticsSettings: AnalyticsSettings = {
@@ -69,6 +75,6 @@ export interface PositionAnalysis {
   evaluations: AgentEvaluation[];
   hint: { agent_id: 'advisor'; move: Move } | null;
   unavailable_reason?: 'not_recorded';
-  status?: 'pending' | 'complete';
+  status?: 'pending' | 'complete' | 'partial' | 'unavailable';
   advisor_revision?: number;
 }
