@@ -132,10 +132,10 @@ class AnalysisService:
         cached = self.store.game_analysis(game_id, position_key)
         return bool(cached and any(item["agent_id"] == role for item in cached["evaluations"]))
 
-    def _observe_receipt(self, receipt, task: Future) -> None:
+    def _observe_receipt(self, receipt, task: Future | None) -> None:
         """Tie one receipt submission to an existing or newly scheduled task."""
 
-        if receipt is None:
+        if receipt is None or task is None:
             return
         receipt.track()
 

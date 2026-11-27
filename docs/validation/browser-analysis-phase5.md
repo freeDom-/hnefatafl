@@ -367,8 +367,8 @@ Current production initial bundle (authenticated graph):
 
 | Measurement | Phase 4 reported | Phase 5 measured | Budget |
 | --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **598,415** | 600,000 |
-| JavaScript gzip | 186,716 | **190,503** | 200,000 |
+| JavaScript raw | 585,756 | **598,777** (CI) | 600,000 |
+| JavaScript gzip | 186,716 | **190,607** (CI) | 200,000 |
 | CSS raw | — | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 35,000 |
 
@@ -536,7 +536,7 @@ validation-evidence organization, as shown above.
 - Cross-language identity fixtures cover integer `5`, decimal `1.5`, fraction
   `0.1`, and neural WASM/WebGPU identities.
 - Production build from the tested commit: **598,415 raw / 190,503 gzip** local
-  (CI may differ by a few hundred bytes); budgets remain 600,000 / 200,000.
+  and **598,777 raw / 190,607 gzip** in CI Node 22; budgets remain 600,000 / 200,000.
   Deferred integration chunk: 28,262 bytes; browser-analysis entry chunk: 582
   bytes; canonical/identity helpers remain in deferred chunks.
 - Focused backend suite: **190 passed** (policy, receipts, lifecycle, context,
@@ -695,7 +695,7 @@ no licensing right is declared resolved without owner/legal acceptance.
 | Retirement registry Vitest | **6 passed** |
 | Execution-policy projection Vitest | 3 passed |
 | Full frontend Vitest | **1,852 passed (118 files)** |
-| Production build + bundle budget | passed (**598,415 raw / 190,503 gzip** local) |
+| Production build + bundle budget | passed (**598,777 raw / 190,607 gzip** CI; 598,415/190,503 local) |
 | TypeScript check | passed |
 | Ruff / format check / mypy | passed |
 | `scripts/audit_api.py` | 147 routes accounted for |
