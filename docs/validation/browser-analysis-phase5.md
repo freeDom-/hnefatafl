@@ -373,8 +373,8 @@ figures are listed alongside the local Node 22 build of the P code revision.
 
 | Measurement | Phase 4 | O review, CI | P review, local Node 22 | Budget |
 | --- | ---: | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | 599,385 | **598,772** | 600,000 |
-| JavaScript gzip | 186,716 | 190,564 | **190,478** | 200,000 |
+| JavaScript raw | 585,756 | 599,385 | **598,774** | 600,000 |
+| JavaScript gzip | 186,716 | 190,564 | **190,475** | 200,000 |
 | CSS raw | — | 115,551 | 115,551 | 150,000 |
 | CSS gzip | — | 24,114 | 24,114 | 35,000 |
 
@@ -579,7 +579,7 @@ validation-evidence organization, as shown above.
 ## Sixth-review corrections P01–P06
 
 Production-equivalent validation used code revision
-`a63131a99940900bde4e9ce22ea828618bca6d7a`, its clean Node 22 build, a real
+`b43a6a9c75e94b0d2aafbbf4f8c7aa41e9eedb91`, its clean Node 22 build, a real
 FastAPI/SQLite process, Chromium, the verified Pyodide/WASM runtime and a
 published structural Brandubh model in disposable storage.
 [Measured evidence](browser-analysis-phase5-p-review.json) · [PR checks](https://github.com/freeDom-/hnefatafl/pull/129/checks)
@@ -601,8 +601,8 @@ and exactly one admission for the rewound replay after recovery. Direct Jarl
 probes passed on Brandubh, Tablut and Copenhagen, the verified structural model
 passed neural MCTS on WASM, and the 2.5-second identity probe passed.
 
-The local receipt benchmark measured **6.08 ms** for creation, **2.60 ms** for
-status, **2.93 ms** for a pending result and **4.31 ms** for an authorized
+The local receipt benchmark measured **6.59 ms** for creation, **2.90 ms** for
+status, **2.75 ms** for a pending result and **3.78 ms** for an authorized
 completed result. The already-prepared and completed result phases each made
 50 reads. Receipt lookups caused zero additional context reconstructions.
 With all four context-build slots reserved, a new context received a structured
@@ -610,6 +610,10 @@ With all four context-build slots reserved, a new context received a structured
 
 The local Node 22.12 build passed the JavaScript and CSS budgets. Fallback and
 reconciliation stay in the deferred integration chunk.
+
+The authenticated session cancels every protected request on a session change.
+Each request carries a separate abort signal, with a regression test for signal
+independence and cancellation on session replacement. [Transport tests](../../frontend/src/api.test.ts)
 
 ## 12. Sustained-memory investigation
 
