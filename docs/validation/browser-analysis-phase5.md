@@ -4,15 +4,12 @@
 [Deployment](../DEPLOYMENT.md) · [Security](../SECURITY.md) ·
 [Phase 4 runtime](browser-analysis-phase4.md) · [Phase 3C-B](browser-analysis-phase3c-b.md)
 
-Status: **Phase 5 implementation and independent-review corrections K1–K16,
-L1–L11, M1–M8, N1–N7 and O1–O6 are complete at the software level. The O-correction
-code head `83f5aaab581917c2bf854cf9db2d7f15459cdca0` (documented on head
-`18bdfdd27d9693ef2e66ab430ea9d98425f5a975`) passed focused backend/frontend suites,
-the production build, receipt/context benchmarks, and production-browser local,
-neural, offline and real server-fallback probes. All required CI jobs pass on that
-head. This is not production acceptance; the feature remains opt-in and disabled
-by default on existing installations. K10 remains an explicit owner-decision
-blocker.**
+Phase 5 includes the sixth-review corrections P01–P06. Chromium exercised warm
+offline Jarl and neural MCTS, ordinary server fallback, and historical fallback
+after a temporary receipt-creation rejection. The [sixth-review matrix](#sixth-review-corrections-p01p06)
+records the current code revision, tests and measurements. Deployment remains
+opt-in and the [external acceptance gates](#19-remaining-gates-before-phase-7-acceptance)
+remain open.
 
 Verified here: server-owned execution policy and enforcement, transparent local
 Jarl and neural MCTS through the existing analysis UI, automatic WASM selection,
@@ -289,7 +286,7 @@ fallback_request)` (or `admitted` for computation rate) without adding per-searc
 telemetry or load. The proposed long-term target of ≥99 % local and <1 % fallback
 is **not** a measured Phase 5 result.
 
-## 8. Measured production-browser validation
+## 8. Historical production-browser measurements
 
 Environment: Chromium from the project Playwright install, real FastAPI process,
 production Vite build, real CSP, same-origin workers, actual Pyodide/WASM and
@@ -371,14 +368,15 @@ for German, and the production screenshots show the existing English UI.
 
 ## 10. Bundle and deferred loading
 
-Current production initial bundle (authenticated graph):
+Production initial bundle for the authenticated graph. Historical O-review
+figures are listed alongside the local Node 22 build of the P code revision.
 
-| Measurement | Phase 4 reported | Phase 5 measured | Budget |
-| --- | ---: | ---: | ---: |
-| JavaScript raw | 585,756 | **599,385** (CI) / 599,023 (local) | 600,000 |
-| JavaScript gzip | 186,716 | **190,564** (CI) / 190,468 (local) | 200,000 |
-| CSS raw | — | 115,551 | 150,000 |
-| CSS gzip | — | 24,114 | 35,000 |
+| Measurement | Phase 4 | O review, CI | P review, local Node 22 | Budget |
+| --- | ---: | ---: | ---: | ---: |
+| JavaScript raw | 585,756 | 599,385 | **598,772** | 600,000 |
+| JavaScript gzip | 186,716 | 190,564 | **190,478** | 200,000 |
+| CSS raw | — | 115,551 | 115,551 | 150,000 |
+| CSS gzip | — | 24,114 | 24,114 | 35,000 |
 
 Budgets were not loosened. The build emits `integration-*.js` and `entry-*.js` as
 separate lazy chunks; `.cache/bundle-modules.json` confirms `integration.ts` and
@@ -578,6 +576,41 @@ validation-evidence organization, as shown above.
   node22, deployment-cross-version and browser jobs all pass. Node 22 bundle
   **599,385 raw / 190,564 gzip**; budgets unchanged.
 
+## Sixth-review corrections P01–P06
+
+Production-equivalent validation used code revision
+`a63131a99940900bde4e9ce22ea828618bca6d7a`, its clean Node 22 build, a real
+FastAPI/SQLite process, Chromium, the verified Pyodide/WASM runtime and a
+published structural Brandubh model in disposable storage.
+[Measured evidence](browser-analysis-phase5-p-review.json) · [PR checks](https://github.com/freeDom-/hnefatafl/pull/129/checks)
+
+| Finding | Root cause | Correction and source | Regression coverage and evidence | Remaining limitation |
+| --- | --- | --- | --- | --- |
+| P01 Historical position | The last recorded cursor reused the live state even after a rewind. | `analysis_request_position()` uses the stored state at its matching cursor with matching ruleset, ply and history length. Other cursors use canonical engine replay. [Server](../../hnefatafl/server.py) | `test_historical_analysis_matches_canonical_replay_after_seek` reproduced both the wrong board and wrong position key at `6ba846f`. It checks the actual engine state, repetition, seed and returned report in server-only and fallback modes. Online tests cover board-completed and conceded games. Chromium evaluated cursor 3 while the game remained at cursor 0. [Backend tests](../../tests/test_analysis_receipt_lifecycle.py) | A concession completes the online record while leaving the board's rules outcome as produced by its moves. |
+| P02 Advisor snapshot | Submission validated revision A and later fetched settings B for scheduling or response. | Each submission uses its own detached settings snapshot for admission, scheduling and response. The scheduler and storage verify the current revision before performing or committing advisor work. [Server](../../hnefatafl/server.py) · [Service](../../hnefatafl/analysis_service.py) | `test_advisor_change_after_receipt_validation_never_substitutes_settings` changed A to B while admission was paused. The reviewed head ran B under A in three paths and accepted the stale online synchronous read. The correction rejects all four paths. A separate test supersedes a running advisor and checks storage. [Backend tests](../../tests/test_analysis_receipt_lifecycle.py) | A change can supersede an already-running search. Its old revision stays bound to that operation. |
+| P03 Receipt authorization | Receipt ownership alone unlocked retained analysis and the status route exposed position details. | The account-wide status route reports retirement only. Result reads check current game scope, version and advisor revision in an indexed database snapshot. Replay credit is recorded by computation completion or an explicit cached POST. [Server](../../hnefatafl/server.py) · [Store](../../hnefatafl/storage.py) | Owner, administrator, demotion, revoked ownership, a different account, game version changes, deletion and online participant cases pass. Result reads are tested with history reconstruction and progression recording disabled. The resource benchmark reports zero extra reconstructions. [Backend tests](../../tests/test_analysis_receipt_lifecycle.py) | Superseded or inaccessible games still allow retirement inspection. The original analysis content follows the current game permissions. |
+| P04 Fallback recovery | Creation and observation errors bypassed retry handling, POST responses could be mistaken for retirement and stalled HTTP outlived the budget. | One abort signal covers creation through terminal observation and all waits. Read-only recovery handles transient failures. Admission repeats only with affirmative evidence that the earlier attempt admitted no work. Result identity and terminal evidence are validated together. [Browser fallback](../../frontend/src/analysisRetirements.ts) | Fake-timer and transport tests cover 429/503, `Retry-After`, repeated read failures, HTTP stalls at every stage, cancellation, uncertain submissions and contradictory evidence. Chromium observed two receipt-creation requests, one historical submission and one backend admission. [Frontend tests](../../frontend/src/analysisRetirements.test.ts) | An ambiguous submission keeps its slot until authoritative retirement evidence becomes available. |
+| P05 Advisor outcome | A successful playing-agent task or quietly settled worker could make a missing or partial advisor appear complete. | Receipt counters track outstanding work independently of the requested advisor outcome. Retained useful checkpoints keep their partial flag. The panel displays partial or unavailable analysis alongside valid playing-agent evidence. [Receipts](../../hnefatafl/analysis_receipts.py) · [Service](../../hnefatafl/analysis_service.py) · [Panel](../../frontend/src/AgentAnalysis.tsx) | The reviewed head reported `complete` for a failed advisor and for a failure after valid progress. Tests cover both, supersession, no retained advisor, complete advice and immediate cache reuse. Chromium completed the exact requested MCTS advisor. [Backend tests](../../tests/test_analysis_receipt_lifecycle.py) · [Panel tests](../../frontend/src/AgentAnalysis.test.tsx) | A retired partial checkpoint remains cached for its advisor revision. It is ineligible for replay credit. |
+| P06 Reconciliation lifecycle | Coalesced status reads inherited one caller's signal and survived a change of session. Old accounts could fill a tab's global capacity. | The authentication session owns the five-second pass. Consumers cancel independently. The global cap also accepts authoritative epoch or sequence evidence from a fresh receipt creation. [Authentication transport](../../frontend/src/api.ts) · [Reconciliation](../../frontend/src/analysisRetirements.ts) | Tests cover account switch, logout during I/O, caller cancellation, shared lookup, per-account admission, global capacity across accounts and proof-based recovery. [Frontend tests](../../frontend/src/analysisRetirements.test.ts) | If proof is unavailable at capacity, sign in as the prior owner and open an analysis view while online to reconcile that account, then retry under the current account. A later registry watermark or new server epoch can also free proved entries. |
+
+The production integration probe passed **29/29** checks, including the 24
+previous checks. The injected 503 was limited to the first historical receipt
+creation. The backend handled the successful creation, computation and result
+reads. Metrics recorded zero server admissions during successful local searches
+and exactly one admission for the rewound replay after recovery. Direct Jarl
+probes passed on Brandubh, Tablut and Copenhagen, the verified structural model
+passed neural MCTS on WASM, and the 2.5-second identity probe passed.
+
+The local receipt benchmark measured **6.08 ms** for creation, **2.60 ms** for
+status, **2.93 ms** for a pending result and **4.31 ms** for an authorized
+completed result. The already-prepared and completed result phases each made
+50 reads. Receipt lookups caused zero additional context reconstructions.
+With all four context-build slots reserved, a new context received a structured
+503. All build records were released during recovery.
+
+The local Node 22.12 build passed the JavaScript and CSS budgets. Fallback and
+reconciliation stay in the deferred integration chunk.
+
 ## 12. Sustained-memory investigation
 
 The existing 10/30-minute workload infrastructure was reused conceptually, but a
@@ -716,7 +749,7 @@ owner-authorized weights, are content-addressed and revocable, and are not
 relicensed under the project license. No required upstream notice was removed and
 no licensing right is declared resolved without owner/legal acceptance.
 
-## 16. Tests and validation executed
+## 16. Historical K–O test results
 
 | Check | Result |
 | --- | --- |

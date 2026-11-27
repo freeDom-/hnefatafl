@@ -1,0 +1,234 @@
+{
+  "schema": 1,
+  "code_revision": "a63131a99940900bde4e9ce22ea828618bca6d7a",
+  "frontend_build": {
+    "node": "22.12.0",
+    "fingerprint": "0434c49edca7a400248b6b248e52d3afcf505e2bef4148d231ebdd7026569646",
+    "initial_js_bytes": 598772,
+    "initial_js_gzip_bytes": 190478,
+    "initial_css_bytes": 115551,
+    "initial_css_gzip_bytes": 24114
+  },
+  "runtime_id": "145b2afae925f21a",
+  "chromium": "154.0.8037.57",
+  "smoke_model": {
+    "publication": "941d5932f87480b896770d95",
+    "onnx_sha256": "e8189a919eb917924afe64f9a5cac63b69b49b861e2cd3809cbc8e0c7c5973ba",
+    "onnx_bytes": 75720,
+    "mode": "structural smoke model in disposable local storage"
+  },
+  "production_integration": {
+    "checks": [
+      "login succeeds",
+      "account game is created",
+      "Jarl analytics settings are saved",
+      "server policy is browser-first",
+      "production document loads",
+      "ordinary game page does not initialize the runtime",
+      "server analysis metrics are available",
+      "analysis context data is readable",
+      "Jarl executes through the application integration layer",
+      "Jarl runs without neural inference",
+      "neural analytics settings are saved",
+      "analysis context data is readable",
+      "neural MCTS executes through the application integration layer",
+      "provider evidence remains honest",
+      "warm offline Jarl completes locally",
+      "warm offline neural MCTS completes locally with the same model",
+      "no analysis or authorization request was needed during warm offline searches",
+      "existing analysis UI indicates local execution",
+      "the existing analysis UI renders an advisory evaluation",
+      "the production UI never posts to the server analysis endpoint",
+      "server-supported unsupported-local advisor is saved",
+      "one logical server fallback request is admitted",
+      "the UI submits one fallback computation and retrieves its result read-only",
+      "successful local analysis caused zero server analysis computation",
+      "the stored game is rewound behind the recorded frontier",
+      "receipt-creation overload recovers in the real replay UI",
+      "historical fallback submits the recorded frontier while the game stays rewound",
+      "the exact requested advisor completes at the canonical historical position",
+      "recovery admits exactly one computation"
+    ],
+    "passed": 29,
+    "requests": {
+      "runtimeAssets": 318,
+      "modelArtifacts": 1,
+      "fallbackAnalysisPosts": 1,
+      "historicalReceiptPosts": 2,
+      "historicalFallbackPosts": 1
+    },
+    "measurements": {
+      "jarlOnlineMs": 3278.600000000093,
+      "neuralOnlineMs": 2757.7999999998137,
+      "offlineJarlMs": 187.59999999962747,
+      "offlineNeuralMs": 77.8000000002794
+    },
+    "historical_fallback": {
+      "injected_receipt_rejection": 503,
+      "receipt_state": "completed",
+      "result_status": "complete",
+      "stored_cursor": 0,
+      "analyzed_cursor": 3,
+      "ply": 3,
+      "side_to_move": "defenders",
+      "advisor_revision": 5,
+      "position_key": "8f2835f4b9d4d4661c6f7d05110d1732be43df9e364bab188b367fc061b578f2",
+      "canonical_context_key": "8f2835f4b9d4d4661c6f7d05110d1732be43df9e364bab188b367fc061b578f2",
+      "advisor_source": "mcts_rollout",
+      "base_seed": 2638542212,
+      "search_seed": 2638542215,
+      "fallback_posts": 1,
+      "admitted_computations": 1
+    }
+  },
+  "direct_runtime": {
+    "brandubh": {
+      "checks": {
+        "login succeeds": true,
+        "production document loads": true,
+        "CSP allows WASM without broad eval": true,
+        "CSP has no broad unsafe-eval": true,
+        "CSP restricts workers to self": true,
+        "ordinary page loads no runtime assets": true,
+        "ordinary page loads no model artifacts": true,
+        "availability reports an enabled runtime": true,
+        "activated runtime identity is observed end-to-end": true,
+        "runtime initializes": true,
+        "engine identity is reported": true,
+        "Jarl search completes with a legal advisory analysis": true,
+        "Jarl reports the explicit alpha-beta algorithm and effective settings": true,
+        "Jarl has no neural inference evidence": true,
+        "no neural model was required for Jarl": true,
+        "classical Jarl has no neural provider claim": true,
+        "runtime assets came from the application origin": true,
+        "no external runtime origins": true,
+        "no automatic model download during Jarl": true
+      },
+      "passed": 19
+    },
+    "tablut": {
+      "checks": {
+        "login succeeds": true,
+        "production document loads": true,
+        "CSP allows WASM without broad eval": true,
+        "CSP has no broad unsafe-eval": true,
+        "CSP restricts workers to self": true,
+        "ordinary page loads no runtime assets": true,
+        "ordinary page loads no model artifacts": true,
+        "availability reports an enabled runtime": true,
+        "activated runtime identity is observed end-to-end": true,
+        "runtime initializes": true,
+        "engine identity is reported": true,
+        "Jarl search completes with a legal advisory analysis": true,
+        "Jarl reports the explicit alpha-beta algorithm and effective settings": true,
+        "Jarl has no neural inference evidence": true,
+        "no neural model was required for Jarl": true,
+        "classical Jarl has no neural provider claim": true,
+        "runtime assets came from the application origin": true,
+        "no external runtime origins": true,
+        "no automatic model download during Jarl": true
+      },
+      "passed": 19
+    },
+    "copenhagen": {
+      "checks": {
+        "login succeeds": true,
+        "production document loads": true,
+        "CSP allows WASM without broad eval": true,
+        "CSP has no broad unsafe-eval": true,
+        "CSP restricts workers to self": true,
+        "ordinary page loads no runtime assets": true,
+        "ordinary page loads no model artifacts": true,
+        "availability reports an enabled runtime": true,
+        "activated runtime identity is observed end-to-end": true,
+        "runtime initializes": true,
+        "engine identity is reported": true,
+        "Jarl search completes with a legal advisory analysis": true,
+        "Jarl reports the explicit alpha-beta algorithm and effective settings": true,
+        "Jarl has no neural inference evidence": true,
+        "no neural model was required for Jarl": true,
+        "classical Jarl has no neural provider claim": true,
+        "runtime assets came from the application origin": true,
+        "no external runtime origins": true,
+        "no automatic model download during Jarl": true
+      },
+      "passed": 19
+    },
+    "neural": {
+      "checks": {
+        "login succeeds": true,
+        "production document loads": true,
+        "CSP allows WASM without broad eval": true,
+        "CSP has no broad unsafe-eval": true,
+        "CSP restricts workers to self": true,
+        "ordinary page loads no runtime assets": true,
+        "ordinary page loads no model artifacts": true,
+        "published model runs neural MCTS in the browser": true,
+        "neural result is bound to the published model digest": true,
+        "neural provider reporting is honest": true,
+        "neural search reports completed simulations and effective settings": true,
+        "a second neural search reuses the verified model without another transfer": true,
+        "availability reports an enabled runtime": true,
+        "activated runtime identity is observed end-to-end": true,
+        "runtime initializes": true,
+        "engine identity is reported": true,
+        "Jarl search completes with a legal advisory analysis": true,
+        "Jarl reports the explicit alpha-beta algorithm and effective settings": true,
+        "Jarl has no neural inference evidence": true,
+        "no neural model was required for Jarl": true,
+        "classical Jarl has no neural provider claim": true,
+        "runtime assets came from the application origin": true,
+        "no external runtime origins": true,
+        "no automatic model download during Jarl": true,
+        "one cold model artifact transfer is sufficient for initialization and reuse": true
+      },
+      "passed": 25
+    }
+  },
+  "non_integer_settings": {
+    "checks": {
+      "login succeeds": true,
+      "account game is created": true,
+      "non-integer analytics time limit is saved": true,
+      "server resolves the non-integer effective limit": true,
+      "game is readable": true,
+      "non-integer Jarl search completes": true,
+      "effective time limit is preserved": true,
+      "search reports the analyzed seed": true,
+      "canonical position key is present": true
+    },
+    "passed": 9,
+    "advisor_time_limit_seconds": 2.5
+  },
+  "receipt_benchmark": {
+    "create_ms": 6.077389999973093,
+    "status_poll_avg_ms": 2.6012446400272893,
+    "result_poll_avg_ms": 2.9329050999876927,
+    "completed_result_avg_ms": 4.313234440014639,
+    "active_before": 0,
+    "active_after": 0,
+    "status_reads": 150,
+    "result_reads": 100,
+    "cleanup_runs": 1,
+    "context_reconstructions": 0
+  },
+  "context_benchmark": {
+    "same_context_concurrent": {
+      "requests": 8,
+      "latency_ms": 143.04705199992895,
+      "reconstructions": 1,
+      "leftover_records": 0
+    },
+    "distinct_contexts": {
+      "requests": 12,
+      "ok": 9,
+      "busy": 3,
+      "latency_ms": 355.52822300041953,
+      "cache_entries_before": 8,
+      "cache_entries_after": 8
+    },
+    "overload_status": 503,
+    "overload_code": "analysis_context_busy",
+    "remaining_build_records": 0
+  }
+}
