@@ -153,7 +153,9 @@ test('all rulesets and computer playback use the actual API', async ({ page }) =
     background: false,
     cursor: 0,
   });
-  expect((await retainedAnalysis.json()).status).toBe('complete');
+  const retained = await retainedAnalysis.json();
+  expect(retained).toMatchObject({ status: 'unavailable', hint: null });
+  expect(retained.evaluations).not.toContainEqual(expect.objectContaining({ agent_id: 'advisor' }));
   await closeGameOptions(page);
   await expect(
     page.getByRole('grid', { name: 'brandubh game board' }).locator('.hint-overlay'),

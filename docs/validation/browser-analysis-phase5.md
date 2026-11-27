@@ -648,6 +648,9 @@ after one download. The 2.5-second search settings probe passed all 9 checks.
 The local frontend suite passed 1,888 tests, and the analysis-localization
 suite passed 28 Chromium desktop and mobile viewport checks. Local deployment,
 cross-version deployment, dependency audit and type checks passed.
+The read-only computer replay test now checks that a newly selected advisor
+with no retained evaluation is unavailable and shows no hint. Both viewport
+variants passed against the real API. [Replay test](../../frontend/tests/game.spec.ts)
 
 The additional browser scenario uses a loopback FastAPI process and disposable
 storage. It interrupts the named fixture advisor once after publishing actual
