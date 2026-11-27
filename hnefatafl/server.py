@@ -286,6 +286,7 @@ class AnalysisRequest(SeekRequest):
     # Read-only history review analyzes any recorded cursor without seeking the
     # authoritative game; live gameplay keeps the exact-cursor contract.
     historical: bool = False
+    retry_revision: StrictInt | None = Field(default=None, ge=0)
 
 
 class AnalysisReceiptRequest(SeekRequest):
@@ -1098,25 +1099,40 @@ def create_app(
         key = position_key(state or state_of(game))
         recorded = store.game_analysis(game["id"], key)
         advisor = store.advisor_analysis(game["id"], key, settings["revision"])
-        # Before the first preference change, legacy advisor reports keep their
-        # original representation and remain usable without model weights.
-        if settings["revision"] == 0 and advisor is None:
-            return recorded
         if recorded is None and advisor is None:
             return None
         result = dict(recorded or advisor or {})
-        result["evaluations"] = [
-            entry
-            for entry in (recorded or {}).get("evaluations", [])
-            if entry["agent_id"] != "advisor"
-        ]
-        result["hint"] = None
-        if settings["advisor"] and advisor:
-            result["evaluations"].extend(advisor["evaluations"])
-            result["hint"] = advisor["hint"]
+        if settings["revision"] == 0 and advisor is None:
+            # Legacy advisor evidence can be embedded in the original report.
+            if any(entry["agent_id"] == "advisor" for entry in result.get("evaluations", [])):
+                advisor = recorded
+        else:
+            result["evaluations"] = [
+                entry
+                for entry in (recorded or {}).get("evaluations", [])
+                if entry["agent_id"] != "advisor"
+            ]
+            result["hint"] = None
+            if settings["advisor"] and advisor:
+                result["evaluations"].extend(advisor["evaluations"])
+                result["hint"] = advisor["hint"]
+        if (
+            settings["advisor"]
+            and advisor
+            and (outcome := advisor_result_status(advisor)) != "complete"
+        ):
+            result["status"] = "partial" if outcome == "partial" else "unavailable"
+            result["advisor_revision"] = settings["revision"]
         result.pop("partial", None)
         result.pop("retired_partial", None)
         return result
+
+    def analysis_display_status(report: dict, settings: dict) -> str:
+        if status := report.get("status"):
+            return status
+        if settings["advisor"] and advisor_result_status(report) != "complete":
+            return "unavailable"
+        return "complete"
 
     def record_completed_replay(game: dict, settings: dict, recorded: dict | None) -> None:
         # Presentation merges intentionally omit the advisor's partial flag.
@@ -1323,6 +1339,7 @@ def create_app(
         state: State,
         cursor: int,
         receipt: ReceiptLease | None = None,
+        retry: bool = False,
     ) -> dict:
         snapshot = position_snapshot(game, state=state, cursor=cursor)
         recorded = current_analysis(game, settings, state=state)
@@ -1332,7 +1349,7 @@ def create_app(
         # player evidence is never invented later using changed model weights.
         frontier = cursor == len(game["moves"])
         human_turn = game["players"][state.turn]["kind"] == "human"
-        if settings["show_win_chances"] and game.get("analysis_enabled") and frontier:
+        if not retry and settings["show_win_chances"] and game.get("analysis_enabled") and frontier:
             for role, agent in game["players"].items():
                 if (
                     agent["kind"] == "ai"
@@ -1354,10 +1371,23 @@ def create_app(
             advisor_report = store.advisor_analysis(
                 game["id"], snapshot["position_key"], settings["revision"]
             )
-            if advisor_report is None and "advisor" in existing and settings["revision"] == 0:
+            if (
+                advisor_report is None
+                and "advisor" in existing
+                and settings["revision"] == 0
+                and (
+                    not retry
+                    or (
+                        recorded is not None
+                        and analysis_display_status(recorded, settings) == "complete"
+                    )
+                )
+            ):
                 if receipt is not None:
                     receipt.result_available(advisor_result_status(recorded))
-            elif not retained_advisor_result(advisor_report):
+            elif not retained_advisor_result(advisor_report, retry=retry) or analyses.active(
+                (game["id"], snapshot["position_key"], "advisor", settings["revision"])
+            ):
                 tasks.append(
                     analyses.schedule(
                         game,
@@ -1367,6 +1397,7 @@ def create_app(
                         settings,
                         state=state,
                         receipt=receipt,
+                        retry=retry,
                     )
                 )
             elif receipt is not None:
@@ -1382,7 +1413,9 @@ def create_app(
             {
                 **result,
                 "cursor": cursor,
-                "status": "pending" if pending or receipt is not None else "complete",
+                "status": "pending"
+                if pending or receipt is not None
+                else analysis_display_status(result, settings),
                 "advisor_revision": settings["revision"],
             }
         )
@@ -1390,12 +1423,26 @@ def create_app(
         record_completed_replay(game, settings, result)
         return rendered
 
-    def validate_receipt_revision(game: dict, settings: dict, receipt: ReceiptLease | None) -> None:
-        if receipt is None:
+    def explicit_analysis_retry(request: AnalysisRequest, settings: dict) -> bool:
+        if request.retry_revision is None:
+            return False
+        if request.retry_revision != settings["revision"]:
+            raise AnalysisPolicyError(
+                "The move advisor changed. Refresh analysis settings.",
+                code="analysis_revision_stale",
+                status=409,
+            )
+        return True
+
+    def validate_receipt_revision(
+        game: dict, settings: dict, receipt: ReceiptLease | None, *, retry: bool = False
+    ) -> None:
+        if receipt is None and not retry:
             return
         current = store.analytics(game["id"])
         if (current["revision"] if current else 0) != settings["revision"]:
-            receipt.result_available("superseded")
+            if receipt is not None:
+                receipt.result_available("superseded")
             raise AnalysisPolicyError(
                 "The move advisor changed. Refresh analysis settings.",
                 code="analysis_revision_stale",
@@ -1428,9 +1475,10 @@ def create_app(
             fail("This game changed. Reload it before analyzing again.", 409)
         state, key = analysis_request_position(game, request.cursor)
         settings = analytics_settings(game)
+        retry = explicit_analysis_retry(request, settings)
         receipt = begin_analysis_receipt(http_request, game, request.cursor, settings, key)
         try:
-            validate_receipt_revision(game, settings, receipt)
+            validate_receipt_revision(game, settings, receipt, retry=retry)
             if receipt is not None and not receipt.primary:
                 retained = current_analysis(game, settings, state=state) or missing_analysis(
                     game, state=state, cursor=request.cursor
@@ -1442,11 +1490,12 @@ def create_app(
                         "advisor_revision": settings["revision"],
                     }
                 )
-            if request.background:
+            if request.background or retry:
                 return background_analysis(
-                    game, settings, state=state, cursor=request.cursor, receipt=receipt
+                    game, settings, state=state, cursor=request.cursor, receipt=receipt, retry=retry
                 )
             if request.historical:
+                pending = analyses.active((game_id, key, "advisor", settings["revision"]))
                 recorded = current_analysis(game, settings, state=state) or missing_analysis(
                     game, state=state, cursor=request.cursor
                 )
@@ -1456,7 +1505,9 @@ def create_app(
                     {
                         **recorded,
                         "cursor": request.cursor,
-                        "status": "pending" if receipt is not None else "complete",
+                        "status": "pending"
+                        if pending or receipt is not None
+                        else analysis_display_status(recorded, settings),
                         "advisor_revision": settings["revision"],
                     }
                 )
@@ -1476,6 +1527,8 @@ def create_app(
                     result = {**result, "advisor_revision": settings["revision"]}
                 if receipt is not None:
                     result = {**result, "status": "pending"}
+                elif (status := analysis_display_status(result, settings)) != "complete":
+                    result = {**result, "status": status}
                 note_retained_advisor(receipt, game, settings, key)
                 record_completed_replay(game, settings, result)
                 return analysis_response(result)
@@ -1558,7 +1611,7 @@ def create_app(
         except SupersededAnalysis as exc:
             if receipt is not None:
                 receipt.result_available("superseded")
-                validate_receipt_revision(game, settings, receipt)
+            validate_receipt_revision(game, settings, receipt, retry=retry)
             fail(str(exc), 409)
         except BaseException:
             if receipt is not None:
@@ -1997,12 +2050,12 @@ def create_app(
             )
             if version is None:
                 return {**base, "status": "unavailable"}
+            if version != recorded["version"]:
+                return {**base, "status": "superseded", "code": "analysis_context_stale"}
             settings = store.analytics(game_id, connection=c)
-            if (
-                version != recorded["version"]
-                or (settings["revision"] if settings else 0) != revision
-                or outcome == "superseded"
-            ):
+            if (settings["revision"] if settings else 0) != revision:
+                return {**base, "status": "superseded", "code": "analysis_revision_stale"}
+            if outcome == "superseded":
                 return {**base, "status": "superseded"}
             retained = store.game_analysis(game_id, position_key_value, connection=c)
             advisor = store.advisor_analysis(game_id, position_key_value, revision, connection=c)
@@ -2231,9 +2284,16 @@ def create_app(
             fail("The requested position is outside this recorded game.", 422)
         state, key = analysis_request_position(game, request.cursor)
         settings = analytics_settings(game)
+        retry = explicit_analysis_retry(request, settings)
+        if retry and request.version != game["version"]:
+            raise AnalysisPolicyError(
+                "This game changed. Reload it before analyzing again.",
+                code="analysis_context_stale",
+                status=409,
+            )
         receipt = begin_analysis_receipt(http_request, game, request.cursor, settings, key)
         try:
-            validate_receipt_revision(game, settings, receipt)
+            validate_receipt_revision(game, settings, receipt, retry=retry)
             if receipt is not None and not receipt.primary:
                 retained = current_analysis(game, settings, state=state) or missing_analysis(
                     game, state=state, cursor=request.cursor
@@ -2245,21 +2305,24 @@ def create_app(
                         "advisor_revision": settings["revision"],
                     }
                 )
-            if request.background:
+            if request.background or retry:
                 return background_analysis(
-                    game, settings, state=state, cursor=request.cursor, receipt=receipt
+                    game, settings, state=state, cursor=request.cursor, receipt=receipt, retry=retry
                 )
+            pending = analyses.active((game_id, key, "advisor", settings["revision"]))
             recorded = current_analysis(game, settings, state=state)
             note_retained_advisor(receipt, game, settings, key)
             record_completed_replay(game, settings, recorded)
             result = recorded or missing_analysis(game, state=state, cursor=request.cursor)
-            if receipt is not None:
+            if pending or receipt is not None:
                 result = {**result, "status": "pending", "advisor_revision": settings["revision"]}
+            elif (status := analysis_display_status(result, settings)) != "complete":
+                result = {**result, "status": status, "advisor_revision": settings["revision"]}
             return analysis_response(result)
         except SupersededAnalysis as exc:
             if receipt is not None:
                 receipt.result_available("superseded")
-                validate_receipt_revision(game, settings, receipt)
+            validate_receipt_revision(game, settings, receipt, retry=retry)
             fail(str(exc), 409)
         except BaseException:
             if receipt is not None:

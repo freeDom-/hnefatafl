@@ -9,6 +9,7 @@
  * Usage:
  *   node scripts/verify_browser_analysis_integration.mjs --base-url <url>
  *     --dist <dir> [--output <report.json>]
+ *     [--retry-after-partial] (with phase5_retry_probe_server.py)
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -23,6 +24,7 @@ const baseUrl = (argument('base-url') ?? 'http://127.0.0.1:8000').replace(/\/$/,
 const dist = resolve(argument('dist', 'frontend/dist'));
 const output = argument('output');
 const screenshots = argument('screenshots');
+const retryAfterPartial = process.argv.includes('--retry-after-partial');
 const password = argument('password', process.env.BROWSER_ANALYSIS_PASSWORD);
 if (!password) throw new Error('Provide --password or BROWSER_ANALYSIS_PASSWORD');
 
@@ -463,13 +465,64 @@ try {
     { before: recoveryBefore.counters, after: recoveryAfter.counters });
   page.off('request', capture);
   await page.unroute(`${gamePath}/analysis-receipt`, inject);
+  const historicalFallbackPosts = admissionBodies.length;
+
+  if (retryAfterPartial) {
+    const metrics = async () => (await context.request.get(`${baseUrl}/api/analysis/metrics`, { headers })).json();
+    const terminalRead = () => page.waitForResponse(async (response) =>
+      response.request().method() === 'GET' && response.url().endsWith('/result') && response.ok() &&
+      (await response.json()).terminal === true, { timeout: 90_000 });
+    const beforeRetry = await metrics();
+    const recordedBodies = admissionBodies.length;
+    page.on('request', capture);
+    const selected = await context.request.put(`${gamePath}/analytics`, {
+      data: { ...classicalMcts, advisor: { ...classicalMcts.advisor, name: 'Phase 5 retry probe' } },
+      headers,
+    });
+    if (!selected.ok()) throw new Error(await selected.text());
+    const { revision: retryRevision } = await selected.json();
+    const partialRead = terminalRead();
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    const partial = await (await partialRead).json();
+    const retry = page.getByRole('button', { name: 'Retry evaluation' });
+    await retry.waitFor();
+    check('interrupted fallback retires with a usable checkpoint and the existing retry action',
+      partial.status === 'partial' && partial.report.status === 'partial' &&
+      partial.report.position_key === exactContext.position_key && partial.report.advisor_revision === retryRevision &&
+      partial.report.evaluations.some((entry) => entry.agent_id === 'advisor' && entry.source === 'mcts_rollout') &&
+      (await page.getByText('Analysis completed on the server.', { exact: true }).count()) === 0,
+      { status: partial.status, report: partial.report });
+    for (let read = 0; read < 3; read += 1) {
+      const result = await context.request.get(`${baseUrl}/api/analysis/receipts/${partial.receipt}/result`, { headers });
+      if (!result.ok() || (await result.json()).status !== 'partial') throw new Error('The partial checkpoint changed during read-only observation');
+    }
+    const afterPartial = await metrics();
+    check('partial result retrieval starts no further evaluation',
+      afterPartial.counters.admitted - beforeRetry.counters.admitted === 1 && admissionBodies.length === recordedBodies + 1);
+    const completeRead = terminalRead();
+    await retry.click();
+    const complete = await (await completeRead).json();
+    await page.getByText('Analysis completed on the server.', { exact: true }).first().waitFor();
+    const afterRetry = await metrics();
+    const [initial, restarted] = admissionBodies.slice(recordedBodies);
+    check('explicit retry completes on a fresh receipt at the same revision and position',
+      complete.status === 'complete' && complete.receipt !== partial.receipt &&
+      complete.report.advisor_revision === retryRevision && complete.report.cursor === partial.report.cursor &&
+      complete.report.position_key === partial.report.position_key &&
+      initial.retry_revision === undefined && restarted?.retry_revision === retryRevision &&
+      admissionBodies.length === recordedBodies + 2 &&
+      afterRetry.counters.admitted - afterPartial.counters.admitted === 1,
+      { retryRevision, report: complete.report, submissions: admissionBodies.slice(recordedBodies), afterPartial: afterPartial.counters, afterRetry: afterRetry.counters });
+    page.off('request', capture);
+  }
 
   report.requests = {
     runtimeAssets: pageRequests.filter((url) => url.includes('/browser-analysis/runtime/')).length,
     modelArtifacts: pageRequests.filter((url) => url.includes('/artifact')).length,
     fallbackAnalysisPosts: fallbackAnalysisPosts.length,
     historicalReceiptPosts: receiptPosts,
-    historicalFallbackPosts: admissionBodies.length,
+    historicalFallbackPosts,
+    ...(retryAfterPartial ? { retryProbeFallbackPosts: admissionBodies.length - historicalFallbackPosts } : {}),
   };
   report.game = { id: game.id, publication: published.publication_id, model: published.onnx_sha256 };
   report.results = {

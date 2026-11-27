@@ -12,6 +12,7 @@ import {
 } from './analysisPolicy';
 import { browserAnalysisLoaded, loadAnalysisIntegration } from './browserAnalysis/loader';
 import type { LocalAnalysisError, LocalAnalysisStage } from './browserAnalysis/integration';
+import type { FallbackOutcome } from './analysisRetirements';
 import type { Game } from './types';
 
 type RequestStatus = 'pending' | 'waiting' | 'done' | 'failed' | 'cancelled';
@@ -261,6 +262,7 @@ export function useGameAnalysis(
   );
   const [request, setRequest] = useState<AnalysisRequestState | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const retryIntent = useRef<{ key: string; session: AbortSignal } | null>(null);
   const [onlineEpoch, setOnlineEpoch] = useState(0);
   const activeController = useRef<AbortController | null>(null);
   const creditedReplay = useRef('');
@@ -361,6 +363,10 @@ export function useGameAnalysis(
   // server. No second effect or key-based fallback flag can resurrect an older
   // execution path after navigation.
   useEffect(() => {
+    const intent = retryIntent.current;
+    retryIntent.current = null;
+    let retryRevision =
+      intent?.key === key && intent.session === session ? settings.revision : undefined;
     if (
       !game ||
       disabled ||
@@ -387,7 +393,7 @@ export function useGameAnalysis(
       !session.aborted &&
       !controller.signal.aborted &&
       settingsSequence.current === sequence;
-    const baseReport = stored ?? undefined;
+    const baseReport = (request?.key === key ? request.report : undefined) ?? stored ?? undefined;
     const stateFor = (
       status: AnalysisRequestState['status'],
       patch: Partial<AnalysisRequestState> = {},
@@ -402,6 +408,7 @@ export function useGameAnalysis(
       const replayKey = `${basePath}/${game.id}`;
       if (
         report.status !== 'partial' &&
+        report.status !== 'unavailable' &&
         (game.recorded_winner || game.winner) &&
         creditedReplay.current !== replayKey &&
         report.evaluations.some(
@@ -427,6 +434,20 @@ export function useGameAnalysis(
       );
     };
 
+    const finishFallback = (
+      outcome: FallbackOutcome = { kind: 'failed', category: 'server-failed' },
+    ) => {
+      if (outcome.kind === 'report') return finishReport(outcome.report);
+      setRequest(
+        stateFor(outcome.kind === 'cancelled' ? 'cancelled' : 'failed', {
+          local: true,
+          fallback: true,
+          errorCategory: outcome.kind === 'failed' ? outcome.category : outcome.kind,
+        }),
+      );
+      if (outcome.kind === 'revision-stale') void refreshSettings();
+    };
+
     const pollLegacyServer = async () => {
       if (!current() || running) return;
       if (Date.now() > retryDeadline) {
@@ -434,6 +455,8 @@ export function useGameAnalysis(
         return;
       }
       running = true;
+      const requestedRetry = retryRevision;
+      retryRevision = undefined;
       try {
         const report = await api<PositionAnalysis>(
           `${basePath}/${game.id}/analysis`,
@@ -442,6 +465,7 @@ export function useGameAnalysis(
             cursor: game.cursor,
             background: !readOnlyHistory,
             historical,
+            retry_revision: requestedRetry,
           },
           undefined,
           controller.signal,
@@ -510,35 +534,13 @@ export function useGameAnalysis(
         if (!current()) return;
         const existing = retirementApi.current?.retirementFor(workKey);
         if (existing) {
-          const result = await retirementApi.current?.waitForReceiptResult(
+          const outcome = await retirementApi.current?.resumeServerFallback(
+            workKey,
             existing,
             controller.signal,
           );
           if (!current()) return;
-          if (!result) {
-            setRequest(
-              stateFor('failed', {
-                local: true,
-                errorCategory: 'server-busy',
-              }),
-            );
-            return;
-          }
-          retirementApi.current?.settleRetirement(workKey, existing.receipt);
-          if (result.report) {
-            finishReport(result.report);
-            return;
-          }
-          if (result.status !== 'unknown' && result.status !== 'expired') {
-            setRequest(
-              stateFor('failed', {
-                local: true,
-                fallback: true,
-                errorCategory: 'server-failed',
-              }),
-            );
-            return;
-          }
+          if (outcome?.kind !== 'retired') return finishFallback(outcome);
         }
       }
       if (localMode) {
@@ -660,6 +662,7 @@ export function useGameAnalysis(
                   revision: settings.revision,
                   background: !readOnlyHistory,
                   historical,
+                  retryRevision,
                 },
                 {
                   signal: controller.signal,
@@ -687,46 +690,9 @@ export function useGameAnalysis(
                   },
                 },
               );
-              if (!current()) return;
-              if (!outcome) {
-                setRequest(
-                  stateFor('failed', {
-                    local: true,
-                    fallback: true,
-                    errorCategory: 'server-failed',
-                  }),
-                );
-                return;
-              }
-              if (outcome.kind === 'report') {
-                finishReport(outcome.report);
-                return;
-              }
-              if (outcome.kind === 'revision-stale') {
-                setRequest(stateFor('failed', { local: true, errorCategory: 'revision-stale' }));
-                await refreshSettings();
-                return;
-              }
-              if (outcome.kind === 'stale-game') {
-                setRequest(stateFor('failed', { local: true, errorCategory: 'stale-game' }));
-                return;
-              }
-              setRequest(
-                stateFor('failed', {
-                  local: true,
-                  fallback: true,
-                  errorCategory: outcome.category,
-                }),
-              );
+              if (current()) finishFallback(outcome);
             } catch {
-              if (current())
-                setRequest(
-                  stateFor('failed', {
-                    local: true,
-                    fallback: true,
-                    errorCategory: 'server-failed',
-                  }),
-                );
+              if (current()) finishFallback();
             }
             return;
           }
@@ -794,6 +760,7 @@ export function useGameAnalysis(
     failed: current?.status === 'failed',
     cancelled: current?.status === 'cancelled',
     retry: () => {
+      retryIntent.current = { key, session };
       setAttempt((value) => value + 1);
     },
     cancel,

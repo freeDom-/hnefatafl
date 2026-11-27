@@ -585,8 +585,10 @@ def test_retired_advisor_failure_preserves_playing_evidence_and_any_partial(
     path = f"/api/games/{game['id']}/analysis"
     receipt = _receipt(client, game)
     real_evaluate = app.state.analyses.evaluate
+    calls = []
 
     def compute(game, role, agent, settings, progress, *, state):
+        calls.append(role)
         if role == "advisor" and not partial:
             raise RuntimeError("deterministic advisor failure")
         result = real_evaluate(game, role, agent, settings, progress, state=state)
@@ -609,13 +611,165 @@ def test_retired_advisor_failure_preserves_playing_evidence_and_any_partial(
     evaluations = {entry["agent_id"]: entry for entry in result["report"]["evaluations"]}
     assert evaluations["defenders"]["source"] != "unavailable"
     assert (evaluations["advisor"]["source"] != "unavailable") == partial
-    if partial:
-        # Legacy polling reuses the retired checkpoint without starting a new task.
+    # Ordinary polling and game reloads preserve both the advisor outcome and
+    # the independent playing-agent evidence.
+    for _ in range(3):
         reply = client.post(
             path, json={"version": game["version"], "cursor": 0, "background": True}
         )
-        assert reply.json()["status"] == "complete"
+        assert reply.json()["status"] == ("partial" if partial else "unavailable")
+        # The receipt view can reuse a stored rune, while the legacy view resolves it again.
+        assert [
+            {key: value for key, value in entry.items() if key != "rune"}
+            for entry in reply.json()["evaluations"]
+        ] == [
+            {key: value for key, value in entry.items() if key != "rune"}
+            for entry in result["report"]["evaluations"]
+        ]
+        assert reply.json()["hint"] == result["report"]["hint"]
         assert not app.state.analyses.tasks
+    assert (
+        client.get(f"/api/games/{game['id']}").json()["analysis"]["status"]
+        == reply.json()["status"]
+    )
+    assert sorted(calls) == ["advisor", "defenders"]
+    if partial:
+        key = result["report"]["position_key"]
+        stored_playing = app.state.store.game_analysis(game["id"], key)
+        retained = client.post(path, json={"version": game["version"], "cursor": 0})
+        assert retained.json()["status"] == "partial"
+        monkeypatch.setattr(app.state.analyses, "evaluate", real_evaluate)
+        retry = _receipt(client, game)
+        submitted = client.post(
+            path,
+            json={"version": game["version"], "cursor": 0, "retry_revision": 0},
+            headers={"X-Analysis-Receipt": retry},
+        )
+        assert submitted.status_code == 200
+        assert _wait_terminal(client, retry)["terminal"]
+        assert _result(client, retry)["status"] == "complete"
+        assert app.state.store.game_analysis(game["id"], key) == stored_playing
+
+
+@pytest.mark.parametrize("with_receipt", [False, True], ids=["server-only", "fallback"])
+def test_explicit_retry_replaces_retired_partial_at_same_replay_revision(
+    monkeypatch, tmp_path, with_receipt
+):
+    app = _app(tmp_path, monkeypatch) if with_receipt else create_app(tmp_path)
+    with TestClient(app) as client:
+        game = _game(client)
+        base = f"/api/games/{game['id']}"
+        for source, target in [(3, 2), (17, 16), (2, 3), (16, 17)] * 2:
+            move = client.post(
+                base + "/moves",
+                json={"version": game["version"], "source": source, "target": target},
+            )
+            assert move.status_code == 200, move.text
+            game = move.json()
+        assert game["recorded_winner"] == "draw"
+        body = {"version": game["version"], "cursor": 0, "historical": True, "background": True}
+        store, service = app.state.store, app.state.analyses
+        real_evaluate = service.evaluate
+        entered, release = threading.Event(), threading.Event()
+        first_progress, retire_first = threading.Event(), threading.Event()
+        calls = []
+
+        def compute(game, role, agent, settings, progress, *, state):
+            calls.append((role, settings["revision"]))
+            result = real_evaluate(game, role, agent, settings, lambda _: None, state=state)
+            if len(calls) <= 2:
+                progress({**result, "completed_depth": 2 if len(calls) == 1 else 1})
+                if len(calls) == 1:
+                    first_progress.set()
+                    assert retire_first.wait(5)
+                raise RuntimeError("deterministic interrupted search")
+            entered.set()
+            assert release.wait(5)
+            return result
+
+        monkeypatch.setattr(service, "evaluate", compute)
+
+        def submit(*, retry=False, receipt=None):
+            headers = {"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt} if receipt else {}
+            return client.post(
+                base + "/analysis",
+                json={**body, **({"retry_revision": 0} if retry else {})},
+                headers=headers,
+            )
+
+        def wait_tasks():
+            deadline = time.monotonic() + 5
+            while service.tasks:
+                assert time.monotonic() < deadline
+                time.sleep(0.02)
+
+        def credits():
+            with store.connection() as c:
+                return c.execute("SELECT count(*) FROM replay_analysis_completions").fetchone()[0]
+
+        first_receipt = _receipt(client, game, cursor=0) if with_receipt else None
+        first = submit(receipt=first_receipt)
+        assert first.status_code == 200, first.text
+        key = first.json()["position_key"]
+        try:
+            assert first_progress.wait(5)
+            assert submit().json()["status"] == "pending"
+            other = _receipt(client, game, cursor=0) if with_receipt else None
+            assert submit(retry=True, receipt=other).json()["status"] == "pending"
+            if other:
+                assert _status(client, other)["state"] == "active"
+            assert calls == [("advisor", 0)] and credits() == 0
+        finally:
+            retire_first.set()
+        wait_tasks()
+        if first_receipt:
+            assert _wait_terminal(client, first_receipt)["terminal"]
+            assert _result(client, first_receipt)["status"] == "partial"
+            assert submit(retry=True, receipt=first_receipt).status_code == 409
+        checkpoint = store.advisor_analysis(game["id"], key, 0)
+        assert checkpoint["partial"] and checkpoint["retired_partial"]
+        for _ in range(3):
+            assert submit().status_code == 200
+        assert calls == [("advisor", 0)] and credits() == 0
+
+        second_receipt = _receipt(client, game, cursor=0) if with_receipt else None
+        failed_retry = submit(retry=True, receipt=second_receipt)
+        assert failed_retry.status_code == 200, failed_retry.text
+        wait_tasks()
+        assert len(calls) == 2
+        assert store.advisor_analysis(game["id"], key, 0) == checkpoint
+        if second_receipt:
+            assert _wait_terminal(client, second_receipt)["terminal"]
+            assert _result(client, second_receipt)["status"] == "partial"
+        assert credits() == 0
+
+        receipt = _receipt(client, game, cursor=0) if with_receipt else None
+        duplicate = _receipt(client, game, cursor=0) if with_receipt else None
+        try:
+            assert submit(retry=True, receipt=receipt).status_code == 200
+            assert entered.wait(5)
+            observing = submit(retry=True, receipt=duplicate)
+            assert observing.json()["status"] == "pending"
+            assert submit().json()["status"] == "pending"
+            if duplicate:
+                assert _status(client, duplicate)["state"] == "active"
+            assert calls == [("advisor", 0)] * 3
+            assert credits() == 0
+        finally:
+            release.set()
+        wait_tasks()
+        completed = submit().json()
+        assert completed["status"] == "complete"
+        assert completed["position_key"] == key and completed["advisor_revision"] == 0
+        for finished in (receipt, duplicate):
+            if finished:
+                assert _wait_terminal(client, finished)["terminal"]
+                assert _result(client, finished)["report"]["status"] == "complete"
+        report = store.advisor_analysis(game["id"], key, 0)
+        assert not report["partial"] and credits() == 1
+        assert submit(retry=True).json()["status"] == "complete"
+        assert calls == [("advisor", 0)] * 3
+        assert store.advisor_analysis(game["id"], key, 0) == report
 
 
 def test_terminal_receipts_stay_inspectable_after_game_changes_or_deletion(monkeypatch, tmp_path):
@@ -720,36 +874,68 @@ def test_retired_read_with_no_requested_advisor_result_is_unavailable(monkeypatc
     assert result["status"] == "unavailable" and "report" not in result
 
 
-def test_running_advisor_revision_can_retire_as_superseded(monkeypatch, tmp_path):
+@pytest.mark.parametrize("changed,retry", [("advisor", False), ("game", False), ("advisor", True)])
+def test_running_advisor_can_retire_as_superseded_with_reason(
+    monkeypatch, tmp_path, changed, retry
+):
     app = _app(tmp_path, monkeypatch)
     client = TestClient(app)
     game = _game(client)
     base = f"/api/games/{game['id']}"
-    receipt = _receipt(client, game)
     entered, release = threading.Event(), threading.Event()
     real_evaluate = app.state.analyses.evaluate
+    invocations = 0
 
-    def compute(*args, **kwargs):
+    def compute(game, role, agent, settings, progress, *, state):
+        nonlocal invocations
+        invocations += 1
+        if retry and invocations == 1:
+            progress(real_evaluate(game, role, agent, settings, progress, state=state))
+            raise RuntimeError("deterministic interruption before retry")
         entered.set()
         assert release.wait(5)
-        return real_evaluate(*args, **kwargs)
+        return real_evaluate(game, role, agent, settings, progress, state=state)
 
     monkeypatch.setattr(app.state.analyses, "evaluate", compute)
+    body = {"version": game["version"], "cursor": 0, "background": True}
+    checkpoint = None
+    if retry:
+        initial = _receipt(client, game)
+        first = client.post(base + "/analysis", json=body, headers={"X-Analysis-Receipt": initial})
+        assert first.status_code == 200
+        assert _wait_terminal(client, initial)["terminal"]
+        checkpoint = app.state.store.advisor_analysis(game["id"], first.json()["position_key"], 0)
+        assert checkpoint["retired_partial"]
+        body["retry_revision"] = 0
+    receipt = _receipt(client, game)
     try:
         submitted = client.post(
             base + "/analysis",
-            json={"version": game["version"], "cursor": 0, "background": True},
+            json=body,
             headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
         )
         assert submitted.status_code == 200, submitted.text
         assert entered.wait(5)
         assert _status(client, receipt)["state"] == "active"
-        saved = client.put(base + "/analytics", json={"advisor": ADVISOR, "time_limit": 2})
+        if changed == "advisor":
+            saved = client.put(base + "/analytics", json={"advisor": ADVISOR, "time_limit": 2})
+        else:
+            saved = client.post(
+                base + "/moves", json={"version": game["version"], **game["legal_moves"][0]}
+            )
         assert saved.status_code == 200, saved.text
     finally:
         release.set()
-    assert _wait_terminal(client, receipt)["state"] == "failed"
+    assert _wait_terminal(client, receipt)["terminal"]
     result = _result(client, receipt)
     assert result["status"] == "superseded" and "report" not in result
-    key = client.get(base + "/analysis-context").json()["position_key"]
-    assert app.state.store.advisor_analysis(game["id"], key, 0) is None
+    assert result["code"] == (
+        "analysis_revision_stale" if changed == "advisor" else "analysis_context_stale"
+    )
+    if changed == "advisor":
+        key = client.get(base + "/analysis-context").json()["position_key"]
+        assert app.state.store.advisor_analysis(game["id"], key, 0) == checkpoint
+        if retry:
+            stale = client.post(base + "/analysis", json=body)
+            assert stale.status_code == 409 and stale.json()["code"] == "analysis_revision_stale"
+    assert invocations == (2 if retry else 1)

@@ -198,9 +198,22 @@ above the watermark leaves the slot reserved.
 completed online participation, including current administrator access. A report
 requires the current game version and advisor revision. A retired operation may
 return a complete advisor evaluation, a partial checkpoint, or an unavailable
-advisor alongside retained playing-agent evaluations. Progression credit comes
-from successful computation or an explicit POST that finds a completed cached
-advisor evaluation.
+advisor alongside retained playing-agent evaluations. If the game version or
+advisor revision changed, the result carries `analysis_context_stale` or
+`analysis_revision_stale` for the corresponding recovery path.
+
+An active advisor search can publish a `pending` report with a usable checkpoint.
+Once that search retires, the analysis POST and receipt result classify the
+advisor evaluation as `complete`, `partial`, or unavailable. Ordinary polling
+reads the retained checkpoint and stops when work retires. **Retry evaluation**
+requests a separate attempt using the same position and advisor revision.
+The browser attempts local execution first where policy permits. A server retry
+uses the optional `retry_revision` field on its first analysis POST, with a
+fresh receipt if it uses fallback. The bounded executor joins equivalent active
+work and keeps complete evaluations immutable. An interrupted retry keeps the
+best retained checkpoint by completed search work. Progression credit comes from
+successful computation or an explicit POST that finds a completed cached advisor
+evaluation.
 
 Local results are advisory and render through the existing panel. They do not
 write authoritative game state, clocks, ratings, league/tournament progression or

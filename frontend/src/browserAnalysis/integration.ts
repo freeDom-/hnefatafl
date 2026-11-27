@@ -28,9 +28,8 @@ export type { ExecutionPolicy } from '../analysisPolicy';
 export {
   reconcileRetirements,
   retirementFor,
+  resumeServerFallback,
   runServerFallback,
-  settleRetirement,
-  waitForReceiptResult,
 } from '../analysisRetirements';
 
 export type LocalAnalysisStage =

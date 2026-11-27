@@ -192,6 +192,135 @@ function render(mode: string, visible = true) {
 }
 
 describe('useGameAnalysis execution-policy integration', () => {
+  it.each(['server_only', 'browser_preferred'])(
+    'retries a partial result explicitly once in %s',
+    async (mode) => {
+      const calls: Array<{ retry_revision?: number }> = [];
+      if (mode === 'browser_preferred') {
+        local.runLocalAnalysis.mockRejectedValue(
+          Object.assign(new Error('unsupported'), {
+            category: 'unsupported-agent',
+            fallbackEligible: true,
+          }),
+        );
+      }
+      apiHandler.mockImplementation(async (path: string, body: { retry_revision?: number }) => {
+        if (path.endsWith('/analytics')) return settings(mode);
+        if (path.endsWith('/analysis')) {
+          calls.push(body);
+          if (mode === 'browser_preferred') return { status: 'pending' };
+          const status =
+            calls.length === 1 ? 'partial' : calls.length === 2 ? 'pending' : 'complete';
+          return { ...localReport(), status };
+        }
+        if (path.endsWith('/result')) {
+          const status = calls.length === 1 ? 'partial' : 'complete';
+          return {
+            schema: 1,
+            receipt: 'receipt-g1-0',
+            receipt_epoch: 'server-epoch',
+            receipt_state: 'completed',
+            terminal: true,
+            status,
+            report: { ...localReport(), status },
+          };
+        }
+        throw new Error(`unexpected ${path}`);
+      });
+      const hook = renderHook(() =>
+        useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+      );
+      await waitFor(() => expect(hook.result.current.report?.status).toBe('partial'));
+      expect(hook.result.current.pending).toBe(false);
+      expect(calls).toHaveLength(1);
+      act(() => hook.result.current.retry());
+      await waitFor(() => expect(hook.result.current.report?.status).toBe('complete'));
+      expect(calls.map((body) => body.retry_revision)).toEqual(
+        mode === 'server_only' ? [undefined, 1, undefined] : [undefined, 1],
+      );
+      expect(local.runLocalAnalysis).toHaveBeenCalledTimes(mode === 'browser_preferred' ? 2 : 0);
+    },
+  );
+
+  it('refreshes the advisor after a superseded fallback retires', async () => {
+    let refreshes = 0;
+    local.runLocalAnalysis
+      .mockRejectedValueOnce(
+        Object.assign(new Error('unsupported'), {
+          category: 'unsupported-agent',
+          fallbackEligible: true,
+        }),
+      )
+      .mockResolvedValueOnce({ report: { ...localReport(), advisor_revision: 2 } });
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics'))
+        return { ...settings('browser_preferred'), revision: ++refreshes };
+      if (path.endsWith('/analysis')) return { status: 'pending' };
+      if (path.endsWith('/result'))
+        return {
+          schema: 1,
+          receipt: 'receipt-g1-0',
+          receipt_epoch: 'server-epoch',
+          receipt_state: 'failed',
+          terminal: true,
+          status: 'superseded',
+          code: 'analysis_revision_stale',
+        };
+      throw new Error(`unexpected ${path}`);
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(hook.result.current.report?.advisor_revision).toBe(2));
+    expect(hook.result.current.settings.revision).toBe(2);
+    expect(hook.result.current.failed).toBe(false);
+    expect(apiMock.mock.calls.filter(([path]) => path.endsWith('/analysis'))).toHaveLength(1);
+  });
+
+  it('cancels an explicit local retry before it can start another fallback', async () => {
+    let deliver!: (value: unknown) => void;
+    local.runLocalAnalysis
+      .mockRejectedValueOnce(
+        Object.assign(new Error('unsupported'), {
+          category: 'unsupported-agent',
+          fallbackEligible: true,
+        }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            deliver = resolve;
+          }),
+      );
+    apiHandler.mockImplementation(async (path: string) => {
+      if (path.endsWith('/analytics')) return settings('browser_preferred');
+      if (path.endsWith('/analysis')) return { status: 'pending' };
+      if (path.endsWith('/result'))
+        return {
+          schema: 1,
+          receipt: 'receipt-g1-0',
+          receipt_epoch: 'server-epoch',
+          receipt_state: 'completed',
+          terminal: true,
+          status: 'partial',
+          report: { ...localReport(), status: 'partial' },
+        };
+      throw new Error(`unexpected ${path}`);
+    });
+    const hook = renderHook(() =>
+      useGameAnalysis(game(), true, false, '/games', false, 'account-1'),
+    );
+    await waitFor(() => expect(hook.result.current.report?.status).toBe('partial'));
+    act(() => hook.result.current.retry());
+    await waitFor(() => expect(deliver).toBeDefined());
+    act(() => hook.result.current.cancel());
+    await act(async () => deliver({ report: localReport() }));
+    expect(local.runLocalAnalysis.mock.calls[1][0].signal.aborted).toBe(true);
+    expect(hook.result.current.cancelled).toBe(true);
+    expect(hook.result.current.report?.status).toBe('partial');
+    expect(apiMock.mock.calls.filter(([path]) => path.endsWith('/analysis'))).toHaveLength(1);
+  });
+
   it('keeps the legacy server path and never imports local execution in server_only', async () => {
     const hook = render('server_only');
     await waitFor(() =>

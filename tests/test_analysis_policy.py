@@ -478,10 +478,11 @@ def test_analysis_receipt_tracks_prepared_admission_and_retirement(monkeypatch, 
         headers={"X-Analysis-Fallback": "1", "X-Analysis-Receipt": receipt},
     )
     assert analysed.status_code == 200, analysed.text
-    retired = client.get(f"/api/games/{game['id']}/analysis-status", params=params).json()
-    assert retired["receipt_state"] in {"active", "retired"}
-    assert retired["game_id"] == game["id"]
-    assert retired["advisor_revision"] == settings["revision"]
+    observed = client.get(f"/api/games/{game['id']}/analysis-status", params=params).json()
+    assert observed["receipt_state"] in {"active", "completed"}
+    assert observed["receipt_terminal"] == (observed["receipt_state"] == "completed")
+    assert observed["game_id"] == game["id"]
+    assert observed["advisor_revision"] == settings["revision"]
 
     unknown = client.get(
         f"/api/games/{game['id']}/analysis-status",

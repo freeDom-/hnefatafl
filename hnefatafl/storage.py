@@ -28,6 +28,14 @@ class ConflictError(ValueError):
     """A client attempted to update an old game version."""
 
 
+def usable_advisor_entry(entry: dict) -> bool:
+    return (
+        entry.get("agent_id") == "advisor"
+        and entry.get("source") not in (None, "unavailable")
+        and not entry.get("unavailable_reason")
+    )
+
+
 class Store:
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -508,12 +516,7 @@ class Store:
             (game.get("recorded_result") or {}).get("winner")
             and report
             and not report.get("partial")
-            and any(
-                entry.get("agent_id") == "advisor"
-                and entry.get("source") not in (None, "unavailable")
-                and not entry.get("unavailable_reason")
-                for entry in report.get("evaluations", [])
-            )
+            and any(usable_advisor_entry(entry) for entry in report.get("evaluations", []))
         )
 
     def _record_replay_analysis(
@@ -569,6 +572,7 @@ class Store:
         *,
         advisor_revision: int | None = None,
         partial: bool = False,
+        retry: bool = False,
         online: bool = False,
         requester_ids: Iterable[str] = (),
     ) -> dict:
@@ -623,12 +627,27 @@ class Store:
                 )
                 if retained is not None:
                     completed = json.loads(retained["data"])
-                    if not completed.get("partial") or completed.get("retired_partial"):
-                        # Completion is immutable, even if a late observer or
-                        # another writer publishes progress for this same key.
-                        self._record_replay_analysis(connection, original, completed, requester_ids)
-                        return completed
-                    if not partial and entry.get("source") == "unavailable":
+                    checkpoint = completed.get("partial")
+                    if not checkpoint or completed.get("retired_partial"):
+                        previous: dict = next(iter(completed["evaluations"]), {})
+                        if not retry or (not checkpoint and usable_advisor_entry(previous)):
+                            # Successful evaluations are immutable across attempts.
+                            self._record_replay_analysis(
+                                connection, original, completed, requester_ids
+                            )
+                            return completed
+                        if not usable_advisor_entry(entry):
+                            return completed
+                        if partial:
+                            work = ("completed_depth", "simulations", "searched_moves")
+                            if checkpoint and tuple(entry.get(k) or 0 for k in work) <= tuple(
+                                previous.get(k) or 0 for k in work
+                            ):
+                                return completed
+                            # Activity is tracked by the executor while retrying.
+                            # The saved checkpoint stays usable after interruption.
+                            report["retired_partial"] = True
+                    elif not partial and not usable_advisor_entry(entry):
                         # Keep the last usable checkpoint and stop background polls
                         # from rescheduling a search that has already failed.
                         report = {**completed, "retired_partial": True}

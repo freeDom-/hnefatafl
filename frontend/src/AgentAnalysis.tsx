@@ -132,7 +132,7 @@ export default function AgentAnalysis({
               {t('Retry evaluation')}
             </button>
           </div>
-        ) : failed || report?.status === 'partial' ? (
+        ) : !pending && (failed || report?.status === 'partial') ? (
           <div className="analysis-status">
             <p>
               {report?.status === 'partial'

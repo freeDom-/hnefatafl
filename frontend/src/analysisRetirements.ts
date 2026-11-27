@@ -349,6 +349,7 @@ interface ReceiptResult {
   status: ResultStatus;
   receipt_state: string;
   retired: boolean;
+  code?: string;
   retry_admission?: boolean;
   report?: PositionAnalysis;
 }
@@ -423,11 +424,13 @@ export type FallbackOutcome =
   | { kind: 'report'; report: PositionAnalysis }
   | { kind: 'revision-stale' }
   | { kind: 'stale-game' }
+  | { kind: 'cancelled' }
   | { kind: 'failed'; category: string };
 
 export interface FallbackRequest extends ReceiptRequest {
   background: boolean;
   historical: boolean;
+  retryRevision?: number;
 }
 
 interface FallbackHooks {
@@ -485,8 +488,14 @@ function serverFailure(busy = false): FallbackOutcome {
   return { kind: 'failed', category: busy ? 'server-busy' : 'server-failed' };
 }
 
+function staleOutcome(code: unknown): FallbackOutcome | undefined {
+  if (code === 'analysis_revision_stale') return { kind: 'revision-stale' };
+  if (code === 'analysis_context_stale') return { kind: 'stale-game' };
+}
+
 function observedOutcome(result: ReceiptResult | null, signal: AbortSignal): FallbackOutcome {
   if (result?.report) return { kind: 'report', report: result.report };
+  if (result?.status === 'superseded') return staleOutcome(result.code) ?? { kind: 'cancelled' };
   return serverFailure(signal.aborted || result?.status === 'expired' || result?.retry_admission);
 }
 
@@ -517,8 +526,8 @@ export async function runServerFallback(
           record = (await createReceipt(request, signal)) ?? undefined;
         } catch (failure) {
           const error = failure as RequestError;
-          if (error.code === 'analysis_revision_stale') return { kind: 'revision-stale' };
-          if (error.code === 'analysis_context_stale') return { kind: 'stale-game' };
+          const stale = staleOutcome(error.code);
+          if (stale) return stale;
           if (overload(error) && error.code && (await retry(error))) continue;
           return serverFailure(signal.aborted || overload(error));
         }
@@ -535,6 +544,7 @@ export async function runServerFallback(
             cursor: request.cursor,
             background: request.background,
             historical: request.historical,
+            retry_revision: request.retryRevision,
           },
           undefined,
           signal,
@@ -542,8 +552,8 @@ export async function runServerFallback(
         );
       } catch (failure) {
         const error = failure as RequestError;
-        if (error.code === 'analysis_revision_stale') return { kind: 'revision-stale' };
-        if (error.code === 'analysis_context_stale') return { kind: 'stale-game' };
+        const stale = staleOutcome(error.code);
+        if (stale) return stale;
         if (overload(error)) rejection = error;
       }
       const beforeAdmission =
@@ -573,14 +583,18 @@ export async function runServerFallback(
   });
 }
 
-export async function waitForReceiptResult(
+export async function resumeServerFallback(
+  key: string,
   record: RetirementRecord,
   signal: AbortSignal,
-): Promise<ReceiptResult | null> {
+): Promise<FallbackOutcome | { kind: 'retired' }> {
   const session = requestSession();
-  if (!session.account || session.account !== record.account) return null;
+  if (!session.account || session.account !== record.account) return serverFailure(true);
   return withDeadline(AbortSignal.any([session.signal, signal]), 30_000, async (owned) => {
     const result = await observeResult(record, owned, retryWait(owned), false);
-    return owned.aborted ? null : result;
+    if (!result || owned.aborted) return serverFailure(true);
+    settleRetirement(key, record.receipt);
+    if (result.status === 'unknown' || result.status === 'expired') return { kind: 'retired' };
+    return observedOutcome(result, owned);
   });
 }

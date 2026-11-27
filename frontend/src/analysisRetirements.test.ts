@@ -246,6 +246,81 @@ function overloaded(status = 503, retryAfter = '1') {
 }
 
 describe('bounded fallback recovery', () => {
+  it.each([
+    ['analysis_revision_stale', 'revision-stale'],
+    ['analysis_context_stale', 'stale-game'],
+    [undefined, 'cancelled'],
+  ])('preserves supersession reason %s after authoritative retirement', async (code, kind) => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(created))
+      .mockResolvedValueOnce(Response.json({ status: 'pending' }))
+      .mockResolvedValueOnce(
+        Response.json({
+          ...completed,
+          report: undefined,
+          receipt_state: 'failed',
+          status: 'superseded',
+          code,
+        }),
+      );
+    vi.stubGlobal('fetch', fetcher);
+    expect(await fallback().task).toEqual({ kind });
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/games/g1/analysis')).toHaveLength(1);
+    expect(retirementCount()).toBe(0);
+  });
+
+  it('leaves genuine server failures classified as failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(created))
+        .mockResolvedValueOnce(Response.json({ status: 'pending' }))
+        .mockResolvedValueOnce(
+          Response.json({
+            ...completed,
+            report: undefined,
+            receipt_state: 'failed',
+            status: 'failed',
+          }),
+        ),
+    );
+    expect(await fallback().task).toEqual({ kind: 'failed', category: 'server-failed' });
+    expect(retirementCount()).toBe(0);
+  });
+
+  it('ignores supersession evidence read by an obsolete session', async () => {
+    let deliver!: (response: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(created))
+        .mockResolvedValueOnce(Response.json({ status: 'pending' }))
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              deliver = resolve;
+            }),
+        ),
+    );
+    const task = fallback().task;
+    await vi.waitFor(() => expect(deliver).toBeDefined());
+    setCSRF('new-token', 'other-account');
+    deliver(
+      Response.json({
+        ...completed,
+        report: undefined,
+        receipt_state: 'failed',
+        status: 'superseded',
+        code: 'analysis_revision_stale',
+      }),
+    );
+    expect(await task).toMatchObject({ kind: 'failed' });
+    expect(retirementFor(key)?.receipt).toBe(created.receipt);
+  });
+
   it.each([503, 429])('retries a temporary %i when creating the receipt', async (status) => {
     vi.useFakeTimers();
     const fetcher = vi

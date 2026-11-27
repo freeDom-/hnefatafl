@@ -10,7 +10,7 @@ from typing import Callable
 
 from .analysis_policy import AnalysisAdmission
 from .analysis_receipts import AdvisorOutcome, ReceiptLease
-from .storage import ConflictError, Store
+from .storage import ConflictError, Store, usable_advisor_entry
 
 
 DEFAULT_NEURAL_MCTS_ITERATIONS = 1024
@@ -56,12 +56,14 @@ def advisor_result_status(report: dict | None) -> AdvisorOutcome:
         return "unavailable"
     if advisor.get("unavailable_reason") == "evaluation_failed":
         return "failed"
-    if advisor.get("source") in {None, "unavailable"} or advisor.get("unavailable_reason"):
+    if not usable_advisor_entry(advisor):
         return "unavailable"
     return "partial" if (report or {}).get("partial") else "complete"
 
 
-def retained_advisor_result(report: dict | None) -> bool:
+def retained_advisor_result(report: dict | None, *, retry: bool = False) -> bool:
+    if retry:
+        return advisor_result_status(report) == "complete"
     return bool(report and (not report.get("partial") or report.get("retired_partial")))
 
 
@@ -96,8 +98,11 @@ class AnalysisService:
         *,
         state=None,
         receipt: ReceiptLease | None = None,
+        retry: bool = False,
     ) -> tuple:
-        key, _ = self._schedule(game, snapshot, role, agent, settings, state=state, receipt=receipt)
+        key, _ = self._schedule(
+            game, snapshot, role, agent, settings, state=state, receipt=receipt, retry=retry
+        )
         return key
 
     def wait(
@@ -146,11 +151,11 @@ class AnalysisService:
         finally:
             self.synchronous_waiters.release()
 
-    def _completed(self, key: tuple) -> bool:
+    def _completed(self, key: tuple, *, retry: bool = False) -> bool:
         game_id, position_key, role, revision = key
         if role == "advisor":
             return retained_advisor_result(
-                self.store.advisor_analysis(game_id, position_key, revision)
+                self.store.advisor_analysis(game_id, position_key, revision), retry=retry
             )
         cached = self.store.game_analysis(game_id, position_key)
         return bool(cached and any(item["agent_id"] == role for item in cached["evaluations"]))
@@ -185,12 +190,13 @@ class AnalysisService:
         *,
         state=None,
         receipt: ReceiptLease | None = None,
+        retry: bool = False,
     ) -> tuple[tuple, Future[AdvisorOutcome | None] | None]:
         revision = settings["revision"] if role == "advisor" else None
         key = (game["id"], snapshot["position_key"], role, revision)
         requester = self.store.replay_requester(game) if role == "advisor" else None
         with self.lock:
-            if receipt is not None and revision is not None:
+            if (receipt is not None or retry) and revision is not None:
                 current = self.store.analytics(game["id"])
                 if (current["revision"] if current else 0) != revision:
                     raise SupersededAnalysis("The move advisor changed. Retry analysis.")
@@ -206,7 +212,7 @@ class AnalysisService:
                 return key, previous
             # A poll may have read its report just before the preceding worker
             # committed. Recheck under the scheduling lock before starting work.
-            if self._completed(key):
+            if self._completed(key, retry=retry or previous_running):
                 if (requester or receipt is not None) and revision is not None:
                     cached = self.store.advisor_analysis(
                         game["id"], snapshot["position_key"], revision
@@ -223,7 +229,7 @@ class AnalysisService:
                     with self.requester_lock:
                         # Completion may have committed after the cache read.
                         # Join its successful receipt rather than losing a late actor.
-                        if self._completed(key):
+                        if self._completed(key, retry=True):
                             cached = self.store.advisor_analysis(
                                 game["id"], snapshot["position_key"], settings["revision"]
                             )
@@ -256,7 +262,9 @@ class AnalysisService:
                 with self.requester_lock:
                     self.requesters[key] = {requester}
             try:
-                task = self.executor.submit(self._run, game, snapshot, role, agent, settings, state)
+                task = self.executor.submit(
+                    self._run, game, snapshot, role, agent, settings, state, retry=retry
+                )
             except Exception:
                 if token is not None and self.admission is not None:
                     self.admission.release_task(token)
@@ -283,7 +291,15 @@ class AnalysisService:
             self.admission.release_task(token)
 
     def _run(
-        self, game: dict, snapshot: dict, role: str, agent: dict, settings: dict, state=None
+        self,
+        game: dict,
+        snapshot: dict,
+        role: str,
+        agent: dict,
+        settings: dict,
+        state=None,
+        *,
+        retry: bool = False,
     ) -> AdvisorOutcome | None:
         revision = settings["revision"] if role == "advisor" else None
 
@@ -312,6 +328,7 @@ class AnalysisService:
                     entry,
                     advisor_revision=revision,
                     partial=True,
+                    retry=retry,
                     online=bool(game.get("online")),
                 )
 
@@ -329,6 +346,7 @@ class AnalysisService:
                     snapshot,
                     entry,
                     advisor_revision=revision,
+                    retry=retry,
                     online=bool(game.get("online")),
                     requester_ids=tuple(self.requesters.get(key, ())),
                 )
@@ -356,6 +374,7 @@ class AnalysisService:
                     snapshot,
                     entry,
                     advisor_revision=revision,
+                    retry=retry,
                     online=bool(game.get("online")),
                 )
                 return advisor_result_status(retained) if role == "advisor" else None
