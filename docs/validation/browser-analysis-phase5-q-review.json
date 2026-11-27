@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "reviewed_revision": "592296ff0767e1ba4c9d93225d24ca271c00e81f",
-  "code_revision": "a29d3ceb52f1e7e5d2fa424dc6669ebe13e9f1b0",
+  "code_revision": "c3ab885d97fa5677377afc7d3b08bb68e0173e85",
   "frontend_build": {
     "node": "22.12.0",
     "fingerprint": "7b2ba3b1780a6f1c4d260d88180f2da2a780edfa33f7be26cc7193633bd4a30b",
@@ -22,7 +22,7 @@
   "production_integration": {
     "passed": 32,
     "requests": {
-      "runtimeAssets": 311,
+      "runtimeAssets": 323,
       "modelArtifacts": 1,
       "fallbackAnalysisPosts": 1,
       "historicalReceiptPosts": 2,
@@ -30,17 +30,17 @@
       "retryProbeFallbackPosts": 2
     },
     "measurements": {
-      "jarlOnlineMs": 3232.89999999851,
-      "neuralOnlineMs": 3530.5,
-      "offlineJarlMs": 154.69999999925494,
-      "offlineNeuralMs": 90.09999999776483
+      "jarlOnlineMs": 3304.60000000149,
+      "neuralOnlineMs": 3059.400000002235,
+      "offlineJarlMs": 151.60000000149012,
+      "offlineNeuralMs": 91.59999999776483
     },
     "historical_fallback": {
       "injected_receipt_rejection": 503,
       "receipt_state": "completed",
       "analyzed_cursor": 3,
       "stored_cursor": 0,
-      "canonical_position_key": "85a1d1d62ae7f385439475bfb79eaf2474086b3414dc2fc09b3c463e341a096c",
+      "canonical_position_key": "88538f3cf8d87e65c717ead8d5659555fd6a06c15a1f2d35afba227787295398",
       "admitted_computations": 1
     },
     "retired_partial_retry": {
@@ -56,7 +56,7 @@
       "retry_outcome": "complete",
       "cursor": 3,
       "advisor_revision": 6,
-      "canonical_position_key": "85a1d1d62ae7f385439475bfb79eaf2474086b3414dc2fc09b3c463e341a096c",
+      "canonical_position_key": "88538f3cf8d87e65c717ead8d5659555fd6a06c15a1f2d35afba227787295398",
       "retry_admitted_computations": 1,
       "retirement_counters_after_retry": {
         "fallback_request": 4,
@@ -91,10 +91,10 @@
     "advisor_time_limit_seconds": 2.5
   },
   "receipt_benchmark": {
-    "create_ms": 6.986870997934602,
-    "status_poll_avg_ms": 3.20253291996778,
-    "result_poll_avg_ms": 2.808106360171223,
-    "completed_result_avg_ms": 7.887914499369799,
+    "create_ms": 7.429337998473784,
+    "status_poll_avg_ms": 2.875112099791295,
+    "result_poll_avg_ms": 3.159556740138214,
+    "completed_result_avg_ms": 3.918644920049701,
     "active_before": 0,
     "active_after": 0,
     "status_reads": 150,
@@ -105,15 +105,15 @@
   "context_benchmark": {
     "same_context_concurrent": {
       "requests": 8,
-      "latency_ms": 186.77599700095016,
+      "latency_ms": 135.02117499956512,
       "reconstructions": 1,
       "leftover_records": 0
     },
     "distinct_contexts": {
       "requests": 12,
-      "ok": 10,
-      "busy": 2,
-      "latency_ms": 366.9195220027177,
+      "ok": 11,
+      "busy": 1,
+      "latency_ms": 367.7217450021999,
       "cache_entries_before": 8,
       "cache_entries_after": 8
     },

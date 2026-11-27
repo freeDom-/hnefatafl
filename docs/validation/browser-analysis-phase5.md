@@ -620,7 +620,7 @@ independence and cancellation on session replacement. [Transport tests](../../fr
 ## Seventh-review corrections Q01–Q03
 
 The regressions reproduced on `592296ff0767e1ba4c9d93225d24ca271c00e81f`.
-The production probes used code revision `a29d3ceb52f1e7e5d2fa424dc6669ebe13e9f1b0`.
+The production probes used code revision `c3ab885d97fa5677377afc7d3b08bb68e0173e85`.
 [Measured evidence](browser-analysis-phase5-q-review.json) · [PR checks](https://github.com/freeDom-/hnefatafl/pull/129/checks)
 
 | Finding | Root cause | Correction and source | Reproduction and validation |
@@ -652,6 +652,12 @@ The read-only computer replay test now checks that a newly selected advisor
 with no retained evaluation is unavailable and shows no hint. Both viewport
 variants passed against the real API. [Replay test](../../frontend/tests/game.spec.ts)
 
+The full Python run also exposed a signed-out replay regression on malformed
+legacy entries. When a revision-zero read has no requested advisor, it passes
+the original evidence to the established public projection. The existing
+sanitization, no-write and retained-analysis tests passed with the fix.
+[Server](../../hnefatafl/server.py) · [Public replay tests](../../tests/test_public_online.py)
+
 The additional browser scenario uses a loopback FastAPI process and disposable
 storage. It interrupts the named fixture advisor once after publishing actual
 progress. The backend handles admission, storage, receipt reads and the
@@ -673,8 +679,8 @@ node scripts/verify_browser_analysis_integration.mjs --base-url http://127.0.0.1
 
 The local Node 22.12 initial JavaScript bundle measured **598,644 raw /
 190,505 gzip** bytes. The fallback observer and runtime remain deferred.
-The receipt benchmark recorded 6.99 ms for creation, 3.20 ms for
-status, 2.81 ms for a pending result and 7.89 ms for a completed result.
+The receipt benchmark recorded 7.43 ms for creation, 2.88 ms for
+status, 3.16 ms for a pending result and 3.92 ms for a completed result.
 Receipt reads caused zero context reconstructions. Eight concurrent reads of
 the same context shared one reconstruction. The preparation cap returned a
 structured 503 at capacity, and all build records were released during recovery.
