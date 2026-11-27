@@ -182,6 +182,7 @@ first require `hnefatafl-update --recover` after inspecting its journal.
 | `/etc/hnefatafl/deployment.json` | Root-only repository, port, HTTPS origin, retention and storage settings |
 | `/etc/hnefatafl/github.json` | Optional root-only read-only GitHub credential |
 | `/etc/hnefatafl/installed.json`, `transaction.json` | Installed release, expected rollback snapshot and durable application transaction |
+| `/etc/hnefatafl/.transaction-reserve` | Private 1 MiB reserve for publishing recovery metadata |
 | `/etc/hnefatafl/backup-migration.json` | Temporary recovery journal for relocation of legacy backups |
 | `/usr/local/lib/hnefatafl/active.json`, `generations/` | Root-owned active updater pointer and verified utility generations |
 | `/var/lib/hnefatafl/hnefatafl.sqlite3` | Games, accounts, sessions, stats source, players, jobs and tournaments |
@@ -839,6 +840,34 @@ persistent data remain for reviewed manual recovery. Ordinary rollback to `0.40.
 remains supported where schema/data-authority rules permit, as does rollback
 between corrected releases with tournament workers. The command exits nonzero with
 the journal and log locations; inspect them before any manual action.
+
+### Journal write failures
+
+An update publishes the shutdown and migration intent before proceeding. If a
+journal write fails before shutdown, the previous service stays running. If
+shutdown already happened and the journal still proves that migration and
+activation have not started, the updater can restart the previous service
+without replacing live data. The startup guard verifies the recorded release
+and data directory identities and the prior installed state. It authorizes the
+restart only while the updater holds a lock on that exact journal. A healthy
+previous service and still-pending recovery metadata are reported separately.
+
+Preflight budgets for transaction metadata, a 1 MiB reserve and the reserve's
+inode on the configuration filesystem. Updates and explicit rollbacks
+allocate the single root-owned mode-0600 reserve before stopping the service.
+If publishing recovery or commit metadata fails with ENOSPC or EDQUOT, the
+updater can release the reserve and retry the write once using the same atomic
+replacement and fsync sequence. A later update or explicit rollback replenishes
+the reserve after space is available.
+
+Once migration may have changed live data, a failed target service is stopped
+when possible. Recovery requires durable intent before any data-directory swap.
+If publication still fails, keep the journal, installed state, releases,
+snapshots and retained data in place. Free blocks and at least one inode on the
+filesystem reported in the error, resolve any quota, or repair filesystem I/O
+before running `hnefatafl-update --recover`. Respect the startup guard while
+authority is uncertain. Release and data capacity checks still apply when
+recovery resumes.
 
 ### Cross-schema automatic recovery is fail-closed
 

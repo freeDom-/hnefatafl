@@ -7,6 +7,7 @@ It does not import the repository copy for the restore itself.
 
 import json
 import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -119,7 +120,16 @@ def build_layout(tmp_path):
     return root, release, snapshot, database, installed, bin_directory
 
 
-def run_cli(installed, root, bin_directory, *arguments, interrupt=None, install_scenario=None):
+def run_cli(
+    installed,
+    root,
+    bin_directory,
+    *arguments,
+    interrupt=None,
+    install_scenario=None,
+    journal_fault=False,
+    through_command=False,
+):
     env = {
         **os.environ,
         "PATH": str(bin_directory) + ":/usr/bin:/bin",
@@ -130,11 +140,21 @@ def run_cli(installed, root, bin_directory, *arguments, interrupt=None, install_
     if install_scenario is not None:
         env["DISPOSABLE_INSTALL_SCENARIO"] = install_scenario
         env["DISPOSABLE_APPLICATION_SOURCE"] = str(REPO)
+    if journal_fault:
+        env["DISPOSABLE_JOURNAL_FULL"] = "1"
     bootstrap = """
-import json, os, runpy, signal, subprocess, sys
+import errno, json, os, runpy, signal, subprocess, sys
 from pathlib import Path
 root = Path(sys.argv[2])
 module = runpy.run_path(sys.argv[1])
+if os.getenv('DISPOSABLE_JOURNAL_FULL'):
+    namespace = module['Deployment'].record.__globals__
+    atomic_json = namespace['atomic_json']
+    def write(path, value):
+        if path == root/'etc/transaction.json':
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), path)
+        atomic_json(path, value)
+    namespace['atomic_json'] = write
 point = os.getenv('DISPOSABLE_UPDATER_INTERRUPTION')
 if point:
     deployment = module['Deployment']
@@ -206,16 +226,32 @@ raise SystemExit(module['main'](sys.argv[3:], layout={
     "lock": root / "update.lock", "updater_root": Path(sys.argv[1]).parent,
 }))
 """
-    return subprocess.run(
-        [
+    module_path = installed / "deployment.py"
+    if through_command:
+        runner = installed / "fixture-entry.py"
+        runner.write_text(bootstrap)
+        command = bin_directory / "hnefatafl-update"
+        # Relocate the installed wrapper only inside the disposable layout.
+        wrapper = (REPO / "scripts/linux/update.sh").read_text()
+        wrapper = wrapper.replace("/usr/bin/python3", shlex.quote(sys.executable)).replace(
+            "/usr/local/lib/hnefatafl/deployment.py",
+            shlex.join([str(runner), str(module_path), str(root)]),
+        )
+        command.write_text(wrapper)
+        command.chmod(0o700)
+        invocation = [str(command), *arguments]
+    else:
+        invocation = [
             sys.executable,
             "-I",
             "-c",
             bootstrap,
-            str(installed / "deployment.py"),
+            str(module_path),
             str(root),
             *arguments,
-        ],
+        ]
+    return subprocess.run(
+        invocation,
         capture_output=True,
         text=True,
         env=env,
@@ -244,6 +280,66 @@ def test_installed_cli_restores_sqlite_snapshot_without_source_checkout(tmp_path
     journal = json.loads((root / "etc/transaction.json").read_text())
     assert journal["phase"] == "recovered"
     assert journal["restore"] is None
+
+
+def test_installed_command_retries_recovery_after_journal_exhaustion_and_interruption(tmp_path):
+    root, release, snapshot, database, installed, bin_directory = build_layout(tmp_path)
+    install_service_shim(root, bin_directory)
+    (root / "running").unlink()
+    target = release.with_name("2.0.0-0002")
+    target.mkdir()
+    atomic_json(target / ".release.json", {"version": "2.0.0"})
+    journal_path = root / "etc/transaction.json"
+    journal = json.loads(journal_path.read_text())
+    state = (root / "etc/installed.json").read_bytes()
+    journal.update(previous=str(release), target=str(target), prior_state=json.loads(state))
+    atomic_json(journal_path, journal)
+    before = journal_path.read_bytes()
+    live = database.read_bytes()
+
+    def recover(**kwargs):
+        return run_cli(installed, root, bin_directory, "--recover", through_command=True, **kwargs)
+
+    blocked = recover(journal_fault=True)
+    assert blocked.returncode == 1 and "ENOSPC" in blocked.stderr
+    assert (
+        "Free blocks and an inode" in blocked.stderr and str(journal_path.parent) in blocked.stderr
+    )
+    assert journal_path.read_bytes() == before and database.read_bytes() == live
+    assert not (root / "actions").exists()
+    assert not list(root.glob(".retained-*"))
+    guard = run_cli(installed, root, bin_directory, install_scenario="guard")
+    assert guard.returncode == 1 and "startup is deferred" in guard.stderr
+
+    interrupted = recover(interrupt="old-data-renamed")
+    assert interrupted.returncode == -9, interrupted.stdout + interrupted.stderr
+    durable = journal_path.read_bytes()
+    (retained,) = root.glob(".retained-*")
+    assert (retained / database.name).read_bytes() == live
+    assert not database.exists()
+    blocked_again = recover(journal_fault=True)
+    assert blocked_again.returncode == 1 and "ENOSPC" in blocked_again.stderr
+    assert journal_path.read_bytes() == durable
+    assert (retained / database.name).read_bytes() == live
+    assert not database.exists()
+    assert not (root / "running").exists()
+
+    recovered = recover(interrupt="resume")
+    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    assert (root / "running").is_file()
+    assert (root / "opt/current").resolve() == release
+    assert (root / "etc/installed.json").read_bytes() == state
+    assert json.loads(journal_path.read_text())["phase"] == "recovered"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT value FROM persistent").fetchone() == ("at-snapshot",)
+        assert connection.execute("SELECT secret FROM accounts").fetchone() == (
+            "newer-password-hash",
+        )
+    assert snapshot.is_dir()
+    assert (retained / database.name).read_bytes() == live
+    repeated = recover()
+    assert repeated.returncode == 0 and "No interrupted deployment" in repeated.stdout
+    assert list(root.glob(".retained-*")) == [retained]
 
 
 def test_installed_cli_has_no_production_layout_override(tmp_path):

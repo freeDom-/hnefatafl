@@ -450,6 +450,7 @@ def test_privileged_legacy_cleanup_preview_matches_execution(privileged_deployme
 
 
 def verify_installed_startup_guard(deployment, release, root, uid, gid, native_systemd):
+    import fcntl
     import json
     import secrets
     import socket
@@ -510,8 +511,30 @@ raise SystemExit(launcher['launch'](root / 'update.lock'))
     deployment.record({**journal, "abi": 999})
     rejected = subprocess.run(guard_command, capture_output=True, text=True)
     assert rejected.returncode and "unsupported updater ABI" in rejected.stderr
-    deployment.record(journal)
+    unchanged = {
+        "abi": 3,
+        "operation": "update",
+        "phase": "snapshot",
+        "transaction": "3" * 32,
+        "snapshot_name": "20261126T050100-0002",
+        "snapshot_id": "4" * 32,
+        "previous": str(release),
+        "target": str(release.with_name("999.0.0-0002")),
+        "previous_data_identity": list(deployment.fs.identity_of(deployment.data)),
+        "previous_release_identity": list(deployment.fs.identity_of(release)),
+        "prior_state": json.loads(deployment.state.read_text()),
+        "service_stopped": True,
+        "migration_started": False,
+        "data_modified": False,
+    }
+    deployment.record(unchanged)
+    denied = subprocess.run(guard_command, capture_output=True, text=True)
+    assert denied.returncode and "startup is deferred" in denied.stderr
+    with deployment._open_unchanged_service_journal(unchanged) as descriptor:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        subprocess.run(guard_command, check=True)
     if not native_systemd:
+        deployment.record(journal)
         return
 
     unit = f"hnefatafl-review-fixture-{secrets.token_hex(6)}.service"
@@ -537,7 +560,9 @@ raise SystemExit(launcher['launch'](root / 'update.lock'))
         str(health_socket),
     ]
     try:
-        subprocess.run([*command[:1], f"--unit={unit}", *command[1:]], check=True)
+        with deployment._open_unchanged_service_journal(unchanged) as descriptor:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            subprocess.run([*command[:1], f"--unit={unit}", *command[1:]], check=True)
         for _ in range(100):
             try:
                 with socket.socket(socket.AF_UNIX) as client:

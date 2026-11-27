@@ -111,6 +111,9 @@ RELEASE_MARKER = ".release.json"
 SNAPSHOT_METADATA = "snapshot.json"
 GATE_NAME = ".deployment-gate"
 RESTORE_MARKER = ".restore.json"
+JOURNAL_RESERVE = ".transaction-reserve"
+JOURNAL_RESERVE_BYTES = MIB
+JOURNAL_HEADROOM_BYTES = 16 * MIB
 RESTORE_STAGING_DIRECTORY = re.compile(r"^\.restore-[0-9a-f]{8,32}$")
 RETAINED_DIRECTORY = re.compile(r"^\.retained-[0-9a-f]{8,32}$")
 TREE_OVERHEAD_PER_DIRECTORY = 4096
@@ -148,6 +151,10 @@ class DeploymentStepError(ValueError):
 
 class DeploymentError(ValueError):
     """Deliberate operator-facing deployment error with a safe message."""
+
+
+class JournalWriteError(DeploymentError):
+    """A transaction publication failed and still needs operator attention."""
 
 
 class StorageError(DeploymentError):
@@ -1439,7 +1446,102 @@ class Deployment:
         self.run(["systemctl", action, "hnefatafl.service"])
 
     def record(self, value):
-        atomic_json(self.journal, value)
+        phase = value["phase"]
+        self._publish_transaction_metadata(
+            self.journal,
+            value,
+            phase=phase,
+            use_reserve=value.get("operation") in {"automatic-recovery", "rollback"}
+            or phase in {"committing", "committed", "recovered"},
+        )
+
+    def _journal_storage_requirement(self) -> StorageRequirement:
+        try:
+            reserved = (self.etc / JOURNAL_RESERVE).lstat()
+        except FileNotFoundError:
+            reserved = None
+        allocated = min(reserved.st_blocks * 512, JOURNAL_RESERVE_BYTES) if reserved else 0
+        return StorageRequirement(
+            self.etc,
+            JOURNAL_HEADROOM_BYTES + JOURNAL_RESERVE_BYTES - allocated,
+            "transaction journal and recovery reserve",
+            64 + int(reserved is None),
+        )
+
+    def _reserve_journal_space(self, *, reclaim: bool = False) -> bool:
+        root = self.fs.validate_root(
+            self.etc, owner=self.privileged_uid, description="configuration directory"
+        )
+        with self.fs.open_directory(root) as directory:
+            flags = os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+            try:
+                fd = os.open(
+                    JOURNAL_RESERVE,
+                    flags | (os.O_RDONLY if reclaim else os.O_WRONLY | os.O_CREAT),
+                    0o600,
+                    dir_fd=directory,
+                )
+            except FileNotFoundError:
+                if reclaim:
+                    return False
+                raise
+            with os.fdopen(fd, "rb" if reclaim else "wb") as handle:
+                info = os.fstat(fd)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_dev != root.device
+                    or info.st_uid != self.privileged_uid
+                    or info.st_nlink != 1
+                    or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_size > JOURNAL_RESERVE_BYTES
+                ):
+                    raise DeploymentError(f"Unsafe journal reserve at {self.etc / JOURNAL_RESERVE}")
+                if reclaim:
+                    os.unlink(JOURNAL_RESERVE, dir_fd=directory)
+                else:
+                    if (
+                        info.st_size < JOURNAL_RESERVE_BYTES
+                        or info.st_blocks * 512 < JOURNAL_RESERVE_BYTES
+                    ):
+                        # Write real blocks on sparse- and compression-capable filesystems.
+                        handle.write(os.urandom(JOURNAL_RESERVE_BYTES))
+                        handle.flush()
+                    os.fsync(fd)
+            os.fsync(directory)
+        return True
+
+    def _publish_transaction_metadata(self, path, value, *, phase, use_reserve):
+        def publish():
+            if value is None:
+                path.unlink(missing_ok=True)
+                sync_directory(path.parent)
+            else:
+                atomic_json(path, value)
+
+        try:
+            publish()
+        except OSError as error:
+            detail = describe_exception(error)
+            if use_reserve and error.errno in {errno.ENOSPC, errno.EDQUOT}:
+                try:
+                    if self._reserve_journal_space(reclaim=True):
+                        publish()
+                        return
+                except (OSError, DeploymentError) as retry:
+                    detail += (
+                        f". Using the recovery reserve also failed: {describe_exception(retry)}"
+                    )
+            if error.errno in {errno.ENOSPC, errno.EDQUOT}:
+                action = (
+                    f"Free blocks and an inode on the filesystem holding {path.parent} "
+                    "or resolve its quota"
+                )
+            else:
+                action = f"Restore reliable write access to the filesystem holding {path.parent}"
+            raise JournalWriteError(
+                f"Could not durably publish {path} for phase {phase}: {detail}. "
+                f"{action} if recovery is pending, then run hnefatafl-update --recover."
+            ) from error
 
     # ------------------------------------------------------------------
     # Managed directories and metadata validation
@@ -2667,6 +2769,12 @@ class Deployment:
         for flag in ("service_stopped", "migration_started", "data_modified"):
             if flag in journal and not isinstance(journal[flag], bool):
                 return False, f"transaction {flag} is not a boolean"
+        identities = ("previous_data_identity", "previous_release_identity")
+        if any(key in journal for key in identities) and (
+            operation not in {"update", "automatic-recovery"}
+            or not all(valid_identity(journal.get(key)) for key in identities)
+        ):
+            return False, "transaction has invalid previous release or data identities"
         for key in ("prior_state", "rollback_state"):
             if journal.get(key) is not None:
                 valid, reason = self.validate_state_metadata(journal[key])
@@ -3053,7 +3161,7 @@ json.dump(rows, sys.stdout)
         """Estimate a snapshot using exactly the snapshot inclusion rules."""
         excluded = self._snapshot_excluded()
         data_usage = data_usage if data_usage is not None else scan_usage(self.data, excluded)
-        config_usage = self._usage(self.etc)
+        config_usage = scan_usage(self.etc, {JOURNAL_RESERVE})
         unit = self.filesystem_info(self.backups).allocation_unit
         database_bytes, database_inodes = database or self._database_size(allocation_unit=unit)
         manifest_bytes = max(MIB, (data_usage.inodes + config_usage.inodes + 32) * 512)
@@ -3182,7 +3290,7 @@ json.dump(rows, sys.stdout)
             ),
             recovery,
             StorageRequirement(self.base, 16 * MIB, "release activation metadata", 32),
-            StorageRequirement(self.etc, 16 * MIB, "transaction journal", 64),
+            self._journal_storage_requirement(),
         ]
 
     def _restore_allocation(
@@ -3645,6 +3753,9 @@ json.dump(rows, sys.stdout)
             key = self._path_key(journal.get("backup"))
             if key:
                 backups[key] = "unfinished transaction snapshot"
+            name = journal.get("snapshot_name")
+            if isinstance(name, str) and BACKUP_DIRECTORY.fullmatch(name):
+                backups.setdefault(self.backups / name, "planned unfinished transaction snapshot")
             prior = journal.get("prior_state")
             if isinstance(prior, dict):
                 for field_name in ("target", "previous"):
@@ -6080,7 +6191,7 @@ for name, validate in (
             config = self.fs.validate_root(
                 self.etc, owner=self.privileged_uid, description="configuration directory"
             )
-            self._copy_snapshot_tree(config, backup / "config", frozenset())
+            self._copy_snapshot_tree(config, backup / "config", {JOURNAL_RESERVE})
             database_schema = self._snapshot_database(backup)
             association = self._snapshot_association(transaction, database_schema)
             atomic_json(backup / SNAPSHOT_METADATA, association)
@@ -6673,7 +6784,7 @@ for name, validate in (
             transaction["service_recovery_error"] = describe_exception(error)
             try:
                 self.record(transaction)
-            except (OSError, InterruptedError, KeyboardInterrupt):
+            except (OSError, JournalWriteError, KeyboardInterrupt):
                 pass
             return error
         return None
@@ -7127,6 +7238,55 @@ for name, validate in (
             atomic_bytes(path, content, 0o644)
         self.run(["systemctl", "daemon-reload"])
 
+    def _unchanged_previous_release(self, journal: dict, root: RootIdentity) -> Path | None:
+        if (
+            "previous_data_identity" not in journal
+            or journal["phase"] not in {"prepared", "snapshot", "recovering"}
+            or journal["migration_started"]
+            or journal["data_modified"]
+            or journal.get("restore") is not None
+        ):
+            return None
+        installed = self._installed_metadata()
+        previous = self._require_active_state(installed)
+        if (
+            installed is None
+            or installed != journal.get("prior_state")
+            or previous is None
+            or str(previous) != journal.get("previous")
+            or (root.device, root.inode) != tuple(journal["previous_data_identity"])
+            or self.fs.identity_of(previous) != tuple(journal["previous_release_identity"])
+        ):
+            raise DeploymentError(
+                "Cannot prove the previous release and live data are unchanged. "
+                f"Inspect {self.journal}, {self.state}, and {self.data} before restarting."
+            )
+        return previous
+
+    @contextmanager
+    def _open_unchanged_service_journal(self, journal: dict):
+        root = self.fs.validate_root(
+            self.etc, owner=self.privileged_uid, description="configuration directory"
+        )
+        with self.fs.open_directory(root) as directory:
+            fd = os.open(
+                self.journal.name,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                dir_fd=directory,
+            )
+            with os.fdopen(fd, encoding="utf-8") as handle:
+                info = os.fstat(fd)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != self.privileged_uid
+                    or info.st_nlink != 1
+                    or info.st_mode & 0o077
+                    or json.load(handle, object_pairs_hook=unique_metadata_fields) != journal
+                    or file_identity(info) != self.fs.identity_of(self.journal)
+                ):
+                    raise DeploymentError("The deployment journal changed during service recovery")
+                yield fd
+
     def _authorize_service_start(self) -> None:
         root = self._data_directory(self.data)
         journal, valid, reason = self._load_metadata(self.journal, "transaction journal")
@@ -7147,6 +7307,15 @@ for name, validate in (
                 and journal["phase"] in {"activated", "committing"}
                 else journal.get("service_target")
             )
+            if current is not None and str(current) != allowed:
+                if self._unchanged_previous_release(journal, root) == current:
+                    with self._open_unchanged_service_journal(journal) as descriptor:
+                        try:
+                            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            # Only the updater's scoped restart of the proven
+                            # previous service holds this lock.
+                            allowed = str(current)
             if current is None or str(current) != allowed:
                 raise DeploymentError(
                     "Service startup is deferred until the interrupted deployment is recovered"
@@ -7976,6 +8145,7 @@ for name, validate in (
 
     def deploy(self, target: Path, *, initialize=False):
         self._deployment_transaction_started = False
+        self._deployment_recovery_completed = False
         try:
             self._require_idle_transaction("start deployment")
             self.ensure_layout()
@@ -7990,10 +8160,8 @@ for name, validate in (
         except BaseException:
             if not getattr(self, "_deployment_transaction_started", False):
                 self._cleanup_refused_deployment(target)
-            else:
-                transaction, valid, _ = self._load_metadata(self.journal, "transaction journal")
-                if valid and transaction and transaction.get("phase") == "recovered":
-                    self._post_operation_cleanup("deployment recovery")
+            elif self._deployment_recovery_completed:
+                self._post_operation_cleanup("deployment recovery")
             raise
         self._post_operation_cleanup("deployment")
 
@@ -8110,24 +8278,22 @@ for name, validate in (
             "data_modified": False,
             "restore": None,
         }
+        if old is not None and old_state is not None:
+            root = self._data_directory(self.data)
+            transaction["previous_data_identity"] = [root.device, root.inode]
+            transaction["previous_release_identity"] = list(self.fs.identity_of(old))
         self._snapshot_association(transaction, None)
+        self._reserve_journal_space()
         self.record(transaction)
         self._deployment_transaction_started = True
+        migration_entered = False
         deployment_step = "stopping current service"
         try:
             if old or self.unit_file.exists():
                 self.service("stop")
                 transaction["service_stopped"] = True
+                deployment_step = "recording service shutdown"
                 self.record(transaction)
-        except BaseException as error:
-            if isinstance(error, (KeyboardInterrupt, SystemExit)):
-                raise
-            raise DeploymentStepError(
-                f"Deployment failed during {deployment_step}: "
-                f"{self._safe_failure_detail(error)}. The service may still be running; "
-                f"inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
-            ) from error
-        try:
             deployment_step = "post-stop activity check"
             if self._active_jobs():
                 raise DeploymentError(
@@ -8159,6 +8325,7 @@ for name, validate in (
             transaction["phase"] = "migrating"
             transaction["migration_started"] = True
             self.record(transaction)
+            migration_entered = True
             self.run(
                 [
                     target / ".venv/bin/python",
@@ -8219,66 +8386,64 @@ for name, validate in (
                 raise DeploymentStepError(
                     f"Could not finish publishing the installed state: {describe_exception(error)}. Run hnefatafl-update --recover."
                 ) from error
-            recovery_step = "recording automatic recovery intent"
+            recovery_step = "previous service recovery before migration"
             self._diagnostic_recovery_target = self.release_version(old) if old else "none"
             self._diagnostic_failure_phase = f"{deployment_step}; automatic recovery"
-            recovery_step = "stopping failed target service"
-            legacy_phase = transaction.get("phase")
-            needs_restore = bool(
-                transaction.get("migration_started")
-                or (
-                    transaction.get("migration_started") is None
-                    and legacy_phase in {"migrating", "activated"}
-                )
-            ) and bool(transaction.get("backup"))
+            needs_restore = migration_entered
+            transaction["migration_started"] = migration_entered
             try:
-                transaction["operation"] = "automatic-recovery"
-                transaction["phase"] = "recovering"
-                self.record(transaction)
-                if old or self.unit_file.exists():
-                    self.service("stop")
-                transaction["service_stopped"] = True
-                self.record(transaction)
-                recovery_step = "unsupported rollback policy check"
-                if old:
-                    self._ensure_rollback_target_supported(old, action="automatic recovery")
-                recovery_step = "snapshot compatibility preflight"
-                if needs_restore:
-                    self.verify_snapshot_usable(
-                        Path(str(transaction["backup"])),
-                        target=old,
-                        expected=transaction.get("backup_association"),
-                        service_state="stopped",
-                        recovery_journal=transaction,
-                    )
-                recovery_step = "snapshot restoration"
-                if needs_restore:
-                    self.restore(Path(str(transaction["backup"])), journal=transaction)
-                if old:
-                    recovery_step = "previous release activation"
-                    self.activate(old)
-                    self._install_release_unit(old)
-                    self.run(["systemctl", "daemon-reload"])
-                    recovery_step = "previous release service startup"
-                    transaction["service_target"] = str(old)
+                if needs_restore or not self._restore_unchanged_service(
+                    transaction, action="automatic recovery", start=True
+                ):
+                    # A failed target can be stopped even when no new durable
+                    # journal entry is possible. Restore waits for publication.
+                    recovery_step = "stopping failed target service"
+                    if old or self.unit_file.exists():
+                        self.service("stop")
+                    recovery_step = "recording automatic recovery intent"
+                    transaction["operation"] = "automatic-recovery"
+                    transaction["phase"] = "recovering"
+                    transaction["service_stopped"] = True
                     self.record(transaction)
-                    self.service("start")
-                    recovery_step = "previous release readiness verification"
-                    self._diagnostic_failure_phase = (
-                        "readiness verification during automatic recovery"
+                    recovery_step = "unsupported rollback policy check"
+                    if old:
+                        self._ensure_rollback_target_supported(old, action="automatic recovery")
+                    if needs_restore:
+                        recovery_step = "snapshot compatibility preflight"
+                        self.verify_snapshot_usable(
+                            Path(transaction["backup"]),
+                            target=old,
+                            expected=transaction.get("backup_association"),
+                            service_state="stopped",
+                            recovery_journal=transaction,
+                        )
+                        recovery_step = "snapshot restoration"
+                        self.restore(Path(transaction["backup"]), journal=transaction)
+                    if old:
+                        recovery_step = "previous release activation"
+                        self.activate(old)
+                        self._install_release_unit(old)
+                        self.run(["systemctl", "daemon-reload"])
+                        recovery_step = "previous release service startup"
+                        transaction["service_target"] = str(old)
+                        self.record(transaction)
+                        self.service("start")
+                        recovery_step = "previous release readiness verification"
+                        self._diagnostic_failure_phase = (
+                            "readiness verification during automatic recovery"
+                        )
+                        self._recovery_probe()
+                    elif self.current.is_symlink():
+                        recovery_step = "release symlink cleanup"
+                        self.current.unlink()
+                        sync_directory(self.base)
+                    recovery_step = "installed state restoration"
+                    self._finish_transaction(
+                        transaction,
+                        old_state
+                        if old_state is not None or old is None
+                        else self._recovered_release_state(old),
                     )
-                    self._recovery_probe()
-                elif self.current.is_symlink():
-                    recovery_step = "release symlink cleanup"
-                    self.current.unlink()
-                    sync_directory(self.base)
-                recovery_step = "installed state restoration"
-                self._finish_transaction(
-                    transaction,
-                    old_state
-                    if old_state is not None or old is None
-                    else self._recovered_release_state(old),
-                )
             except BaseException as recovery_error:
                 if isinstance(error, ReadinessError):
                     detail = self._safe_failure_detail(recovery_error)
@@ -8294,6 +8459,7 @@ for name, validate in (
                     f"automatic recovery failed during {recovery_step}. {detail}. "
                     f"Inspect {self.journal} and journalctl -u hnefatafl -n 200 --no-pager."
                 ) from recovery_error
+            self._deployment_recovery_completed = True
             if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise
             context = (
@@ -8460,11 +8626,9 @@ for name, validate in (
 
     def _publish_transaction_state(self, transaction: dict) -> None:
         state = transaction["commit_state"]
-        if state is None:
-            self.state.unlink(missing_ok=True)
-            sync_directory(self.etc)
-        else:
-            atomic_json(self.state, state)
+        self._publish_transaction_metadata(
+            self.state, state, phase=transaction["phase"], use_reserve=True
+        )
         transaction["phase"] = (
             "committed" if transaction["operation"] in {"install", "update"} else "recovered"
         )
@@ -8497,6 +8661,47 @@ for name, validate in (
             self._recovery_probe()
         self._publish_transaction_state(transaction)
 
+    def _restore_unchanged_service(self, transaction: dict, *, action: str, start=False) -> bool:
+        if "previous_data_identity" not in transaction:
+            return False
+        durable, valid, reason = self._load_metadata(self.journal, "transaction journal")
+        if valid and durable is not None:
+            valid, reason = self.validate_transaction_metadata(durable)
+        if not valid or durable is None or durable.get("transaction") != transaction["transaction"]:
+            raise DeploymentError(
+                f"Cannot verify the durable transaction at {self.journal} for service recovery. "
+                f"{reason} Inspect the journal before restarting."
+            )
+        previous = self._unchanged_previous_release(durable, self._data_directory(self.data))
+        if previous is None:
+            return False
+        self._ensure_rollback_target_supported(previous, action=action)
+        self._require_complete_release(previous)
+        # File locking needs no free blocks. The startup guard checks the
+        # protected journal and both identities before honoring this lock.
+        with self._open_unchanged_service_journal(durable) as descriptor:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if start or not self._service_is_active():
+                self.service("start")
+            self._recovery_probe()
+        try:
+            self.record(
+                {
+                    **transaction,
+                    "operation": "automatic-recovery",
+                    "phase": "recovered",
+                    "service_target": str(previous),
+                    "migration_started": False,
+                    "prior_state": None,
+                }
+            )
+        except (OSError, JournalWriteError) as error:
+            raise DeploymentStepError(
+                "The previous service is running and verified on unchanged data. "
+                "Recovery metadata remains incomplete. " + describe_exception(error)
+            ) from error
+        return True
+
     def _prepare_explicit_rollback(self) -> dict:
         self._require_idle_transaction("start a new rollback")
         installed = self._installed_metadata()
@@ -8517,6 +8722,11 @@ for name, validate in (
             backup, target=previous, expected=installed.get("backup_association")
         ):
             print(f"Recovery note: {warning}")
+        self.check_storage(
+            [self.restore_requirement(backup), self._journal_storage_requirement()],
+            phase="rollback metadata and restore",
+            service_state="unchanged",
+        )
         return {
             "operation": "rollback",
             "transaction": secrets.token_hex(16),
@@ -8559,6 +8769,9 @@ for name, validate in (
             transaction = journal
             phase = transaction["phase"]
             if phase in {"committed", "recovered"}:
+                # A prior attempt may have reached rename but failed to sync
+                # the journal directory. Confirm durability before cleanup.
+                sync_directory(self.etc)
                 if transaction.get("restore"):
                     self._require_active_state(self._installed_metadata())
                     self.finalize_restore(transaction)
@@ -8624,6 +8837,10 @@ for name, validate in (
                     print(f"Recovery note: {warning}")
         if not initial and self._active_jobs():
             raise DeploymentError("Finish/cancel training and tournaments before recovery")
+        if not needs_restore and self._restore_unchanged_service(
+            transaction, action="interrupted recovery"
+        ):
+            return True
         if transaction.get("operation") == "rollback":
             assert previous is not None and backup is not None
             if "rollback_state" not in transaction:
@@ -8654,9 +8871,12 @@ for name, validate in (
                 "service_target": None,
             }
         )
-        self.record(transaction)
-        step = "checking current service"
+        step = "recording recovery intent"
         try:
+            if rollback:
+                self._reserve_journal_space()
+            self.record(transaction)
+            step = "checking current service"
             current = self.current.resolve() if self.current.is_symlink() else None
             already_healthy = (
                 current is not None
