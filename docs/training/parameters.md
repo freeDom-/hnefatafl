@@ -140,3 +140,36 @@ throughput or strength. See [performance](../evaluation/methodology.md).
   limit. Reduce dimensions instead of bypassing validation.
 - `mixed_precision` is not bit-exact. Parallel search processes and GPU reductions
   can produce small numerical differences even with a fixed seed.
+
+## Agent search settings
+
+These are game/AI search fields, not training-job hyperparameters. They apply to
+custom opponents, advisors, CLI/headless calls and tournament seats. The core
+Python/headless bounds differ from the API/UI validation bounds.
+
+| Field | Core/headless | Game/tournament API | Game UI |
+| --- | --- | --- | --- |
+| `depth` (alpha-beta) | 1–8 | 1–5 | 1–5 |
+| `iterations` (MCTS) | 1–100,000 | 1–5,000 | 1–5,000 |
+| `rollout_depth` | 0–128 | 0–50 | Not exposed |
+| `time_limit` | >0–300 s | 0.01–15 s | 0.05–15 s |
+| `exploration` | 0–20 | 0–10 | 0–10 |
+| `temperature` | 0–10 | 0–5 | 0–2 |
+
+Without `profile_id`, core defaults are alpha-beta depth 2, MCTS 80 simulations,
+rollout depth 8, exploration 1.4, temperature 0 and a 10-second ceiling; non-MCTS
+strategies keep the historical 2-second default. The fixed Seer preset caps at 5,000
+simulations/2 seconds. Training plans use their own board-specific MCTS budgets.
+Named game presets are fixed in normal setup; **Custom opponent** exposes overrides
+to administrators.
+
+Zero temperature selects the most visited root action (or highest policy-only
+probability); positive temperature samples. Invalid algorithms, budgets, terminal
+states or incompatible/missing models raise errors. A time limit bounds the search
+loop, not request latency; an in-progress expansion or network call may overrun.
+
+For reproducible comparisons, use fixed seeds and a budget that completes. Browser
+games get a fresh random base seed; the server derives each decision from
+`(base + ply) % 2**32`. An explicit API game can supply a top-level `seed`; old
+games retain their original behavior. See [agent evaluation](../evaluation/agents.md)
+and [algorithms](algorithms.md).

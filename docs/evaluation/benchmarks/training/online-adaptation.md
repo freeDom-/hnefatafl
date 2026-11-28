@@ -61,5 +61,5 @@ The effective-rate trajectories confirm each strategy acts:
   reported as the sum of both phases.
 * A meaningful comparison needs multiple seeds, a much larger budget and a
   strength metric. The runnable instructions are in
-  [the design record](../../../training/online-adaptation.md#reproducible-benchmark-instructions);
+  [the design record](../../../training/online-adaptation.md);
   multi-seed and held-out strength experiments are **not executed**.

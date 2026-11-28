@@ -157,7 +157,7 @@ GHSA-fc5q-39xc-vjpf was withdrawn by GitHub on 2026-11-18
 patch: no dependency version, override, fork or lockfile entry changed, and no
 patched picomatch release was required. The historical owner approval on PR #95
 and its development-only exposure analysis remain preserved in the
-[test-toolchain security record](../development/security-advisory.md#withdrawal-and-empty-exception-state-2026-11-18);
+[test-toolchain security record](../releases/security-advisory-2026-11-18.md#withdrawal-and-empty-exception-state-2026-11-18);
 they are not a current exception.
 
 - PR #100 (merged `2ffa951`) removed the unused temporary risk acceptance and

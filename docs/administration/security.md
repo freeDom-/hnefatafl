@@ -80,7 +80,7 @@ actions and are digest-validated. See
 CI runs a moderate-or-higher npm audit. The committed
 [`dependency-audit-exceptions.json`](../../frontend/security/dependency-audit-exceptions.json)
 currently has no active exceptions. The historical withdrawal record is in
-[the security advisory](../development/security-advisory.md). A new exception needs
+[the security advisory](../releases/security-advisory-2026-11-18.md). A new exception needs
 review, a repository-hosted approval reference and an expiry; never add a blanket
 ignore list or suppress findings.
 

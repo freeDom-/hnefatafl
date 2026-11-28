@@ -1,6 +1,6 @@
 # Replay and position analysis
 
-[Game index](README.md) · [Hall of records](dashboard.md#hall-of-records) · [Analysis internals](../development/analysis.md)
+[Game index](README.md) · [Hall of records](interface/records.md#hall-of-records) · [Analysis internals](../development/analysis.md)
 
 ## Replay
 

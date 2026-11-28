@@ -1,6 +1,6 @@
 # AI comparison tournaments
 
-[Evaluation index](README.md) · [AI Testing UI](../game/interface/workshop.md#ai-testing) · [AI Testing authority](../development/ai-testing.md) · [Agents](agents.md)
+[Evaluation index](README.md) · [AI Testing UI](../training/interface.md#ai-testing) · [AI Testing authority](../development/ai-testing.md) · [Agents](agents.md)
 
 AI Testing (`/tournaments`) saves reproducible comparisons between computer
 opponents. It is an evaluation tool, not a player competition and never affects
@@ -47,4 +47,4 @@ its data are separate actions; deletion protects live references.
 - CPU/GPU and smoke/competitive-model results are not interchangeable.
 - The complete API, persistence and worker semantics are in
   [AI Testing authority](../development/ai-testing.md). UI operation is in
-  [AI Testing](../game/interface/workshop.md#ai-testing).
+  [AI Testing](../training/interface.md#ai-testing).

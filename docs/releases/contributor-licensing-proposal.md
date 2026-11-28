@@ -1,7 +1,7 @@
 # Contributor licensing proposal
 
 [Licensing](../LICENSING.md) · [Contributing](../../CONTRIBUTING.md) ·
-[Development](./setup.md)
+[Development](../development/setup.md)
 
 **Status: deferred proposal only. No CLA is active, and no repository enforcement
 setting has been changed.** The maintainer does not currently intend to

@@ -37,3 +37,12 @@ Single-player games and completed online records can store analysis preferences,
 agent reports and receipts. Live online games do not accept analysis computation.
 Analysis reports retain their effective configuration, model identity, seed and
 diagnostics. See [analysis authority](analysis.md).
+
+## Adding an agent
+
+Extend the AI profile catalog and `choose_move` resolution together, then add
+validation/tests for the new algorithm or wrapper. Presets are resolved server-side;
+browser clients must not supply arbitrary code or filesystem paths. Keep a legal
+fallback for deadline/cancellation and preserve the configured seed/effective
+settings in saved games/analysis. Search bounds are canonical in
+[agent search parameters](../training/parameters.md#agent-search-settings).

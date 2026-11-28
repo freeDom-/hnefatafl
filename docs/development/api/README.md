@@ -1,197 +1,259 @@
 # API reference
 
-[Development index](../README.md) · [Architecture](../architecture.md) · [Security implementation](../security.md) · [OpenAPI endpoint](http://127.0.0.1:8000/openapi.json) · [Permission inventory](../../API_PERMISSIONS.json)
+[Development index](../README.md) · [Architecture](../architecture.md) · [Security](../security.md) · [OpenAPI endpoint](http://127.0.0.1:8000/openapi.json) · [Permission inventory](../../API_PERMISSIONS.json)
 
-The running server exposes the exhaustive schema at `/openapi.json` and an
-interactive reference at `/docs`. This page documents the boundaries, lifecycle
-and cross-endpoint semantics that generated schema cannot express. Endpoint paths
-below are a navigation aid; OpenAPI is authoritative for fields and status codes.
+The running server exposes the exhaustive schema at `/openapi.json` and interactive
+reference at `/docs`. This page documents boundaries, lifecycle and cross-endpoint
+semantics. The path tables below are a concise navigation aid; generated OpenAPI and
+`docs/API_PERMISSIONS.json` are authoritative.
 
 ## Authentication and authorization
 
-- Browser sessions use HttpOnly cookies. Every unsafe browser request requires the
-  session CSRF token and an allowed `Origin`; worker requests use a bearer token.
-- `docs/API_PERMISSIONS.json` is generated from the registered route table and
-  checked by `tests/test_security.py`. It records each method/path's permission:
+- Browser sessions use HttpOnly cookies. Unsafe requests require the session CSRF
+  token and an allowed `Origin`. Worker requests use a worker-scoped bearer token.
+- `docs/API_PERMISSIONS.json` records every method/path and its permission:
   `public`, `session`, `accounts`, `profile`, `play`, `training`, `models`,
-  `tournaments` or `worker`.
-- Object ownership is checked in addition to route permission. A game, job, model,
-  worker or tournament is resolved through an owned ID; client filesystem paths are
-  never trusted.
-- `accounts` is the administrator permission (`all_data` / account management);
-  `play` is the normal authenticated player permission. Hiding a UI control is not
-  authorization.
-- Login, registration, verification, password reset and public spectator reads are
-  public. Public routes expose only an allowlisted read-only projection.
-
-See [security implementation](../security.md) and
-[security administration](../../administration/security.md).
+  `tournaments` or `worker`. `tests/test_security.py` checks the real route table.
+- Route permission is not sufficient: games, jobs, models, workers, tournaments and
+  analyses are resolved through owned IDs. Client filesystem/asset paths are never
+  trusted. `accounts` is the administrator permission; `play` is normal authenticated
+  play. UI visibility is not authorization.
+- Public routes expose only an allowlisted read-only projection. `/api/profile`
+  returns the owner's private profile fields to that authenticated account; public
+  leaderboard/online/history projections omit private birth dates, email and settings.
 
 ## Conventions
 
 | Topic | Contract |
 | --- | --- |
-| Versions | Game and tournament mutations carry the expected `version`; stale writes fail rather than overwrite newer state |
-| Idempotency | Online creation/join, league queue operations, worker claims and result finalization use request IDs, leases or unique constraints where retries are expected |
-| Pagination | List endpoints use bounded `limit` plus opaque `next_cursor`; offset paging is used only where explicitly documented |
-| Errors | Structured JSON with a stable `code` where clients branch on it; validation errors name the offending field |
-| Time | Server-owned UTC timestamps and deadlines; clients render in local time |
-| Deletion | Version-guarded where required; model/job/tournament references are checked before deletion |
-| Compatibility | Database schema, checkpoint/tensor format and archive schema are versioned; incompatible data is rejected, not guessed |
+| Versions | Game/tournament mutations carry expected `version`; stale writes fail |
+| Idempotency | Online creation/join, league queue, worker claims and result finalization use request IDs, leases or unique constraints where retries are expected |
+| Pagination | Bounded `limit` + opaque `next_cursor`; offset paging only where documented |
+| Errors | Structured JSON with stable `code` where clients branch; validation names the field |
+| Time | Server-owned UTC deadlines/timestamps; clients render local time |
+| Deletion | Version-guarded where required; model/job/tournament references checked |
+| Compatibility | Database, checkpoint/tensor and job-archive formats are versioned; incompatible data is rejected, not guessed |
 
 ## Accounts, profiles and security
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| GET | `/api/health` | Public service readiness |
 | GET | `/api/auth/registration` | Registration/mail availability |
-| POST | `/api/auth/register`, `/api/auth/verify-email`, `/api/auth/verification/resend` | Registration and verification |
-| POST | `/api/auth/login`, `/api/auth/logout` | Session lifecycle |
-| GET | `/api/auth/me` | Current account, permissions and CSRF token |
-| POST | `/api/auth/password-reset/request`, `/api/auth/password-reset/confirm` | Password recovery |
-| GET/PATCH | `/api/profile` | Profile fields and publication choices |
-| POST | `/api/profile/password` | Password change with current password |
-| PATCH | `/api/profile/portrait` | Select an earned portrait |
-| GET | `/api/portraits/catalog`, POST `/api/portraits/unlock` | Catalog and manual claim |
+| POST | `/api/auth/register` | Create account |
+| POST | `/api/auth/verify-email` | Consume verification token |
+| POST | `/api/auth/verification/resend` | Resend newest verification link |
+| POST | `/api/auth/login` | Create browser session |
+| POST | `/api/auth/logout` | Revoke browser session |
+| GET | `/api/auth/me` | Current account, permissions, CSRF token |
+| POST | `/api/auth/password-reset/request` | Request reset mail |
+| POST | `/api/auth/password-reset/confirm` | Consume reset token and set password |
+| GET | `/api/profile` | Owner's profile (including private fields) |
+| PATCH | `/api/profile` | Update optional/publication fields |
+| POST | `/api/profile/password` | Change password with current password |
+| PATCH | `/api/profile/portrait` | Equip an unlocked portrait |
+| GET | `/api/portraits/catalog` | Portrait/achievement catalog |
+| POST | `/api/portraits/unlock` | Unlock an achievement-eligible portrait |
 
-Email verification and reset tokens are single-use. Only the newest link works;
-consumption and account mutation are transactional. Profile publication is opt-in
-per optional field; private birth dates are never returned, and a public age is
-derived only when the owner allows it. See [account implementation](../accounts.md).
+Verification/reset tokens are single-use, expiring and stored hashed; consumption and
+the account mutation are one transaction. Public projections never include email,
+full birth dates or private settings. See [account implementation](../accounts.md).
 
 ## Games, replay and analysis
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET/POST | `/api/games` | List/create account single-player games |
-| POST | `/api/games/local` | Create an owner-scoped two-human local game |
-| GET/DELETE | `/api/games/{game_id}` | Read or version-guarded delete |
+| GET | `/api/games` | List account single-player games |
+| POST | `/api/games` | Create a single-player game |
+| POST | `/api/games/local` | Create owner-scoped local 1v1 |
+| GET | `/api/games/{game_id}` | Read authoritative game |
+| DELETE | `/api/games/{game_id}` | Version-guarded delete |
 | POST | `/api/games/{game_id}/moves` | Apply a legal move |
-| POST | `/api/games/{game_id}/ai-move` | Request the configured AI move |
-| POST | `/api/games/{game_id}/undo`, `/redo`, `/seek`, `/restart` | Administrative/compatibility history mutation |
+| POST | `/api/games/{game_id}/ai-move` | Request configured AI move |
+| POST | `/api/games/{game_id}/undo` | Compatibility history mutation |
+| POST | `/api/games/{game_id}/redo` | Compatibility history mutation |
+| POST | `/api/games/{game_id}/seek` | Compatibility history mutation |
+| POST | `/api/games/{game_id}/restart` | Version-guarded unfinished restart |
 | GET | `/api/games/{game_id}/replay` | Validated read-only positions |
-| GET/PUT | `/api/games/{game_id}/analytics` | Saved analysis preferences |
-| POST/GET | `/api/games/{game_id}/analysis*` | Background agent analysis and receipts |
-| GET | `/api/history/games`, `/api/history/{category}/{game_id}/replay` | Account/admin record history |
-| GET | `/api/history/online/{game_id}/analysis*` | Read-only completed-online analysis |
+| GET | `/api/games/{game_id}/analytics` | Saved analysis preferences |
+| PUT | `/api/games/{game_id}/analytics` | Update analysis preferences |
+| POST | `/api/games/{game_id}/analysis` | Run/read background analysis |
+| GET | `/api/games/{game_id}/analysis-status` | Analysis progress/status |
+| POST | `/api/games/{game_id}/analysis-receipt` | Create/read analysis receipt |
+| GET | `/api/games/{game_id}/analysis-context` | Authorized serialized analysis context |
+| GET | `/api/analysis/metrics` | Administrator analysis metrics |
+| GET | `/api/analysis/receipts/{receipt_id}` | Analysis receipt metadata |
+| GET | `/api/analysis/receipts/{receipt_id}/result` | Analysis receipt result |
+| GET | `/api/personal/single-player` | Owner's single-player game list |
+| GET | `/api/personal/single-player/{game_id}/replay` | Owner's single-player replay |
+| GET | `/api/personal/local` | Owner's local 1v1 list |
+| GET | `/api/personal/local/{game_id}/replay` | Owner's local replay |
+| GET | `/api/personal/online` | Owner's online game list |
+| GET | `/api/personal/online/{game_id}` | Owner's online game summary |
+| GET | `/api/personal/online/{game_id}/replay` | Owner's online replay |
+| GET | `/api/history/games` | Account/admin record list |
+| GET | `/api/history/{category}/{game_id}/replay` | Validated history replay |
+| GET | `/api/history/online/{game_id}/analytics` | Completed-online saved analytics |
+| PUT | `/api/history/online/{game_id}/analytics` | Update completed-online analytics |
+| POST | `/api/history/online/{game_id}/analysis` | Run/read completed-online analysis |
+| GET | `/api/history/online/{game_id}/analysis-status` | Completed-online analysis status |
+| POST | `/api/history/online/{game_id}/analysis-receipt` | Completed-online analysis receipt |
+| GET | `/api/history/online/{game_id}/analysis-context` | Completed-online analysis context |
 
-Moves are flattened zero-based `source`/`target` indexes plus `version`. The server
-validates legality through the authoritative engine. AI moves and analysis retain
-their effective configuration, seed and diagnostics. Replay is read-only and never
-branches the saved game. See [game authority](../game-authority.md) and
-[analysis execution](../analysis.md).
+Moves use flattened zero-based `source`/`target` and expected `version`; the engine
+validates legality. Replay never branches/mutates. Analysis is tied to a position/
+revision and cannot publish for a newer state. See [game authority](../game-authority.md)
+and [analysis](../analysis.md).
 
 ## Online play, ratings, leagues and human tournaments
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/online/availability` | Admission/eligibility |
-| GET/POST | `/api/online/games` | Lobby list/create |
-| GET | `/api/online/games/{game_id}` | Authoritative game state |
-| POST | `/api/online/games/{game_id}/join`, `/moves`, `/concede`, `/cancel` | Lifecycle actions |
+| GET | `/api/online/games` | Authenticated lobby list |
+| POST | `/api/online/games` | Create online game |
+| GET | `/api/online/games/{game_id}` | Authoritative online state |
+| POST | `/api/online/games/{game_id}/join` | Join waiting game |
+| POST | `/api/online/games/{game_id}/moves` | Apply online move |
+| POST | `/api/online/games/{game_id}/concede` | Concede |
+| POST | `/api/online/games/{game_id}/cancel` | Cancel waiting game |
+| GET | `/api/online/games/{game_id}/replay` | Completed online replay |
 | POST | `/api/online/games/{game_id}/void` | Administrator void |
-| GET | `/api/online/games/{game_id}/replay` | Completed replay |
+| GET | `/api/online/monitoring` | Administrator online health |
+| GET | `/api/online/stats` | Online statistics |
+| GET | `/api/online/timeout-gate` | Inspect finalization gate |
+| PATCH | `/api/online/timeout-gate` | Pause/restore finalization |
+| POST | `/api/online/ratings/rebuild` | Administrator pool rebuild |
 | GET | `/api/leaderboard` | Rated standings and own rank |
 | GET | `/api/personal/ratings/{ruleset}/history` | Own rating history |
-| GET/POST | `/api/leagues/current`, `/queue`, `/queue/cancel`, `/queue/discard` | League season and queue |
-| GET | `/api/leagues/seasons`, `/progress`, `/standings`, `/history`, `/active-game` | League reads |
-| GET/POST | `/api/player-tournaments...` | Human tournament discovery, registration, bracket, matches |
+| GET | `/api/leagues/current` | Current season/policy/progress/queue |
+| GET | `/api/leagues/seasons` | Persisted seasons |
+| GET | `/api/leagues/progress` | Own seasonal progress |
+| GET | `/api/leagues/standings` | Qualified standings |
+| GET | `/api/leagues/history` | Own official league games |
+| GET | `/api/leagues/queue` | Queue/eligibility snapshot |
+| POST | `/api/leagues/queue` | Join queue |
+| POST | `/api/leagues/queue/cancel` | Cancel/retrieve request outcome |
+| POST | `/api/leagues/queue/discard` | Discard pending join intent |
+| GET | `/api/leagues/active-game` | Current official league game |
+| GET | `/api/leagues/admin/health` | Queue/settlement/rebuild health |
+| GET | `/api/leagues/admin/audit` | Private administration audit |
+| POST | `/api/leagues/admin/matchmaking` | Pause/resume matchmaking |
+| POST | `/api/leagues/admin/queue/cancel` | Cancel stale queue entry |
+| POST | `/api/leagues/admin/seasons/{season_id}/rebuild` | Schedule season rebuild |
+| GET | `/api/player-tournaments` | List/search tournaments |
+| POST | `/api/player-tournaments` | Create tournament |
+| GET | `/api/player-tournaments/{tournament_id}` | Detail |
+| GET | `/api/player-tournaments/{tournament_id}/bracket` | Bracket |
+| GET | `/api/player-tournaments/{tournament_id}/matches` | Matches |
+| GET | `/api/player-tournaments/{tournament_id}/matches/{match_id}` | Match detail |
+| POST | `/api/player-tournaments/{tournament_id}/register` | Register |
+| POST | `/api/player-tournaments/{tournament_id}/withdraw` | Withdraw |
+| POST | `/api/player-tournaments/{tournament_id}/start` | Creator start |
+| POST | `/api/player-tournaments/{tournament_id}/reschedule` | Creator reschedule |
+| POST | `/api/player-tournaments/{tournament_id}/settle` | Settle match |
+| POST | `/api/player-tournaments/{tournament_id}/cancel` | Administrator cancel |
+| POST | `/api/player-tournaments/{tournament_id}/matches/{match_id}/override` | Administrator override |
+| POST | `/api/player-tournaments/{tournament_id}/rebuild` | Administrator rebuild |
+| GET | `/api/player-tournaments/{tournament_id}/audit` | Administrator audit |
 
-Online creation is rated except player-tournament legs, which the server seats
-unrated. Two-game matches rate each leg independently. Result revisions and rating
-applications commit in one write transaction; a correction/void emits a new
-revision and rebuilds the affected pool deterministically. League queue and
-matchmaking are serialized with online writes and expire at ten minutes or the UTC
-season boundary. See [online authority](../online-authority.md) and
-[league authority](../league-authority.md).
+Normal online/league games are rated except player-tournament legs, which are seated
+unrated. Each two-game match leg is rated independently. Result revisions, rating
+applications and league settlement are transactional/durable; corrections/voids
+rebuild deterministically. See [online authority](../online-authority.md),
+[rating authority](../rating-authority.md), [league authority](../league-authority.md)
+and [tournament authority](../tournament-authority.md).
 
 ## Progression and public spectator
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/personal/achievements`, `/api/personal/progress` | Achievement/portrait progress |
+| GET | `/api/personal/achievements` | Achievement/portrait progress |
+| GET | `/api/personal/progress` | Account progression summary |
 | GET | `/api/public/online/games` | Signed-out discovery |
 | GET | `/api/public/online/games/{game_id}` | Public live state |
 | GET | `/api/public/online/games/{game_id}/replay` | Public completed replay |
 
-Public reads are GET-only, rate-limited and return an allowlisted projection.
-Single-player, local games, private profiles, email and full birth dates are never
-included. Public caching uses short-lived public cache headers; private responses
-must not be cached. See [public API](public.md).
+Public reads are GET-only, rate-limited and allowlisted; they exclude private
+history, email, full birth dates and analysis. Public discovery is enabled by default
+and can be disabled by deployment. See [public API](public.md).
 
-## Training, models, workers and AI testing
+## Training, models, workers and AI Testing
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/training/presets`, `/device`, `/workers` | Capabilities and presets |
-| GET/POST | `/api/training/jobs` | List/create training or tuning jobs |
-| GET/PATCH/DELETE | `/api/training/jobs/{job_id}` | Detail, rename, delete |
-| POST | `/api/training/jobs/{job_id}/cancel`, `/resume` | Lifecycle |
-| GET | `/api/training/jobs/{job_id}/export`, `/resume` | Portable export and effective resume values |
-| POST | `/api/training/jobs/import` | Import archive/config |
-| DELETE | `/api/training/jobs/{job_id}/study` | Remove tuning study and dependants |
-| GET/POST | `/api/training/workers`, DELETE `/api/training/workers/{id}` | Worker enrollment/revocation |
-| PATCH | `/api/training/workers/{id}/version-override` | Administrator compatibility override |
-| GET/POST | `/api/models`, `/models/import`, `/models/{id}/export` | Model catalogue and transfer |
-| PATCH/DELETE | `/api/models/{id}` | Rename/delete with usage checks |
-| GET/POST | `/api/tournaments...` | Saved AI comparison series and replays |
-| GET | `/api/ai/profiles`, `/rulesets`, `/stats` | Game configuration/statistics |
+| GET | `/api/training/presets` | Preset catalog |
+| GET | `/api/training/device` | Server device/capabilities |
+| GET | `/api/training/workers` | Worker list |
+| POST | `/api/training/workers` | Enroll worker |
+| DELETE | `/api/training/workers/{worker_id}` | Revoke worker |
+| PATCH | `/api/training/workers/{worker_id}/version-override` | Compatibility override |
+| GET | `/api/training/jobs` | List jobs |
+| POST | `/api/training/jobs` | Create training/tuning job |
+| GET | `/api/training/jobs/{job_id}` | Job detail |
+| PATCH | `/api/training/jobs/{job_id}` | Rename/update |
+| DELETE | `/api/training/jobs/{job_id}` | Delete job data |
+| POST | `/api/training/jobs/{job_id}/cancel` | Cancel job |
+| GET | `/api/training/jobs/{job_id}/export` | Export job archive |
+| GET | `/api/training/jobs/{job_id}/resume` | Effective resume values |
+| POST | `/api/training/jobs/{job_id}/resume` | Resume from checkpoint |
+| DELETE | `/api/training/jobs/{job_id}/study` | Delete tuning study |
+| GET | `/api/training/jobs/{job_id}/study-deletion-preview` | Study deletion preview |
+| POST | `/api/training/jobs/import` | Import job archive/config |
+| GET | `/api/models` | Model catalog |
+| POST | `/api/models/import` | Import model |
+| PATCH | `/api/models/{model_id}` | Rename model |
+| DELETE | `/api/models/{model_id}` | Delete model |
+| GET | `/api/models/{model_id}/export` | Export model |
+| GET | `/api/models/{model_id}/usage` | References/usage |
+| GET | `/api/tournaments` | List AI comparison series |
+| POST | `/api/tournaments` | Create AI comparison |
+| GET | `/api/tournaments/{tournament_id}` | AI comparison detail |
+| DELETE | `/api/tournaments/{tournament_id}` | Delete AI comparison |
+| POST | `/api/tournaments/{tournament_id}/cancel` | Stop AI comparison |
+| GET | `/api/tournaments/{tournament_id}/export` | Export comparison |
+| GET | `/api/tournaments/{tournament_id}/games/{game_index}/replay` | AI game replay |
+| GET | `/api/ai/profiles` | Agent profile catalog |
+| GET | `/api/rulesets` | Ruleset catalog |
+| GET | `/api/stats` | Account statistics |
 
-Training job creation distinguishes local and remote targets; web jobs receive
-owned output/registry paths and reject CLI-only `output_dir`/`registry_dir`.
-Resume rejects immutable architecture/optimizer changes. Uploaded worker artifacts
-are validated before registration. Model deletion is blocked while active jobs,
-studies or unfinished games reference it. See [training data](../training-data.md),
-[worker protocol](../worker-protocol.md) and [AI testing](../ai-testing.md).
+Web jobs receive owned output/registry paths and reject CLI-only path fields. Resume
+rejects immutable architecture/optimizer changes. Imported/worker artifacts are
+validated before registration; model deletion is blocked by live references. See
+[training data](../training-data.md), [worker protocol](../worker-protocol.md) and
+[AI Testing authority](../ai-testing.md).
 
 ## Worker API
 
-Worker routes use a bearer token and an explicit lease:
-
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/api/worker/heartbeat` | Capabilities, version and slot status |
+| POST | `/api/worker/heartbeat` | Capabilities/version/slot status |
 | POST | `/api/worker/claim` | Atomically claim compatible work |
-| POST | `/api/worker/jobs/{job_id}/progress` | Ordered progress snapshots |
-| POST | `/api/worker/jobs/{job_id}/artifacts/{kind}` | Upload checkpoint/model/history artifacts |
+| POST | `/api/worker/jobs/{job_id}/progress` | Ordered progress snapshot |
+| POST | `/api/worker/jobs/{job_id}/artifacts/{kind}` | Upload checkpoint/model/history artifact |
 | POST | `/api/worker/jobs/{job_id}/finish` | Idempotent completion acknowledgement |
 | GET | `/api/worker/jobs/{job_id}/resume` | Resume artifact access |
 
-Worker tokens are stored as hashes, scoped to the worker, and never returned after
-the one-time enrollment dialog. Leases expire; a reconnect resumes from uploaded
-state, not from server memory. See [worker protocol](../worker-protocol.md).
+Worker tokens are hashed/scoped and returned once at enrollment. Leases expire;
+reconnect resumes from uploaded state. See [worker protocol](../worker-protocol.md).
 
 ## Browser-local analysis
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/browser-analysis/availability` | Deployment policy/capabilities |
-| GET | `/api/browser-analysis/models` | Published model catalogue |
+| GET | `/api/browser-analysis/models` | Published model catalog |
 | GET | `/api/browser-analysis/models/{publication_id}` | Manifest |
 | GET | `/api/browser-analysis/models/{publication_id}/artifact` | Verified model bytes |
 
-Delivery is disabled unless the deployment enables it. Publication is an explicit
-administrator action; artifacts are immutable and digest-verified. The browser
-executes the shared Python engine/search through a pinned runtime and never gets a
-second rules implementation. See
-[browser analysis architecture](../browser-analysis.md) and the
+Delivery is disabled unless enabled by deployment. Publication is explicit,
+immutable and digest-verified. The browser uses the shared Python engine/search.
+See [browser analysis](../browser-analysis.md) and its
 [active roadmap](../roadmap/browser-analysis.md).
-
-## Compatibility and failure handling
-
-- Unknown routes, unsupported fields and incompatible software versions fail
-  explicitly. There is no silent algorithm/device/database fallback.
-- The server owns deadlines and timeout finalization; an operator pause is a
-  configuration gate, not a client action.
-- A retry may be safe only where an idempotency key, lease, version or unique
-  constraint is documented. Do not retry a move with a stale version.
-- Generated OpenAPI and `docs/API_PERMISSIONS.json` must be updated when routes or
-  permissions change. Tests derive the security matrix from the actual route table.
 
 ## Extension boundaries
 
 Keep `hnefatafl/engine.py` free of HTTP, storage and PyTorch. Rules changes need
 explicit variant positions; search changes need bounded/legal behavior; training
-changes need real updates, checkpoint reload and legal play. Extend the AI profile
-catalog and `choose_move` together when adding an opponent. Preserve deterministic
-replay and optimistic version guards. Frontend theme extension is documented in the
-[frontend guide](../frontend.md).
+changes need real updates, checkpoint reload and legal play. Extend AI profiles and
+`choose_move` together. Preserve deterministic replay and optimistic versions.

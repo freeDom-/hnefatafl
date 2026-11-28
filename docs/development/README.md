@@ -12,8 +12,6 @@
 | Documentation lifecycle, screenshots and validation | [Documentation guidelines](documentation-guidelines.md) |
 | Important architecture decisions | [Decision records](decisions/README.md) |
 | Remaining work | [Roadmaps](roadmap/README.md) |
-| Historical dependency advisory record | [Security advisory](security-advisory.md) |
-| Deferred CLA proposal | [Contributor licensing](contributor-licensing.md) |
 | Game/online/rating authority | [Game authority](game-authority.md), [online authority](online-authority.md), [rating authority](rating-authority.md) |
 | League and player-tournament authority | [League authority](league-authority.md), [tournament authority](tournament-authority.md) |
 | Accounts, analysis, training data and workers | [Accounts](accounts.md), [Analysis](analysis.md), [Training data](training-data.md), [Worker protocol](worker-protocol.md) |

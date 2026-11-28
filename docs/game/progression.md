@@ -1,6 +1,6 @@
 # Progression, achievements and portraits
 
-[Game index](README.md) · [Hall of Renown interface](interface/records.md#hall-of-renown) · [Profile](profile.md) · [Leagues](leagues.md)
+[Game index](README.md) · [Hall of Renown interface](interface/records.md#hall-of-renown) · [Profile](interface/account.md#my-profile) · [Leagues](leagues.md)
 
 The **Hall of Renown** (`/portraits`) shows unlocked and locked portraits,
 achievement progress and milestone rewards. Progression is permanent: confirmed
@@ -9,10 +9,12 @@ lowered live progress value.
 
 ## Portraits
 
-Portraits are earned through achievements or unlocked manually when the progression
-rules allow. Only earned catalog IDs can be selected; an unknown or locked ID falls
-back to the default portrait. Selection is cosmetic and does not affect gameplay,
-ratings or matchmaking.
+Portraits are earned through achievements. Achievement progress makes a portrait
+eligible, but eligibility does not equip it automatically: the Hall shows an
+**Unlock portrait** action for an eligible portrait, then **Use portrait** to equip
+an unlocked one. **Selected** marks the equipped portrait. Only earned/unlocked
+catalog IDs can be equipped; an unknown or locked ID falls back to the default.
+Selection is cosmetic and does not affect gameplay, ratings or matchmaking.
 
 Portrait cards show the character, unlock state and related achievement. The
 detailed leaderboard, online seats and tournament displays use the same safe portrait
@@ -45,7 +47,7 @@ does not duplicate the award.
 ## Award rules
 
 - Awards are permanent and idempotent. Retries, duplicate completion reports and
-  concurrent claims cannot create duplicate milestones.
+  concurrent completions cannot create duplicate milestones.
 - Rated awards follow the authoritative rating ledger. Casual, unfinished and
   withdrawn results do not count.
 - Later result corrections never remove an earned milestone. Future progress is
@@ -55,18 +57,20 @@ does not duplicate the award.
 - Replay-analysis awards require a successful completed server advisor report on a
   completed record. Passive viewing, live analysis, partial/failed searches and
   browser-local analysis do not count.
-- Manual portrait unlocks revalidate the earned milestone before claiming.
+- Portrait unlocking revalidates the earned milestone before unlocking.
   Eligibility follows the permanent award, not current progress.
 
-## Milestone rewards and claiming
+## Milestone rewards and portrait unlocking
 
-Each achievement card shows the recorded progress, highest achieved milestone,
-collected tier and next threshold. **Milestone rewards** expands the point history
-and available claim. A claim can be made only once; if two requests race, one
-wins and the other sees the already-claimed state.
+Achievement cards are awarded automatically. Current cards show **Earned tier**,
+**Recorded progress**, the **Next milestone** (target and points) and a
+**Milestone rewards** disclosure listing unlocked/locked point milestones. They do
+not show a separate claim or point-cost control. Awards are idempotent: retries or
+concurrent completion cannot duplicate points.
 
-A manually unlockable portrait shows a **Collect** action with its point cost. The
-claim is permanent and appears immediately in the profile and Hall.
+An achievement-eligible portrait is explicitly unlocked in the Hall with
+**Unlock portrait**; no point cost is charged. The unlock is permanent and the
+portrait can then be equipped with **Use portrait**.
 
 ## Artwork provenance
 

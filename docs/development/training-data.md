@@ -46,7 +46,7 @@ Use a stopped-writer or supported consistent backup of the complete data root. A
 live SQLite database file copied without its WAL is not consistent. Restore into a
 disposable directory first, verify accounts, games, jobs, studies, model hashes and
 an actual resume, then replace live data. The operator procedure and commands are in
-[models](../training/models.md#consistent-backup-and-restoration) and
+[models](../training/models.md#backup-and-restoration) and
 [installation recovery](../installation/updating.md).
 
 ## Tuning study identity

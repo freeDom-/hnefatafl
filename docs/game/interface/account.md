@@ -1,6 +1,6 @@
 # Account and profile surfaces
 
-[Interface index](README.md) · [Profile](../profile.md) · [Security](../../administration/security.md) · [User management](../../administration/user-management.md)
+[Interface index](README.md) · [Profile privacy](#my-profile) · [Security](../../administration/security.md) · [User management](../../administration/user-management.md)
 
 ## Login
 
@@ -58,8 +58,24 @@ only with a valid token; invalid/expired links offer a new request.
 optional birth date/public age; email verification and password change; appearance
 settings.
 
-**Controls and restrictions:** optional fields are public when populated and private
-when cleared; full birth date is never public; account ID remains the authorization
-identity. Appearance controls are also shown in
-[this capture](../../assets/game/kings-table-appearance.jpg). See [profile](../profile.md)
-and [account implementation](../../development/accounts.md).
+**Profile publication:** all optional fields may be empty. A populated field is
+public; clearing it withdraws its value. There are no permanent sharing checkboxes.
+Previously saved private values remain private until that specific field is edited or
+reconfirmed. A display name is shown with **(@username)** when it differs from the
+username and is non-unique. Country/city appear in the detailed leaderboard. A
+complete birth date produces only an integer public age using UTC; the full date and
+birth year stay private. Unsafe control/bidirectional characters are rejected and
+length limits count Unicode code points.
+
+**Account security:** unverified accounts can resend verification; password changes
+require the current password. Verification/reset links are single-use and only the
+newest works. The profile never displays raw tokens.
+
+**Appearance and identity:** choose a UI theme (King's Table, Iron Ash, Saga Hall,
+Classic Table), board (Golden oak, Old walnut, Fjord slate), tokens (Classic stones,
+Viking figures, Carved wood) and interface scale (Compact, Default, Large or
+follow-display). Preferences are per browser/device, not account-wide:
+[appearance capture](../../assets/game/kings-table-appearance.jpg). The header
+language selector switches English/German and is remembered per browser. Account
+ID and persistent runes identify accounts/models when display names repeat; runes
+are presentation only. See [account implementation](../../development/accounts.md).

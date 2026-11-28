@@ -87,14 +87,14 @@ Importing a model or job archive can transfer selected artifacts, but it is not 
 full installation migration. Incompatible/corrupt/oversized archives fail closed.
 See [training data](../development/training-data.md#job-archives-and-migration).
 
-## Consistent backup and restoration
+## Backup and restoration
 
-A backup is unverified until restored and checked. Copying a live SQLite file without
-its WAL is not consistent. Stop writers or use the supported backup command; include
-the entire data root, not only the database. Verify games/replays, accounts, runes,
-progression, tournaments, model hashes and a real training resume. See
-[updating and recovery](../installation/updating.md) and
-[installation backup notes](../installation/updating.md#manual-backups-and-recovery-transactions).
+Use the complete stopped-writer backup procedure in
+[installation recovery](../installation/updating.md#manual-backups-and-recovery-transactions).
+A backup is unverified until restored into a disposable directory and checked. For
+training specifically, verify jobs, full checkpoints, model hashes, studies, runes,
+shared-study/resume references and an actual resume—not only the account database.
+Copying a live SQLite file without its WAL is not a consistent backup.
 
 ## Troubleshooting retained data
 

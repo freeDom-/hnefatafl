@@ -15,23 +15,7 @@ only: display name, username and selected portrait ID, never email addresses, se
 notes or another account's private profile. The creator account ID is public;
 capabilities are derived for the current authenticated viewer.
 
-| Method | Route | Permission | Purpose |
-| --- | --- | --- | --- |
-| `GET` | `/api/player-tournaments` | play | Cursor-paged list; optional `status`, `ruleset`, `phase=upcoming` filters |
-| `POST` | `/api/player-tournaments` | verified play / administrator | Create within per-account quotas (administrators exempt) |
-| `GET` | `/api/player-tournaments/{id}` | play | Detail with entrants and match counts |
-| `GET` | `/api/player-tournaments/{id}/bracket` | play | Upper/lower rounds, grand final and reset |
-| `GET` | `/api/player-tournaments/{id}/matches` | play | Cursor-paged match projections |
-| `GET` | `/api/player-tournaments/{id}/matches/{match_id}` | play | One match with its legs and games |
-| `GET` | `/api/player-tournaments/{id}/audit` | accounts | Role-aware audit trail (administrator) |
-| `POST` | `/api/player-tournaments/{id}/register` | play | Register the current account (idempotent) |
-| `POST` | `/api/player-tournaments/{id}/withdraw` | play | Withdraw before the start |
-| `POST` | `/api/player-tournaments/{id}/settle` | play | Read detail; administrators can retry pending outbox work |
-| `POST` | `/api/player-tournaments/{id}/start` | creator / tournaments | Draw seeds randomly and start |
-| `POST` | `/api/player-tournaments/{id}/reschedule` | verified creator / tournaments | Replace the planned start during registration |
-| `POST` | `/api/player-tournaments/{id}/cancel` | tournaments | Cancel a tournament |
-| `POST` | `/api/player-tournaments/{id}/rebuild` | tournaments | Re-derive a disputed bracket |
-| `POST` | `/api/player-tournaments/{id}/matches/{match_id}/override` | tournaments | Force a ready match winner |
+The canonical endpoint table is in the [API reference](api/README.md#online-play-ratings-leagues-and-human-tournaments). This page owns the state, scheduling, settlement and recovery semantics behind those routes. Authorization is creator/owner plus the `tournaments` permission for moderation; the server rechecks entrant/start state under the write lock.
 
 All three match reads (`/bracket`, `/matches` and `/matches/{match_id}`)
 publish the same scheduling fields for a persisted match. `global_round` is the

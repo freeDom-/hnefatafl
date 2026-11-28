@@ -61,7 +61,7 @@ A backup is not verified until it has been restored into a disposable directory
 and the database, accounts, records and model files have been checked. Stop
 writers or use the supported backup command; copying a live SQLite database file
 without its WAL is not a consistent backup. See
-[backup and restoration](../training/models.md#consistent-backup-and-restoration).
+[backup and restoration](../training/models.md#backup-and-restoration).
 
 ## What is not monitored here
 

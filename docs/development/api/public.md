@@ -1,6 +1,6 @@
 # Public spectator API
 
-[API index](README.md) · [Watch Hall guide](../../game/public-online.md) · [Online authority](../online-authority.md)
+[API index](README.md) · [Watch Hall guide](../../game/interface/arena.md#public-watch-hall) · [Online authority](../online-authority.md)
 
 The public namespace is a separate, signed-out, GET-only projection:
 

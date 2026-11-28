@@ -47,7 +47,9 @@ def test_email_detection_uses_synthetic_addresses_and_ignores_urls_and_handles()
 def test_contributor_documentation_keeps_broader_rights_deferred_and_optional():
     contributing = " ".join((ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8").split())
     proposal = " ".join(
-        (ROOT / "docs/development/contributor-licensing.md").read_text(encoding="utf-8").split()
+        (ROOT / "docs/releases/contributor-licensing-proposal.md")
+        .read_text(encoding="utf-8")
+        .split()
     )
     audit = " ".join((ROOT / "docs/LICENSING.md").read_text(encoding="utf-8").split())
     assert "does not currently intend to commercially exploit" in contributing

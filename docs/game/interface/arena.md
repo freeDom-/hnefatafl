@@ -1,6 +1,6 @@
 # Arena: play surfaces
 
-[Interface index](README.md) · [Gameplay](../gameplay.md) · [Online play](../online-play.md) · [Public Watch Hall](../public-online.md)
+[Interface index](README.md) · [Gameplay](../gameplay.md) · [Online play](../online-play.md) · [Public Watch Hall](#public-watch-hall)
 
 ## The Great Hall
 
@@ -17,7 +17,7 @@ need you** and recent records.
 
 **Controls and restrictions:** **Detailed statistics** opens `/statistics`; recent
 records link to replay; no rank or reward is invented. The page requires an
-authenticated account. See [dashboard guide](../dashboard.md).
+authenticated account. See [dashboard guide](../interface/arena.md).
 
 Theme comparison: [Iron Ash](../../assets/game/themes/iron-ash-dashboard.jpg) ·
 [Saga Hall](../../assets/game/themes/saga-hall-dashboard.jpg) ·
@@ -62,7 +62,9 @@ cancel your own waiting game. Active cards show remaining time.
 
 **Controls and restrictions:** no move advisor, hints or win probability in a live
 game; creation settings freeze after creation; admission and quotas are operator
-controlled. See [online play](../online-play.md).
+controlled. Online clocks follow the authoritative deadline; hiding the browser tab
+stops only local countdown rendering, not the deadline. See
+[online play](../online-play.md).
 
 ## Public Watch Hall
 
@@ -76,8 +78,10 @@ controlled. See [online play](../online-play.md).
 step through saved moves.
 
 **Controls and restrictions:** no account, gameplay, analysis or private history.
-Only an allowlisted public projection is returned; disabled deployments show not
-found. See [public online](../public-online.md).
+Only an allowlisted public projection is returned. Public discovery is enabled by
+default on the shipped configuration; an operator can disable it, after which the
+Watch Hall shows not found. Private single-player/local records, email, full birth
+dates and analysis are never exposed. See [public Watch Hall](#public-watch-hall).
 Themes: [comparison](../../assets/game/public-watch-themes.jpg) ·
 [Iron Ash](../../assets/game/iron-ash-public-watch.webp) ·
 [Saga Hall](../../assets/game/saga-hall-public-watch.webp) ·

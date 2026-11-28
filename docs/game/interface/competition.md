@@ -15,7 +15,7 @@ ruleset filter; outcome distribution plus overall, attacker and defender tables
 
 **Controls and restrictions:** statistics are account-relative; local 1v1 is never
 mixed with online or account single-player data. See
-[dashboard and statistics](../dashboard.md#personal-statistics).
+[dashboard and statistics](../interface/competition.md#statistics).
 
 ## Leaderboard
 

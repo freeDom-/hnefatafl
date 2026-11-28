@@ -23,7 +23,7 @@ release evidence are not relabelled as fresh combined validation.
 
 | State | Scope |
 | --- | --- |
-| Implemented and merged | [The Great Hall](../game/dashboard.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress, [automatic server-owned tiered achievements](../game/progression.md) (#94, #101) and manual portrait unlocking (#123); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90), randomised seeding (#120) and synchronised rounds (#119); [League Arena](../game/leagues.md) with the schema 23 migration, League API and page, automatic matchmaking and settlement, and administrator recovery (#99); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1–3C-B research ([#104](../evaluation/browser-analysis/browser-analysis-phase1.md), [#108](../evaluation/browser-analysis/browser-analysis-phase2.md), [#112](../evaluation/browser-analysis/browser-analysis-phase3.md), [#115](../evaluation/browser-analysis/browser-analysis-phase3b.md), [#118](../evaluation/browser-analysis/browser-analysis-phase3c.md), [#121](../evaluation/browser-analysis/browser-analysis-phase3c-b.md), partially validated and opt-in); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
+| Implemented and merged | [The Great Hall](../game/interface/arena.md) totals, polling and hidden-tab suspension (#91); Hall of Renown (`/portraits`) with portrait selection (#86), Deeds of Valor progress, [automatic server-owned tiered achievements](../game/progression.md) (#94, #101) and manual portrait unlocking (#123); signed-out public discovery, live spectating and completed replay (#82, #87); human tournament UI, durable automatic settlement and scheduled starts (#90), randomised seeding (#120) and synchronised rounds (#119); [League Arena](../game/leagues.md) with the schema 23 migration, League API and page, automatic matchmaking and settlement, and administrator recovery (#99); Workshop consolidation and bounded job rendering (#92); deferred feature loading and enforced initial bundle budgets (#93); disposable backend read benchmark (#97, benchmark hardening #105); browser-analysis Phase 1–3C-B research ([#104](../evaluation/browser-analysis/browser-analysis-phase1.md), [#108](../evaluation/browser-analysis/browser-analysis-phase2.md), [#112](../evaluation/browser-analysis/browser-analysis-phase3.md), [#115](../evaluation/browser-analysis/browser-analysis-phase3b.md), [#118](../evaluation/browser-analysis/browser-analysis-phase3c.md), [#121](../evaluation/browser-analysis/browser-analysis-phase3c-b.md), partially validated and opt-in); Hall of records navigation (#103); dependency-audit corrections (#100, #102) |
 | Missing | Production classical/neural analysis execution modes; combined capacity, recovery and deployment evidence; owner/legal confirmation of contributor aliases and generated-artwork terms |
 | Deferred | Browser-neural production integration is optional for the initial public release; durable UTC login/activity-day streaks remain excluded |
 | Final combined acceptance | **Not performed.** No release candidate has been evaluated as one system across performance, recovery, security, localization, accessibility and deployment |
@@ -79,7 +79,7 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
   validation was hardened by merged PR #102. PR #96 was closed unmerged and is not
   a prerequisite. The active exception list is empty. The historical owner
   approval (PR #95, 2026-11-18) and exposure analysis remain preserved in the
-  [dependency record](../development/security-advisory.md#withdrawal-and-empty-exception-state-2026-11-18).
+  [dependency record](../releases/security-advisory-2026-11-18.md#withdrawal-and-empty-exception-state-2026-11-18).
   The fail-closed `security` job must remain: returning or new findings require
   remediation or separate owner review. Do not treat the 2026-11-18 clean audits
   as permanent, and rerun audits after any lockfile change.
@@ -123,7 +123,7 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
   `node22` and `browser` to the active main-branch ruleset. Verified on 2026-11-20,
   ruleset `25820905` has no required status checks and zero required approvals, so
   green CI is voluntary rather than GitHub-enforced. See the
-  [required-checks recommendation](../development/security-advisory.md#required-main-branch-checks-owner-action-not-applied).
+  [required-checks recommendation](../releases/security-advisory-2026-11-18.md#required-main-branch-checks-owner-action-not-applied).
   Do not modify the ruleset from this documentation change.
 
 ## Data, installation and recovery

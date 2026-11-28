@@ -9,7 +9,7 @@ by default. The CLI provides the same compute workflow without the web UI.
 | First job, presets, monitoring, result and model | [Getting started](getting-started.md) |
 | Evaluation opponents, Champion selection and score interpretation | [Evaluation](evaluation.md) |
 | Optuna tuning, studies and best-parameter application | [Tuning](tuning.md) |
-| Workshop pages, charts, job lifecycle and model cards | [Interface](interface.md) |
+| Workshop pages, charts, job lifecycle, models, workers and AI Testing UI | [Interface](interface.md) |
 | Algorithms and how they interact | [Algorithms](algorithms.md) |
 | Canonical parameter, default and bound reference | [Parameters](parameters.md) |
 | Recommended board-specific budgets | [Training plans](plans.md) |
@@ -21,28 +21,6 @@ by default. The CLI provides the same compute workflow without the web UI.
 | Remote worker setup, slots, transfers and recovery | [Remote workers](remote-workers.md) |
 | Common failures and diagnostics | [Troubleshooting](troubleshooting.md) |
 
-## Minimum workflow
-
-```sh
-make install
-.venv/bin/python -m hnefatafl.cli devices
-.venv/bin/python -m hnefatafl.cli train --config configs/train-smoke.json
-```
-
-A smoke run proves real updates, checkpoint reload and legal model play. It does
-**not** prove stronger play, calibrated winning chances or GPU speedup. Use
-[training plans](plans.md) for a real experiment and read
-[performance](performance.md) before comparing throughput.
-
-## Where things live
-
-- Training jobs, checkpoints, replay buffers and learning history live in the
-  persistent data root.
-- Registered models are separate from training jobs; deleting training data does
-  not remove a playable model copy.
-- Importing a model supplies an opponent. It does not register or resume a job.
-- Remote workers receive job copies and upload full checkpoints/models; the
-  server remains authoritative for job state and model registration.
-
-Do not commit databases, checkpoints, model weights, studies, credentials or local
-virtual environments.
+Start with [Getting started](getting-started.md). A smoke run proves updates/checkpoint
+reload/legal play, not playing strength. Jobs and registered models are separate;
+see [models](models.md) for storage, deletion, backup and migration.

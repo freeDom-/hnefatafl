@@ -51,7 +51,14 @@ the season boundary, whichever comes first.
 - Only active, verified human accounts with normal play permission may queue.
 - Administrator accounts are treated as human accounts; admin permission is not an
   eligibility bypass.
+- One active league game per account across all rulesets.
 - AI opponents and player-tournament games never enter league standings.
+- Pairing is limited to **three league matches per unordered opponent pair per UTC
+  day**; a later void/correction does not reopen the limit.
+- The acceptable rating difference starts at **200 Elo** and widens by **100 every
+  full minute**, to a maximum of **600**.
+- Side assignment balances each account's committed attacker-minus-defender count for
+  that ruleset; the lower balance attacks, with a stable tie-break for equal balances.
 - Joining, cancelling and matching are idempotent. Cancellation targets the
   original queue request, so a delayed retry cannot cancel a later entry.
 - Admission is rate-limited; an operator can pause matchmaking during an incident.
@@ -63,6 +70,11 @@ game finishing exactly at the boundary is late. Late games keep their Elo result
 but contribute no league points. Season standings remain provisional until grace
 ends. Later official corrections or voids can revise archived standings with a
 visible revision.
+
+The queue schema, rate budgets, request generations, scanner limits and recovery
+internals are in [league authority](../development/league-authority.md). The UI
+reports queue expiry/cancellation and empty-population reasons rather than promising
+an estimated wait.
 
 The league administration view reports worker health, queue backlog, pending
 settlements, retries and rebuild state. Administrators can pause matchmaking,

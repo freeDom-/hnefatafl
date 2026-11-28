@@ -1,166 +1,61 @@
-# AI workshop training dashboard
+# Workshop interface
 
-[Documentation index](../../README.md) · [Training guide](./getting-started.md) ·
-[Checkpoint and model management](./models.md)
+[Training index](README.md) · [Getting started](getting-started.md) · [Models](models.md) · [Workers](remote-workers.md) · [AI testing](../evaluation/ai-tournaments.md)
 
-The workshop gives the selected training job the main content width. Its compact
-header reports the server's training device, active jobs and registered models.
-**Remote workers** opens enrollment and worker management. A worker's one-time
-credential stays in its existing setup dialog; it is excluded from diagnostics.
+The **AI Workshop** is a separate permission-gated workspace with four destinations:
+**Training**, **Models**, **Workers** and **AI testing**. Training/Models/Workers
+share `/training`; AI testing uses `/tournaments`. Unauthorized destinations are
+not shown and direct routes are rejected by the backend.
 
-
-The Workshop uses the same four themes as the Arena. Overview captures:
-[Kings Table](../assets/training/kings-table-workshop.jpg) ·
-[Iron Ash](../assets/training/iron-ash-workshop.jpg) ·
-[Saga Hall](../assets/training/saga-hall-workshop.jpg) ·
-[Classic Table](../assets/training/classic-table-workshop.jpg). A
-[contact sheet](../assets/training/contact-kings-table.webp) summarizes the main
-Workshop sections.
+| Destination | Route | Use |
+| --- | --- | --- |
+| Training | `/training` | Create/resume/tune jobs, monitor progress, inspect analysis tabs |
+| Models | `/training#model-collection` | Registered model cards, compatibility and lifecycle |
+| Workers | `/training#workshop-workers` | Enroll, inspect, revoke and override remote workers |
+| AI testing | `/tournaments` | Saved AI comparison series |
 
 ![Workshop overview with synthetic jobs](../assets/training/training-overview.jpg)
 
+Theme comparison: [Kings Table](../assets/training/kings-table-workshop.jpg) ·
+[Iron Ash](../assets/training/iron-ash-workshop.jpg) ·
+[Saga Hall](../assets/training/saga-hall-workshop.jpg) ·
+[Classic Table](../assets/training/classic-table-workshop.jpg). A
+[contact sheet](../assets/training/contact-kings-table.webp) summarizes the sections.
 
-![AI Workshop training overview](../assets/training/kings-table-workshop.jpg)
+## Training
 
-## Workshop navigation
+### Create, select and resume
 
-The Workshop is a separate workspace from the Arena and is visible only to
-accounts with the relevant permissions. Its destinations are:
+**Train or tune** starts a job from a preset or reviewed configuration, imports a
+portable `config.json`, or opens **Tune parameters**. **Monitor jobs** selects a
+retained job. **Resume training** starts from the source job's latest full
+checkpoint and requires immutable architecture/optimizer identity to stay unchanged.
 
-| Destination | Page | Purpose |
-| --- | --- | --- |
-| Training | `/training` | Create/resume jobs, monitor live progress, inspect learning/evaluation/performance views |
-| AI testing | `/tournaments` | Saved AI round-robin and fixed-role comparisons |
-| Models | `/training#model-collection` | Registered models, compatibility, rename/export/delete |
-| Workers | `/training#workshop-workers` | Enroll, inspect, revoke and override remote workers |
-
-Each Workshop page reuses the same top bar, account menu, theme selection and
-notification layer. Training and AI testing are gated by `training` and
-`tournaments` permissions respectively; unauthorized destinations are not shown
-and direct routes are rejected by the backend. The **Train or tune** surface covers
-new jobs, config import, tuning setup and resume; **Monitor jobs** covers retained
-progress and charts; **Model collection** and **Remote workers** are anchors on the
-same `/training` route so deep links keep working.
-
-## Create and select jobs
-
-![New training job form](../assets/training/training-creation.jpg)
+![New training job](../assets/training/training-creation.jpg)
 
 ![Advanced training parameters](../assets/training/training-creation-advanced.jpg)
 
-The creation form exposes presets and common settings first; **Advanced
-configuration** reveals search, replay, seed, thread and precision controls. The
-same parameter help is used in the resume dialog. See
-[parameters](parameters.md) for defaults and bounds.
-
-**New training** opens **Forge a new strategist** across the page. It opens
-initially in an empty workshop and collapses initially when jobs exist. Closing
-it keeps all entered settings. General, neural-network/optimization, self-play/MCTS,
-evaluation and advanced groups reuse the existing controls and validation.
-Training, tuning, presets, remote targets and all evaluation opponents remain
-available. Starting or resuming a job selects it, closes creation and focuses the
-monitoring workspace on Overview.
-
-A 260px job rail on wide screens shows status, name, ruleset, iteration, recorded job games, creation
-time and execution location. Search accepts job names and associated registered
-model names; status filtering and active/newest/oldest sorting affect navigation
-only. The first selection favors an active job, otherwise the newest job. Polling
-and sorting preserve explicit selection. **Hide job list** gives charts the full
-workspace width. Tablet and phone layouts use a job selector with collapsible
-search/filter controls. A filtered-out selected job remains selected and is
-identified in the selector.
-
-On desktop, only the job rows scroll within a viewport-relative maximum height.
-Search, status, sorting and the job count stay above that area; short lists keep
-their natural height. Polling preserves its scroll position, and keyboard focus
-can bring older rows into view. The mobile selector is unchanged.
-
-Selecting another job in the list keeps the currently open analysis tab, so the
-same view can be compared across jobs. The panel always renders the newly
-selected job's data and actions; per-job view state such as the iteration range,
-selected evaluation series and open diagnostics resets for the new job. If a
-future job type does not offer the preserved view, the dashboard falls back to
-**Overview**. Opening a job for the first time, and starting, resuming or
-importing a job, still focuses **Overview**. The selection is not stored across
-browser sessions.
-
-**Use parameters** beside the selected job's actions copies its recorded supported
-inputs into **Forge a new strategist**, opens Advanced configuration and scrolls
-the form into view. It works for active and inactive jobs without changing the
-source. Review the source-job confirmation, edit any field and explicitly start
-when ready. Missing legacy inputs retain current form values; invalid values
-retain valid form values with a warning. Paths, checkpoints, worker IDs and
-credentials never become training inputs. Reuse selects this server, falling back
-to CPU/PyTorch when recorded devices are unavailable. Choose another target before
-starting if required. Supported local OpenVINO devices are retained.
-
-Tuning jobs restore their nested training settings, valid search space, trial
-budget, study name and study seed, including the selectable evaluation opponent.
-Starting creates a new job and an independent study database even if its name
-matches the source. **Resume study** remains the separate action for continuing
-the original study.
-
-**Import config.json** loads a local `config.json` exported from a job, or the
-equivalent saved object, into **Forge a new strategist**. Recognized training
-parameters fill the editable fields using the same schema as **Use parameters**;
-fields omitted from the file keep their current values, and explicit `false`,
-`0` and empty values are preserved rather than replaced by defaults. An
-optimization configuration switches the form to tuning and restores its trial
-budget, study name, study seed and search space. Importing only fills the form: it
-never starts a job, and the imported values stay editable before submission. An
-imported device or inference backend is kept even when this server or the
-selected worker cannot provide it, so the form shows the unavailable option and
-starting reports the platform error instead of silently switching to CPU. The
-user can then adjust it manually. Fields with no training meaning, such as paths,
-identifiers, status and metadata, are listed as ignored, and a malformed or
-invalid file leaves the previous form state untouched with an explanation.
-
-## Recorded self-play totals
-
-The job rail shows games generated by that job. Beside the iteration summary,
-**Job games** and **Cumulative training games** distinguish its own contribution
-from the checkpoint lineage. If A generates 4,000 games and B resumes A and adds
-2,000, B shows 2,000 job games and 6,000 cumulative games. Each resume uses its
-input checkpoint's actual counter as a fresh baseline, including repeated resumes.
-
-These counters include generated games stopped at the configured move limit.
-Evaluation, tournaments and interactive play are excluded. They count generated
-games, rather than unique replay positions or optimizer exposures. Neither value
-is estimated from iterations or configured games per iteration. Genuine zero is
-shown as zero. Missing or invalid legacy records show **Not recorded**; resuming
-a checkpoint without its lineage total records new job games while cumulative
-games remain unknown. Older resumed/imported jobs without a recorded baseline
-also cannot establish their own contribution. Tuning progress covers the current
-trial rather than all trials, so study-wide totals show **Not recorded**.
-
-## Job creation, resume and transfer
-
-The **Train or tune** surface starts a new job from a preset or fully reviewed
-configuration, imports a portable `config.json`, and exposes the same parameter
-help as the resume dialog. **Resume training** starts from the source job's latest
-full checkpoint and keeps immutable architecture/optimizer identity. **Import job**
-restores a portable job archive; **Export** produces a transferable archive. Model
-import supplies an opponent but does not create or resume a job.
+The form exposes common settings first; **Advanced configuration** adds search,
+replay, seed, thread and precision controls. Field help is shared with the resume
+dialog. Values, defaults, bounds and resume rules are canonical in
+[parameters](parameters.md); plans are in [training plans](plans.md); workflows are
+in [getting started](getting-started.md), [models](models.md) and [tuning](tuning.md).
 
 ![Tuning configuration](../assets/training/training-tuning-config.jpg)
 
-The **Tune parameters** mode creates an Optuna study inside the job's own study
-database. A saved study is continued from its job; names alone do not link studies
-across jobs. See [getting started](getting-started.md) for the workflow and
-[models](models.md) for archive/checkpoint semantics.
+### Job overview and analysis tabs
 
-## Remote workers and AI testing
+The selected job shows its status, ruleset, device/worker, iteration progress, loss
+and evaluation KPIs, and a bounded job navigator. Analysis tabs are:
 
-The **Workers** anchor lists enrolled workers, advertised devices/capabilities,
-free slots, versions and leases. Enrollment shows a one-time token; only a hash is
-stored. Revoke a worker to stop new assignments; queued jobs may need explicit
-recovery. **AI testing** (`/tournaments`) is a separate saved collection of AI
-round-robin or fixed-role comparisons, with win matrices, replay and export. It
-never enters player statistics. See the
-[AI Testing interface](../game/interface/workshop.md#ai-testing) and
-[evaluation methodology](../evaluation/ai-tournaments.md).
-
-## Analysis views
+| Tab | Use |
+| --- | --- |
+| **Overview** | Progress, latest losses/evaluation, phase timings and checkpoint selection |
+| **Learning** | Loss/metric history, replay occupancy, optimizer updates, learning-rate/adaptation history |
+| **Evaluation** | Scores by opponent/context, merged series, Champion promotions and game totals |
+| **Performance** | Throughput, batch/concurrency, phase durations and resource counters |
+| **Details** | Saved configuration, logs, checkpoints, execution metadata and export/import references |
+| **Tuning results** | Optuna trial table, objective/best-so-far charts, winning parameters and apply/continue actions |
 
 ![Learning view](../assets/training/training-learning.jpg)
 
@@ -170,301 +65,85 @@ never enters player statistics. See the
 
 ![Details view](../assets/training/training-details.jpg)
 
-These screenshots use synthetic job fixtures. They illustrate the interface and
-are not throughput or model-strength evidence; measured values are in
-[benchmarks](../evaluation/benchmarks/README.md).
+Chart behavior: missing evaluations are gaps, not zeros; a merged evaluation series
+connects contexts but a step where opponent/Champion changed is a context change,
+not continuous improvement; use per-series views for like-for-like comparison.
+Tuning results and apply/continue workflows are in [tuning](tuning.md). Evaluation
+opponents and Champion evidence are in [evaluation](evaluation.md).
 
-The summary above the tabs keeps the selected name, status, ruleset, execution
-location, recorded iteration/total, stage, live elapsed time and remote update
-time available. Rename, stop, checkpoint/study resume, job export, training-data
-deletion and refresh use their existing state restrictions and confirmation
-dialogs. **Tune this checkpoint** opens a review dialog for a resumable training
-job where the user sets **Additional tuning iterations per trial**; every trial
-then resumes the job's full `last.pt` for the same target and the source
-checkpoint is left unchanged. Progress uses recorded iteration counts; the
-interface does not invent an ETA.
+![Tuning results](../assets/training/training-tuning-results.jpg)
 
-For an inactive tuning job, administrators can choose **Delete entire tuning
-study** separately from **Delete training data**. The existing confirmation dialog
-loads a fresh preview of the study identity, database owner, all affected jobs and
-directories, and preserved source jobs. External checkpoint consumers and active
-workers disable confirmation. Review the irreversible removal and tick the
-explicit whole-study consent checkbox. A changed scope or API failure reloads the
-preview and clears consent; successful deletion refreshes the navigator and
-selection for every removed job. Source jobs, registered models and saved
-game/tournament history remain available. A cleanup-pending notice explains retry
-on the next deletion preview or restart; see
-[recovery details](./models.md#manage-models).
+![Resume Training dialog](../assets/training/training-resume.jpg)
 
-**Rename job** edits the display name only, for active and inactive jobs alike.
-The dialog starts from the current name; saving persists a separate display field
-and refreshes the rail and header without a page reload, while cancelling keeps
-the previous name. Empty, whitespace-only and longer-than-100-character names are
-rejected on both the client and the server, and a failed save keeps the entered
-text. Job IDs, output paths, checkpoints, training parameters, worker assignments
-and execution state never change.
+The screenshots use synthetic job fixtures or a real disposable CPU smoke run. They
+are workflow examples, not throughput or model-strength evidence.
 
-- **Overview** shows six concise KPIs, learning/evaluation charts, the last
-  completed iteration's sequential phase timings and checkpoint selection. Its
-  evaluation chart merges every recorded series into one curve, so a job that
-  changed opponent or Champion incumbent no longer needs several small graphs.
-  Saturation, champion decisions, incomplete evaluations and failed/cancelled
-  jobs receive contextual messages.
-- **Learning** offers one **Learning metric** chart, defaulting to **Loss by
-  iteration** with both policy and value loss. It retains recorded optimizer
-  updates, saved configuration and an accessible iteration table. Lower loss measures
-  fit to self-play targets; it does not establish stronger play.
-- **Evaluation** shows the effective opponent, side scores, wins/losses, rules
-  draws, unfinished games, duration, champion decisions and fixed-benchmark
-  records. A series selector defaults to the latest comparison context.
-  **All evaluation series** draws the same single merged curve as the overview,
-  and every individual context stays selectable on its own. Its detailed table
-  retains the complete evidence. **Fit series** in **Iteration range** fits the
-  chart to the selected context's first and last valid evaluation, using the
-  complete history even after choosing a recent-iteration window. Switching
-  contexts or receiving new evaluations updates the fitted span automatically.
-  **Latest series** fits the latest recorded context, and **All evaluation
-  series** fits the full merged evaluation span. Actual iteration numbers,
-  gaps, the 0–100% score scale and the complete history table are preserved.
-  Fit mode is available only in Evaluation; Learning and Performance keep the
-  shared numeric window. Choosing a numeric range exits fit mode. Job switches
-  reset both range and series selections.
-- **Performance** groups throughput, MCTS, GPU/inference and phase timings.
-  Select one historical metric at a time, including self-play games/hour,
-  average game length, and attacker/defender win counts and win rates. Win
-  rates use the completed-game denominator, so rules draws count. CPU search,
-  inference-host and CUDA activity counters stay separate from the sequential
-  wall-time comparison, because their durations may overlap. The full recorded
-  history is available in its table, whose column headings stay pinned while
-  its rows scroll.
-- **Details** contains lazily opened saved configuration, evaluation settings,
-  raw progress, logs, checkpoints, execution metadata and transfer guidance.
-  JSON/log panes are bounded and support copying. Credential-shaped diagnostic
-  fields are redacted.
-- **Tuning results** (optimization jobs only) separates the **Optuna objective**,
-  best new in-training benchmark, final iteration score and optional weighted
-  aggregate. Ranking, score sorting, winner highlighting and best-so-far plots
-  use the actual persisted Optuna objective. The persisted winner is easy to
-  locate; filtering/sorting covers the complete dataset with 50 rows per page.
-  Charts reuse the training chart controls for objective history, best-so-far,
-  parameter-versus-objective and runtime. Large plots are bounded samples; exact
-  observations remain in the paginated table. Parameter importance is computed
-  once after optimization from binned variance associations, shown only after
-  at least 20 completed, varying observations, and labelled exploratory rather
-  than causal or statistically significant. Navigation polls omit trial arrays
-  and diagnostics; selected-job details retain the full result.
-  Verification status/errors are separate from the completed optimization.
-  **Train with best parameters** loads a new training form. **Continue winning
-  trial** uses the persisted full objective checkpoint, including its optimizer,
-  replay and history, for an additional budget starting at the winning iteration.
-  **Apply best parameters** opens the existing Resume Training dialog, loads the
-  target checkpoint's effective optimizer configuration and preserves it as the
-  payload baseline. Compatible optimized settings prefill only editable fields;
-  changed controls and a source/optimized/current table support review and edits.
-  Immutable architecture, ruleset, optimizer and seed remain read-only. Training
-  starts only on explicit submission; the API receives every changed setting.
-  **Download best configuration** saves the full winning configuration as JSON.
+### Monitoring states
 
-Tuning forms provide **Fixed evaluation opponents** using existing registered-model
-labels and form classes. Add heuristics or compatible neural models and adjust
-weights; the advanced JSON remains the same import/export representation.
-Different hidden network sizes are compatible. Champion remains available in
-ordinary training but is disabled in tuning because it changes the reference.
-The model-deletion dialog lists active optimization dependencies and disables
-deletion until those studies stop; backend enforcement also covers stale UI state.
-Inactive studies do not reserve models forever: deleting a fixed dependency makes
-further trials unavailable until that exact compatible artifact is restored.
-
-![Tuning results and best-so-far charts](../assets/training/training-tuning-results.jpg)
-
-![Resume Training dialog with reviewed parameter changes](../assets/training/training-resume.jpg)
-
-The tuning and resume captures come from a disposable real CPU smoke run. Their
-scores demonstrate the workflow, not model strength. Regenerate the page captures
-with `tests/documentation-screenshots.docs.ts`; see
-[documentation guidelines](../development/documentation-guidelines.md#screenshots).
-Historical trials remain inspectable and their checkpoints remain usable.
-
-Arrow keys move between tabs; Home/End choose the first/last tab. Charts accept
-left/right and Home/End keys for exact values and support pointer inspection.
-All/recent 10/25/50/100/250 iteration controls are shared across analysis views
-and remain selected during polling; switching jobs resets them for the new job.
-The same window also bounds the automatic hyperparameter decision log, anchored
-to the latest recorded training iteration rather than the last decision. Data
-tables mount when opened, keeping long histories out of the DOM during ordinary
-monitoring.
-
-### Selecting Learning metrics
-
-Use **Learning metric** to switch the single chart's title, series, units,
-legend, accessible description and exact-value tooltips. **Loss by iteration**
-keeps both loss series in their usual colors; policy and value loss can also be
-selected separately. The chosen metric survives progress polling. Selecting a
-different job restores the loss default. All/recent 10/25/50/100/250 iterations
-applies to every metric, including the lazily opened **View graph data** table.
-That one bounded table retains policy/value loss, replay positions and
-per-iteration optimizer updates, and adds the selected metric's exact values.
-
-Optimizer updates use the recorded per-iteration `updates` count, falling back
-to the legacy top-level `optimizer_updates` alias only if `updates` is invalid
-or absent. Valid counts are nonnegative safe integers, including zero; missing
-or invalid counts remain unknown. The KPI, metric availability, chart and table
-share this normalization without modifying imported rows. Cumulative optimizer
-diagnostics, such as Schedule-Free `completed_steps`, never supply this metric;
-counts are not inferred from adjacent iterations or configuration.
-
-Measured observations include replay positions, optimizer updates during the
-iteration, recorded training exposures and the optimizer base learning rate.
-**Learning rate (used)** belongs to the completed interval; **Learning rate
-(selected)** is the effective rate chosen afterward for the next interval.
-HyperController decisions remain in the separate adaptation log. Schedule-Free
-AdamW's base rate is distinct from its warm-up-adjusted rate and from the
-parameter-dependent magnitude of an update. Very small rates use an appropriate
-data scale and locale-aware scientific notation.
-
-Weight decay also uses adaptive small-value scaling, so changes such as
-0.000001 to 0.000002 remain visible. The axis starts at zero; genuine zero and
-zero-only histories remain inspectable in the chart and exact-value table.
-Loss, Evaluation and Performance retain their existing scales.
-
-Configured parameters use stepped lines: replay capacity, batch size, epochs,
-self-play MCTS iterations/time limit, games per iteration, weight decay, PUCT
-exploration, move temperature, Dirichlet alpha/fraction and the game-ply limit.
-Each change starts at its first effective iteration. For example, recorded MCTS
-budgets 64 for iterations 1–1000, 128 for 1001–1250 and 256 from 1251 onward retain
-those exact phases in the newest resumed job. Replay **positions** is actual
-occupancy; replay **capacity** is the configured maximum. MCTS iterations is a
-configured per-move ceiling: a time limit, terminal search or shortcut can finish
-with fewer simulations. Performance retains the actual work counters.
-
-New workers record sparse, whitelisted parameter snapshots in the portable full
-checkpoint history, at each execution's first completed iteration and whenever
-these settings change. Rows reference their applicable snapshot; resuming keeps
-all earlier events and establishes a new boundary. See the
-[history format](./models.md#checkpoint-types).
-
-Legacy rows without reliable provenance remain unknown, including rows appended
-by an older worker. The selected job's current configuration is never projected
-back onto them. Metrics without observations are marked **Not recorded** and
-disabled; an available metric with no observations in the chosen range shows
-**No recorded observations**. Partial histories retain their recorded portions.
-Unknown values show `—`, genuine zero remains zero, and paths break at unknown
-values or missing iterations. Configuration KPIs identify the selected job's
-settings, which may differ from earlier training phases.
-
-Large histories reuse their normalized rows. Stepped paths keep every actual
-transition and gap while omitting redundant commands along constant stretches;
-all recorded iterations remain available for inspection. See the reproducible
-[Learning performance measurements](../evaluation/benchmarks/training/learning-metrics.md) for datasets
-from 1,500 to 100,000 iterations and the remaining measurement limits.
-
-## Live monitoring
-
-The monitor reports what is happening to an operator without pretending that a
-missing signal is a job failure. Training progress, the worker heartbeat and
-snapshot publication are separate; a long game or optimization epoch keeps elapsed
-time and the phase block advancing while counters are unchanged.
-
-- **Self-play** shows completed/scheduled games, active games, searched positions
-  and MCTS simulations.
-- **Model training** shows completed/total optimization steps, the current epoch and
-  running policy/mean policy and value losses.
-- **Evaluation** shows completed/scheduled games, wins, draws, losses and the
-  effective opponent.
-- **Preparation, checkpointing and finalization** show phase and elapsed time only,
-  because no meaningful unit counter exists there.
-
-Monitoring starts before expensive initialization. Initialization reports
-`starting`, `loading_checkpoint`, `initializing`, `restoring_state` (resume only) and
-`initializing_inference`; no model, optimizer, device or inference backend is needed
-for the heartbeat. A failure ends the job as failed/pruned with the error recorded.
-
-Elapsed time is a monotonic duration anchored by the browser, not a worker
-timestamp. A new phase restarts only the phase timer and a new iteration restarts
-only the iteration timer; a terminal job stops advancing. The live header follows
-the active iteration, while the overview **Iteration** KPI keeps the last completed
-iteration used by checkpointing and resume. Finalization keeps the heartbeat active
-so a slow export is reported as `finalizing`, not as a stalled worker.
+The monitor distinguishes training progress, worker heartbeat and snapshot
+publication. Initialization reports `starting`, `loading_checkpoint`, `initializing`,
+`restoring_state` and `initializing_inference`; a long game/epoch keeps elapsed time
+advancing. Cancel writes a resumable checkpoint between moves/minibatches.
 
 | State | Meaning |
 | --- | --- |
-| **Worker active** | Publication is fresh and work is progressing. |
-| **Running, long operation** | Publication is fresh, but no meaningful progress for two minutes. One self-play or evaluation game may legitimately take that long. |
-| **Potentially stalled** | Publication is fresh, but no meaningful progress for ten minutes. |
-| **No recent updates** | The training process published nothing for twenty seconds, even though its supervisor is still reporting. |
-| **Worker connection lost** | The server confirms a remote supervisor has not reported for twenty seconds; the job ends as failed when its lease expires. |
-| **Monitoring connection unavailable** | The browser has not received fresh monitoring data for twenty seconds; the worker's state is unknown rather than failed. |
-| **Waiting for a worker** | The job is queued. |
+| **Worker active** | Publication fresh and work progressing |
+| **Running, long operation** | Fresh publication, no meaningful counter for two minutes |
+| **Potentially stalled** | Fresh publication, no meaningful counter for ten minutes |
+| **No recent updates** | Child process published nothing for twenty seconds while supervisor still reports |
+| **Worker connection lost** | Server confirms supervisor silent for twenty seconds; job fails when lease expires |
+| **Monitoring connection unavailable** | Browser has no fresh monitoring response for twenty seconds; worker state unknown |
+| **Waiting for a worker** | Job is queued |
 
-Jobs recorded before these fields existed omit the heartbeat state, phase timer and
-counters instead of inventing values. Heartbeat labels never change job management
-or outcome. Publication locking, snapshot-generation identity, remote freshness
-calculation and polling/ticker internals are documented in
-[training monitoring internals](../development/training-monitoring.md).
+Hiding the browser suspends local countdown rendering only. Full publication/polling
+internals are in [training monitoring](../development/training-monitoring.md).
+Heartbeat labels never change job management or outcome.
 
-## Reading charts correctly
+## Models
 
-Charts adapt their SVG coordinate width to the available space, keep readable
-axis labels and metric units, and avoid animations during polling. Long learning
-and performance histories omit repetitive point markers. Values remain available
-through tooltips and tables.
+![Model collection](../assets/training/training-models.jpg)
 
-Evaluation groups include the recorded opponent identity, effective context and
-Champion incumbent. A single-series view plots only its own context. The merged
-view (overview, and **All evaluation series** in Evaluation) connects the same
-per-iteration scores across contexts so one curve covers the whole run; read a
-step where the opponent, settings or incumbent changed as a context change, not
-as continuous improvement, and use the per-series views to compare like with
-like. The merged view lists every merged context under its effective settings.
-Scheduled but absent evaluations stay gaps in both views; they are not zero
-scores. Champion promotion events are marked on the relevant evaluation series.
-Legacy baseline records remain readable and identify missing effective settings.
-A high score from a small sample remains limited evidence; use larger held-out
-tournaments before claiming general strength.
+Model cards show name/rune, ruleset, iteration, architecture, recorded evaluation and
+training seed when available. Controls: **Rename**, **Load training parameters**,
+export, **Resume training** when a resumable source exists, and **Delete model**.
+Deletion checks active jobs, studies and unfinished games; unfinished references need
+explicit discard consent. Deleting a model does not delete its source job; deleting
+training data does not delete a playable model. See [models](models.md).
 
-## Model collection and compatibility
-
-![Model collection cards](../assets/training/training-models.jpg)
-
-The separate expandable **Model collection** remains below monitoring. Its
-import/export, rename/delete, metadata/evaluation summaries, load-parameters and
-source-job resume actions retain their existing behavior. A registered inference
-model and the source job's latest full checkpoint are distinct artifacts.
-Loading parameters opens creation; resuming a model card uses its linked job.
-
-**Total self-play games** on each model card belongs to that exact saved
-checkpoint, separately from configured **Self-play** games per iteration. A best
-model selected earlier retains its earlier count even after the job generates
-more games. Model and job export/import preserve recorded counters.
-
-Version 0.25.0 adds optional versioned counter metadata to existing progress and
-model/checkpoint metadata. Engine/training algorithms and tensor format 1 remain
-unchanged; no database migration is required. Update workers for job-local counters.
-Older workers may omit newer metrics; missing measurements display as absent.
-
-The dashboard refreshes while jobs or registered workers need updates. A warning
-reports stale or unavailable monitoring instead of showing old data as current.
-Compact job summaries drive the navigator; full history and the bounded log tail
-load for the selected job, and switching jobs preserves the selected analysis tab.
-Full histories, exports and checkpoints remain retained. Polling coalescing,
-snapshot publication and worker cadence are covered in
-[training monitoring internals](../development/training-monitoring.md); measured
-responsiveness is in the [monitoring report](../evaluation/benchmarks/training-monitoring.md).
-
-## Screenshot provenance
-
-The committed Workshop screenshots use disposable persisted-API fixtures
-(including a 60-iteration running job and a 120-iteration completed job) or a real
-disposable CPU smoke run for tuning/resume. They are interface examples, not
-trained-model strength or GPU throughput evidence. Regenerate them with the
-documented opt-in screenshot command; see
-[documentation guidelines](../development/documentation-guidelines.md#screenshots).
+## Workers
 
 ![Remote worker management](../assets/training/training-workers.jpg)
 
-Worker cards show compatibility, capacity, active jobs, hardware and last-seen
-time. Enrollment and leases are documented in [remote workers](remote-workers.md).
+Worker cards show online status, compatibility, version/commit, capacity/active jobs,
+device capabilities (CUDA/MPS/OpenVINO), last-seen time and revoke/override actions.
+Enrollment returns a one-time token and command; only a hash is stored. See
+[remote workers](remote-workers.md) and
+[worker protocol](../development/worker-protocol.md).
 
-## Optional OpenVINO inference
+## AI testing
 
-See [OpenVINO execution and refresh metrics](./openvino.md) for opt-in setup, defaults, checkpoint portability and measured limitations.
+AI testing (`/tournaments`) is a separate saved collection of AI comparison series.
+It never enters player Elo, leagues or statistics.
+
+![AI testing results](../assets/training/training-ai-testing.jpg)
+
+**New tournament** starts a balanced round robin; **Fixed-role comparison** pins an
+independent attacker and defender. The setup chooses ruleset(s), entrants, games per
+pair, search budgets, optional compatible models and randomized legal openings.
+
+![AI testing setup](../assets/training/training-ai-setup.jpg)
+
+Saved series show standings, per-opponent scores, battlefield win matrices, role
+analytics, game links/replay and export. Running series can be stopped; saved data can
+be deleted after live references clear. Unfinished games remain separate from draws
+and wins. See [AI testing methodology](../evaluation/ai-tournaments.md) and
+[AI testing authority](../development/ai-testing.md).
+
+## Optional OpenVINO
+
+See [OpenVINO](openvino.md) for setup, portability and measured limitations.
+
+## Screenshot provenance
+
+Regenerate these opt-in with `npm run test:docs-screenshots`; see
+[documentation guidelines](../development/documentation-guidelines.md#screenshots).

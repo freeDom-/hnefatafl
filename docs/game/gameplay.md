@@ -34,12 +34,30 @@ repetition convention. Brandubh/Tablut use a no-move draw; Copenhagen uses a no-
 loss. A training/tournament move cap produces an **unfinished** game, never a rules
 draw. Ordinary games have no experimental move cap.
 
+## Opponents
+
+Normal setup offers four fixed presets. Administrators can additionally configure a
+custom opponent or run AI vs AI.
+
+| Preset | Style |
+| --- | --- |
+| Shield bearer | Baseline tactical heuristic |
+| Shield maiden | Rules-aware tactical heuristic |
+| Jarl | Alpha-beta search |
+| Seer | MCTS search |
+
+The dialog describes style and budget, not a measured strength ranking. A trained
+model can be used through advisor, training and AI testing flows when compatible
+with the battlefield. Search fields and bounds are in
+[agent search parameters](../training/parameters.md#agent-search-settings); measured
+comparisons are in [agent evaluation](../evaluation/agents.md).
+
 ## Create a single-player game
 
 1. On the Great Hall choose **Play vs AI** (or **New single-player game**).
 2. Choose the battlefield and your side.
-3. Choose a fixed opponent: **Shield bearer**, **Shield maiden**, **Jarl** or
-   **Seer**. Administrators can also configure a custom opponent and AI-vs-AI.
+3. Choose one of the fixed opponents above. Administrators can also configure a
+   custom opponent and AI-vs-AI.
 4. Select a piece, then a highlighted legal destination. Arrow keys navigate,
    Enter/Space selects and Escape clears selection.
 5. The computer plays its turns automatically. Captures, move history and the

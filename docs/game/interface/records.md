@@ -15,7 +15,7 @@ pagination and a selected review that survives filter changes.
 
 **Controls and restrictions:** ordinary accounts see participating/owned records;
 administrators can inspect all server-recorded categories. No mutation, restart or
-export controls. See [dashboard and records](../dashboard.md#hall-of-records).
+export controls. See [dashboard and records](../interface/records.md#hall-of-records).
 
 ## Replay and analysis
 
@@ -40,8 +40,10 @@ live online games have no analysis; estimates are uncalibrated expected scores. 
 ![Hall of Renown portrait gallery](../../assets/game/kings-table-portrait-hall.webp)
 
 **Main functionality:** unlocked/locked portraits, selected portrait, **Deeds of
-Valor** achievement cards, milestone rewards and manual **Collect** actions where
-available.
+Valor** achievement cards, milestone rewards, **Unlock portrait** for eligible
+portraits and **Use portrait** to equip an unlocked one. Achievement cards show
+earned tier, recorded progress, next milestone and milestone rewards; awards are
+automatic and no point cost is charged for a portrait.
 
 **Controls and restrictions:** only earned catalog IDs can be selected; awards are
 permanent after confirmation; artwork is cosmetic. See [progression](../progression.md).

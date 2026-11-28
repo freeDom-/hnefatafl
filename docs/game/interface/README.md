@@ -12,7 +12,7 @@ controls/restrictions and links to conceptual documentation.
 | Statistics, Leaderboard, Leagues, Player tournaments | `/statistics`, `/leaderboard`, `/leagues`, `/player-tournaments` | [Competition](competition.md) |
 | Hall of records, replay and Hall of Renown | `/archive`, `/portraits` | [Records and portraits](records.md) |
 | Login, registration, verification, recovery, My Profile | `/login`, `/register`, `/verify-email`, `/forgot-password`, `/reset-password`, `/profile` | [Account and profile](account.md) |
-| AI Workshop, Training, Models, Workers, AI Testing | `/training`, `/tournaments` | [Workshop](workshop.md) |
+| AI Workshop, Training, Models, Workers, AI testing | `/training`, `/tournaments` | [Workshop](../../training/interface.md) |
 
 ## Shared shell
 
@@ -28,6 +28,13 @@ permission-gated workspace reached through the **AI Workshop** entry.
 Shared states: transient notifications appear top-centre; field validation and
 authentication errors stay inline; loading pages use explicit labels rather than
 blank placeholders. Dialogs close with Escape and restore focus to the opener.
+
+Accounts and models have persistent presentation runes. Names can repeat; runes
+distinguish identities in lists, games, advisors, analyses and records. A model
+keeps its rune across budgets and sides; renaming changes its label but not its rune.
+Runes are presentation only and never affect rules, weights, search identity, seed
+grouping or statistics. Historical local-player tombstones retain reserved runes for
+old records, but local-player creation is no longer supported.
 
 ## Screenshots
 

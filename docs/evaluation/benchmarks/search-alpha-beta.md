@@ -531,4 +531,4 @@ explicit-default record, and their runes and statistics stay separate. The trade
 is that two behaviourally equivalent configurations can appear as two identities
 in the Hall of Records. `tests/test_identities.py` and `tests/test_api.py` assert
 the distinct and stable variant IDs and runes; the policy is documented in
-[Persistent identity runes](../../game/personalization.md) and [AI opponents](../agents.md).
+[Persistent identity runes](../../game/interface/README.md) and [AI opponents](../agents.md).

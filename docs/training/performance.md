@@ -113,7 +113,7 @@ Live monitoring updates one aggregated counter per position and optimizer batch 
 republishes a bounded heartbeat about once per second. Full history is written on
 real progress events. Overhead and remote forwarding measurements are in the
 [monitoring report](../evaluation/benchmarks/training-monitoring.md); operator
-states are in [the interface](interface.md#live-monitoring).
+states are in [the interface](interface.md#monitoring-states).
 
 ## Troubleshooting
 

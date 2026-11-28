@@ -78,7 +78,7 @@ Watch Hall then returns not found. Authenticated online play is unaffected.
 A two-game match counts as one creation. Cancelling a waiting game does not refund
 the rolling creation budget. See
 [online operations](../administration/online-operations.md) and
-[public online](../game/public-online.md).
+[public online](../game/interface/arena.md#public-watch-hall).
 
 ## Optional browser-local analysis
 

@@ -4,15 +4,8 @@
 
 ## Admission and configuration
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `HNEFATAFL_ONLINE_ENABLED` | `false` | Allow creating/joining online games |
-| `HNEFATAFL_ONLINE_TIMEOUT_POLICY_APPROVED` | `true` | Finalize automatic timeout losses |
-| `HNEFATAFL_ONLINE_SWEEP_SECONDS` / `_BATCH` | `1` / `50` | Deadline sweep cadence/batch |
-| `HNEFATAFL_ONLINE_WAITING_LIMIT` | `5` | Waiting games per account |
-| `HNEFATAFL_ONLINE_CREATION_LIMIT` / `_WINDOW_SECONDS` | `10` / `900` | Rolling creation budget |
-| `HNEFATAFL_PUBLIC_ONLINE_ENABLED` | `true` | Signed-out public discovery |
-| `HNEFATAFL_PUBLIC_RATE_LIMIT` / `_WINDOW_SECONDS` | `60` / `60` | Public request limit |
+All online/public variables and defaults are canonical in
+[configuration](../installation/configuration.md#online-play-and-public-discovery). This page assumes the configured admission, quota, clock and public-discovery values.
 
 Enable admission only after accounts, clocks, result finalization, backups and
 reverse proxy are verified. Registration and online admission are independent.

@@ -1,6 +1,6 @@
 # Arena v2 design system
 
-[Documentation index](../../README.md) · [Personalization](../game/personalization.md) ·
+[Documentation index](../../README.md) · [Personalization](../game/interface/README.md) ·
 [Architecture](./architecture.md)
 
 The four supported UI themes share one information architecture. King’s Table uses
@@ -31,7 +31,7 @@ four standing cards, bounded game previews, compact leaderboard and recent recor
 The primary fixture composition fits at 1920×1080/Default and 3840×2160/Large.
 Genuinely longer queues and records retain normal vertical scrolling. Grid tracks,
 fluid board sizing and shared spacing tokens preserve hierarchy without clipping.
-See [scale defaults and overrides](../game/personalization.md#appearance).
+See [scale defaults and overrides](../game/interface/account.md#my-profile).
 
 ## Materials and safe assets
 

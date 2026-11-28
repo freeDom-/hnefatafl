@@ -63,7 +63,7 @@ fixture controller exposes record identifiers only. Error/retry cases inject one
 503 at the browser; ordinary records and API responses are real. Screenshots and
 asset evidence are written to `frontend/test-results/public-production/` and
 uploaded by CI before other browser configurations clean their output.
-See [the production CSS regression record](../game/public-online.md).
+See [the production CSS regression record](../game/interface/arena.md#public-watch-hall).
 
 Install Playwright Chromium first, or set
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium` when using a system installation.

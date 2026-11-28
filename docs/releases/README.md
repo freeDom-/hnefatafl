@@ -64,6 +64,14 @@ current manual and are not relabelled after later changes.
 | [0.2.0](0.2.0.md) | Three deterministic rulesets |
 | [0.1.0](0.1.0.md) | Development foundation |
 
+## Historical records
+
+- [Security advisory assessment and withdrawal, 2026-11-18](security-advisory-2026-11-18.md):
+  completed historical record; current dependency-audit policy is in
+  [security administration](../administration/security.md#dependency-audit).
+- [Deferred contributor licensing proposal](contributor-licensing-proposal.md):
+  not active; current contribution policy is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
+
 GitHub Releases is the canonical publication channel for release notes and
 verified archives. This directory mirrors the notes for repository-local and
 offline use. Do not delete tags or rewrite published release notes.

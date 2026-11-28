@@ -23,23 +23,7 @@ control updates the visible projections. Focus, visibility and reconnect also
 wake the reads. While idle, only the queue has a recurring one-minute read so
 it can discover remote session activity, eligibility, pause or clock changes.
 
-| Method and path | Result |
-| --- | --- |
-| `GET /api/leagues/current` | Current UTC month, policy, per-ruleset progress and current queue |
-| `GET /api/leagues/seasons` | Persisted seasons with status and revision |
-| `GET /api/leagues/progress` | Own seasonal results, tier, qualification and rank |
-| `GET /api/leagues/standings` | Qualified standings with published identity and portrait |
-| `GET /api/leagues/history` | Own official games, result eligibility and authorized game/replay links |
-| `GET /api/leagues/queue` | Account eligibility, queue, server time and active game |
-| `POST /api/leagues/queue` | Join with a ruleset and request UUID |
-| `POST /api/leagues/queue/cancel` | Cancel or retrieve the outcome of the specified request UUID |
-| `POST /api/leagues/queue/discard` | Resolve a pending join with its ruleset, UUID and expected generation |
-| `GET /api/leagues/active-game` | The current official League game, if any |
-| `GET /api/leagues/admin/health` | Queue, worker, settlement and rebuild status |
-| `GET /api/leagues/admin/audit` | Private append-only administration history |
-| `POST /api/leagues/admin/matchmaking` | Set paused state with its current version and a reason |
-| `POST /api/leagues/admin/queue/cancel` | Cancel a stale entry by its original UUID and a reason |
-| `POST /api/leagues/admin/seasons/{season_id}/rebuild` | Schedule a rebuild with the current season revision and a reason |
+The canonical endpoint table is in the [API reference](api/README.md#online-play-ratings-leagues-and-human-tournaments). This page owns the queue/settlement/recovery semantics behind those routes.
 
 The League worker shares the online lifespan configuration and periodically
 checks indexed due work, queue expiry and matchmaking. Administrative pause

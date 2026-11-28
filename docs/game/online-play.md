@@ -47,7 +47,8 @@ advisor, suggested move, win probability or AI analysis in a live online game.
 - A deadline may finalize a timeout instead of accepting a pending move or
   concession; the result explains which happened.
 - Remaining time follows the authoritative deadline. Waiting and completed games
-  do not show an invented clock.
+  do not show an invented clock. Hiding the browser tab suspends local countdown
+  rendering only; the deadline continues to run.
 - A compact switcher lists your active online games, marks the current game and
   flags games awaiting your move.
 
@@ -70,7 +71,7 @@ never clamped. Existing games keep their exact stored seconds.
 Completed online records open read-only in the **Hall of records** with replay and,
 where permitted, analysis. Live games can be watched under the existing permissions.
 The signed-out public Watch Hall exposes only eligible online games; see
-[public online](public-online.md).
+[public online](interface/arena.md#public-watch-hall).
 
 ## Related policies
 

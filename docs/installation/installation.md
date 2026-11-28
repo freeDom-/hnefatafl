@@ -199,7 +199,7 @@ persistent root; release directories are read-only to the application. Ruleset
 Markdown remains versioned runtime code. Existing job/checkpoint paths remain
 under `jobs`, rather than being moved into new artificial directories. To migrate
 an old installation, stop all writers and copy the **complete** data root and
-configuration first; see [backup and relocation](../training/models.md#consistent-backup-and-restoration).
+configuration first; see [backup and relocation](../training/models.md#backup-and-restoration).
 Do not copy only the database or registry. Existing legacy games/players remain
 administrator-only, with no invented account ownership. Schema 8 is additive and
 transactional; newer unsupported schemas are refused. Schema 9 adds account
