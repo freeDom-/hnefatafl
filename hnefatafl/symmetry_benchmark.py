@@ -227,7 +227,7 @@ def wilson(successes: float, total: int, z: float = 1.96) -> list[float]:
 def run_symmetry_benchmark(
     configuration: dict, *, should_stop: Callable[[], bool] | None = None
 ) -> dict:
-    """Run the configured experiments. See docs/benchmarks/symmetry-phase3.md."""
+    """Run the configured experiments. See docs/evaluation/benchmarks/inference/symmetry-and-caching.md."""
     allowed = {
         "rulesets",
         "training",

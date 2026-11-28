@@ -510,7 +510,7 @@ def _committed_browser_report():
 
     path = (
         Path(__file__).resolve().parents[1]
-        / "docs/validation/tournament-browser-structural-phase3c.json"
+        / "docs/evaluation/browser-analysis/evidence/tournament-browser-structural-phase3c.json"
     )
     return json.loads(path.read_text())
 

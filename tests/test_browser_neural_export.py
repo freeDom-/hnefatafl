@@ -6,7 +6,7 @@ evidence only: they are not trained-model strength or browser evidence, and they
 skip when the optional exporter/runtime dependencies are not installed.
 
 The actual-trained-checkpoint and physical-device gates remain explicit opt-in
-commands documented in ``docs/designs/browser-analysis-roadmap.md``.
+commands documented in ``docs/development/roadmap/browser-analysis.md``.
 """
 
 from __future__ import annotations

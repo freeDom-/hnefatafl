@@ -568,7 +568,9 @@ class GitHub:
             None,
         )
         if not asset:
-            raise ValueError(f"Stable release must publish {name}; see docs/RELEASING.md")
+            raise ValueError(
+                f"Stable release must publish {name}; see docs/releases/release-process.md"
+            )
         expected = asset.get("digest", "")
         if not re.fullmatch(r"sha256:[a-f0-9]{64}", expected):
             raise ValueError(

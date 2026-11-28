@@ -1,6 +1,6 @@
 """Measure portable archives against a saved pre-change module, without training changes.
 
-Run from the repository root (see docs/benchmarks/job-archives.md). Fixtures retain
+Run from the repository root (see docs/evaluation/benchmarks/training-job-archives.md). Fixtures retain
 real smoke-training checkpoints; long histories repeat its measured iteration and
 are synthetic, not evidence of 1,000 optimizer updates. Each measurement gets a
 fresh process so peak RSS can be compared. No optional benchmark dependency.

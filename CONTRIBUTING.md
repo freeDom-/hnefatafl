@@ -1,10 +1,10 @@
 # Contributing to Hnefatafl
 
-[Repository introduction](README.md) · [Licensing](docs/LICENSING.md) ·
-[Development workflow](docs/DEVELOPMENT.md)
+[Repository introduction](./README.md) · [Documentation index](./docs/README.md) ·
+[Licensing](./docs/LICENSING.md) · [Contributor workflow](./docs/development/contributor-workflow.md)
 
 Hnefatafl is source-available under the
-[PolyForm Noncommercial License 1.0.0](LICENSE). It is not OSI-approved
+[PolyForm Noncommercial License 1.0.0](./LICENSE). It is not OSI-approved
 open-source software. Contributions are welcome, but every contribution must
 respect the project's licensing model and the rights of third parties.
 
@@ -19,13 +19,14 @@ respect the project's licensing model and the rights of third parties.
   unlicensed material without prior written approval from the project owner.
 - Keep existing copyright notices, attribution and third-party license files
   intact. Add new third-party components and their notices to
-  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+  [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 - Do not remove or weaken a third-party notice to make a dependency look
   compatible.
 - Do not submit credentials, private data, production databases, unpublished
   personal information or model weights you are not authorized to publish.
 - Follow the development, testing and resource-safety rules in
-  [AGENTS.md](AGENTS.md) and [Development](docs/DEVELOPMENT.md). Deliver changes
+  [AGENTS.md](./AGENTS.md), [Development setup](./docs/development/setup.md) and
+  [Contributor workflow](./docs/development/contributor-workflow.md). Deliver changes
   on a branch and through a pull request against `main`.
 
 ## Contribution licensing status
@@ -39,7 +40,7 @@ PolyForm Noncommercial License 1.0.0 terms.
 The maintainer does not currently intend to commercially exploit Hnefatafl.
 Ordinary noncommercial contributions do not need a CLA or any additional legal
 agreement. A deferred, non-binding
-[CLA proposal](docs/CONTRIBUTOR_LICENSING.md) is retained only as a contingency
+[CLA proposal](./docs/development/contributor-licensing.md) is retained only as a contingency
 if the maintainer ever decides to seek broader rights. It is not active, grants
 no additional rights now and would require explicit maintainer approval and
 legal review before any activation.

@@ -2,8 +2,8 @@
 
 <p align="center">
   <strong>Ancient Viking strategy. Modern browser play.</strong><br>
-  Play Brandubh, Tablut and Copenhagen with friends or AI, challenge rival agents
-  in tournaments, and train your own neural opponents.
+  Play Brandubh, Tablut and Copenhagen with friends or AI, compete in leagues and
+  tournaments, and train your own neural opponents.
 </p>
 
 <p align="center">
@@ -13,89 +13,56 @@
 
 <p align="center">
   <a href="#features">Features</a> ·
-  <a href="#install-and-start">Quick start</a> ·
+  <a href="#quick-start">Quick start</a> ·
   <a href="docs/README.md">Documentation</a> ·
-  <a href="docs/TRAINING.md">AI training</a> ·
-  <a href="docs/DEPLOYMENT.md">Deployment</a> ·
+  <a href="docs/game/interface/README.md">Interface guide</a> ·
+  <a href="docs/training/README.md">AI training</a> ·
+  <a href="docs/installation/README.md">Deployment</a> ·
   <a href="#licensing">Licensing</a> ·
   <a href="#support-development">Support</a>
 </p>
 
+![The Great Hall with a running Brandubh game](docs/assets/game/themes/kings-table-dashboard.webp)
+
+Hnefatafl is a self-hosted, source-available Viking board-game application. A
+deterministic Python engine owns the rules; a responsive React client provides the
+Arena; accounts, online games, ratings and progression are server-owned. There is no
+required external service and no Docker dependency.
+
 <a id="features"></a>
 
-## Licensing
+## Features
 
-Hnefatafl is **source-available** software licensed under the
-[PolyForm Noncommercial License 1.0.0](LICENSE), SPDX identifier
-`PolyForm-Noncommercial-1.0.0`. It is **not** OSI-approved open-source software.
+- **Three rulesets** with authoritative source notes: Brandubh (7×7), Tablut market
+  rules (9×9) and Copenhagen (11×11). Variant-specific captures, escapes,
+  shieldwalls, encirclement and repetition are implemented, not approximated.
+- **Play your way**: single-player against fixed or custom agents, local 1v1
+  pass-and-play, or rated online games with per-move/total-time clocks and
+  two-game matches.
+- **The Arena**: The Great Hall, Battlefield, Statistics, Trials of Valor
+  (Leaderboard, Player tournaments, Leagues), Hall of records and Hall of Renown.
+  Four themes, independent board/token/interface scale, English and German.
+- **Competition**: Elo ratings, UTC calendar-month leagues with tiers and queue,
+  double-elimination player tournaments, tiered achievements and unlockable
+  portraits.
+- **Analysis and replay**: read-only history, saved agent opinions, a background
+  move advisor and a signed-out public Watch Hall for eligible online games.
+- **AI opponents**: Shield bearer, Shield maiden, Jarl alpha-beta and MCTS agents,
+  plus **MCTS, alpha-beta or policy-only** wrappers around compatible trained
+  models.
+- **Training workshop**: AlphaZero-style self-play, evaluation and Champion
+  selection, checkpoint resumption, Optuna tuning, model import/export, AI
+  tournaments and remote workers. CPU by default; optional CUDA/MPS/Intel OpenVINO.
+- **Operations**: Proxmox/Debian installers, systemd and reverse-proxy examples,
+  versioned release updates, rollback, backups and integrity-checked model loading.
 
-The license permits private use, noncommercial self-hosting, noncommercial
-modification and redistribution, and qualifying use by charitable, educational,
-public research, public safety/health, environmental and government
-organizations, as the license defines those terms. Fair-use rights are preserved.
-The summary in this section does not replace the license; the
-[license text](LICENSE) controls, including its definitions and exceptions.
-
-Commercial use not permitted by the license requires separate explicit
-authorization from the relevant rights holders. Hnefatafl does not offer a
-commercial licensing program, sales channel or entitlement to commercial terms;
-no authorization is offered or implied through GitHub Issues. Examples that
-generally require separate authorization include:
-
-- Selling copies of the software.
-- Providing commercial managed hosting.
-- Operating a commercial Hnefatafl platform based on the software.
-- Offering paid subscriptions or premium features using the software.
-- Commercial redistribution.
-- Incorporating the software into commercial products or services.
-
-Third-party components and assets keep their own terms; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Contributors retain copyright in
-their contributions; no CLA is active and a deferred proposal is documented in
-[CONTRIBUTING.md](CONTRIBUTING.md) and
-[the CLA proposal](docs/CONTRIBUTOR_LICENSING.md). The full scope, previous-release
-position, AI-model distinctions and unresolved ownership questions are documented
-in [Licensing](docs/LICENSING.md). Earlier releases contained no root license;
-this change does not retroactively revoke rights or relicense older archives.
-
-## Support development
-
-Financial support is completely voluntary through
-[Buy Me a Coffee](https://buymeacoffee.com/free.dom). Hnefatafl remains free for
-permitted noncommercial use whether or not anyone donates. All gameplay and AI
-features remain free. Donations are not a software license purchase and unlock
-no features, privileges, ranking, matchmaking or training advantages; non-donors
-have identical access. The project makes no tax-deductible charitable-status
-claim. See the [donation policy](docs/DONATIONS.md) for details.
-
-## What you can do
-
-- Play locally with two humans, Human vs AI or AI vs AI; use mouse, touch or
-  keyboard, undo/redo, saved replay, captures and configurable computer playback.
-- Choose tactical, alpha-beta or MCTS opponents. Use compatible trained models
-  with **MCTS, alpha-beta or policy-only** wrappers and inspect saved position
-  estimates or a background move advisor.
-- Run saved two-to-four-player round robins with balanced sides, per-battlefield
-  win matrices and explicit unfinished outcomes. Browse sortable player/AI records.
-- Train on CPU or supported CUDA/MPS devices; monitor retained learning charts,
-  evaluate against one selected Shield bearer, Jarl or Champion opponent and run
-  persistent Optuna studies.
-- Resume a full checkpoint with reviewed changes to training budgets, optimizer
-  settings and execution mode while retaining learning state. Use sequential or
-  concurrent self-play with batched neural inference and inspect actual throughput.
-- Enroll outbound remote workers with simultaneous independent training slots.
-  Rename/import/export models and delete training data separately from playable models.
-- Use English/German, persistent identity runes and four UI themes with independent board, token
-  and interface-scale settings. See the [mobile interface](docs/screenshots/mobile.png).
-
-<a id="install-and-start"></a>
+<a id="quick-start"></a>
 
 ## Quick start
 
-Use **Python 3.12 recommended** (3.11+ supported), **Node.js 22.12+** (or 24+;
-CI uses 24) and
-[uv](https://docs.astral.sh/uv/getting-started/installation/) (CI pins 0.12.23).
-From the repository root:
+Requirements: Python 3.12 recommended (3.11+), Node.js 22.12+ or 24+, and
+[uv](https://docs.astral.sh/uv/getting-started/installation/). From the repository
+root:
 
 ```sh
 make install
@@ -104,125 +71,127 @@ make build
 bash scripts/start.sh
 ```
 
-Open port 8000 on the local machine. The server binds `127.0.0.1` and serves both
-the built browser client and API. Check readiness with
-`curl --fail http://127.0.0.1:8000/api/health`, then log in and create a game.
-Administrator setup asks for username (default **Odin**), email and a password;
-there is no default password or public registration. Ordinary accounts can play;
-training, tournaments and model management require administrator permissions.
-See [Authentication and RBAC](docs/SECURITY.md).
-Set `HNEFATAFL_DATA_DIR` to choose persistent storage (default `./data`).
-`.env.example` documents variables; it is not automatically loaded.
+Open <http://127.0.0.1:8000>, sign in as the administrator you just created and
+create a game on **The Great Hall**. No default password and no public
+registration exist. `HNEFATAFL_DATA_DIR` selects storage (default `./data`).
+`.env` is not loaded automatically.
 
-For live development use `bash scripts/dev.sh` after installation. See
-[Deployment](docs/DEPLOYMENT.md) for trusted-LAN access, Linux/LXC, systemd,
-an external HTTPS reverse proxy, stable-release updates and backups. For a dedicated
-Debian 13 container, run `bash scripts/proxmox/ct/hnefatafl.sh` from a reviewed
-checkout on Proxmox. [Installation and recovery instructions](docs/DEPLOYMENT.md)
-describe release assets and private repository credentials. No Docker is required.
-The locked environment installs CPU PyTorch; [GPU setup](docs/PERFORMANCE.md#installation-and-hardware)
-requires a matching official build and suitable hardware.
+For live development use `bash scripts/dev.sh`. See
+[quick start](docs/getting-started/quick-start.md),
+[configuration](docs/installation/configuration.md) and
+[development setup](docs/development/setup.md).
 
-## Proxmox one-line installation
+## Proxmox installation
 
-Run as **root on the Proxmox VE host**; no Git checkout is needed:
+Run as **root on the Proxmox VE host** (no Git checkout needed):
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-install.sh)
 ```
 
-Choose **default** for an unprivileged Debian 13 LXC with 4 cores, 4096 MiB RAM,
-20 GiB on `local-lvm`, template storage `local`, DHCP on `vmbr0`, autostart enabled
-and nesting disabled. Choose **advanced** to customize ID, resources, storage and
-IPv4/gateway. Setup requests the repository (default `freeDom-/hnefatafl`), an
-optional read-only GitHub token, port (8000), public HTTPS origin, trusted proxy
-IPs/CIDRs and administrator username/email/password. Passwords have no default.
+The default creates an unprivileged Debian 13 LXC with 4 cores, 4096 MiB RAM and
+20 GiB storage on `local-lvm`. Setup asks for the repository, an optional read-only
+GitHub token, port, public HTTPS origin, trusted proxies and administrator
+credentials. Review the script before running it as root: it trusts code from
+`main` over HTTPS, while the application itself is installed from a compatible
+published stable release with a verified archive digest.
 
-Review the scripts before running them as root: this bootstrap trusts code from
-`freeDom-/hnefatafl` **main** over HTTPS. The application itself comes from a
-compatible published stable **X.Y.Z** release with a verified archive digest;
-files on main alone are insufficient. The host needs `curl`, Python 3, native
-Proxmox tools, suitable active storage, a bridge and outbound HTTPS access.
-Configure your existing reverse proxy, DNS, firewall and TLS separately.
-
-Update from the host (185 is an example container ID):
+Update from the host (example container ID 185):
 
 ```bash
 pct exec 185 -- /usr/local/bin/hnefatafl-update
 bash <(curl -fsSL https://raw.githubusercontent.com/freeDom-/hnefatafl/main/scripts/proxmox/ct/hnefatafl-pve-update.sh) 185
 ```
 
-The host updater also forwards `--check`, `--list`, `--version X.Y.Z`, `--backup`,
-`--rollback` and `--recover` to the existing safe updater. See
-[deployment and troubleshooting](docs/DEPLOYMENT.md#proxmox-one-line-installation)
-for administration, prerequisites and retained-container recovery.
+See [installation](docs/installation/README.md) for prerequisites, reverse proxy,
+updating, storage retention, backups, rollback and troubleshooting.
 
-<a id="play-and-replay"></a>
-<a id="run-an-ai-tournament"></a>
-<a id="train-and-use-a-model"></a>
+## Screenshots
 
-## Play or train
+| Surface | Preview |
+| --- | --- |
+| The Great Hall | [King's Table](docs/assets/game/themes/kings-table-dashboard.webp) · [Iron Ash](docs/assets/game/themes/iron-ash-dashboard.webp) · [Saga Hall](docs/assets/game/themes/saga-hall-dashboard.webp) · [Classic Table](docs/assets/game/themes/classic-table-dashboard.webp) |
+| Hall of Renown | [Portrait gallery](docs/assets/game/kings-table-portrait-hall.webp) |
+| Player tournaments | [Bracket](docs/assets/game/iron-ash-player-tournaments.webp) |
+| Public Watch Hall | [Discovery](docs/assets/game/kings-table-public-watch.webp) |
+| Achievements | [Tiered achievements](docs/assets/game/kings-table-achievements.png) |
+| AI Workshop | [Training overview](docs/assets/training/kings-table-workshop.jpg) |
 
-On **The Great Hall**, choose **New single-player game**, then a battlefield, mode, sides and opponents. Select a piece,
-then a highlighted legal destination. Arrow keys navigate, Enter/Space selects,
-and Escape clears selection. **Hall of records** opens read-only history; **Resume single-player** reconnects account play. **Analytics**
-below move history configures an advisor. See [Gameplay](docs/GAMEPLAY.md).
+All screenshots come from the running application with disposable fixture data.
+See the [interface guide](docs/game/interface/README.md) for page-by-page
+documentation.
 
-In **AI workshop**, use **Quick check** for a tiny functional training run, or
-choose a board-specific recommended plan for a larger experiment. Equivalent CLI:
+<a id="docs"></a>
 
-```sh
-.venv/bin/python -m hnefatafl.cli devices
-.venv/bin/python -m hnefatafl.cli train --config configs/train-smoke.json
-.venv/bin/python -m hnefatafl.cli benchmark --output data/benchmark.json
-```
+## Documentation
 
-A successful smoke run proves updates/checkpoints/legal play, not stronger play.
-See [Training](docs/TRAINING.md), [Performance](docs/PERFORMANCE.md) and
-[checkpoint/data management](docs/TRAINING_DATA.md). Importing a model supplies
-an opponent; it does not register or resume a training job.
+- [Documentation index](docs/README.md)
+- [Game guide](docs/game/README.md) and [interface guide](docs/game/interface/README.md)
+- [AI, evaluation and benchmarks](docs/evaluation/README.md)
+- [Training, models and workers](docs/training/README.md)
+- [Installation, configuration and operations](docs/installation/README.md)
+- [Administration and security](docs/administration/README.md)
+- [Architecture and contributor workflow](docs/development/README.md)
+- [Release notes and validation](docs/releases/README.md)
 
-<a id="tests"></a>
-<a id="project-map-and-deployment"></a>
+The ruleset files under [docs/rules](docs/rules) are runtime assets; the server
+reads them for the in-game rules panel.
 
-## Develop and verify
+<a id="contributing"></a>
 
-```sh
-make check
-```
+## Contributing
 
-This runs formatting/lint, Python/TypeScript checks, backend/frontend unit tests
-and a production build. Browser checks additionally require Playwright Chromium.
-Changes are delivered on a branch and reviewed in a pull request against `main`;
-see [Development](docs/DEVELOPMENT.md) for that workflow and
-[validation evidence](docs/VALIDATION.md) for recorded counts and limitations.
-[Architecture](ARCHITECTURE.md) describes the component boundaries.
+Deliver every change through a branch and a pull request against `main`. Read
+[CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md) and
+[the contributor workflow](docs/development/contributor-workflow.md). Run
+`make check` before requesting review; documentation changes additionally require
+`make docs`.
+
+<a id="licensing"></a>
+
+## Licensing
+
+Hnefatafl is **source-available** under the
+[PolyForm Noncommercial License 1.0.0](LICENSE), SPDX identifier
+`PolyForm-Noncommercial-1.0.0`. It is **not** OSI-approved open-source software.
+
+The license permits private and qualifying noncommercial use, modification and
+redistribution as defined in the [license text](LICENSE). Commercial use outside
+the permission granted by the project license requires separate explicit
+authorization from the relevant rights holders. Hnefatafl does not offer a
+commercial licensing program, sales channel or entitlement to commercial terms;
+no authorization is offered or implied through GitHub Issues. Third-party components and assets
+retain their own terms in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Earlier
+releases contained no root license; this change does not retroactively revoke
+rights or relicense older archives. See [LICENSING.md](docs/LICENSING.md) for the
+full scope and open ownership questions.
+
+<a id="support-development"></a>
+
+## Support development
+
+Financial support is **completely voluntary** through
+[Buy Me a Coffee](https://buymeacoffee.com/free.dom). Hnefatafl remains free for
+permitted noncommercial use whether or not anyone donates. Donations are **not a
+software license purchase** and unlock no features, privileges, ranking or training
+advantage. *All gameplay and AI features remain free*, and non-donors have identical
+access. The project makes no tax-deductible charitable-status claim. See the
+[donation policy](docs/DONATIONS.md).
 
 ## Current limitations
 
-A server connection is required. The public Watch Hall at `/watch` offers
-read-only online discovery, live viewing and completed replay without an account;
-playing games, private history and profiles require authentication. The
-authenticated Hall of Renown and portrait selection originated in PR #86, and
-PR #94 adds automatic tiered achievements and portrait progression. See the
-[current completeness and roadmap](docs/designs/arena-current-completeness.md),
-[historical post-PR #84 audit](docs/designs/arena-completion.md) and
-[public release-readiness checklist](docs/RELEASE_READINESS.md). Verified accounts
-can create/join games in the online lobby when the operator enables admission;
-registration and online admission default off. Automatic timeout losses and rating
-updates are enabled by default; operators can explicitly pause finalization during maintenance or recovery. See
-[online operations](docs/ONLINE.md) and [registration](docs/REGISTRATION.md).
-Use the production HTTPS/proxy configuration before public exposure. Offline play,
-league seasons with automated queue matchmaking, distributed self-play and PostgreSQL
-migration tools are not part of the released application. Installation requires a published stable release with
-a verified asset.
+- A server connection is required; there is no offline play.
+- Registration and online admission default **off**. Configure both before public
+  exposure and use the production HTTPS/reverse-proxy configuration.
+- CPU workflows are verified. CUDA/MPS/Intel execution, GPU throughput, physical
+  browsers and target-host systemd/proxy operation require their own validation.
+- No strong pretrained model ships. A successful smoke training run proves the
+  workflow, not playing strength. Displayed winning chances are uncalibrated.
+- Browser-local analysis is an opt-in research feature, not a production analysis
+  executor. See the [roadmap](docs/development/roadmap/browser-analysis.md).
+- Offline play, distributed self-play, PostgreSQL migration tooling and automated
+  league queue matchmaking beyond the released League Arena are not provided.
 
-CPU workflows are verified. CUDA/MPS execution, GPU throughput and target-host
-systemd/proxy operation require separate validation. Tiny v0.17.0 CPU benchmarks
-reduced forward passes but showed **no batching speedup**. No strong pretrained
-model or measured improvement in playing strength is claimed. Displayed winning
-chances are uncalibrated position assessments. Copenhagen's inaccessible primary
-source and selected interpretation are documented in its [rules](docs/rules/copenhagen.md).
-
-Current guides describe the implementation; [release notes](docs/README.md#rulesets-release-history-and-historical-requirements)
-and [original requirements](docs/REQUIREMENTS.md) preserve historical scope.
+Historical release evidence is preserved in [release notes](docs/releases/README.md);
+the original specification, including unimplemented goals, is in
+[REQUIREMENTS.md](docs/REQUIREMENTS.md).

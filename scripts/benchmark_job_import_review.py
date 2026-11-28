@@ -1,7 +1,7 @@
 """Measure real import HTTP responses, UI loading and training against a saved tree.
 
 Each measured server is a fresh process. Fixture setup and frontend builds are
-excluded. See docs/benchmarks/job-archive-second-review.md for reproduction/limits.
+excluded. See docs/evaluation/benchmarks/training-job-archives.md for reproduction/limits.
 """
 
 from __future__ import annotations

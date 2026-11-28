@@ -18,7 +18,7 @@ if str(SPIKE) not in sys.path:
 import competitive_validation as cv  # noqa: E402
 
 ROOT = SPIKE.parents[1]
-GENUINE = ROOT / "docs/validation"
+GENUINE = ROOT / "docs/evaluation/browser-analysis/evidence"
 
 
 def _model(**overrides):

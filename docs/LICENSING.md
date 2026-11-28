@@ -1,7 +1,7 @@
 # Licensing
 
 [Repository introduction](../README.md) · [Third-party notices](../THIRD_PARTY_NOTICES.md) ·
-[Contributing](../CONTRIBUTING.md) · [Documentation index](README.md)
+[Contributing](../CONTRIBUTING.md) · [Documentation index](./README.md)
 
 Hnefatafl is **source-available** software licensed under the
 [PolyForm Noncommercial License 1.0.0](../LICENSE), SPDX identifier
@@ -49,11 +49,11 @@ The audit was performed on 2026-11-22 against the then-current `main` branch.
 - The rules Markdown paraphrases and cites external historical sources. The
   cited source texts remain the property of their authors; they are not
   relicensed by this project. See the source notes in
-  [the rules documents](rules/brandubh.md).
+  [the rules documents](./rules/brandubh.md).
 - The original 320 px portrait files predate the recorded artwork-provenance
   work. The 1024 px `*-large.webp` gallery files were generated with the
   built-in image-generation tool, documented in
-  [Portrait artwork provenance](PORTRAIT_ARTWORK.md). The generating tool and
+  [Portrait artwork provenance](./game/progression.md). The generating tool and
   its provider terms are not identified in the repository.
 
 **Conclusion subject to owner confirmation:** the audit found no evidence of an
@@ -161,7 +161,7 @@ Contributions are accepted under the project's inbound PolyForm Noncommercial
 License 1.0.0 terms. The maintainer does not currently intend to commercially
 exploit Hnefatafl, and ordinary noncommercial contributions do not need a CLA or
 additional legal agreement. A deferred, non-binding
-[CLA proposal](CONTRIBUTOR_LICENSING.md) is retained only as a contingency if the
+[CLA proposal](./development/contributor-licensing.md) is retained only as a contingency if the
 maintainer ever decides to seek broader rights. It is not active and would
 require explicit maintainer approval and legal review before any use.
 

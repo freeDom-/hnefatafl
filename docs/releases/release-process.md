@@ -1,0 +1,113 @@
+# Milestone releases
+
+Milestone `0.x.0` Git tags are previews with an explicit scope. Their notes use
+`docs/releases/X.Y.Z.md` paths. `1.0.0` requires
+the initial acceptance checklist, working production startup and complete CPU
+training smoke tests. A GPU check is reported as unverified if hardware is absent.
+Release identifiers are used verbatim: the tag, the `docs/releases/<tag>.md`
+filename, the `pyproject.toml`/`package.json` version and the published asset
+`hnefatafl-<tag>.tar.gz` always match. A release may omit the patch component
+(`0.42` is the identifier, not `0.42.0`); the updater and publish workflow accept
+both `X.Y` and `X.Y.Z`, and version ordering treats `X.Y` as `X.Y.0` without
+renaming a published tag. A two-part identifier is only discoverable by an updater
+whose installed `deployment.py` already accepts two-part tags, so the release notes
+and [deployment guide](../installation/installation.md#updating) must state the one-time
+updater refresh for installations that still run an older three-part-only updater.
+Release-note filenames are the unprefixed tag in every
+case. The historical
+`vX.Y.Z.md` names were renamed to `X.Y.Z.md` for consistency; their contents are
+unchanged, and the already-published releases keep their original notes because
+those bodies point into the tagged trees. The publish workflow therefore still
+falls back to `vX.Y.Z.md` for tags whose trees predate the rename.
+
+Every release note opens with one H1 of the form `# X.Y.Z - Concise summary`, for
+example `# 0.22.1 - Remote worker management fixes`. The GitHub release title is
+`Hnefatafl X.Y.Z`; keep the product name out of the notes H1. Use absolute GitHub
+links in new release notes so the same checked-in notes work in the published
+release without rewriting.
+
+Patch releases correct defects; minor releases add compatible features; breaking
+changes after 1.0 require a new major version.
+
+For each reached milestone:
+
+1. Complete its implementation and tests. Update `PROGRESS.md` with real results.
+2. Run the relevant checks. Before the initial complete release, run `make check`
+   and browser end-to-end tests against the actual server. Verify test counts.
+3. Write `docs/releases/X.Y.Z.md` with the milestone outcome, added features,
+   changes/fixes, exact validation, installation/update instructions and limitations.
+   Describe actual behavior and distinguish functional training from model quality.
+4. Commit only the milestone's files on a release branch, push it and open a pull
+   request against `main`; verify CI on the pull request (`gh pr checks`). Do not
+   push milestone commits directly to `main`.
+5. Merge the pull request (or let the user merge it) and update the local `main`.
+   The tag must reference the merged, tested commit.
+6. Create and push an annotated tag referencing that tested commit, then publish
+   the GitHub release using the checked-in notes file:
+
+```sh
+git switch main && git pull
+git tag -a X.Y.Z -m 'Concrete milestone description'
+git push origin X.Y.Z
+gh release create X.Y.Z --verify-tag --title 'Hnefatafl X.Y.Z' \
+  --notes-file docs/releases/X.Y.Z.md --prerelease
+```
+
+Omit `--prerelease` for stable versions. Do not move published tags, and do not tag
+a commit that has not passed CI on `main`. Include data migration requirements
+whenever storage changes. GitHub automatically includes
+source archives. Large trained models are separate artifacts; do not commit them
+or claim strength without a documented evaluation budget and results.
+
+## Production updater assets
+
+Production installs accept published stable **X.Y** or **X.Y.Z** releases, with
+neither draft
+nor prerelease flags. The tag must match `pyproject.toml`. Older preview tags and
+GitHub automatic source archives are not production installation inputs.
+After committing, validating and tagging a secure deployment release:
+
+```sh
+.venv/bin/python scripts/package_release.py
+gh release create X.Y.Z work/releases/hnefatafl-X.Y.Z.tar.gz \
+  --verify-tag --title 'Hnefatafl X.Y.Z' --notes-file docs/releases/X.Y.Z.md
+```
+
+Replace X.Y.Z consistently. Packaging refuses dirty checkouts and missing committed
+`LICENSE`/`THIRD_PARTY_NOTICES.md`, and includes only clean committed source,
+excluding runtime data, dependencies and secrets. The source archive contains the
+committed license and notice files. Generated frontend license outputs are not
+source-archive members; the frontend prebuild writes them into
+`frontend/public`, and Vite places them in `frontend/dist` during installation or
+update. GitHub's asset API must report its SHA-256 digest; the updater verifies it
+before extraction.
+The release must include authentication, lockfiles, security tests, frontend and
+systemd template. Deployment-related releases must also pass the dedicated
+`deployment-cross-version` Verify job, which builds the frontend, fetches the
+pinned historical `0.40.0`/`0.41.0`/schema-20 Git objects and runs the genuine
+old-updater/target-application subprocess suite. A tag alone is insufficient.
+Neither installer nor updater publishes a release.
+
+A release does not automatically replace the already installed
+`/usr/local/lib/hnefatafl/deployment.py`: an old updater executes its own installed
+copy. The installed utility is a set: `deployment.py`, the root-owned
+`updater_support/` restore modules and both wrappers. Refresh the whole set
+together; it declares a protocol version (`UPDATER_ABI`) and refuses a downgrade. Existing installations adopting deployment/storage changes must first run
+`bash scripts/linux/install.sh --refresh-updater-only` from the reviewed checkout
+or extracted verified release archive (or use the new updater's
+`--refresh-updater`) without reinstalling the application. State that requirement
+in release notes whenever the updater protocol or retention behavior changes.
+
+Alternatively, after pushing the annotated tag, publish through the manually
+triggered [release workflow](../../.github/workflows/release.yml):
+
+```sh
+gh workflow run release.yml --ref main -f tag=X.Y.Z
+```
+
+The workflow requires a matching project version and successful `Verify` CI on
+`main` for the tagged commit, packages that exact clean source, publishes a stable
+release with the checked-in notes verbatim and verifies GitHub's asset digest.
+It uses runner credentials, including when local credentials cannot upload to
+`uploads.github.com`. Existing releases
+and assets are not overwritten. Check the workflow result before installation.

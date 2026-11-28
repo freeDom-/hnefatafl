@@ -21,7 +21,7 @@ matched held-out evaluation, which this benchmark does not run.
 Usage:
 
     OMP_NUM_THREADS=1 .venv/bin/python scripts/benchmark_champion_adaptation.py \
-        --output docs/benchmarks/champion-adaptation.json
+        --output docs/evaluation/benchmarks/raw/training/champion-adaptation.json
 """
 
 from __future__ import annotations

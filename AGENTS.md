@@ -1,64 +1,81 @@
 # Working in this repository
 
-Each cloud task already has an isolated workspace. Use the existing checkout;
-do not create Git worktrees unless the user explicitly requests one.
+Each cloud task already has an isolated workspace. Use the existing checkout; do
+not create Git worktrees unless the user explicitly requests one.
 
 ## Branch and pull request workflow
 
-Online milestone phases use `feat/online-multiplayer` as their integration base,
-not `main`. Confirm the preceding phase is reviewed/merged there, then branch
-from its current remote head and target the phase PR back to that branch. See
-[the milestone workflow](docs/DEVELOPMENT.md#online-milestone-workflow).
-The default workflow below applies to other changes.
-
 Deliver every change through a branch and a pull request. Do not commit directly
-to `main`, and never force-push or rewrite a branch that is already shared.
-
-1. Update the local `main` and branch off it, choosing a type prefix:
-   `feat/…` for features, `fix/…` for bug fixes, and `docs/…`, `test/…`,
-   `refactor/…`, `perf/…` or `chore/…` for other work.
-2. Implement and verify the change on that branch (see `docs/DEVELOPMENT.md`).
-3. Commit focused changes with a conventional prefix, push the branch and open a
-   pull request against `main`:
+to `main`, and never force-push or rewrite a shared branch. Update `main`, branch
+with a type prefix (`feat/…`, `fix/…`, `docs/…`, `test/…`, `refactor/…`, `perf/…`,
+`chore/…`), run the relevant checks, then push and open a PR against `main`:
 
 ```sh
+git switch main && git pull
+git switch -c docs/short-description
 gh pr create --base main --head "$(git branch --show-current)" \
-  --title 'fix: concrete change' --body-file /tmp/pr-body.md
+  --title 'docs: concrete change' --body-file /tmp/pr-body.md
+gh pr checks
 ```
 
-4. Verify CI on the pull request (`gh pr checks`) and fix failures on the branch.
-5. Leave merging to the user unless they explicitly ask for it. After a merge,
-   update `main` before starting the next change.
+A PR description states delivered behavior, exact validation and remaining
+limitations; never claim more than the checks support. Online milestone phases
+target `feat/online-multiplayer`, not `main`; see
+[the milestone workflow](docs/development/contributor-workflow.md#online-milestone-workflow).
+Leave merging to the user unless explicitly asked. After a merge, update `main`
+before starting the next change.
 
-A pull request description states delivered behavior, exact validation and
-remaining limitations, and never claims more than the checks support. Keep it
-readable without the conversation: the review happens on the pull request, not in
-chat. Milestone releases follow the same path and are tagged only after their pull
-request is merged; see `docs/RELEASING.md`.
+## Read before changing behavior
 
-Read `ARCHITECTURE.md` and the relevant rules document before changing behavior.
-Use `docs/README.md` to navigate current guides. `make docs` checks local Markdown
-links/anchors/images without extra dependencies; run it for documentation changes.
-Historical releases retain their original evidence and must not be recast as new
-validation. Rules Markdown paths are runtime assets and must not be moved.
-The user's initial implementation requirements are preserved in
-`docs/REQUIREMENTS.md`. `PROGRESS.md` and GitHub release notes distinguish verified
-features from source, hardware and deployment limitations.
+1. [Documentation index](docs/README.md) for current guides.
+2. [Architecture](docs/development/architecture.md) and the relevant rules document
+   under `docs/rules/`.
+3. [UI guidelines](docs/development/ui-guidelines.md) for frontend changes.
+4. [Documentation guidelines](docs/development/documentation-guidelines.md) when
+   adding, moving or removing docs or screenshots.
 
-Use Python 3.11+ and Node.js 22.12+ (or Node.js 24+). `make install` installs
-locked Python dependencies and frontend packages. Run `make check` for formatting/lint, type checks, backend
-tests, frontend tests and the production build. Browser validation additionally uses
-`npm --prefix frontend run test:e2e` (install Playwright Chromium first).
+Rules Markdown paths are runtime assets and must not be moved. Historical releases
+retain their original evidence and must not be recast as new validation. The
+original user requirements are preserved in `docs/REQUIREMENTS.md`.
 
-Keep the pure engine independent of HTTP, database and PyTorch. Test variant-specific
-rules with explicit positions; do not assume Tablut variants are interchangeable.
-Search and training budgets must report unfinished games separately from rule draws.
-Training smoke tests must perform actual updates, checkpoint loading and legal play;
-do not claim a stronger model from a successful training run alone.
+## Environment and checks
 
-Use `HNEFATAFL_DATA_DIR` for isolated test/server storage. Do not commit databases,
-model weights, credentials or local virtual environments. Load models with the
-validated tensor-only checkpoint loader. Preserve optimistic version guards on moves.
+Use Python 3.11+ and Node.js 22.12+ (or 24+). `make install` installs locked
+dependencies; `make check` runs docs, lint, type checks, backend/frontend tests and
+the production build. Browser validation uses
+`npm --prefix frontend run test:e2e` after installing Playwright Chromium.
+Documentation-only changes require `make docs` and relevant lightweight checks,
+not a full training or browser rerun.
 
-When publishing an authorized milestone release, follow `docs/RELEASING.md` and
-write notes around delivered behavior, exact validation and remaining limitations.
+Respect the shared-host resource rules supplied with the task: run heavyweight
+tests serially under `/run/lock/hnefatafl-tests.lock`, cap workers/threads, and
+do not leave detached test servers or browsers running.
+
+## Engineering constraints
+
+- Keep the pure engine independent of HTTP, database and PyTorch.
+- Test variant-specific rules with explicit positions; Tablut variants are not
+  interchangeable.
+- Report unfinished games separately from rule draws in search and training.
+- Training smoke tests must perform actual updates, checkpoint loading and legal
+  play. Do not claim stronger play from a successful run alone.
+- Use `HNEFATAFL_DATA_DIR` for isolated test/server storage. Never commit
+  databases, checkpoints, model weights, credentials or virtual environments.
+- Load models with the validated tensor-only checkpoint loader.
+- Preserve optimistic version guards on moves and authorization on every route.
+- Reuse existing UI components, styles and themes; support all four themes,
+  mobile/desktop and interface scaling. Do not redesign an unrelated surface.
+
+## Documentation maintenance
+
+Update the canonical guide for the feature, not a standalone implementation report.
+When a plan completes, preserve its durable decisions/measurements in the guide and
+remove the plan; leave only actionable work in
+[roadmaps](docs/development/roadmap/README.md). When UI changes, update the
+[interface guide](docs/game/interface/README.md) and screenshots. Prefer updating
+an existing page over adding another one; link instead of duplicating commands,
+defaults or rules.
+
+When publishing an authorized milestone release, follow
+[docs/releases/release-process.md](docs/releases/release-process.md). A merged PR
+is not a release; tags and GitHub Releases require explicit authorization.

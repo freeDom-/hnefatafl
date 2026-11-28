@@ -437,7 +437,7 @@ def _cached_repetition_signature(history: tuple[str, ...]) -> tuple[tuple[str, i
 # discards it afterwards, but a repetition-aware key can be several kilobytes on
 # a long game, so the capacity is bounded to keep worst-case memory predictable.
 # The measured per-entry cost and the long-game peak are recorded in
-# docs/benchmarks/alpha-beta-controls.md.
+# docs/evaluation/benchmarks/search-alpha-beta.md.
 MAX_TABLE_CAPACITY = 500_000
 
 
