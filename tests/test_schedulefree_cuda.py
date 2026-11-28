@@ -1,4 +1,4 @@
-"""Conditional CUDA acceptance checks; see docs/SCHEDULEFREE_CUDA.md.
+"""Conditional CUDA acceptance checks; see docs/training/schedulefree-cuda.md.
 
 These run real CUDA FP32/AMP jobs. Promotion alone uses the existing deterministic
 paired-score fixture, so the checks assert lifecycle correctness, not strength.

@@ -504,7 +504,9 @@ def test_staging_refuses_runtime_digest_mismatch(tmp_path):
 
 def test_webgpu_staging_requires_entry_bundle_and_jsep_assets():
     preparing = (SPIKE / "prepare_neural.py").read_text()
-    runbook = (SPIKE.parents[1] / "docs/validation/device-matrix-phase3c.md").read_text()
+    runbook = (
+        SPIKE.parents[1] / "docs/evaluation/browser-analysis/device-matrix-phase3c.md"
+    ).read_text()
     assert '"ort.webgpu.min.js"' in preparing
     assert "ort-wasm-simd-threaded.jsep.mjs" in preparing
     assert "ort-wasm-simd-threaded.jsep.wasm" in preparing

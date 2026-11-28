@@ -1,0 +1,374 @@
+# Historical security advisory record
+
+> **Current security policy:** [administration security](../administration/security.md#dependency-audit).
+> This page is historical evidence, not an active task.
+>
+> **Current status (2026-11-18 onward):** no active dependency-audit exception.
+> GitHub withdrew GHSA-fc5q-39xc-vjpf and the committed
+> `frontend/security/dependency-audit-exceptions.json` has an empty exception
+> list. The advisory assessment below is retained as historical evidence; it is
+> not an outstanding roadmap task.
+
+Updates the development-only Vitest runner from locked 3.2.7 (declared ^3.2.4) to
+pinned **4.1.12**, with the corresponding locked dependency graph. Application
+runtime dependencies, Vite, React, TypeScript, Playwright and jsdom are unchanged.
+No game, database, route, configuration migration or production code changes.
+
+## Reason and scope
+
+Fresh baseline npm audit reported three affected development packages: Vitest
+(critical), tinypool (critical) and @vitest/mocker (moderate). These are affected
+package counts, not unique advisory counts. Production-only audit was already zero.
+
+The selected 4.x release resolves the reported mocker advisories and removes the
+old tinypool/vite-node graph. It is a smaller major-line migration than npm's
+suggested latest-5.x force upgrade, and supports the repository's Node 22.12+/Vite 7
+configuration. No `--force` or blanket test-reset flags are used.
+
+Primary advisory references:
+
+- [Mocker file-read issue](https://github.com/advisories/GHSA-82fw-gwwq-j7x9)
+- [Mock registration injection](https://github.com/advisories/GHSA-qxg6-89mg-rqv8)
+- [Tinypool prototype pollution](https://github.com/advisories/GHSA-5gmw-xhrv-c9v3)
+- [Tinypool execution issue](https://github.com/advisories/GHSA-85c8-ppgw-ccpr)
+- [Vitest 4 migration guidance](https://v4.vitest.dev/guide/migration.html)
+
+## Fresh local verification
+
+Node 24.22.2, isolated checkout; exact commands:
+
+| Command | Result |
+| --- | --- |
+| `npm --prefix frontend ci` | Passed; 247 packages audited, zero vulnerabilities |
+| `npm --prefix frontend test` | **1,312 passed, 93 files**, 175.37 seconds |
+| `npm --prefix frontend run format:check` | Passed |
+| `npm --prefix frontend run typecheck` | Passed |
+| `npm --prefix frontend run build` | Passed, same baseline production asset hashes |
+| `npm --prefix frontend audit --json` | **Zero findings, all dependencies** |
+| `npm --prefix frontend audit --omit=dev --json` | **Zero findings, runtime dependencies** |
+
+No unit-test assertions, mocks, timeouts or snapshots were modified to obtain this
+result. Constructor/hoisted mocks, fake timers and restoration behavior are
+covered by the full existing suite rather than assumed compatible. The complete
+repository/browser CI is required on the PR; its exact result is recorded there.
+
+The existing large-entry-chunk advisory and npm's esbuild install-script review
+notice remain. They are not new runtime vulnerabilities and are not hidden by
+raising limits or suppressing warnings. Security findings are time-sensitive;
+repeat audits at release preparation instead of treating this record as permanent.
+
+## CI audit enforcement and Node.js 22 compatibility
+
+`.github/workflows/ci.yml` now runs `npm audit --audit-level=moderate` immediately
+after the `browser` job's `npm ci`; moderate or higher findings fail that job. No
+`--force`, audit suppression, blanket ignore list or relaxed check is used, and the
+committed lockfile reports zero findings.
+
+A dedicated `node22` job exercises the minimum supported Vite 7 line
+(`node-version: "22.12"`) with the same npm cache configuration: `npm ci`,
+`npm run typecheck`, `npm test` and `npm run build`. The full Playwright browser
+suites stay on the existing Node 24 `browser` job so the compatibility check does
+not duplicate them.
+
+Local Node 22.12.0 (the pinned CI version) and Node 22.22.1 verification
+(isolated checkout, fresh `npm ci`; unit suite limited to the CI runner worker
+count):
+
+| Command | Result |
+| --- | --- |
+| `npm ci` | Passed; 246 added, 247 audited, zero vulnerabilities |
+| `npm audit --audit-level=moderate` | **Zero findings** (exit 0) |
+| `npm run typecheck` | Passed |
+| `npx vitest run --maxWorkers=4` | **1,312 passed, 93 files** |
+| `npm run build` | Passed |
+
+The full unit suite also passes on Node 24.11.1 on the same host, so the earlier
+full-suite timeouts on a high-core development host are host oversubscription (two
+long async table tests exceed the 20 s per-test timeout when more workers run than
+CPU capacity supports), not a Node 22 or Vitest 4 regression.
+
+## picomatch ReDoS advisory (GHSA-fc5q-39xc-vjpf), 2026-11-17
+
+> **Status update, 2026-11-18:** GitHub withdrew GHSA-fc5q-39xc-vjpf
+> (`withdrawn_at` 2026-11-18T15:38:56Z), and both the full and production-only
+> lockfile audits returned zero findings. The active risk exception was therefore
+> removed. The approval and exposure analysis below are retained as the historical
+> record of the decision that applied until that date; they are not a current
+> finding. See
+> [Withdrawal and empty exception state](#withdrawal-and-empty-exception-state-2026-11-18)
+> for the current configuration and audit results.
+
+This section supersedes the earlier zero-finding audit status above. A fresh
+`npm audit --audit-level=moderate` exits 1 with five affected development packages,
+all from one advisory: picomatch through 4.0.7 is vulnerable to a ReDoS through
+single-branch repeated extglob patterns (CVE-2026-112366, high severity).
+
+### Installed graph
+
+`npm ls picomatch --all` on the committed lockfile:
+
+| Dependency path | Role |
+| --- | --- |
+| `vite@7.3.7 -> picomatch@4.0.7` | build tool |
+| `vite@7.3.7 -> fdir@6.5.0 -> picomatch@4.0.7` | build file discovery |
+| `vite@7.3.7 -> tinyglobby@0.2.17 -> picomatch@4.0.7` | build globbing |
+| `vitest@4.1.12 -> picomatch@4.0.7` | test runner |
+
+The audit counts five affected packages (picomatch, fdir, tinyglobby, vite,
+vitest) rather than five unique advisories. `npm audit --package-lock-only
+--omit=dev` reports **0 vulnerabilities**: production dependencies are only React,
+React DOM and React Markdown, and the production `dist/` bundle contains no
+picomatch code.
+
+### Conflicting database status
+
+The sources disagreed at that time, so the status recorded then was **disputed
+but not withdrawn**:
+
+| Source | Status recorded on 2026-11-17 |
+| --- | --- |
+| GitHub Advisory GHSA-fc5q-39xc-vjpf | **Reviewed, high severity, not withdrawn**, no first patched version. Last reviewed 2026-11-17 after the Snyk revocation. |
+| NVD CVE-2026-112366 | **Awaiting Analysis**; the published CVSS vectors are secondary (VulnCheck) at 7.5/8.7, CISA SSVC says exploitation none, and NVD has not added a disputed tag. |
+| OSV.dev | Mirrors the GitHub advisory (affected `<= 4.0.7`, no fixed event). |
+| Snyk SNYK-JS-PICOMATCH-21248802 | **Revoked**: “doesn’t affect any version”, amendment “This was deemed not a vulnerability”, and it notes the CVE was disputed by the maintainer. |
+| npm registry | Latest release is still **4.0.7** (2026-08-24); no patched release exists. |
+
+Snyk revoked its entry after the maintainer disputed the report. GitHub re-reviewed
+the same report on 2026-11-17 and kept it, and NVD has not completed its analysis.
+A revoked Snyk entry therefore does not invalidate the active GitHub advisory, and
+the advisory has not been formally disputed on GitHub. `npm audit` consumes the
+GitHub Advisory Database, so the repository's gate follows the stricter, still-active
+assessment until GitHub withdraws the advisory or a patched release appears. This is
+not evidence of a false positive; it is unresolved disagreement between databases.
+
+### Exposure verification
+
+- The lockfile marks `picomatch` as `"dev": true`; `npm ls picomatch --omit=dev`
+  is empty, production dependencies are only React, React DOM and React Markdown,
+  and the built `dist/` contains no picomatch code. The advisory has no
+  `vulnerable_functions`, so there is no exported function list that would narrow
+  the finding further.
+- Vite's `tinyglobby`/`fdir` and Vitest import picomatch and compile globs during
+  builds and tests, so the library is exercised by trusted tooling. Repository
+  configuration uses ordinary patterns such as `src/**/*.test.{ts,tsx}` and no
+  config or script contains the vulnerable leading-bare-quantifier shape
+  (`+(*a)`, `*(*a)`, `?(*a)`).
+- The application source never imports picomatch, and no HTTP, account, game or
+  analysis input is passed to glob compilation. An attacker cannot supply the glob
+  patterns the advisory requires.
+- Vite compiles `import.meta.glob` patterns from application source in the
+  development/build tool; this repository does not use `import.meta.glob`
+  anywhere. Vite's `server.fs.deny` pattern list is static configuration and uses
+  no repeated single-branch extglob. Plugin include/exclude patterns come from
+  repository configuration, and package-export patterns come from locked,
+  trusted dependencies.
+- Glob *subjects* (module IDs, request paths and file names) are matched against a
+  compiled pattern; they are never compiled as patterns. A crafted file name or
+  URL therefore cannot trigger the vulnerable parser path.
+- Production serves the static `frontend/dist` bundle through FastAPI; Vite and
+  Vitest are never started in the deployed service. Deployed runtime exposure is
+  absent.
+- Practical exposure is therefore a development/CI tooling denial of service only
+  if a trusted developer, CI input or compromised dependency supplies a malicious
+  pattern. That is the scope of the approved acceptance below, not a remote or
+  product-runtime vulnerability.
+
+### Upstream patch status
+
+- [PR #238](https://github.com/micromatch/picomatch/pull/238) (literalize unsafe
+  leading extglobs) has been open since 2026-10-22 with one commit and passing
+  author-run tests, and is not merged. Its author documents a remaining nested-group
+  limitation. [PR #246](https://github.com/micromatch/picomatch/pull/246) is also
+  open. Maintainers have not merged or released either.
+- Vite 8 and Vitest 5 still declare `picomatch: ^4.0.7`, so a major upgrade would
+  not resolve this. npm's suggested `audit fix --force` would downgrade to Vitest
+  3.1.4 and Vite 6.2.7, a breaking change that still resolves vulnerable picomatch.
+- The only official guidance is Snyk's: do not use the risky pattern and do not let
+  untrusted users define regular expressions. Both conditions already hold here.
+
+### Historical approved risk acceptance (no longer active)
+
+> This subsection records the acceptance that was active from 2026-11-18 until
+> the advisory was withdrawn later that day. It is historical evidence, not the
+> current exception configuration; the active entry has been removed.
+
+No supported technical fix existed at the time, and no fork, override, unmerged
+patch, downgrade or blanket audit disable was used. On 2026-11-18 the repository
+owner approved a narrowly scoped, time-limited risk acceptance for exactly
+GHSA-fc5q-39xc-vjpf in the development-only Picomatch path.
+
+While it was active, `frontend/security/dependency-audit-exceptions.json`
+(schema 3) recorded the exact advisory/package, CVE, severity, development scope,
+approver handle, approval date, review reference, durable approval reference,
+rationale, expiry, affected package set, every reviewed package version and the
+reviewed advisory range. The script rejects unknown fields, invalid
+GitHub handles, invalid or future approval dates, missing/malformed or non-repository approval
+references, invalid expiry dates, windows longer than 90 days, severities or ranges that changed, package-version changes,
+affected-set changes, runtime reach, stale exceptions and expired exceptions. This
+prevents silent broadening or extension: any such change is a visible file diff and
+fails until re-reviewed.
+
+`frontend/scripts/auditDependencies.mjs` (`npm run audit:ci`) runs the full lockfile
+audit and a production-only audit. It is fail-closed:
+
+- Every reported vulnerable package must be attributed to an accepted advisory.
+  Advisory identities use GHSA when present; otherwise the npm source or URL is
+  retained. A non-GitHub advisory URL is never discarded and therefore fails as
+  unaccepted.
+- String-only `via` entries must reference reported packages inside the accepted
+  component. Dangling references or extra vulnerable packages fail.
+- Malformed vulnerability/advisory entries, missing titles, ranges or severities,
+  error responses, missing JSON, unexpected exit statuses, unsupported audit report
+  versions, missing vulnerability/metadata maps and metadata/severity count
+  mismatches fail.
+- The production-only audit must be clean, and every affected package must be
+  `dev: true` in the lockfile with the reviewed resolved version.
+
+The dedicated `security` CI job runs that script and prints the actual advisory
+id, affected packages and versions, approver, review reference, approval reference,
+rationale and expiry. While the acceptance was active it passed only through the
+recorded acceptance, not because the finding was disproved; the advisory was not
+resolved, it was later withdrawn. Fourteen Node tests covered the positive case and
+every fail-closed and approval-reference case at that time; the suite has since
+been extended for the empty exception state.
+
+**Approval evidence:** the durable owner decision is the approval comment at
+[PR #95, comment 6976788744](https://github.com/freeDom-/hnefatafl/pull/95#issuecomment-6976788744),
+recorded 2026-11-18 by `freeDom-`. It identifies the advisory, the development-only
+dependency paths, the residual development/CI denial-of-service risk, the absence of
+a supported upstream patch and the 2026-12-17 expiry, and states the removal and
+no-extension conditions. The JSON recorded that decision; it was not the evidence
+itself. The schema requires an https `approvalReference` hosted in this repository,
+so a missing, malformed or external reference fails. Approval applied only to the
+exact advisory, versions, range and package set recorded; any change requires a new
+owner decision.
+
+### Required main-branch checks (owner action, not applied)
+
+The active **Main branch rules** ruleset (id `25820905`, targeting the default
+branch) currently has `deletion`, `non_fast_forward` and `pull_request` rules but
+**no required status checks** and **zero required approving reviews**. The four CI
+jobs being green is therefore voluntary: GitHub does not block a merge when a check
+is red.
+
+Recommended owner settings:
+
+- Add a `required_status_checks` rule with the exact GitHub Actions contexts
+  `security`, `python`, `node22` and `browser`.
+- Enable `strict_required_status_checks_policy` (require the branch to be up to
+  date) if the owner wants merge-order guarantees.
+- Set `required_approving_review_count` to at least 1 as a separate owner decision.
+- Keep the existing deletion, non-fast-forward and pull-request rules.
+
+Repository ruleset shape (conceptual; apply in Settings → Rules → Main branch
+rules, not by editing this repository):
+
+```json
+"required_status_checks": {
+  "strict_required_status_checks_policy": true,
+  "required_status_checks": [
+    { "context": "security" },
+    { "context": "python" },
+    { "context": "node22" },
+    { "context": "browser" }
+  ]
+}
+```
+
+Exact owner steps:
+
+1. Repository **Settings → Rules → Rulesets → Main branch rules → Edit**.
+2. Enable **Require status checks to pass**, then add `security`, `python`,
+   `node22` and `browser` from the GitHub Actions source.
+3. Optionally enable **Require branches to be up to date before merging**.
+4. Optionally set **Required approvals** to 1 under the pull-request rule.
+5. Save and confirm the ruleset still targets the default branch.
+
+The API equivalent is a `PUT /repos/freeDom-/hnefatafl/rulesets/25820905` that
+preserves the existing rules and adds the `required_status_checks` rule above;
+only an owner token should perform it.
+
+Verification after the owner applies it:
+
+- `gh pr checks 94` lists the four contexts with the GitHub Actions source.
+- A throwaway PR with one required job forced to fail cannot merge.
+- Pending checks block merging until they finish.
+- A complete green run plus any required approval permits merging.
+- Renaming a workflow job requires updating the ruleset context at the same time;
+  the current job names are stable literals in `.github/workflows/ci.yml`.
+
+This document records the recommendation only; repository protection settings were
+not modified. Until the owner applies it, a green matrix is a voluntary observation,
+not a GitHub-enforced merge gate.
+
+### Follow-up
+
+The GitHub withdrawal on 2026-11-18 made this acceptance obsolete, so the exception
+was removed and no patched picomatch release was required. Treat a GitHub withdrawal
+or a formal dispute as a separate outcome: re-check the advisory before removing an
+exception, because a Snyk revocation alone does not clear it. If an advisory later
+returns, re-approve and record a new date rather than extending the old expiry
+silently. Repeat the audit at release preparation because advisories are
+time-sensitive.
+
+## Withdrawal and empty exception state (2026-11-18)
+
+GitHub withdrew GHSA-fc5q-39xc-vjpf on 2026-11-18 (`withdrawn_at`
+2026-11-18T15:38:56Z). The advisory is no longer active, no patched picomatch
+release was required, and no dependency version, override, fork or lockfile entry
+changed. The previously approved development-only acceptance is no longer active:
+its entry was removed from `frontend/security/dependency-audit-exceptions.json`,
+which now has an empty `exceptions` array. The owner approval recorded on PR #95,
+the reviewed dependency paths, the severity/range assessment and the 2026-12-17
+expiry above remain as the historical record of the decision; they are not a current
+finding or an active exception.
+
+### Current audit results
+
+On 2026-11-18 the committed lockfile reported:
+
+| Command | Result |
+| --- | --- |
+| `npm --prefix frontend run audit:ci` | Passed: full audit 0 affected packages (critical 0, high 0, moderate 0, low 0), production-only audit clean |
+| `npm --prefix frontend audit --json` | 0 vulnerabilities, all dependencies |
+| `npm --prefix frontend audit --omit=dev --json` | 0 vulnerabilities, runtime dependencies |
+
+These are dated registry observations, not a guarantee about future `npm audit`
+results and not evidence of an upstream code fix.
+
+### Supported empty exception state
+
+An empty `exceptions` array is a valid schema-3 configuration and needs no owner
+approval metadata, because no risk is being accepted. A clean full audit, a clean
+production-only audit and an empty array therefore pass the security job. The
+`approvedBy`, `approvedAt` and `reviewReference` fields are required and strictly
+validated again as soon as at least one exception is active; when the array is
+empty they may be omitted, and any metadata that is still supplied must be well
+formed. Missing, non-array or unsupported exception configurations, unknown fields
+and malformed metadata continue to fail.
+
+### Remaining fail-closed behavior
+
+The withdrawal does not weaken the gate. The audit still rejects: unrecognized
+advisories (including non-GitHub URLs); every production dependency finding;
+expired, unused and unauthorized exceptions; changed severity, advisory range,
+affected package set or reviewed package versions; a changed dependency graph;
+malformed, incomplete or inconsistent audit reports; and failed audit commands or
+registry errors. There is no `continue-on-error`, blanket exclusion, ignore list or
+severity threshold reduction, and the independent `security` CI job is preserved so
+security failures stay visible without blocking the functional jobs.
+
+### Adding a future exception
+
+A new risk must be approved on its own merits and never by reusing the withdrawn
+record. Add a schema-3 entry to
+`frontend/security/dependency-audit-exceptions.json` with the exact
+advisory/package, CVE, severity, `scope: "development"`, an expiry no more than 90
+days after the approval date, the reviewed `advisoryRange`, a repository-hosted
+https `approvalReference`, a substantive rationale, the affected package set and
+every reviewed package version. Restore the file-level `approvedBy`, `approvedAt`
+and `reviewReference` at the same time. The audit validates the new entry against
+the live report and the lockfile, and fails until the metadata and reviewed values
+match. The focused Node regression suite covers the empty state, a returning
+advisory, missing/malformed configuration, stale/expired/modified exceptions,
+missing approval metadata, production findings and failed audit executions.

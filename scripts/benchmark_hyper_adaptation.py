@@ -16,7 +16,7 @@ evaluation, and a handful of short runs cannot support a strength claim.
 Run in a fresh process without other benchmarks or tests:
 
     OMP_NUM_THREADS=1 .venv/bin/python scripts/benchmark_hyper_adaptation.py \
-        --output docs/benchmarks/online-hyperparameter-adaptation.json
+        --output docs/evaluation/benchmarks/raw/training/online-hyperparameter-adaptation.json
 """
 
 from __future__ import annotations

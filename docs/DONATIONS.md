@@ -1,6 +1,6 @@
 # Voluntary donations
 
-[Repository introduction](../README.md) · [Licensing](LICENSING.md) ·
+[Repository introduction](../README.md) · [Licensing](./LICENSING.md) ·
 [Contributing](../CONTRIBUTING.md)
 
 Hnefatafl accepts completely voluntary financial support through Buy Me a

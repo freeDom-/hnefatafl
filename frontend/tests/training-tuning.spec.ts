@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { expect, test, type APIRequestContext } from './auth-fixture';
 import { openWorkshop } from './play-helpers';
 import { selectWorkshopJob } from './workshop-helpers';
@@ -62,10 +63,29 @@ test('applies a real Optuna winner through Resume Training to a real CPU checkpo
   await openWorkshop(page);
   await selectWorkshopJob(page, tuned.id, studyName);
   await page.getByRole('tab', { name: 'Tuning results', exact: true }).click();
+  if (process.env.DOCS_SCREENSHOTS === '1' && info.project.name === 'chromium') {
+    mkdirSync('test-results/documentation', { recursive: true });
+    await page.screenshot({
+      path: 'test-results/documentation/training-tuning-results.jpg',
+      type: 'jpeg',
+      quality: 86,
+      fullPage: true,
+    });
+  }
   await page.getByLabel('Additional iterations', { exact: true }).fill('1');
   await page.getByLabel('Apply to existing training').selectOption(source.id);
   await page.getByRole('button', { name: 'Apply best parameters', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Resume training', exact: true });
+  await expect(dialog).toBeVisible();
+  if (process.env.DOCS_SCREENSHOTS === '1' && info.project.name === 'chromium') {
+    mkdirSync('test-results/documentation', { recursive: true });
+    await page.screenshot({
+      path: 'test-results/documentation/training-resume.jpg',
+      type: 'jpeg',
+      quality: 86,
+      fullPage: true,
+    });
+  }
   await expect(dialog.getByLabel('Learning rate', { exact: true })).toHaveValue('0.004');
   await expect(dialog.getByLabel('Weight decay', { exact: true })).toHaveValue('0.02');
   await expect(dialog.getByLabel('MCTS iterations per move', { exact: true })).toHaveValue('7');

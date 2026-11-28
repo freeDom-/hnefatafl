@@ -57,6 +57,29 @@ class DocumentationChecks(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("unreachable", output)
 
+    def test_malformed_link_without_closing_bracket_fails(self):
+        status, output = self.run_fixture("# Index\n[Security advisory(../security-advisory.md)\n")
+        self.assertEqual(status, 1)
+        self.assertIn("malformed Markdown link", output)
+
+    def test_parenthetical_link_and_image_labels_are_not_malformed(self):
+        status, output = self.run_fixture(
+            "# Index\n"
+            "[See (docs/guide.md) for details](guide.md)\n"
+            "[Guide (see guide.md)](guide.md)\n"
+            "![Image (see guide.md)](image.png)\n"
+        )
+        self.assertEqual(status, 0, output)
+
+    def test_escaped_opening_bracket_and_code_examples_are_not_malformed(self):
+        status, output = self.run_fixture(
+            "# Index\n[Guide](guide.md)\n"
+            "\\[Security advisory(../security-advisory.md)\n"
+            "Use `[example](missing.md)` as an example.\n"
+            "```md\n[Security advisory(../security-advisory.md)\n```\n"
+        )
+        self.assertEqual(status, 0, output)
+
     def test_unclosed_fence_fails(self):
         status, output = self.run_fixture("# Index\n[Guide](guide.md)\n```\n")
         self.assertEqual(status, 1)

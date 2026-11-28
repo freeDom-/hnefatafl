@@ -110,7 +110,9 @@ def main() -> int:
     parser.add_argument("--games", type=int, default=2000)
     parser.add_argument("--samples", type=int, default=25)
     parser.add_argument(
-        "--json", type=Path, default=ROOT / "docs/benchmarks/progression-streaks.json"
+        "--json",
+        type=Path,
+        default=ROOT / "docs/evaluation/benchmarks/raw/training/progression-streaks.json",
     )
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="hnefatafl-streak-bench-") as directory:

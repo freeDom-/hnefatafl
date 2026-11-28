@@ -1,14 +1,14 @@
 # Browser-offline feasibility spike
 
-[Documentation index](../../docs/README.md) · [Phase 0 design](../../docs/designs/online-phase0.md) ·
-[Validation](../../docs/validation/online-phase0.md) ·
-[Measured browser evidence](../../docs/validation/browser-offline-phase0.json)
+[Documentation index](../../docs/README.md) · [Phase 0 design](../../docs/administration/online-operations.md) ·
+[Validation](../../docs/administration/online-operations.md) ·
+[Measured browser evidence](../../docs/evaluation/browser-analysis/evidence/browser-offline-phase0.json)
 
 > Phase 1 (full-strength Jarl and trained-model browser inference) and Phase 2
 > (browser-side neural MCTS) build on this prototype. See the
-> [browser-side analysis roadmap](../../docs/designs/browser-analysis-roadmap.md),
-> [Phase 1 validation](../../docs/validation/browser-analysis-phase1.md) and
-> [Phase 2 validation](../../docs/validation/browser-analysis-phase2.md).
+> [browser-side analysis roadmap](../../docs/development/roadmap/browser-analysis.md),
+> [Phase 1 validation](../../docs/evaluation/browser-analysis/browser-analysis-phase1.md) and
+> [Phase 2 validation](../../docs/evaluation/browser-analysis/browser-analysis-phase2.md).
 
 Isolated static experiment: unchanged Python engine and baseline AI in a Pyodide
 worker. No production routes, account bypass, application build changes, database,
@@ -21,7 +21,7 @@ outcomes, and require permanent differential tests on every engine change.
 
 The current worker also exposes the existing classical analysis API, exact-position
 cache, bounded scheduling and termination-based cancellation. See the
-[current-engine feasibility report](../../docs/validation/browser-analysis-prototype.md)
+[current-engine feasibility report](../../docs/evaluation/browser-analysis/browser-analysis-prototype.md)
 for fresh measurements, native/browser differential tests and production gates.
 The Phase 0 measurements and limitations below describe the original baseline-only
 experiment; they are retained as historical evidence, not new validation.
@@ -140,7 +140,7 @@ The dedicated `test_search_path_parity.mjs` gate runs the same browser search
 with full-logit and legal-only inference, requiring exact fixed-work parity and
 valid deadline behavior under fixed time. Phase 3A evidence and limitations are
 recorded in the
-[Phase 3 validation](../../docs/validation/browser-analysis-phase3.md). Phase 3B
+[Phase 3 validation](../../docs/evaluation/browser-analysis/browser-analysis-phase3.md). Phase 3B
 (caching, independent/single-tree batching, subtree reuse) and Phase 3C
 (competitive checkpoints, tournaments, physical hardware) are outstanding.
 
@@ -150,8 +150,8 @@ only). A session created for WebGPU without observable per-node placement is
 reported as `webgpu-session-unverified`; a mixed list is `webgpu-mixed`; WASM-only
 is `cpu-fallback`. No WASM fallback is ever labelled GPU.
 
-See the [roadmap](../../docs/designs/browser-analysis-roadmap.md) and
-[Phase 1 validation](../../docs/validation/browser-analysis-phase1.md).
+See the [roadmap](../../docs/development/roadmap/browser-analysis.md) and
+[Phase 1 validation](../../docs/evaluation/browser-analysis/browser-analysis-phase1.md).
 
 ### Phase 2: browser-side neural MCTS
 
@@ -254,7 +254,7 @@ node spikes/browser_offline/mcts_parity.mjs /tmp/neural-spike \
 Owner-supplied private checkpoints use the same commands with the export produced
 from that checkpoint. Physical WebGPU and Windows/Android/Safari runs use the
 provider and hardware instructions in
-[Phase 2 validation](../../docs/validation/browser-analysis-phase2.md).
+[Phase 2 validation](../../docs/evaluation/browser-analysis/browser-analysis-phase2.md).
 
 ### Lifecycle and scheduling corrections
 
@@ -381,26 +381,26 @@ It displays a runtime-loading error while the UI response control still works.
 
 ## What is executable
 
-- [prepare.py](prepare.py) stages the runtime and byte-for-byte copies of
+- [prepare.py](./prepare.py) stages the runtime and byte-for-byte copies of
   `__init__.py`, `engine.py` and `ai.py`. Asset inventory records raw bytes,
   gzip estimates and SHA-256; only downloaded core runtime is needed.
-- [fixtures.py](fixtures.py) generates 34 reference cases from native CPython:
+- [fixtures.py](./fixtures.py) generates 34 reference cases from native CPython:
   eight opening plies per ruleset, multi-capture, king escape, repetition and a
   Copenhagen shield wall. Each includes full serialized state/repetition history,
   legal moves, selected move and expected next state/legal moves. These are
   representative cross-runtime comparisons, not exhaustive rules verification;
   existing engine tests remain authoritative for complete rule coverage.
-- [worker.js](worker.js) loads local runtime assets and Python source, never
-  `micropip`, a remote inference service or a model. [bridge.py](bridge.py) exposes
+- [worker.js](./worker.js) loads local runtime assets and Python source, never
+  `micropip`, a remote inference service or a model. [bridge.py](./bridge.py) exposes
   new game, legal move, local baseline AI, fixture comparison and diagnostic calls.
-- [app.js](app.js)/[index.html](index.html) present one in-memory game, legal move
+- [app.js](./app.js)/[index.html](./index.html) present one in-memory game, legal move
   selection, AI, fixtures and a UI responsiveness control. Starting another game
   replaces it. There is no browsable history or backend connection.
-- [sw.js](sw.js) caches the explicit complete asset manifest and serves it offline,
+- [sw.js](./sw.js) caches the explicit complete asset manifest and serves it offline,
   including navigation. Cache identity depends on bundle contents and old spike
   caches are removed on activation. Its scope is the staged directory on the
   isolated origin, never the production app.
-- [verify.mjs](verify.mjs) checks fresh runtime loading, fixtures, human and AI
+- [verify.mjs](./verify.mjs) checks fresh runtime loading, fixtures, human and AI
   moves for each ruleset, a UI click while a synthetic 500 ms Python loop is still
   busy in the worker, and the full fixture/gameplay sequence after offline reload.
   It blocks nonlocal requests and asserts no application API requests occur.
@@ -535,8 +535,8 @@ the linked JSON evidence.
 ## Phase 3C-A owner workflows
 
 The complete schemas and acceptance rules are in the
-[Phase 3C-A validation report](../../docs/validation/browser-analysis-phase3c.md)
-and the [device runbook](../../docs/validation/device-matrix-phase3c.md). Short
+[Phase 3C-A validation report](../../docs/evaluation/browser-analysis/browser-analysis-phase3c.md)
+and the [device runbook](../../docs/evaluation/browser-analysis/device-matrix-phase3c.md). Short
 executable workflows:
 
 ```sh
@@ -634,7 +634,7 @@ wait "$BROWSER_PID"
 ```
 
 The full runbook, acceptance matrix, measured results and remaining blockers are
-in the [Phase 3C-B report](../../docs/validation/browser-analysis-phase3c-b.md).
+in the [Phase 3C-B report](../../docs/evaluation/browser-analysis/browser-analysis-phase3c-b.md).
 Competitive checkpoints, physical devices and verified GPU execution remain
 owner-supplied external resources.
 

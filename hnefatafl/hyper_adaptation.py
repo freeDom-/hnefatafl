@@ -11,7 +11,7 @@ job better than PBT/PB2/Hyperband.
 
 The implementation here deliberately differs from the paper and the reference
 code (github.com/jongornet14/HyperController) in a few ways that are documented
-in ``docs/designs/online-hyperparameter-adaptation.md``:
+in ``docs/training/online-adaptation.md``:
 
 * Only one hyperparameter (the learning rate) is adapted, over a small explicit
   candidate set, so no discretization of a continuous space is needed.

@@ -269,10 +269,14 @@ def test_percentile_uses_nearest_rank():
 def test_committed_hardened_evidence_matches_its_raw_samples():
     root = Path(__file__).resolve().parents[1]
     summary = json.loads(
-        (root / "docs/benchmarks/backend-read-baseline-hardened.json").read_text(encoding="utf-8")
+        (
+            root / "docs/evaluation/benchmarks/raw/browser/backend-read-baseline-hardened.json"
+        ).read_text(encoding="utf-8")
     )
     raw = json.loads(
-        (root / "docs/benchmarks/backend-read-requests-hardened.json").read_text(encoding="utf-8")
+        (
+            root / "docs/evaluation/benchmarks/raw/browser/backend-read-requests-hardened.json"
+        ).read_text(encoding="utf-8")
     )
     by_level = defaultdict(list)
     for row in raw:
@@ -301,10 +305,14 @@ def test_committed_hardened_evidence_matches_its_raw_samples():
 def test_committed_corrected_evidence_matches_its_raw_samples():
     root = Path(__file__).resolve().parents[1]
     summary = json.loads(
-        (root / "docs/benchmarks/backend-read-baseline-corrected.json").read_text(encoding="utf-8")
+        (
+            root / "docs/evaluation/benchmarks/raw/browser/backend-read-baseline-corrected.json"
+        ).read_text(encoding="utf-8")
     )
     raw = json.loads(
-        (root / "docs/benchmarks/backend-read-requests-corrected.json").read_text(encoding="utf-8")
+        (
+            root / "docs/evaluation/benchmarks/raw/browser/backend-read-requests-corrected.json"
+        ).read_text(encoding="utf-8")
     )
     by_level = defaultdict(list)
     for row in raw:

@@ -1,196 +1,44 @@
 # Documentation
 
-Choose a task below. Current guides describe the implementation; release notes,
-validation records and original requirements have separate historical roles.
-Commands assume the repository root unless a different directory is shown.
+Hnefatafl is a source-available Viking board-game application with a Python
+rules engine, a React browser client, search opponents and self-play training.
+Choose a section below; every page describes the current implementation unless it
+is explicitly labelled historical.
 
-## Getting started and gameplay
-
-- [Repository introduction and quick start](../README.md)
-- [Online lobby, multiplayer controls, clocks and replay](ONLINE_PLAY.md)
-- [The Great Hall, statistics and read-only history](DASHBOARD.md)
-- [Gameplay: ruleset comparison, controls, replay and persistence](GAMEPLAY.md)
-- [Profiles, records, model suggestions, language and appearance](PERSONALIZATION.md)
-- [Account menu, private profile details, password changes and leaderboard sharing](PROFILE.md)
-
-## AI opponents, neural search wrappers and position analysis
-
-- [Profiles, search limits, neural wrappers and reproducibility](AI.md)
-- [Background analysis, move advisors and interpretation of winning chances](ANALYSIS.md)
-- [Persistent identity runes](IDENTITIES.md)
-
-- [Arena design system and visual acceptance](DESIGN_SYSTEM.md)
-
-## Tournaments and statistics
-
-- [Personal ruleset, AI-opponent and side statistics](DASHBOARD.md#detailed-personal-statistics)
-- [Rated online games, Elo policy, eligibility, leaderboards and rebuilds](RATINGS.md)
-- [Earnable portraits, achievement progress, catalog IDs and award permanence](PROGRESSION.md)
-- [Role win rates and compact achievement cards](validation/role-win-rates-and-achievement-cards.md)
-- [Portrait Hall implementation and visual acceptance](validation/portrait-hall.md)
-- [Manual portrait unlock validation and Shieldmaiden reveal frames](validation/portrait-unlock.md)
-- [Round-robin setup, balanced sides, scoring, matrices and replay](TOURNAMENTS.md)
-- [Double-elimination player tournaments, bracket policy and moderation](PLAYER_TOURNAMENTS.md)
-- [Hall of records and seed-independent AI statistics](PERSONALIZATION.md#ai-configurations-in-the-hall-of-records)
-
-## Training, evaluation and hyperparameter optimization
-
-- [Training dashboard, analysis views, navigation and chart interpretation](TRAINING_DASHBOARD.md)
-- [First training run, learning targets, configuration bounds, evaluation and Optuna](TRAINING.md)
-- [Recommended board-specific plans and retained learning graphs](TRAINING_PLAN.md)
-
-## GPU optimization, performance and benchmarking
-
-- [Optional OpenVINO Intel GPU inference, setup and complete-iteration benchmarks](OPENVINO.md)
-
-- [Shield maiden strategy, strength and runtime evidence](SHIELD_MAIDEN.md)
-- [CPU/CUDA/MPS setup, concurrent MCTS, batch sizes, metric units and benchmark CLI](PERFORMANCE.md)
-- [Schedule-Free AdamW RTX 3060 correctness and performance validation procedure](SCHEDULEFREE_CUDA.md)
-- [Training optimization integration and independent PR validation](designs/training-optimizations.md)
-- [Optional online hyperparameter adaptation: algorithm comparison, signal and limits](designs/online-hyperparameter-adaptation.md)
-
-## Training checkpoints, job storage, model management and migration
-
-- [Storage layout, full versus inference checkpoints, resumption, model lifecycle and migration](TRAINING_DATA.md)
-- [Consistent full-instance backup and restoration](TRAINING_DATA.md#consistent-backup-and-restoration)
-
-## Remote training workers
-
-- [Enrollment, worker CLI, parallel slots, transfers, leases and access control](REMOTE_TRAINING.md)
-
-## Installation, deployment, security and backups
-
-- [Accounts, sessions, CSRF and API permissions](SECURITY.md)
-- [Registration, verification, password recovery and SMTP operations](REGISTRATION.md)
-- [Local production/development, Linux/LXC, systemd, reverse proxy, upgrades and rollback](DEPLOYMENT.md)
-- [Backup and relocation safeguards](TRAINING_DATA.md#consistent-backup-and-restoration)
-
-## Architecture, development and testing
-
-- [Current architecture and module boundaries](../ARCHITECTURE.md)
-- [Current Arena Phase 0–4 completeness, roadmap and remaining dependencies](designs/arena-current-completeness.md): primary roadmap reference
-- [Initial public release readiness and outstanding gates](RELEASE_READINESS.md)
-- [Historical post-PR #84 Arena completion audit and baseline matrix](designs/arena-completion.md): historical snapshot, not current status
-- [Arena v2 contracts, feature preservation inventory and integration plan](designs/arena-v2-contracts.md)
-- [Shared frontend notification layer, migrated surfaces and exceptions](NOTIFICATIONS.md)
-- [Developer commands, CLI reference and test workflow](DEVELOPMENT.md)
-- [Frontend test-toolchain security update](validation/test-toolchain-security.md)
-- [Watch Hall production CSS regression and browser validation](validation/public-watch-production.md)
-- [League policy and implementation contract](LEAGUES.md)
-- [Ruleset league achievement validation and backfill coverage](validation/league-achievements.md)
-- [Repository working conventions](../AGENTS.md)
-- [Validation overview and historical evidence](VALIDATION.md)
-- [Workshop presentation and bounded rendering](validation/workshop-consolidation.md)
-- [Player tournament Arena and settlement validation](validation/player-tournaments-arena.md)
-- [Scheduled starts, creator permissions and themed calendar validation](validation/player-tournament-scheduling.md)
-- [Tournament final review, compact popup and two-game creation validation](validation/player-tournament-refinement.md)
-- [Disposable backend read workload](validation/backend-read-baseline.md)
-- [Dashboard polling policy and measurement](validation/dashboard-polling.md)
-- [Current-engine browser analysis feasibility](validation/browser-analysis-prototype.md)
-- [Browser neural execution and CSP feasibility](validation/browser-neural-feasibility.md)
-- [Browser analysis Phase 1 validation (Jarl and neural inference)](validation/browser-analysis-phase1.md)
-- [Browser analysis Phase 2 validation (browser-side neural MCTS)](validation/browser-analysis-phase2.md)
-- [Browser analysis Phase 3 validation (optimization, Phase 3A)](validation/browser-analysis-phase3.md)
-- [Browser analysis Phase 3B validation (transport, cache, batching)](validation/browser-analysis-phase3b.md)
-- [Browser analysis Phase 3C-A validation platform](validation/browser-analysis-phase3c.md)
-- [Browser analysis Phase 3C-B competitive measurements and readiness](validation/browser-analysis-phase3c-b.md)
-- [Browser analysis Phase 4 production security and runtime integration](validation/browser-analysis-phase4.md)
-- [Physical browser/WebGPU validation matrix](validation/device-matrix-phase3c.md)
-- [Browser-side analysis roadmap](designs/browser-analysis-roadmap.md)
-- [Release procedure](RELEASING.md) (only for an explicitly authorized release)
-
-- [Frontend feature splitting and initial bundle evidence](validation/frontend-feature-splitting.md)
-- [Arena theme completion and visual checks](validation/arena-theme-completion.md)
-
-## Licensing and contributions
-
-- [Project licensing scope, previous releases, AI models and open ownership questions](LICENSING.md)
-- [Third-party notices and dependency compatibility](../THIRD_PARTY_NOTICES.md)
-- [Contributing rules and current CLA status](../CONTRIBUTING.md)
-- [Deferred Harmony CLA proposal and GitHub automation](CONTRIBUTOR_LICENSING.md)
-- [Voluntary donations, donor policy and the support link](DONATIONS.md)
-
-## Online foundations and offline feasibility
-
-- [Shared interface and online creation validation](validation/shared-ui-layout.md)
-- [Compact Dashboard badges and detailed personal statistics validation](validation/personal-statistics.md)
-- [Post-Phase 5 statistics and review refinement validation](validation/post-phase5-refinements.md)
-- [Dashboard consolidation refinement validation](validation/dashboard-consolidation.md)
-- [Phase 5 validation](validation/online-phase5.md)
-- [Phase 6 handoff and rating policy decisions](designs/online-phase6-handoff.md)
-- [Phase 5 personal dashboard contract and dependency](designs/personal-dashboard-phase5.md)
-- [Durable online game core, match modes, timeout controls and schema-10 recovery](ONLINE.md)
-- [Signed-out public online discovery: endpoints, filters, paging, limits and switch](PUBLIC_ONLINE.md)
-- [Public spectator frontend and visual acceptance](validation/public-spectator.md)
-- [Phase 2 implementation checklist and validation](validation/online-phase2.md)
-- [Phase 3 backend/API/reconnect contract](designs/online-phase3-handoff.md)
-- [Phase 3 UI validation](validation/online-phase3.md)
-- [Phase 4 incoming handoff](designs/online-phase4-handoff.md)
-- [Phase 4 guest separation evidence](validation/online-phase4.md)
-- [Phase 5 handoff and pending rollout decisions](designs/online-phase5-handoff.md)
-- [Phase 0 source-backed architecture assessment](designs/online-phase0-assessment.md)
-- [Lifecycle, deadlines, results, permissions and pending policy decisions](designs/online-phase0.md)
-- [Phase 1 registration implementation brief](designs/registration-phase1.md)
-- [Executable browser-offline spike](../spikes/browser_offline/README.md)
-- [Phase 0 validation evidence and handoff](validation/online-phase0.md)
-- [Phase 1 registration validation and integration handoff](validation/account-registration-phase1.md)
-
-## Rulesets, release history and historical requirements
-
-- [Brandubh](rules/brandubh.md), [Tablut market rules](rules/tablut.md),
-  [Copenhagen](rules/copenhagen.md): authoritative source citations and digital conventions.
-  These paths are also read by the application at runtime.
-- [Historical delivery checklist](../PROGRESS.md): milestone summaries, not a second current manual.
-- [Original specification](REQUIREMENTS.md): requested scope, including future/unimplemented goals.
-- [King-token design record](designs/king-options.md): selected visual concept, not rules behavior.
-
-| Release | Delivered scope and original evidence |
+| Section | Use it for |
 | --- | --- |
-| [0.42](releases/0.42.md) | League Arena with seasonal matchmaking and durable settlement, randomised player-tournament seeding and synchronised rounds, role win rates, manual portrait unlocking, Online Play navigation, noncommercial licensing and the opt-in browser neural MCTS research phases |
-| [0.41.1](releases/0.41.1.md) | Deployment-gate-safe deferred tournament recovery, sanitized readiness diagnostics and mandatory startup-under-lock regression coverage |
-| [0.41.0](releases/0.41.0.md) | Arena v2 four-theme shell, Local 1v1, human player tournaments, automatic portraits and achievements, public spectator Arena, and frontend/backend performance work |
-| [0.40.0](releases/0.40.0.md) | Persistent Champion-aware HyperController, selectable learning metrics with portable parameter history, and configurable neural analytics budgets |
-| [0.39.0](releases/0.39.0.md) | Schedule-Free AdamW, tournament role analytics and legal openings, evaluation-series fitting |
-| [0.38.0](releases/0.38.0.md) | Account profiles, automatic optional-field publication and current player identities |
-| [0.37.0](releases/0.37.0.md) | Champion-aware adaptation, self-play outcome charts and reliable large job transfers |
-| [0.36.0](releases/0.36.0.md) | Reliable tuning, online learning-rate adaptation, model reuse and longer analysis windows |
-| [0.35.0](releases/0.35.0.md) | Custom single-player opponents, training parameter help, parallel CPU search and leaner evaluation progress |
-| [0.34.0](releases/0.34.0.md) | Live training monitoring, fixed-role tournaments, batched evaluation and faster engine/search paths |
-| [0.33.0](releases/0.33.0.md) | Responsive play/replay, detailed personal statistics, shared UI styles and configurable online clocks |
-| [0.32.0](releases/0.32.0.md) | Verified accounts, rated online multiplayer, personal dashboard and interface scale |
-| [0.31.0](releases/0.31.0.md) | Optimized alpha-beta search with optional symmetry, configurable heuristics and portable tournament setup |
-| [0.30.0](releases/0.30.0.md) | Shared frontend notification layer and a preserved analysis tab when switching workshop jobs |
-| [0.29.0](releases/0.29.0.md) | Portable config.json import for new and resumed jobs plus one merged evaluation series in the workshop |
-| [0.28.0](releases/0.28.0.md) | Optional D4 training-sample augmentation with resumable randomness, workshop controls and measured evidence |
-| [0.27.0](releases/0.27.0.md) | Node-local MCTS prediction reuse, PUCT traversal and reproducible fixed-model measurements |
-| [0.26.0](releases/0.26.0.md) | Exact remote worker version matching, administrator overrides and active-lease continuity |
-| [0.25.0](releases/0.25.0.md) | Editable job parameter reuse and recorded job/model self-play totals |
-| [0.24.0](releases/0.24.0.md) | D4 symmetry foundations, optional exact-input cache and measured inference deduplication |
-| [0.23.0](releases/0.23.0.md) | Optional OpenVINO Intel GPU self-play inference with portable PyTorch learning |
-| [0.22.1](releases/0.22.1.md) | Hide revoked remote workers and correct worker connection commands |
-| [0.22.0](releases/0.22.0.md) | Mandatory accounts, scoped permissions and production Linux/LXC deployment |
-| [0.21.0](releases/0.21.0.md) | Structured AI workshop training dashboard |
-| [0.20.0](releases/0.20.0.md) | Shield maiden heuristic, integration and measured trade-offs |
-| [0.19.0](releases/0.19.0.md) | Single evaluation opponent, portable champion selection and compact worker logs |
-| [0.18.0](releases/0.18.0.md) | Portable training jobs, contained Optuna studies and faithful checkpoint resumption |
-| [0.17.0](releases/0.17.0.md) | Concurrent self-play, batched inference and qualified CPU benchmarks |
-| [0.16.0](releases/0.16.0.md) | Editable resumption and three neural search wrappers |
-| [0.15.0](releases/0.15.0.md) | Background analytics and faithful replay |
-| [0.14.0](releases/0.14.0.md) | Battlefield opponent win matrices |
-| [0.13.0](releases/0.13.0.md) | Optimizer overrides and agent evaluations |
-| [0.12.0](releases/0.12.0.md) | Remote training workers |
-| [0.11.0](releases/0.11.0.md) | Model/job management and tournament identities |
-| [0.10.0](releases/0.10.0.md) | Complete setup, checkpoint review and identity runes |
-| [0.9.0](releases/0.9.0.md) | Analysis, training plans, localization and wood theme |
-| [0.8.0](releases/0.8.0.md) | Four-player tournaments and sortable records |
-| [0.7.0](releases/0.7.0.md) | Fresh seeds and collection cleanup |
-| [0.6.0](releases/0.6.0.md) | Saved tournaments |
-| [0.5.0](releases/0.5.0.md) | Personalization and inspectable opponent records |
-| [0.4.0](releases/0.4.0.md) | Browser play and training workshop |
-| [0.3.0](releases/0.3.0.md) | Search and self-play learning |
-| [0.2.0](releases/0.2.0.md) | Three deterministic rulesets |
-| [0.1.0](releases/0.1.0.md) | Development foundation |
+| [Getting started](getting-started/README.md) | Install locally, create the first administrator, open the Arena |
+| [Installation and operations](installation/README.md) | Deploy, configure, update, back up, restore and troubleshoot a server |
+| [Administration](administration/README.md) | Accounts, permissions, security, online operations and monitoring |
+| [Game](game/README.md) | Rulesets, game modes, online play, ratings, leagues, tournaments, achievements, replay and the UI |
+| [Training](training/README.md) | Train, evaluate, resume, tune, import and manage neural opponents and workers |
+| [Evaluation](evaluation/README.md) | Benchmark methodology, agent comparisons and preserved measurements |
+| [Development](development/README.md) | Architecture, setup, testing, API, release preparation, UI rules, decisions and active roadmaps |
+| [Releases](releases/README.md) | Immutable version-specific release notes and their index only |
+| [Licensing](./LICENSING.md) | PolyForm Noncommercial licence scope, third-party terms and open questions |
+| [Donations](./DONATIONS.md) | Voluntary support policy and the Buy Me a Coffee link |
+| [Original requirements](./REQUIREMENTS.md) | The initial specification, including goals that remain unimplemented |
 
-Historical release notes remain unchanged; test counts belong to their stated
-scope. See [Validation](VALIDATION.md) before treating a historical check as
-current hardware, browser or model-strength evidence.
+Ruleset sources are runtime assets: [Brandubh](./rules/brandubh.md),
+[Tablut](./rules/tablut.md) and [Copenhagen](./rules/copenhagen.md). They must stay
+under `docs/rules/` because the server reads them at runtime.
+
+## Documentation contract
+
+- Each topic has one canonical page. Link to it instead of copying commands,
+  defaults or parameter tables.
+- Follow the [audience boundaries](development/documentation-guidelines.md#ownership-by-audience):
+  player docs stay player-facing; API/persistence internals live in Development;
+  benchmark evidence lives in Evaluation.
+- Current guides describe implemented behavior; [release notes](releases/README.md)
+  preserve the evidence, counts and limitations of their own release. Releases
+  contains only those notes and its index; release procedure/readiness and testing
+  live in Development.
+- Distinguish implemented, experimental, deferred and planned work. Do not present
+  a roadmap item as available.
+- Keep complete implementation roadmaps for features that are still under
+  development, including completed phases and acceptance criteria. Remove a
+  roadmap only after the whole feature is fully developed and accepted, once its
+  durable knowledge is in canonical documentation.
+- Use [the documentation guidelines](development/documentation-guidelines.md) when
+  adding or changing a feature. Run `make docs` before opening a pull request.

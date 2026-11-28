@@ -47,7 +47,7 @@ def test_email_detection_uses_synthetic_addresses_and_ignores_urls_and_handles()
 def test_contributor_documentation_keeps_broader_rights_deferred_and_optional():
     contributing = " ".join((ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8").split())
     proposal = " ".join(
-        (ROOT / "docs/CONTRIBUTOR_LICENSING.md").read_text(encoding="utf-8").split()
+        (ROOT / "docs/development/contributor-licensing.md").read_text(encoding="utf-8").split()
     )
     audit = " ".join((ROOT / "docs/LICENSING.md").read_text(encoding="utf-8").split())
     assert "does not currently intend to commercially exploit" in contributing
@@ -62,7 +62,9 @@ def test_contributor_documentation_keeps_broader_rights_deferred_and_optional():
 
 
 def test_release_readiness_license_decision_is_current_and_still_blocks_deployment():
-    readiness = " ".join((ROOT / "docs/RELEASE_READINESS.md").read_text(encoding="utf-8").split())
+    readiness = " ".join(
+        (ROOT / "docs/development/releasing/readiness.md").read_text(encoding="utf-8").split()
+    )
     assert "must still choose a distribution license" not in readiness
     assert "selected distribution license is the PolyForm Noncommercial License 1.0.0" in readiness
     assert "does not itself authorize deployment" in readiness

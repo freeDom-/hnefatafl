@@ -4,7 +4,7 @@ These tests cover the controller in isolation (timing, bounds, serialization and
 numerical behaviour) and one end-to-end training path that proves the controller
 runs inside the real training loop, survives a checkpoint round-trip and never
 rebuilds the optimizer. The algorithm's honest signal is the completed-game score
-against one fixed opponent; see docs/designs/online-hyperparameter-adaptation.md.
+against one fixed opponent; see docs/training/online-adaptation.md.
 """
 
 from __future__ import annotations
