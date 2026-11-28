@@ -17,6 +17,8 @@ The Workshop uses the same four themes as the Arena. Overview captures:
 [contact sheet](../assets/training/contact-kings-table.webp) summarizes the main
 Workshop sections.
 
+![Workshop overview with synthetic jobs](../assets/training/training-overview.jpg)
+
 
 ![AI Workshop training overview](../assets/training/kings-table-workshop.jpg)
 
@@ -41,6 +43,15 @@ progress and charts; **Model collection** and **Remote workers** are anchors on 
 same `/training` route so deep links keep working.
 
 ## Create and select jobs
+
+![New training job form](../assets/training/training-creation.jpg)
+
+![Advanced training parameters](../assets/training/training-creation-advanced.jpg)
+
+The creation form exposes presets and common settings first; **Advanced
+configuration** reveals search, replay, seed, thread and precision controls. The
+same parameter help is used in the resume dialog. See
+[parameters](parameters.md) for defaults and bounds.
 
 **New training** opens **Forge a new strategist** across the page. It opens
 initially in an empty workshop and collapses initially when jobs exist. Closing
@@ -131,6 +142,8 @@ full checkpoint and keeps immutable architecture/optimizer identity. **Import jo
 restores a portable job archive; **Export** produces a transferable archive. Model
 import supplies an opponent but does not create or resume a job.
 
+![Tuning configuration](../assets/training/training-tuning-config.jpg)
+
 The **Tune parameters** mode creates an Optuna study inside the job's own study
 database. A saved study is continued from its job; names alone do not link studies
 across jobs. See [getting started](getting-started.md) for the workflow and
@@ -146,6 +159,18 @@ round-robin or fixed-role comparisons, with win matrices, replay and export. It
 never enters player statistics.
 
 ## Analysis views
+
+![Learning view](../assets/training/training-learning.jpg)
+
+![Evaluation view](../assets/training/training-evaluation.jpg)
+
+![Performance view](../assets/training/training-performance.jpg)
+
+![Details view](../assets/training/training-details.jpg)
+
+These screenshots use synthetic job fixtures. They illustrate the interface and
+are not throughput or model-strength evidence; measured values are in
+[benchmarks](../evaluation/benchmarks/README.md).
 
 The summary above the tabs keeps the selected name, status, ruleset, execution
 location, recorded iteration/total, stage, live elapsed time and remote update
@@ -247,6 +272,15 @@ The model-deletion dialog lists active optimization dependencies and disables
 deletion until those studies stop; backend enforcement also covers stale UI state.
 Inactive studies do not reserve models forever: deleting a fixed dependency makes
 further trials unavailable until that exact compatible artifact is restored.
+
+![Tuning results and best-so-far charts](../assets/training/training-tuning-results.jpg)
+
+![Resume Training dialog with reviewed parameter changes](../assets/training/training-resume.jpg)
+
+The tuning and resume captures come from a disposable real CPU smoke run. Their
+scores demonstrate the workflow, not model strength. Regenerate the page captures
+with `tests/documentation-screenshots.spec.ts`; see
+[documentation guidelines](../development/documentation-guidelines.md#screenshots).
 Historical trials remain inspectable and their checkpoints remain usable.
 
 Arrow keys move between tabs; Home/End choose the first/last tab. Charts accept
@@ -470,6 +504,8 @@ tournaments before claiming general strength.
 
 ## Model collection and compatibility
 
+![Model collection cards](../assets/training/training-models.jpg)
+
 The separate expandable **Model collection** remains below monitoring. Its
 import/export, rename/delete, metadata/evaluation summaries, load-parameters and
 source-job resume actions retain their existing behavior. A registered inference
@@ -507,6 +543,11 @@ fixtures, including a 60-iteration running job, a 120-iteration completed job,
 legacy records and several evaluation contexts. These are interface fixtures,
 not evidence of trained-model strength or GPU throughput. See the
 [0.21.0 release notes](../releases/0.21.0.md) for executed validation and images.
+
+![Remote worker management](../assets/training/training-workers.jpg)
+
+Worker cards show compatibility, capacity, active jobs, hardware and last-seen
+time. Enrollment and leases are documented in [remote workers](remote-workers.md).
 
 ## Optional OpenVINO inference
 

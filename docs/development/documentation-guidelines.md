@@ -35,13 +35,31 @@ parameter tables, game rules or architecture descriptions into a second page.
 6. If a feature is partially implemented, label what is delivered and what is not.
    Never present a roadmap item as available.
 
-## When completing an implementation plan
+## Implementation roadmaps
 
-- Move durable design constraints and evaluation results into the canonical guide,
-  architecture decision record or benchmark report.
-- Remove the completed phase/handoff document. Git history preserves it.
-- Leave only actionable remaining work in an active roadmap.
-- Do not accumulate per-phase completion reports or duplicate acceptance checklists.
+Keep one complete implementation roadmap for each feature that is planned,
+partially implemented, under active development or awaiting final acceptance. It
+must retain the objective, all phases (completed, current and future),
+dependencies, important decisions, acceptance criteria, validation evidence,
+outstanding findings and deferred work. Completed phases stay documented; mark
+them completed rather than deleting them.
+
+A merged phase, green PR, passing unit tests or a hardware-dependent gate that
+cannot be run does **not** mean the feature is fully developed. Keep the roadmap
+while any implementation or acceptance requirement remains.
+
+Remove an implementation roadmap only when the **whole feature** is fully
+developed and accepted. Before removal:
+
+1. Verify that no relevant implementation steps or findings remain unresolved.
+2. Move durable design constraints and evaluation results into the canonical guide,
+   architecture decision record or benchmark report.
+3. Preserve benchmark results and reproducibility instructions.
+4. Update player, administrator and developer documentation.
+5. Remove the obsolete roadmap. Git history and release notes preserve the rest.
+
+Do not accumulate per-phase completion reports or replace obsolete documents with
+one equally redundant historical document.
 
 ## When benchmarking
 
@@ -78,8 +96,16 @@ Recommended workflow:
 cd frontend
 npx playwright install chromium
 npx playwright test tests/arena-final.spec.ts --project=chromium
-npx playwright test tests/training-dashboard.spec.ts --project=chromium
+npx playwright test tests/documentation-screenshots.spec.ts --project=chromium
+npx playwright test tests/training-tuning.spec.ts --project=chromium
 ```
+
+`documentation-screenshots.spec.ts` captures Arena pages and Workshop surfaces
+with disposable route fixtures. The tuning spec additionally captures a real
+disposable CPU smoke run for the Tuning results and Resume Training dialogs.
+Images are written to `frontend/test-results/documentation/`; copy only the
+files used by a guide into `docs/assets/`. The tuning and training images are
+workflow examples, never performance or model-strength evidence.
 
 The specs start disposable backend/frontend services with fixture data. Review the
 output for transient notifications, loading indicators, synthetic personal data

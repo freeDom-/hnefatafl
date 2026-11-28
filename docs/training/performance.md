@@ -760,7 +760,7 @@ depth. Repetitions alternate scenario order, and median/min/max variability is
 reported. Memory is traced once per scenario outside the timed repetitions.
 
 Measured CPU results and the raw report are kept in
-[Phase 4 alpha-beta evidence](../evaluation/benchmarks/search-alpha-beta.md). On WSL2
+[Phase 4 alpha-beta evidence](../evaluation/benchmarks/search-alpha-beta.md#phase-4-evidence-alpha-beta-symmetry-search). On WSL2
 Intel i7-8750H, two math threads, the fixed-depth median wall time by ruleset was:
 
 | Ruleset (depth) | legacy | transposition | ordering | symmetry_pruning | all |
@@ -791,7 +791,7 @@ cross-orientation reuse; and symmetry-equivalent moves were pruned only after
 `_ordered` had already built and statically evaluated every successor.
 
 Raw numbers and the before/after comparison are kept in
-[alpha-beta control refinements evidence](../evaluation/benchmarks/search-alpha-beta.md).
+[alpha-beta control refinements evidence](../evaluation/benchmarks/search-alpha-beta.md#alpha-beta-control-refinements-evidence).
 
 ### What changed
 
@@ -868,7 +868,7 @@ The monotonic deadline is now observed inside move ordering, canonicalization an
 symmetry pruning through a cooperative check callback. On a synthetic symmetric
 copenhagen position with a 400-entry history, a 1 ms budget returns in ~1.2 ms
 instead of overrunning by a full ~45 ms stabilizer. Raw numbers are in the
-[control-refinement evidence](../evaluation/benchmarks/search-alpha-beta.md).
+[control-refinement evidence](../evaluation/benchmarks/search-alpha-beta.md#alpha-beta-control-refinements-evidence).
 
 ## Alpha-beta profiling and root-window pruning
 
@@ -880,7 +880,7 @@ Equal-depth moves, values and searched nodes match the eager reference; the
 reported training-evaluation gains apply to the measured fixed-depth CPU suite.
 
 A follow-up investigation reproduced the reported bottlenecks. The full report is
-in [alpha-beta profiling and comparison](../evaluation/benchmarks/search-alpha-beta.md).
+in [alpha-beta profiling and comparison](../evaluation/benchmarks/search-alpha-beta.md#alpha-beta-profiling-and-comparison-2026-10-26).
 The two findings that changed the code are:
 
 - The root passed a full `(-inf, +inf)` window to every child, so the widest part

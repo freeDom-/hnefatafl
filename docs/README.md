@@ -31,5 +31,9 @@ under `docs/rules/` because the server reads them at runtime.
   preserve the evidence, counts and limitations of their own release.
 - Distinguish implemented, experimental, deferred and planned work. Do not present
   a roadmap item as available.
+- Keep complete implementation roadmaps for features that are still under
+  development, including completed phases and acceptance criteria. Remove a
+  roadmap only after the whole feature is fully developed and accepted, once its
+  durable knowledge is in canonical documentation.
 - Use [the documentation guidelines](development/documentation-guidelines.md) when
   adding or changing a feature. Run `make docs` before opening a pull request.

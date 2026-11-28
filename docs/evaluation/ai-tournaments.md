@@ -10,6 +10,10 @@ defenders. The saved collection shows both kinds side by side, and fixed-role
 runs carry a **Fixed-role comparison** label.
 
 
+![AI testing results and standings](../assets/training/training-ai-testing.jpg)
+
+![Fixed-role comparison setup](../assets/training/training-ai-setup.jpg)
+
 ## Set up a comparison
 
 **New tournament** compares two, three or four opponents. Each opponent can use a

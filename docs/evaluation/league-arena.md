@@ -482,7 +482,7 @@ Arena components.
   128 rows plus lookahead. The expiry boundary is fixed for the traversal and
   unread eligibility reflects current account state. Tests remove a page
   boundary, restore eligibility, expire another entry and race an exact
-  cancellation with a replacement. [Cursor behavior](../game/leagues.md#api-and-recovery)
+  cancellation with a replacement. [Cursor behavior](../development/league-authority.md#api-and-recovery)
 - **P2.3 Eligibility reconciliation** The lifespan-owned worker uses the
   shared eligibility policy and rechecks the original request UUID before
   cancelling. Tests exercise administrative pause, disabled admission and the

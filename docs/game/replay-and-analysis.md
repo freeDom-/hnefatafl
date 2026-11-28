@@ -2,6 +2,8 @@
 
 [Documentation index](../../README.md) · [AI settings and wrappers](../evaluation/agents.md)
 
+![Analysis panel with an advisor's suggested move and winning chance](../assets/training/browser-analysis/analysis-kings-table.png)
+
 Winning chances are independent agent estimates for the **current side to move**.
 They appear together with the best-move hint when a **move advisor** is selected;
 without an advisor the analysis section stays closed. Estimates use the agent's

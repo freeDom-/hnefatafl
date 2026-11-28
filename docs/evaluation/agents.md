@@ -97,7 +97,7 @@ pass an optional internal `search` object to ablate individual features:
 
 The capacity ceiling is bounded because a repetition-aware key can grow to several
 kilobytes on a long game; the measured per-entry cost and the long-game peak are
-recorded in the [control-refinement evidence](./benchmarks/search-alpha-beta.md).
+recorded in the [control-refinement evidence](./benchmarks/search-alpha-beta.md#alpha-beta-control-refinements-evidence).
 
 The Shield maiden evaluator is D4-invariant, so the two symmetry features are
 valid for heuristic-backed search. Trained value heads are not guaranteed

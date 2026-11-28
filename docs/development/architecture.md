@@ -694,7 +694,7 @@ because canonicalization cost varies by ruleset and history length; the
 reproducible benchmark measures the tradeoff. The per-search table capacity is
 bounded at 500,000 entries because a repetition-aware key grows with history; the
 measured per-entry cost and long-game peak are in the
-[control-refinement evidence](../evaluation/benchmarks/search-alpha-beta.md). Move ordering applies one deterministic priority
+[control-refinement evidence](../evaluation/benchmarks/search-alpha-beta.md#alpha-beta-control-refinements-evidence). Move ordering applies one deterministic priority
 (principal variation, transposition move, killers, history, stable static order)
 and consults history even when no preferred move exists, without changing minimax
 values; root ties still follow the seeded base order. The public `search`

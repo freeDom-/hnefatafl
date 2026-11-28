@@ -89,7 +89,7 @@ desktop sidebar during gameplay/replay. Reference screenshots are in
 The audited baseline used schema **18**: 16 introduced account-game categories,
 17 progression and 18 human tournaments. Subsequent PR #90 uses schema 19 for
 the settlement outbox and schema 20 for scheduled starts, clocks and match modes;
-see [player tournament migrations](../game/tournaments.md#schema). Main uses
+see [player tournament migrations](tournament-authority.md#schema). Main uses
 schema 22 for synchronized tournament rounds and PR #99 introduces the league
 tables at schema 23.
 One owner controls migrations and restore table inventories. Do not allocate

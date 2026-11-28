@@ -11,7 +11,7 @@ filename, the `pyproject.toml`/`package.json` version and the published asset
 both `X.Y` and `X.Y.Z`, and version ordering treats `X.Y` as `X.Y.0` without
 renaming a published tag. A two-part identifier is only discoverable by an updater
 whose installed `deployment.py` already accepts two-part tags, so the release notes
-and [deployment guide](../installation/installation.md#updating) must state the one-time
+and [deployment guide](../installation/updating.md) must state the one-time
 updater refresh for installations that still run an older three-part-only updater.
 Release-note filenames are the unprefixed tag in every
 case. The historical

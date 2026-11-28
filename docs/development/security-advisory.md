@@ -1,5 +1,11 @@
 # Frontend test-toolchain security update
 
+> **Current status (2026-11-18 onward):** no active dependency-audit exception.
+> GitHub withdrew GHSA-fc5q-39xc-vjpf and the committed
+> `frontend/security/dependency-audit-exceptions.json` has an empty exception
+> list. The advisory assessment below is retained as historical evidence; it is
+> not an outstanding roadmap task.
+
 Updates the development-only Vitest runner from locked 3.2.7 (declared ^3.2.4) to
 pinned **4.1.12**, with the corresponding locked dependency graph. Application
 runtime dependencies, Vite, React, TypeScript, Playwright and jsdom are unchanged.

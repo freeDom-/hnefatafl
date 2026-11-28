@@ -54,6 +54,10 @@ legal review before any activation.
   any new dependency or asset.
 - A description of any ownership, provenance or licensing question that cannot
   be resolved from the repository.
+- Documentation updates for changed behavior. Keep complete implementation
+  roadmaps for features still under development; remove a roadmap only after the
+  whole feature is fully developed and accepted. See the
+  [documentation guidelines](docs/development/documentation-guidelines.md).
 
 ## Commercial use
 

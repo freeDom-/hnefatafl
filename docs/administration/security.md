@@ -214,7 +214,7 @@ refuses known-incompatible `0.41.0` rollback/interrupted-recovery targets before
 service stop, data restore or symlink replacement; it never weakens the gate or
 data-authority checks to force a downgrade. See
 [portraits and achievements](../game/progression.md) and
-[deployment recovery](../installation/installation.md#rollback-and-recovery).
+[deployment recovery](../installation/updating.md#rollback-and-recovery).
 
 The Linux updater authenticates the utility generation and systemd unit from the
 verified archive before any application-owned build runs. It locks the validated
@@ -222,7 +222,7 @@ HTTP gate inode, uses descriptor-relative operations for untrusted entries, and
 runs queries against live SQLite as the application account. Snapshot and restore
 work use private copies. Recovery checks release, snapshot and directory
 identities from protected metadata before service startup. See
-[installation, updates and recovery](../installation/installation.md#rollback-and-recovery).
+[installation, updates and recovery](../installation/updating.md#rollback-and-recovery).
 
 ## Coverage and explicit exceptions
 
@@ -255,6 +255,15 @@ training permission. Legacy workers without an enrolling account must be re-enro
 Logs/checkpoints remain preserved. Browser logout leaves delegated machine credentials
 valid; revoke a worker separately to stop machine access. Account disablement or
 demotion prevents future worker requests.
+
+## Dependency audit exceptions
+
+`.github/workflows/ci.yml` runs a moderate-or-higher npm audit and the committed
+[`frontend/security/dependency-audit-exceptions.json`](../../frontend/security/dependency-audit-exceptions.json)
+contains no active exceptions. The historical advisory assessment and withdrawal
+record are in [the security advisory](../development/security-advisory.md). A new
+exception requires review, a repository-hosted approval reference and an expiry;
+do not suppress findings or add a blanket ignore list.
 
 ## Operational boundaries
 

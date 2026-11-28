@@ -14,6 +14,7 @@
 | Remaining work | [Roadmaps](roadmap/README.md) |
 | Current dependency risk acceptance | [Security advisory](security-advisory.md) |
 | Deferred CLA proposal | [Contributor licensing](contributor-licensing.md) |
+| League and player-tournament internal authority | [League authority](league-authority.md), [tournament authority](tournament-authority.md) |
 | Historical Arena implementation snapshot | [Arena completeness 2026-11-20](../releases/arena-snapshot-2026-11-20.md) |
 
 ## Repository principles

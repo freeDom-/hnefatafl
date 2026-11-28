@@ -34,6 +34,8 @@ Signed-out surfaces: `/login`, `/register`, `/verify-email`,
 
 ## Sign in, registration and recovery
 
+![Login form](../../assets/game/game-login.jpg)
+
 `/login` is the entry form. It shows registration links only when the operator has
 enabled public registration and a working mail configuration. `/register`,
 `/verify-email`, `/forgot-password` and `/reset-password` are separate views on the
@@ -42,6 +44,22 @@ preserve entered values where safe and never reveal whether an account exists.
 Successful registration asks the user to verify their email; login remains
 available when admission is enabled. A session expiry returns to login with an
 explanation rather than silently discarding the page.
+
+![Registration form](../../assets/game/game-register.jpg)
+
+Registration uses the same account surface. It is shown only when the operator
+has enabled registration and mail delivery. Passwords are checked against the
+shared policy and entered values are preserved on validation errors.
+
+![Email verification and resend](../../assets/game/game-verify-email.jpg)
+
+Verification links are single-use and replace earlier links. An expired or
+already-used link offers a resend path instead of a dead end.
+
+![Password recovery request](../../assets/game/game-forgot-password.jpg)
+
+Password recovery uses the same email-request pattern; the reset link opens a
+new-password form. Responses never reveal whether an account exists.
 
 The signed-out `/watch` surface is separate and read-only; see
 [Public Watch Hall](#public-watch-hall). Account creation is not required to view
@@ -111,6 +129,8 @@ Dialogs: **Begin a new saga** (single-player setup), **Start a local 1v1 game**,
 
 ![Authenticated online lobby](../../assets/game/kings-table-online-lobby.jpg)
 
+![Online game board with clock and no analysis controls](../../assets/game/game-online-board.jpg)
+
 The authenticated lobby always opens at `/online`; it never auto-resumes a game.
 Tabs are **All games**, **My games** and **My turn**, with a ruleset filter and
 bounded pagination. Waiting games can be joined; creators can cancel. Completed,
@@ -122,6 +142,8 @@ offers single games or two-game matches. Retained-request recovery is explained 
 ## Statistics and Leaderboard
 
 ![Personal statistics page](../../assets/game/kings-table-statistics.jpg)
+
+![Leaderboard standings](../../assets/game/game-leaderboard.jpg)
 
 **Your statistics** is relative to the signed-in account's authoritative seat.
 The Singleplayer / Multiplayer / Local 1v1 tabs and ruleset filter stay in the URL.
@@ -148,6 +170,8 @@ Theme comparison: [Kings Table](../../assets/game/kings-table-player-tournaments
 
 ## Leagues
 
+![League season, progression, standings, history and administration](../../assets/game/game-leagues.jpg)
+
 `/leagues` shows the current UTC calendar season, separate Brandubh/Tablut/
 Copenhagen standings, tier progress, the ranked queue and the account's league
 history. League points are seasonal progress, not an Elo estimate. Queue and
@@ -156,7 +180,7 @@ opponents or ranks. See [leagues](../leagues.md).
 
 ## Hall of records
 
-![Read-only replay in the Hall of records](../../assets/game/kings-table-replay.jpg)
+![Hall of records overview with filters and totals](../../assets/game/game-hall-of-records.jpg)
 
 The read-only archive offers **All records**, **Online multiplayer**,
 **Singleplayer** and **Local 1v1** categories, with player, ruleset, status,
@@ -166,6 +190,8 @@ opens an independent read-only review with the shared board and move list; repla
 navigation changes only the viewer's position and never branches or overwrites the
 saved game. Move advisors can analyse a completed record where permitted. See
 [replay and analysis](../replay-and-analysis.md).
+
+![Selected read-only replay](../../assets/game/game-replay.jpg)
 
 ## Hall of Renown
 
@@ -202,6 +228,8 @@ The variant achievement galleries are available on
 [Classic Table](../../assets/game/classic-table-achievements.png).
 
 ## My Profile
+
+![Profile personal information, account security and appearance](../../assets/game/game-profile.jpg)
 
 ![Appearance settings and account controls](../../assets/game/kings-table-appearance.jpg)
 

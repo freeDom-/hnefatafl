@@ -1,7 +1,13 @@
 # Arena and platform roadmap
 
-This is the current remaining-work roadmap. Delivered capability matrices are
-historical snapshots and release evidence, not a second current manual.
+This page tracks remaining program-level acceptance work. Completed feature
+implementation and validation are recorded in release notes, the
+[browser-analysis roadmap](browser-analysis.md) and the
+[historical completeness snapshot](../../releases/arena-snapshot-2026-11-20.md).
+
+Active feature roadmaps keep their complete phase history until the feature is
+fully developed and accepted. This program page only lists work that is still
+outstanding.
 
 ## Current focus
 
@@ -11,8 +17,6 @@ historical snapshots and release evidence, not a second current manual.
 | Combined release-candidate acceptance (capacity, recovery, security, 4K/200% zoom, full-theme/localization pass) | Not performed as one system | [Release readiness](../../releases/readiness.md) |
 | Competitive browser checkpoints, physical devices, verified GPU, sustained memory and playing-strength evidence | Blocked on external resources | [Browser analysis roadmap](browser-analysis.md) |
 | League Arena integrated release-candidate verification and administrator recovery drill | Merged; combined acceptance outstanding | [Leagues](../../game/leagues.md), [release readiness](../../releases/readiness.md) |
-| Dependency advisory risk acceptance / removal | Time-limited; owner action | [Security advisory(../security-advisory.md) |
-| Historical branch/docs cleanup and canonical schema inventory | Ongoing maintenance | This PR / release notes |
 
 ## Explicitly deferred or not implemented
 
@@ -25,8 +29,9 @@ historical snapshots and release evidence, not a second current manual.
 
 ## How to use this roadmap
 
-Add only actionable remaining work, dependencies and acceptance criteria. Link a
+Add only outstanding work, dependencies and acceptance criteria here. Link a
 GitHub issue or pull request instead of maintaining a duplicate task inventory.
-When work completes, move durable design/evaluation knowledge to the canonical
-guide and remove the completed item. See
-[documentation guidelines](../documentation-guidelines.md).
+A completed standalone task may be removed after its durable knowledge is in the
+canonical documentation. Do **not** remove completed phases from an active feature
+roadmap merely because they were merged; see
+[documentation guidelines](../documentation-guidelines.md#implementation-roadmaps).

@@ -53,7 +53,7 @@ Monitor the persistent data root, not the release directory:
 Release retention is bounded; persistent data is not. The installer keeps
 completed release directories for rollback but old releases and backups must be
 pruned deliberately. See
-[storage retention](../installation/installation.md#storage-retention-preflight-and-cleanup).
+[storage retention](../installation/updating.md#storage-retention-preflight-and-cleanup).
 
 ## Backups
 

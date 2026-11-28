@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check repository Markdown destinations, GitHub-style anchors and navigation.
+"""Check Markdown destinations, anchors, malformed links and navigation.
 
 No network access or third-party packages. Fenced examples are deliberately
 excluded. Remote URLs and application routes in code spans are not validated.
@@ -24,6 +24,23 @@ INLINE = re.compile(
 )
 REFERENCE = re.compile(r"^ {0,3}\[([^\]]+)\]:\s*<?([^\s>]+)>?", re.MULTILINE)
 USE_REFERENCE = re.compile(r"!?\[([^\]]+)\]\[([^\]]*)\]")
+# A label followed by "(" without the closing "]" is not a link. Require a
+# path-like target and reject a trailing "]" so ordinary prose like
+# "[see (docs/guide.md)]" is not flagged. Fenced and inline code are masked.
+MALFORMED = re.compile(
+    r"!?\[[^\]\n]{1,300}\([^)\s]*(?:/[^)\s]*|\.[A-Za-z0-9]{1,8})(?:[?#][^)\s]*)?\)(?!\])"
+)
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+
+
+def mask_inline_code(text: str) -> str:
+    """Blank inline code spans while preserving length and line offsets."""
+    return INLINE_CODE.sub(lambda match: " " * len(match.group(0)), text)
+
+
+def malformed_links(text: str):
+    for match in MALFORMED.finditer(mask_inline_code(text)):
+        yield text.count("\n", 0, match.start()) + 1, match.group(0)
 
 
 def prose(text: str) -> str:
@@ -80,17 +97,18 @@ def anchors(text: str) -> set[str]:
 
 
 def links(text: str):
-    for match in INLINE.finditer(text):
-        yield text.count("\n", 0, match.start()) + 1, match[1].strip("<>")
-    references = {m[1].casefold(): m[2] for m in REFERENCE.finditer(text)}
-    for match in USE_REFERENCE.finditer(text):
+    scan = mask_inline_code(text)
+    for match in INLINE.finditer(scan):
+        yield scan.count("\n", 0, match.start()) + 1, match[1].strip("<>")
+    references = {m[1].casefold(): m[2] for m in REFERENCE.finditer(scan)}
+    for match in USE_REFERENCE.finditer(scan):
         label = (match[2] or match[1]).casefold()
         if label not in references:
             raise ValueError(f"undefined reference link: {label}")
-    for match in REFERENCE.finditer(text):
-        yield text.count("\n", 0, match.start()) + 1, match[2]
-    for match in re.finditer(r'\b(?:href|src)=["\']([^"\']+)["\']', text):
-        yield text.count("\n", 0, match.start()) + 1, match[1]
+    for match in REFERENCE.finditer(scan):
+        yield scan.count("\n", 0, match.start()) + 1, match[2]
+    for match in re.finditer(r'\b(?:href|src)=["\']([^"\']+)["\']', scan):
+        yield scan.count("\n", 0, match.start()) + 1, match[1]
 
 
 def main() -> int:
@@ -144,6 +162,11 @@ def main() -> int:
                     errors.append(f"{prefix}: missing heading anchor")
         except ValueError as error:
             errors.append(f"{path.relative_to(ROOT)}: {error}")
+        for line, target in malformed_links(text):
+            errors.append(
+                f"{path.relative_to(ROOT)}:{line}: malformed Markdown link {target!r} "
+                "(missing ']' before '(')"
+            )
     reached, pending = set(), [ROOT / "docs/README.md"]
     while pending:
         path = pending.pop()

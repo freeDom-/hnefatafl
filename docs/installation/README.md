@@ -12,10 +12,10 @@ updates, storage retention, backups, rollback and target-host troubleshooting.
 | Install on Debian or an existing LXC | [Standalone Debian installation](installation.md#standalone-debian-installation) |
 | Configure environment variables | [Configuration](configuration.md) |
 | Run behind HTTPS | [Reverse proxy and access](installation.md#reverse-proxy-and-access) |
-| Update, retain releases or roll back | [Updating](installation.md#updating), [rollback and recovery](installation.md#rollback-and-recovery) |
-| Back up or move an instance | [Training data and backup](../training/models.md#consistent-backup-and-restoration), [manual backups](installation.md#manual-backups-and-recovery-transactions) |
-| Manage disk usage | [Storage retention and cleanup](installation.md#storage-retention-preflight-and-cleanup) |
-| Diagnose a failed install or update | [Troubleshooting](installation.md#troubleshooting-and-target-host-validation) |
+| Update, retain releases or roll back | [Updating and recovery](updating.md) |
+| Back up or move an instance | [Training data and backup](../training/models.md#consistent-backup-and-restoration), [manual backups](updating.md#manual-backups-and-recovery-transactions) |
+| Manage disk usage | [Storage retention](updating.md#storage-retention-preflight-and-cleanup) |
+| Diagnose a failed install or update | [Troubleshooting](troubleshooting.md) |
 
 ## Supported installation shapes
 

@@ -34,6 +34,7 @@ build:
 	npm --prefix frontend run build
 
 docs:
+	$(PYTHON) -m unittest discover -s scripts -p 'test_check_docs.py'
 	$(PYTHON) scripts/check_docs.py
 
 check: docs lint typecheck test build
