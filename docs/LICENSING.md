@@ -161,7 +161,7 @@ Contributions are accepted under the project's inbound PolyForm Noncommercial
 License 1.0.0 terms. The maintainer does not currently intend to commercially
 exploit Hnefatafl, and ordinary noncommercial contributions do not need a CLA or
 additional legal agreement. A deferred, non-binding
-[CLA proposal](./releases/contributor-licensing-proposal.md) is retained only as a contingency if the
+[CLA proposal](./development/contributor-licensing.md) is retained only as a contingency if the
 maintainer ever decides to seek broader rights. It is not active and would
 require explicit maintainer approval and legal review before any use.
 

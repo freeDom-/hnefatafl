@@ -7,9 +7,7 @@ Use the existing isolated workspace; do not create Git worktrees unless asked.
 Deliver every change through a branch and PR. Never commit to `main`, force-push or
 rewrite a shared branch. Update `main`, branch with a type prefix (`feat/`, `fix/`,
 `docs/`, `test/`, `refactor/`, `perf/`, `chore/`), run the relevant checks, then push
-and open the PR against `main`. Online milestone phases target
-`feat/online-multiplayer`; see the
-[contributor workflow](docs/development/contributor-workflow.md). PR descriptions
+and open the PR against `main`. PR descriptions
 state delivered behavior, exact validation and limitations. Leave merging to the
 user; update `main` after a merge.
 
@@ -56,5 +54,5 @@ decisions and measurements. See [roadmap lifecycle](docs/development/roadmap/REA
 When UI changes, update the [interface guide](docs/game/interface/README.md) and
 screenshots. Prefer updating an existing page and link instead of duplicating content.
 
-Releases follow [the release process](docs/releases/release-process.md). A merged PR is
+Releases follow [the release process](docs/development/releasing/README.md). A merged PR is
 not a release; tags/GitHub Releases require explicit authorization.

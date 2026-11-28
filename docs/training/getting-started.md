@@ -110,7 +110,6 @@ completed games retain their historical labels. See [models](models.md).
 
 ## Verification
 
-- Functional tests prove real updates, checkpoint restoration and legal play.
-- They do not establish playing strength or calibrated winning chances.
-- CPU measurements are not GPU measurements. A faster search is not automatically
-  a stronger player.
+Functional tests prove real updates, checkpoint restoration and legal play, not
+playing strength or calibrated chances. CPU and GPU are not interchangeable. See
+[benchmark methodology](../evaluation/methodology.md) and [troubleshooting](troubleshooting.md).

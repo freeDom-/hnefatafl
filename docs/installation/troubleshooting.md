@@ -105,7 +105,7 @@ the starting data, use this checklist.
   interrupted operation with `hnefatafl-update --recover`. Confirm SQLite,
   retained data, model and job files, and the current release afterward.
 
-Read the checkout's [current validation](../releases/validation.md).
+Read the checkout's [current validation](../development/testing.md).
 
 Profile schema 15 is additive and idempotent. It preserves schema-14 consent as
 internal publication exceptions and retains old private birth years without

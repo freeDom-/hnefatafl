@@ -17,18 +17,6 @@
 | AI-only round-robin comparisons | [AI tournaments](../evaluation/ai-tournaments.md) |
 | Current UI page guide and screenshots | [Interface](interface/README.md) |
 
-## At a glance
-
-| Mode | Rated? | Record |
-| --- | --- | --- |
-| Play vs AI | No | Singleplayer |
-| Local 1v1 | No | Local 1v1 |
-| Normal online game | Yes | Online multiplayer + Elo |
-| League game | Yes | League season + online record |
-| Player-tournament leg | No | Tournament bracket + online record |
-| Public Watch Hall | n/a | Public eligible online games only |
-
-Ruleset mechanics and time controls are documented in [Gameplay](gameplay.md);
-their source-defined interpretations are in the runtime rule files:
-[Brandubh](../rules/brandubh.md), [Tablut](../rules/tablut.md) and
-[Copenhagen](../rules/copenhagen.md).
+The runtime rules files are [Brandubh](../rules/brandubh.md), [Tablut](../rules/tablut.md)
+and [Copenhagen](../rules/copenhagen.md). They are served by the application and must
+not move.

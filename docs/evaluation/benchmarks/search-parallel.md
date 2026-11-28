@@ -9,7 +9,7 @@ Consolidated evidence for the optional `search_workers` implementation. The orig
 > Historical record of the first `search_workers` implementation, retained as
 > measured. Its pool bounded game concurrency by the process count, which regressed
 > GPU batch occupancy; see the
-> [redesign report](./search-parallel.md) for the corrected
+> [redesign report](#parallel-search-redesign) for the corrected
 > scheduling model and new CPU/GPU measurements.
 
 Independent comparison against main `5a343668411033ed3283ed51e01323454975723a`.
@@ -80,7 +80,7 @@ source fingerprints retain the measured version before that reporting guard.
 The first `search_workers` implementation (PR 39) bounded effective game concurrency
 by the number of worker processes, which collapsed GPU batch occupancy. This report
 covers the redesigned pool, corrected CPU and GPU measurements, and the work-hash
-investigation. The [first-implementation report](./search-parallel.md) is
+investigation. The [first-implementation report](#parallel-search-processes) is
 retained unchanged as historical evidence.
 
 ### Scheduling model

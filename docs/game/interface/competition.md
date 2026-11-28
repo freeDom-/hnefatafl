@@ -14,8 +14,7 @@ ruleset filter; outcome distribution plus overall, attacker and defender tables
 (games, wins, losses, draws, win rate, average length). Tabs/filter stay in the URL.
 
 **Controls and restrictions:** statistics are account-relative; local 1v1 is never
-mixed with online or account single-player data. See
-[dashboard and statistics](../interface/competition.md#statistics).
+mixed with online or account single-player data.
 
 ## Leaderboard
 

@@ -20,12 +20,10 @@ sides where configured.
 
 ## Fairness requirements
 
-- Keep ruleset, model identity, search budget, ply cap and evaluation mode explicit.
-- Use balanced sides and paired openings for strength comparisons.
-- Record complete and unfinished games separately. An unfinished game is not a
-  draw or a win.
-- Do not compare different search budgets as if only the algorithm changed.
-- A win matrix describes these matches; it is not a universal strength ranking.
+Keep ruleset, model identity, search budget, ply cap and mode explicit; use balanced
+sides and paired openings; report unfinished games separately. A win matrix describes
+these matches, not a universal ranking. General rules are in
+[benchmark methodology](methodology.md).
 
 ## Results
 
@@ -41,10 +39,8 @@ its data are separate actions; deletion protects live references.
 
 ## Limits
 
-- AI Testing is not training. A model can be improved by training, but a comparison
-  result does not prove general playing strength.
-- Small samples and short budgets give weak evidence. Report the exact workload.
-- CPU/GPU and smoke/competitive-model results are not interchangeable.
+- AI Testing is not training; a comparison does not prove general playing strength.
+- Report the exact workload; small/short-budget samples are weak evidence.
 - The complete API, persistence and worker semantics are in
   [AI Testing authority](../development/ai-testing.md). UI operation is in
   [AI Testing](../training/interface.md#ai-testing).

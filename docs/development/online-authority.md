@@ -49,5 +49,5 @@ official results.
 The public/lobby projection is bounded and paginated. Completed records move to the
 Hall; the authenticated lobby lists nonterminal games only. Live online games expose
 no analysis. Public spectator reads use a separate allowlisted GET namespace. See
-[public API](api/public.md), [rating authority](rating-authority.md) and
+[public API](api/README.md#progression-and-public-spectator), [rating authority](rating-authority.md) and
 [league authority](league-authority.md).

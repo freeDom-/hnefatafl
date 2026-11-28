@@ -6,7 +6,7 @@ Consolidated evidence for the alpha-beta search implementation, symmetry options
 
 ## Phase 4 evidence: alpha-beta symmetry search
 
-[Documentation index](../../../README.md) · [Performance](../../training/../evaluation/benchmarks/search-alpha-beta.md#phase-4-evidence-alpha-beta-symmetry-search)
+[Documentation index](../../../README.md) · [Performance](../../training/performance.md)
 
 Everything here was produced by `python -m hnefatafl.cli benchmark-alpha-beta`
 (`hnefatafl/alpha_beta_benchmark.py`) from the checked-in configuration. Raw JSON
@@ -189,7 +189,7 @@ between repetitions; the raw report retains min/median/max.
 
 ## Alpha-beta profiling and comparison (2026-10-26)
 
-[Documentation index](../../../README.md) · [Performance](../../training/../evaluation/benchmarks/search-alpha-beta.md#phase-4-evidence-alpha-beta-symmetry-search)
+[Documentation index](../../../README.md) · [Performance](../../training/performance.md)
 
 This report covers the follow-up investigation of the alpha-beta search
 bottlenecks reported after the control-refinement work: transposition-table
@@ -392,7 +392,7 @@ aggregates) are kept as
 
 ## Alpha-beta control refinements evidence
 
-[Documentation index](../../../README.md) · [Performance](../../training/../evaluation/benchmarks/search-alpha-beta.md#alpha-beta-profiling-and-comparison-2026-10-26)
+[Documentation index](../../../README.md) · [Performance](../../training/performance.md)
 
 This report covers the follow-up refinements to the Phase 4 alpha-beta search:
 history-aware move ordering without a preferred move, precise cross-orientation

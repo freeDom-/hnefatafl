@@ -101,6 +101,6 @@ authoritative engine serves local play, online games, analysis, training and rep
 ## Historical context
 
 Completed implementation phases and their evidence are preserved in release notes,
-the [Arena snapshot](../releases/arena-snapshot-2026-11-20.md), subsystem documents
+the [Arena snapshot](https://github.com/freeDom-/hnefatafl/blob/c1779a133d3199179ae74a50403eab238347b992/docs/releases/arena-snapshot-2026-11-20.md), subsystem documents
 and the [browser analysis roadmap](roadmap/browser-analysis.md). They are not a
 second current architecture description.

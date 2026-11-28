@@ -76,7 +76,7 @@ separate refresh, self-play, optimization, evaluation and artifact timings;
 startup and all warm-up iterations additionally appear in process wall time.
 Its report includes actual batch distributions, completed/requested simulations,
 deadline cutoffs, throughput and process peak RSS. See the
-[benchmark instructions](../../../evaluation/benchmarks/inference/openvino.md#complete-iteration-benchmark).
+[benchmark instructions](#complete-iteration-benchmark).
 
 Only a diagnostic CPU-plugin comparison can run here. It establishes neither Intel
 GPU performance nor a universal CPU advantage. No new GPU end-to-end speedup is

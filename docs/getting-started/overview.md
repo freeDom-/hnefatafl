@@ -36,7 +36,7 @@ required external service or Docker dependency.
 - CUDA/MPS and Intel OpenVINO code paths require suitable hardware and are not
   verified on every platform.
 
-See [current limitations](../releases/readiness.md) and
+See [current limitations](../development/releasing/readiness.md) and
 [release notes](../releases/README.md) before treating a recorded measurement as
 current evidence.
 

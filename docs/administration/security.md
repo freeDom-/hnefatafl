@@ -59,12 +59,14 @@ See [user management](user-management.md) for enablement, rates and recovery.
 - Public Watch Hall discovery is **enabled by default** on the shipped configuration.
   Set `HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` to disable the whole public namespace.
 - Public reads expose only an allowlisted projection: no private history, email,
-  full birth date, analysis or mutation.
+  full birth date, private analysis configuration/diagnostics or mutation. Live games
+  expose no analysis; a completed public replay may project already-stored terminal
+  analysis, but public requests never compute/modify it.
 - Automatic timeout losses/rating updates are enabled by default. Pause finalization
   only during an incident or restore.
 
 See [online operations](online-operations.md) and
-[public API](../development/api/public.md).
+[public API](../development/api/README.md#progression-and-public-spectator).
 
 ## Browser-local analysis
 
@@ -80,7 +82,7 @@ actions and are digest-validated. See
 CI runs a moderate-or-higher npm audit. The committed
 [`dependency-audit-exceptions.json`](../../frontend/security/dependency-audit-exceptions.json)
 currently has no active exceptions. The historical withdrawal record is in
-[the security advisory](../releases/security-advisory-2026-11-18.md). A new exception needs
+[the security advisory](../development/security-advisory.md). A new exception needs
 review, a repository-hosted approval reference and an expiry; never add a blanket
 ignore list or suppress findings.
 

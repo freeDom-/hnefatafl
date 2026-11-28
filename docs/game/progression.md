@@ -10,11 +10,9 @@ lowered live progress value.
 ## Portraits
 
 Portraits are earned through achievements. Achievement progress makes a portrait
-eligible, but eligibility does not equip it automatically: the Hall shows an
-**Unlock portrait** action for an eligible portrait, then **Use portrait** to equip
-an unlocked one. **Selected** marks the equipped portrait. Only earned/unlocked
-catalog IDs can be equipped; an unknown or locked ID falls back to the default.
-Selection is cosmetic and does not affect gameplay, ratings or matchmaking.
+eligible; eligibility does not equip it automatically. Only unlocked portraits can be
+equipped, and selection is cosmetic. Page controls/labels are in the
+[Hall of Renown guide](interface/records.md#hall-of-renown).
 
 Portrait cards show the character, unlock state and related achievement. The
 detailed leaderboard, online seats and tournament displays use the same safe portrait

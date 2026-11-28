@@ -59,15 +59,11 @@ inference. It does not distributed-train or share a GPU model.
 
 ## Compare fairly
 
-- Keep games, model, ruleset, search budget, precision and inference settings
-  identical. Use fixed work or fixed time, not whichever finishes first.
-- Use the completed phase's simulations/second. Live snapshots count finished games
-  while elapsed time includes ongoing games.
-- Inspect actual batch sizes; concurrency cannot exceed remaining games.
-- Keep unfinished/truncated games separate from rule draws. Higher throughput caused
-  by hitting the ply cap is not progress.
-- CPU and GPU results are not interchangeable. A CPU smoke model is not a competitive
-  model. See [benchmark methodology](../evaluation/methodology.md).
+Keep games, model, ruleset, budget, precision and inference settings identical; use
+fixed work or fixed time, never whichever finishes first. Use completed-phase
+throughput, inspect actual batch sizes and keep unfinished games separate from draws.
+CPU/GPU and smoke/competitive models are not interchangeable. See
+[benchmark methodology](../evaluation/methodology.md).
 
 Canonical measurement reports:
 

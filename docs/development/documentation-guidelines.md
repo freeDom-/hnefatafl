@@ -1,198 +1,110 @@
 # Documentation guidelines
 
-Documentation is part of the feature, not an afterthought. A change is incomplete
-when the affected current guide is stale, missing or contradicts the code.
+Documentation is part of the feature. A change is incomplete when a canonical page is
+stale, missing, contradicts the code, or contains content for the wrong audience.
 
-## Canonical locations
+## Ownership by audience
 
-| Topic | Canonical location |
-| --- | --- |
-| Entry point and quick start | root `README.md`, `docs/getting-started/` |
-| Installation, configuration, operations | `docs/installation/` |
-| Accounts, security, online operations, monitoring | `docs/administration/` |
-| Rules, modes, online play, ratings, leagues, tournaments, progression, UI | `docs/game/` |
-| Training, algorithms, parameters, models, workers, performance | `docs/training/` |
-| Agents, tournaments, methodology, benchmarks, research evidence | `docs/evaluation/` |
-| Architecture, setup, workflow, tests, API, UI rules, decisions, roadmaps | `docs/development/` |
-| Release process, validation guidance, immutable release notes | `docs/releases/` |
-| Ruleset source assets | `docs/rules/` (**runtime assets; do not move**) |
-| Images | `docs/assets/<game\|training\|administration\|development>/` |
+| Section | Audience and canonical content | Not here |
+| --- | --- | --- |
+| `docs/game/` | Players: rules/mechanics, visible modes/settings/workflows, UI page guides under `interface/`, ratings/league/tournament policies, privacy, player limitations | API endpoints/schemas, transactions, migrations, polling/caching, frontend/backend implementation |
+| `docs/training/` | Training operators/researchers: workshop UI, algorithms/math, parameters, plans, evaluation/tuning workflows, models/workers, hardware/performance, troubleshooting | Exhaustive API/persistence/worker protocol (Development), raw benchmark evidence (Evaluation) |
+| `docs/installation/` | Server operators: install/deploy/configure/proxy/update/backup/rollback/recovery runbooks and safety warnings | Updater/transaction/ABI implementation (Development) |
+| `docs/administration/` | Administrators: accounts, permissions, security configuration, operational controls, monitoring, incidents | CSRF/session/token internals, locking/transactions, complete API schemas |
+| `docs/evaluation/` | Researchers/developers: methodology, environments, model/workload identities, measured results, statistics, reproduction, limitations, raw evidence | Primary UI operating guides or implementation contracts |
+| `docs/development/` | Developers/agents: architecture and subsystem references, API, auth/persistence internals, protocols, state machines, testing, releasing/readiness, UI/agent rules, decisions, active roadmaps | Player how-to or benchmark narratives |
+| `docs/releases/` | **Only** version-specific release notes and their navigation index | Release process, readiness, validation guidance, historical reports |
+| `docs/rules/` | Runtime ruleset sources; paths must not move | General documentation |
+| `docs/assets/` | Current screenshots grouped by game/training/administration/development | Runtime assets |
 
-One topic has one canonical page. Link to it; do not copy commands, defaults,
-parameter tables, game rules or architecture descriptions into a second page.
+Release preparation/readiness lives in `docs/development/releasing/`. General
+testing/validation has one owner: [Testing](testing.md). Historical implementation
+reports are not release notes; preserve them only when subject-specific security,
+licensing, attribution or automated verification needs them, otherwise use an
+immutable commit-pinned reference.
 
-## Audience boundaries
+## Canonical sources
 
-| Section | Audience | Allowed content | Move elsewhere |
-| --- | --- | --- | --- |
-| `docs/game/` | Players | Rules, modes, UI labels/screenshots, visible settings/behavior, scoring/rating/achievement policies, privacy guarantees, player-facing limitations | API endpoints, schemas, migrations, transactions, polling/caching, frontend/backend implementation |
-| `docs/training/` | Training operators/researchers | Workshop workflows/screenshots, algorithms/math, parameters, evaluation interpretation, plans, hardware/performance tuning, model/worker operation, troubleshooting, CLI examples | Detailed API contracts, persistence formats, worker protocol, internal concurrency/invariants (link developer docs); raw benchmark reports (evaluation) |
-| `docs/installation/` | Server operators | Install/deploy/configure/proxy/update/backup/rollback/troubleshooting runbooks and safety warnings | Installer/updater implementation and deployment-gate internals (development) |
-| `docs/administration/` | Application/server administrators | Accounts, permissions, security configuration, operational controls, monitoring, recovery, incidents, administrative workflows | CSRF/session internals, token/migration algorithms, transaction/locking details, complete API schemas (development) |
-| `docs/evaluation/` | Researchers/developers | Methodology, environments, model identities, configurations, measured results, statistical interpretation, reproduction, limitations, raw evidence, historical comparisons | Primary UI operating instructions; implementation contracts |
-| `docs/development/` | Developers/coding agents | Architecture, source/subsystem responsibilities, canonical API, auth/persistence internals, protocols, state machines, transactions/concurrency, extension instructions, UI rules, tests, decisions, workflows, roadmaps | Player-facing how-to, benchmark narratives |
-| `docs/releases/` | Historical record | Immutable release notes/evidence; tag-pinned historical references | Rewritten current behavior or fresh validation claims |
+- **API:** generated `/openapi.json` + [API reference](api/README.md) (one endpoint
+  table per group). `docs/API_PERMISSIONS.json` is the generated permission inventory.
+- **UI:** one guide per page under `docs/game/interface/` (players) or the Training
+  interface (operators). Feature pages explain concepts, not duplicate page controls.
+- **Benchmarks:** methodology in [Evaluation methodology](../evaluation/methodology.md);
+  measurements/raw evidence under `docs/evaluation/`.
+- **Architecture/internals:** overview + focused subsystem references in Development.
+- **Release notes:** immutable `docs/releases/<tag>.md`; release procedure/readiness
+  only in Development.
 
-A route may appear in player docs when it helps access a page, but navigation
-explanations use visible labels. API endpoint tables and request/response contracts
-belong in [the API reference](api/README.md) or a linked subsystem page.
+Link instead of copying commands, defaults, parameter tables, rules or workflows. A
+section index navigates; it does not repeat linked pages.
 
-## Canonical API and UI ownership
+## Writing and links
 
-- Generated `/openapi.json` + [API reference](api/README.md) is the canonical API
-  documentation. `docs/API_PERMISSIONS.json` remains the generated permission
-  inventory.
-- Player pages describe visible behavior; implementation semantics belong in the
-  subsystem reference linked from the API/architecture page.
-- Each UI page has one canonical guide under `docs/game/interface/` (players) or
-  `docs/training/interface.md` (operators). Feature guides explain concepts, not the
-  same page workflow again.
-- Benchmark evidence belongs under `docs/evaluation/`; training performance explains
-  configuration and optimization and links measurements.
+Prefer direct prose, short paragraphs, compact tables, executable examples and
+explicit prerequisites. Use present tense for current behavior; label historical
+counts. Distinguish required/optional config and implemented/experimental/planned
+work. Avoid repeated introductions/conclusions, PR-by-PR narratives, obsolete
+acceptance criteria, generic filler and credentials/secrets.
 
-## Semantic links and factual accuracy
+A link is correct only when its destination covers the same topic and audience. Avoid
+self-references and redirects to a different topic. Before changing a default, label,
+permission, command or supported value, verify it against source/config/UI. If code
+and docs disagree, correct the docs and report a genuine defect separately; do not
+silently expand a docs PR into behavior changes.
 
-A link is correct only when its destination covers the same topic and audience. Do
-not point a historical audit at the current roadmap, a player guide at an
-implementation table, or a visual record at itself. Before changing a default,
-supported value, permission, label or command, verify it against source/config/UI.
-If implementation and documentation disagree, correct the documentation and report a
-genuine defect separately. Do not silently expand a docs PR into behavior changes.
+## Feature/documentation workflow
 
-## When implementing a feature
+1. Update the canonical page, not a new implementation report.
+2. Update configuration/parameter references from the actual validator/schema.
+3. Update API/architecture when routes, permissions, boundaries or storage change.
+4. Update the affected UI guide and screenshots when labels/layout/controls change.
+5. Record exact validation in the PR. Write release notes only for an authorized tag.
+6. Label partial/experimental work; never present a roadmap item as available.
 
-1. Update the canonical current guide, not a new implementation report.
-2. Add or update configuration and parameter references if behavior is configurable.
-   Derive defaults/bounds from the schema/code and say which source is authoritative.
-3. Update architecture or API documentation when boundaries, routes, permissions or
-   storage change.
-4. Update screenshots and the [interface guide](../game/interface/README.md) when a
-   documented page, label, control or layout changes.
-5. Add tests and record exact validation in the pull request. Do not put a new
-   release note in an unreleased PR; release notes are written for an authorized tag.
-6. If a feature is partially implemented, label what is delivered and what is not.
-   Never present a roadmap item as available.
+Prefer updating an existing page over creating one. Delete superseded pages after
+moving durable knowledge. Do not accumulate phase-completion reports.
 
 ## Implementation roadmaps
 
-Keep one complete implementation roadmap for each feature that is planned,
-partially implemented, under active development or awaiting final acceptance. It
-must retain the objective, all phases (completed, current and future),
-dependencies, important decisions, acceptance criteria, validation evidence,
-outstanding findings and deferred work. Completed phases stay documented; mark
-them completed rather than deleting them.
+Keep a complete roadmap while a feature is planned, partial, active or awaiting
+acceptance: objective, all phases (completed/current/future), dependencies,
+decisions, acceptance criteria, evidence, outstanding findings and deferrals.
+Completed phases stay documented. A merged phase, green PR, passing tests or an
+unavailable hardware gate does not mean the feature is complete.
 
-A merged phase, green PR, passing unit tests or a hardware-dependent gate that
-cannot be run does **not** mean the feature is fully developed. Keep the roadmap
-while any implementation or acceptance requirement remains.
+Remove a roadmap only after the whole feature is fully developed and accepted, after
+moving durable decisions/results into canonical docs and preserving reproducibility.
+Never shorten the complete browser-analysis roadmap while its gates remain open.
 
-Remove an implementation roadmap only when the **whole feature** is fully
-developed and accepted. Before removal:
+## Benchmarks and UI
 
-1. Verify that no relevant implementation steps or findings remain unresolved.
-2. Move durable design constraints and evaluation results into the canonical guide,
-   architecture decision record or benchmark report.
-3. Preserve benchmark results and reproducibility instructions.
-4. Update player, administrator and developer documentation.
-5. Remove the obsolete roadmap. Git history and release notes preserve the rest.
-
-Do not accumulate per-phase completion reports or replace obsolete documents with
-one equally redundant historical document.
-
-## When benchmarking
-
-- Update the existing report for the relevant technical topic.
-- Preserve comparable historical measurements and label superseded or
-  non-comparable results.
-- Include revision, hardware, software, model, ruleset, budget, sample and raw data.
-- Do not create a new report for every minor run. Use a compact table and link raw
-  evidence.
-- Do not invent missing numbers, significance or a strength/GPU claim.
-
-## When changing the UI
-
-- Replace superseded screenshots; do not keep both unless the old one documents a
-  historical validation that is still referenced.
-- Use descriptive, lower-case filenames grouped by surface, for example
-  `assets/game/themes/kings-table-dashboard.jpg`.
-- Prefer WebP/JPEG at a legible size; do not upscale. Remove 3840px duplicates
-  unless a documented 4K comparison needs one.
-- Do not commit screenshots containing real accounts, emails, tokens or production
-  data. Use disposable fixtures and label demonstration data.
-- Update all references when renaming or moving an image.
+- Update the existing topic report; preserve comparable history and label superseded/
+  non-comparable results. Include revision, hardware/software, model, ruleset, budget,
+  sample and raw data. Do not invent numbers/significance.
+- Replace superseded screenshots; use descriptive lower-case filenames, legible
+  WebP/JPEG, no upscaling and no real accounts/emails/tokens/production data.
+- UI fixtures are examples, not performance/model-strength evidence.
 
 ## Screenshots
-
-The repository's Playwright acceptance specs can capture current UI screenshots
-into `frontend/test-results/<suite>/`. Copy only the images a guide uses into
-`docs/assets/`, with a stable filename. Regeneration is an explicit maintenance
-step, not part of every CI run.
-
-Recommended workflow:
 
 ```sh
 cd frontend
 npx playwright install chromium
 npx playwright test tests/arena-final.spec.ts --project=chromium
 npm run test:docs-screenshots
-# or target one capture group with the same configuration:
+# targeted:
 npx playwright test --config playwright.docs.config.ts \
   tests/documentation-screenshots.docs.ts -g "game documentation"
 ```
 
-`documentation-screenshots.docs.ts` captures Arena pages and Workshop surfaces
-with disposable route fixtures. The same opt-in run executes the real disposable
-CPU tuning test with `DOCS_SCREENSHOTS=1`, adding Tuning results and Resume
-Training captures. Ordinary `npm run test:e2e` does **not** execute the docs spec
-and does not write documentation-only images. Images are written to
-`frontend/test-results/documentation/`; copy only the files used by a guide into
-`docs/assets/`. The tuning and training images are workflow examples, never
-performance or model-strength evidence.
-
-The specs start disposable backend/frontend services with fixture data. Review the
-output for transient notifications, loading indicators, synthetic personal data
-and theme consistency before committing. If a page has no reliable capture path,
-document the limitation instead of fabricating a mockup.
-
-## Writing style
-
-- Prefer short paragraphs, tables and executable examples.
-- State prerequisites and whether a command runs from the repository root.
-- Use present tense for current behavior; label historical counts and evidence.
-- Distinguish required from optional configuration.
-- Do not paste code that will drift; link to the source or show a short example.
-- Remove AI-generated filler, repeated summaries, obsolete acceptance criteria and
-  speculative descriptions.
-- Do not use arbitrary word limits; optimize information density.
-- Never include credentials, secrets, private tokens or production data.
+`documentation-screenshots.docs.ts` and the `DOCS_SCREENSHOTS=1` tuning run are
+opt-in; ordinary `test:e2e` writes no docs images. Output stays in ignored
+`frontend/test-results/documentation/` until reviewed/copied to `docs/assets/`.
 
 ## Validation
 
-Run:
-
-```sh
-make docs
-```
-
-The dependency-free checker validates local links, heading anchors, images and
-reachability from `docs/README.md`. It also detects malformed local links and
-rejects API endpoint tables under `docs/game/` (player documentation). It does not
-check external URLs, website availability, prose quality or shell-command semantics. For documentation changes, also run
-`git diff --check` and inspect the rendered diff.
-
-If a document is intentionally not linked from the index, add it to the graph only
-when it is a real entry point; otherwise delete it. Historical release notes,
-validation evidence and original requirements must remain reachable through their
-section index.
-
-## Maintenance rules
-
-- Prefer updating an existing page over creating a new one.
-- Delete a superseded page after moving its durable knowledge.
-- Keep agent instructions concise and scoped; put detailed reference material here,
-  not in `AGENTS.md`.
-- Keep `docs/README.md` a task-oriented index, not a duplicate of every page.
-- Update the index when adding, moving or removing a section.
-- Do not recast an old release's recorded validation as current evidence.
-- Do not change historical release notes except to fix a broken repository-local
-  link or an objectively wrong path.
+Run `make docs` (link/anchor/image/reachability checks + checker regressions; it also
+rejects malformed local links and API tables under `docs/game/`) and
+`git diff --check`. It does not validate external URLs, shell semantics or prose.
+Every committed Markdown file must be reachable from `docs/README.md`; otherwise
+delete it or link it from the correct section index.

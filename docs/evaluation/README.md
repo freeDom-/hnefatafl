@@ -16,19 +16,12 @@ They are grouped by topic, not by implementation phase or pull request.
 
 ## Evidence rules
 
-- A measurement belongs to the revision, hardware, model, ruleset, parameters and
-  sample size stated in its report. It is not current evidence after a code or
-  hardware change.
-- Fixed-depth speed, fixed-time strength, throughput and playing strength are
-  different claims. A faster search is not automatically a stronger player.
-- CPU and GPU measurements are not interchangeable. A smoke model is not a
-  competitive model.
-- Unfinished games are reported separately from rule draws and are not wins.
-- Do not invent missing measurements, confidence intervals or statistical
-  significance. A result without a comparison is descriptive only.
-- Historical measurements remain unchanged. Superseded or non-comparable results
-  are labelled, not deleted.
+Use [benchmark methodology](methodology.md): measurements belong to the revision,
+hardware, model, ruleset, parameters and sample in their report; fixed-depth speed,
+fixed-time strength, throughput and playing strength are separate claims; unfinished
+games are not wins; historical/superseded results keep their scope. Do not invent
+missing measurements or significance.
 
 Current release claims and exact test counts live in
 [release notes](../releases/README.md). Current operational limits are in
-[readiness](../releases/readiness.md).
+[readiness](../development/releasing/readiness.md).

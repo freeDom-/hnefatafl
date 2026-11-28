@@ -1,7 +1,7 @@
 # Third-party notices
 
 [Repository introduction](./README.md) · [Licensing](./docs/LICENSING.md) ·
-[Contributor licensing](./docs/releases/contributor-licensing-proposal.md)
+[Contributor licensing](./docs/development/contributor-licensing.md)
 
 This file inventories third-party components and assets used by Hnefatafl. It
 does **not** relicense them. Each component keeps its own license and attribution

@@ -4,17 +4,6 @@ Release notes are immutable historical records. They describe the scope,
 compatibility and validation of their own tagged release; they are not the
 current manual and are not relabelled after later changes.
 
-## Current release process
-
-- [Release process](release-process.md): tagging, assets, checks and publication
-  authorization.
-- [Release readiness](readiness.md): outstanding combined-acceptance and deployment
-  gates. Merged code or a green pull request is not deployment authorization.
-- [Validation guidance](validation.md): how to read historical evidence and what
-  current tests cover.
-- [Historical Arena completeness snapshot (2026-11-20)](arena-snapshot-2026-11-20.md):
-  point-in-time matrix; not current status.
-
 ## Release notes
 
 | Release | Delivered scope |
@@ -64,21 +53,6 @@ current manual and are not relabelled after later changes.
 | [0.2.0](0.2.0.md) | Three deterministic rulesets |
 | [0.1.0](0.1.0.md) | Development foundation |
 
-## Historical records
-
-- [Security advisory assessment and withdrawal, 2026-11-18](security-advisory-2026-11-18.md):
-  completed historical record; current dependency-audit policy is in
-  [security administration](../administration/security.md#dependency-audit).
-- [Deferred contributor licensing proposal](contributor-licensing-proposal.md):
-  not active; current contribution policy is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
-
 GitHub Releases is the canonical publication channel for release notes and
 verified archives. This directory mirrors the notes for repository-local and
 offline use. Do not delete tags or rewrite published release notes.
-
-## Current limitations
-
-See [readiness](readiness.md) and the latest release notes. In particular, CPU
-workflows are verified; CUDA/MPS/Intel execution requires suitable hardware and is
-not universally validated. No strong pretrained model or playing-strength claim
-ships. Browser analysis remains opt-in and not production-accepted.

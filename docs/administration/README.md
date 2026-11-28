@@ -31,6 +31,6 @@ Before exposing an instance publicly:
    location.
 5. Configure monitoring and log retention outside the application.
 
-The [release-readiness checklist](../releases/readiness.md) records outstanding
+The [release-readiness checklist](../development/releasing/readiness.md) records outstanding
 combined-acceptance gates. A merged feature or a green pull-request check is not
 deployment authorization.

@@ -13,8 +13,8 @@ is explicitly labelled historical.
 | [Game](game/README.md) | Rulesets, game modes, online play, ratings, leagues, tournaments, achievements, replay and the UI |
 | [Training](training/README.md) | Train, evaluate, resume, tune, import and manage neural opponents and workers |
 | [Evaluation](evaluation/README.md) | Benchmark methodology, agent comparisons and preserved measurements |
-| [Development](development/README.md) | Architecture, setup, testing, API, UI rules, decisions and active roadmaps |
-| [Releases](releases/README.md) | Release process, validation guidance and immutable release notes |
+| [Development](development/README.md) | Architecture, setup, testing, API, release preparation, UI rules, decisions and active roadmaps |
+| [Releases](releases/README.md) | Immutable version-specific release notes and their index only |
 | [Licensing](./LICENSING.md) | PolyForm Noncommercial licence scope, third-party terms and open questions |
 | [Donations](./DONATIONS.md) | Voluntary support policy and the Buy Me a Coffee link |
 | [Original requirements](./REQUIREMENTS.md) | The initial specification, including goals that remain unimplemented |
@@ -27,11 +27,13 @@ under `docs/rules/` because the server reads them at runtime.
 
 - Each topic has one canonical page. Link to it instead of copying commands,
   defaults or parameter tables.
-- Follow the [audience boundaries](development/documentation-guidelines.md#audience-boundaries):
+- Follow the [audience boundaries](development/documentation-guidelines.md#ownership-by-audience):
   player docs stay player-facing; API/persistence internals live in Development;
   benchmark evidence lives in Evaluation.
 - Current guides describe implemented behavior; [release notes](releases/README.md)
-  preserve the evidence, counts and limitations of their own release.
+  preserve the evidence, counts and limitations of their own release. Releases
+  contains only those notes and its index; release procedure/readiness and testing
+  live in Development.
 - Distinguish implemented, experimental, deferred and planned work. Do not present
   a roadmap item as available.
 - Keep complete implementation roadmaps for features that are still under

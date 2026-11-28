@@ -4,16 +4,11 @@
 
 ## Replay
 
-Completed single-player, local 1v1 and online records open read-only in the
-**Hall of records**. The board and move list show the saved position; selecting a
-move changes only the viewer's position. Replay never branches, overwrites or
-restarts the saved game.
-
-- **Return to live board** or the latest move returns to the running game.
-- AI turns and player input pause while a historical position is shown.
-- Completed records have no restart or undo controls.
-- An online game's terminal board may still show the king on its final square; this
-  is display-only and does not change the saved result.
+Completed records open read-only in the Hall of records. Selecting a move changes only
+the viewer's position; replay never branches, overwrites or restarts the saved game.
+Live play pauses while viewing history, and completed records have no restart/undo
+controls. Page controls are in the
+[records interface](interface/records.md#replay-and-analysis).
 
 ## Analysis tab
 

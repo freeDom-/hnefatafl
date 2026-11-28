@@ -2,7 +2,6 @@
 
 Three alternatives for the carved wooden set on the Old walnut board:
 
-![Three king token design alternatives](./king-token-design.md)
 
 1. **Fjord Diadem** — a low northern circlet with angular peaks and an interlaced band.
 2. **Raven Crown** — a taller, broader crown with a spear-like center and wing-shaped points.

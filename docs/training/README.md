@@ -16,7 +16,7 @@ by default. The CLI provides the same compute workflow without the web UI.
 | Checkpoints, registry, import/export, storage, backup and migration | [Models and data](models.md) |
 | CPU/CUDA/MPS configuration, batching, caches and tuning | [Performance](performance.md) |
 | Optional Intel OpenVINO inference | [OpenVINO](openvino.md) |
-| Schedule-Free AdamW CUDA acceptance procedure | [Schedule-Free CUDA](schedulefree-cuda.md) |
+| Schedule-Free AdamW CUDA acceptance procedure | [Development: Schedule-Free CUDA](../development/schedulefree-cuda.md) |
 | Optional online learning-rate adaptation | [Online adaptation](online-adaptation.md) |
 | Remote worker setup, slots, transfers and recovery | [Remote workers](remote-workers.md) |
 | Common failures and diagnostics | [Troubleshooting](troubleshooting.md) |

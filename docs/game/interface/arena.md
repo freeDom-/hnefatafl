@@ -17,7 +17,7 @@ need you** and recent records.
 
 **Controls and restrictions:** **Detailed statistics** opens `/statistics`; recent
 records link to replay; no rank or reward is invented. The page requires an
-authenticated account. See [dashboard guide](../interface/arena.md).
+authenticated account.
 
 Theme comparison: [Iron Ash](../../assets/game/themes/iron-ash-dashboard.jpg) ·
 [Saga Hall](../../assets/game/themes/saga-hall-dashboard.jpg) ·
@@ -77,11 +77,13 @@ stops only local countdown rendering, not the deadline. See
 **Main functionality:** browse public games, open a live board or completed replay,
 step through saved moves.
 
-**Controls and restrictions:** no account, gameplay, analysis or private history.
-Only an allowlisted public projection is returned. Public discovery is enabled by
-default on the shipped configuration; an operator can disable it, after which the
-Watch Hall shows not found. Private single-player/local records, email, full birth
-dates and analysis are never exposed. See [public Watch Hall](#public-watch-hall).
+**Controls and restrictions:** no account, gameplay or private history. Only an
+allowlisted public projection is returned. Public visitors cannot generate or modify
+analysis; live games expose none. A completed replay's API may include already-stored
+terminal analysis, but the public UI does not render it. Private configuration,
+single-player/local records, email and full birth dates are excluded. Public discovery
+is enabled by default; an operator can disable it, after which the Watch Hall shows
+not found.
 Themes: [comparison](../../assets/game/public-watch-themes.jpg) ·
 [Iron Ash](../../assets/game/iron-ash-public-watch.webp) ·
 [Saga Hall](../../assets/game/saga-hall-public-watch.webp) ·

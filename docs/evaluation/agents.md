@@ -25,14 +25,9 @@ Implementation details are in [algorithms](../training/algorithms.md) and
 
 ## Evidence interpretation
 
-- **Fixed depth** measures algorithmic speed/correctness at equal work; it does not
-  establish strength.
-- **Fixed time** compares completed work under the same deadline; report completed
-  depth and cutoff/truncation.
-- **Paired side-swapped games** are required for strength comparisons. Unfinished
-  move-cap games are not draws and score zero.
-- **Small samples and smoke models** cannot support general strength claims.
-- CPU, GPU, OpenVINO and browser environments are not interchangeable.
+Agent strength requires paired side-swapped games and the same model/ruleset/budget/
+sample. Fixed-depth speed and fixed-time completed work are not strength. See
+[benchmark methodology](methodology.md); unfinished games are not draws.
 
 Shield maiden's implementation, weights, protocol, latency, strength and
 limitations are preserved in [Shield maiden](shield-maiden.md). Alpha-beta
@@ -50,9 +45,7 @@ Changing a model label/rune does not change its identity or results. See
 
 ## Limits
 
-- No agent is claimed to be expert-strength; measured results apply to the stated
-  ruleset/model/budget/sample.
-- A display winning chance is an uncalibrated score estimate, not a probability.
-- Browser/neural feasibility work does not establish competitive browser strength.
-- Reproducibility requires the same seed, model, budget and execution mode; parallel
-  and GPU reductions may still differ numerically.
+No agent is claimed expert-strength; results apply to the stated workload. Displayed
+winning chances are uncalibrated estimates. Browser feasibility does not establish
+competitive browser strength. Reproducibility requires the same seed/model/budget/
+mode; parallel/GPU reductions may differ numerically.

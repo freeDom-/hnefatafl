@@ -175,8 +175,13 @@ and [tournament authority](../tournament-authority.md).
 | GET | `/api/public/online/games/{game_id}/replay` | Public completed replay |
 
 Public reads are GET-only, rate-limited and allowlisted; they exclude private
-history, email, full birth dates and analysis. Public discovery is enabled by default
-and can be disabled by deployment. See [public API](public.md).
+history, email, full birth dates, session data, moderation data and private analysis
+configuration/diagnostics. Live public games expose no analysis. A completed public
+replay may include **already-stored terminal-position analysis** through the typed
+allowlist; a public request never computes, recomputes or mutates analysis, and the
+public UI does not render it. Public discovery is enabled by default and can be
+disabled by deployment. Responses use short public cache headers; private responses
+are non-cacheable. See [online authority](../online-authority.md).
 
 ## Training, models, workers and AI Testing
 

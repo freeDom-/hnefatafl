@@ -3,7 +3,7 @@
 > Historical record: the original specification is preserved below, including
 > requested or optional features that may remain unimplemented. It is not a
 > current capability or validation checklist. Use the [documentation index](./README.md),
-> [release notes](./releases/README.md) and [validation guidance](./releases/validation.md) for status.
+> [release notes](./releases/README.md) and [validation guidance](./development/testing.md) for status.
 
 ## 1. Mission and Autonomy
 

@@ -1,5 +1,5 @@
 {
   "schema": 3,
-  "notes": "No active risk exceptions. GitHub withdrew GHSA-fc5q-39xc-vjpf (CVE-2026-112366) on 2026-11-18, and the full and production-only lockfile audits both reported zero findings, so the previous picomatch acceptance was removed as unused. The historical owner approval and risk assessment remain in docs/releases/security-advisory-2026-11-18.md. No approval metadata is recorded here because no risk is being accepted; any future exception must be reviewed and approved, and the audit script requires the approval metadata again as soon as one is added.",
+  "notes": "No active risk exceptions. GitHub withdrew GHSA-fc5q-39xc-vjpf (CVE-2026-112366) on 2026-11-18, and the full and production-only lockfile audits both reported zero findings, so the previous picomatch acceptance was removed as unused. The historical owner approval and risk assessment remain in docs/development/security-advisory.md. No approval metadata is recorded here because no risk is being accepted; any future exception must be reviewed and approved, and the audit script requires the approval metadata again as soon as one is added.",
   "exceptions": []
 }

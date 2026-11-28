@@ -53,7 +53,7 @@ Public Watch Hall discovery is enabled by default. Set
 `HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` to return not found for the public namespace
 and hide the Watch Hall. Authenticated play is unaffected. Public reads are GET-only
 and never include private history, analysis or account data. See
-[public API](../development/api/public.md).
+[public API](../development/api/README.md#progression-and-public-spectator).
 
 ## Implementation boundary
 

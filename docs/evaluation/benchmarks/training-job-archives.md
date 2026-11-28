@@ -134,7 +134,7 @@ performance were not benchmarked. Cross-filesystem correctness is tested.
 
 These measurements compare the review fixes with PR #58 at
 `c85f3d4dc58af142ed06d56847aeadcebc4f35ae`, using schema-3 TAR.GZ and gzip level 1
-on both sides. The [original migration benchmarks](./training-job-archives.md) remain
+on both sides. The [original migration benchmarks](#portable-job-archive-benchmarks) remain
 historical evidence against the pre-migration ZIP writer. The
 [raw review measurements](./raw/training/job-archive-review.json) retain every sample, environment
 information and measured source hashes.
@@ -296,8 +296,8 @@ denotes the review fixes. Resource samples use `before` and `after` explicitly.
 
 These measurements compare the remaining review fixes with PR #58 at
 `9b58c884210456d9d487edc1a8efd4a7f5d0df33`. Both use schema-3 TAR.GZ with gzip
-level 1 and identical validation limits. The [previous review](./training-job-archives.md)
-and [original migration](./training-job-archives.md) measurements remain historical evidence.
+level 1 and identical validation limits. The [previous review](#job-archive-review-benchmarks)
+and [original migration](#portable-job-archive-benchmarks) measurements remain historical evidence.
 
 ### Results
 
@@ -448,7 +448,7 @@ again the API default; the workshop explicitly requests `?summary=true`; loaded
 histories and nested analysis survive summary refreshes; imported summaries retain
 bounded best-model IDs for the existing catalog-name search. No archive writer,
 extractor, snapshot, checkpoint, SQLite persistence or training-loop code changed.
-The [preceding measurements](./training-job-archives.md) remain historical evidence.
+The [preceding measurements](#job-archive-second-review-measurements) remain historical evidence.
 
 ### Results
 
@@ -659,7 +659,7 @@ diagnostics, Unicode, escape/buffer boundaries, real archive log contents,
 identity budgets, legacy/modern trial transitions, model removal, pending detail
 responses and job switching. Desktop/mobile browser coverage checks removal of
 stale graphs and the existing accessible loading indicator. Historical
-[large-import response and browser-memory measurements](./training-job-archives.md)
+large-import response and browser-memory measurements above
 remain separate evidence; browser memory was not rebenchmarked for this patch.
 
 ### Reproduction

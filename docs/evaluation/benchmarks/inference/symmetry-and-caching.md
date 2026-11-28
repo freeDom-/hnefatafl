@@ -1,6 +1,6 @@
 # Phase 3 evidence: D4 training augmentation
 
-[Documentation index](../../../README.md) · [Performance](../../../training/../evaluation/benchmarks/inference/symmetry-and-caching.md)
+[Documentation index](../../../README.md) · [Performance](../../../training/performance.md)
 
 Everything here was produced by `python -m hnefatafl.cli benchmark-symmetry`
 (`hnefatafl/symmetry_benchmark.py`) from the checked-in configurations. Raw JSON
@@ -136,4 +136,4 @@ plays matched models.
 ## E. What was not measured
 
 No production-size training run, no multi-seed strength study and no larger replay.
-The suggested experiment is in [PERFORMANCE.md](../../../training/../evaluation/benchmarks/inference/symmetry-and-caching.md).
+The suggested experiment is in [training algorithms](../../../training/algorithms.md#symmetry).

@@ -15,7 +15,7 @@ pagination and a selected review that survives filter changes.
 
 **Controls and restrictions:** ordinary accounts see participating/owned records;
 administrators can inspect all server-recorded categories. No mutation, restart or
-export controls. See [dashboard and records](../interface/records.md#hall-of-records).
+export controls.
 
 ## Replay and analysis
 

@@ -143,7 +143,7 @@ never enter the self-play replay buffer.
 - Schedule-Free maintains training and averaged evaluation parameters without a
   conventional decay schedule. Self-play, evaluation, Champion snapshots and
   playable exports use the averaged parameters. It cannot be combined with the
-  optional online HyperController. See [Schedule-Free CUDA](schedulefree-cuda.md).
+  optional online HyperController. See [Schedule-Free CUDA](../development/schedulefree-cuda.md).
 - Mixed precision (`mixed_precision`) takes effect on CUDA; CPU and MPS remain
   full precision. Numerical results are not bit-exact.
 - Gradients are clipped. Checkpoints retain model/optimizer, replay, Python/PyTorch

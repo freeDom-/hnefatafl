@@ -58,18 +58,10 @@ bash scripts/linux/install.sh --refresh-updater-only
 /usr/local/bin/hnefatafl-update
 ```
 
-`--refresh-updater-only` installs a stable launcher at
-`/usr/local/lib/hnefatafl/deployment.py` and the maintenance command wrappers. The
-launcher selects the generation recorded in `active.json`. Each generation
-contains the updater and its schema-aware restore modules. Publication compiles
-Python, checks wrapper syntax, imports the complete standalone generation and
-synchronizes it to disk before activating it with one atomic pointer update.
-The previous working generation remains available. Each generation declares
-the updater ABI and the minimum launcher protocol it needs. Launcher changes
-come from the verified archive or reviewed installer. A compatible new
-launcher is installed atomically while the old generation still runs, then
-the pointer is switched. A flat legacy updater keeps its original entry point
-until the first generation is ready to use.
+`--refresh-updater-only` installs the stable launcher and maintenance wrappers.
+The launcher selects the generation in `active.json`; the previous generation
+remains available until the atomic pointer switch. ABI/protocol advances require
+compatible intermediate utilities. Mechanism details: [deployment internals](../development/deployment.md).
 
 An existing installation can stay on its current ABI or advance one ABI at a
 time after generation bootstrap. The candidate must be able to read its
@@ -515,6 +507,8 @@ the journal and log locations; inspect them before any manual action.
 
 ### Journal write failures
 
+See [deployment internals](../development/deployment.md#locks-journals-and-activation) for lock/journal/atomicity mechanisms.
+
 An update publishes the shutdown and migration intent before proceeding. If a
 journal write fails before shutdown, the previous service stays running. If
 shutdown already happened and the journal still proves that migration and
@@ -551,6 +545,8 @@ reports the affected filesystem. Restore reliable access and run
 visible metadata without synchronizing the directory.
 
 ### Cross-schema automatic recovery is fail-closed
+
+See [deployment internals](../development/deployment.md#retention-snapshots-and-schema-authority) for snapshot/schema guarantees.
 
 Creating an automatic pre-deployment snapshot is **not** a guarantee that an
 automatic rollback can complete. After a successful migration the live database
