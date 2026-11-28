@@ -31,7 +31,7 @@ release may omit the patch component; ordering treats `X.Y` as `X.Y.0`.
 GitHub's release asset API must report its SHA-256 digest. The updater verifies
 this digest, bounds extraction and rejects links, devices, traversal and privileged
 modes. Automatic GitHub source archives and older releases lacking authentication
-are refused. See [release packaging](../development/releasing/README.md#packagingupdater-requirements).
+are refused. See [release packaging](../development/releasing/README.md#publisher-and-updater-requirements).
 Neither installer publishes a release. Installation requires an already available
 compatible published stable release; files on `main` alone are insufficient.
 
