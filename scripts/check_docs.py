@@ -28,7 +28,7 @@ USE_REFERENCE = re.compile(r"!?\[([^\]]+)\]\[([^\]]*)\]")
 # path-like target and reject a trailing "]" so ordinary prose like
 # "[see (docs/guide.md)]" is not flagged. Fenced and inline code are masked.
 MALFORMED = re.compile(
-    r"!?\[[^\]\n]{1,300}\([^)\s]*(?:/[^)\s]*|\.[A-Za-z0-9]{1,8})(?:[?#][^)\s]*)?\)(?!\])"
+    r"(?<!\\)!?\[[^\]\n]{1,300}\([^)\s]*(?:/[^)\s]*|\.[A-Za-z0-9]{1,8})(?:[?#][^)\s]*)?\)(?!\])"
 )
 INLINE_CODE = re.compile(r"`[^`\n]*`")
 
@@ -39,7 +39,14 @@ def mask_inline_code(text: str) -> str:
 
 
 def malformed_links(text: str):
-    for match in MALFORMED.finditer(mask_inline_code(text)):
+    """Find likely malformed local links without rejecting valid Markdown.
+
+    Valid inline links/images (including labels containing parentheses), inline
+    code and fenced code are masked first. The remaining pattern is deliberately
+    narrow: a label without a closing ``]`` followed by a path-like target.
+    """
+    scan = INLINE.sub(lambda match: " " * len(match.group(0)), mask_inline_code(text))
+    for match in MALFORMED.finditer(scan):
         yield text.count("\n", 0, match.start()) + 1, match.group(0)
 
 

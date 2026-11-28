@@ -96,16 +96,20 @@ Recommended workflow:
 cd frontend
 npx playwright install chromium
 npx playwright test tests/arena-final.spec.ts --project=chromium
-npx playwright test tests/documentation-screenshots.spec.ts --project=chromium
-npx playwright test tests/training-tuning.spec.ts --project=chromium
+npm run test:docs-screenshots
+# or target one capture group with the same configuration:
+npx playwright test --config playwright.docs.config.ts \
+  tests/documentation-screenshots.docs.ts -g "game documentation"
 ```
 
-`documentation-screenshots.spec.ts` captures Arena pages and Workshop surfaces
-with disposable route fixtures. The tuning spec additionally captures a real
-disposable CPU smoke run for the Tuning results and Resume Training dialogs.
-Images are written to `frontend/test-results/documentation/`; copy only the
-files used by a guide into `docs/assets/`. The tuning and training images are
-workflow examples, never performance or model-strength evidence.
+`documentation-screenshots.docs.ts` captures Arena pages and Workshop surfaces
+with disposable route fixtures. The same opt-in run executes the real disposable
+CPU tuning test with `DOCS_SCREENSHOTS=1`, adding Tuning results and Resume
+Training captures. Ordinary `npm run test:e2e` does **not** execute the docs spec
+and does not write documentation-only images. Images are written to
+`frontend/test-results/documentation/`; copy only the files used by a guide into
+`docs/assets/`. The tuning and training images are workflow examples, never
+performance or model-strength evidence.
 
 The specs start disposable backend/frontend services with fixture data. Review the
 output for transient notifications, loading indicators, synthetic personal data

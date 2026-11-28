@@ -279,7 +279,7 @@ further trials unavailable until that exact compatible artifact is restored.
 
 The tuning and resume captures come from a disposable real CPU smoke run. Their
 scores demonstrate the workflow, not model strength. Regenerate the page captures
-with `tests/documentation-screenshots.spec.ts`; see
+with `tests/documentation-screenshots.docs.ts`; see
 [documentation guidelines](../development/documentation-guidelines.md#screenshots).
 Historical trials remain inspectable and their checkpoints remain usable.
 
@@ -358,109 +358,31 @@ from 1,500 to 100,000 iterations and the remaining measurement limits.
 
 ## Live monitoring
 
-The training process separates three things that must not depend on each other:
-the worker heartbeat (the process is alive), computational progress (training work
-advanced) and publication (a snapshot reached the file the server or a remote
-worker reads). A long self-play game, optimization epoch or evaluation match
-therefore keeps advancing the dashboard even while no counter moves.
+The monitor reports what is happening to an operator without pretending that a
+missing signal is a job failure. Training progress, the worker heartbeat and
+snapshot publication are separate; a long game or optimization epoch keeps elapsed
+time and the phase block advancing while counters are unchanged.
 
-The job summary keeps an advancing elapsed time and a live phase block. Every
-phase reports its own elapsed duration, a heartbeat state and, where the counters
-exist, phase-specific progress. A tuning job shows three levels of time: the
-study's own elapsed duration in the header (it spans every trial and never restarts
-when a new trial begins), the active trial's duration as **Trial elapsed**, and the
-trial's iteration and phase timers. A historical tuning job without a study-level
-duration shows no job elapsed time rather than presenting one trial's time as the
-whole job's.
-
-Outside a trial the study itself publishes, so a tuning job reports
-`initializing_study`, `preparing_trial`, `between_trials` and `finalizing_study`
-with the study's timers and the completed-trial counter instead of freezing between
-trials or during the final aggregation. The last trial's charts and data stay
-visible, but its finished phase and timers are not presented as live, and its
-heartbeat cannot overwrite the study's snapshot.
-
-Ownership of the job's files moves from a trial's monitor to the study's and back
-under the publication lock, and the study publishes `between_trials` before the
-Optuna work that follows a trial — sampling the next trial's parameters, storing the
-finished trial's state and reading the study's trials. A slow storage operation
-therefore never leaves the dashboard without a heartbeat. The completed-trial
-counter follows Optuna's committed trial states, so it advances when the study's
-storage records a trial and never counts a pruned, cancelled or failed one.
-
-- **Self-play** shows completed and scheduled games, active games, searched
-  positions and MCTS simulations.
-- **Model training** shows completed and total optimization steps, the current
-  epoch and the running policy/value loss means.
-- **Evaluation** shows completed and scheduled games, wins, draws, losses and the
+- **Self-play** shows completed/scheduled games, active games, searched positions
+  and MCTS simulations.
+- **Model training** shows completed/total optimization steps, the current epoch and
+  running policy/mean policy and value losses.
+- **Evaluation** shows completed/scheduled games, wins, draws, losses and the
   effective opponent.
-- **Preparation, checkpointing and finalization** show phase and elapsed time
-  only, because no meaningful unit counter exists there.
+- **Preparation, checkpointing and finalization** show phase and elapsed time only,
+  because no meaningful unit counter exists there.
 
-Monitoring starts before any expensive initialization, so a job that is loading a
-checkpoint or building its model is never indistinguishable from a dead worker.
-Initialization reports its own stages — `starting`, `loading_checkpoint`,
-`initializing`, `restoring_state` (a resume only) and `initializing_inference` —
-with the elapsed time still advancing and no counters, because none exist yet. No
-model, optimizer, device or inference backend is required for the heartbeat, and
-no CUDA call is made from the monitoring thread. A failure during initialization
-ends the job as `failed` (or `pruned`) with the error recorded, and a cancellation
-is honored at the first point where a checkpoint can be written.
+Monitoring starts before expensive initialization. Initialization reports
+`starting`, `loading_checkpoint`, `initializing`, `restoring_state` (resume only) and
+`initializing_inference`; no model, optimizer, device or inference backend is needed
+for the heartbeat. A failure ends the job as failed/pruned with the error recorded.
 
-Elapsed time is published as a monotonic duration, never as a worker timestamp.
-The browser anchors each reported value when the response arrives and advances it
-with a single one-second local ticker, so an unsynchronised or skewed remote worker
-clock cannot affect the display. The live block shows the job elapsed time in the
-header, the current iteration duration and the current phase duration. Timers
-never move backwards while a job runs: a new phase restarts only the phase timer, a
-new iteration restarts only the iteration timer (identified by the published
-`active_iteration`, its start timestamp and the run identity, so it does not wait
-for a completed game), and a completed, cancelled or failed job adopts the
-authoritative backend durations and stops advancing. The ticker lives in the timer
-leaf, so one second of display time never re-renders the charts or tables.
-
-Iteration timing exists only while an iteration runs. Loading a checkpoint,
-building a model, restoring optimizer or training state and preparing the inference
-backend are initialization: they publish the job and phase timers and a heartbeat,
-and no iteration duration at all, instead of reporting the job's elapsed time as an
-iteration's. The timer starts at zero when the first iteration is entered, which is
-the `preparing` phase before its first self-play game.
-
-Publication freshness is measured by the server, not by the browser, and is only
-reported for a live (running or cancelling) job. A local job
-uses the newest modification time of its `progress.json` and `heartbeat.json` on
-the server host. A remote job reports two independent ages: the child's own
-publication age, measured on the worker host that runs it, and how long ago the
-server last heard from the supervisor. The server extends both with its own clock,
-and the browser only anchors and advances them, so reloading the dashboard
-classifies an already-stale worker immediately instead of granting it a fresh
-twenty-second grace period and an unsynchronised remote worker clock never enters
-the calculation.
-
-A supervisor can stay connected while the training process behind it stops
-publishing, so a repeated report of an unchanged child snapshot never counts as a
-fresh child heartbeat. That case reports **No recent updates** (the child), while a
-silent supervisor reports **Worker connection lost**; a job whose lease then
-expires ends as failed with the reason recorded.
-
-The browser also tracks when it last received authoritative monitoring data. Polls
-run every 2.5 seconds, so if no answer arrives for twenty seconds the dashboard
-reports **Monitoring connection unavailable** instead of blaming the worker: a
-failed poll says nothing about the remote process, and the last known child and
-supervisor ages are only extrapolated while the browser is still being served.
-Reconnecting adopts the fresh server state at once. The three signals therefore
-stay independent: the child's own publication age, the server-confirmed supervisor
-age and the browser's own monitoring connection.
-
-The live header follows the iteration currently being trained (`active_iteration`),
-while the overview's **Iteration** KPI keeps the last completed iteration used by
-checkpointing and resume. Entering a new iteration updates the header at once,
-without waiting for its first game to finish. Finalization (checkpoint
-verification, model export and registration) keeps the heartbeat running, so a
-slow export reports `finalizing` rather than "No recent updates"; a failure there
-ends the job as failed rather than leaving it running.
-
-Heartbeat states are informational and never change job management or outcome:
+Elapsed time is a monotonic duration anchored by the browser, not a worker
+timestamp. A new phase restarts only the phase timer and a new iteration restarts
+only the iteration timer; a terminal job stops advancing. The live header follows
+the active iteration, while the overview **Iteration** KPI keeps the last completed
+iteration used by checkpointing and resume. Finalization keeps the heartbeat active
+so a slow export is reported as `finalizing`, not as a stalled worker.
 
 | State | Meaning |
 | --- | --- |
@@ -472,15 +394,11 @@ Heartbeat states are informational and never change job management or outcome:
 | **Monitoring connection unavailable** | The browser has not received fresh monitoring data for twenty seconds; the worker's state is unknown rather than failed. |
 | **Waiting for a worker** | The job is queued. |
 
-Jobs recorded before these fields existed omit the heartbeat state, phase timer
-and counters instead of inventing values.
-
-Heartbeats are written to a bounded `heartbeat.json` beside the retained
-`progress.json`, and a reader overlays a heartbeat only when it belongs to the
-same publication generation. A stale heartbeat can therefore never revive a
-terminal state or replace newer progress. See the
-[monitoring overhead measurements](../evaluation/benchmarks/training-monitoring.md)
-for the measured cost.
+Jobs recorded before these fields existed omit the heartbeat state, phase timer and
+counters instead of inventing values. Heartbeat labels never change job management
+or outcome. Publication locking, snapshot-generation identity, remote freshness
+calculation and polling/ticker internals are documented in
+[training monitoring internals](../development/training-monitoring.md).
 
 ## Reading charts correctly
 
@@ -522,27 +440,23 @@ model/checkpoint metadata. Engine/training algorithms and tensor format 1 remain
 unchanged; no database migration is required. Update workers for job-local counters.
 Older workers may omit newer metrics; missing measurements display as absent.
 
-Monitoring polls every 2.5 seconds while jobs or registered workers need updates.
-Slow requests are coalesced so their eventual responses can update the dashboard.
-Hardware detection and worker connectivity load independently from job progress.
-A local job's live state comes from the worker's retained progress file plus its
-bounded heartbeat; a remote worker republishes its snapshot at a bounded cadence
-that is independent of its lease heartbeat, so intermediate counters reach the
-server while a phase is still running.
-The navigator requests compact job summaries; full history and the bounded log
-tail load for the selected job. Switching jobs cancels obsolete detail requests
-and preserves the selected analysis tab. Full histories, exports and checkpoints
-remain retained. See the [monitoring responsiveness measurements](
-../evaluation/benchmarks/training-monitoring.md) for the synthetic API workload
-and reproduction commands.
+The dashboard refreshes while jobs or registered workers need updates. A warning
+reports stale or unavailable monitoring instead of showing old data as current.
+Compact job summaries drive the navigator; full history and the bounded log tail
+load for the selected job, and switching jobs preserves the selected analysis tab.
+Full histories, exports and checkpoints remain retained. Polling coalescing,
+snapshot publication and worker cadence are covered in
+[training monitoring internals](../development/training-monitoring.md); measured
+responsiveness is in the [monitoring report](../evaluation/benchmarks/training-monitoring.md).
 
-## Browser evidence
+## Screenshot provenance
 
-The release's desktop and mobile screenshots use representative persisted-API
-fixtures, including a 60-iteration running job, a 120-iteration completed job,
-legacy records and several evaluation contexts. These are interface fixtures,
-not evidence of trained-model strength or GPU throughput. See the
-[0.21.0 release notes](../releases/0.21.0.md) for executed validation and images.
+The committed Workshop screenshots use disposable persisted-API fixtures
+(including a 60-iteration running job and a 120-iteration completed job) or a real
+disposable CPU smoke run for tuning/resume. They are interface examples, not
+trained-model strength or GPU throughput evidence. Regenerate them with the
+documented opt-in screenshot command; see
+[documentation guidelines](../development/documentation-guidelines.md#screenshots).
 
 ![Remote worker management](../assets/training/training-workers.jpg)
 

@@ -63,7 +63,7 @@ test('applies a real Optuna winner through Resume Training to a real CPU checkpo
   await openWorkshop(page);
   await selectWorkshopJob(page, tuned.id, studyName);
   await page.getByRole('tab', { name: 'Tuning results', exact: true }).click();
-  if (info.project.name === 'chromium') {
+  if (process.env.DOCS_SCREENSHOTS === '1' && info.project.name === 'chromium') {
     mkdirSync('test-results/documentation', { recursive: true });
     await page.screenshot({
       path: 'test-results/documentation/training-tuning-results.jpg',
@@ -77,7 +77,7 @@ test('applies a real Optuna winner through Resume Training to a real CPU checkpo
   await page.getByRole('button', { name: 'Apply best parameters', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Resume training', exact: true });
   await expect(dialog).toBeVisible();
-  if (info.project.name === 'chromium') {
+  if (process.env.DOCS_SCREENSHOTS === '1' && info.project.name === 'chromium') {
     mkdirSync('test-results/documentation', { recursive: true });
     await page.screenshot({
       path: 'test-results/documentation/training-resume.jpg',

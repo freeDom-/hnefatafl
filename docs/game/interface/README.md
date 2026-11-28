@@ -51,15 +51,22 @@ Registration uses the same account surface. It is shown only when the operator
 has enabled registration and mail delivery. Passwords are checked against the
 shared policy and entered values are preserved on validation errors.
 
-![Email verification and resend](../../assets/game/game-verify-email.jpg)
+![Email verification confirmation](../../assets/game/game-verify-confirm.jpg)
 
-Verification links are single-use and replace earlier links. An expired or
-already-used link offers a resend path instead of a dead end.
+Verification links are single-use and replace earlier links. Opening the link
+shows an explicit **Verify email** confirmation.
+
+![Email verification resend](../../assets/game/game-verify-email.jpg)
+
+An expired or already-used link offers a resend path instead of a dead end.
 
 ![Password recovery request](../../assets/game/game-forgot-password.jpg)
 
-Password recovery uses the same email-request pattern; the reset link opens a
-new-password form. Responses never reveal whether an account exists.
+![Set a new password from a recovery link](../../assets/game/game-reset-password.jpg)
+
+Password recovery uses the same email-request pattern; the reset link opens the
+new-password form with password and confirmation fields. Responses never reveal
+whether an account exists.
 
 The signed-out `/watch` surface is separate and read-only; see
 [Public Watch Hall](#public-watch-hall). Account creation is not required to view

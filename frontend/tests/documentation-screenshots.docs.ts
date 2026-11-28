@@ -112,7 +112,7 @@ const standings: LeagueStanding[] = [
     rank: 1,
     player: leaguePlayer('freya', 'Freya', 'shieldmaiden'),
     tier: 'alfheim',
-    points: 18,
+    points: 17,
     wins: 6,
     draws: 0,
     losses: 1,
@@ -120,7 +120,7 @@ const standings: LeagueStanding[] = [
   },
   {
     rank: 2,
-    player: leaguePlayer('browser-admin', 'BrowserAdmin', 'viking'),
+    player: leaguePlayer('browser-admin', 'BrowserAdmin', 'one-eyed-jarl'),
     tier: 'nidavellir',
     points: 9,
     wins: 3,
@@ -130,6 +130,16 @@ const standings: LeagueStanding[] = [
   },
   {
     rank: 3,
+    player: leaguePlayer('astrid', 'Astrid', 'valkyrie'),
+    tier: 'midgard',
+    points: 5,
+    wins: 2,
+    draws: 0,
+    losses: 1,
+    played: 3,
+  },
+  {
+    rank: 4,
     player: leaguePlayer('bjorn', 'Björn', 'berserker'),
     tier: 'midgard',
     points: 4,
@@ -139,19 +149,23 @@ const standings: LeagueStanding[] = [
     played: 4,
   },
 ];
-const leagueGames: LeagueGame[] = standings.map((standing, index) => ({
-  game_id: `online-${'a'.repeat(28)}${index}`,
-  game_status: 'completed',
-  paired_at: `2035-02-0${index + 1}T12:00:00Z`,
-  opponent: standing.player,
-  side: index % 2 ? 'defenders' : 'attackers',
-  result: index === 2 ? 'loss' : 'win',
-  state: 'eligible',
-  corrected: false,
-  result_revision: 1,
-  game_href: `/online/games/online-${'a'.repeat(28)}${index}`,
-  replay_href: `/online/games/online-${'a'.repeat(28)}${index}/review`,
-}));
+const leagueOpponents = [standings[0].player, standings[2].player, standings[3].player];
+const leagueGames: LeagueGame[] = leagueOpponents.map((opponent, index) => {
+  const gameId = `online-${'a'.repeat(31)}${index + 1}`;
+  return {
+    game_id: gameId,
+    game_status: 'completed',
+    paired_at: `2035-02-0${index + 1}T12:00:00Z`,
+    opponent,
+    side: index % 2 ? 'defenders' : 'attackers',
+    result: 'win',
+    state: 'eligible',
+    corrected: false,
+    result_revision: 1,
+    game_href: `/online/games/${gameId}`,
+    replay_href: `/online/games/${gameId}/review`,
+  };
+});
 
 async function seedLeague(page: Page) {
   await page.route('**/api/leagues/**', (route) => {
@@ -251,57 +265,12 @@ const worker: TrainingWorker = {
     compatible: true,
     worker_version: '0.42',
     server_version: '0.42',
-    worker_git_revision: 'f56de1b',
-    server_git_revision: 'f56de1b',
+    worker_git_revision: 'documentation-fixture',
+    server_git_revision: 'documentation-fixture',
     override_active: false,
     protocol_compatible: true,
   },
 } as TrainingWorker;
-
-function tuningJob(): Job {
-  const base = workshopFixture('tuning', 4, 'completed');
-  return {
-    ...base,
-    kind: 'tune',
-    config: { ...base.config, study_name: 'Autumn search' },
-    progress: {
-      ...base.progress,
-      study_name: 'Autumn search',
-      completed_trials: 4,
-      failed_trials: 0,
-      best_trial: 3,
-      best_score: 0.71,
-      best_iteration: 4,
-      sampler_seed: 17,
-      source_seed: 42,
-      source_best_score: 0.58,
-      best_configuration: {
-        learning_rate: 0.004,
-        weight_decay: 0.02,
-        mcts_iterations: 24,
-        channels: 48,
-        blocks: 3,
-      },
-      source_configuration: {
-        learning_rate: 0.001,
-        weight_decay: 0.0001,
-        mcts_iterations: 16,
-        channels: 48,
-        blocks: 3,
-      },
-      trials: [0, 1, 2, 3].map((number) => ({
-        number,
-        state: 'COMPLETE',
-        score: [0.55, 0.61, 0.58, 0.71][number],
-        duration: [81, 92, 88, 96][number],
-        parameters: {
-          learning_rate: [0.001, 0.003, 0.001, 0.004][number],
-          weight_decay: [0.0001, 0.02, 0.0001, 0.02][number],
-        },
-      })),
-    },
-  } as Job;
-}
 
 async function seedWorkshop(page: Page, jobs: Job[]) {
   await page.route('**/api/training/jobs**', (route) => {
@@ -391,10 +360,26 @@ test('game documentation screenshots use disposable fixtures', async ({ page, re
         totals: [
           {
             category: 'online',
-            games: 3,
-            completed: 3,
-            attackers_wins: 1,
+            games: 1,
+            completed: 1,
+            attackers_wins: 0,
             defenders_wins: 1,
+            draws: 0,
+          },
+          {
+            category: 'account-single-player',
+            games: 1,
+            completed: 1,
+            attackers_wins: 1,
+            defenders_wins: 0,
+            draws: 0,
+          },
+          {
+            category: 'local',
+            games: 1,
+            completed: 1,
+            attackers_wins: 0,
+            defenders_wins: 0,
             draws: 1,
           },
         ],
@@ -424,7 +409,8 @@ test('game documentation screenshots use disposable fixtures', async ({ page, re
   await capture(page, 'game-replay');
 });
 
-test('signed-out account screenshots use the real account forms', async ({ browser }) => {
+test('signed-out account screenshots use the real account forms', async ({ browser }, info) => {
+  test.skip(info.project.name !== 'chromium', 'The documentation viewport is desktop.');
   const context = await browser.newContext({
     baseURL: origin,
     viewport: { width: 1440, height: 1000 },
@@ -438,13 +424,30 @@ test('signed-out account screenshots use the real account forms', async ({ brows
       ['/login', 'game-login'],
       ['/register', 'game-register'],
       ['/verify-email', 'game-verify-email'],
+      ['/verify-email#token=fixture-verification-token', 'game-verify-confirm'],
       ['/forgot-password', 'game-forgot-password'],
+      ['/reset-password#token=fixture-reset-token', 'game-reset-password'],
     ] as const) {
       await page.goto(path);
-      await page
-        .getByRole('heading', { name: /HNEFATAFL|Verify|Reset|Create|Welcome/i })
-        .first()
-        .waitFor();
+      const expectedButton = {
+        'game-login': 'Log in',
+        'game-register': 'Create account',
+        'game-verify-email': 'Send email',
+        'game-verify-confirm': 'Verify email',
+        'game-forgot-password': 'Send email',
+        'game-reset-password': 'Set new password',
+      }[name];
+      await expect(page.getByRole('button', { name: expectedButton, exact: true })).toBeVisible();
+      if (name === 'game-reset-password') {
+        await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+        await expect(page.getByLabel('Confirm password', { exact: true })).toBeVisible();
+        await expect(
+          page.getByRole('button', { name: 'Set new password', exact: true }),
+        ).toBeVisible();
+      }
+      if (name === 'game-verify-confirm')
+        await expect(page.getByRole('button', { name: 'Verify email', exact: true })).toBeVisible();
+      expect(page.url()).not.toContain('fixture-');
       await capture(page, name);
     }
   } finally {
