@@ -23,22 +23,6 @@
 | Training monitoring publication and polling internals | [Training monitoring](training-monitoring.md) |
 | Historical Arena implementation snapshot | [Arena completeness 2026-11-20](https://github.com/freeDom-/hnefatafl/blob/c1779a133d3199179ae74a50403eab238347b992/docs/releases/arena-snapshot-2026-11-20.md) |
 
-## Repository principles
-
-- Keep the pure engine independent of HTTP, database and PyTorch.
-- Test variant-specific rules with explicit positions; do not assume Tablut
-  variants are interchangeable.
-- Search and training budgets must report unfinished games separately from rule
-  draws.
-- Training smoke tests must perform real updates, checkpoint loading and legal play.
-  Do not claim stronger play from a successful run.
-- Use `HNEFATAFL_DATA_DIR` for isolated test/server storage. Never commit
-  databases, checkpoints, model weights, credentials or virtual environments.
-- Load models with the validated tensor-only loader. Preserve optimistic version
-  guards on moves.
-- Use the existing UI components, styles and themes. Do not redesign as part of an
-  unrelated change.
-
 Repository-wide agent rules are in [AGENTS.md](../../AGENTS.md). Human contribution
 terms are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Licensing details are in
 [LICENSING.md](../LICENSING.md).

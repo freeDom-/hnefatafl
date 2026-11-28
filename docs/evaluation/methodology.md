@@ -63,8 +63,8 @@ do not become current after a documentation edit.
 
 Use an isolated `HNEFATAFL_DATA_DIR` and disposable output paths. Benchmark
 commands must not overwrite production data or register models. See
-[performance](../training/performance.md) for the
-full CLI options and metric interpretation.
+[CLI reference](../development/setup.md#cli-reference) for the full commands and
+[performance](../training/performance.md) for training tuning.
 
 ## Limitations
 

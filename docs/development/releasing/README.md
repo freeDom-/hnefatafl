@@ -18,40 +18,53 @@ and publication procedure live here.
   `Hnefatafl X.Y.Z`. Use absolute links so checked-in notes remain valid when
   published.
 
-## Preferred workflow
+## Preferred workflow (exact commit)
 
-1. Obtain explicit authorization for the exact version.
-2. Identify changes since the previous release; verify they are merged and validated.
-3. Update version metadata and write `docs/releases/<tag>.md` with delivered
-   behavior, exact validation, compatibility/migration, updater requirements and
-   limitations. Do not claim stronger models, GPU performance or production
-   acceptance beyond the evidence.
-4. Create a release branch and PR against `main`; do not push milestone commits
-   directly to `main`.
-5. Verify required PR checks, including browser, deployment and
-   `deployment-cross-version`; fix failures on the branch.
-6. Merge only with explicit authorization, then update local `main`.
-7. Verify successful Verify CI on the resulting merged `main` commit.
-8. Create and push an annotated tag on that exact commit:
-   ```sh
-   git switch main && git pull
-   git tag -a X.Y.Z -m 'Concrete milestone description'
-   git push origin X.Y.Z
-   ```
-9. Publish the stable release through the checked-in workflow:
-   ```sh
-   gh workflow run release.yml --ref main -f tag=X.Y.Z
-   ```
-   The workflow verifies the annotated tag, project version, success on `main`,
-   packaged source and notes path. It refuses dirty/incomplete source, publishes the
-   archive and verifies GitHub's asset digest. Never overwrite an existing release.
-10. Verify the published title, notes, asset `hnefatafl-<tag>.tar.gz`, SHA-256 digest
-    and updater compatibility; only then announce/install.
+Set and record the authorized variables first:
 
-A manual publication is an exception: run `python scripts/package_release.py` on a
-clean committed tree, create the release with `gh release create` using the archive
-and notes, and verify the asset digest. Do not publish draft/prerelease artifacts as
-stable production inputs.
+```sh
+VERSION=X.Y.Z
+VERIFIED_SHA=<full 40-character SHA of the merged main commit>
+```
+
+1. Obtain explicit authorization for `$VERSION`.
+2. Identify the intended merged `main` commit and verify it is the authorized
+   revision. If `origin/main` advanced, do **not** substitute the new HEAD; stop and
+   obtain authorization for a new candidate.
+3. Verify `pyproject.toml`, `frontend/package.json` and `docs/releases/$VERSION.md`
+   match `$VERSION` and start with the required H1.
+4. Verify required CI for that exact SHA on `main` (`security`, `python`, `node22`,
+   `browser`, `deployment-cross-version`), not merely a green PR or a newer main.
+5. Verify the tag does not already exist locally or remotely:
+   ```sh
+   git fetch origin main --tags
+   git merge-base --is-ancestor "$VERIFIED_SHA" origin/main
+   test "$(git rev-parse refs/tags/$VERSION 2>/dev/null)" = "" || exit 1
+   git ls-remote --exit-code --tags origin "refs/tags/$VERSION" && exit 1
+   ```
+6. Create an annotated tag explicitly on the verified SHA:
+   ```sh
+   git tag -a "$VERSION" "$VERIFIED_SHA" -m "Hnefatafl $VERSION"
+   git push origin "refs/tags/$VERSION"
+   ```
+7. Publish through the checked-in workflow:
+   ```sh
+   gh workflow run release.yml --ref main -f tag="$VERSION"
+   ```
+   The workflow validates the annotated tag, project version, successful Verify CI
+   for the tag commit on `main`, notes filename and clean source; it packages the
+   tagged tree, requires the GitHub asset SHA-256 digest and publishes a **stable**
+   release. It never overwrites an existing release.
+8. Verify the published title, release notes, `hnefatafl-$VERSION.tar.gz` asset and
+   digest, and updater compatibility. Only then announce/install.
+
+Manual publication is an exception: run `python scripts/package_release.py` on the
+clean verified commit, create the release with the notes/archive, and verify the
+asset digest. Do not publish draft/prerelease artifacts as stable production inputs.
+
+The release branch/PR remains required by the normal contributor workflow; merge,
+tag and deployment each need the authorization above. A docs PR does not authorize
+any of them.
 
 ## Packaging/updater requirements
 

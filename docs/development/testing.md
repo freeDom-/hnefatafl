@@ -62,18 +62,6 @@ a system browser. The browser projects check desktop/mobile emulation; they are 
 physical-device evidence. Open `docs/development/setup.md` for browser-analysis
 runtime-specific commands.
 
-## Focused integration commands
-
-```sh
-npm --prefix frontend run test:registration
-npm --prefix frontend run test:online
-npm --prefix frontend run test:personal
-make deployment-check
-npm --prefix frontend ci && npm --prefix frontend run build
-make historical-refs
-make deployment-cross-version
-```
-
 The registration suite uses a disposable fake mailbox and no real email. Online
 integration uses disposable SQLite connections/processes, controlled clocks and
 barriers. Deployment/cross-version checks use a real lifespan/exclusive lock and

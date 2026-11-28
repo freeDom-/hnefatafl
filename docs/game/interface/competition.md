@@ -66,8 +66,12 @@ Valor**; a selected tournament uses its own URL.
 scheduled rounds, winners/losers bracket, match links, results and an accessible
 list alternative. Creators see start/reschedule/moderation actions when permitted.
 
-**Controls and restrictions:** tournament legs are unrated; registration closes at
-the configured time; settlement and corrections are authoritative and audited.
+**Controls and restrictions:** tournament legs are unrated. There is no separate
+registration deadline: registration stays open until the tournament fills or starts.
+An optional planned start controls automatic start; a missed start does not close
+registration. Creators can reschedule or manually start eligible tournaments;
+administrator moderation is separate. Settlement/corrections are authoritative and
+audited. See [tournament policy](../tournaments.md).
 Themes: [Kings Table](../../assets/game/kings-table-player-tournaments.webp) ·
 [Saga Hall](../../assets/game/saga-hall-player-tournaments.webp) ·
 [Classic Table](../../assets/game/classic-table-player-tournaments.webp). See

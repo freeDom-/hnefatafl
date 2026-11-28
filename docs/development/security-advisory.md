@@ -1,5 +1,8 @@
-# Frontend test-toolchain security update
+# Historical security advisory record
 
+> **Current security policy:** [administration security](../administration/security.md#dependency-audit).
+> This page is historical evidence, not an active task.
+>
 > **Current status (2026-11-18 onward):** no active dependency-audit exception.
 > GitHub withdrew GHSA-fc5q-39xc-vjpf and the committed
 > `frontend/security/dependency-audit-exceptions.json` has an empty exception
@@ -83,56 +86,6 @@ The full unit suite also passes on Node 24.11.1 on the same host, so the earlier
 full-suite timeouts on a high-core development host are host oversubscription (two
 long async table tests exceed the 20 s per-test timeout when more workers run than
 CPU capacity supports), not a Node 22 or Vitest 4 regression.
-
-## Vitest worker count
-
-Vitest 4 already bounds `maxWorkers`: it defaults to
-`max(availableParallelism() - 1, 1)`, not to an unbounded value. The reported
-timeouts occur when a host reports more CPUs than the run can actually schedule,
-so the default spawns more workers than the machine can service. The full unit
-suite was measured on the 4-CPU verification host at several explicit worker
-counts:
-
-| Workers | Node 22.23.4 | Node 24.22.2 |
-| --- | --- | --- |
-| 3 (default) | **1,312 passed**, 199 s | **1,312 passed**, 179 s |
-| 4 | **1,312 passed**, 203 s | not rerun |
-| 8 | 1,310 passed, 2 failed, 220 s | 1,311 passed, 1 failed, 205 s |
-| 16 | 1,298 passed, 14 failed, 229 s | not rerun |
-
-The failures are the same two long async table tests exceeding the unchanged
-20 s per-test timeout, not assertion differences, and they reproduce on both
-Node lines. Oversubscription is also slower than the default, so more workers is
-not a performance trade-off worth making. Durations are wall-clock on the
-verification host and move with host load.
-
-No `maxWorkers` bound is committed. The default already tracks the reported CPU
-count, and no static cap can correct a host that over-reports capacity: a cap low
-enough to keep the affected host green (four) would impose a large parallelism
-loss on genuine high-core hosts, and a higher cap would not prevent the reported
-failure. `frontend/vite.config.ts` therefore keeps Vitest's default and relies on
-Vitest's built-in override for loaded or CPU-limited hosts:
-
-```sh
-npm --prefix frontend test -- --maxWorkers=4
-```
-
-The 20 s `testTimeout` is unchanged; contention is not hidden by raising it.
-
-## Browser resize correction
-
-The first full CI run passed the Python job but exposed one browser timing failure
-in Play mode discovery (354 passed, 19 skipped, one failed). The test now waits for
-the existing geometry assertions after a viewport resize instead of reading the
-transitional layout immediately. The expected card count, stacked layout and
-maximum document width are unchanged. This is the same correction validated in
-the Portrait Hall full CI run. The updated PR CI result is recorded on the PR.
-
-The second full run passed Python and all 1,312 unit tests; its main browser suite
-had 354 passed, 19 skipped and one failure when a board temporarily disappeared
-during navigation. The existing geometry poll now retries that transient missing
-node instead of throwing before it can measure. Width/height assertions remain
-unchanged, matching the correction already green in Portrait Hall CI.
 
 ## picomatch ReDoS advisory (GHSA-fc5q-39xc-vjpf), 2026-11-17
 

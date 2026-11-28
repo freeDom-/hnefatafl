@@ -62,9 +62,10 @@ cancel your own waiting game. Active cards show remaining time.
 
 **Controls and restrictions:** no move advisor, hints or win probability in a live
 game; creation settings freeze after creation; admission and quotas are operator
-controlled. Online clocks follow the authoritative deadline; hiding the browser tab
-stops only local countdown rendering, not the deadline. See
-[online play](../online-play.md).
+controlled. The lobby refreshes automatically and resynchronizes on reconnect/window
+focus; stale data shows a warning and retry. A disconnected browser or hidden tab
+does not pause the authoritative deadline or the opponent's turn; the live room has
+its own refresh control. See [online play](../online-play.md).
 
 ## Public Watch Hall
 

@@ -50,8 +50,11 @@ are listed below.
       confirmation.
 - [ ] No CLA/DCO is active; contributors retain copyright. Any future CLA needs
       explicit maintainer approval and legal review.
-- [ ] Rerun full and production-only dependency audits on the candidate. The current
-      exception list is empty; the security job must remain fail-closed.
+- [ ] Produce a candidate-specific Python dependency/license inventory with security
+      review; the notice covers the locked direct/frontend runtime inventory, not
+      every optional future package.
+- [ ] Rerun full and production-only frontend dependency audits on the candidate; the
+      current exception list is empty and the security job must remain fail-closed.
 - [ ] Confirm repository merge gates: required `security`, `python`, `node22` and
       `browser` checks (owner action; do not change rulesets in a docs PR).
 
@@ -65,6 +68,12 @@ are listed below.
       games/replays, identities, progression, tournaments/leagues, model hashes and
       training resume. Test disk-full, interrupted export and corrupt backup while
       preserving originals.
+- [ ] Test duplicate game/league/tournament events, concurrent writes, result
+      corrections, cancellations and restart recovery on the candidate.
+- [ ] Verify integrated league settlement, rebuild and administrator recovery,
+      including queue/outbox retries and permanent achievement preservation.
+- [ ] Review SQLite indexes/query plans, WAL/checkpoint/backup behavior and disk
+      maintenance at realistic record/job/model volumes.
 - [ ] Document incompatible old formats and a recovery path; never silently delete
       development data.
 
@@ -82,8 +91,10 @@ are listed below.
 ## Performance, capacity and UI
 
 - [ ] Repeatable 1/10/50-client mixed workload (Hall, lobby, live game, bracket,
-      queues, statistics/leaderboard, replay, bounded analysis) with p50/p95, errors,
-      CPU/RSS and store size. No unmeasured capacity claim.
+      queues, statistics/leaderboard, replay, bounded analysis) with request/SQL rates,
+      p50/p95, errors, CPU/RSS and store size. No unmeasured capacity claim.
+- [ ] Keep one API process until shared scheduler and rate-limit ownership is
+      established; do not promise multiworker safety.
 - [ ] Four themes, English/German, phone/tablet/desktop/4K, 200% zoom, keyboard/focus,
       contrast and no horizontal overflow on merged surfaces.
 - [ ] Cross-feature regression: account switches, permissions, replay, tournaments,
@@ -103,8 +114,9 @@ are listed below.
 
 ## Release and deployment authorization
 
-- [ ] Candidate Verify CI green, including `deployment-cross-version`, with exact
-      skips/warnings disclosed.
+- [ ] Candidate Verify CI green for all required jobs (`security`, `python`,
+      `node22`, `browser`, `deployment-cross-version`), with exact skips/warnings
+      disclosed and installation/update compatibility checked.
 - [ ] Release notes state delivered behavior, exact validation and limitations.
 - [ ] Separate owner authorization obtained for the tag/release, production
       acceptance and initial public deployment. Initial public deployment remains

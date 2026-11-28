@@ -52,7 +52,11 @@ take a supported backup before repairing on a disposable copy.
 Public Watch Hall discovery is enabled by default. Set
 `HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` to return not found for the public namespace
 and hide the Watch Hall. Authenticated play is unaffected. Public reads are GET-only
-and never include private history, analysis or account data. See
+and exclude private history/account data. Live public games expose no analysis;
+eligible completed replay responses may contain already-stored terminal-position
+analysis through the restricted allowlist, and the public UI does not render it.
+Public visitors cannot generate/modify analysis; private configuration/diagnostics
+remain excluded. See
 [public API](../development/api/README.md#progression-and-public-spectator).
 
 ## Implementation boundary

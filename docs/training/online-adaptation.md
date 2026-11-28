@@ -6,14 +6,8 @@
 rate — inside a continuing job. It is **off by default**, not a strength claim and
 not a replacement for Optuna.
 
-## Why this controller
-
-Self-play is a single nonstationary trajectory. Population methods (PBT/PB2/
-Hyperband) require multiple copies/restarts; hypergradient methods need a
-differentiable validation objective and per-step cost. HyperController fits one
-continuing trajectory, needs no population, and has small bounded checkpointable
-state. This is an architectural suitability argument; the shipped benchmark measures
-overhead/behaviour, not superiority.
+The architectural rationale and decision are recorded in
+[ADR 003](../development/decisions/adr-003-online-learning-rate-adaptation.md).
 
 ## Algorithm
 
@@ -23,17 +17,8 @@ predictor (`V`, `b`, `n`; `G = V⁻¹b`). At a decision it selects the candidate
 highest predicted value. There is one discrete candidate set, not a continuous
 search.
 
-Configuration:
-
-| Field | Meaning |
-| --- | --- |
-| `adaptation_lr_candidates` | 2–8 distinct rates; configured `learning_rate` must be included |
-| `adaptation_lag` | History window 1–3 |
-| `adaptation_cadence` | Completed evaluations between decisions |
-| `adaptation_warmup` | Evaluations observed before any decision |
-| `adaptation_min_dwell` | Evaluations a chosen rate is kept |
-| `adaptation_min_dwell_iterations` | Optional iteration dwell; 0 disables |
-| `adaptation_min_trials` | Per-context forced observations of each candidate |
+Configuration fields and validation are canonical in
+[optional online adaptation parameters](parameters.md#optional-online-adaptation).
 
 Coverage is per `(candidate, action-history context)`, so an unobserved context
 cannot be hidden by good predictions elsewhere. Contexts are bounded (512).
